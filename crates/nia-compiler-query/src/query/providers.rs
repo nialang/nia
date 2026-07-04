@@ -49,10 +49,13 @@ pub(super) struct CompilerQueryProviders {
         ModuleId,
         nia_item_tree::SignatureItemSet,
     ) -> TypeNormalization,
-    pub(super) program_signature_inputs: fn(
+    pub(super) program_signature_module_ids:
+        fn(&QueryDb<CompilerContext>, nia_item_tree::SignatureItemSet) -> Vec<ModuleId>,
+    pub(super) module_program_signature_facts: fn(
         &QueryDb<CompilerContext>,
+        ModuleId,
         nia_item_tree::SignatureItemSet,
-    ) -> ProgramSignatureInputsValue,
+    ) -> ModuleProgramSignatureFactsValue,
     pub(super) extension_provider_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
     pub(super) extension_signature_inputs:
         fn(&QueryDb<CompilerContext>) -> ExtensionSignatureInputsValue,
@@ -141,7 +144,8 @@ impl Default for CompilerQueryProviders {
             type_normalization: provide_type_normalization,
             layout_type_normalization: provide_layout_type_normalization,
             signature_type_normalization: provide_signature_type_normalization,
-            program_signature_inputs: provide_program_signature_inputs,
+            program_signature_module_ids: provide_program_signature_module_ids,
+            module_program_signature_facts: provide_module_program_signature_facts,
             extension_provider_module_ids: provide_extension_provider_module_ids,
             extension_signature_inputs: provide_extension_signature_inputs,
             program_body_function_signatures: provide_program_body_function_signatures,
@@ -589,14 +593,11 @@ pub(super) fn provide_program_body_function_signatures(
         db.context().timings(),
         "program_body_function_signatures",
         || {
-            let inputs = db.query(ProgramSignatureInputsQuery(
-                nia_item_tree::SignatureItemSet::Functions,
-            ));
-            let modules = inputs.modules();
+            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Functions);
             let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
             Arc::new(ProgramBodyFunctionSignatures {
-                functions: collect_program_functions_excluding(
-                    &modules,
+                functions: collect_functions_excluding(
+                    &facts,
                     &trait_solving.invalid_trait_impl_method_ids,
                 ),
             })
@@ -611,13 +612,10 @@ pub(super) fn provide_program_body_value_signatures(
         db.context().timings(),
         "program_body_value_signatures",
         || {
-            let inputs = db.query(ProgramSignatureInputsQuery(
-                nia_item_tree::SignatureItemSet::Values,
-            ));
-            let modules = inputs.modules();
+            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Values);
             Arc::new(ProgramBodyValueSignatures {
-                globals: collect_program_globals(&modules),
-                comptimes: collect_program_comptimes(&modules),
+                globals: collect_globals(&facts),
+                comptimes: collect_comptimes(&facts),
             })
         },
     )
@@ -630,15 +628,12 @@ pub(super) fn provide_program_body_type_signatures(
         db.context().timings(),
         "program_body_type_signatures",
         || {
-            let inputs = db.query(ProgramSignatureInputsQuery(
-                nia_item_tree::SignatureItemSet::Types,
-            ));
-            let modules = inputs.modules();
+            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
             Arc::new(ProgramBodyTypeSignatures {
-                structs: collect_program_structs(&modules),
-                unions: collect_program_unions(&modules),
-                enums: collect_program_enums(&modules),
-                type_aliases: collect_program_type_aliases(&modules),
+                structs: collect_structs(&facts),
+                unions: collect_unions(&facts),
+                enums: collect_enums(&facts),
+                type_aliases: collect_type_aliases(&facts),
             })
         },
     )
@@ -651,27 +646,42 @@ pub(super) fn provide_program_body_trait_signatures(
         db.context().timings(),
         "program_body_trait_signatures",
         || {
-            let inputs = db.query(ProgramSignatureInputsQuery(
-                nia_item_tree::SignatureItemSet::Traits,
-            ));
-            let modules = inputs.modules();
+            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
             let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
             Arc::new(ProgramBodyTraitSignatures {
-                traits: collect_program_traits(&modules),
+                traits: collect_traits(&facts),
                 trait_impls: trait_solving.trait_impls.clone(),
             })
         },
     )
 }
 
-pub(super) fn provide_program_signature_inputs(
+pub(super) fn provide_program_signature_module_ids(
     db: &QueryDb<CompilerContext>,
-    set: nia_item_tree::SignatureItemSet,
-) -> ProgramSignatureInputsValue {
-    module_signature_inputs_for_modules(db, db.query(SemanticModuleIdsQuery), set)
+    _set: nia_item_tree::SignatureItemSet,
+) -> Vec<ModuleId> {
+    db.query(SemanticModuleIdsQuery)
 }
 
-fn extension_trait_signature_inputs(db: &QueryDb<CompilerContext>) -> ProgramSignatureInputsValue {
+pub(super) fn provide_module_program_signature_facts(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+) -> ModuleProgramSignatureFactsValue {
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let lowering = db.query(SignatureTypeLoweringQuery(module_id, set));
+    let signatures = db.query(SignatureItemSignaturesQuery(module_id, set));
+    Arc::new(
+        crate::program_signatures::collect_module_program_signature_facts(ModuleSignatureInput {
+            module_id,
+            defs: &defs,
+            lowering: &lowering,
+            signatures: &signatures,
+        }),
+    )
+}
+
+fn extension_trait_signature_inputs(db: &QueryDb<CompilerContext>) -> SignatureModuleInputs {
     module_signature_inputs_for_modules(
         db,
         db.query(ExtensionProviderModuleIdsQuery),
@@ -702,7 +712,7 @@ fn module_signature_inputs_for_modules(
     db: &QueryDb<CompilerContext>,
     module_ids: Vec<ModuleId>,
     set: nia_item_tree::SignatureItemSet,
-) -> ProgramSignatureInputsValue {
+) -> SignatureModuleInputs {
     let type_lowerings = module_ids
         .iter()
         .copied()
@@ -718,12 +728,146 @@ fn module_signature_inputs_for_modules(
         .copied()
         .map(|module_id| db.query(ModuleDefsQuery(module_id)))
         .collect::<Vec<_>>();
-    Arc::new(ProgramSignatureInputsQueryValue {
+    SignatureModuleInputs {
         module_ids,
         type_lowerings,
         item_signatures,
         defs,
-    })
+    }
+}
+
+fn program_signature_facts(
+    db: &QueryDb<CompilerContext>,
+    set: nia_item_tree::SignatureItemSet,
+) -> Vec<ModuleProgramSignatureFactsValue> {
+    db.query_many(
+        db.query(ProgramSignatureModuleIdsQuery(set))
+            .into_iter()
+            .map(|module_id| ModuleProgramSignatureFactsQuery(module_id, set)),
+    )
+}
+
+fn collect_functions_excluding(
+    facts: &[ModuleProgramSignatureFactsValue],
+    excluded: &HashSet<GlobalDefId>,
+) -> HashMap<GlobalDefId, ProgramFunctionSignature> {
+    facts
+        .iter()
+        .flat_map(|facts| {
+            facts
+                .functions
+                .iter()
+                .filter(|(def_id, _)| !excluded.contains(def_id))
+                .map(|(def_id, signature)| (*def_id, signature.clone()))
+        })
+        .collect()
+}
+
+fn collect_globals(
+    facts: &[ModuleProgramSignatureFactsValue],
+) -> HashMap<GlobalDefId, ProgramGlobalSignature> {
+    facts
+        .iter()
+        .flat_map(|facts| {
+            facts
+                .globals
+                .iter()
+                .map(|(def_id, sig)| (*def_id, sig.clone()))
+        })
+        .collect()
+}
+
+fn collect_comptimes(
+    facts: &[ModuleProgramSignatureFactsValue],
+) -> HashMap<GlobalDefId, ProgramComptimeSignature> {
+    facts
+        .iter()
+        .flat_map(|facts| {
+            facts
+                .comptimes
+                .iter()
+                .map(|(def_id, sig)| (*def_id, sig.clone()))
+        })
+        .collect()
+}
+
+fn collect_structs(
+    facts: &[ModuleProgramSignatureFactsValue],
+) -> HashMap<GlobalDefId, ProgramStructSignature> {
+    facts
+        .iter()
+        .flat_map(|facts| {
+            facts
+                .structs
+                .iter()
+                .map(|(def_id, sig)| (*def_id, sig.clone()))
+        })
+        .collect()
+}
+
+fn collect_unions(
+    facts: &[ModuleProgramSignatureFactsValue],
+) -> HashMap<GlobalDefId, ProgramUnionSignature> {
+    facts
+        .iter()
+        .flat_map(|facts| {
+            facts
+                .unions
+                .iter()
+                .map(|(def_id, sig)| (*def_id, sig.clone()))
+        })
+        .collect()
+}
+
+fn collect_enums(
+    facts: &[ModuleProgramSignatureFactsValue],
+) -> HashMap<GlobalDefId, ProgramEnumSignature> {
+    facts
+        .iter()
+        .flat_map(|facts| {
+            facts
+                .enums
+                .iter()
+                .map(|(def_id, sig)| (*def_id, sig.clone()))
+        })
+        .collect()
+}
+
+fn collect_traits(
+    facts: &[ModuleProgramSignatureFactsValue],
+) -> HashMap<GlobalDefId, ProgramTraitSignature> {
+    facts
+        .iter()
+        .flat_map(|facts| {
+            facts
+                .traits
+                .iter()
+                .map(|(def_id, sig)| (*def_id, sig.clone()))
+        })
+        .collect()
+}
+
+fn collect_type_aliases(
+    facts: &[ModuleProgramSignatureFactsValue],
+) -> HashMap<GlobalDefId, ProgramTypeAliasSignature> {
+    facts
+        .iter()
+        .flat_map(|facts| {
+            facts
+                .type_aliases
+                .iter()
+                .map(|(def_id, sig)| (*def_id, sig.clone()))
+        })
+        .collect()
+}
+
+fn collect_trait_impls(
+    facts: &[ModuleProgramSignatureFactsValue],
+) -> Vec<nia_item_signatures::ProgramTraitImplSignature> {
+    facts
+        .iter()
+        .flat_map(|facts| facts.trait_impls.iter().cloned())
+        .collect()
 }
 
 fn signature_tree_has_trait_or_extend(tree: &ActiveModuleItemTree) -> bool {
@@ -805,14 +949,25 @@ pub(super) fn provide_program_trait_solving_signatures(
         "program_trait_solving_signatures",
         || {
             let inputs = db.query(ExtensionSignatureInputsQuery);
-            let modules = inputs.modules();
+            let facts = inputs
+                .trait_inputs
+                .module_ids
+                .iter()
+                .copied()
+                .map(|module_id| {
+                    db.query(ModuleProgramSignatureFactsQuery(
+                        module_id,
+                        nia_item_tree::SignatureItemSet::Traits,
+                    ))
+                })
+                .collect::<Vec<_>>();
             let extension_modules = inputs.extension_modules();
             let invalid_trait_impl_method_ids =
                 crate::program_signatures::collect_invalid_trait_impl_method_ids(
                     &extension_modules,
                 );
             Arc::new(ProgramTraitSolvingSignatures {
-                enums: collect_program_enums(&modules),
+                enums: collect_enums(&facts),
                 trait_impls: crate::program_signatures::collect_valid_program_trait_impls(
                     &extension_modules,
                 ),
@@ -829,12 +984,9 @@ pub(super) fn provide_program_visible_type_signatures(
         db.context().timings(),
         "program_visible_type_signatures",
         || {
-            let inputs = db.query(ProgramSignatureInputsQuery(
-                nia_item_tree::SignatureItemSet::Types,
-            ));
-            let modules = inputs.modules();
+            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
             Arc::new(ProgramVisibleTypeSignatures {
-                type_aliases: collect_program_type_aliases(&modules),
+                type_aliases: collect_type_aliases(&facts),
             })
         },
     )
@@ -843,28 +995,19 @@ pub(super) fn provide_program_visible_type_signatures(
 fn executable_program_signatures_without_functions(
     db: &QueryDb<CompilerContext>,
 ) -> ProgramExecutableSignatures {
-    let value_inputs = db.query(ProgramSignatureInputsQuery(
-        nia_item_tree::SignatureItemSet::Values,
-    ));
-    let value_modules = value_inputs.modules();
-    let type_inputs = db.query(ProgramSignatureInputsQuery(
-        nia_item_tree::SignatureItemSet::Types,
-    ));
-    let type_modules = type_inputs.modules();
-    let trait_inputs = db.query(ProgramSignatureInputsQuery(
-        nia_item_tree::SignatureItemSet::Traits,
-    ));
-    let trait_modules = trait_inputs.modules();
+    let value_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Values);
+    let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
+    let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
     ProgramExecutableSignatures {
         functions: HashMap::new(),
-        globals: collect_program_globals(&value_modules),
-        comptimes: collect_program_comptimes(&value_modules),
-        structs: collect_program_structs(&type_modules),
-        unions: collect_program_unions(&type_modules),
-        enums: collect_program_enums(&type_modules),
-        type_aliases: collect_program_type_aliases(&type_modules),
-        traits: collect_program_traits(&trait_modules),
-        trait_impls: collect_program_trait_impls(&trait_modules),
+        globals: collect_globals(&value_facts),
+        comptimes: collect_comptimes(&value_facts),
+        structs: collect_structs(&type_facts),
+        unions: collect_unions(&type_facts),
+        enums: collect_enums(&type_facts),
+        type_aliases: collect_type_aliases(&type_facts),
+        traits: collect_traits(&trait_facts),
+        trait_impls: collect_trait_impls(&trait_facts),
     }
 }
 
@@ -916,29 +1059,21 @@ pub(super) fn provide_program_backend_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramBackendSignatures> {
     time_provider(db.context().timings(), "program_backend_signatures", || {
-        let function_inputs = db.query(ProgramSignatureInputsQuery(
-            nia_item_tree::SignatureItemSet::Functions,
-        ));
-        let function_modules = function_inputs.modules();
-        let type_inputs = db.query(ProgramSignatureInputsQuery(
-            nia_item_tree::SignatureItemSet::Types,
-        ));
-        let type_modules = type_inputs.modules();
-        let trait_inputs = db.query(ProgramSignatureInputsQuery(
-            nia_item_tree::SignatureItemSet::Traits,
-        ));
-        let trait_modules = trait_inputs.modules();
+        let function_facts =
+            program_signature_facts(db, nia_item_tree::SignatureItemSet::Functions);
+        let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
+        let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
         let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
         Arc::new(ProgramBackendSignatures {
-            functions: collect_program_functions_excluding(
-                &function_modules,
+            functions: collect_functions_excluding(
+                &function_facts,
                 &trait_solving.invalid_trait_impl_method_ids,
             ),
-            structs: collect_program_structs(&type_modules),
-            unions: collect_program_unions(&type_modules),
+            structs: collect_structs(&type_facts),
+            unions: collect_unions(&type_facts),
             enums: trait_solving.enums.clone(),
-            traits: collect_program_traits(&trait_modules),
-            type_aliases: collect_program_type_aliases(&type_modules),
+            traits: collect_traits(&trait_facts),
+            type_aliases: collect_type_aliases(&type_facts),
             trait_impls: trait_solving.trait_impls.clone(),
         })
     })
