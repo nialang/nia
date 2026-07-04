@@ -80,8 +80,9 @@ type ExtensionProviderValidationFactsValue = Arc<ExtensionProviderValidationFact
 type ExtensionProviderValidationProgramFactsValue =
     Arc<ExtensionProviderValidationProgramFactsQueryValue>;
 type ExtensionProviderNominalModuleFactsValue = Arc<ExtensionProviderNominalModuleFactsQueryValue>;
-type ExtensionProviderNominalCandidateIndexValue =
-    Arc<ExtensionProviderNominalCandidateIndexQueryValue>;
+type ExtensionProviderDiscoveryIndexValue = Arc<ExtensionProviderDiscoveryIndexQueryValue>;
+type ExtensionProviderNominalCandidateModulesValue =
+    Arc<ExtensionProviderNominalCandidateModulesQueryValue>;
 type ExtensionProviderNominalTargetNamesValue = Arc<ExtensionProviderNominalTargetNamesQueryValue>;
 type ExtensionProviderNominalModulesForTargetsValue =
     Arc<ExtensionProviderNominalModulesForTargetsQueryValue>;
@@ -2366,11 +2367,16 @@ extend Value : Ops {
         assert!(trace_has_dependency(
             &trace,
             "extension_provider_module_ids",
+            "extension_provider_discovery_index"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_provider_discovery_index",
             "program_signature_module_ids"
         ));
         assert!(!trace_has_dependency(
             &trace,
-            "extension_provider_module_ids",
+            "extension_provider_discovery_index",
             "semantic_module_ids"
         ));
         for skipped in ["ModuleId(1)", "ModuleId(2)", "ModuleId(3)"] {
@@ -2652,17 +2658,22 @@ extend Value : Ops {
         assert!(trace_has_dependency(
             &trace,
             "extension_provider_module_ids",
+            "extension_provider_discovery_index"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_provider_discovery_index",
             "program_signature_module_ids"
         ));
         assert!(trace_has_dependency(
             &trace,
+            "extension_provider_discovery_index",
+            "extension_provider_summary"
+        ));
+        assert!(!trace_has_dependency(
+            &trace,
             "extension_provider_module_ids",
             "extension_provider_module_eligibility"
-        ));
-        assert!(trace_has_dependency(
-            &trace,
-            "extension_provider_module_eligibility",
-            "extension_provider_summary"
         ));
         assert!(trace_has_dependency(
             &trace,
@@ -3189,7 +3200,10 @@ extend Used {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_modules_for_targets"
-                && dependency.to.name == "extension_provider_nominal_candidate_index"
+                && dependency.to.name == "extension_provider_nominal_candidate_modules"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.to.name == "extension_provider_nominal_candidate_index"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_modules_for_targets"

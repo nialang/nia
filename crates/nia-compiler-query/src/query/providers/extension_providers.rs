@@ -13,19 +13,48 @@ pub(super) fn provide_extension_provider_summary(
     nia_provider_summary::ProviderSummary::from_active_item_tree(&tree)
 }
 
-pub(super) fn provide_extension_provider_module_ids(
+pub(super) fn provide_extension_provider_discovery_index(
     db: &QueryDb<CompilerContext>,
-) -> Vec<ModuleId> {
+) -> ExtensionProviderDiscoveryIndexValue {
     let timings = db.context().timings();
     let trait_modules = db.query(ProgramSignatureModuleIdsQuery(
         nia_item_tree::SignatureItemSet::Traits,
     ));
-    time_provider(timings, "extension_provider_module_ids.filter", || {
-        trait_modules
-            .into_iter()
-            .filter(|module_id| db.query(ExtensionProviderModuleEligibilityQuery(*module_id)))
-            .collect()
+    time_provider(timings, "extension_provider_discovery_index", || {
+        let mut provider_modules = Vec::new();
+        let mut nominal_candidates_by_name: HashMap<String, Vec<ModuleId>> = HashMap::new();
+        for module_id in trait_modules {
+            let summary = db.query(ExtensionProviderSummaryQuery(module_id));
+            if !summary.has_providers() {
+                continue;
+            }
+            provider_modules.push(module_id);
+            for name in summary.nominal_provider_index_names() {
+                nominal_candidates_by_name
+                    .entry(name)
+                    .or_default()
+                    .push(module_id);
+            }
+        }
+        provider_modules.sort();
+        provider_modules.dedup();
+        for modules in nominal_candidates_by_name.values_mut() {
+            modules.sort();
+            modules.dedup();
+        }
+        Arc::new(ExtensionProviderDiscoveryIndexQueryValue {
+            provider_modules,
+            nominal_candidates_by_name,
+        })
     })
+}
+
+pub(super) fn provide_extension_provider_module_ids(
+    db: &QueryDb<CompilerContext>,
+) -> Vec<ModuleId> {
+    db.query(ExtensionProviderDiscoveryIndexQuery)
+        .provider_modules
+        .clone()
 }
 
 pub(super) fn provide_extension_provider_module_eligibility(
@@ -278,24 +307,24 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
     )
 }
 
-pub(super) fn provide_extension_provider_nominal_candidate_index(
+pub(super) fn provide_extension_provider_nominal_candidate_modules(
     db: &QueryDb<CompilerContext>,
-) -> ExtensionProviderNominalCandidateIndexValue {
+    names: ExtensionProviderNominalTargetNames,
+) -> ExtensionProviderNominalCandidateModulesValue {
     time_provider(
         db.context().timings(),
-        "extension_provider_nominal_candidate_index",
+        "extension_provider_nominal_candidate_modules",
         || {
-            let index = nia_provider_summary::NominalProviderCandidateIndex::from_summaries(
-                db.query(ExtensionProviderModuleIdsQuery)
-                    .into_iter()
-                    .map(|module_id| {
-                        (
-                            module_id,
-                            db.query(ExtensionProviderSummaryQuery(module_id)),
-                        )
-                    }),
-            );
-            Arc::new(ExtensionProviderNominalCandidateIndexQueryValue(index))
+            let discovery = db.query(ExtensionProviderDiscoveryIndexQuery);
+            let mut modules = Vec::new();
+            for name in names.0 {
+                if let Some(candidates) = discovery.nominal_candidates_by_name.get(&name) {
+                    modules.extend(candidates.iter().copied());
+                }
+            }
+            modules.sort();
+            modules.dedup();
+            Arc::new(ExtensionProviderNominalCandidateModulesQueryValue { modules })
         },
     )
 }
@@ -405,19 +434,20 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
         || {
             let graph = db.query(ModuleGraphQuery);
             let target_names = db.query(ExtensionProviderNominalTargetNamesQuery);
-            let candidate_index = db.query(ExtensionProviderNominalCandidateIndexQuery);
-            let mut modules = Vec::new();
-            let mut candidate_modules = Vec::new();
+            let mut index_names = Vec::new();
             for target in targets.as_slice().iter().copied() {
                 let Some(names) = target_names.names_by_target.get(&target) else {
                     continue;
                 };
-                for name in names {
-                    candidate_modules.extend(candidate_index.0.named(name).iter().copied());
-                }
+                index_names.extend(names.iter().cloned());
             }
-            candidate_modules.sort();
-            candidate_modules.dedup();
+            let candidate_modules = db
+                .query(ExtensionProviderNominalCandidateModulesQuery(
+                    ExtensionProviderNominalTargetNames::new(index_names),
+                ))
+                .modules
+                .clone();
+            let mut modules = Vec::new();
             for facts in db.query_many(
                 candidate_modules
                     .into_iter()

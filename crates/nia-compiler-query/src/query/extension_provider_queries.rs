@@ -111,6 +111,21 @@ impl QueryKey<CompilerContext> for ProgramTraitSolvingSignaturesQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderDiscoveryIndexQuery;
+
+impl QueryKey<CompilerContext> for ExtensionProviderDiscoveryIndexQuery {
+    type Value = ExtensionProviderDiscoveryIndexValue;
+
+    fn name() -> &'static str {
+        "extension_provider_discovery_index"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_provider_discovery_index)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExtensionProviderModuleIdsQuery;
 
 impl QueryKey<CompilerContext> for ExtensionProviderModuleIdsQuery {
@@ -177,9 +192,30 @@ pub(super) struct ExtensionProviderNominalModuleFactsQueryValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionProviderNominalCandidateIndexQueryValue(
-    pub(super) nia_provider_summary::NominalProviderCandidateIndex<ModuleId>,
-);
+pub(super) struct ExtensionProviderDiscoveryIndexQueryValue {
+    pub(super) provider_modules: Vec<ModuleId>,
+    pub(super) nominal_candidates_by_name: HashMap<String, Vec<ModuleId>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderNominalTargetNames(pub(super) Vec<String>);
+
+impl ExtensionProviderNominalTargetNames {
+    pub(super) fn new(mut names: Vec<String>) -> Self {
+        names.sort();
+        names.dedup();
+        Self(names)
+    }
+
+    pub(super) fn as_slice(&self) -> &[String] {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionProviderNominalCandidateModulesQueryValue {
+    pub(super) modules: Vec<ModuleId>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderNominalTargetNamesQueryValue {
@@ -267,20 +303,29 @@ impl QueryKey<CompilerContext> for ExtensionProviderNominalModuleFactsQuery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionProviderNominalCandidateIndexQuery;
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderNominalCandidateModulesQuery(
+    pub(super) ExtensionProviderNominalTargetNames,
+);
 
-impl QueryKey<CompilerContext> for ExtensionProviderNominalCandidateIndexQuery {
-    type Value = ExtensionProviderNominalCandidateIndexValue;
+impl QueryKey<CompilerContext> for ExtensionProviderNominalCandidateModulesQuery {
+    type Value = ExtensionProviderNominalCandidateModulesValue;
 
     fn name() -> &'static str {
-        "extension_provider_nominal_candidate_index"
+        "extension_provider_nominal_candidate_modules"
+    }
+
+    fn description(&self) -> String {
+        format!(
+            "extension_provider_nominal_candidate_modules({} names)",
+            self.0.as_slice().len()
+        )
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context()
             .providers
-            .extension_provider_nominal_candidate_index)(db)
+            .extension_provider_nominal_candidate_modules)(db, self.0.clone())
     }
 }
 

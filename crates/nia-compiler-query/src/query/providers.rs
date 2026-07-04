@@ -218,6 +218,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleAbiSignatureFactsValue,
     pub(super) extension_provider_summary:
         fn(&QueryDb<CompilerContext>, ModuleId) -> nia_provider_summary::ProviderSummary,
+    pub(super) extension_provider_discovery_index:
+        fn(&QueryDb<CompilerContext>) -> ExtensionProviderDiscoveryIndexValue,
     pub(super) extension_provider_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
     pub(super) extension_provider_module_eligibility:
         fn(&QueryDb<CompilerContext>, ModuleId) -> bool,
@@ -243,8 +245,11 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>) -> ExtensionProviderValidationProgramFactsValue,
     pub(super) extension_provider_nominal_module_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderNominalModuleFactsValue,
-    pub(super) extension_provider_nominal_candidate_index:
-        fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalCandidateIndexValue,
+    pub(super) extension_provider_nominal_candidate_modules:
+        fn(
+            &QueryDb<CompilerContext>,
+            ExtensionProviderNominalTargetNames,
+        ) -> ExtensionProviderNominalCandidateModulesValue,
     pub(super) extension_provider_nominal_target_names:
         fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalTargetNamesValue,
     pub(super) extension_provider_nominal_modules_for_targets:
@@ -329,6 +334,7 @@ impl Default for CompilerQueryProviders {
             module_program_signature_facts: provide_module_program_signature_facts,
             module_abi_signature_facts: provide_module_abi_signature_facts,
             extension_provider_summary: provide_extension_provider_summary,
+            extension_provider_discovery_index: provide_extension_provider_discovery_index,
             extension_provider_module_ids: provide_extension_provider_module_ids,
             extension_provider_module_eligibility: provide_extension_provider_module_eligibility,
             extension_signature_module_input: provide_extension_signature_module_input,
@@ -344,8 +350,8 @@ impl Default for CompilerQueryProviders {
                 provide_extension_provider_validation_program_facts,
             extension_provider_nominal_module_facts:
                 provide_extension_provider_nominal_module_facts,
-            extension_provider_nominal_candidate_index:
-                provide_extension_provider_nominal_candidate_index,
+            extension_provider_nominal_candidate_modules:
+                provide_extension_provider_nominal_candidate_modules,
             extension_provider_nominal_target_names:
                 provide_extension_provider_nominal_target_names,
             extension_provider_nominal_modules_for_targets:
