@@ -129,6 +129,17 @@ impl ActiveModuleItemTree {
             inactive_spans: self.inactive_spans.clone(),
         }
     }
+
+    pub fn comptime_signature_items(&self) -> Self {
+        Self {
+            items: self
+                .items
+                .iter()
+                .filter_map(comptime_signature_item)
+                .collect(),
+            inactive_spans: self.inactive_spans.clone(),
+        }
+    }
 }
 
 impl ItemTreeNode {
@@ -418,6 +429,46 @@ fn signature_item(item: &ItemTreeNode, set: SignatureItemSet) -> Option<ItemTree
         (ItemTreeNodeKind::Extend(item), SignatureItemSet::Traits) => {
             ItemTreeNodeKind::Extend(item.clone())
         }
+    };
+    Some(ItemTreeNode {
+        span: item.span,
+        node_key: item.node_key.clone(),
+        attributes: item.attributes.clone(),
+        visibility: item.visibility,
+        kind,
+    })
+}
+
+fn comptime_signature_item(item: &ItemTreeNode) -> Option<ItemTreeNode> {
+    let kind = match &item.kind {
+        ItemTreeNodeKind::Struct(item) => ItemTreeNodeKind::Struct(item.clone()),
+        ItemTreeNodeKind::Union(item) => ItemTreeNodeKind::Union(item.clone()),
+        ItemTreeNodeKind::Enum(item) => ItemTreeNodeKind::Enum(item.clone()),
+        ItemTreeNodeKind::TypeAlias(item) => ItemTreeNodeKind::TypeAlias(item.clone()),
+        ItemTreeNodeKind::Binding(item) if item.is_comptime => {
+            ItemTreeNodeKind::Binding(item.clone())
+        }
+        ItemTreeNodeKind::Function(item) if item.is_comptime => {
+            ItemTreeNodeKind::Function(item.clone())
+        }
+        ItemTreeNodeKind::Extend(item) => {
+            let mut item = item.clone();
+            item.associated_values
+                .retain(|associated_value| associated_value.binding.is_comptime);
+            item.methods.retain(|method| method.function.is_comptime);
+            if item.associated_types.is_empty()
+                && item.associated_values.is_empty()
+                && item.methods.is_empty()
+            {
+                return None;
+            }
+            ItemTreeNodeKind::Extend(item)
+        }
+        ItemTreeNodeKind::Module(item) => ItemTreeNodeKind::Module(item.clone()),
+        ItemTreeNodeKind::Using(item) => ItemTreeNodeKind::Using(item.clone()),
+        ItemTreeNodeKind::Trait(_)
+        | ItemTreeNodeKind::Function(_)
+        | ItemTreeNodeKind::Binding(_) => return None,
     };
     Some(ItemTreeNode {
         span: item.span,
