@@ -220,19 +220,22 @@ impl fmt::Display for BuildError {
 impl std::error::Error for BuildError {}
 
 pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
-    let timings = request.timings;
-    let plan = time_stage(timings, "build_resolve_plan", || {
-        resolve_build_plan(request)
-    })?;
-    time_stage(timings, "build_prepare_directories", || {
-        prepare_build_directories(&plan)
-    })?;
-    let runner_executable = time_stage(timings, "build_compile_runner", || {
-        compile_build_runner(&plan)
-    })?;
-    let _lock = time_stage(timings, "build_acquire_lock", || BuildLock::acquire(&plan))?;
-    time_stage(timings, "build_run_runner", || {
-        run_build_runner(&plan, &runner_executable)
+    nia_timing::collect_to_stderr(|| {
+        let timings = request.timings;
+        let plan = time_summary_stage(timings, "build_resolve_plan", || {
+            resolve_build_plan(request)
+        })?;
+        time_summary_stage(timings, "build_prepare_directories", || {
+            prepare_build_directories(&plan)
+        })?;
+        let runner_executable = time_summary_stage(timings, "build_compile_runner", || {
+            compile_build_runner(&plan)
+        })?;
+        let _lock =
+            time_summary_stage(timings, "build_acquire_lock", || BuildLock::acquire(&plan))?;
+        time_summary_stage(timings, "build_run_runner", || {
+            run_build_runner(&plan, &runner_executable)
+        })
     })
 }
 
@@ -601,14 +604,8 @@ fn find_package_root(start: &Path) -> Result<PathBuf, BuildError> {
     }
 }
 
-fn time_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
-    if !timings.enabled() {
-        return f();
-    }
-    let start = Instant::now();
-    let result = f();
-    eprintln!("timing {name}: {:.3}s", start.elapsed().as_secs_f64());
-    result
+fn time_summary_stage<T>(timings: TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
+    nia_timing::time_stage(timings, nia_timing::TimingLevel::Summary, name, f)
 }
 
 #[cfg(test)]

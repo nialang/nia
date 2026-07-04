@@ -39,6 +39,7 @@ nia-span.workspace = true
 nia-static-check.workspace = true
 nia-syntax.workspace = true
 nia-target-config.workspace = true
+nia-timing.workspace = true
 nia-ty.workspace = true
 nia-trait-solve.workspace = true
 nia-type-lower.workspace = true

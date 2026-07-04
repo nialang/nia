@@ -290,19 +290,6 @@ fn empty_global_def_ids() -> &'static HashSet<GlobalDefId> {
     EMPTY.get_or_init(HashSet::new)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum BodyTimingMode {
-    #[default]
-    Off,
-    Detail,
-}
-
-impl BodyTimingMode {
-    fn enabled(self) -> bool {
-        matches!(self, Self::Detail)
-    }
-}
-
 #[derive(Clone, Copy)]
 pub struct BodyProgramContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
@@ -576,7 +563,7 @@ pub fn check_module_bodies(
     };
     let mut checked = check_module_bodies_with_program_signatures_and_layouts_with_timings(
         input,
-        BodyTimingMode::Off,
+        nia_timing::TimingMode::Off,
     );
     checked.diagnostics.extend(layouts.diagnostics);
     checked
@@ -693,14 +680,17 @@ fn semantic_use_table_for_body_input(
 pub fn check_module_bodies_with_program_signatures_and_layouts(
     input: BodyCheckInput<'_>,
 ) -> BodyCheck {
-    check_module_bodies_with_program_signatures_and_layouts_with_timings(input, BodyTimingMode::Off)
+    check_module_bodies_with_program_signatures_and_layouts_with_timings(
+        input,
+        nia_timing::TimingMode::Off,
+    )
 }
 
 pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
     input: BodyCheckInput<'_>,
-    timings: BodyTimingMode,
+    timings: nia_timing::TimingMode,
 ) -> BodyCheck {
-    let timing = timings.enabled();
+    let timing = timings.detail();
     let module_id = input.defs.module_id;
     let mut interner = input
         .seed_interner
@@ -864,13 +854,11 @@ fn time_body_stage<T>(enabled: bool, name: &str, module_id: ModuleId, f: impl Fn
     if !enabled {
         return f();
     }
-    let start = Instant::now();
-    let result = f();
-    eprintln!(
-        "query timing {name}[{module_id:?}]: {:.3}s",
-        start.elapsed().as_secs_f64()
-    );
-    result
+    nia_timing::time_query(
+        nia_timing::TimingMode::Detail,
+        &format!("{name}[{module_id:?}]"),
+        f,
+    )
 }
 
 fn time_body_stage_if_slow<T>(
@@ -884,13 +872,12 @@ fn time_body_stage_if_slow<T>(
     if !enabled {
         return f();
     }
-    let start = Instant::now();
-    let result = f();
-    let elapsed = start.elapsed().as_secs_f64();
-    if elapsed >= threshold_seconds {
-        eprintln!("query timing {name}[{module_id:?} {detail}]: {elapsed:.3}s");
-    }
-    result
+    nia_timing::time_query_if_slow(
+        nia_timing::TimingMode::Detail,
+        &format!("{name}[{module_id:?} {detail}]"),
+        std::time::Duration::from_secs_f64(threshold_seconds),
+        f,
+    )
 }
 
 struct BodyChecker<'a> {
@@ -1564,11 +1551,9 @@ impl<'a> BodyChecker<'a> {
         let mut stages = self.profile.stages.iter().collect::<Vec<_>>();
         stages.sort_by(|(_, left), (_, right)| right.total.cmp(&left.total));
         for (name, stage) in stages {
-            eprintln!(
-                "query timing {name}[{:?} count={}]: {:.3}s",
-                self.timing_module_id,
-                stage.count,
-                stage.total.as_secs_f64()
+            nia_timing::emit_query_timing(
+                &format!("{name}[{:?} count={}]", self.timing_module_id, stage.count),
+                stage.total,
             );
         }
     }

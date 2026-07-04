@@ -18,7 +18,6 @@ mod trait_object_vtables;
 mod type_context;
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::time::Instant;
 
 use nia_ast::{BindingItem, Block, Expr, StmtKind, Visibility, generic_param_names};
 use nia_backend_ir::{
@@ -84,19 +83,6 @@ pub enum BackendOptimizationChange {
         global: GlobalDefId,
         pass: &'static str,
     },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum BackendTimingMode {
-    #[default]
-    Off,
-    Detail,
-}
-
-impl BackendTimingMode {
-    fn enabled(self) -> bool {
-        matches!(self, Self::Detail)
-    }
 }
 
 #[derive(Clone)]
@@ -196,7 +182,7 @@ pub fn lower_backend_program(
         modules,
         monomorphization,
         optimization,
-        BackendTimingMode::Off,
+        nia_timing::TimingMode::Off,
     )
 }
 
@@ -204,9 +190,9 @@ pub fn lower_backend_program_with_timings(
     modules: &[BackendLowerModuleInput<'_>],
     monomorphization: &Monomorphization,
     optimization: OptimizationPolicy,
-    timings: BackendTimingMode,
+    timings: nia_timing::TimingMode,
 ) -> BackendLowering {
-    let timing = timings.enabled();
+    let timing = timings.detail();
     let mut diagnostics = input::validate_backend_lowering_inputs(modules);
     let mut optimization_report = BackendOptimizationReport {
         enabled_module_passes: enabled_module_passes(&optimization),
@@ -412,10 +398,7 @@ fn time_backend_stage<T>(enabled: bool, name: &str, f: impl FnOnce() -> T) -> T 
     if !enabled {
         return f();
     }
-    let start = Instant::now();
-    let result = f();
-    eprintln!("query timing {name}: {:.3}s", start.elapsed().as_secs_f64());
-    result
+    nia_timing::time_query(nia_timing::TimingMode::Detail, name, f)
 }
 
 fn append_function_instances(

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::{env, fs, path::PathBuf, process::ExitCode, time::Instant};
+use std::{env, fs, path::PathBuf, process::ExitCode};
 
 use nia_driver::{
     ENTRY_MODULE_MAP_NAME, ModuleMap, NiaOptimizationLevel, PACKAGE_MODULE_MAP_NAME, Runtime,
@@ -19,7 +19,7 @@ fn run_with_ice_boundary(
     f: impl FnOnce() -> ExitCode,
     report: impl FnOnce(&nia_ice::Ice),
 ) -> ExitCode {
-    match nia_ice::catch_ice(f) {
+    match nia_ice::catch_ice(|| nia_timing::collect_to_stderr(f)) {
         Ok(code) => code,
         Err(ice) => {
             report(&ice);
@@ -721,7 +721,7 @@ fn run_check(
     opt_report: bool,
     runtime: Runtime,
 ) -> ExitCode {
-    let output = time_stage(timings, "check", || {
+    let output = time_summary_stage(timings, "check", || {
         check_with_driver(path, module_map.clone(), optimization, timings, runtime)
     });
     match checked_program_from_output(output, path, source) {
@@ -729,7 +729,7 @@ fn run_check(
         Err(code) => return code,
     }
     if opt_report {
-        let output = time_stage(timings, "codegen", || {
+        let output = time_summary_stage(timings, "codegen", || {
             codegen_with_driver(path, module_map, optimization, timings, runtime)
         });
         let codegen = match codegen_program_from_output(output, path, source) {
@@ -817,8 +817,8 @@ fn run_emit(
     opt_report: bool,
 ) -> ExitCode {
     match target {
-        EmitTarget::Tokens => time_stage(timings, "lex", || run_lex(source)),
-        EmitTarget::Ast => time_stage(timings, "parse", || run_parse(path, source)),
+        EmitTarget::Tokens => time_summary_stage(timings, "lex", || run_lex(source)),
+        EmitTarget::Ast => time_summary_stage(timings, "parse", || run_parse(path, source)),
         EmitTarget::Checked => run_emit_checked(path, source, module_map, optimization, timings),
         EmitTarget::Backend => {
             run_emit_backend(path, source, module_map, optimization, timings, opt_report)
@@ -869,14 +869,8 @@ fn run_build(
     }
 }
 
-fn time_stage<T>(timings: nia_driver::TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
-    if !timings.enabled() {
-        return f();
-    }
-    let start = Instant::now();
-    let result = f();
-    eprintln!("timing {name}: {:.3}s", start.elapsed().as_secs_f64());
-    result
+fn time_summary_stage<T>(timings: nia_driver::TimingMode, name: &str, f: impl FnOnce() -> T) -> T {
+    nia_timing::time_stage(timings, nia_timing::TimingLevel::Summary, name, f)
 }
 
 fn run_emit_checked(
@@ -886,7 +880,7 @@ fn run_emit_checked(
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
 ) -> ExitCode {
-    let output = time_stage(timings, "check", || {
+    let output = time_summary_stage(timings, "check", || {
         check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
     let program = match checked_program_from_output(output, path, source) {
@@ -905,7 +899,7 @@ fn run_emit_backend(
     timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
-    let output = time_stage(timings, "codegen", || {
+    let output = time_summary_stage(timings, "codegen", || {
         codegen_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
     let program = match codegen_program_from_output(output, path, source) {
@@ -927,7 +921,7 @@ fn run_emit_llvm(
     timings: nia_driver::TimingMode,
     opt_report: bool,
 ) -> ExitCode {
-    let output = time_stage(timings, "codegen", || {
+    let output = time_summary_stage(timings, "codegen", || {
         codegen_with_driver(path, module_map, optimization, timings, Runtime::Bare)
     });
     let program = match codegen_program_from_output(output, path, source) {
@@ -937,7 +931,7 @@ fn run_emit_llvm(
     if opt_report {
         print_optimization_report_to_stderr(&program);
     }
-    let output = time_stage(timings, "emit_llvm_ir", || {
+    let output = time_summary_stage(timings, "emit_llvm_ir", || {
         nia_driver::Driver::new().emit_llvm_ir_from_codegen(&program)
     });
     match output.result {
@@ -973,7 +967,7 @@ fn run_emit_obj(
             return ExitCode::FAILURE;
         }
     };
-    let output = time_stage(timings, "codegen", || {
+    let output = time_summary_stage(timings, "codegen", || {
         codegen_with_driver(path, module_map, optimization, timings, options.runtime)
     });
     let program = match codegen_program_from_output(output, path, source) {
@@ -983,7 +977,7 @@ fn run_emit_obj(
     if opt_report {
         print_optimization_report_to_stderr(&program);
     }
-    let output = time_stage(timings, "emit_native_objects", || {
+    let output = time_summary_stage(timings, "emit_native_objects", || {
         nia_driver::Driver::new().emit_native_objects_from_codegen(&program)
     });
     let objects = match output.result {
@@ -1027,7 +1021,7 @@ fn run_emit_exe(
         }
     };
     let cache_entry = if let Some(cache_dir) = &options.cache_dir {
-        let entry = time_stage(timings, "emit_exe_cache_fingerprint", || {
+        let entry = time_summary_stage(timings, "emit_exe_cache_fingerprint", || {
             nia_driver::executable_artifact_cache_entry(
                 nia_driver::ExecutableArtifactCacheRequest::new(path)
                     .with_module_map(module_map.clone())
@@ -1045,7 +1039,7 @@ fn run_emit_exe(
                 return ExitCode::FAILURE;
             }
         };
-        if time_stage(timings, "emit_exe_cache_restore", || {
+        if time_summary_stage(timings, "emit_exe_cache_restore", || {
             nia_driver::restore_executable_artifact_cache(&entry, &options.output)
         }) {
             return ExitCode::SUCCESS;
@@ -1054,7 +1048,7 @@ fn run_emit_exe(
     } else {
         None
     };
-    let output = time_stage(timings, "codegen_exe", || {
+    let output = time_summary_stage(timings, "codegen_exe", || {
         codegen_with_driver(
             path,
             module_map,
@@ -1070,7 +1064,7 @@ fn run_emit_exe(
     if opt_report {
         print_optimization_report_to_stderr(&program);
     }
-    let output = time_stage(timings, "emit_native_objects", || {
+    let output = time_summary_stage(timings, "emit_native_objects", || {
         nia_driver::Driver::new().emit_native_objects_from_codegen(&program)
     });
     let objects = match output.result {
@@ -1083,7 +1077,7 @@ fn run_emit_exe(
             return ExitCode::FAILURE;
         }
     };
-    let output = time_stage(timings, "link_executable", || {
+    let output = time_summary_stage(timings, "link_executable", || {
         nia_driver::Driver::new().link_executable_from_objects(
             &objects,
             options.output.clone(),
@@ -1093,7 +1087,7 @@ fn run_emit_exe(
     match output.result {
         Ok(artifact) => {
             if let Some(cache) = cache_entry {
-                if let Err(error) = time_stage(timings, "emit_exe_cache_publish", || {
+                if let Err(error) = time_summary_stage(timings, "emit_exe_cache_publish", || {
                     nia_driver::publish_executable_artifact_cache(&artifact.path, &cache)
                 }) {
                     eprintln!("{error}");
