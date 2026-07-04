@@ -4553,12 +4553,6 @@ fn extend_module_functions_from_filtered_value_refs(
     });
     let empty_using = ModuleUsingScope::default();
     let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-    let visible_extensions = time_module_provider(
-        db,
-        "extend_value_refs.visible_extensions",
-        module_id,
-        || db.query(VisibleExtensionsQuery(module_id)),
-    );
     let graph = time_module_provider(db, "extend_value_refs.module_graph", module_id, || {
         db.query(ModuleGraphQuery)
     });
@@ -4576,7 +4570,7 @@ fn extend_module_functions_from_filtered_value_refs(
             });
         let values =
             time_module_provider(db, "extend_value_refs.value_resolution", module_id, || {
-                nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
+                nia_value_resolve::resolve_module_values_from_active_item_tree(
                     &filtered_active_item_tree,
                     &defs,
                     nia_value_resolve::ProgramDefsContext {
@@ -4585,8 +4579,6 @@ fn extend_module_functions_from_filtered_value_refs(
                     },
                     &public.surfaces,
                     using_scope,
-                    &visible_extensions.methods,
-                    &visible_extensions.interner,
                 )
             });
         let local_refs = LocalExecutableValueRefs {
