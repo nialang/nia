@@ -363,6 +363,25 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleIdsQuery {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderModuleEligibilityQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ExtensionProviderModuleEligibilityQuery {
+    type Value = bool;
+
+    fn name() -> &'static str {
+        "extension_provider_module_eligibility"
+    }
+
+    fn description(&self) -> String {
+        format!("extension_provider_module_eligibility({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_provider_module_eligibility)(db, self.0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramBodyFunctionSignatures {
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,

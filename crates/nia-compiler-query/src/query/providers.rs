@@ -57,6 +57,8 @@ pub(super) struct CompilerQueryProviders {
         nia_item_tree::SignatureItemSet,
     ) -> ModuleProgramSignatureFactsValue,
     pub(super) extension_provider_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
+    pub(super) extension_provider_module_eligibility:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> bool,
     pub(super) extension_signature_module_input:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionSignatureModuleInputValue,
     pub(super) extension_trait_solving_module_facts:
@@ -151,6 +153,7 @@ impl Default for CompilerQueryProviders {
             program_signature_module_ids: provide_program_signature_module_ids,
             module_program_signature_facts: provide_module_program_signature_facts,
             extension_provider_module_ids: provide_extension_provider_module_ids,
+            extension_provider_module_eligibility: provide_extension_provider_module_eligibility,
             extension_signature_module_input: provide_extension_signature_module_input,
             extension_trait_solving_module_facts: provide_extension_trait_solving_module_facts,
             program_body_function_signatures: provide_program_body_function_signatures,
@@ -695,15 +698,20 @@ pub(super) fn provide_extension_provider_module_ids(
     time_provider(timings, "extension_provider_module_ids.filter", || {
         semantic_modules
             .into_iter()
-            .filter(|module_id| {
-                let tree = db.query(SignatureItemTreeQuery(
-                    *module_id,
-                    nia_item_tree::SignatureItemSet::Traits,
-                ));
-                signature_tree_has_trait_or_extend(&tree)
-            })
+            .filter(|module_id| db.query(ExtensionProviderModuleEligibilityQuery(*module_id)))
             .collect()
     })
+}
+
+pub(super) fn provide_extension_provider_module_eligibility(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> bool {
+    let tree = db.query(SignatureItemTreeQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Traits,
+    ));
+    signature_tree_has_trait_or_extend(&tree)
 }
 
 pub(super) fn provide_extension_signature_module_input(
