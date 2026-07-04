@@ -109,6 +109,7 @@ pub(super) struct ProgramExecutableSignatures {
     pub(super) type_aliases: HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>,
     pub(super) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
+    pub(super) trait_method_index: nia_program_signatures::ProgramTraitMethodIndex,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -172,6 +173,21 @@ impl ProgramBackendSignatures {
             type_aliases: &self.type_aliases,
             trait_impls: &self.trait_impls,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramTraitMethodIndexQuery;
+
+impl QueryKey<CompilerContext> for ProgramTraitMethodIndexQuery {
+    type Value = Arc<nia_program_signatures::ProgramTraitMethodIndex>;
+
+    fn name() -> &'static str {
+        "program_trait_method_index"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_trait_method_index)(db)
     }
 }
 

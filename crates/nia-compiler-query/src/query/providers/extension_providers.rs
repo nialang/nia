@@ -293,31 +293,17 @@ pub(super) fn provide_extension_provider_nominal_candidate_index(
         db.context().timings(),
         "extension_provider_nominal_candidate_index",
         || {
-            let mut conservative = Vec::new();
-            let mut named: HashMap<String, Vec<ModuleId>> = HashMap::new();
-            for module_id in db.query(ExtensionProviderModuleIdsQuery) {
-                let summary = db.query(ExtensionProviderSummaryQuery(module_id));
-                for candidate in summary.nominal_provider_candidates() {
-                    match candidate {
-                        nia_provider_summary::NominalProviderCandidate::Named(name) => {
-                            named.entry(name).or_default().push(module_id);
-                        }
-                        nia_provider_summary::NominalProviderCandidate::Conservative => {
-                            conservative.push(module_id);
-                        }
-                    }
-                }
-            }
-            conservative.sort();
-            conservative.dedup();
-            for modules in named.values_mut() {
-                modules.sort();
-                modules.dedup();
-            }
-            Arc::new(ExtensionProviderNominalCandidateIndexQueryValue {
-                conservative,
-                named,
-            })
+            let index = nia_provider_summary::NominalProviderCandidateIndex::from_summaries(
+                db.query(ExtensionProviderModuleIdsQuery)
+                    .into_iter()
+                    .map(|module_id| {
+                        (
+                            module_id,
+                            db.query(ExtensionProviderSummaryQuery(module_id)),
+                        )
+                    }),
+            );
+            Arc::new(ExtensionProviderNominalCandidateIndexQueryValue(index))
         },
     )
 }
@@ -338,18 +324,12 @@ pub(super) fn provide_extension_provider_nominal_modules(
                 .get(target.def_id)
                 .map(|def| def.name.clone());
             let candidate_index = db.query(ExtensionProviderNominalCandidateIndexQuery);
-            let mut module_ids = candidate_index.conservative.clone();
-            if let Some(target_name) = target_name.as_deref()
-                && let Some(named) = candidate_index.named.get(target_name)
-            {
-                module_ids.extend(named.iter().copied());
+            let candidate_index = &candidate_index.0;
+            let mut module_ids = candidate_index.conservative().to_vec();
+            if let Some(target_name) = target_name.as_deref() {
+                module_ids.extend(candidate_index.named(target_name).iter().copied());
             } else if target_name.is_none() {
-                module_ids.extend(
-                    candidate_index
-                        .named
-                        .values()
-                        .flat_map(|modules| modules.iter().copied()),
-                );
+                module_ids.extend(candidate_index.all_named());
             }
             module_ids.sort();
             module_ids.dedup();

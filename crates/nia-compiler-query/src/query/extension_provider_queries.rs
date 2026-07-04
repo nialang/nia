@@ -178,10 +178,9 @@ pub(super) struct ExtensionProviderNominalModuleFactsQueryValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionProviderNominalCandidateIndexQueryValue {
-    pub(super) conservative: Vec<ModuleId>,
-    pub(super) named: HashMap<String, Vec<ModuleId>>,
-}
+pub(super) struct ExtensionProviderNominalCandidateIndexQueryValue(
+    pub(super) nia_provider_summary::NominalProviderCandidateIndex<ModuleId>,
+);
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderNominalModulesQueryValue {

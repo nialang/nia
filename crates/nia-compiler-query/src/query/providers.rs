@@ -9,6 +9,7 @@ use nia_executable_reachability::{
 };
 use nia_program_signatures::{
     ProgramSignatureContext, ProgramSignatureMaps, ProgramSignatureResolvers,
+    ProgramTraitMethodIndex,
 };
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -166,6 +167,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionTraitSolvingModuleFactsValue,
     pub(super) program_trait_solving_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramTraitSolvingSignatures>,
+    pub(super) program_trait_method_index:
+        fn(&QueryDb<CompilerContext>) -> Arc<ProgramTraitMethodIndex>,
     pub(super) program_visible_type_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramVisibleTypeSignatures>,
     pub(super) program_backend_signatures:
@@ -268,6 +271,7 @@ impl Default for CompilerQueryProviders {
             extension_signature_module_input: provide_extension_signature_module_input,
             extension_trait_solving_module_facts: provide_extension_trait_solving_module_facts,
             program_trait_solving_signatures: provide_program_trait_solving_signatures,
+            program_trait_method_index: provide_program_trait_method_index,
             program_visible_type_signatures: provide_program_visible_type_signatures,
             program_backend_signatures: provide_program_backend_signatures,
             program_abi_signatures: provide_program_abi_signatures,
@@ -2766,51 +2770,15 @@ fn body_check_with_filter_and_layouts_with_inputs(
         })
     };
     let program_traits_by_method_name = |name: &str| {
-        let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
-        facts
-            .iter()
-            .flat_map(|facts| facts.traits.iter())
-            .filter_map(|(trait_id, signature)| {
-                signature
-                    .signature
-                    .methods
-                    .iter()
-                    .any(|method| method.name == name)
-                    .then_some(*trait_id)
-            })
-            .collect()
+        db.query(ProgramTraitMethodIndexQuery)
+            .trait_ids_with_method_named(name)
     };
     let program_trait_owning_method = |method_id: GlobalDefId| {
-        db.query(SignatureItemSignaturesQuery(
-            method_id.module_id,
-            nia_item_tree::SignatureItemSet::Traits,
-        ))
-        .traits
-        .into_iter()
-        .find_map(|(trait_def_id, signature)| {
-            signature
-                .methods
-                .iter()
-                .any(|method| method.def_id == method_id.def_id)
-                .then(|| {
-                    let trait_id = GlobalDefId {
-                        module_id: method_id.module_id,
-                        def_id: trait_def_id,
-                    };
-                    (
-                        trait_id,
-                        ProgramTraitSignature {
-                            signature,
-                            interner: db
-                                .query(SignatureTypeLoweringQuery(
-                                    method_id.module_id,
-                                    nia_item_tree::SignatureItemSet::Traits,
-                                ))
-                                .interner,
-                        },
-                    )
-                })
-        })
+        db.query(ProgramTraitMethodIndexQuery)
+            .trait_owning_method_id(method_id)
+            .and_then(|trait_id| {
+                program_trait_signature(trait_id).map(|signature| (trait_id, signature))
+            })
     };
     let program_trait_solving_signatures;
     let resolver_program_signatures = ProgramSignatureResolvers {
@@ -2837,6 +2805,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 enums: &signatures.enums,
                 traits: &signatures.traits,
                 type_aliases: &signatures.type_aliases,
+                trait_method_index: &signatures.trait_method_index,
             });
     let program_signature_lookup = BodyProgramSignatureLookup {
         functions: &program_function_signature,

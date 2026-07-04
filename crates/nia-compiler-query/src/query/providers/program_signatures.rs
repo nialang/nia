@@ -176,6 +176,16 @@ fn collect_traits(
         .collect()
 }
 
+fn collect_trait_method_index(
+    facts: &[ModuleProgramSignatureFactsValue],
+) -> ProgramTraitMethodIndex {
+    ProgramTraitMethodIndex::from_trait_signatures(
+        facts
+            .iter()
+            .flat_map(|facts| facts.traits.iter().map(|(def_id, sig)| (*def_id, sig))),
+    )
+}
+
 fn collect_type_aliases(
     facts: &[ModuleProgramSignatureFactsValue],
 ) -> HashMap<GlobalDefId, ProgramTypeAliasSignature> {
@@ -214,12 +224,23 @@ pub(super) fn provide_program_visible_type_signatures(
     )
 }
 
+pub(super) fn provide_program_trait_method_index(
+    db: &QueryDb<CompilerContext>,
+) -> Arc<ProgramTraitMethodIndex> {
+    time_provider(db.context().timings(), "program_trait_method_index", || {
+        let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
+        Arc::new(collect_trait_method_index(&trait_facts))
+    })
+}
+
 pub(super) fn executable_program_signatures_without_functions(
     db: &QueryDb<CompilerContext>,
 ) -> ProgramExecutableSignatures {
     let value_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Values);
     let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
     let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
+    let traits = collect_traits(&trait_facts);
+    let trait_method_index = ProgramTraitMethodIndex::from_traits(&traits);
     ProgramExecutableSignatures {
         functions: HashMap::new(),
         globals: collect_globals(&value_facts),
@@ -228,8 +249,9 @@ pub(super) fn executable_program_signatures_without_functions(
         unions: collect_unions(&type_facts),
         enums: collect_enums(&type_facts),
         type_aliases: collect_type_aliases(&type_facts),
-        traits: collect_traits(&trait_facts),
+        traits,
         trait_impls: collect_trait_impls(&trait_facts),
+        trait_method_index,
     }
 }
 
@@ -286,6 +308,7 @@ pub(super) fn provide_program_backend_signatures(
         let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
         let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
         let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+        let traits = collect_traits(&trait_facts);
         Arc::new(ProgramBackendSignatures {
             functions: collect_functions_excluding(
                 &function_facts,
@@ -294,7 +317,7 @@ pub(super) fn provide_program_backend_signatures(
             structs: collect_structs(&type_facts),
             unions: collect_unions(&type_facts),
             enums: trait_solving.enums.clone(),
-            traits: collect_traits(&trait_facts),
+            traits,
             type_aliases: collect_type_aliases(&type_facts),
             trait_impls: trait_solving.trait_impls.clone(),
         })

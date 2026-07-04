@@ -2178,6 +2178,68 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
+    fn body_check_resolves_trait_method_candidates_through_program_trait_method_index() {
+        let loaded = loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(0),
+                "main.nia",
+                r#"
+module traits;
+using entry::traits::{Ops, Value};
+
+fn main() i32 {
+    let value = Value {};
+    value.used()
+}
+"#,
+            ),
+            loaded_module(
+                ModuleId(1),
+                "traits.nia",
+                r#"
+pub trait Ops {
+    fn used(self) i32;
+}
+
+pub struct Value {}
+
+extend Value : Ops {
+    fn used(self) i32 {
+        1
+    }
+}
+"#,
+            ),
+        ]);
+        let db = query_db(loaded);
+
+        let checked = db.query(BodyCheckQuery(ModuleId(0)));
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let trace = db.query_trace();
+
+        assert!(trace_has_dependency(
+            &trace,
+            "body_check",
+            "program_trait_method_index"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_trait_method_index",
+            "module_program_signature_facts"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_trait_method_index",
+            "program_signature_module_ids"
+        ));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check"
+                && dependency.to.name == "module_program_signature_facts"
+                && dependency.to.description.contains("Traits")
+        }));
+    }
+
+    #[test]
     fn program_signature_module_ids_use_set_specific_module_facts() {
         let loaded = loaded_program_with_modules(vec![
             loaded_module(
