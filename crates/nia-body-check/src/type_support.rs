@@ -1138,7 +1138,7 @@ impl<'a> BodyChecker<'a> {
             body_filter: self.body_filter.clone(),
             checked_functions: self.checked_functions.clone(),
             pending_functions: self.pending_functions.clone(),
-            profile: crate::BodyCheckProfile::default(),
+            profile: nia_timing::TimingAccumulator::default(),
         }
     }
 

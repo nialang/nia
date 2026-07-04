@@ -3,8 +3,8 @@ use super::*;
 use nia_defs::{DefId, DefKind};
 use nia_executable_reachability::{
     ExecutableRootDefs, IncrementalExecutableReachability,
-    compute_executable_reachability_incremental,
-    extend_incremental_executable_reachability_from_checked_module,
+    compute_executable_reachability_incremental_with_timings,
+    extend_incremental_executable_reachability_from_checked_module_with_timings,
     filter_semantic_facts_for_reachable_items,
 };
 use std::cell::RefCell;
@@ -4769,7 +4769,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             db.context().timings(),
             "executable_checked_modules.reachability_compute",
             || {
-                compute_executable_reachability_incremental(
+                compute_executable_reachability_incremental_with_timings(
                     &mut reachability_state,
                     &parse_ok,
                     &graph,
@@ -4787,6 +4787,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                     &extension_methods.methods,
                     &program_trait_impls,
                     &reachable_inputs,
+                    db.context().timings(),
                 )
             },
         );
@@ -4973,7 +4974,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 "executable_checked_modules.incremental_extend",
                 module_id,
                 || {
-                    extend_incremental_executable_reachability_from_checked_module(
+                    extend_incremental_executable_reachability_from_checked_module_with_timings(
                         &mut reachability_state,
                         &parse_ok,
                         nia_executable_reachability::ExecutableSignatureIndex {
@@ -4992,6 +4993,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                             .expect("just-checked module must have a reachable input"),
                         &checked_this_round,
                         &checked_inputs_by_id,
+                        db.context().timings(),
                     )
                 },
             );

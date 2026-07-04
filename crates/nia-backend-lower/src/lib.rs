@@ -226,13 +226,15 @@ pub fn lower_backend_program_with_timings(
         for lowerer in &mut lowerers {
             let module = lowerer.lower_module();
             if timing {
-                eprintln!(
-                    "query timing backend_lower.module[{:?}]: functions={} instances={} structs={} unions={}",
-                    module.id,
-                    module.functions.len(),
-                    module.function_instances.len(),
-                    module.struct_instances.len(),
-                    module.union_instances.len()
+                nia_timing::emit_query_note(
+                    format!("backend_lower.module[{:?}]", module.id),
+                    format!(
+                        "functions={} instances={} structs={} unions={}",
+                        module.functions.len(),
+                        module.function_instances.len(),
+                        module.struct_instances.len(),
+                        module.union_instances.len()
+                    ),
                 );
             }
             pending_foreign_instances
@@ -395,10 +397,7 @@ pub fn lower_backend_program_with_timings(
 }
 
 fn time_backend_stage<T>(enabled: bool, name: &str, f: impl FnOnce() -> T) -> T {
-    if !enabled {
-        return f();
-    }
-    nia_timing::time_query(nia_timing::TimingMode::Detail, name, f)
+    nia_timing::time_detail(enabled, name, f)
 }
 
 fn append_function_instances(

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::cell::RefCell;
 use std::fmt;
-use std::time::{Duration, Instant};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
@@ -806,7 +805,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         body_filter: ActiveBodyCheckFilter::from_filter(input.filter),
         checked_functions: HashSet::new(),
         pending_functions: VecDeque::new(),
-        profile: BodyCheckProfile::default(),
+        profile: nia_timing::TimingAccumulator::default(),
     });
     time_body_stage(timing, "body_check.seed_global_types", module_id, || {
         checker.seed_global_types();
@@ -950,7 +949,7 @@ struct BodyChecker<'a> {
     body_filter: ActiveBodyCheckFilter<'a>,
     checked_functions: HashSet<GlobalDefId>,
     pending_functions: VecDeque<GlobalDefId>,
-    profile: BodyCheckProfile,
+    profile: nia_timing::TimingAccumulator,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -960,17 +959,6 @@ struct TraitObligationResolutionKey {
     trait_id: nia_ty::TraitId,
     trait_args: Vec<InternedTyId>,
     trait_const_args: Vec<ConstGenericArg>,
-}
-
-#[derive(Default)]
-struct BodyCheckProfile {
-    stages: HashMap<&'static str, BodyCheckProfileStage>,
-}
-
-#[derive(Default)]
-struct BodyCheckProfileStage {
-    total: Duration,
-    count: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -1536,26 +1524,18 @@ impl<'a> BodyChecker<'a> {
         if !self.timing {
             return f(self);
         }
-        let start = Instant::now();
-        let result = f(self);
-        let stage = self.profile.stages.entry(name).or_default();
-        stage.total += start.elapsed();
-        stage.count += 1;
+        let mut profile = std::mem::take(&mut self.profile);
+        let result = profile.time(name, || f(self));
+        self.profile = profile;
         result
     }
 
     fn print_profile(&self) {
-        if !self.timing || self.profile.stages.is_empty() {
+        if !self.timing || self.profile.is_empty() {
             return;
         }
-        let mut stages = self.profile.stages.iter().collect::<Vec<_>>();
-        stages.sort_by(|(_, left), (_, right)| right.total.cmp(&left.total));
-        for (name, stage) in stages {
-            nia_timing::emit_query_timing(
-                &format!("{name}[{:?} count={}]", self.timing_module_id, stage.count),
-                stage.total,
-            );
-        }
+        self.profile
+            .emit_query_timings(|name| format!("{name}[{:?}]", self.timing_module_id));
     }
 
     fn check_module(
