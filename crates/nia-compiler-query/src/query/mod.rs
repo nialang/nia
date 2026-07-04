@@ -220,9 +220,11 @@ impl CompilerDatabase {
         let mut invalidation = CompilerInvalidation::default();
         if diff.graph_changed {
             invalidation.extend(self.db.invalidate(ModuleGraphQuery));
+            invalidation.extend(self.db.invalidate(SemanticModuleIdsQuery));
         }
         if diff.loaded_modules_changed {
             invalidation.extend(self.db.invalidate(LoadedModulesQuery));
+            invalidation.extend(self.db.invalidate(SemanticModuleIdsQuery));
         }
         if diff.loaded_diagnostics_changed {
             invalidation.extend(self.db.invalidate(ProgramLoadDiagnosticsQuery));
@@ -253,6 +255,7 @@ impl CompilerDatabase {
                 }
                 if module.parse_errors {
                     invalidation.extend(self.db.invalidate(ModuleParseErrorsQuery(module_id)));
+                    invalidation.extend(self.db.invalidate(SemanticModuleIdsQuery));
                 }
                 if module.item_tree {
                     invalidation.extend(self.db.invalidate(ModuleItemTreeInputQuery(module_id)));
@@ -1155,13 +1158,38 @@ mod tests {
     use nia_source::{SourceId, SourceRevision};
 
     fn loaded_program_with_modules(modules: Vec<LoadedModule>) -> LoadedProgram {
+        let graph = module_graph_for_loaded_modules(&modules);
         LoadedProgram {
-            graph: ModuleGraph::new(SourcePath::new("main.nia")),
+            graph,
             target: TargetConfig::host(),
             runtime: RuntimeModel::Bare,
             modules,
             diagnostics: Vec::new(),
         }
+    }
+
+    fn module_graph_for_loaded_modules(modules: &[LoadedModule]) -> ModuleGraph {
+        let entry = modules
+            .first()
+            .map(|module| module.path.clone())
+            .unwrap_or_else(|| SourcePath::new("main.nia"));
+        let mut graph = ModuleGraph::new(entry);
+        let max_id = modules
+            .iter()
+            .map(|module| module.id.0)
+            .max()
+            .unwrap_or(graph.entry().0);
+        for id in 1..=max_id {
+            graph
+                .intern_declared_child(
+                    graph.entry(),
+                    &format!("module{id}"),
+                    nia_ids::Visibility::Public,
+                    Span::default(),
+                )
+                .expect("intern fixture module");
+        }
+        graph
     }
 
     fn loaded_program_with_entry_child(
@@ -1178,6 +1206,31 @@ mod tests {
                 Span::default(),
             )
             .expect("intern child module");
+        LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::Bare,
+            modules: vec![entry, child],
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn loaded_program_with_shallow_entry_child(
+        entry: LoadedModule,
+        child_name: &str,
+        child: LoadedModule,
+    ) -> LoadedProgram {
+        let mut graph = ModuleGraph::new(entry.path.clone());
+        graph
+            .intern_declared_child_with_processing(
+                entry.id,
+                child_name,
+                nia_ids::Visibility::Public,
+                Span::default(),
+                false,
+                false,
+            )
+            .expect("intern shallow child module");
         LoadedProgram {
             graph,
             target: TargetConfig::host(),
@@ -1354,6 +1407,45 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "checked_program" && dependency.to.name == "checked_modules"
         }));
+    }
+
+    #[test]
+    fn semantic_module_ids_exclude_shallow_facade_modules() {
+        let entry = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+pub module facade;
+
+fn main() i32 {
+    0
+}
+"#,
+        );
+        let facade = loaded_module(
+            ModuleId(1),
+            "facade.nia",
+            r#"
+pub fn expensive_or_invalid() i32 {
+    missing_symbol
+}
+"#,
+        );
+        let db = query_db(loaded_program_with_shallow_entry_child(
+            entry, "facade", facade,
+        ));
+
+        assert_eq!(
+            db.query(ParseOkModuleIdsQuery),
+            vec![ModuleId(0), ModuleId(1)]
+        );
+        assert_eq!(db.query(SemanticModuleIdsQuery), vec![ModuleId(0)]);
+
+        let checked = db.query(CheckedModulesQuery);
+        assert_eq!(
+            checked.iter().map(|module| module.id).collect::<Vec<_>>(),
+            vec![ModuleId(0)]
+        );
     }
 
     #[test]
@@ -1550,8 +1642,8 @@ fn main() i32 {
                 .dependencies
                 .iter()
                 .any(|dependency| {
-                    dependency.from.name == "parse_ok_module_ids"
-                        && dependency.to.name == "loaded_modules"
+                    dependency.from.name == "semantic_module_ids"
+                        && dependency.to.name == "parse_ok_module_ids"
                 })
         );
     }
@@ -1980,12 +2072,12 @@ fn main() i32 {
 
     #[test]
     fn compiler_query_providers_can_override_query_execution() {
-        fn no_parse_ok_modules(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
+        fn no_semantic_modules(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
             Vec::new()
         }
 
         let providers = CompilerQueryProviders {
-            parse_ok_module_ids: no_parse_ok_modules,
+            semantic_module_ids: no_semantic_modules,
             ..CompilerQueryProviders::default()
         };
         let checked = compiler_database_with_providers(
@@ -2003,12 +2095,12 @@ fn main() i32 {
 
     #[test]
     fn missing_loaded_module_id_becomes_query_diagnostic() {
-        fn unknown_parse_ok_module(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
+        fn unknown_semantic_module(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
             vec![ModuleId(99)]
         }
 
         let providers = CompilerQueryProviders {
-            parse_ok_module_ids: unknown_parse_ok_module,
+            semantic_module_ids: unknown_semantic_module,
             ..CompilerQueryProviders::default()
         };
         let policy = NiaOptimizationLevel::Oz.policy();
