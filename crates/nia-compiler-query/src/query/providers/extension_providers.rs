@@ -461,6 +461,7 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
             let conservative = db.query(ExtensionProviderNominalConservativeTargetIndexQuery);
             let candidate_index = db.query(ExtensionProviderNominalCandidateIndexQuery);
             let mut modules = Vec::new();
+            let mut candidate_modules = Vec::new();
             for target in targets.as_slice().iter().copied() {
                 if let Some(providers) = conservative.providers_by_target.get(&target) {
                     modules.extend(
@@ -482,32 +483,32 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
                     continue;
                 };
                 for name in names {
-                    for facts in db.query_many(
-                        candidate_index
-                            .0
-                            .named(name)
-                            .iter()
-                            .copied()
-                            .map(ExtensionProviderNominalModuleFactsQuery),
-                    ) {
-                        modules.extend(
-                            facts
-                                .nominal_providers
-                                .iter()
-                                .copied()
-                                .filter(|provider| {
-                                    provider.target == target
-                                        && nia_imports::visibility_allows(
-                                            provider.visibility,
-                                            &graph,
-                                            provider.module_id,
-                                            accessing_module,
-                                        )
-                                })
-                                .map(|provider| provider.module_id),
-                        );
-                    }
+                    candidate_modules.extend(candidate_index.0.named(name).iter().copied());
                 }
+            }
+            candidate_modules.sort();
+            candidate_modules.dedup();
+            for facts in db.query_many(
+                candidate_modules
+                    .into_iter()
+                    .map(ExtensionProviderNominalModuleFactsQuery),
+            ) {
+                modules.extend(
+                    facts
+                        .nominal_providers
+                        .iter()
+                        .copied()
+                        .filter(|provider| {
+                            targets.as_slice().binary_search(&provider.target).is_ok()
+                                && nia_imports::visibility_allows(
+                                    provider.visibility,
+                                    &graph,
+                                    provider.module_id,
+                                    accessing_module,
+                                )
+                        })
+                        .map(|provider| provider.module_id),
+                );
             }
             modules.sort();
             modules.dedup();

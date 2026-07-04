@@ -51,7 +51,10 @@ where
         let mut named: HashMap<String, Vec<M>> = HashMap::new();
         for (module, summary) in summaries {
             for provider in &summary.providers {
-                match provider.target.ty.source_nominal_provider_candidate() {
+                let Some(candidate) = provider.target.ty.nominal_provider_index_candidate() else {
+                    continue;
+                };
+                match candidate {
                     NominalProviderCandidate::Named(name) => {
                         named.entry(name).or_default().push(module);
                     }
@@ -259,14 +262,11 @@ impl ProviderTypeRef {
             .unwrap_or(NominalProviderCandidate::Conservative)
     }
 
-    fn source_nominal_provider_candidate(&self) -> NominalProviderCandidate {
+    fn nominal_provider_index_candidate(&self) -> Option<NominalProviderCandidate> {
         if self.is_generic_or_structural_target {
-            return NominalProviderCandidate::Conservative;
+            return None;
         }
-        self.last_name
-            .clone()
-            .map(NominalProviderCandidate::Named)
-            .unwrap_or(NominalProviderCandidate::Conservative)
+        self.last_name.clone().map(NominalProviderCandidate::Named)
     }
 
     fn is_definite_semantic_name(&self) -> bool {
@@ -466,6 +466,54 @@ extend Alias {
         let index = NominalProviderCandidateIndex::from_summaries([(0usize, summary)]);
         assert_eq!(index.named("Alias"), &[0usize]);
         assert!(index.named("Used").is_empty());
+    }
+
+    #[test]
+    fn nominal_provider_index_skips_structural_targets() {
+        let summary = summary_for(
+            r#"
+extend[T] [T] {
+    fn size(&self) usize { 0usize }
+}
+
+extend[T] &T {
+    fn ptr(self) bool { true }
+}
+
+extend void {
+    fn unit(self) i32 { 1 }
+}
+"#,
+        );
+
+        assert!(summary.may_define_nominal_provider_for("Used"));
+        assert_eq!(
+            summary.nominal_provider_candidates(),
+            vec![NominalProviderCandidate::Conservative]
+        );
+        let index = NominalProviderCandidateIndex::from_summaries([(0usize, summary)]);
+        assert!(index.conservative().is_empty());
+        assert!(index.all_named().next().is_none());
+    }
+
+    #[test]
+    fn nominal_provider_index_skips_generic_parameter_targets() {
+        let summary = summary_for(
+            r#"
+extend[T] T {
+    fn rank(self) i32 { 1 }
+}
+"#,
+        );
+
+        assert!(summary.may_define_nominal_provider_for("Used"));
+        assert_eq!(
+            summary.nominal_provider_candidates(),
+            vec![NominalProviderCandidate::Conservative]
+        );
+        let index = NominalProviderCandidateIndex::from_summaries([(0usize, summary)]);
+        assert!(index.conservative().is_empty());
+        assert!(index.named("T").is_empty());
     }
 
     #[test]
