@@ -154,6 +154,21 @@ impl QueryKey<CompilerContext> for ParseOkModuleIdsQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SemanticModuleIdsQuery;
+
+impl QueryKey<CompilerContext> for SemanticModuleIdsQuery {
+    type Value = Vec<ModuleId>;
+
+    fn name() -> &'static str {
+        "semantic_module_ids"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.semantic_module_ids)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ModulePathQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ModulePathQuery {

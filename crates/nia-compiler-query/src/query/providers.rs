@@ -18,6 +18,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) codegen_program: fn(&QueryDb<CompilerContext>) -> CodegenProgram,
     pub(super) module_graph: fn(&QueryDb<CompilerContext>) -> ModuleGraph,
     pub(super) parse_ok_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
+    pub(super) semantic_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
     pub(super) module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
     pub(super) active_module_item_tree:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
@@ -113,6 +114,7 @@ impl Default for CompilerQueryProviders {
             codegen_program: provide_codegen_program,
             module_graph: provide_module_graph,
             parse_ok_module_ids: provide_parse_ok_module_ids,
+            semantic_module_ids: provide_semantic_module_ids,
             module_item_tree: provide_module_item_tree,
             active_module_item_tree: provide_active_module_item_tree,
             full_module_item_tree: provide_full_module_item_tree,
@@ -301,6 +303,19 @@ pub(super) fn provide_parse_ok_module_ids(db: &QueryDb<CompilerContext>) -> Vec<
         .filter(|module_id| {
             let parse_errors = db.query(ModuleParseErrorsQuery(*module_id));
             parse_errors.is_empty()
+        })
+        .collect()
+}
+
+pub(super) fn provide_semantic_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
+    let graph = db.query(ModuleGraphQuery);
+    let entry = graph.entry();
+    db.query(ParseOkModuleIdsQuery)
+        .into_iter()
+        .filter(|module_id| {
+            graph
+                .get(*module_id)
+                .is_some_and(|node| *module_id == entry || node.process_used_paths)
         })
         .collect()
 }
@@ -708,17 +723,17 @@ fn module_signature_inputs_for(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
 ) -> ProgramSignatureInputs {
-    module_signature_inputs_for_modules(db, db.query(ParseOkModuleIdsQuery), set)
+    module_signature_inputs_for_modules(db, db.query(SemanticModuleIdsQuery), set)
 }
 
 fn trait_signature_inputs_for_extensions(db: &QueryDb<CompilerContext>) -> ProgramSignatureInputs {
     let timings = db.context().timings();
-    let parse_ok = db.query(ParseOkModuleIdsQuery);
+    let semantic_modules = db.query(SemanticModuleIdsQuery);
     let module_ids = time_provider(
         timings,
         "extension_signature_inputs.filter_trait_modules",
         || {
-            parse_ok
+            semantic_modules
                 .into_iter()
                 .filter(|module_id| {
                     let tree = db.query(SignatureItemTreeQuery(
@@ -832,9 +847,9 @@ fn extension_signature_inputs(db: &QueryDb<CompilerContext>) -> ExtensionSignatu
 
 fn extension_provider_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
     let timings = db.context().timings();
-    let parse_ok = db.query(ParseOkModuleIdsQuery);
+    let semantic_modules = db.query(SemanticModuleIdsQuery);
     time_provider(timings, "extension_provider_module_ids.filter", || {
-        parse_ok
+        semantic_modules
             .into_iter()
             .filter(|module_id| {
                 let tree = db.query(SignatureItemTreeQuery(
@@ -988,7 +1003,7 @@ pub(super) fn provide_program_abi_signatures(
         let mut structs = HashMap::new();
         let mut unions = HashMap::new();
         let mut enums = HashMap::new();
-        for module_id in db.query(ParseOkModuleIdsQuery) {
+        for module_id in db.query(SemanticModuleIdsQuery) {
             let signatures = db.query(SignatureItemSignaturesQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Types,
@@ -4595,7 +4610,7 @@ pub(super) fn provide_checked_modules(db: &QueryDb<CompilerContext>) -> Vec<Chec
             },
         );
         db.query_many(
-            db.query(ParseOkModuleIdsQuery)
+            db.query(SemanticModuleIdsQuery)
                 .into_iter()
                 .map(CheckedModuleQuery),
         )
@@ -4618,7 +4633,7 @@ pub(super) fn provide_executable_checked_modules(
 }
 
 fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
-    let parse_ok = db.query(ParseOkModuleIdsQuery);
+    let parse_ok = db.query(SemanticModuleIdsQuery);
     let graph = db.query(ModuleGraphQuery);
     let mut program_signatures = None::<ProgramExecutableSignatures>;
     let extension_methods = db.query(ExtensionMethodIndexQuery);
@@ -5320,7 +5335,7 @@ fn checked_modules_for_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<Checked
     }
     let graph = db.query(ModuleGraphQuery);
     db.query_many(
-        db.query(ParseOkModuleIdsQuery)
+        db.query(SemanticModuleIdsQuery)
             .into_iter()
             .filter(|module_id| {
                 graph.get(*module_id).is_some_and(|node| {
@@ -5560,7 +5575,7 @@ fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagno
     }
     if db.query(CompilerRuntimeQuery) != RuntimeModel::FreestandingExecutable {
         let first_path = db
-            .query(ParseOkModuleIdsQuery)
+            .query(SemanticModuleIdsQuery)
             .first()
             .map(|module_id| db.query(ModulePathQuery(*module_id)))
             .unwrap_or_else(synthetic_diagnostic_path);
