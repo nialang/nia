@@ -2336,6 +2336,57 @@ extend Value : Ops {
     }
 
     #[test]
+    fn extension_provider_module_ids_reuse_trait_signature_module_ids() {
+        let loaded = loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "module module1; module module2; module module3; module module4; module module5;",
+            ),
+            loaded_module(ModuleId(1), "module1.nia", "struct S { value: i32 }"),
+            loaded_module(ModuleId(2), "module2.nia", "fn helper() i32 { 1 }"),
+            loaded_module(
+                ModuleId(3),
+                "module3.nia",
+                "comptime WIDTH: usize = 4usize;",
+            ),
+            loaded_module(
+                ModuleId(4),
+                "module4.nia",
+                "trait Read { fn read(self) i32; }",
+            ),
+            loaded_module(
+                ModuleId(5),
+                "module5.nia",
+                "struct T {} extend T { pub fn make() T { {} } }",
+            ),
+        ]);
+        let db = query_db(loaded);
+
+        assert_eq!(db.query(ExtensionProviderModuleIdsQuery), vec![ModuleId(5)]);
+        let trace = db.query_trace();
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_provider_module_ids",
+            "program_signature_module_ids"
+        ));
+        assert!(!trace_has_dependency(
+            &trace,
+            "extension_provider_module_ids",
+            "semantic_module_ids"
+        ));
+        for skipped in ["ModuleId(1)", "ModuleId(2)", "ModuleId(3)"] {
+            assert!(
+                !trace.queries.iter().any(|query| {
+                    query.frame.name == "extension_provider_summary"
+                        && query.frame.description.contains(skipped)
+                }),
+                "pure non-provider module {skipped} should not build provider summary: {trace:?}"
+            );
+        }
+    }
+
+    #[test]
     fn program_codegen_signature_queries_use_precise_module_signature_queries() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
@@ -2603,7 +2654,7 @@ extend Value : Ops {
         assert!(trace_has_dependency(
             &trace,
             "extension_provider_module_ids",
-            "semantic_module_ids"
+            "program_signature_module_ids"
         ));
         assert!(trace_has_dependency(
             &trace,
