@@ -2627,12 +2627,12 @@ extend Value : Ops {
             "extension_trait_solving_module_facts",
             "extension_signature_module_input"
         ));
-        assert!(trace_has_dependency(
+        assert!(!trace_has_dependency(
             &trace,
             "program_trait_solving_signatures",
             "program_signature_module_ids"
         ));
-        assert!(trace_has_dependency(
+        assert!(!trace_has_dependency(
             &trace,
             "program_trait_solving_signatures",
             "module_program_signature_facts"
@@ -2817,6 +2817,70 @@ extend Value : Ops {
             dependency.from.name == "full_module_item_tree"
                 && dependency.to.name == "full_module_item_tree_input"
         }));
+    }
+
+    #[test]
+    fn value_resolution_does_not_build_visible_extensions_for_plain_paths() {
+        let loaded = loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(0),
+                "main.nia",
+                r#"
+module helper;
+
+fn main() i32 {
+    helper::value()
+}
+"#,
+            ),
+            loaded_module(ModuleId(1), "helper.nia", "pub fn value() i32 { 1 }"),
+        ]);
+        let db = query_db(loaded);
+
+        let values = db.query(ValueResolutionQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
+        assert!(!trace_has_dependency(
+            &trace,
+            "value_resolution",
+            "visible_extensions"
+        ));
+        assert!(!trace_has_dependency(
+            &trace,
+            "value_resolution",
+            "extension_provider_nominal_modules"
+        ));
+    }
+
+    #[test]
+    fn value_resolution_loads_visible_extensions_for_associated_values() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+struct S {}
+
+extend S {
+    comptime WIDTH: usize = 4usize;
+}
+
+fn main() usize {
+    S::WIDTH
+}
+"#,
+        )]);
+        let db = query_db(loaded);
+
+        let values = db.query(ValueResolutionQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
+        assert!(trace_has_dependency(
+            &trace,
+            "value_resolution",
+            "visible_extensions"
+        ));
     }
 
     #[test]

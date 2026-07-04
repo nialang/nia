@@ -3,10 +3,7 @@ use std::collections::HashMap;
 
 use nia_ast::{Expr, ExprKind, Module, TypeArg, TypeKind, TypeRef, Visibility};
 use nia_ast_walk::{Visitor, walk_expr, walk_where_clause};
-use nia_defs::{
-    DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces,
-    VisibleExtensionMethods,
-};
+use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces};
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
@@ -18,7 +15,7 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, Module
 use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{BuiltinAssociatedValue, PrimitiveIntLimit, supports_primitive_int_limit};
 use nia_span::Span;
-use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+use nia_ty::PrimitiveTy;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValueResolution {
@@ -45,6 +42,25 @@ pub enum ValueNameResolution {
     Module,
     LocalDeferred,
     Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AssociatedValueTarget {
+    Nominal(GlobalDefId),
+    Primitive(PrimitiveTy),
+}
+
+pub trait AssociatedValueResolver {
+    fn associated_value(&self, target: AssociatedValueTarget, name: &str) -> Option<GlobalDefId>;
+}
+
+impl<F> AssociatedValueResolver for F
+where
+    F: Fn(AssociatedValueTarget, &str) -> Option<GlobalDefId>,
+{
+    fn associated_value(&self, target: AssociatedValueTarget, name: &str) -> Option<GlobalDefId> {
+        self(target, name)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -105,8 +121,7 @@ pub fn resolve_module_values_with_graph(
             program_defs,
             public_surfaces: None,
             using_scope: None,
-            extensions: None,
-            extension_interner: None,
+            associated_values: None,
         },
     )
 }
@@ -128,8 +143,7 @@ pub fn resolve_module_values_with_context(
             program_defs,
             public_surfaces: Some(public_surfaces),
             using_scope: Some(using_scope),
-            extensions: None,
-            extension_interner: None,
+            associated_values: None,
         },
     )
 }
@@ -146,8 +160,7 @@ pub fn resolve_module_values_from_item_tree(
             program_defs: ProgramDefsContext::empty(),
             public_surfaces: None,
             using_scope: None,
-            extensions: None,
-            extension_interner: None,
+            associated_values: None,
         },
     )
 }
@@ -159,27 +172,23 @@ pub fn resolve_module_values_from_active_item_tree(
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
 ) -> ValueResolution {
-    let empty_extensions = VisibleExtensionMethods::default();
-    let empty_interner = TyInterner::default();
-    resolve_module_values_from_active_item_tree_with_extensions(
+    resolve_module_values_from_active_item_tree_with_associated_values(
         item_tree,
         defs,
         program_defs,
         public_surfaces,
         using_scope,
-        &empty_extensions,
-        &empty_interner,
+        None,
     )
 }
 
-pub fn resolve_module_values_from_active_item_tree_with_extensions(
+pub fn resolve_module_values_from_active_item_tree_with_associated_values(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
-    extensions: &VisibleExtensionMethods,
-    extension_interner: &TyInterner,
+    associated_values: Option<&dyn AssociatedValueResolver>,
 ) -> ValueResolution {
     resolve_module_values_from_items(
         &item_tree.items,
@@ -189,8 +198,7 @@ pub fn resolve_module_values_from_active_item_tree_with_extensions(
             program_defs,
             public_surfaces: Some(public_surfaces),
             using_scope: Some(using_scope),
-            extensions: Some(extensions),
-            extension_interner: Some(extension_interner),
+            associated_values,
         },
     )
 }
@@ -202,27 +210,23 @@ pub fn resolve_module_values_from_exprs(
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
 ) -> ValueResolution {
-    let empty_extensions = VisibleExtensionMethods::default();
-    let empty_interner = TyInterner::default();
-    resolve_module_values_from_exprs_with_extensions(
+    resolve_module_values_from_exprs_with_associated_values(
         exprs,
         defs,
         program_defs,
         public_surfaces,
         using_scope,
-        &empty_extensions,
-        &empty_interner,
+        None,
     )
 }
 
-pub fn resolve_module_values_from_exprs_with_extensions(
+pub fn resolve_module_values_from_exprs_with_associated_values(
     exprs: impl IntoIterator<Item = Expr>,
     defs: &DefCollection,
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
-    extensions: &VisibleExtensionMethods,
-    extension_interner: &TyInterner,
+    associated_values: Option<&dyn AssociatedValueResolver>,
 ) -> ValueResolution {
     resolve_module_values_from_exprs_inner(
         exprs,
@@ -232,8 +236,7 @@ pub fn resolve_module_values_from_exprs_with_extensions(
             program_defs,
             public_surfaces: Some(public_surfaces),
             using_scope: Some(using_scope),
-            extensions: Some(extensions),
-            extension_interner: Some(extension_interner),
+            associated_values,
         },
     )
 }
@@ -273,8 +276,7 @@ struct ValueResolveInputs<'a> {
     program_defs: ProgramDefsContext<'a>,
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
-    extensions: Option<&'a VisibleExtensionMethods>,
-    extension_interner: Option<&'a TyInterner>,
+    associated_values: Option<&'a dyn AssociatedValueResolver>,
 }
 
 struct ValueResolver<'a> {
@@ -283,8 +285,7 @@ struct ValueResolver<'a> {
     program_defs: ProgramDefsContext<'a>,
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
-    extensions: Option<&'a VisibleExtensionMethods>,
-    extension_interner: Option<&'a TyInterner>,
+    associated_values: Option<&'a dyn AssociatedValueResolver>,
     node_names: HashMap<VersionedNodeKey, ValueNameResolution>,
     node_qualified_values: HashMap<VersionedNodeKey, GlobalDefId>,
     node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
@@ -301,8 +302,7 @@ impl ValueResolver<'_> {
             program_defs: inputs.program_defs,
             public_surfaces: inputs.public_surfaces,
             using_scope: inputs.using_scope,
-            extensions: inputs.extensions,
-            extension_interner: inputs.extension_interner,
+            associated_values: inputs.associated_values,
             node_names: HashMap::new(),
             node_qualified_values: HashMap::new(),
             node_builtin_associated_values: HashMap::new(),
@@ -868,10 +868,7 @@ impl<'a> ValueResolver<'a> {
             self.insert_variant_enum(node_key, type_id);
             return;
         }
-        let Some(target_ty) = self.nominal_extension_target_ty(type_id) else {
-            return;
-        };
-        self.resolve_associated_value(node_key, target_ty, name.name);
+        self.resolve_associated_value(node_key, AssociatedValueTarget::Nominal(type_id), name.name);
     }
 
     fn resolve_primitive_qualified_value(
@@ -880,41 +877,28 @@ impl<'a> ValueResolver<'a> {
         primitive: PrimitiveTy,
         name: PathSegment<'_>,
     ) {
-        let Some(interner) = self.extension_interner else {
-            return;
-        };
         if let Some(value) = primitive_associated_value(primitive, name.name) {
             self.insert_builtin_associated_value(node_key, value);
             return;
         }
-        let target_ty = interner.primitive(primitive);
-        self.resolve_associated_value(node_key, target_ty, name.name);
+        self.resolve_associated_value(
+            node_key,
+            AssociatedValueTarget::Primitive(primitive),
+            name.name,
+        );
     }
 
     fn resolve_associated_value(
         &mut self,
         node_key: &VersionedNodeKey,
-        target_ty: nia_ids::InternedTyId,
+        target: AssociatedValueTarget,
         name: &str,
     ) {
-        let Some(extensions) = self.extensions else {
-            return;
-        };
-        if let Some(value) = extensions.associated_value(target_ty, name) {
-            self.insert_qualified_value(node_key, value.def_id);
+        if let Some(resolver) = self.associated_values
+            && let Some(def_id) = resolver.associated_value(target, name)
+        {
+            self.insert_qualified_value(node_key, def_id);
         }
-    }
-
-    fn nominal_extension_target_ty(&self, type_id: GlobalDefId) -> Option<nia_ids::InternedTyId> {
-        let interner = self.extension_interner?;
-        interner.iter().find_map(|(ty, kind)| match kind {
-            TyKind::Nominal {
-                def_id,
-                args,
-                const_args,
-            } if *def_id == type_id && args.is_empty() && const_args.is_empty() => Some(ty),
-            _ => None,
-        })
     }
 
     fn resolve_ident(&mut self, name: &str, node_key: &VersionedNodeKey) -> ValueNameResolution {

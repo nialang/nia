@@ -34,7 +34,6 @@ pub(super) struct ExtensionTraitSolvingModuleFactsQueryValue {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramTraitSolvingSignatures {
-    pub(super) enums: HashMap<GlobalDefId, ProgramEnumSignature>,
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
     pub(super) invalid_trait_impl_method_ids: HashSet<GlobalDefId>,
 }
