@@ -3070,6 +3070,48 @@ fn main() i32 {
             dependency.from.name == "checked_program"
                 && dependency.to.name == "extension_method_set"
         }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "codegen_program"
+                && dependency.to.name == "extension_provider_validation_program_facts"
+        }));
+    }
+
+    #[test]
+    fn entry_checked_program_uses_module_scoped_extension_validation_diagnostics() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "extend ! { fn nope(self) void {} } pub fn main() i32 { 1 }",
+        )]);
+        let db = query_db(loaded);
+
+        let checked = db.query(EntryCheckedProgramQuery);
+        let trace = db.query_trace();
+
+        assert!(
+            checked.diagnostics.iter().any(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("extend target must be an extendable value type")),
+            "{:?}",
+            checked.diagnostics
+        );
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "entry_checked_program"
+                && dependency.to.name == "executable_checked_modules"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "entry_checked_program"
+                && dependency.to.name == "extension_provider_validation_facts"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "entry_checked_program"
+                && dependency.to.name == "extension_provider_validation_program_facts"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "entry_checked_program"
+                && dependency.to.name == "extension_method_set"
+        }));
     }
 
     #[test]

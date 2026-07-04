@@ -1209,6 +1209,12 @@ pub(super) fn provide_extension_provider_validation_facts(
     module_id: ModuleId,
 ) -> ExtensionProviderValidationFactsValue {
     time_module_provider(db, "extension_provider_validation_facts", module_id, || {
+        if !db.query(ExtensionProviderModuleEligibilityQuery(module_id)) {
+            return Arc::new(ExtensionProviderValidationFactsQueryValue {
+                methods: nia_defs::ExtensionMethods::default(),
+                diagnostics: Vec::new(),
+            });
+        }
         let input = db.query(ExtensionSignatureModuleInputQuery(module_id));
         let trait_index = db.query(ExtensionTraitSignatureIndexQuery);
         let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
@@ -5702,24 +5708,6 @@ fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagno
             diagnostic,
         });
     }
-    if db.query(CompilerRuntimeQuery) != RuntimeModel::FreestandingExecutable {
-        let first_path = db
-            .query(SemanticModuleIdsQuery)
-            .first()
-            .map(|module_id| db.query(ModulePathQuery(*module_id)))
-            .unwrap_or_else(synthetic_diagnostic_path);
-        diagnostics.extend(
-            db.query(ExtensionMethodSetQuery)
-                .diagnostics
-                .iter()
-                .chain(db.query(ExtensionAssociatedValuesQuery).diagnostics.iter())
-                .cloned()
-                .map(|diagnostic| ProgramDiagnostic {
-                    path: first_path.clone(),
-                    diagnostic,
-                }),
-        );
-    }
     diagnostics
 }
 
@@ -5776,6 +5764,16 @@ fn checked_module_diagnostics(
             &checked.flow_check.diagnostics,
         ));
         diagnostics.extend(module_diagnostics(&checked.path, &checked.body_diagnostics));
+        let extension_validation = db.query(ExtensionProviderValidationFactsQuery(checked.id));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &extension_validation.diagnostics,
+        ));
+        let extension_provider = db.query(ExtensionProviderModuleFactsQuery(checked.id));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &extension_provider.associated_value_diagnostics,
+        ));
     }
     diagnostics
 }
