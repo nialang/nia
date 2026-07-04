@@ -139,21 +139,6 @@ impl QueryKey<CompilerContext> for CompilerOptimizationQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct CompilerTimingsQuery;
-
-impl QueryKey<CompilerContext> for CompilerTimingsQuery {
-    type Value = TimingMode;
-
-    fn name() -> &'static str {
-        "compiler_timings"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().timings()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ParseOkModuleIdsQuery;
 
 impl QueryKey<CompilerContext> for ParseOkModuleIdsQuery {

@@ -236,9 +236,6 @@ impl CompilerDatabase {
         if diff.optimization_changed {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
         }
-        if diff.timings_changed {
-            invalidation.extend(self.db.invalidate(CompilerTimingsQuery));
-        }
         for module in diff.changed_modules {
             for module_id in module.ids {
                 if module.path {
@@ -903,7 +900,6 @@ struct CompilerInputDiff {
     target_changed: bool,
     runtime_changed: bool,
     optimization_changed: bool,
-    timings_changed: bool,
     changed_modules: Vec<ChangedModuleInput>,
 }
 
@@ -919,7 +915,6 @@ impl CompilerInputDiff {
             target_changed: old.target != new.target,
             runtime_changed: old.runtime != new.runtime,
             optimization_changed: old.optimization != new.optimization,
-            timings_changed: old.timings != new.timings,
             changed_modules,
         }
     }
@@ -1559,6 +1554,36 @@ fn main() i32 {
                         && dependency.to.name == "loaded_modules"
                 })
         );
+    }
+
+    #[test]
+    fn timing_mode_update_does_not_invalidate_semantic_queries() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "fn main() i32 { 0 }",
+        )]);
+        let database = CompilerDatabase::new(CompileRequest::new(loaded.clone()));
+
+        let first = database.check_program();
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        let before_update = database.query_trace();
+
+        let invalidation =
+            database.update(CompileRequest::new(loaded).with_timings(crate::TimingMode::Summary));
+        assert!(
+            invalidation.invalidated.is_empty(),
+            "{:?}",
+            invalidation.invalidated
+        );
+
+        let second = database.check_program();
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        let after_second_check = database.query_trace();
+
+        assert_query_executions_unchanged(&before_update, &after_second_check, "checked_program");
+        assert_query_executions_unchanged(&before_update, &after_second_check, "checked_modules");
+        assert_query_executions_unchanged(&before_update, &after_second_check, "checked_module");
     }
 
     #[test]
