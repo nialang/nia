@@ -80,6 +80,8 @@ type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
 type ExtensionAssociatedValuesValue = Arc<ExtensionAssociatedValuesQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
+type ProgramSignatureInputsValue = Arc<ProgramSignatureInputsQueryValue>;
+type ExtensionSignatureInputsValue = Arc<ExtensionSignatureInputsQueryValue>;
 
 #[derive(Debug, Clone)]
 pub struct CompileRequest {
@@ -1325,6 +1327,13 @@ mod tests {
         )
     }
 
+    fn trace_has_dependency(trace: &QueryTrace, from: &str, to: &str) -> bool {
+        trace
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.from.name == from && dependency.to.name == to)
+    }
+
     fn depends_on_body_signature_query(trace: &QueryTrace, from: &str) -> bool {
         trace.dependencies.iter().any(|dependency| {
             dependency.from.name == from && is_body_signature_query(dependency.to.name)
@@ -2142,18 +2151,36 @@ pub fn expensive_or_invalid() i32 {
         let _ = db.query(ProgramBodyTraitSignaturesQuery);
         let trace = db.query_trace();
 
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_body_function_signatures"
-                && dependency.to.name == "signature_item_signatures"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_body_value_signatures"
-                && dependency.to.name == "signature_item_signatures"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_body_type_signatures"
-                && dependency.to.name == "signature_item_signatures"
-        }));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_body_function_signatures",
+            "program_signature_inputs"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_body_value_signatures",
+            "program_signature_inputs"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_body_type_signatures",
+            "program_signature_inputs"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_signature_inputs",
+            "signature_item_signatures"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_signature_inputs",
+            "signature_type_lowering"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_signature_inputs",
+            "module_defs"
+        ));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_body_trait_signatures"
                 && dependency.to.name == "program_trait_solving_signatures"
@@ -2198,6 +2225,10 @@ pub fn expensive_or_invalid() i32 {
         }
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_backend_signatures"
+                && dependency.to.name == "program_signature_inputs"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_signature_inputs"
                 && dependency.to.name == "signature_item_signatures"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -2334,20 +2365,47 @@ pub fn expensive_or_invalid() i32 {
             dependency.from.name == "extension_methods"
                 && dependency.to.name == "extension_associated_values"
         }));
-        for query in ["extension_method_set"] {
-            assert!(trace.dependencies.iter().any(|dependency| {
-                dependency.from.name == query && dependency.to.name == "module_defs"
-            }));
-            assert!(trace.dependencies.iter().any(|dependency| {
-                dependency.from.name == query && dependency.to.name == "signature_item_signatures"
-            }));
-            assert!(trace.dependencies.iter().any(|dependency| {
-                dependency.from.name == query && dependency.to.name == "signature_type_lowering"
-            }));
-            assert!(trace.dependencies.iter().any(|dependency| {
-                dependency.from.name == query
-                    && dependency.to.name == "signature_type_normalization"
-            }));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_method_set",
+            "extension_signature_inputs"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_signature_inputs",
+            "extension_provider_module_ids"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_signature_inputs",
+            "signature_item_signatures"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_signature_inputs",
+            "signature_type_normalization"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_provider_module_ids",
+            "semantic_module_ids"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_provider_module_ids",
+            "signature_item_tree"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_signature_inputs",
+            "module_defs"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_signature_inputs",
+            "signature_type_lowering"
+        ));
+        for query in ["extension_method_set", "extension_signature_inputs"] {
             assert!(!trace.dependencies.iter().any(|dependency| {
                 dependency.from.name == query
                     && matches!(
@@ -2368,7 +2426,7 @@ pub fn expensive_or_invalid() i32 {
         for query in ["extension_method_index", "extension_associated_values"] {
             assert!(trace.dependencies.iter().any(|dependency| {
                 dependency.from.name == query
-                    && dependency.to.name == "extension_provider_module_facts"
+                    && dependency.to.name == "extension_provider_module_ids"
             }));
             assert!(!trace.dependencies.iter().any(|dependency| {
                 dependency.from.name == query
@@ -2395,6 +2453,14 @@ pub fn expensive_or_invalid() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_module_facts"
                 && dependency.to.name == "signature_type_normalization"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_method_index"
+                && dependency.to.name == "extension_provider_module_facts"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_associated_values"
+                && dependency.to.name == "extension_provider_module_facts"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_method_index"

@@ -238,6 +238,129 @@ impl QueryKey<CompilerContext> for LayoutTypeNormalizationQuery {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ProgramSignatureInputsQueryValue {
+    pub(super) module_ids: Vec<ModuleId>,
+    pub(super) type_lowerings: Vec<TypeLowering>,
+    pub(super) item_signatures: Vec<ItemSignatures>,
+    pub(super) defs: Vec<DefCollection>,
+}
+
+impl ProgramSignatureInputsQueryValue {
+    pub(super) fn modules(&self) -> Vec<ModuleSignatureInput<'_>> {
+        self.module_ids
+            .iter()
+            .copied()
+            .zip(self.type_lowerings.iter())
+            .zip(self.item_signatures.iter())
+            .zip(self.defs.iter())
+            .map(
+                |(((module_id, lowering), signatures), defs)| ModuleSignatureInput {
+                    module_id,
+                    defs,
+                    lowering,
+                    signatures,
+                },
+            )
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionSignatureInputsQueryValue {
+    pub(super) trait_inputs: ProgramSignatureInputsValue,
+    pub(super) function_signatures: Vec<ItemSignatures>,
+    pub(super) type_signatures: Vec<ItemSignatures>,
+    pub(super) normalizations: Vec<TypeNormalization>,
+}
+
+impl ExtensionSignatureInputsQueryValue {
+    pub(super) fn modules(&self) -> Vec<ModuleSignatureInput<'_>> {
+        self.trait_inputs.modules()
+    }
+
+    pub(super) fn extension_modules(&self) -> Vec<ExtensionModuleInput<'_>> {
+        self.trait_inputs
+            .module_ids
+            .iter()
+            .zip(self.trait_inputs.defs.iter())
+            .zip(self.trait_inputs.type_lowerings.iter())
+            .zip(self.trait_inputs.item_signatures.iter())
+            .zip(self.function_signatures.iter())
+            .zip(self.type_signatures.iter())
+            .zip(self.normalizations.iter())
+            .map(
+                |(
+                    (
+                        ((((module_id, defs), lowering), signatures), function_signatures),
+                        type_signatures,
+                    ),
+                    normalization,
+                )| {
+                    ExtensionModuleInput {
+                        module_id: *module_id,
+                        defs,
+                        lowering,
+                        signatures,
+                        function_signatures,
+                        type_signatures,
+                        normalization,
+                    }
+                },
+            )
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramSignatureInputsQuery(pub(super) nia_item_tree::SignatureItemSet);
+
+impl QueryKey<CompilerContext> for ProgramSignatureInputsQuery {
+    type Value = ProgramSignatureInputsValue;
+
+    fn name() -> &'static str {
+        "program_signature_inputs"
+    }
+
+    fn description(&self) -> String {
+        format!("program_signature_inputs({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_signature_inputs)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderModuleIdsQuery;
+
+impl QueryKey<CompilerContext> for ExtensionProviderModuleIdsQuery {
+    type Value = Vec<ModuleId>;
+
+    fn name() -> &'static str {
+        "extension_provider_module_ids"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_provider_module_ids)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionSignatureInputsQuery;
+
+impl QueryKey<CompilerContext> for ExtensionSignatureInputsQuery {
+    type Value = ExtensionSignatureInputsValue;
+
+    fn name() -> &'static str {
+        "extension_signature_inputs"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_signature_inputs)(db)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramBodyFunctionSignatures {
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
 }
