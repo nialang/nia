@@ -61,6 +61,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionSignatureModuleInputValue,
     pub(super) extension_signature_inputs:
         fn(&QueryDb<CompilerContext>) -> ExtensionSignatureInputsValue,
+    pub(super) extension_trait_solving_module_facts:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionTraitSolvingModuleFactsValue,
     pub(super) program_body_function_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramBodyFunctionSignatures>,
     pub(super) program_body_value_signatures:
@@ -151,6 +153,7 @@ impl Default for CompilerQueryProviders {
             extension_provider_module_ids: provide_extension_provider_module_ids,
             extension_signature_module_input: provide_extension_signature_module_input,
             extension_signature_inputs: provide_extension_signature_inputs,
+            extension_trait_solving_module_facts: provide_extension_trait_solving_module_facts,
             program_body_function_signatures: provide_program_body_function_signatures,
             program_body_value_signatures: provide_program_body_value_signatures,
             program_body_type_signatures: provide_program_body_type_signatures,
@@ -887,6 +890,24 @@ pub(super) fn provide_extension_signature_inputs(
     Arc::new(ExtensionSignatureInputsQueryValue { modules })
 }
 
+pub(super) fn provide_extension_trait_solving_module_facts(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> ExtensionTraitSolvingModuleFactsValue {
+    let input = db.query(ExtensionSignatureModuleInputQuery(module_id));
+    let modules = [input.module()];
+    let program_facts = db.query(ModuleProgramSignatureFactsQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Traits,
+    ));
+    Arc::new(ExtensionTraitSolvingModuleFactsQueryValue {
+        enums: program_facts.enums.clone(),
+        trait_impls: crate::program_signatures::collect_valid_program_trait_impls(&modules),
+        invalid_trait_impl_method_ids:
+            crate::program_signatures::collect_invalid_trait_impl_method_ids(&modules),
+    })
+}
+
 pub(super) fn provide_program_trait_solving_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramTraitSolvingSignatures> {
@@ -894,28 +915,28 @@ pub(super) fn provide_program_trait_solving_signatures(
         db.context().timings(),
         "program_trait_solving_signatures",
         || {
-            let inputs = db.query(ExtensionSignatureInputsQuery);
-            let facts = inputs
-                .modules
-                .iter()
-                .map(|module| module.module_id)
-                .map(|module_id| {
-                    db.query(ModuleProgramSignatureFactsQuery(
-                        module_id,
-                        nia_item_tree::SignatureItemSet::Traits,
-                    ))
-                })
-                .collect::<Vec<_>>();
-            let extension_modules = inputs.extension_modules();
-            let invalid_trait_impl_method_ids =
-                crate::program_signatures::collect_invalid_trait_impl_method_ids(
-                    &extension_modules,
+            let facts = db.query_many(
+                db.query(ExtensionProviderModuleIdsQuery)
+                    .into_iter()
+                    .map(ExtensionTraitSolvingModuleFactsQuery),
+            );
+            let mut enums = HashMap::new();
+            let mut trait_impls = Vec::new();
+            let mut invalid_trait_impl_method_ids = HashSet::new();
+            for facts in &facts {
+                enums.extend(
+                    facts
+                        .enums
+                        .iter()
+                        .map(|(def_id, signature)| (*def_id, signature.clone())),
                 );
+                trait_impls.extend(facts.trait_impls.iter().cloned());
+                invalid_trait_impl_method_ids
+                    .extend(facts.invalid_trait_impl_method_ids.iter().copied());
+            }
             Arc::new(ProgramTraitSolvingSignatures {
-                enums: collect_enums(&facts),
-                trait_impls: crate::program_signatures::collect_valid_program_trait_impls(
-                    &extension_modules,
-                ),
+                enums,
+                trait_impls,
                 invalid_trait_impl_method_ids,
             })
         },

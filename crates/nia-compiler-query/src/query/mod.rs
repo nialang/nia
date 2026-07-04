@@ -79,6 +79,7 @@ type ExtensionAssociatedValuesValue = Arc<ExtensionAssociatedValuesQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
 type ExtensionSignatureInputsValue = Arc<ExtensionSignatureInputsQueryValue>;
 type ExtensionSignatureModuleInputValue = Arc<ExtensionSignatureModuleInputQueryValue>;
+type ExtensionTraitSolvingModuleFactsValue = Arc<ExtensionTraitSolvingModuleFactsQueryValue>;
 type ModuleProgramSignatureFactsValue = Arc<ModuleProgramSignatureFacts>;
 
 #[derive(Debug, Clone)]
@@ -2427,10 +2428,26 @@ pub fn expensive_or_invalid() i32 {
             "extension_signature_module_input",
             "signature_type_lowering"
         ));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_trait_solving_signatures",
+            "extension_trait_solving_module_facts"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_trait_solving_module_facts",
+            "extension_signature_module_input"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_trait_solving_module_facts",
+            "module_program_signature_facts"
+        ));
         for query in [
             "extension_method_set",
             "extension_signature_inputs",
             "extension_signature_module_input",
+            "extension_trait_solving_module_facts",
         ] {
             assert!(!trace.dependencies.iter().any(|dependency| {
                 dependency.from.name == query
