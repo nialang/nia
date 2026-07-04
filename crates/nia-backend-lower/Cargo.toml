@@ -40,6 +40,7 @@ nia-body-check.workspace = true
 nia-flow-check.workspace = true
 nia-function-lower.workspace = true
 nia-parser.workspace = true
+nia-program-signatures.workspace = true
 nia-source.workspace = true
 nia-target-config.workspace = true
 nia-type-lower.workspace = true

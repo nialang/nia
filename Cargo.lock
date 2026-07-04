@@ -123,6 +123,7 @@ dependencies = [
  "nia-node-id",
  "nia-opt",
  "nia-parser",
+ "nia-program-signatures",
  "nia-sema-ir",
  "nia-source",
  "nia-span",
@@ -156,6 +157,7 @@ dependencies = [
  "nia-local-resolve",
  "nia-node-id",
  "nia-parser",
+ "nia-program-signatures",
  "nia-sema",
  "nia-sema-ir",
  "nia-source",
@@ -265,6 +267,7 @@ dependencies = [
  "nia-node-id",
  "nia-opt",
  "nia-parser",
+ "nia-program-signatures",
  "nia-provider-summary",
  "nia-query",
  "nia-sema-ir",
@@ -665,6 +668,14 @@ dependencies = [
  "nia-source",
  "nia-span",
  "nia-syntax",
+]
+
+[[package]]
+name = "nia-program-signatures"
+version = "0.4.3"
+dependencies = [
+ "nia-ids",
+ "nia-item-signatures",
 ]
 
 [[package]]

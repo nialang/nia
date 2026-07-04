@@ -8,7 +8,7 @@ use nia_comptime_ir::{
 use nia_defs::{DefCollection, DefId, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId};
-use nia_item_signatures::{ItemSignatures, ProgramEnumSignature, ProgramTraitImplSignature};
+use nia_item_signatures::{ItemSignatures, ProgramTraitImplSignature};
 use nia_item_tree::ActiveModuleItemTree;
 use nia_local_resolve::LocalResolution;
 use nia_sema_ir::SemanticUseTable;
@@ -17,9 +17,6 @@ use nia_target_config::TargetConfig;
 use nia_ty::{TyInterner, import_type_into};
 use nia_type_lower::TypeLowering;
 use nia_value_resolve::ValueResolution;
-
-static EMPTY_PROGRAM_ENUMS: std::sync::LazyLock<HashMap<GlobalDefId, ProgramEnumSignature>> =
-    std::sync::LazyLock::new(HashMap::new);
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ComptimeCheck {
@@ -220,7 +217,7 @@ pub struct ComptimeProgramContext<'a> {
     pub value_signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
     pub comptime_values: Option<&'a dyn Fn(ModuleId) -> Option<ComptimeValues>>,
     pub global_initializer: Option<&'a dyn Fn(GlobalDefId) -> Option<ResolvedComptimeExpr>>,
-    pub program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub program_is_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
     pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<VisibleExtensionMethods>>,
 }
@@ -240,7 +237,7 @@ impl fmt::Debug for ComptimeProgramContext<'_> {
             .field("value_signatures", &self.value_signatures.is_some())
             .field("comptime_values", &self.comptime_values.is_some())
             .field("global_initializer", &self.global_initializer.is_some())
-            .field("program_enums", &self.program_enums.len())
+            .field("program_is_enum", &self.program_is_enum.is_some())
             .field("trait_impls", &self.trait_impls.len())
             .finish()
     }
@@ -258,7 +255,7 @@ impl<'a> ComptimeProgramContext<'a> {
             value_signatures: None,
             comptime_values: None,
             global_initializer: None,
-            program_enums: &EMPTY_PROGRAM_ENUMS,
+            program_is_enum: None,
             trait_impls: &[],
             visible_extensions: None,
         }

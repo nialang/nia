@@ -563,17 +563,8 @@ impl<'a> BodyChecker<'a> {
             return trait_ids.clone();
         }
         let trait_ids = self
-            .program_traits
-            .iter()
-            .filter_map(|(trait_id, signature)| {
-                signature
-                    .signature
-                    .methods
-                    .iter()
-                    .any(|method| method.name == name)
-                    .then_some(*trait_id)
-            })
-            .collect::<Vec<_>>();
+            .program_signature_scope
+            .trait_ids_with_method_named(name);
         self.traits_by_method_name
             .insert(name.to_string(), trait_ids.clone());
         trait_ids

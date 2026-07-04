@@ -30,7 +30,7 @@ use nia_ids::{
 };
 use nia_item_signatures::{
     FunctionAttribute, FunctionSignature, GenericParamSignatureKind, ItemSignatures,
-    ProgramEnumSignature, WherePredicateSignature,
+    WherePredicateSignature,
 };
 use nia_local_resolve::LocalResolution;
 use nia_sema::{

@@ -7,6 +7,9 @@ use nia_executable_reachability::{
     extend_incremental_executable_reachability_from_checked_module_with_timings,
     filter_semantic_facts_for_reachable_items,
 };
+use nia_program_signatures::{
+    ProgramSignatureContext, ProgramSignatureMaps, ProgramSignatureResolvers,
+};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -22,6 +25,76 @@ use self::signature_comptime::{
     signature_comptime_module_lowering, signature_comptime_values, signature_layouts_for_types,
     with_type_signature_comptime_input,
 };
+
+struct BodyProgramSignatureLookup<'a> {
+    functions: &'a dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>,
+    fallback: ProgramSignatureResolvers<'a>,
+    maps: Option<ProgramSignatureMaps<'a>>,
+}
+
+impl nia_program_signatures::ProgramSignatureLookup for BodyProgramSignatureLookup<'_> {
+    fn function(&self, def_id: GlobalDefId) -> Option<ProgramFunctionSignature> {
+        (self.functions)(def_id)
+    }
+
+    fn global(&self, def_id: GlobalDefId) -> Option<ProgramGlobalSignature> {
+        self.maps
+            .and_then(|maps| maps.global(def_id))
+            .or_else(|| self.fallback.global(def_id))
+    }
+
+    fn comptime(&self, def_id: GlobalDefId) -> Option<ProgramComptimeSignature> {
+        self.maps
+            .and_then(|maps| maps.comptime(def_id))
+            .or_else(|| self.fallback.comptime(def_id))
+    }
+
+    fn struct_(&self, def_id: GlobalDefId) -> Option<ProgramStructSignature> {
+        self.maps
+            .and_then(|maps| maps.struct_(def_id))
+            .or_else(|| self.fallback.struct_(def_id))
+    }
+
+    fn union(&self, def_id: GlobalDefId) -> Option<ProgramUnionSignature> {
+        self.maps
+            .and_then(|maps| maps.union(def_id))
+            .or_else(|| self.fallback.union(def_id))
+    }
+
+    fn enum_(&self, def_id: GlobalDefId) -> Option<ProgramEnumSignature> {
+        self.maps
+            .and_then(|maps| maps.enum_(def_id))
+            .or_else(|| self.fallback.enum_(def_id))
+    }
+
+    fn trait_(&self, def_id: GlobalDefId) -> Option<ProgramTraitSignature> {
+        self.maps
+            .and_then(|maps| maps.trait_(def_id))
+            .or_else(|| self.fallback.trait_(def_id))
+    }
+
+    fn type_alias(&self, def_id: GlobalDefId) -> Option<ProgramTypeAliasSignature> {
+        self.maps
+            .and_then(|maps| maps.type_alias(def_id))
+            .or_else(|| self.fallback.type_alias(def_id))
+    }
+
+    fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId> {
+        if let Some(maps) = self.maps {
+            return maps.trait_ids_with_method_named(name);
+        }
+        self.fallback.trait_ids_with_method_named(name)
+    }
+
+    fn trait_owning_method(
+        &self,
+        method_id: GlobalDefId,
+    ) -> Option<(GlobalDefId, ProgramTraitSignature)> {
+        self.maps
+            .and_then(|maps| maps.trait_owning_method(method_id))
+            .or_else(|| self.fallback.trait_owning_method(method_id))
+    }
+}
 
 #[derive(Clone)]
 pub(super) struct CompilerQueryProviders {
@@ -91,12 +164,6 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionSignatureModuleInputValue,
     pub(super) extension_trait_solving_module_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionTraitSolvingModuleFactsValue,
-    pub(super) program_body_value_signatures:
-        fn(&QueryDb<CompilerContext>) -> Arc<ProgramBodyValueSignatures>,
-    pub(super) program_body_type_signatures:
-        fn(&QueryDb<CompilerContext>) -> Arc<ProgramBodyTypeSignatures>,
-    pub(super) program_body_trait_signatures:
-        fn(&QueryDb<CompilerContext>) -> Arc<ProgramBodyTraitSignatures>,
     pub(super) program_trait_solving_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramTraitSolvingSignatures>,
     pub(super) program_visible_type_signatures:
@@ -200,9 +267,6 @@ impl Default for CompilerQueryProviders {
             extension_provider_module_eligibility: provide_extension_provider_module_eligibility,
             extension_signature_module_input: provide_extension_signature_module_input,
             extension_trait_solving_module_facts: provide_extension_trait_solving_module_facts,
-            program_body_value_signatures: provide_program_body_value_signatures,
-            program_body_type_signatures: provide_program_body_type_signatures,
-            program_body_trait_signatures: provide_program_body_trait_signatures,
             program_trait_solving_signatures: provide_program_trait_solving_signatures,
             program_visible_type_signatures: provide_program_visible_type_signatures,
             program_backend_signatures: provide_program_backend_signatures,
@@ -1563,6 +1627,7 @@ fn with_comptime_input_and_program_signatures<T>(
             trait_solving_signatures.trait_impls.as_slice(),
         )
     };
+    let program_is_enum = |def_id| program_enums.contains_key(&def_id);
     let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
     let value_signatures_for_module = |module_id| {
         Some(db.query(SignatureItemSignaturesQuery(
@@ -1603,7 +1668,7 @@ fn with_comptime_input_and_program_signatures<T>(
                 value_signatures: Some(&value_signatures_for_module),
                 comptime_values: None,
                 global_initializer: None,
-                program_enums,
+                program_is_enum: Some(&program_is_enum),
                 trait_impls,
                 visible_extensions: Some(&visible_extensions_for_module),
             },
@@ -2265,6 +2330,7 @@ fn comptime_inputs_for_body_check(
             trait_solving_signatures.trait_impls.as_slice(),
         )
     };
+    let program_is_enum = |def_id| program_enums.contains_key(&def_id);
     let item_signatures_for_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             return Some(db.query(SignatureItemSignaturesQuery(
@@ -2315,7 +2381,7 @@ fn comptime_inputs_for_body_check(
             value_signatures: Some(&value_signatures_for_module),
             comptime_values: None,
             global_initializer: Some(&program_global_initializer),
-            program_enums,
+            program_is_enum: Some(&program_is_enum),
             trait_impls,
             visible_extensions: Some(&visible_extensions_for_module),
         },
@@ -2573,40 +2639,219 @@ fn body_check_with_filter_and_layouts_with_inputs(
             signature
         })
     };
-    let empty_program_functions = HashMap::new();
-    let program_value_signatures;
-    let program_type_signatures;
-    let program_trait_signatures;
-    let (program_functions, program_values, program_types, program_traits) =
-        if let Some(signatures) = fact_mode.program_signatures {
-            (
-                &empty_program_functions,
-                nia_body_check::BodyProgramValueSignatures {
-                    globals: &signatures.globals,
-                    comptimes: &signatures.comptimes,
-                },
-                nia_body_check::BodyProgramTypeSignatures {
-                    structs: &signatures.structs,
-                    unions: &signatures.unions,
-                    enums: &signatures.enums,
-                    type_aliases: &signatures.type_aliases,
-                },
-                nia_body_check::BodyProgramTraitSignatures {
-                    traits: &signatures.traits,
-                    trait_impls: &signatures.trait_impls,
-                },
-            )
-        } else {
-            program_value_signatures = db.query(ProgramBodyValueSignaturesQuery);
-            program_type_signatures = db.query(ProgramBodyTypeSignaturesQuery);
-            program_trait_signatures = db.query(ProgramBodyTraitSignaturesQuery);
-            (
-                &empty_program_functions,
-                program_value_signatures.body_maps(),
-                program_type_signatures.body_maps(),
-                program_trait_signatures.body_maps(),
-            )
-        };
+    let program_global_signature = |def_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Values,
+        ))
+        .globals
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramGlobalSignature {
+            signature,
+            interner: db
+                .query(SignatureTypeLoweringQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Values,
+                ))
+                .interner,
+        })
+    };
+    let program_comptime_signature = |def_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Values,
+        ))
+        .comptimes
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramComptimeSignature {
+            signature,
+            interner: db
+                .query(SignatureTypeLoweringQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Values,
+                ))
+                .interner,
+        })
+    };
+    let program_struct_signature = |def_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Types,
+        ))
+        .structs
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramStructSignature {
+            signature,
+            interner: db
+                .query(SignatureTypeLoweringQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ))
+                .interner,
+        })
+    };
+    let program_union_signature = |def_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Types,
+        ))
+        .unions
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramUnionSignature {
+            signature,
+            interner: db
+                .query(SignatureTypeLoweringQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ))
+                .interner,
+        })
+    };
+    let program_enum_signature = |def_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Types,
+        ))
+        .enums
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramEnumSignature {
+            signature,
+            interner: db
+                .query(SignatureTypeLoweringQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ))
+                .interner,
+        })
+    };
+    let program_trait_signature = |def_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        ))
+        .traits
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramTraitSignature {
+            signature,
+            interner: db
+                .query(SignatureTypeLoweringQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Traits,
+                ))
+                .interner,
+        })
+    };
+    let program_type_alias_signature = |def_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            def_id.module_id,
+            nia_item_tree::SignatureItemSet::Types,
+        ))
+        .type_aliases
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| ProgramTypeAliasSignature {
+            signature,
+            interner: db
+                .query(SignatureTypeLoweringQuery(
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ))
+                .interner,
+        })
+    };
+    let program_traits_by_method_name = |name: &str| {
+        let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
+        facts
+            .iter()
+            .flat_map(|facts| facts.traits.iter())
+            .filter_map(|(trait_id, signature)| {
+                signature
+                    .signature
+                    .methods
+                    .iter()
+                    .any(|method| method.name == name)
+                    .then_some(*trait_id)
+            })
+            .collect()
+    };
+    let program_trait_owning_method = |method_id: GlobalDefId| {
+        db.query(SignatureItemSignaturesQuery(
+            method_id.module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        ))
+        .traits
+        .into_iter()
+        .find_map(|(trait_def_id, signature)| {
+            signature
+                .methods
+                .iter()
+                .any(|method| method.def_id == method_id.def_id)
+                .then(|| {
+                    let trait_id = GlobalDefId {
+                        module_id: method_id.module_id,
+                        def_id: trait_def_id,
+                    };
+                    (
+                        trait_id,
+                        ProgramTraitSignature {
+                            signature,
+                            interner: db
+                                .query(SignatureTypeLoweringQuery(
+                                    method_id.module_id,
+                                    nia_item_tree::SignatureItemSet::Traits,
+                                ))
+                                .interner,
+                        },
+                    )
+                })
+        })
+    };
+    let program_trait_solving_signatures;
+    let resolver_program_signatures = ProgramSignatureResolvers {
+        function: &program_function_signature,
+        global: &program_global_signature,
+        comptime: &program_comptime_signature,
+        struct_: &program_struct_signature,
+        union: &program_union_signature,
+        enum_: &program_enum_signature,
+        trait_: &program_trait_signature,
+        type_alias: &program_type_alias_signature,
+        trait_ids_with_method_named: &program_traits_by_method_name,
+        trait_owning_method: &program_trait_owning_method,
+    };
+    let map_program_signatures =
+        fact_mode
+            .program_signatures
+            .map(|signatures| ProgramSignatureMaps {
+                functions: &signatures.functions,
+                globals: &signatures.globals,
+                comptimes: &signatures.comptimes,
+                structs: &signatures.structs,
+                unions: &signatures.unions,
+                enums: &signatures.enums,
+                traits: &signatures.traits,
+                type_aliases: &signatures.type_aliases,
+            });
+    let program_signature_lookup = BodyProgramSignatureLookup {
+        functions: &program_function_signature,
+        fallback: resolver_program_signatures,
+        maps: map_program_signatures,
+    };
+    let program_signatures = if let Some(signatures) = fact_mode.program_signatures {
+        ProgramSignatureContext::new(&program_signature_lookup, &signatures.trait_impls)
+    } else {
+        program_trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+        ProgramSignatureContext::new(
+            &program_signature_lookup,
+            &program_trait_solving_signatures.trait_impls,
+        )
+    };
     let item_signatures_for_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             return Some(db.query(SignatureItemSignaturesQuery(
@@ -2744,14 +2989,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                     layouts: Some(&program_layouts),
                     visible_extensions: Some(&program_visible_extensions),
                 },
-                program_functions,
-                program_function_signature: Some(
-                    &program_function_signature
-                        as &dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>,
-                ),
-                program_values,
-                program_types,
-                program_traits,
+                program_signatures,
                 function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
                 program_comptime: nia_body_check::ProgramComptimeMaps {
                     values: &program_comptime_values,
@@ -4178,9 +4416,6 @@ pub(super) fn provide_checked_modules(db: &QueryDb<CompilerContext>) -> Vec<Chec
             db.context().timings(),
             "checked_modules.shared_inputs",
             || {
-                let _ = db.query(ProgramBodyValueSignaturesQuery);
-                let _ = db.query(ProgramBodyTypeSignaturesQuery);
-                let _ = db.query(ProgramBodyTraitSignaturesQuery);
                 let _ = db.query(ExtensionMethodsQuery);
             },
         );

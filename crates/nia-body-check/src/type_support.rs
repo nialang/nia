@@ -358,13 +358,15 @@ impl<'a> BodyChecker<'a> {
         let associated_type_assumptions = self.current_associated_type_assumptions();
         let const_expr_values = self.const_expr_values_for_trait_solver(trait_const_args);
         let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
+        let program_signature_scope = self.program_signature_scope;
+        let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
             layouts: Some(self.layouts),
             local_module_id: self.defs.module_id,
             local_enums: &self.signatures.enums,
-            program_enums: Some(self.program_enums),
+            program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&|module_id, impl_id| {
                 module_id == self.defs.module_id
@@ -390,13 +392,15 @@ impl<'a> BodyChecker<'a> {
         let assumptions = self.current_trait_goals();
         let const_expr_values = self.const_expr_values_for_trait_solver(trait_const_args);
         let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
+        let program_signature_scope = self.program_signature_scope;
+        let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
             layouts: Some(self.layouts),
             local_module_id: self.defs.module_id,
             local_enums: &self.signatures.enums,
-            program_enums: Some(self.program_enums),
+            program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&|module_id, impl_id| {
                 module_id == self.defs.module_id
@@ -1085,14 +1089,7 @@ impl<'a> BodyChecker<'a> {
             layouts: self.layouts,
             extensions: self.extensions.clone(),
             program_extension_methods: self.program_extension_methods,
-            function_signature_scope: self.function_signature_scope,
-            program_globals: self.program_globals,
-            program_comptimes: self.program_comptimes,
-            program_structs: self.program_structs,
-            program_unions: self.program_unions,
-            program_enums: self.program_enums,
-            program_traits: self.program_traits,
-            program_type_aliases: self.program_type_aliases,
+            program_signature_scope: self.program_signature_scope,
             program_trait_impls: self.program_trait_impls,
             program_comptime_values: self.program_comptime_values,
             program_comptime_array_lengths: self.program_comptime_array_lengths,
@@ -1819,8 +1816,8 @@ impl<'a> BodyChecker<'a> {
                 .get(&enum_id.def_id)
                 .is_some_and(|signature| signature.is_open)
         } else {
-            self.program_enums
-                .get(&enum_id)
+            self.program_signature_scope
+                .enum_(enum_id)
                 .is_some_and(|program_enum| program_enum.signature.is_open)
         }
     }

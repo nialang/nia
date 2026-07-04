@@ -99,12 +99,20 @@ impl Analyzer<'_> {
             return false;
         };
         let assumptions = self.current_trait_goals();
-        let program_enums = self.program_enum_signatures();
         let normalized = self.normalized_for_module(module_id).unwrap_or_default();
         let local_enums = self
             .signatures_for_module(module_id)
             .map(|signatures| signatures.enums.clone())
             .unwrap_or_else(|| self.input.signatures.enums.clone());
+        let program_is_enum = |def_id: GlobalDefId| {
+            if def_id.module_id == module_id {
+                return local_enums.contains_key(&def_id.def_id);
+            }
+            self.input
+                .program
+                .program_is_enum
+                .is_some_and(|program_is_enum| program_is_enum(def_id))
+        };
         let Some(interner) = self.working_interners.get_mut(&module_id) else {
             return false;
         };
@@ -132,7 +140,7 @@ impl Analyzer<'_> {
             layouts: None,
             local_module_id: module_id,
             local_enums: &local_enums,
-            program_enums: Some(&program_enums),
+            program_is_enum: Some(&program_is_enum),
             const_expr_value: None,
             impl_is_visible: Some(&impl_is_visible),
         };
@@ -155,12 +163,20 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         let module_id = self.ensure_trait_solver_module(self_ty, trait_args)?;
         let assumptions = self.current_trait_goals();
-        let program_enums = self.program_enum_signatures();
         let normalized = self.normalized_for_module(module_id).unwrap_or_default();
         let local_enums = self
             .signatures_for_module(module_id)
             .map(|signatures| signatures.enums.clone())
             .unwrap_or_else(|| self.input.signatures.enums.clone());
+        let program_is_enum = |def_id: GlobalDefId| {
+            if def_id.module_id == module_id {
+                return local_enums.contains_key(&def_id.def_id);
+            }
+            self.input
+                .program
+                .program_is_enum
+                .is_some_and(|program_is_enum| program_is_enum(def_id))
+        };
         let interner = self.working_interners.get_mut(&module_id)?;
         let normalization = nia_type_normalize::TypeNormalization {
             interner: interner.clone(),
@@ -186,7 +202,7 @@ impl Analyzer<'_> {
             layouts: None,
             local_module_id: module_id,
             local_enums: &local_enums,
-            program_enums: Some(&program_enums),
+            program_is_enum: Some(&program_is_enum),
             const_expr_value: None,
             impl_is_visible: Some(&impl_is_visible),
         };
@@ -219,12 +235,20 @@ impl Analyzer<'_> {
             .collect::<Vec<_>>();
         let module_id = self.ensure_trait_solver_module(self_ty, &trait_args)?;
         let assumptions = self.current_trait_goals();
-        let program_enums = self.program_enum_signatures();
         let normalized = self.normalized_for_module(module_id).unwrap_or_default();
         let local_enums = self
             .signatures_for_module(module_id)
             .map(|signatures| signatures.enums.clone())
             .unwrap_or_else(|| self.input.signatures.enums.clone());
+        let program_is_enum = |def_id: GlobalDefId| {
+            if def_id.module_id == module_id {
+                return local_enums.contains_key(&def_id.def_id);
+            }
+            self.input
+                .program
+                .program_is_enum
+                .is_some_and(|program_is_enum| program_is_enum(def_id))
+        };
         let interner = self.working_interners.get_mut(&module_id)?;
         let normalization = nia_type_normalize::TypeNormalization {
             interner: interner.clone(),
@@ -250,7 +274,7 @@ impl Analyzer<'_> {
             layouts: None,
             local_module_id: module_id,
             local_enums: &local_enums,
-            program_enums: Some(&program_enums),
+            program_is_enum: Some(&program_is_enum),
             const_expr_value: None,
             impl_is_visible: Some(&impl_is_visible),
         };

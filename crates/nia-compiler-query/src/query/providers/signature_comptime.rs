@@ -57,6 +57,7 @@ fn with_signature_comptime_input<T>(
             trait_solving_signatures.trait_impls.as_slice(),
         )
     };
+    let program_is_enum = |def_id| program_enums.contains_key(&def_id);
     let item_signatures_for_module = |module_id| {
         Some(db.query(SignatureItemSignaturesQuery(
             module_id,
@@ -95,7 +96,7 @@ fn with_signature_comptime_input<T>(
                 value_signatures: Some(&value_signatures_for_module),
                 comptime_values: None,
                 global_initializer: None,
-                program_enums,
+                program_is_enum: Some(&program_is_enum),
                 trait_impls,
                 visible_extensions: Some(&visible_extensions_for_module),
             },

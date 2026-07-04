@@ -303,7 +303,7 @@ impl<'a> BodyChecker<'a> {
         if global_id.module_id == self.defs.module_id {
             return self.global_not_assignable_reason(global_id.def_id);
         }
-        match self.program_globals.get(&global_id) {
+        match self.program_signature_scope.global(global_id) {
             Some(global) if !global.signature.is_mutable => Some("static is immutable"),
             Some(_) => None,
             None => Some("function item is not assignable"),

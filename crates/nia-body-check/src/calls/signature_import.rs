@@ -16,7 +16,7 @@ impl<'a> BodyChecker<'a> {
         callee: &Expr,
     ) -> Option<ResolvedFunctionSignature> {
         let def_id = self.qualified_value(callee)?;
-        let program_signature = self.function_signature_scope.program_signature(&def_id)?;
+        let program_signature = self.program_signature_scope.function(def_id)?;
         Some(ResolvedFunctionSignature {
             def_id,
             signature: self.import_program_function_signature(&program_signature),
@@ -28,9 +28,7 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
     ) -> Option<ResolvedFunctionSignature> {
         if def_id.module_id == self.defs.module_id {
-            if let Some(program_signature) =
-                self.function_signature_scope.program_signature(&def_id)
-            {
+            if let Some(program_signature) = self.program_signature_scope.function(def_id) {
                 return Some(ResolvedFunctionSignature {
                     def_id,
                     signature: self.import_program_function_signature(&program_signature),
@@ -42,7 +40,7 @@ impl<'a> BodyChecker<'a> {
                 signature: self.import_local_function_signature(&signature),
             });
         }
-        let program_signature = self.function_signature_scope.program_signature(&def_id)?;
+        let program_signature = self.program_signature_scope.function(def_id)?;
         Some(ResolvedFunctionSignature {
             def_id,
             signature: self.import_program_function_signature(&program_signature),
@@ -87,7 +85,7 @@ impl<'a> BodyChecker<'a> {
             let signature = self.signatures.traits.get(&def_id.def_id)?.clone();
             return Some(signature);
         }
-        let program_signature = self.program_traits.get(&def_id)?.clone();
+        let program_signature = self.program_signature_scope.trait_(def_id)?;
         Some(self.import_program_trait_signature(&program_signature))
     }
 

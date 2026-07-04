@@ -2602,7 +2602,7 @@ fn trait_method_signature_matches(
         layouts: None,
         local_module_id: module.module_id,
         local_enums: &module.signatures.enums,
-        program_enums: None,
+        program_is_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
