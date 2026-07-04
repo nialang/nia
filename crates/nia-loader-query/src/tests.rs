@@ -783,6 +783,92 @@ extend Widget {
 }
 
 #[test]
+fn facade_facts_are_cached_for_reexport_and_provider_loading() {
+    let root = temp_dir("facade_facts_are_cached_for_reexport_and_provider_loading");
+    let main = root.join("main.nia");
+    let pkg_root = root.join("pkg.nia");
+    write(
+        &main,
+        r#"
+using dep::facade;
+
+fn first(value: facade::Widget) i32 {
+    value.score()
+}
+
+fn second(value: facade::Widget) i32 {
+    value.score()
+}
+"#,
+    );
+    write(&pkg_root, "pub module facade;");
+    fs::create_dir_all(root.join("pkg").join("facade")).expect("create facade dir");
+    write(
+        &root.join("pkg/facade.nia"),
+        r#"
+pub(pkg) module providers;
+pub(pkg) module types;
+
+pub using types::Widget;
+"#,
+    );
+    write(
+        &root.join("pkg/facade/types.nia"),
+        "pub struct Widget { value: i32 }",
+    );
+    write(
+        &root.join("pkg/facade/providers.nia"),
+        r#"
+using self::types;
+
+extend types::Widget {
+    pub fn score(&self) i32 { self.value }
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
+
+    let entry_path = SourcePath::new(main.to_string_lossy());
+    let db = QueryDb::new(LoaderContext {
+        entry_path: entry_path.clone(),
+        module_map: effective_module_map(&entry_path, module_map),
+        sources: SourceDatabase::new(),
+        target: TargetConfig::host(),
+        entry_runtime: EntryRuntime::None,
+        package_root_used_paths: false,
+    });
+    let program = db.query(LoadedProgramQuery);
+
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_module_loaded(
+        &program,
+        root.join("pkg/facade/providers.nia")
+            .to_string_lossy()
+            .as_ref(),
+    );
+
+    let trace = db.query_trace();
+    let facade_path = root.join("pkg/facade.nia").to_string_lossy().into_owned();
+    let query = trace
+        .queries
+        .iter()
+        .find(|query| {
+            query.frame.name == "module_facade_facts"
+                && query
+                    .frame
+                    .description
+                    .starts_with(&format!("module_facade_facts({facade_path})@"))
+        })
+        .expect("facade facts query should be recorded for custom package facade");
+    assert_eq!(query.stats.executions, 1, "{query:?}");
+    assert!(
+        query.stats.cache_hits >= 1,
+        "reexport and provider loading should reuse facade facts: {query:?}"
+    );
+}
+
+#[test]
 fn invalidates_source_dependents_after_in_memory_text_change() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
