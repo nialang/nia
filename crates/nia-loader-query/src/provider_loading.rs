@@ -3,15 +3,12 @@ use crate::graph::{
     add_visible_declared_module_child_if_present, add_visible_declared_module_path,
     mark_process_used_paths_and_process, used_path_start,
 };
-use crate::queries::{module_declarations_query, parsed_module_query, provider_summary_query};
-use crate::used_paths::{
-    UsedModulePath, UsedModulePathProcessing, host_segments, module_using_aliases,
-    reexport_source_path_for_selector, using_host_path, using_name_exposes_name,
+use crate::queries::{
+    module_declarations_query, module_facade_facts_query, provider_summary_query,
 };
-use nia_ast::{UsingGroupItem, UsingSelector};
+use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleGraph;
-use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_query::QueryDb;
 use nia_source::SourcePath;
 
@@ -100,41 +97,8 @@ pub(crate) fn add_public_reexport_source_module(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(None);
     };
-    let parsed = db.query(parsed_module_query(db, node.path));
-    let local_module_names = parsed
-        .active_item_tree
-        .items
-        .iter()
-        .filter_map(|item| match &item.kind {
-            ItemTreeNodeKind::Module(module) => Some(module.name.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let aliases = module_using_aliases(
-        &parsed.active_item_tree,
-        &db.context().module_map,
-        &local_module_names,
-    );
-    for item in &parsed.active_item_tree.items {
-        if item.visibility != nia_imports::Visibility::Public {
-            continue;
-        }
-        let ItemTreeNodeKind::Using(using) = &item.kind else {
-            continue;
-        };
-        let Some(host_path) = using_host_path(
-            &using.host,
-            &db.context().module_map,
-            &local_module_names,
-            &aliases,
-        ) else {
-            continue;
-        };
-        let Some(source_path) =
-            reexport_source_path_for_selector(&host_path, &using.selector, name)
-        else {
-            continue;
-        };
+    let facts = db.query(module_facade_facts_query(db, node.path));
+    for source_path in facts.reexport_source_paths(name) {
         let Some(start) = used_path_start(graph, module_id, &source_path) else {
             continue;
         };
@@ -161,67 +125,24 @@ pub(crate) fn add_public_reexport_extension_provider_modules(
     let Some(node) = graph.get(facade_module).cloned() else {
         return Ok(());
     };
-    let parsed = db.query(parsed_module_query(db, node.path));
-    if !public_reexport_exposes_name(&parsed.active_item_tree, exported_name) {
+    let facts = db.query(module_facade_facts_query(db, node.path));
+    if !facts.public_reexport_exposes_name(exported_name) {
         return Ok(());
     }
-    let local_module_names = parsed
-        .active_item_tree
-        .items
-        .iter()
-        .filter_map(|item| match &item.kind {
-            ItemTreeNodeKind::Module(module) => Some(module.name.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let aliases = module_using_aliases(
-        &parsed.active_item_tree,
-        &db.context().module_map,
-        &local_module_names,
-    );
-    for item in &parsed.active_item_tree.items {
-        let ItemTreeNodeKind::Using(using) = &item.kind else {
-            continue;
-        };
-        let Some(host_path) = using_host_path(
-            &using.host,
-            &db.context().module_map,
-            &local_module_names,
-            &aliases,
-        ) else {
-            continue;
-        };
-        for source_path in provider_source_paths_for_selector(&host_path, &using.selector) {
-            let Some(candidate_path) =
-                resolve_used_module_path_source(db, graph, facade_module, &source_path)
-            else {
-                continue;
-            };
-            if !provider_candidate_has_inherent_associated_item(
+    add_reexport_provider_modules_matching(
+        db,
+        graph,
+        facade_module,
+        facts.provider_source_paths(),
+        |db, path| {
+            provider_candidate_has_inherent_associated_item(
                 db,
-                candidate_path,
+                path,
                 target_type_name,
                 associated_name,
-            ) {
-                continue;
-            }
-            let Some(start) = used_path_start(graph, facade_module, &source_path) else {
-                continue;
-            };
-            let Some(provider_module) = add_visible_declared_module_path(
-                db,
-                graph,
-                facade_module,
-                start,
-                source_path.segments(),
-                UsedModulePathProcessing::Never,
-            )?
-            else {
-                continue;
-            };
-            mark_process_used_paths_and_process(db, graph, provider_module)?;
-        }
-    }
+            )
+        },
+    )?;
     add_declared_child_extension_provider_modules(
         db,
         graph,
@@ -253,17 +174,13 @@ fn add_public_reexport_trait_impl_provider_modules(
     let Some(node) = graph.get(facade_module).cloned() else {
         return Ok(());
     };
-    let parsed = db.query(parsed_module_query(db, node.path));
-    if !public_type_exposes_name(&parsed.active_item_tree, trait_name) {
+    let facts = db.query(module_facade_facts_query(db, node.path));
+    if !facts.public_type_exposes_name(trait_name) {
         return Ok(());
     }
-    add_trait_provider_modules_matching(
-        db,
-        graph,
-        facade_module,
-        &parsed.active_item_tree,
-        |db, path| provider_candidate_has_trait_impl(db, path, trait_name, None),
-    )
+    add_trait_provider_modules_matching(db, graph, facade_module, &facts, |db, path| {
+        provider_candidate_has_trait_impl(db, path, trait_name, None)
+    })
 }
 
 fn add_public_reexport_trait_method_provider_modules(
@@ -276,79 +193,68 @@ fn add_public_reexport_trait_method_provider_modules(
     let Some(node) = graph.get(facade_module).cloned() else {
         return Ok(());
     };
-    let parsed = db.query(parsed_module_query(db, node.path));
-    add_trait_provider_modules_matching(
-        db,
-        graph,
-        facade_module,
-        &parsed.active_item_tree,
-        |db, path| {
-            provider_candidate_has_public_extension_method_for_facade(
-                db,
-                path,
-                &parsed.active_item_tree,
-                target_type_name,
-                associated_name,
-            )
-        },
-    )
+    let facts = db.query(module_facade_facts_query(db, node.path));
+    add_trait_provider_modules_matching(db, graph, facade_module, &facts, |db, path| {
+        provider_candidate_has_public_extension_method_for_facade(
+            db,
+            path,
+            &facts,
+            target_type_name,
+            associated_name,
+        )
+    })
 }
 
 fn add_trait_provider_modules_matching(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     facade_module: nia_imports::ModuleId,
-    item_tree: &ActiveModuleItemTree,
+    facts: &crate::facade_facts::ModuleFacadeFacts,
     mut matches_provider: impl FnMut(&QueryDb<LoaderContext>, SourcePath) -> bool,
 ) -> Result<(), Diagnostic> {
-    let local_module_names = item_tree
-        .items
-        .iter()
-        .filter_map(|item| match &item.kind {
-            ItemTreeNodeKind::Module(module) => Some(module.name.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let aliases = module_using_aliases(item_tree, &db.context().module_map, &local_module_names);
-    for item in &item_tree.items {
-        let ItemTreeNodeKind::Using(using) = &item.kind else {
-            continue;
-        };
-        let Some(host_path) = using_host_path(
-            &using.host,
-            &db.context().module_map,
-            &local_module_names,
-            &aliases,
-        ) else {
-            continue;
-        };
-        for source_path in provider_source_paths_for_selector(&host_path, &using.selector) {
-            let Some(candidate_path) =
-                resolve_used_module_path_source(db, graph, facade_module, &source_path)
-            else {
-                continue;
-            };
-            if !matches_provider(db, candidate_path) {
-                continue;
-            }
-            let Some(start) = used_path_start(graph, facade_module, &source_path) else {
-                continue;
-            };
-            let Some(provider_module) = add_visible_declared_module_path(
-                db,
-                graph,
-                facade_module,
-                start,
-                source_path.segments(),
-                UsedModulePathProcessing::Never,
-            )?
-            else {
-                continue;
-            };
-            mark_process_used_paths_and_process(db, graph, provider_module)?;
-        }
-    }
+    add_reexport_provider_modules_matching(
+        db,
+        graph,
+        facade_module,
+        facts.provider_source_paths(),
+        &mut matches_provider,
+    )?;
     add_declared_child_provider_modules_matching(db, graph, facade_module, matches_provider)
+}
+
+fn add_reexport_provider_modules_matching(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    facade_module: nia_imports::ModuleId,
+    source_paths: &[UsedModulePath],
+    mut matches_provider: impl FnMut(&QueryDb<LoaderContext>, SourcePath) -> bool,
+) -> Result<(), Diagnostic> {
+    for source_path in source_paths {
+        let Some(candidate_path) =
+            resolve_used_module_path_source(db, graph, facade_module, source_path)
+        else {
+            continue;
+        };
+        if !matches_provider(db, candidate_path) {
+            continue;
+        }
+        let Some(start) = used_path_start(graph, facade_module, source_path) else {
+            continue;
+        };
+        let Some(provider_module) = add_visible_declared_module_path(
+            db,
+            graph,
+            facade_module,
+            start,
+            source_path.segments(),
+            UsedModulePathProcessing::Never,
+        )?
+        else {
+            continue;
+        };
+        mark_process_used_paths_and_process(db, graph, provider_module)?;
+    }
+    Ok(())
 }
 
 fn add_declared_child_provider_modules_matching(
@@ -445,95 +351,6 @@ fn add_existing_module_path_source(
     graph.get(current).map(|node| node.path.clone())
 }
 
-fn public_reexport_exposes_name(item_tree: &ActiveModuleItemTree, name: &str) -> bool {
-    item_tree.items.iter().any(|item| {
-        item.visibility == nia_imports::Visibility::Public
-            && matches!(
-                &item.kind,
-                ItemTreeNodeKind::Using(using)
-                    if selector_exposes_name(&using.selector, name)
-            )
-    })
-}
-
-fn public_type_exposes_name(item_tree: &ActiveModuleItemTree, name: &str) -> bool {
-    item_tree.items.iter().any(|item| {
-        if item.visibility != nia_imports::Visibility::Public {
-            return false;
-        }
-        match &item.kind {
-            ItemTreeNodeKind::Struct(item) => item.name == name,
-            ItemTreeNodeKind::Union(item) => item.name == name,
-            ItemTreeNodeKind::Trait(item) => item.name == name,
-            ItemTreeNodeKind::Enum(item) => item.name == name,
-            ItemTreeNodeKind::TypeAlias(item) => item.name == name,
-            ItemTreeNodeKind::Using(using) => selector_exposes_name(&using.selector, name),
-            _ => false,
-        }
-    })
-}
-
-fn selector_exposes_name(selector: &UsingSelector, name: &str) -> bool {
-    match selector {
-        UsingSelector::SelfName => false,
-        UsingSelector::Wildcard { .. } => true,
-        UsingSelector::Single(using_name) => using_name_exposes_name(using_name, name),
-        UsingSelector::Group(items) => items.iter().any(|item| match item {
-            UsingGroupItem::Name(using_name) => using_name_exposes_name(using_name, name),
-            UsingGroupItem::Nested { selector, .. } => selector_exposes_name(selector, name),
-        }),
-    }
-}
-
-fn provider_source_paths_for_selector(
-    host_path: &UsedModulePath,
-    selector: &UsingSelector,
-) -> Vec<UsedModulePath> {
-    let mut paths = Vec::new();
-    match selector {
-        UsingSelector::SelfName | UsingSelector::Wildcard { .. } => {
-            paths.push(host_path.with_declared_children_and_processing(false, false));
-        }
-        UsingSelector::Single(name) => {
-            paths.push(host_path.with_appended_segments_with_processing(
-                std::slice::from_ref(&name.name),
-                false,
-                false,
-            ));
-        }
-        UsingSelector::Group(items) => {
-            for item in items {
-                provider_source_paths_for_group_item(host_path, item, &mut paths);
-            }
-        }
-    }
-    paths
-}
-
-fn provider_source_paths_for_group_item(
-    host_path: &UsedModulePath,
-    item: &UsingGroupItem,
-    paths: &mut Vec<UsedModulePath>,
-) {
-    match item {
-        UsingGroupItem::Name(name) => {
-            paths.push(host_path.with_appended_segments_with_processing(
-                std::slice::from_ref(&name.name),
-                false,
-                false,
-            ));
-        }
-        UsingGroupItem::Nested { host, selector } => {
-            let nested = host_path.with_appended_segments_with_processing(
-                &host_segments(host),
-                false,
-                false,
-            );
-            paths.extend(provider_source_paths_for_selector(&nested, selector));
-        }
-    }
-}
-
 fn provider_candidate_has_inherent_associated_item(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
@@ -557,13 +374,13 @@ fn provider_candidate_has_trait_impl(
 fn provider_candidate_has_public_extension_method_for_facade(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
-    facade_item_tree: &ActiveModuleItemTree,
+    facade_facts: &crate::facade_facts::ModuleFacadeFacts,
     target_type_name: Option<&str>,
     associated_name: &str,
 ) -> bool {
     let summary = db.query(provider_summary_query(db, path));
     summary.defines_public_extension_method_for_facade(
-        |trait_name| public_type_exposes_name(facade_item_tree, trait_name),
+        |trait_name| facade_facts.public_type_exposes_name(trait_name),
         target_type_name,
         associated_name,
     )

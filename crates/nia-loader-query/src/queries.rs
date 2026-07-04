@@ -1,3 +1,4 @@
+use crate::facade_facts::ModuleFacadeFacts;
 use crate::graph::ModuleGraphQuery;
 use crate::used_paths::{ModuleDeclarations, collect_used_modules};
 use crate::{EntryRuntime, LoaderContext};
@@ -322,6 +323,36 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ModuleFacadeFactsQuery {
+    path: SourcePath,
+    version: SourceVersion,
+}
+
+impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
+    type Value = ModuleFacadeFacts;
+
+    fn name() -> &'static str {
+        "module_facade_facts"
+    }
+
+    fn description(&self) -> String {
+        format!(
+            "module_facade_facts({})@{:?}",
+            self.path.as_str(),
+            self.version
+        )
+    }
+
+    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        let parsed = db.query(ParsedModuleQuery {
+            path: self.path.clone(),
+            version: self.version,
+        });
+        ModuleFacadeFacts::from_active_item_tree(&parsed.active_item_tree, &db.context().module_map)
+    }
+}
+
 pub(crate) fn parsed_module_query(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
@@ -359,6 +390,19 @@ pub(crate) fn provider_summary_query(
         .map(SourceFile::version)
         .unwrap_or_else(|| db.context().sources.empty_source(&path).version());
     ProviderSummaryQuery { path, version }
+}
+
+pub(crate) fn module_facade_facts_query(
+    db: &QueryDb<LoaderContext>,
+    path: SourcePath,
+) -> ModuleFacadeFactsQuery {
+    let source = db.query(SourceTextQuery(path.clone()));
+    let version = source
+        .file
+        .as_ref()
+        .map(SourceFile::version)
+        .unwrap_or_else(|| db.context().sources.empty_source(&path).version());
+    ModuleFacadeFactsQuery { path, version }
 }
 
 fn module_diagnostics(path: &SourcePath, diagnostics: &[Diagnostic]) -> Vec<ProgramDiagnostic> {

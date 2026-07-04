@@ -665,51 +665,6 @@ pub(crate) fn using_host_path(
     Some(root.path(&[], false, true))
 }
 
-pub(crate) fn reexport_source_path_for_selector(
-    host_path: &UsedModulePath,
-    selector: &UsingSelector,
-    name: &str,
-) -> Option<UsedModulePath> {
-    match selector {
-        UsingSelector::SelfName => host_path
-            .last_segment_name()
-            .filter(|last| *last == name)
-            .map(|_| host_path.clone()),
-        UsingSelector::Wildcard { .. } => Some(host_path.clone()),
-        UsingSelector::Single(using_name) => {
-            using_name_exposes_name(using_name, name).then(|| host_path.clone())
-        }
-        UsingSelector::Group(items) => {
-            for item in items {
-                if let Some(path) = reexport_source_path_for_group_item(host_path, item, name) {
-                    return Some(path);
-                }
-            }
-            None
-        }
-    }
-}
-
-fn reexport_source_path_for_group_item(
-    host_path: &UsedModulePath,
-    item: &UsingGroupItem,
-    name: &str,
-) -> Option<UsedModulePath> {
-    match item {
-        UsingGroupItem::Name(using_name) => {
-            using_name_exposes_name(using_name, name).then(|| host_path.clone())
-        }
-        UsingGroupItem::Nested { host, selector } => {
-            let nested = host_path.with_appended_segments(&host_segments(host), false);
-            reexport_source_path_for_selector(&nested, selector, name)
-        }
-    }
-}
-
-pub(crate) fn using_name_exposes_name(using_name: &nia_ast::UsingName, name: &str) -> bool {
-    using_name.alias.as_deref().unwrap_or(&using_name.name) == name
-}
-
 fn collect_root_group_modules(
     selector: &UsingSelector,
     module_map: &ModuleMap,

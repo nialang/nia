@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod facade_facts;
 mod graph;
 mod provider_loading;
 mod queries;
