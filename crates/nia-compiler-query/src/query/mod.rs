@@ -314,6 +314,12 @@ impl CompilerDatabase {
                         nia_item_tree::SignatureItemSet::Traits,
                     )));
                 }
+                if module.signature_comptime_items {
+                    invalidation.extend(
+                        self.db
+                            .invalidate(SignatureComptimeItemTreeQuery(module_id)),
+                    );
+                }
                 if module.full_active_item_tree {
                     invalidation.extend(
                         self.db
@@ -816,6 +822,19 @@ impl CompilerContext {
         )
     }
 
+    fn signature_comptime_item_tree(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+    ) -> ActiveModuleItemTree {
+        self.module_field(
+            db,
+            &SignatureComptimeItemTreeQuery(module_id),
+            module_id,
+            |module| module.active_item_tree.comptime_signature_items(),
+        )
+    }
+
     fn path_for_module(&self, module_id: ModuleId) -> SourcePath {
         self.loaded_module(module_id)
             .unwrap_or_else(|| panic!("Nia ICE: missing loaded module {module_id:?}"))
@@ -947,6 +966,7 @@ struct ChangedModuleInput {
     signature_value_items: bool,
     signature_type_items: bool,
     signature_trait_items: bool,
+    signature_comptime_items: bool,
     full_active_item_tree: bool,
 }
 
@@ -1010,6 +1030,8 @@ impl ChangedModuleInput {
                         &new.active_item_tree
                             .signature_items(nia_item_tree::SignatureItemSet::Traits),
                     ),
+                signature_comptime_items: old.active_item_tree.comptime_signature_items()
+                    != new.active_item_tree.comptime_signature_items(),
                 full_active_item_tree: old.active_item_tree != new.active_item_tree,
             },
             (Some(_), Some(_)) => Self::all_inputs_changed(ids),
@@ -1030,6 +1052,7 @@ impl ChangedModuleInput {
                 signature_value_items: true,
                 signature_type_items: true,
                 signature_trait_items: true,
+                signature_comptime_items: true,
                 full_active_item_tree: true,
             },
             (None, None) => return None,
@@ -1049,6 +1072,7 @@ impl ChangedModuleInput {
             || changed.signature_value_items
             || changed.signature_type_items
             || changed.signature_trait_items
+            || changed.signature_comptime_items
             || changed.full_active_item_tree
         {
             Some(changed)
@@ -1075,6 +1099,7 @@ impl ChangedModuleInput {
             signature_value_items: true,
             signature_type_items: true,
             signature_trait_items: true,
+            signature_comptime_items: true,
             full_active_item_tree: true,
         }
     }
@@ -5236,6 +5261,181 @@ pub fn unused_bad() i32 {
                 .filter(|query| query.frame.name == "executable_body_check")
                 .collect::<Vec<_>>()
         );
+        assert!(
+            trace.queries.iter().any(|query| {
+                query.frame.name == "signature_type_lowering"
+                    && query.frame.description.contains("ModuleId(1)")
+                    && query.frame.description.contains("Types")
+                    && query.stats.executions > 0
+            }),
+            "type-only module should use signature type lowering: {:?}",
+            trace
+                .queries
+                .iter()
+                .filter(|query| query.frame.description.contains("ModuleId(1)"))
+                .collect::<Vec<_>>()
+        );
+        for full_query in ["type_resolution", "type_lowering", "value_resolution"] {
+            assert!(
+                !trace.queries.iter().any(|query| {
+                    query.frame.name == full_query
+                        && query.frame.description.contains("ModuleId(1)")
+                        && query.stats.executions > 0
+                }),
+                "type-only module should not execute {full_query}: {:?}",
+                trace
+                    .queries
+                    .iter()
+                    .filter(|query| query.frame.name == full_query)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn executable_type_only_modules_keep_signature_comptime_enum_values() {
+        let entry = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module types;
+using entry::types;
+
+fn main(value: types::Mode) i32 {
+    0
+}
+"#,
+        );
+        let types = loaded_module(
+            ModuleId(1),
+            "types.nia",
+            r#"
+pub enum Mode: i32 {
+    A = 1,
+    B = 1 + 2,
+}
+
+pub fn unused_bad() i32 {
+    missing_symbol
+}
+"#,
+        );
+        let mut loaded = loaded_program_with_entry_child(entry, "types", types);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let type_module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(1))
+            .expect("type owner module should be present for backend type lookup");
+        assert!(
+            type_module.executable_type_only,
+            "enum owner module should stay type-only"
+        );
+        let b = type_module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.kind == nia_defs::DefKind::EnumVariant && def.name == "B").then_some(def_id)
+            })
+            .expect("enum variant B");
+        assert!(
+            matches!(
+                type_module.comptime.enum_values.get(&b),
+                Some(nia_comptime_check::ComptimeValue::Int(value)) if value.bits() == 3
+            ),
+            "type-only signature comptime should evaluate enum discriminants: {:?}",
+            type_module.comptime.enum_values
+        );
+
+        let trace = db.query_trace();
+        for full_query in ["type_resolution", "type_lowering", "value_resolution"] {
+            assert!(
+                !trace.queries.iter().any(|query| {
+                    query.frame.name == full_query
+                        && query.frame.description.contains("ModuleId(1)")
+                        && query.stats.executions > 0
+                }),
+                "type-only enum module should not execute {full_query}: {:?}",
+                trace
+                    .queries
+                    .iter()
+                    .filter(|query| query.frame.name == full_query)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn executable_type_only_modules_keep_signature_comptime_array_lengths() {
+        let entry = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module types;
+using entry::types;
+
+fn main(value: types::Packet) i32 {
+    0
+}
+"#,
+        );
+        let types = loaded_module(
+            ModuleId(1),
+            "types.nia",
+            r#"
+comptime N: usize = 4;
+
+pub struct Packet {
+    data: [N]u8,
+}
+
+pub fn unused_bad() i32 {
+    missing_symbol
+}
+"#,
+        );
+        let mut loaded = loaded_program_with_entry_child(entry, "types", types);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let type_module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(1))
+            .expect("type owner module should be present for backend type lookup");
+        assert!(
+            type_module.executable_type_only,
+            "array owner module should stay type-only"
+        );
+        assert!(
+            type_module
+                .comptime
+                .array_lengths
+                .values()
+                .any(|len| *len == 4),
+            "type-only signature comptime should evaluate array length constants: {:?}",
+            type_module.comptime.array_lengths
+        );
+
+        let trace = db.query_trace();
+        for full_query in ["type_resolution", "type_lowering", "value_resolution"] {
+            assert!(
+                !trace.queries.iter().any(|query| {
+                    query.frame.name == full_query
+                        && query.frame.description.contains("ModuleId(1)")
+                        && query.stats.executions > 0
+                }),
+                "type-only array module should not execute {full_query}: {:?}",
+                trace
+                    .queries
+                    .iter()
+                    .filter(|query| query.frame.name == full_query)
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]

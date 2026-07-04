@@ -204,6 +204,120 @@ impl QueryKey<CompilerContext> for SignatureTypeNormalizationQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureComptimeItemTreeQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for SignatureComptimeItemTreeQuery {
+    type Value = ActiveModuleItemTree;
+
+    fn name() -> &'static str {
+        "signature_comptime_item_tree"
+    }
+
+    fn description(&self) -> String {
+        format!("signature_comptime_item_tree({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().signature_comptime_item_tree(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureComptimeTypeResolutionQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for SignatureComptimeTypeResolutionQuery {
+    type Value = TypeResolution;
+
+    fn name() -> &'static str {
+        "signature_comptime_type_resolution"
+    }
+
+    fn description(&self) -> String {
+        format!("signature_comptime_type_resolution({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.signature_comptime_type_resolution)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureComptimeTypeLoweringQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for SignatureComptimeTypeLoweringQuery {
+    type Value = TypeLowering;
+
+    fn name() -> &'static str {
+        "signature_comptime_type_lowering"
+    }
+
+    fn description(&self) -> String {
+        format!("signature_comptime_type_lowering({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.signature_comptime_type_lowering)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureComptimeItemSignaturesQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for SignatureComptimeItemSignaturesQuery {
+    type Value = ItemSignatures;
+
+    fn name() -> &'static str {
+        "signature_comptime_item_signatures"
+    }
+
+    fn description(&self) -> String {
+        format!("signature_comptime_item_signatures({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.signature_comptime_item_signatures)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureComptimeTypeNormalizationQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for SignatureComptimeTypeNormalizationQuery {
+    type Value = TypeNormalization;
+
+    fn name() -> &'static str {
+        "signature_comptime_type_normalization"
+    }
+
+    fn description(&self) -> String {
+        format!("signature_comptime_type_normalization({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.signature_comptime_type_normalization)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SignatureComptimeModuleQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for SignatureComptimeModuleQuery {
+    type Value = ComptimeModuleLowering;
+
+    fn name() -> &'static str {
+        "signature_comptime_module"
+    }
+
+    fn description(&self) -> String {
+        format!("signature_comptime_module({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.signature_comptime_module)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct TypeNormalizationQuery(pub(super) ModuleId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

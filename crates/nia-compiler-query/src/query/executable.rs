@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use nia_defs::DefKind;
 use nia_executable_facts::{ExecutableModuleBodyRefs, ReachableModuleInput};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -287,6 +288,7 @@ pub(super) fn reachable_module_inputs_by_id<'a>(
 }
 
 pub(super) fn stale_executable_modules(
+    db: &QueryDb<CompilerContext>,
     parse_ok: &[ModuleId],
     reachability: &nia_executable_reachability::ExecutableReachability,
     checked_by_id: &HashMap<ModuleId, ExecutableCheckedModuleState>,
@@ -295,6 +297,7 @@ pub(super) fn stale_executable_modules(
         .iter()
         .copied()
         .filter(|module_id| reachability.modules.contains(module_id))
+        .filter(|module_id| executable_module_has_pending_body_items(db, *module_id, reachability))
         .filter(|module_id| executable_module_is_stale(*module_id, reachability, checked_by_id))
         .collect()
 }
@@ -314,6 +317,25 @@ pub(super) fn executable_module_is_stale(
         }
         None => true,
     }
+}
+
+pub(super) fn executable_module_has_pending_body_items(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    reachability: &nia_executable_reachability::ExecutableReachability,
+) -> bool {
+    reachability
+        .functions
+        .iter()
+        .any(|def_id| def_id.module_id == module_id)
+        || reachability.globals.iter().any(|def_id| {
+            def_id.module_id == module_id
+                && db
+                    .query(ModuleDefsQuery(def_id.module_id))
+                    .defs
+                    .get(def_id.def_id)
+                    .is_some_and(|def| def.kind == DefKind::Global)
+        })
 }
 
 pub(super) fn debug_executable_reachability_enabled() -> bool {
