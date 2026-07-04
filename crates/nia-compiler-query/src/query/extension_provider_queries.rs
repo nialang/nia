@@ -182,13 +182,18 @@ pub(super) struct ExtensionProviderNominalCandidateIndexQueryValue(
 );
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionProviderNominalIndexQueryValue {
+pub(super) struct ExtensionProviderNominalConservativeTargetIndexQueryValue {
     pub(super) providers_by_target:
         HashMap<GlobalDefId, Vec<crate::program_signatures::NominalExtensionProviderEntry>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionProviderNominalModulesQueryValue {
+pub(super) struct ExtensionProviderNominalTargetNamesQueryValue {
+    pub(super) names_by_target: HashMap<GlobalDefId, Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionProviderNominalModulesForTargetsQueryValue {
     pub(super) modules: Vec<ModuleId>,
 }
 
@@ -286,39 +291,79 @@ impl QueryKey<CompilerContext> for ExtensionProviderNominalCandidateIndexQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionProviderNominalIndexQuery;
+pub(super) struct ExtensionProviderNominalConservativeTargetIndexQuery;
 
-impl QueryKey<CompilerContext> for ExtensionProviderNominalIndexQuery {
-    type Value = ExtensionProviderNominalIndexValue;
+impl QueryKey<CompilerContext> for ExtensionProviderNominalConservativeTargetIndexQuery {
+    type Value = ExtensionProviderNominalConservativeTargetIndexValue;
 
     fn name() -> &'static str {
-        "extension_provider_nominal_index"
+        "extension_provider_nominal_conservative_target_index"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.extension_provider_nominal_index)(db)
+        (db.context()
+            .providers
+            .extension_provider_nominal_conservative_target_index)(db)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionProviderNominalModulesQuery(pub(super) GlobalDefId, pub(super) ModuleId);
+pub(super) struct ExtensionProviderNominalTargetNamesQuery;
 
-impl QueryKey<CompilerContext> for ExtensionProviderNominalModulesQuery {
-    type Value = ExtensionProviderNominalModulesValue;
+impl QueryKey<CompilerContext> for ExtensionProviderNominalTargetNamesQuery {
+    type Value = ExtensionProviderNominalTargetNamesValue;
 
     fn name() -> &'static str {
-        "extension_provider_nominal_modules"
+        "extension_provider_nominal_target_names"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context()
+            .providers
+            .extension_provider_nominal_target_names)(db)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderNominalTargets(pub(super) Vec<GlobalDefId>);
+
+impl ExtensionProviderNominalTargets {
+    pub(super) fn new(mut targets: Vec<GlobalDefId>) -> Self {
+        targets.sort();
+        targets.dedup();
+        Self(targets)
+    }
+
+    pub(super) fn as_slice(&self) -> &[GlobalDefId] {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderNominalModulesForTargetsQuery(
+    pub(super) ExtensionProviderNominalTargets,
+    pub(super) ModuleId,
+);
+
+impl QueryKey<CompilerContext> for ExtensionProviderNominalModulesForTargetsQuery {
+    type Value = ExtensionProviderNominalModulesForTargetsValue;
+
+    fn name() -> &'static str {
+        "extension_provider_nominal_modules_for_targets"
     }
 
     fn description(&self) -> String {
         format!(
-            "extension_provider_nominal_modules({:?}, {:?})",
-            self.0, self.1
+            "extension_provider_nominal_modules_for_targets({} targets, {:?})",
+            self.0.as_slice().len(),
+            self.1
         )
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.extension_provider_nominal_modules)(db, self.0, self.1)
+        (db.context()
+            .providers
+            .extension_provider_nominal_modules_for_targets)(db, self.0.clone(), self.1)
     }
 }
 

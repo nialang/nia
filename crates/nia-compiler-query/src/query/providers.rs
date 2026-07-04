@@ -245,13 +245,16 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderNominalModuleFactsValue,
     pub(super) extension_provider_nominal_candidate_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalCandidateIndexValue,
-    pub(super) extension_provider_nominal_index:
-        fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalIndexValue,
-    pub(super) extension_provider_nominal_modules: fn(
-        &QueryDb<CompilerContext>,
-        GlobalDefId,
-        ModuleId,
-    ) -> ExtensionProviderNominalModulesValue,
+    pub(super) extension_provider_nominal_conservative_target_index:
+        fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalConservativeTargetIndexValue,
+    pub(super) extension_provider_nominal_target_names:
+        fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalTargetNamesValue,
+    pub(super) extension_provider_nominal_modules_for_targets:
+        fn(
+            &QueryDb<CompilerContext>,
+            ExtensionProviderNominalTargets,
+            ModuleId,
+        ) -> ExtensionProviderNominalModulesForTargetsValue,
     pub(super) extension_method_index: fn(&QueryDb<CompilerContext>) -> ExtensionMethodIndexValue,
     pub(super) extension_trait_signature_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionTraitSignatureIndexValue,
@@ -345,8 +348,12 @@ impl Default for CompilerQueryProviders {
                 provide_extension_provider_nominal_module_facts,
             extension_provider_nominal_candidate_index:
                 provide_extension_provider_nominal_candidate_index,
-            extension_provider_nominal_index: provide_extension_provider_nominal_index,
-            extension_provider_nominal_modules: provide_extension_provider_nominal_modules,
+            extension_provider_nominal_conservative_target_index:
+                provide_extension_provider_nominal_conservative_target_index,
+            extension_provider_nominal_target_names:
+                provide_extension_provider_nominal_target_names,
+            extension_provider_nominal_modules_for_targets:
+                provide_extension_provider_nominal_modules_for_targets,
             extension_method_index: provide_extension_method_index,
             extension_trait_signature_index: provide_extension_trait_signature_index,
             extension_method_set: provide_extension_method_set,
