@@ -269,6 +269,7 @@ dependencies = [
  "nia-parser",
  "nia-program-signatures",
  "nia-provider-summary",
+ "nia-public-surface",
  "nia-query",
  "nia-sema-ir",
  "nia-source",
@@ -685,6 +686,18 @@ dependencies = [
  "nia-ast",
  "nia-item-tree",
  "nia-parser",
+]
+
+[[package]]
+name = "nia-public-surface"
+version = "0.4.3"
+dependencies = [
+ "nia-defs",
+ "nia-diagnostic",
+ "nia-ids",
+ "nia-imports",
+ "nia-parser",
+ "nia-span",
 ]
 
 [[package]]
