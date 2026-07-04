@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::{TypeKind, TypeRef};
+use std::collections::HashSet;
+
+use nia_ast::{GenericParam, TypeKind, TypeRef};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -25,6 +27,12 @@ pub struct ProviderTarget {
     pub ty: ProviderTypeRef,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum NominalProviderCandidate {
+    Named(String),
+    Conservative,
+}
+
 impl ProviderSummary {
     pub fn from_active_item_tree(item_tree: &ActiveModuleItemTree) -> Self {
         let providers = item_tree
@@ -34,6 +42,7 @@ impl ProviderSummary {
                 let ItemTreeNodeKind::Extend(extend) = &item.kind else {
                     return None;
                 };
+                let generic_names = generic_param_names(&extend.generics);
                 let associated_items = extend
                     .methods
                     .iter()
@@ -47,12 +56,12 @@ impl ProviderSummary {
                     .collect();
                 Some(Provider {
                     target: ProviderTarget {
-                        ty: ProviderTypeRef::from_type_ref(&extend.target),
+                        ty: ProviderTypeRef::from_type_ref(&extend.target, &generic_names),
                     },
                     trait_ref: extend
                         .trait_ref
                         .as_ref()
-                        .map(ProviderTypeRef::from_type_ref),
+                        .map(|trait_ref| ProviderTypeRef::from_type_ref(trait_ref, &generic_names)),
                     associated_items,
                 })
             })
@@ -62,6 +71,35 @@ impl ProviderSummary {
 
     pub fn has_providers(&self) -> bool {
         !self.providers.is_empty()
+    }
+
+    pub fn may_define_nominal_provider_for(&self, target_type_name: &str) -> bool {
+        self.providers
+            .iter()
+            .any(|provider| provider.target.ty.may_match_nominal_name(target_type_name))
+    }
+
+    pub fn nominal_provider_candidates(&self) -> Vec<NominalProviderCandidate> {
+        let mut candidates = HashSet::new();
+        for provider in &self.providers {
+            candidates.insert(provider.target.ty.nominal_provider_candidate());
+        }
+        let mut candidates = candidates.into_iter().collect::<Vec<_>>();
+        candidates.sort_by(|lhs, rhs| match (lhs, rhs) {
+            (NominalProviderCandidate::Conservative, NominalProviderCandidate::Conservative) => {
+                std::cmp::Ordering::Equal
+            }
+            (NominalProviderCandidate::Conservative, NominalProviderCandidate::Named(_)) => {
+                std::cmp::Ordering::Less
+            }
+            (NominalProviderCandidate::Named(_), NominalProviderCandidate::Conservative) => {
+                std::cmp::Ordering::Greater
+            }
+            (NominalProviderCandidate::Named(lhs), NominalProviderCandidate::Named(rhs)) => {
+                lhs.cmp(rhs)
+            }
+        });
+        candidates
     }
 
     pub fn defines_inherent_associated_item(
@@ -124,15 +162,33 @@ impl Provider {
 }
 
 impl ProviderTypeRef {
-    fn from_type_ref(ty: &TypeRef) -> Self {
+    fn from_type_ref(ty: &TypeRef, generic_names: &HashSet<&str>) -> Self {
         Self {
             last_name: type_ref_last_name(ty).map(ToString::to_string),
-            is_generic_or_structural_target: type_ref_is_generic_or_structural_provider_target(ty),
+            is_generic_or_structural_target: type_ref_is_generic_or_structural_provider_target(
+                ty,
+                generic_names,
+            ),
         }
     }
 
     fn ends_with_name(&self, name: &str) -> bool {
         self.last_name.as_deref().is_some_and(|last| last == name)
+    }
+
+    fn may_match_nominal_name(&self, name: &str) -> bool {
+        self.is_generic_or_structural_target
+            || self.last_name.as_deref().is_none_or(|last| last == name)
+    }
+
+    fn nominal_provider_candidate(&self) -> NominalProviderCandidate {
+        if self.is_generic_or_structural_target {
+            return NominalProviderCandidate::Conservative;
+        }
+        self.last_name
+            .clone()
+            .map(NominalProviderCandidate::Named)
+            .unwrap_or(NominalProviderCandidate::Conservative)
     }
 }
 
@@ -143,9 +199,23 @@ fn type_ref_last_name(ty: &TypeRef) -> Option<&str> {
     }
 }
 
-fn type_ref_is_generic_or_structural_provider_target(ty: &TypeRef) -> bool {
+fn generic_param_names(generics: &[GenericParam]) -> HashSet<&str> {
+    generics
+        .iter()
+        .map(|generic| generic.name.as_str())
+        .collect()
+}
+
+fn type_ref_is_generic_or_structural_provider_target(
+    ty: &TypeRef,
+    generic_names: &HashSet<&str>,
+) -> bool {
     match &ty.kind {
-        TypeKind::Path { segments } => segments.len() == 1 && segments[0].args.is_empty(),
+        TypeKind::Path { segments } => {
+            segments.len() == 1
+                && segments[0].args.is_empty()
+                && generic_names.contains(segments[0].name.as_str())
+        }
         TypeKind::Pointer { .. }
         | TypeKind::VolatilePointer { .. }
         | TypeKind::Slice { .. }
@@ -204,6 +274,52 @@ extend Widget : Hash {
         assert!(summary.defines_trait_impl("Hash", None));
         assert!(summary.defines_trait_impl("Hash", Some("hash")));
         assert!(!summary.defines_trait_impl("Hash", Some("finish")));
+    }
+
+    #[test]
+    fn nominal_provider_summary_keeps_generic_targets_conservative() {
+        let summary = summary_for(
+            r#"
+trait IntoError[Target] {
+    fn into_error(self) Target;
+}
+
+extend[T, Source, Target] Source!T
+where Source: IntoError[Target]
+{
+    pub fn cast_error(self) Target!T {
+        if !ok = self {
+            !ok
+        } or error! {
+            error.into_error()!
+        }
+    }
+}
+"#,
+        );
+
+        assert!(summary.may_define_nominal_provider_for("Error"));
+    }
+
+    #[test]
+    fn nominal_provider_summary_filters_unrelated_plain_targets() {
+        let summary = summary_for(
+            r#"
+struct Used {}
+struct Unused {}
+
+extend Used {
+    pub fn len(&self) i32 { 1 }
+}
+"#,
+        );
+
+        assert!(summary.may_define_nominal_provider_for("Used"));
+        assert!(!summary.may_define_nominal_provider_for("Other"));
+        assert_eq!(
+            summary.nominal_provider_candidates(),
+            vec![NominalProviderCandidate::Named("Used".to_string())]
+        );
     }
 
     #[test]

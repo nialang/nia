@@ -79,7 +79,10 @@ type ExtensionProviderModuleFactsValue = Arc<ExtensionProviderModuleFactsQueryVa
 type ExtensionProviderValidationFactsValue = Arc<ExtensionProviderValidationFactsQueryValue>;
 type ExtensionProviderValidationProgramFactsValue =
     Arc<ExtensionProviderValidationProgramFactsQueryValue>;
-type ExtensionProviderNominalIndexValue = Arc<ExtensionProviderNominalIndexQueryValue>;
+type ExtensionProviderNominalModuleFactsValue = Arc<ExtensionProviderNominalModuleFactsQueryValue>;
+type ExtensionProviderNominalCandidateIndexValue =
+    Arc<ExtensionProviderNominalCandidateIndexQueryValue>;
+type ExtensionProviderNominalModulesValue = Arc<ExtensionProviderNominalModulesQueryValue>;
 type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
 type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
@@ -2967,12 +2970,75 @@ fn main() i32 {
     }
 
     #[test]
-    fn visible_extensions_use_signature_type_normalization_query() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
+    fn visible_extensions_use_signature_type_normalization_and_nominal_provider_queries() {
+        let main = loaded_module(
             ModuleId(0),
             "main.nia",
-            "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } }",
-        )]);
+            r#"
+module facade;
+using entry::facade;
+
+fn main(value: facade::Used) i32 {
+    value.len()
+}
+"#,
+        );
+        let facade = loaded_module(
+            ModuleId(1),
+            "facade.nia",
+            r#"
+module impls;
+module types;
+
+pub using self::types::Used;
+"#,
+        );
+        let impls = loaded_module(
+            ModuleId(2),
+            "facade/impls.nia",
+            r#"
+using entry::facade::types::Used;
+
+extend Used {
+    pub fn len(&self) i32 {
+        1
+    }
+}
+"#,
+        );
+        let types = loaded_module(ModuleId(3), "facade/types.nia", "pub struct Used {}");
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(
+                main.id,
+                "facade",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern facade module");
+        graph
+            .intern_declared_child(
+                facade.id,
+                "impls",
+                nia_ids::Visibility::Private,
+                Span::default(),
+            )
+            .expect("intern impls module");
+        graph
+            .intern_declared_child(
+                facade.id,
+                "types",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern types module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, facade, impls, types],
+            diagnostics: Vec::new(),
+        };
         let db = query_db(loaded);
 
         let _ = db.query(VisibleExtensionsQuery(ModuleId(0)));
@@ -2982,21 +3048,30 @@ fn main() i32 {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "signature_type_normalization"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "extension_provider_nominal_index"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_provider_nominal_index"
-                && dependency.to.name == "extension_provider_module_facts"
+            dependency.from.name == "visible_extensions"
+                && dependency.to.name == "extension_provider_nominal_modules"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_provider_nominal_modules"
+                && dependency.to.name == "extension_provider_nominal_candidate_index"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_provider_nominal_modules"
+                && dependency.to.name == "extension_provider_nominal_module_facts"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_provider_nominal_index"
-                && dependency.to.name == "extension_provider_nominal_module"
+            dependency.from.name == "extension_provider_nominal_modules"
+                && dependency.to.name == "extension_provider_module_facts"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "extension_provider_module_facts"
+                && dependency.to.description.contains("ModuleId(2)")
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
