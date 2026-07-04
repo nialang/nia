@@ -243,46 +243,160 @@ pub(super) fn provide_extension_provider_validation_program_facts(
     )
 }
 
-pub(super) fn provide_extension_provider_nominal_index(
+pub(super) fn provide_extension_provider_nominal_module_facts(
     db: &QueryDb<CompilerContext>,
-) -> ExtensionProviderNominalIndexValue {
+    module_id: ModuleId,
+) -> ExtensionProviderNominalModuleFactsValue {
+    time_module_provider(
+        db,
+        "extension_provider_nominal_module_facts",
+        module_id,
+        || {
+            if !db.query(ExtensionProviderModuleEligibilityQuery(module_id)) {
+                return Arc::new(ExtensionProviderNominalModuleFactsQueryValue {
+                    nominal_providers: Vec::new(),
+                });
+            }
+
+            let defs = db.query(ModuleDefsQuery(module_id));
+            let lowering = db.query(SignatureTypeLoweringQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::Traits,
+            ));
+            let signatures = db.query(SignatureItemSignaturesQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::Traits,
+            ));
+            let normalization = db.query(SignatureTypeNormalizationQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::Traits,
+            ));
+            let module = ExtensionMethodIndexModuleInput {
+                module_id,
+                defs: &defs,
+                lowering: &lowering,
+                signatures: &signatures,
+                normalization: &normalization,
+            };
+            let module_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+            let nominal_providers =
+                collect_nominal_extension_providers_for_module(&module, &module_defs);
+            Arc::new(ExtensionProviderNominalModuleFactsQueryValue { nominal_providers })
+        },
+    )
+}
+
+pub(super) fn provide_extension_provider_nominal_candidate_index(
+    db: &QueryDb<CompilerContext>,
+) -> ExtensionProviderNominalCandidateIndexValue {
     time_provider(
         db.context().timings(),
-        "extension_provider_nominal_index",
+        "extension_provider_nominal_candidate_index",
         || {
-            let facts = extension_provider_module_facts(db);
-            let mut providers_by_nominal: HashMap<
-                GlobalDefId,
-                Vec<crate::program_signatures::NominalExtensionProviderEntry>,
-            > = HashMap::new();
-            for facts in facts {
-                for provider in &facts.nominal_providers {
-                    providers_by_nominal
-                        .entry(provider.target)
-                        .or_default()
-                        .push(*provider);
+            let mut conservative = Vec::new();
+            let mut named: HashMap<String, Vec<ModuleId>> = HashMap::new();
+            for module_id in db.query(ExtensionProviderModuleIdsQuery) {
+                let summary = db.query(ExtensionProviderSummaryQuery(module_id));
+                for candidate in summary.nominal_provider_candidates() {
+                    match candidate {
+                        nia_provider_summary::NominalProviderCandidate::Named(name) => {
+                            named.entry(name).or_default().push(module_id);
+                        }
+                        nia_provider_summary::NominalProviderCandidate::Conservative => {
+                            conservative.push(module_id);
+                        }
+                    }
                 }
             }
-            for providers in providers_by_nominal.values_mut() {
-                providers.sort_by_key(|provider| {
-                    (
-                        provider.target,
-                        provider.module_id,
-                        match provider.visibility {
-                            nia_ids::Visibility::Private => 0,
-                            nia_ids::Visibility::PublicSuper => 1,
-                            nia_ids::Visibility::PublicPkg => 2,
-                            nia_ids::Visibility::Public => 3,
-                        },
-                    )
-                });
-                providers.dedup();
+            conservative.sort();
+            conservative.dedup();
+            for modules in named.values_mut() {
+                modules.sort();
+                modules.dedup();
             }
-            Arc::new(ExtensionProviderNominalIndexQueryValue {
-                providers_by_nominal,
+            Arc::new(ExtensionProviderNominalCandidateIndexQueryValue {
+                conservative,
+                named,
             })
         },
     )
+}
+
+pub(super) fn provide_extension_provider_nominal_modules(
+    db: &QueryDb<CompilerContext>,
+    target: GlobalDefId,
+    accessing_module: ModuleId,
+) -> ExtensionProviderNominalModulesValue {
+    time_provider(
+        db.context().timings(),
+        "extension_provider_nominal_modules",
+        || {
+            let graph = db.query(ModuleGraphQuery);
+            let target_name = db
+                .query(ModuleDefsQuery(target.module_id))
+                .defs
+                .get(target.def_id)
+                .map(|def| def.name.clone());
+            let candidate_index = db.query(ExtensionProviderNominalCandidateIndexQuery);
+            let mut module_ids = candidate_index.conservative.clone();
+            if let Some(target_name) = target_name.as_deref()
+                && let Some(named) = candidate_index.named.get(target_name)
+            {
+                module_ids.extend(named.iter().copied());
+            } else if target_name.is_none() {
+                module_ids.extend(
+                    candidate_index
+                        .named
+                        .values()
+                        .flat_map(|modules| modules.iter().copied()),
+                );
+            }
+            module_ids.sort();
+            module_ids.dedup();
+            let facts = db.query_many(
+                module_ids
+                    .into_iter()
+                    .map(ExtensionProviderNominalModuleFactsQuery),
+            );
+            let mut providers = facts
+                .iter()
+                .flat_map(|facts| facts.nominal_providers.iter().copied())
+                .filter(|provider| provider.target == target)
+                .filter(|provider| {
+                    nia_imports::visibility_allows(
+                        provider.visibility,
+                        &graph,
+                        provider.module_id,
+                        accessing_module,
+                    )
+                })
+                .collect::<Vec<_>>();
+            sort_and_dedup_nominal_providers(&mut providers);
+            let modules = providers
+                .into_iter()
+                .map(|provider| provider.module_id)
+                .collect::<Vec<_>>();
+            Arc::new(ExtensionProviderNominalModulesQueryValue { modules })
+        },
+    )
+}
+
+fn sort_and_dedup_nominal_providers(
+    providers: &mut Vec<crate::program_signatures::NominalExtensionProviderEntry>,
+) {
+    providers.sort_by_key(|provider| {
+        (
+            provider.target,
+            provider.module_id,
+            match provider.visibility {
+                nia_ids::Visibility::Private => 0,
+                nia_ids::Visibility::PublicSuper => 1,
+                nia_ids::Visibility::PublicPkg => 2,
+                nia_ids::Visibility::Public => 3,
+            },
+        )
+    });
+    providers.dedup();
 }
 
 pub(super) fn provide_extension_method_index(
@@ -380,23 +494,13 @@ pub(super) fn provide_visible_extensions(
         )))
     };
     let visible_type_signatures = db.query(ProgramVisibleTypeSignaturesQuery);
-    let nominal_index = db.query(ExtensionProviderNominalIndexQuery);
     let nominal_extension_providers = |target_def_id| {
-        nominal_index
-            .providers_by_nominal
-            .get(&target_def_id)
-            .into_iter()
-            .flat_map(|providers| providers.iter())
-            .filter(|provider| {
-                nia_imports::visibility_allows(
-                    provider.visibility,
-                    &graph,
-                    provider.module_id,
-                    module_id,
-                )
-            })
-            .map(|provider| provider.module_id)
-            .collect()
+        db.query(ExtensionProviderNominalModulesQuery(
+            target_def_id,
+            module_id,
+        ))
+        .modules
+        .clone()
     };
     let provider_modules = crate::program_signatures::visible_extension_provider_modules(
         crate::program_signatures::VisibleExtensionProviderModulesInput {
@@ -436,5 +540,6 @@ pub(super) fn provide_visible_extensions(
         associated_values: &associated_values,
         trait_impls: trait_impls.as_slice(),
         nominal_extension_providers: &nominal_extension_providers,
+        visible_modules: Some(provider_modules.as_slice()),
     }))
 }

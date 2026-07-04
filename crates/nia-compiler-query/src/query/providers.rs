@@ -113,8 +113,15 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderValidationFactsValue,
     pub(super) extension_provider_validation_program_facts:
         fn(&QueryDb<CompilerContext>) -> ExtensionProviderValidationProgramFactsValue,
-    pub(super) extension_provider_nominal_index:
-        fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalIndexValue,
+    pub(super) extension_provider_nominal_module_facts:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderNominalModuleFactsValue,
+    pub(super) extension_provider_nominal_candidate_index:
+        fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalCandidateIndexValue,
+    pub(super) extension_provider_nominal_modules: fn(
+        &QueryDb<CompilerContext>,
+        GlobalDefId,
+        ModuleId,
+    ) -> ExtensionProviderNominalModulesValue,
     pub(super) extension_method_index: fn(&QueryDb<CompilerContext>) -> ExtensionMethodIndexValue,
     pub(super) extension_trait_signature_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionTraitSignatureIndexValue,
@@ -207,7 +214,11 @@ impl Default for CompilerQueryProviders {
             extension_provider_validation_facts: provide_extension_provider_validation_facts,
             extension_provider_validation_program_facts:
                 provide_extension_provider_validation_program_facts,
-            extension_provider_nominal_index: provide_extension_provider_nominal_index,
+            extension_provider_nominal_module_facts:
+                provide_extension_provider_nominal_module_facts,
+            extension_provider_nominal_candidate_index:
+                provide_extension_provider_nominal_candidate_index,
+            extension_provider_nominal_modules: provide_extension_provider_nominal_modules,
             extension_method_index: provide_extension_method_index,
             extension_trait_signature_index: provide_extension_trait_signature_index,
             extension_method_set: provide_extension_method_set,

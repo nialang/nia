@@ -2837,6 +2837,7 @@ pub(crate) struct VisibleExtensionsInput<'a> {
     pub associated_values: &'a ExtensionAssociatedValues,
     pub trait_impls: &'a [ProgramTraitImplSignature],
     pub nominal_extension_providers: NominalExtensionProviderResolver<'a>,
+    pub visible_modules: Option<&'a [nia_ids::ModuleId]>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2900,20 +2901,27 @@ pub(crate) fn visible_extensions_for_module(
         associated_values,
         trait_impls,
         nominal_extension_providers,
+        visible_modules,
     } = input;
     let mut resolver_cache = VisibleExtensionResolverCache::new(defs, normalizations);
-    let visibility_context = VisibilityClosureContext {
-        module_id,
-        graph,
-        using_scope,
-        using_scopes,
-        defs,
-        normalizations,
-        visible_type_signatures,
-        nominal_extension_providers,
+    let computed_visible_modules;
+    let visible_modules = if let Some(visible_modules) = visible_modules {
+        visible_modules
+    } else {
+        let visibility_context = VisibilityClosureContext {
+            module_id,
+            graph,
+            using_scope,
+            using_scopes,
+            defs,
+            normalizations,
+            visible_type_signatures,
+            nominal_extension_providers,
+        };
+        computed_visible_modules = declared_module_closure(&visibility_context);
+        &computed_visible_modules
     };
-    let visible_modules = declared_module_closure(&visibility_context);
-    let witness_modules = &visible_modules;
+    let witness_modules = visible_modules;
     let Some(current_normalization) = resolver_cache.normalization(module_id).cloned() else {
         return VisibleExtensionsForModule {
             methods: VisibleExtensionMethods::default(),
