@@ -50,7 +50,7 @@ where
         for (module, summary) in summaries {
             for provider in &summary.providers {
                 if let Some(name) = provider.target.ty.nominal_provider_index_name() {
-                    named.entry(name).or_default().push(module);
+                    named.entry(name.to_string()).or_default().push(module);
                 }
             }
         }
@@ -150,6 +150,23 @@ impl ProviderSummary {
         candidates
     }
 
+    pub fn nominal_provider_index_names(&self) -> Vec<String> {
+        let mut names = self
+            .providers
+            .iter()
+            .filter_map(|provider| {
+                provider
+                    .target
+                    .ty
+                    .nominal_provider_index_name()
+                    .map(str::to_string)
+            })
+            .collect::<Vec<_>>();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     pub fn defines_inherent_associated_item(
         &self,
         target_type_name: &str,
@@ -243,11 +260,11 @@ impl ProviderTypeRef {
             .unwrap_or(NominalProviderCandidate::Conservative)
     }
 
-    fn nominal_provider_index_name(&self) -> Option<String> {
+    fn nominal_provider_index_name(&self) -> Option<&str> {
         if self.is_generic_or_structural_target {
             return None;
         }
-        self.last_name.clone()
+        self.last_name.as_deref()
     }
 
     fn is_definite_semantic_name(&self) -> bool {
