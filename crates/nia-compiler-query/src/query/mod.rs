@@ -2432,6 +2432,11 @@ pub fn expensive_or_invalid() i32 {
         assert!(trace_has_dependency(
             &trace,
             "extension_provider_module_ids",
+            "extension_provider_module_eligibility"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_provider_module_eligibility",
             "signature_item_tree"
         ));
         assert!(trace_has_dependency(
@@ -2463,6 +2468,7 @@ pub fn expensive_or_invalid() i32 {
             "extension_method_set",
             "extension_method_module_facts",
             "extension_trait_signature_index",
+            "extension_provider_module_eligibility",
             "extension_signature_module_input",
             "extension_trait_solving_module_facts",
         ] {
