@@ -11,7 +11,6 @@ use crate::{
         collect_nominal_extension_providers_for_module,
         collect_valid_trait_impls_for_extension_index_module, visible_extensions_for_module,
     },
-    public_surface::compute_public_surfaces,
 };
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_comptime_check::{ComptimeCheck, ComptimeModuleLowering};
@@ -30,6 +29,7 @@ use nia_monomorphize::MonomorphizeModuleInput;
 use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_parser::ParseError;
+use nia_public_surface::compute_public_surfaces;
 use nia_query::{QueryDb, QueryError, QueryFrame, QueryKey, QueryTrace};
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;

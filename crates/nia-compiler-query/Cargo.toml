@@ -34,6 +34,7 @@ nia-opt.workspace = true
 nia-parser.workspace = true
 nia-program-signatures.workspace = true
 nia-provider-summary.workspace = true
+nia-public-surface.workspace = true
 nia-query.workspace = true
 nia-sema-ir.workspace = true
 nia-source.workspace = true

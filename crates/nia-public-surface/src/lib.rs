@@ -15,7 +15,7 @@ use nia_imports::{
 use nia_span::Span;
 
 /// Compute every module's exported public surface and per-module using scope.
-pub(crate) fn compute_public_surfaces(
+pub fn compute_public_surfaces(
     defs_by_module: &[DefCollection],
     graph: &ModuleGraph,
 ) -> (
