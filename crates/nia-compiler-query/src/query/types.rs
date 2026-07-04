@@ -703,18 +703,33 @@ pub(super) struct ExtensionMethodIndexQueryValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionMethodModuleFactsQueryValue {
-    pub(super) methods: nia_defs::ExtensionMethods,
-    pub(super) diagnostics: Vec<Diagnostic>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderModuleFactsQueryValue {
     pub(super) methods: nia_defs::ExtensionMethods,
     pub(super) associated_values: nia_defs::ExtensionAssociatedValues,
     pub(super) associated_value_diagnostics: Vec<Diagnostic>,
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
     pub(super) nominal_providers: Vec<crate::program_signatures::NominalExtensionProviderEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionProviderProgramFactsQueryValue {
+    pub(super) methods: nia_defs::ExtensionMethods,
+    pub(super) associated_values: nia_defs::ExtensionAssociatedValues,
+    pub(super) associated_value_diagnostics: Vec<Diagnostic>,
+    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
+    pub(super) nominal_providers: Vec<crate::program_signatures::NominalExtensionProviderEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionProviderValidationFactsQueryValue {
+    pub(super) methods: nia_defs::ExtensionMethods,
+    pub(super) diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionProviderValidationProgramFactsQueryValue {
+    pub(super) methods: nia_defs::ExtensionMethods,
+    pub(super) diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -739,6 +754,57 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleFactsQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_provider_module_facts)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderProgramFactsQuery;
+
+impl QueryKey<CompilerContext> for ExtensionProviderProgramFactsQuery {
+    type Value = ExtensionProviderProgramFactsValue;
+
+    fn name() -> &'static str {
+        "extension_provider_program_facts"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_provider_program_facts)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderValidationFactsQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ExtensionProviderValidationFactsQuery {
+    type Value = ExtensionProviderValidationFactsValue;
+
+    fn name() -> &'static str {
+        "extension_provider_validation_facts"
+    }
+
+    fn description(&self) -> String {
+        format!("extension_provider_validation_facts({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_provider_validation_facts)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionProviderValidationProgramFactsQuery;
+
+impl QueryKey<CompilerContext> for ExtensionProviderValidationProgramFactsQuery {
+    type Value = ExtensionProviderValidationProgramFactsValue;
+
+    fn name() -> &'static str {
+        "extension_provider_validation_program_facts"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context()
+            .providers
+            .extension_provider_validation_program_facts)(db)
     }
 }
 
@@ -784,25 +850,6 @@ impl QueryKey<CompilerContext> for ExtensionTraitSignatureIndexQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_trait_signature_index)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionMethodModuleFactsQuery(pub(super) ModuleId);
-
-impl QueryKey<CompilerContext> for ExtensionMethodModuleFactsQuery {
-    type Value = ExtensionMethodModuleFactsValue;
-
-    fn name() -> &'static str {
-        "extension_method_module_facts"
-    }
-
-    fn description(&self) -> String {
-        format!("extension_method_module_facts({:?})", self.0)
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.extension_method_module_facts)(db, self.0)
     }
 }
 

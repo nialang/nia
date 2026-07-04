@@ -72,10 +72,13 @@ use types::*;
 
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
 type ExtensionProviderModuleFactsValue = Arc<ExtensionProviderModuleFactsQueryValue>;
+type ExtensionProviderProgramFactsValue = Arc<ExtensionProviderProgramFactsQueryValue>;
+type ExtensionProviderValidationFactsValue = Arc<ExtensionProviderValidationFactsQueryValue>;
+type ExtensionProviderValidationProgramFactsValue =
+    Arc<ExtensionProviderValidationProgramFactsQueryValue>;
 type ExtensionProviderNominalIndexValue = Arc<ExtensionProviderNominalIndexQueryValue>;
 type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
-type ExtensionMethodModuleFactsValue = Arc<ExtensionMethodModuleFactsQueryValue>;
 type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
 type ExtensionAssociatedValuesValue = Arc<ExtensionAssociatedValuesQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
@@ -2479,21 +2482,26 @@ pub fn expensive_or_invalid() i32 {
         assert!(trace_has_dependency(
             &trace,
             "extension_method_set",
-            "extension_method_module_facts"
+            "extension_provider_validation_program_facts"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "extension_method_set",
+            "extension_provider_validation_program_facts",
+            "extension_provider_validation_facts"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_provider_validation_program_facts",
             "extension_provider_module_ids"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "extension_method_module_facts",
+            "extension_provider_validation_facts",
             "extension_signature_module_input"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "extension_method_module_facts",
+            "extension_provider_validation_facts",
             "extension_trait_signature_index"
         ));
         assert!(trace_has_dependency(
@@ -2503,7 +2511,7 @@ pub fn expensive_or_invalid() i32 {
         ));
         assert!(trace_has_dependency(
             &trace,
-            "extension_method_module_facts",
+            "extension_provider_validation_facts",
             "program_trait_solving_signatures"
         ));
         assert!(trace_has_dependency(
@@ -2558,7 +2566,8 @@ pub fn expensive_or_invalid() i32 {
         ));
         for query in [
             "extension_method_set",
-            "extension_method_module_facts",
+            "extension_provider_validation_program_facts",
+            "extension_provider_validation_facts",
             "extension_trait_signature_index",
             "extension_provider_module_eligibility",
             "extension_signature_module_input",
@@ -2584,7 +2593,7 @@ pub fn expensive_or_invalid() i32 {
         for query in ["extension_method_index", "extension_associated_values"] {
             assert!(trace.dependencies.iter().any(|dependency| {
                 dependency.from.name == query
-                    && dependency.to.name == "extension_provider_module_ids"
+                    && dependency.to.name == "extension_provider_program_facts"
             }));
             assert!(!trace.dependencies.iter().any(|dependency| {
                 dependency.from.name == query
@@ -2614,10 +2623,14 @@ pub fn expensive_or_invalid() i32 {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_method_index"
-                && dependency.to.name == "extension_provider_module_facts"
+                && dependency.to.name == "extension_provider_program_facts"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_associated_values"
+                && dependency.to.name == "extension_provider_program_facts"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_provider_program_facts"
                 && dependency.to.name == "extension_provider_module_facts"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -2638,7 +2651,10 @@ pub fn expensive_or_invalid() i32 {
             dependency.from.name == "extension_method_index"
                 && matches!(
                     dependency.to.name,
-                    "extension_method_set" | "program_trait_solving_signatures"
+                    "extension_method_set"
+                        | "extension_provider_validation_facts"
+                        | "extension_provider_validation_program_facts"
+                        | "program_trait_solving_signatures"
                 )
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -2886,6 +2902,10 @@ fn main() i32 {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_index"
+                && dependency.to.name == "extension_provider_program_facts"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_provider_program_facts"
                 && dependency.to.name == "extension_provider_module_facts"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
