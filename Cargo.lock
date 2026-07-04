@@ -410,6 +410,7 @@ dependencies = [
  "nia-item-signatures",
  "nia-sema-ir",
  "nia-span",
+ "nia-timing",
  "nia-ty",
  "nia-type-lower",
  "nia-type-normalize",

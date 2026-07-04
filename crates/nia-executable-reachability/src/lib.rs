@@ -325,45 +325,88 @@ pub fn compute_executable_reachability_incremental(
     trait_impls: &[ProgramTraitImplSignature],
     modules: &[ReachableModuleInput<'_>],
 ) -> ExecutableReachability {
-    let extension_index = ExtensionReachabilityIndex::new(extension_methods, trait_impls);
-    let modules_by_id = modules
-        .iter()
-        .map(|module| (module.module_id, *module))
-        .collect::<HashMap<_, _>>();
-    let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
+    compute_executable_reachability_incremental_with_timings(
+        state,
+        parse_ok,
+        graph,
+        root_defs,
+        program_signatures,
+        extension_methods,
+        trait_impls,
+        modules,
+        nia_timing::TimingMode::Off,
+    )
+}
+
+#[expect(clippy::too_many_arguments)]
+pub fn compute_executable_reachability_incremental_with_timings(
+    state: &mut IncrementalExecutableReachability,
+    parse_ok: &[ModuleId],
+    graph: &ModuleGraph,
+    root_defs: ExecutableRootDefs<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    extension_methods: &ExtensionMethods,
+    trait_impls: &[ProgramTraitImplSignature],
+    modules: &[ReachableModuleInput<'_>],
+    timings: nia_timing::TimingMode,
+) -> ExecutableReachability {
+    let extension_index = time_reachability_stage(timings, "incremental.index", None, || {
+        ExtensionReachabilityIndex::new(extension_methods, trait_impls)
+    });
+    let modules_by_id = time_reachability_stage(timings, "incremental.modules_by_id", None, || {
+        modules
+            .iter()
+            .map(|module| (module.module_id, *module))
+            .collect::<HashMap<_, _>>()
+    });
+    let parse_ok_set = time_reachability_stage(timings, "incremental.parse_ok", None, || {
+        parse_ok.iter().copied().collect::<HashSet<_>>()
+    });
     let mut pending_modules = VecDeque::new();
-    for def_id in executable_root_functions(graph, root_defs) {
-        add_reachable_function(
-            def_id,
-            program_signatures,
-            &mut state.reachability.functions,
+    time_reachability_stage(timings, "incremental.roots", None, || {
+        for def_id in executable_root_functions(graph, root_defs) {
+            add_reachable_function(
+                def_id,
+                program_signatures,
+                &mut state.reachability.functions,
+                &mut state.reachability.modules,
+                &mut pending_modules,
+            );
+        }
+        add_reachable_module(
+            graph.entry(),
             &mut state.reachability.modules,
             &mut pending_modules,
         );
-    }
-    add_reachable_module(
-        graph.entry(),
-        &mut state.reachability.modules,
-        &mut pending_modules,
-    );
+    });
 
     loop {
         let before = incremental_reachability_key(state);
-        let current_reachable_modules = modules_by_id
-            .keys()
-            .copied()
-            .filter(|module_id| state.reachability.modules.contains(module_id))
-            .collect::<HashSet<_>>();
+        let current_reachable_modules =
+            time_reachability_stage(timings, "incremental.current_modules", None, || {
+                modules_by_id
+                    .keys()
+                    .copied()
+                    .filter(|module_id| state.reachability.modules.contains(module_id))
+                    .collect::<HashSet<_>>()
+            });
         for module in modules_by_id
             .values()
             .filter(|module| current_reachable_modules.contains(&module.module_id))
         {
             let mut pending_modules = VecDeque::new();
-            extend_reachability_from_unscanned_items(
-                state,
-                module,
-                program_signatures,
-                &mut pending_modules,
+            time_reachability_stage(
+                timings,
+                "incremental.unscanned_items",
+                Some(module.module_id),
+                || {
+                    extend_reachability_from_unscanned_items(
+                        state,
+                        module,
+                        program_signatures,
+                        &mut pending_modules,
+                    );
+                },
             );
             while let Some(module_id) = pending_modules.pop_front() {
                 if parse_ok_set.contains(&module_id) {
@@ -371,27 +414,34 @@ pub fn compute_executable_reachability_incremental(
                 }
             }
         }
-        let current_reachable_modules = modules_by_id
-            .keys()
-            .copied()
-            .filter(|module_id| state.reachability.modules.contains(module_id))
-            .collect::<HashSet<_>>();
-        extend_reachable_traits_from_generic_instances_incremental(
-            state,
-            &modules_by_id,
-            &current_reachable_modules,
-            program_signatures,
-            &extension_index,
-        );
+        let current_reachable_modules =
+            time_reachability_stage(timings, "incremental.current_modules", None, || {
+                modules_by_id
+                    .keys()
+                    .copied()
+                    .filter(|module_id| state.reachability.modules.contains(module_id))
+                    .collect::<HashSet<_>>()
+            });
+        time_reachability_stage(timings, "incremental.generic_traits", None, || {
+            extend_reachable_traits_from_generic_instances_incremental(
+                state,
+                &modules_by_id,
+                &current_reachable_modules,
+                program_signatures,
+                &extension_index,
+            );
+        });
         let mut pending_modules = VecDeque::new();
-        extend_reachable_functions_from_traits_incremental(
-            state,
-            program_signatures,
-            &extension_index,
-            trait_impls,
-            &modules_by_id,
-            &mut pending_modules,
-        );
+        time_reachability_stage(timings, "incremental.trait_functions", None, || {
+            extend_reachable_functions_from_traits_incremental(
+                state,
+                program_signatures,
+                &extension_index,
+                trait_impls,
+                &modules_by_id,
+                &mut pending_modules,
+            );
+        });
         while let Some(module_id) = pending_modules.pop_front() {
             if parse_ok_set.contains(&module_id) {
                 state.reachability.modules.insert(module_id);
@@ -416,14 +466,41 @@ pub fn extend_incremental_executable_reachability_from_checked_module(
     checked_functions: &HashSet<GlobalDefId>,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
 ) -> ExecutableReachability {
+    extend_incremental_executable_reachability_from_checked_module_with_timings(
+        state,
+        parse_ok,
+        program_signatures,
+        extension_methods,
+        trait_impls,
+        module,
+        checked_functions,
+        modules_by_id,
+        nia_timing::TimingMode::Off,
+    )
+}
+
+#[expect(clippy::too_many_arguments)]
+pub fn extend_incremental_executable_reachability_from_checked_module_with_timings(
+    state: &mut IncrementalExecutableReachability,
+    parse_ok: &[ModuleId],
+    program_signatures: ExecutableSignatureIndex<'_>,
+    extension_methods: &ExtensionMethods,
+    trait_impls: &[ProgramTraitImplSignature],
+    module: ReachableModuleInput<'_>,
+    checked_functions: &HashSet<GlobalDefId>,
+    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
+    timings: nia_timing::TimingMode,
+) -> ExecutableReachability {
     let extension_index =
-        time_reachability_stage("incremental.index", Some(module.module_id), || {
+        time_reachability_stage(timings, "incremental.index", Some(module.module_id), || {
             ExtensionReachabilityIndex::new(extension_methods, trait_impls)
         });
-    let parse_ok_set =
-        time_reachability_stage("incremental.parse_ok", Some(module.module_id), || {
-            parse_ok.iter().copied().collect::<HashSet<_>>()
-        });
+    let parse_ok_set = time_reachability_stage(
+        timings,
+        "incremental.parse_ok",
+        Some(module.module_id),
+        || parse_ok.iter().copied().collect::<HashSet<_>>(),
+    );
     for def_id in checked_functions {
         state.scanned_generic_trait_functions.remove(def_id);
     }
@@ -432,6 +509,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module(
         let before = incremental_reachability_key(state);
         let mut pending_modules = VecDeque::new();
         time_reachability_stage(
+            timings,
             "incremental.unscanned_items",
             Some(module.module_id),
             || {
@@ -449,6 +527,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module(
             }
         }
         let current_reachable_modules = time_reachability_stage(
+            timings,
             "incremental.current_modules",
             Some(module.module_id),
             || {
@@ -459,17 +538,23 @@ pub fn extend_incremental_executable_reachability_from_checked_module(
                     .collect::<HashSet<_>>()
             },
         );
-        time_reachability_stage("incremental.generic_traits", Some(module.module_id), || {
-            extend_reachable_traits_from_generic_instances_incremental(
-                state,
-                &modules_by_id,
-                &current_reachable_modules,
-                program_signatures,
-                &extension_index,
-            );
-        });
+        time_reachability_stage(
+            timings,
+            "incremental.generic_traits",
+            Some(module.module_id),
+            || {
+                extend_reachable_traits_from_generic_instances_incremental(
+                    state,
+                    &modules_by_id,
+                    &current_reachable_modules,
+                    program_signatures,
+                    &extension_index,
+                );
+            },
+        );
         let mut pending_modules = VecDeque::new();
         time_reachability_stage(
+            timings,
             "incremental.trait_functions",
             Some(module.module_id),
             || {
@@ -497,23 +582,16 @@ pub fn extend_incremental_executable_reachability_from_checked_module(
     state.reachability.clone()
 }
 
-fn time_reachability_stage<T>(name: &str, module_id: Option<ModuleId>, f: impl FnOnce() -> T) -> T {
-    if std::env::var_os("NIA_DEBUG_EXEC_REACHABILITY_TIMING").is_none() {
-        return f();
-    }
-    let start = std::time::Instant::now();
-    let result = f();
-    match module_id {
-        Some(module_id) => eprintln!(
-            "debug executable_reachability_timing {name}[{module_id:?}]: {:.6}s",
-            start.elapsed().as_secs_f64()
-        ),
-        None => eprintln!(
-            "debug executable_reachability_timing {name}: {:.6}s",
-            start.elapsed().as_secs_f64()
-        ),
-    }
-    result
+fn time_reachability_stage<T>(
+    timings: nia_timing::TimingMode,
+    name: &str,
+    module_id: Option<ModuleId>,
+    f: impl FnOnce() -> T,
+) -> T {
+    let Some(module_id) = module_id else {
+        return nia_timing::time_query(timings, name, f);
+    };
+    nia_timing::time_query(timings, &format!("{name}[{module_id:?}]"), f)
 }
 
 fn incremental_reachability_key(

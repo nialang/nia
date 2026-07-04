@@ -13,6 +13,7 @@ nia-imports.workspace = true
 nia-item-signatures.workspace = true
 nia-sema-ir.workspace = true
 nia-span.workspace = true
+nia-timing.workspace = true
 nia-ty.workspace = true
 nia-type-lower.workspace = true
 nia-type-normalize.workspace = true
