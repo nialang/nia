@@ -644,36 +644,13 @@ pub(super) struct ExtensionProviderModuleFactsQueryValue {
     pub(super) associated_values: nia_defs::ExtensionAssociatedValues,
     pub(super) associated_value_diagnostics: Vec<Diagnostic>,
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
+    pub(super) nominal_providers: Vec<crate::program_signatures::NominalExtensionProviderEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderNominalIndexQueryValue {
     pub(super) providers_by_nominal:
         HashMap<GlobalDefId, Vec<crate::program_signatures::NominalExtensionProviderEntry>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionProviderNominalModuleQueryValue {
-    pub(super) providers: Vec<crate::program_signatures::NominalExtensionProviderEntry>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionProviderNominalModuleQuery(pub(super) ModuleId);
-
-impl QueryKey<CompilerContext> for ExtensionProviderNominalModuleQuery {
-    type Value = ExtensionProviderNominalModuleValue;
-
-    fn name() -> &'static str {
-        "extension_provider_nominal_module"
-    }
-
-    fn description(&self) -> String {
-        format!("extension_provider_nominal_module({:?})", self.0)
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.extension_provider_nominal_module)(db, self.0)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
