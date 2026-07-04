@@ -135,6 +135,43 @@ fn query_loader_uses_package_module_map() {
 }
 
 #[test]
+fn query_loader_processes_module_map_root_when_selected_as_value_host() {
+    let root = temp_dir("query_loader_processes_module_map_root_when_selected_as_value_host");
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep;
+
+fn main() i32 {
+    dep::build()
+}
+"#,
+    );
+    write(
+        &root.join("dep.nia"),
+        r#"
+pub fn build() i32 {
+    1
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map.insert(
+        "dep",
+        SourcePath::new(root.join("dep.nia").to_string_lossy()),
+    );
+
+    let program = load_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
+
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let dep = module_by_suffix(&program, "dep.nia");
+    assert!(
+        dep.process_used_paths,
+        "selected module-map package root must be semantic: {dep:?}"
+    );
+}
+
+#[test]
 fn query_loader_injects_default_std_module_map_to_toolchain_lib() {
     let root = temp_dir("query_loader_injects_default_std_module_map_to_toolchain_lib");
     let main_path = root.join("main.nia");

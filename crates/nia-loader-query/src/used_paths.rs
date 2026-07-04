@@ -272,12 +272,19 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
     }
 
     fn visit_expr(&mut self, expr: &'ast Expr) {
-        if let ExprKind::Call { callee, .. } = &expr.kind
-            && let ExprKind::Field { name, .. } = &callee.kind
-        {
-            let target_type_name = method_receiver_local_type_name(callee)
-                .and_then(|local_name| self.local_type_name(local_name));
-            self.collect_trait_method_provider(target_type_name.as_deref(), name);
+        if let ExprKind::Call { callee, args } = &expr.kind {
+            if let ExprKind::Field { name, .. } = &callee.kind {
+                let target_type_name = method_receiver_local_type_name(callee)
+                    .and_then(|local_name| self.local_type_name(local_name));
+                self.collect_trait_method_provider(target_type_name.as_deref(), name);
+            }
+            if let Some(segments) = expr_qualified_segments(callee) {
+                self.collect_path_segments(segments);
+                for arg in args {
+                    self.visit_expr(arg);
+                }
+                return;
+            }
         }
         if let Some(segments) = expr_qualified_segments(expr) {
             self.collect_path_segments(segments);
@@ -409,20 +416,27 @@ impl<'ast> Visitor<'ast> for ExtendSelfMethodCollector<'_, '_> {
             self.module_collector
                 .collect_inherent_provider_for_type(self.target, name);
         }
-        if let ExprKind::Call { callee, .. } = &expr.kind
-            && let ExprKind::Field { name, .. } = &callee.kind
-        {
-            let target_type_name = if matches!(
-                method_receiver_local_type_name(callee),
-                Some(local_name) if local_name == "self"
-            ) {
-                type_ref_last_name(self.target).map(ToString::to_string)
-            } else {
-                method_receiver_local_type_name(callee)
-                    .and_then(|local_name| self.module_collector.local_type_name(local_name))
-            };
-            self.module_collector
-                .collect_trait_method_provider(target_type_name.as_deref(), name);
+        if let ExprKind::Call { callee, args } = &expr.kind {
+            if let ExprKind::Field { name, .. } = &callee.kind {
+                let target_type_name = if matches!(
+                    method_receiver_local_type_name(callee),
+                    Some(local_name) if local_name == "self"
+                ) {
+                    type_ref_last_name(self.target).map(ToString::to_string)
+                } else {
+                    method_receiver_local_type_name(callee)
+                        .and_then(|local_name| self.module_collector.local_type_name(local_name))
+                };
+                self.module_collector
+                    .collect_trait_method_provider(target_type_name.as_deref(), name);
+            }
+            if let Some(segments) = expr_qualified_segments(callee) {
+                self.module_collector.collect_path_segments(segments);
+                for arg in args {
+                    self.visit_expr(arg);
+                }
+                return;
+            }
         }
         if let Some(segments) = expr_qualified_segments(expr) {
             self.module_collector.collect_path_segments(segments);
@@ -851,10 +865,6 @@ impl UsedModulePath {
                 ..
             } => *include_declared_children,
         }
-    }
-
-    pub(crate) fn process_used_paths(&self) -> bool {
-        self.processing() == UsedModulePathProcessing::Always
     }
 
     pub(crate) fn processing(&self) -> UsedModulePathProcessing {

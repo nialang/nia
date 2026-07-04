@@ -91,73 +91,6 @@ fn add_used_module_path(
     if let Some(package) = path.activates_package_facade() {
         activate_package_facade(db, graph, package)?;
     }
-    if let UsedModulePath::Package {
-        package: _,
-        segments,
-        include_declared_children,
-        ..
-    } = path
-        && let Some((first, rest)) = segments.split_first()
-    {
-        let Some(first_module) = add_visible_declared_module_child_if_present(
-            db,
-            graph,
-            current_module,
-            start,
-            first,
-            if rest.is_empty() {
-                path.process_used_paths()
-            } else {
-                false
-            },
-        )?
-        else {
-            let Some(reexport_source) = add_public_reexport_source_module(db, graph, start, first)?
-            else {
-                return Ok(());
-            };
-            let Some(module_id) = add_visible_declared_module_path(
-                db,
-                graph,
-                current_module,
-                reexport_source,
-                rest,
-                path.processing(),
-            )?
-            else {
-                return Ok(());
-            };
-            if let Some(associated_name) = rest.first() {
-                add_public_reexport_extension_provider_modules(
-                    db,
-                    graph,
-                    start,
-                    first,
-                    first,
-                    associated_name,
-                )?;
-            }
-            if *include_declared_children {
-                add_declared_module_children(db, graph, module_id)?;
-            }
-            return Ok(());
-        };
-        let Some(module_id) = add_visible_declared_module_path(
-            db,
-            graph,
-            current_module,
-            first_module,
-            rest,
-            path.processing(),
-        )?
-        else {
-            return Ok(());
-        };
-        if *include_declared_children {
-            add_declared_module_children(db, graph, module_id)?;
-        }
-        return Ok(());
-    }
     let Some(module_id) = add_visible_declared_module_path(
         db,
         graph,
@@ -252,11 +185,18 @@ pub(crate) fn add_visible_declared_module_path(
     if processing == UsedModulePathProcessing::Always && segments.is_empty() {
         mark_process_used_paths_and_process(db, graph, current)?;
     }
-    if processing == UsedModulePathProcessing::IfProvidesExtensions
-        && segments.is_empty()
-        && module_defines_extensions(db, graph, current)
-    {
-        mark_process_used_paths_and_process(db, graph, current)?;
+    if segments.is_empty() {
+        match processing {
+            UsedModulePathProcessing::IfSelectedItem => {
+                mark_process_used_paths_and_process(db, graph, current)?;
+            }
+            UsedModulePathProcessing::IfProvidesExtensions
+                if module_defines_extensions(db, graph, current) =>
+            {
+                mark_process_used_paths_and_process(db, graph, current)?;
+            }
+            _ => {}
+        }
     }
     if segments.is_empty() {
         process_provider_request(db, graph, current, &processing)?;
