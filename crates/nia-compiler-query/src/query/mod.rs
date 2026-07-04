@@ -3,10 +3,11 @@ use crate::{
     CheckedModule, CheckedProgram, CodegenProgram, LoadedModule, LoadedProgram, ProgramDiagnostic,
     RuntimeModel, TimingMode, module_diagnostics,
     program_signatures::{
-        ExtensionMethodIndexModuleInput, ExtensionModuleInput, ModuleProgramSignatureFacts,
-        ModuleSignatureInput, VisibleExtensionsForModule, VisibleExtensionsInput,
-        VisibleTypeSignatures, collect_extension_associated_value_index_for_module,
-        collect_extension_method_index_for_module, collect_extension_methods,
+        ExtensionMethodIndexModuleInput, ExtensionMethodValidationInput, ExtensionModuleInput,
+        ExtensionTraitSignatureIndex, ModuleProgramSignatureFacts, ModuleSignatureInput,
+        VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTypeSignatures,
+        collect_extension_associated_value_index_for_module,
+        collect_extension_method_index_for_module, collect_extension_methods_for_module,
         collect_nominal_extension_providers_for_module,
         collect_valid_trait_impls_for_extension_index_module, visible_extensions_for_module,
     },
@@ -74,10 +75,11 @@ type ExtensionProviderModuleFactsValue = Arc<ExtensionProviderModuleFactsQueryVa
 type ExtensionProviderNominalModuleValue = Arc<ExtensionProviderNominalModuleQueryValue>;
 type ExtensionProviderNominalIndexValue = Arc<ExtensionProviderNominalIndexQueryValue>;
 type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
+type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
+type ExtensionMethodModuleFactsValue = Arc<ExtensionMethodModuleFactsQueryValue>;
 type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
 type ExtensionAssociatedValuesValue = Arc<ExtensionAssociatedValuesQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
-type ExtensionSignatureInputsValue = Arc<ExtensionSignatureInputsQueryValue>;
 type ExtensionSignatureModuleInputValue = Arc<ExtensionSignatureModuleInputQueryValue>;
 type ExtensionTraitSolvingModuleFactsValue = Arc<ExtensionTraitSolvingModuleFactsQueryValue>;
 type ModuleProgramSignatureFactsValue = Arc<ModuleProgramSignatureFacts>;
@@ -2386,17 +2388,32 @@ pub fn expensive_or_invalid() i32 {
         assert!(trace_has_dependency(
             &trace,
             "extension_method_set",
-            "extension_signature_inputs"
+            "extension_method_module_facts"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "extension_signature_inputs",
+            "extension_method_set",
             "extension_provider_module_ids"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "extension_signature_inputs",
+            "extension_method_module_facts",
             "extension_signature_module_input"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_method_module_facts",
+            "extension_trait_signature_index"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_trait_signature_index",
+            "module_program_signature_facts"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_method_module_facts",
+            "program_trait_solving_signatures"
         ));
         assert!(trace_has_dependency(
             &trace,
@@ -2445,7 +2462,8 @@ pub fn expensive_or_invalid() i32 {
         ));
         for query in [
             "extension_method_set",
-            "extension_signature_inputs",
+            "extension_method_module_facts",
+            "extension_trait_signature_index",
             "extension_signature_module_input",
             "extension_trait_solving_module_facts",
         ] {

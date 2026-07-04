@@ -263,17 +263,6 @@ impl ExtensionSignatureModuleInputQueryValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionSignatureInputsQueryValue {
-    pub(super) modules: Vec<ExtensionSignatureModuleInputValue>,
-}
-
-impl ExtensionSignatureInputsQueryValue {
-    pub(super) fn extension_modules(&self) -> Vec<ExtensionModuleInput<'_>> {
-        self.modules.iter().map(|module| module.module()).collect()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionTraitSolvingModuleFactsQueryValue {
     pub(super) enums: HashMap<GlobalDefId, ProgramEnumSignature>,
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
@@ -371,21 +360,6 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleIdsQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_provider_module_ids)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionSignatureInputsQuery;
-
-impl QueryKey<CompilerContext> for ExtensionSignatureInputsQuery {
-    type Value = ExtensionSignatureInputsValue;
-
-    fn name() -> &'static str {
-        "extension_signature_inputs"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.extension_signature_inputs)(db)
     }
 }
 
@@ -659,6 +633,12 @@ pub(super) struct ExtensionMethodIndexQueryValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionMethodModuleFactsQueryValue {
+    pub(super) methods: nia_defs::ExtensionMethods,
+    pub(super) diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderModuleFactsQueryValue {
     pub(super) methods: nia_defs::ExtensionMethods,
     pub(super) associated_values: nia_defs::ExtensionAssociatedValues,
@@ -742,6 +722,40 @@ impl QueryKey<CompilerContext> for ExtensionMethodIndexQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_method_index)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionTraitSignatureIndexQuery;
+
+impl QueryKey<CompilerContext> for ExtensionTraitSignatureIndexQuery {
+    type Value = ExtensionTraitSignatureIndexValue;
+
+    fn name() -> &'static str {
+        "extension_trait_signature_index"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_trait_signature_index)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionMethodModuleFactsQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ExtensionMethodModuleFactsQuery {
+    type Value = ExtensionMethodModuleFactsValue;
+
+    fn name() -> &'static str {
+        "extension_method_module_facts"
+    }
+
+    fn description(&self) -> String {
+        format!("extension_method_module_facts({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_method_module_facts)(db, self.0)
     }
 }
 

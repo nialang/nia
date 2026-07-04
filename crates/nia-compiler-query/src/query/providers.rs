@@ -59,8 +59,6 @@ pub(super) struct CompilerQueryProviders {
     pub(super) extension_provider_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
     pub(super) extension_signature_module_input:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionSignatureModuleInputValue,
-    pub(super) extension_signature_inputs:
-        fn(&QueryDb<CompilerContext>) -> ExtensionSignatureInputsValue,
     pub(super) extension_trait_solving_module_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionTraitSolvingModuleFactsValue,
     pub(super) program_body_function_signatures:
@@ -86,6 +84,10 @@ pub(super) struct CompilerQueryProviders {
     pub(super) extension_provider_nominal_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalIndexValue,
     pub(super) extension_method_index: fn(&QueryDb<CompilerContext>) -> ExtensionMethodIndexValue,
+    pub(super) extension_trait_signature_index:
+        fn(&QueryDb<CompilerContext>) -> ExtensionTraitSignatureIndexValue,
+    pub(super) extension_method_module_facts:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionMethodModuleFactsValue,
     pub(super) extension_method_set: fn(&QueryDb<CompilerContext>) -> ExtensionMethodSetValue,
     pub(super) extension_associated_values:
         fn(&QueryDb<CompilerContext>) -> ExtensionAssociatedValuesValue,
@@ -152,7 +154,6 @@ impl Default for CompilerQueryProviders {
             module_program_signature_facts: provide_module_program_signature_facts,
             extension_provider_module_ids: provide_extension_provider_module_ids,
             extension_signature_module_input: provide_extension_signature_module_input,
-            extension_signature_inputs: provide_extension_signature_inputs,
             extension_trait_solving_module_facts: provide_extension_trait_solving_module_facts,
             program_body_function_signatures: provide_program_body_function_signatures,
             program_body_value_signatures: provide_program_body_value_signatures,
@@ -166,6 +167,8 @@ impl Default for CompilerQueryProviders {
             extension_provider_nominal_module: provide_extension_provider_nominal_module,
             extension_provider_nominal_index: provide_extension_provider_nominal_index,
             extension_method_index: provide_extension_method_index,
+            extension_trait_signature_index: provide_extension_trait_signature_index,
+            extension_method_module_facts: provide_extension_method_module_facts,
             extension_method_set: provide_extension_method_set,
             extension_associated_values: provide_extension_associated_values,
             extension_methods: provide_extension_methods,
@@ -879,17 +882,6 @@ fn signature_tree_has_trait_or_extend(tree: &ActiveModuleItemTree) -> bool {
     })
 }
 
-pub(super) fn provide_extension_signature_inputs(
-    db: &QueryDb<CompilerContext>,
-) -> ExtensionSignatureInputsValue {
-    let modules = db.query_many(
-        db.query(ExtensionProviderModuleIdsQuery)
-            .into_iter()
-            .map(ExtensionSignatureModuleInputQuery),
-    );
-    Arc::new(ExtensionSignatureInputsQueryValue { modules })
-}
-
 pub(super) fn provide_extension_trait_solving_module_facts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -1088,17 +1080,17 @@ pub(super) fn provide_extension_method_set(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionMethodSetValue {
     time_provider(db.context().timings(), "extension_method_set", || {
-        let timings = db.context().timings();
-        let inputs = time_provider(timings, "extension_method_set.inputs", || {
-            db.query(ExtensionSignatureInputsQuery)
-        });
-        let inputs = time_provider(timings, "extension_method_set.input_modules", || {
-            inputs.extension_modules()
-        });
-        let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
-        let (methods, diagnostics) = time_provider(timings, "extension_method_set.collect", || {
-            collect_extension_methods(&inputs, &trait_solving.trait_impls)
-        });
+        let facts = db.query_many(
+            db.query(ExtensionProviderModuleIdsQuery)
+                .into_iter()
+                .map(ExtensionMethodModuleFactsQuery),
+        );
+        let mut methods = nia_defs::ExtensionMethods::default();
+        let mut diagnostics = Vec::new();
+        for facts in facts {
+            methods.extend(facts.methods.clone());
+            diagnostics.extend(facts.diagnostics.iter().cloned());
+        }
         Arc::new(ExtensionMethodSetQueryValue {
             methods,
             diagnostics,
@@ -1270,6 +1262,56 @@ pub(super) fn provide_extension_method_index(
         Arc::new(ExtensionMethodIndexQueryValue {
             methods,
             trait_impls,
+        })
+    })
+}
+
+pub(super) fn provide_extension_trait_signature_index(
+    db: &QueryDb<CompilerContext>,
+) -> ExtensionTraitSignatureIndexValue {
+    time_provider(
+        db.context().timings(),
+        "extension_trait_signature_index",
+        || {
+            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
+            let mut trait_defs = HashSet::new();
+            let mut trait_signatures = HashMap::new();
+            for module_facts in facts {
+                trait_defs.extend(module_facts.trait_defs.iter().copied());
+                trait_signatures.extend(
+                    module_facts
+                        .traits
+                        .iter()
+                        .map(|(def_id, signature)| (*def_id, signature.clone())),
+                );
+            }
+            Arc::new(ExtensionTraitSignatureIndex {
+                trait_defs,
+                trait_signatures,
+            })
+        },
+    )
+}
+
+pub(super) fn provide_extension_method_module_facts(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> ExtensionMethodModuleFactsValue {
+    time_module_provider(db, "extension_method_module_facts", module_id, || {
+        let input = db.query(ExtensionSignatureModuleInputQuery(module_id));
+        let trait_index = db.query(ExtensionTraitSignatureIndexQuery);
+        let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+        let (methods, diagnostics) = collect_extension_methods_for_module(
+            &input.module(),
+            ExtensionMethodValidationInput {
+                trait_defs: &trait_index.trait_defs,
+                trait_signatures: &trait_index.trait_signatures,
+                trait_impls: &trait_solving.trait_impls,
+            },
+        );
+        Arc::new(ExtensionMethodModuleFactsQueryValue {
+            methods,
+            diagnostics,
         })
     })
 }
