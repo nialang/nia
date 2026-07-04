@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{env, fs, path::PathBuf, process::ExitCode};
 
-use nia_driver::{
-    ENTRY_MODULE_MAP_NAME, ModuleMap, NiaOptimizationLevel, PACKAGE_MODULE_MAP_NAME, Runtime,
-    SourcePath,
-};
+use nia_driver::{ModuleMap, NiaOptimizationLevel, Runtime, SourcePath};
 
 mod help;
 
@@ -684,14 +681,10 @@ fn insert_module_map_entry(map: &mut ModuleMap, payload: &str) -> Result<(), Str
     if name.is_empty() {
         return Err("module map name cannot be empty".to_string());
     }
-    if matches!(name, ENTRY_MODULE_MAP_NAME | PACKAGE_MODULE_MAP_NAME) {
-        return Err(format!("`{name}` is a compiler-reserved module root"));
-    }
     if path.is_empty() {
         return Err(format!("module map `{name}` has empty path"));
     }
-    map.insert(name, SourcePath::new(path));
-    Ok(())
+    map.try_insert(name, SourcePath::new(path))
 }
 
 fn run_lex(source: &str) -> ExitCode {

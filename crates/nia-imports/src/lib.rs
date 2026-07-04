@@ -10,7 +10,18 @@ use nia_span::Span;
 
 pub const ENTRY_MODULE_MAP_NAME: &str = "entry";
 pub const PACKAGE_MODULE_MAP_NAME: &str = "pkg";
+pub const BUILTIN_MODULE_MAP_NAME: &str = "builtin";
 pub const STD_MODULE_MAP_NAME: &str = "std";
+
+pub const COMPILER_RESERVED_MODULE_ROOTS: &[&str] = &[
+    ENTRY_MODULE_MAP_NAME,
+    PACKAGE_MODULE_MAP_NAME,
+    BUILTIN_MODULE_MAP_NAME,
+];
+
+pub fn is_compiler_reserved_module_root(name: &str) -> bool {
+    COMPILER_RESERVED_MODULE_ROOTS.contains(&name)
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleMap {
@@ -23,7 +34,21 @@ impl ModuleMap {
     }
 
     pub fn insert(&mut self, name: impl Into<String>, path: SourcePath) {
-        self.entries.insert(name.into(), path);
+        let name = name.into();
+        assert!(
+            !is_compiler_reserved_module_root(&name),
+            "`{name}` is a compiler-reserved module root"
+        );
+        self.entries.insert(name, path);
+    }
+
+    pub fn try_insert(&mut self, name: impl Into<String>, path: SourcePath) -> Result<(), String> {
+        let name = name.into();
+        if is_compiler_reserved_module_root(&name) {
+            return Err(format!("`{name}` is a compiler-reserved module root"));
+        }
+        self.entries.insert(name, path);
+        Ok(())
     }
 
     pub fn with_entry(&self, entry_path: SourcePath) -> Self {
