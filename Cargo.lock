@@ -265,6 +265,7 @@ dependencies = [
  "nia-node-id",
  "nia-opt",
  "nia-parser",
+ "nia-provider-summary",
  "nia-query",
  "nia-sema-ir",
  "nia-source",

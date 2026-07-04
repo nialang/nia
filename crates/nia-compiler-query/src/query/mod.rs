@@ -54,7 +54,9 @@ mod checked;
 mod checks;
 mod diagnostics;
 mod executable;
+mod extension_provider_queries;
 mod program;
+mod program_signature_queries;
 mod providers;
 mod resolve;
 mod types;
@@ -65,14 +67,15 @@ use checked::*;
 use checks::*;
 use diagnostics::*;
 use executable::*;
+use extension_provider_queries::*;
 use program::*;
+use program_signature_queries::*;
 use providers::*;
 use resolve::*;
 use types::*;
 
 type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
 type ExtensionProviderModuleFactsValue = Arc<ExtensionProviderModuleFactsQueryValue>;
-type ExtensionProviderProgramFactsValue = Arc<ExtensionProviderProgramFactsQueryValue>;
 type ExtensionProviderValidationFactsValue = Arc<ExtensionProviderValidationFactsQueryValue>;
 type ExtensionProviderValidationProgramFactsValue =
     Arc<ExtensionProviderValidationProgramFactsQueryValue>;
@@ -309,6 +312,8 @@ impl CompilerDatabase {
                     )));
                 }
                 if module.signature_trait_items {
+                    invalidation
+                        .extend(self.db.invalidate(ExtensionProviderSummaryQuery(module_id)));
                     invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
                         module_id,
                         nia_item_tree::SignatureItemSet::Traits,
@@ -2496,6 +2501,12 @@ pub fn expensive_or_invalid() i32 {
         let _ = db.query(ExtensionMethodIndexQuery);
         let trace = db.query_trace();
 
+        assert!(
+            !trace
+                .queries
+                .iter()
+                .any(|query| query.frame.name == "extension_provider_program_facts")
+        );
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_methods"
                 && dependency.to.name == "extension_method_set"
@@ -2562,6 +2573,11 @@ pub fn expensive_or_invalid() i32 {
         assert!(trace_has_dependency(
             &trace,
             "extension_provider_module_eligibility",
+            "extension_provider_summary"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_provider_summary",
             "signature_item_tree"
         ));
         assert!(trace_has_dependency(
@@ -2586,7 +2602,12 @@ pub fn expensive_or_invalid() i32 {
         ));
         assert!(trace_has_dependency(
             &trace,
-            "extension_trait_solving_module_facts",
+            "program_trait_solving_signatures",
+            "program_signature_module_ids"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_trait_solving_signatures",
             "module_program_signature_facts"
         ));
         for query in [
@@ -2595,6 +2616,7 @@ pub fn expensive_or_invalid() i32 {
             "extension_provider_validation_facts",
             "extension_trait_signature_index",
             "extension_provider_module_eligibility",
+            "extension_provider_summary",
             "extension_signature_module_input",
             "extension_trait_solving_module_facts",
         ] {
@@ -2618,7 +2640,7 @@ pub fn expensive_or_invalid() i32 {
         for query in ["extension_method_index", "extension_associated_values"] {
             assert!(trace.dependencies.iter().any(|dependency| {
                 dependency.from.name == query
-                    && dependency.to.name == "extension_provider_program_facts"
+                    && dependency.to.name == "extension_provider_module_facts"
             }));
             assert!(!trace.dependencies.iter().any(|dependency| {
                 dependency.from.name == query
@@ -2648,14 +2670,10 @@ pub fn expensive_or_invalid() i32 {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_method_index"
-                && dependency.to.name == "extension_provider_program_facts"
+                && dependency.to.name == "extension_provider_module_facts"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_associated_values"
-                && dependency.to.name == "extension_provider_program_facts"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_provider_program_facts"
                 && dependency.to.name == "extension_provider_module_facts"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -2727,11 +2745,20 @@ pub fn expensive_or_invalid() i32 {
             !invalidated.contains(&"extension_provider_module_facts"),
             "{invalidated:?}"
         );
+        assert!(
+            !invalidated.contains(&"extension_provider_summary"),
+            "{invalidated:?}"
+        );
         let before_second_query = database.query_trace();
 
         let _ = database.db.query(ExtensionMethodIndexQuery);
         let after_second_query = database.query_trace();
 
+        assert_query_executions_unchanged(
+            &before_second_query,
+            &after_second_query,
+            "extension_provider_summary",
+        );
         assert_query_executions_unchanged(
             &before_second_query,
             &after_second_query,
@@ -2927,10 +2954,6 @@ fn main() i32 {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_index"
-                && dependency.to.name == "extension_provider_program_facts"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_provider_program_facts"
                 && dependency.to.name == "extension_provider_module_facts"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -3102,12 +3125,55 @@ fn main() i32 {
     }
 
     #[test]
-    fn entry_checked_program_uses_module_scoped_extension_validation_diagnostics() {
+    fn bare_entry_checked_program_uses_entry_module_diagnostics_without_executable_reachability() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
             "extend ! { fn nope(self) void {} } pub fn main() i32 { 1 }",
         )]);
+        let db = query_db(loaded);
+
+        let checked = db.query(EntryCheckedProgramQuery);
+        let trace = db.query_trace();
+
+        assert!(
+            checked.diagnostics.iter().any(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("extend target must be an extendable value type")),
+            "{:?}",
+            checked.diagnostics
+        );
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "entry_checked_program"
+                && dependency.to.name == "executable_checked_modules"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "entry_checked_program"
+                && dependency.to.name == "checked_module"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "entry_checked_program"
+                && dependency.to.name == "extension_provider_validation_facts"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "entry_checked_program"
+                && dependency.to.name == "extension_provider_validation_program_facts"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "entry_checked_program"
+                && dependency.to.name == "extension_method_set"
+        }));
+    }
+
+    #[test]
+    fn freestanding_entry_checked_program_uses_executable_reachability() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "extend ! { fn nope(self) void {} } pub fn main() i32 { 1 }",
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let checked = db.query(EntryCheckedProgramQuery);
