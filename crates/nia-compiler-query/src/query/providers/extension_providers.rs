@@ -17,9 +17,11 @@ pub(super) fn provide_extension_provider_module_ids(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<ModuleId> {
     let timings = db.context().timings();
-    let semantic_modules = db.query(SemanticModuleIdsQuery);
+    let trait_modules = db.query(ProgramSignatureModuleIdsQuery(
+        nia_item_tree::SignatureItemSet::Traits,
+    ));
     time_provider(timings, "extension_provider_module_ids.filter", || {
-        semantic_modules
+        trait_modules
             .into_iter()
             .filter(|module_id| db.query(ExtensionProviderModuleEligibilityQuery(*module_id)))
             .collect()
