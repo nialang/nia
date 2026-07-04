@@ -1684,12 +1684,15 @@ fn with_comptime_input_and_program_signatures<T>(
             nia_item_tree::SignatureItemSet::Values,
         )))
     };
-    let trait_solving_signatures;
-    let trait_impls = if let Some(signatures) = program_signatures_override {
-        signatures.trait_impls.as_slice()
-    } else {
-        trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-        trait_solving_signatures.trait_impls.as_slice()
+    let trait_impls_for_module = |module_id| {
+        if let Some(signatures) = program_signatures_override {
+            return Some(signatures.trait_impls.clone());
+        }
+        Some(
+            db.query(VisibleExtensionsQuery(module_id))
+                .trait_impls
+                .clone(),
+        )
     };
     let program_is_enum = |def_id: GlobalDefId| {
         program_signatures_override.is_some_and(|signatures| signatures.enums.contains_key(&def_id))
@@ -1742,7 +1745,7 @@ fn with_comptime_input_and_program_signatures<T>(
                 comptime_values: None,
                 global_initializer: None,
                 program_is_enum: Some(&program_is_enum),
-                trait_impls,
+                trait_impls_for_module: Some(&trait_impls_for_module),
                 visible_extensions: Some(&visible_extensions_for_module),
             },
         },
@@ -2380,12 +2383,15 @@ fn comptime_inputs_for_body_check(
             nia_item_tree::SignatureItemSet::Values,
         )))
     };
-    let trait_solving_signatures;
-    let trait_impls = if let Some(signatures) = fact_mode.program_signatures {
-        signatures.trait_impls.as_slice()
-    } else {
-        trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-        trait_solving_signatures.trait_impls.as_slice()
+    let trait_impls_for_module = |module_id| {
+        if let Some(signatures) = fact_mode.program_signatures {
+            return Some(signatures.trait_impls.clone());
+        }
+        Some(
+            db.query(VisibleExtensionsQuery(module_id))
+                .trait_impls
+                .clone(),
+        )
     };
     let program_is_enum = |def_id: GlobalDefId| {
         fact_mode
@@ -2450,7 +2456,7 @@ fn comptime_inputs_for_body_check(
             comptime_values: None,
             global_initializer: Some(&program_global_initializer),
             program_is_enum: Some(&program_is_enum),
-            trait_impls,
+            trait_impls_for_module: Some(&trait_impls_for_module),
             visible_extensions: Some(&visible_extensions_for_module),
         },
     };
@@ -2844,7 +2850,6 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 program_trait_signature(trait_id).map(|signature| (trait_id, signature))
             })
     };
-    let program_trait_solving_signatures;
     let resolver_program_signatures = ProgramSignatureResolvers {
         function: &program_function_signature,
         global: &program_global_signature,
@@ -2879,11 +2884,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
     let program_signatures = if let Some(signatures) = fact_mode.program_signatures {
         ProgramSignatureContext::new(&program_signature_lookup, &signatures.trait_impls)
     } else {
-        program_trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-        ProgramSignatureContext::new(
-            &program_signature_lookup,
-            &program_trait_solving_signatures.trait_impls,
-        )
+        ProgramSignatureContext::new(&program_signature_lookup, &extensions.trait_impls)
     };
     let item_signatures_for_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {

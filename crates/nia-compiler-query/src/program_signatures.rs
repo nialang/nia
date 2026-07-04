@@ -177,6 +177,7 @@ fn signature_tree_item_has_program_signature_facts(
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct VisibleExtensionsForModule {
     pub(crate) methods: VisibleExtensionMethods,
+    pub(crate) trait_impls: Vec<ProgramTraitImplSignature>,
     pub(crate) interner: TyInterner,
 }
 
@@ -2925,11 +2926,13 @@ pub(crate) fn visible_extensions_for_module(
     let Some(current_normalization) = resolver_cache.normalization(module_id).cloned() else {
         return VisibleExtensionsForModule {
             methods: VisibleExtensionMethods::default(),
+            trait_impls: Vec::new(),
             interner: TyInterner::default(),
         };
     };
     let mut target_interner = current_normalization.interner.clone();
     let mut visible = VisibleExtensionMethods::default();
+    let mut visible_trait_impls = Vec::new();
     let extension_visibility_allows = |visibility, defining_module| {
         nia_imports::visibility_allows(visibility, graph, defining_module, module_id)
     };
@@ -3011,6 +3014,7 @@ pub(crate) fn visible_extensions_for_module(
             &mut resolver_cache,
         ) {
             visible.insert_trait_witness_impl(impl_signature.module_id, impl_signature.impl_id);
+            visible_trait_impls.push(impl_signature.clone());
         }
     }
     associated_values.for_each_visible_value(
@@ -3046,6 +3050,7 @@ pub(crate) fn visible_extensions_for_module(
     );
     VisibleExtensionsForModule {
         methods: visible,
+        trait_impls: visible_trait_impls,
         interner: target_interner,
     }
 }

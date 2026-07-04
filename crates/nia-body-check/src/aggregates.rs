@@ -1170,6 +1170,7 @@ impl<'a> BodyChecker<'a> {
         arg_exprs: &[ResolvedComptimeExpr],
     ) -> Result<nia_comptime_check::ComptimeGenericInstantiation, ComptimeError> {
         let frames = self.typed_comptime_frames();
+        let trait_impls_for_module = |_| Some(self.program_trait_impls.to_vec());
         nia_comptime_check::instantiate_resolved_comptime_function_generics(
             nia_comptime_check::TypedComptimeQueryInput {
                 module: self.comptime_module,
@@ -1194,7 +1195,7 @@ impl<'a> BodyChecker<'a> {
                     comptime_values: Some(self.program_comptime_values),
                     global_initializer: None,
                     program_is_enum: Some(&|def_id| self.program_is_enum(def_id)),
-                    trait_impls: self.program_trait_impls,
+                    trait_impls_for_module: Some(&trait_impls_for_module),
                     visible_extensions: self.program.visible_extensions,
                 },
                 typed_values: &self.comptime.typed_values,
@@ -1232,6 +1233,7 @@ impl<'a> BodyChecker<'a> {
         let mut query_interner = self.comptime.interner.clone();
         let expected =
             expected.map(|ty| nia_ty::import_type_into(&mut query_interner, &self.interner, ty));
+        let trait_impls_for_module = |_| Some(self.program_trait_impls.to_vec());
         let input = nia_comptime_check::TypedComptimeQueryInput {
             module: self.comptime_module,
             defs: self.defs,
@@ -1255,7 +1257,7 @@ impl<'a> BodyChecker<'a> {
                 comptime_values: Some(self.program_comptime_values),
                 global_initializer: None,
                 program_is_enum: Some(&|def_id| self.program_is_enum(def_id)),
-                trait_impls: self.program_trait_impls,
+                trait_impls_for_module: Some(&trait_impls_for_module),
                 visible_extensions: self.program.visible_extensions,
             },
             typed_values: &self.comptime.typed_values,

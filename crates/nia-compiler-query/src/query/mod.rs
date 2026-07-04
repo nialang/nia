@@ -2167,6 +2167,16 @@ pub fn expensive_or_invalid() i32 {
             "body_check",
             "signature_type_lowering"
         ));
+        assert!(trace_has_dependency(
+            &trace,
+            "body_check",
+            "visible_extensions"
+        ));
+        assert!(!trace_has_dependency(
+            &trace,
+            "body_check",
+            "program_trait_solving_signatures"
+        ));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "body_check"
                 && matches!(
@@ -3218,7 +3228,7 @@ extend Used {
                 .iter()
                 .any(|dependency| dependency.to.name == "program_item_signatures")
         );
-        assert!(trace.dependencies.iter().any(|dependency| {
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "comptime"
                 && dependency.to.name == "program_trait_solving_signatures"
         }));
