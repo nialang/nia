@@ -118,6 +118,62 @@ pub(crate) fn collect_module_program_signature_facts(
     }
 }
 
+pub(crate) fn signature_tree_has_program_signature_facts(
+    tree: &nia_item_tree::ActiveModuleItemTree,
+    set: nia_item_tree::SignatureItemSet,
+) -> bool {
+    tree.items
+        .iter()
+        .any(|item| signature_tree_item_has_program_signature_facts(&item.kind, set))
+}
+
+fn signature_tree_item_has_program_signature_facts(
+    kind: &nia_item_tree::ItemTreeNodeKind,
+    set: nia_item_tree::SignatureItemSet,
+) -> bool {
+    match (kind, set) {
+        (
+            nia_item_tree::ItemTreeNodeKind::Function(_),
+            nia_item_tree::SignatureItemSet::Functions,
+        ) => true,
+        (
+            nia_item_tree::ItemTreeNodeKind::Trait(item),
+            nia_item_tree::SignatureItemSet::Functions,
+        ) => !item.methods.is_empty(),
+        (
+            nia_item_tree::ItemTreeNodeKind::Extend(item),
+            nia_item_tree::SignatureItemSet::Functions,
+        ) => !item.methods.is_empty(),
+        (nia_item_tree::ItemTreeNodeKind::Binding(_), nia_item_tree::SignatureItemSet::Values) => {
+            true
+        }
+        (
+            nia_item_tree::ItemTreeNodeKind::Extend(item),
+            nia_item_tree::SignatureItemSet::Values,
+        ) => !item.associated_values.is_empty(),
+        (
+            nia_item_tree::ItemTreeNodeKind::Struct(_)
+            | nia_item_tree::ItemTreeNodeKind::Union(_)
+            | nia_item_tree::ItemTreeNodeKind::Enum(_)
+            | nia_item_tree::ItemTreeNodeKind::TypeAlias(_),
+            nia_item_tree::SignatureItemSet::Types,
+        ) => true,
+        (
+            nia_item_tree::ItemTreeNodeKind::Trait(_) | nia_item_tree::ItemTreeNodeKind::Extend(_),
+            nia_item_tree::SignatureItemSet::Traits,
+        ) => true,
+        (
+            nia_item_tree::ItemTreeNodeKind::Trait(item),
+            nia_item_tree::SignatureItemSet::ExtensionFunctions,
+        ) => !item.methods.is_empty(),
+        (
+            nia_item_tree::ItemTreeNodeKind::Extend(extend),
+            nia_item_tree::SignatureItemSet::ExtensionFunctions,
+        ) => !extend.methods.is_empty(),
+        _ => false,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct VisibleExtensionsForModule {
     pub(crate) methods: VisibleExtensionMethods,

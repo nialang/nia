@@ -2142,7 +2142,7 @@ pub fn expensive_or_invalid() i32 {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "struct S { value: i32 }",
+            "struct S { value: i32 } comptime WIDTH: usize = 4usize; trait T { fn get(self) i32; } fn helper() i32 { 1 }",
         )]);
         let db = query_db(loaded);
 
@@ -2211,6 +2211,88 @@ pub fn expensive_or_invalid() i32 {
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_body_type_signatures"
                 && dependency.to.name == "program_trait_solving_signatures"
+        }));
+    }
+
+    #[test]
+    fn program_signature_module_ids_use_set_specific_module_facts() {
+        let loaded = loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "module module1; module module2; module module3; module module4; module module5; module module6;",
+            ),
+            loaded_module(ModuleId(1), "module1.nia", "struct S { value: i32 }"),
+            loaded_module(ModuleId(2), "module2.nia", "fn helper() i32 { 1 }"),
+            loaded_module(
+                ModuleId(3),
+                "module3.nia",
+                "comptime WIDTH: usize = 4usize;",
+            ),
+            loaded_module(
+                ModuleId(4),
+                "module4.nia",
+                "trait Read { fn read(self) i32; }",
+            ),
+            loaded_module(
+                ModuleId(5),
+                "module5.nia",
+                "struct T {} extend T { pub fn make() T { {} } }",
+            ),
+            loaded_module(
+                ModuleId(6),
+                "module6.nia",
+                "struct U {} extend U { comptime WIDTH: usize = 4usize; }",
+            ),
+        ]);
+        let db = query_db(loaded);
+
+        assert_eq!(
+            db.query(ProgramSignatureModuleIdsQuery(
+                nia_item_tree::SignatureItemSet::Functions
+            )),
+            vec![ModuleId(2), ModuleId(4), ModuleId(5)]
+        );
+        assert_eq!(
+            db.query(ProgramSignatureModuleIdsQuery(
+                nia_item_tree::SignatureItemSet::Values
+            )),
+            vec![ModuleId(3), ModuleId(6)]
+        );
+        assert_eq!(
+            db.query(ProgramSignatureModuleIdsQuery(
+                nia_item_tree::SignatureItemSet::Types
+            )),
+            vec![ModuleId(1), ModuleId(5), ModuleId(6)]
+        );
+        assert_eq!(
+            db.query(ProgramSignatureModuleIdsQuery(
+                nia_item_tree::SignatureItemSet::Traits
+            )),
+            vec![ModuleId(4), ModuleId(5), ModuleId(6)]
+        );
+        assert_eq!(
+            db.query(ProgramSignatureModuleIdsQuery(
+                nia_item_tree::SignatureItemSet::ExtensionFunctions
+            )),
+            vec![ModuleId(4), ModuleId(5)]
+        );
+
+        let trace = db.query_trace();
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_signature_module_ids"
+                && dependency.to.name == "program_signature_module_eligibility"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_signature_module_eligibility"
+                && dependency.to.name == "signature_item_tree"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_signature_module_eligibility"
+                && matches!(
+                    dependency.to.name,
+                    "signature_type_lowering" | "signature_item_signatures" | "module_defs"
+                )
         }));
     }
 
