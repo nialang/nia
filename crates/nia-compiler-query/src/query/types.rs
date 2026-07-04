@@ -273,6 +273,13 @@ impl ExtensionSignatureInputsQueryValue {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionTraitSolvingModuleFactsQueryValue {
+    pub(super) enums: HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
+    pub(super) invalid_trait_impl_method_ids: HashSet<GlobalDefId>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramSignatureModuleIdsQuery(pub(super) nia_item_tree::SignatureItemSet);
 
@@ -330,6 +337,25 @@ impl QueryKey<CompilerContext> for ExtensionSignatureModuleInputQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_signature_module_input)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionTraitSolvingModuleFactsQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ExtensionTraitSolvingModuleFactsQuery {
+    type Value = ExtensionTraitSolvingModuleFactsValue;
+
+    fn name() -> &'static str {
+        "extension_trait_solving_module_facts"
+    }
+
+    fn description(&self) -> String {
+        format!("extension_trait_solving_module_facts({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_trait_solving_module_facts)(db, self.0)
     }
 }
 
