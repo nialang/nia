@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use nia_ast::{GenericParam, TypeKind, TypeRef};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
@@ -31,6 +31,60 @@ pub struct ProviderTarget {
 pub enum NominalProviderCandidate {
     Named(String),
     Conservative,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct NominalProviderCandidateIndex<M> {
+    conservative: Vec<M>,
+    named: HashMap<String, Vec<M>>,
+}
+
+impl<M> NominalProviderCandidateIndex<M>
+where
+    M: Copy + Ord + Eq,
+{
+    pub fn from_summaries(
+        summaries: impl IntoIterator<Item = (M, ProviderSummary)>,
+    ) -> NominalProviderCandidateIndex<M> {
+        let mut conservative = Vec::new();
+        let mut named: HashMap<String, Vec<M>> = HashMap::new();
+        for (module, summary) in summaries {
+            for provider in &summary.providers {
+                match provider.target.ty.nominal_provider_candidate() {
+                    NominalProviderCandidate::Named(name) => {
+                        named.entry(name).or_default().push(module);
+                    }
+                    NominalProviderCandidate::Conservative => {
+                        conservative.push(module);
+                    }
+                }
+            }
+        }
+        conservative.sort();
+        conservative.dedup();
+        for modules in named.values_mut() {
+            modules.sort();
+            modules.dedup();
+        }
+        NominalProviderCandidateIndex {
+            conservative,
+            named,
+        }
+    }
+
+    pub fn conservative(&self) -> &[M] {
+        &self.conservative
+    }
+
+    pub fn named(&self, name: &str) -> &[M] {
+        self.named.get(name).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    pub fn all_named(&self) -> impl Iterator<Item = M> + '_ {
+        self.named
+            .values()
+            .flat_map(|modules| modules.iter().copied())
+    }
 }
 
 impl ProviderSummary {

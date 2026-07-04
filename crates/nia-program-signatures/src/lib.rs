@@ -144,6 +144,66 @@ pub struct ProgramSignatureMaps<'a> {
     pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     pub traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
     pub type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
+    pub trait_method_index: &'a ProgramTraitMethodIndex,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ProgramTraitMethodIndex {
+    trait_ids_by_method_name: HashMap<String, Vec<GlobalDefId>>,
+    trait_id_by_method_id: HashMap<GlobalDefId, GlobalDefId>,
+}
+
+impl ProgramTraitMethodIndex {
+    pub fn from_traits(
+        traits: &HashMap<GlobalDefId, ProgramTraitSignature>,
+    ) -> ProgramTraitMethodIndex {
+        Self::from_trait_signatures(
+            traits
+                .iter()
+                .map(|(trait_id, signature)| (*trait_id, signature)),
+        )
+    }
+
+    pub fn from_trait_signatures<'a>(
+        traits: impl IntoIterator<Item = (GlobalDefId, &'a ProgramTraitSignature)>,
+    ) -> ProgramTraitMethodIndex {
+        let mut trait_ids_by_method_name: HashMap<String, Vec<GlobalDefId>> = HashMap::new();
+        let mut trait_id_by_method_id = HashMap::new();
+        for (trait_id, signature) in traits {
+            for method in &signature.signature.methods {
+                trait_ids_by_method_name
+                    .entry(method.name.clone())
+                    .or_default()
+                    .push(trait_id);
+                trait_id_by_method_id.insert(
+                    GlobalDefId {
+                        module_id: trait_id.module_id,
+                        def_id: method.def_id,
+                    },
+                    trait_id,
+                );
+            }
+        }
+        for trait_ids in trait_ids_by_method_name.values_mut() {
+            trait_ids.sort();
+            trait_ids.dedup();
+        }
+        ProgramTraitMethodIndex {
+            trait_ids_by_method_name,
+            trait_id_by_method_id,
+        }
+    }
+
+    pub fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId> {
+        self.trait_ids_by_method_name
+            .get(name)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn trait_owning_method_id(&self, method_id: GlobalDefId) -> Option<GlobalDefId> {
+        self.trait_id_by_method_id.get(&method_id).copied()
+    }
 }
 
 impl ProgramSignatureLookup for ProgramSignatureMaps<'_> {
@@ -180,36 +240,21 @@ impl ProgramSignatureLookup for ProgramSignatureMaps<'_> {
     }
 
     fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId> {
-        self.traits
-            .iter()
-            .filter_map(|(trait_id, signature)| {
-                signature
-                    .signature
-                    .methods
-                    .iter()
-                    .any(|method| method.name == name)
-                    .then_some(*trait_id)
-            })
-            .collect()
+        self.trait_method_index.trait_ids_with_method_named(name)
     }
 
     fn trait_owning_method(
         &self,
         method_id: GlobalDefId,
     ) -> Option<(GlobalDefId, ProgramTraitSignature)> {
-        self.traits.iter().find_map(|(trait_id, signature)| {
-            signature
-                .signature
-                .methods
-                .iter()
-                .any(|method| {
-                    GlobalDefId {
-                        module_id: trait_id.module_id,
-                        def_id: method.def_id,
-                    } == method_id
-                })
-                .then(|| (*trait_id, signature.clone()))
-        })
+        self.trait_method_index
+            .trait_owning_method_id(method_id)
+            .and_then(|trait_id| {
+                self.traits
+                    .get(&trait_id)
+                    .cloned()
+                    .map(|signature| (trait_id, signature))
+            })
     }
 
     fn has_function(&self, def_id: GlobalDefId) -> bool {
