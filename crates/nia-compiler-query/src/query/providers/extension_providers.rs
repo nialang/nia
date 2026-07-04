@@ -298,76 +298,220 @@ pub(super) fn provide_extension_provider_nominal_candidate_index(
     )
 }
 
-pub(super) fn provide_extension_provider_nominal_index(
+pub(super) fn provide_extension_provider_nominal_conservative_target_index(
     db: &QueryDb<CompilerContext>,
-) -> ExtensionProviderNominalIndexValue {
+) -> ExtensionProviderNominalConservativeTargetIndexValue {
     time_provider(
         db.context().timings(),
-        "extension_provider_nominal_index",
+        "extension_provider_nominal_conservative_target_index",
         || {
             let candidate_index = db.query(ExtensionProviderNominalCandidateIndexQuery);
-            let candidate_index = &candidate_index.0;
-            let mut module_ids = candidate_index.conservative().to_vec();
-            module_ids.extend(candidate_index.all_named());
-            module_ids.sort();
-            module_ids.dedup();
-
-            let mut providers_by_target: HashMap<
-                GlobalDefId,
-                Vec<crate::program_signatures::NominalExtensionProviderEntry>,
-            > = HashMap::new();
-            for facts in db.query_many(
-                module_ids
-                    .into_iter()
-                    .map(ExtensionProviderNominalModuleFactsQuery),
-            ) {
-                for provider in &facts.nominal_providers {
-                    providers_by_target
-                        .entry(provider.target)
-                        .or_default()
-                        .push(*provider);
-                }
-            }
-            for providers in providers_by_target.values_mut() {
-                sort_and_dedup_nominal_providers(providers);
-            }
-            Arc::new(ExtensionProviderNominalIndexQueryValue {
+            let providers = nominal_providers_from_modules(
+                db,
+                candidate_index.0.conservative().iter().copied(),
+            );
+            let providers_by_target = nominal_providers_by_target(providers);
+            Arc::new(ExtensionProviderNominalConservativeTargetIndexQueryValue {
                 providers_by_target,
             })
         },
     )
 }
 
-pub(super) fn provide_extension_provider_nominal_modules(
+pub(super) fn provide_extension_provider_nominal_target_names(
     db: &QueryDb<CompilerContext>,
-    target: GlobalDefId,
-    accessing_module: ModuleId,
-) -> ExtensionProviderNominalModulesValue {
+) -> ExtensionProviderNominalTargetNamesValue {
     time_provider(
         db.context().timings(),
-        "extension_provider_nominal_modules",
+        "extension_provider_nominal_target_names",
+        || {
+            let mut names_by_target: HashMap<GlobalDefId, Vec<String>> = HashMap::new();
+            let module_ids = db.query(ProgramSignatureModuleIdsQuery(
+                nia_item_tree::SignatureItemSet::Types,
+            ));
+            let public = db.query(PublicSurfaceQuery);
+            for module_id in module_ids {
+                let defs = db.query(ModuleDefsQuery(module_id));
+                let signatures = db.query(SignatureItemSignaturesQuery(
+                    module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ));
+                let normalization = db.query(SignatureTypeNormalizationQuery(
+                    module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ));
+                for (def_id, def) in defs.defs.iter() {
+                    let target = GlobalDefId { module_id, def_id };
+                    match def.kind {
+                        nia_defs::DefKind::Struct
+                        | nia_defs::DefKind::Union
+                        | nia_defs::DefKind::Enum => {
+                            insert_nominal_target_name(
+                                &mut names_by_target,
+                                target,
+                                def.name.clone(),
+                            );
+                        }
+                        nia_defs::DefKind::TypeAlias => {
+                            let Some(signature) = signatures.type_aliases.get(&def_id) else {
+                                continue;
+                            };
+                            if !signature.generics.is_empty() {
+                                continue;
+                            }
+                            let normalized = normalization.normalize(signature.target);
+                            let Some(TyKind::Nominal {
+                                def_id: alias_target,
+                                ..
+                            }) = normalization.interner.get(normalized)
+                            else {
+                                continue;
+                            };
+                            insert_nominal_target_name(
+                                &mut names_by_target,
+                                *alias_target,
+                                def.name.clone(),
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(using_scope) = public.using_scopes.get(&module_id) {
+                    for (name, entry) in &using_scope.types {
+                        let target = GlobalDefId {
+                            module_id: entry.target_module,
+                            def_id: entry.target_def_id,
+                        };
+                        insert_nominal_target_name(&mut names_by_target, target, name.clone());
+                    }
+                }
+                if let Some(surface) = public.surfaces.get(module_id) {
+                    for (name, item) in &surface.types {
+                        let target = GlobalDefId {
+                            module_id: item.target_module,
+                            def_id: item.target_def_id,
+                        };
+                        insert_nominal_target_name(&mut names_by_target, target, name.clone());
+                    }
+                }
+            }
+            for names in names_by_target.values_mut() {
+                names.sort();
+                names.dedup();
+            }
+            Arc::new(ExtensionProviderNominalTargetNamesQueryValue { names_by_target })
+        },
+    )
+}
+
+fn nominal_providers_from_modules(
+    db: &QueryDb<CompilerContext>,
+    module_ids: impl IntoIterator<Item = ModuleId>,
+) -> Vec<crate::program_signatures::NominalExtensionProviderEntry> {
+    let mut module_ids = module_ids.into_iter().collect::<Vec<_>>();
+    module_ids.sort();
+    module_ids.dedup();
+
+    let mut providers = Vec::new();
+    for facts in db.query_many(
+        module_ids
+            .into_iter()
+            .map(ExtensionProviderNominalModuleFactsQuery),
+    ) {
+        providers.extend(facts.nominal_providers.iter().copied());
+    }
+    providers
+}
+
+fn nominal_providers_by_target(
+    providers: Vec<crate::program_signatures::NominalExtensionProviderEntry>,
+) -> HashMap<GlobalDefId, Vec<crate::program_signatures::NominalExtensionProviderEntry>> {
+    let mut providers_by_target: HashMap<GlobalDefId, Vec<_>> = HashMap::new();
+    for provider in providers {
+        providers_by_target
+            .entry(provider.target)
+            .or_default()
+            .push(provider);
+    }
+    for providers in providers_by_target.values_mut() {
+        sort_and_dedup_nominal_providers(providers);
+    }
+    providers_by_target
+}
+
+fn insert_nominal_target_name(
+    names_by_target: &mut HashMap<GlobalDefId, Vec<String>>,
+    target: GlobalDefId,
+    name: String,
+) {
+    names_by_target.entry(target).or_default().push(name);
+}
+
+pub(super) fn provide_extension_provider_nominal_modules_for_targets(
+    db: &QueryDb<CompilerContext>,
+    targets: ExtensionProviderNominalTargets,
+    accessing_module: ModuleId,
+) -> ExtensionProviderNominalModulesForTargetsValue {
+    time_provider(
+        db.context().timings(),
+        "extension_provider_nominal_modules_for_targets",
         || {
             let graph = db.query(ModuleGraphQuery);
-            let nominal_index = db.query(ExtensionProviderNominalIndexQuery);
-            let providers = nominal_index
-                .providers_by_target
-                .get(&target)
-                .into_iter()
-                .flat_map(|providers| providers.iter().copied())
-                .filter(|provider| {
-                    nia_imports::visibility_allows(
-                        provider.visibility,
-                        &graph,
-                        provider.module_id,
-                        accessing_module,
-                    )
-                })
-                .collect::<Vec<_>>();
-            let modules = providers
-                .into_iter()
-                .map(|provider| provider.module_id)
-                .collect::<Vec<_>>();
-            Arc::new(ExtensionProviderNominalModulesQueryValue { modules })
+            let target_names = db.query(ExtensionProviderNominalTargetNamesQuery);
+            let conservative = db.query(ExtensionProviderNominalConservativeTargetIndexQuery);
+            let candidate_index = db.query(ExtensionProviderNominalCandidateIndexQuery);
+            let mut modules = Vec::new();
+            for target in targets.as_slice().iter().copied() {
+                if let Some(providers) = conservative.providers_by_target.get(&target) {
+                    modules.extend(
+                        providers
+                            .iter()
+                            .copied()
+                            .filter(|provider| {
+                                nia_imports::visibility_allows(
+                                    provider.visibility,
+                                    &graph,
+                                    provider.module_id,
+                                    accessing_module,
+                                )
+                            })
+                            .map(|provider| provider.module_id),
+                    );
+                }
+                let Some(names) = target_names.names_by_target.get(&target) else {
+                    continue;
+                };
+                for name in names {
+                    for facts in db.query_many(
+                        candidate_index
+                            .0
+                            .named(name)
+                            .iter()
+                            .copied()
+                            .map(ExtensionProviderNominalModuleFactsQuery),
+                    ) {
+                        modules.extend(
+                            facts
+                                .nominal_providers
+                                .iter()
+                                .copied()
+                                .filter(|provider| {
+                                    provider.target == target
+                                        && nia_imports::visibility_allows(
+                                            provider.visibility,
+                                            &graph,
+                                            provider.module_id,
+                                            accessing_module,
+                                        )
+                                })
+                                .map(|provider| provider.module_id),
+                        );
+                    }
+                }
+            }
+            modules.sort();
+            modules.dedup();
+            Arc::new(ExtensionProviderNominalModulesForTargetsQueryValue { modules })
         },
     )
 }
@@ -485,9 +629,9 @@ pub(super) fn provide_visible_extensions(
         )))
     };
     let visible_type_signatures = db.query(ProgramVisibleTypeSignaturesQuery);
-    let nominal_extension_providers = |target_def_id| {
-        db.query(ExtensionProviderNominalModulesQuery(
-            target_def_id,
+    let nominal_extension_providers = |target_def_ids: &[GlobalDefId]| {
+        db.query(ExtensionProviderNominalModulesForTargetsQuery(
+            ExtensionProviderNominalTargets::new(target_def_ids.to_vec()),
             module_id,
         ))
         .modules

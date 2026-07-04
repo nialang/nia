@@ -82,8 +82,11 @@ type ExtensionProviderValidationProgramFactsValue =
 type ExtensionProviderNominalModuleFactsValue = Arc<ExtensionProviderNominalModuleFactsQueryValue>;
 type ExtensionProviderNominalCandidateIndexValue =
     Arc<ExtensionProviderNominalCandidateIndexQueryValue>;
-type ExtensionProviderNominalIndexValue = Arc<ExtensionProviderNominalIndexQueryValue>;
-type ExtensionProviderNominalModulesValue = Arc<ExtensionProviderNominalModulesQueryValue>;
+type ExtensionProviderNominalConservativeTargetIndexValue =
+    Arc<ExtensionProviderNominalConservativeTargetIndexQueryValue>;
+type ExtensionProviderNominalTargetNamesValue = Arc<ExtensionProviderNominalTargetNamesQueryValue>;
+type ExtensionProviderNominalModulesForTargetsValue =
+    Arc<ExtensionProviderNominalModulesForTargetsQueryValue>;
 type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
 type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
@@ -3129,19 +3132,37 @@ extend Used {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
-                && dependency.to.name == "extension_provider_nominal_modules"
+                && dependency.to.name == "extension_provider_nominal_modules_for_targets"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_provider_nominal_modules"
-                && dependency.to.name == "extension_provider_nominal_index"
+            dependency.from.name == "extension_provider_nominal_modules_for_targets"
+                && dependency.to.name == "extension_provider_nominal_target_names"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_provider_nominal_index"
+            dependency.from.name == "extension_provider_nominal_modules_for_targets"
+                && dependency.to.name == "extension_provider_nominal_conservative_target_index"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_provider_nominal_modules_for_targets"
                 && dependency.to.name == "extension_provider_nominal_candidate_index"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_provider_nominal_index"
+            dependency.from.name == "extension_provider_nominal_conservative_target_index"
+                && dependency.to.name == "extension_provider_nominal_candidate_index"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_provider_nominal_modules_for_targets"
                 && dependency.to.name == "extension_provider_nominal_module_facts"
+        }));
+        assert!(
+            !trace
+                .dependencies
+                .iter()
+                .any(|dependency| dependency.to.name == "extension_provider_nominal_index")
+        );
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "visible_extensions"
+                && dependency.to.name == "extension_provider_nominal_modules"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_modules"

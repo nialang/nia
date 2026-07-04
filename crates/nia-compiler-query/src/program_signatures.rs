@@ -30,7 +30,7 @@ use nia_type_normalize::TypeNormalization;
 
 type TypeNormalizationResolver<'a> = &'a dyn Fn(nia_ids::ModuleId) -> Option<TypeNormalization>;
 pub(crate) type NominalExtensionProviderResolver<'a> =
-    &'a dyn Fn(GlobalDefId) -> Vec<nia_ids::ModuleId>;
+    &'a dyn Fn(&[GlobalDefId]) -> Vec<nia_ids::ModuleId>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct NominalExtensionProviderEntry {
@@ -3204,7 +3204,7 @@ fn enqueue_public_inherent_extension_providers_for_using_scope(
     using_scope: &nia_defs::ModuleUsingScope,
     queue: &mut VecDeque<nia_ids::ModuleId>,
 ) {
-    for type_def_id in using_scope
+    let mut type_def_ids = using_scope
         .types
         .values()
         .filter(|entry| entry.namespace == PublicNamespace::Type)
@@ -3219,20 +3219,24 @@ fn enqueue_public_inherent_extension_providers_for_using_scope(
                 context.visible_type_signatures,
             )
         })
-    {
-        queue.extend(
-            (context.nominal_extension_providers)(type_def_id)
-                .into_iter()
-                .filter(|provider| {
-                    nia_imports::visibility_allows(
-                        Visibility::Public,
-                        context.graph,
-                        *provider,
-                        context.module_id,
-                    )
-                }),
-        );
+        .collect::<Vec<_>>();
+    type_def_ids.sort();
+    type_def_ids.dedup();
+    if type_def_ids.is_empty() {
+        return;
     }
+    queue.extend(
+        (context.nominal_extension_providers)(&type_def_ids)
+            .into_iter()
+            .filter(|provider| {
+                nia_imports::visibility_allows(
+                    Visibility::Public,
+                    context.graph,
+                    *provider,
+                    context.module_id,
+                )
+            }),
+    );
 }
 
 fn nominal_def_id_for_public_type(
