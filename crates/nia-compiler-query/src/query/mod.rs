@@ -1357,8 +1357,7 @@ mod tests {
     fn is_body_signature_query(name: &str) -> bool {
         matches!(
             name,
-            "program_body_function_signatures"
-                | "program_body_value_signatures"
+            "program_body_value_signatures"
                 | "program_body_type_signatures"
                 | "program_body_trait_signatures"
         )
@@ -1924,11 +1923,6 @@ pub fn expensive_or_invalid() i32 {
         assert_query_executions_unchanged(
             &before_second_check,
             &after_second_check,
-            "program_body_function_signatures",
-        );
-        assert_query_executions_unchanged(
-            &before_second_check,
-            &after_second_check,
             "program_body_value_signatures",
         );
         assert_query_executions_unchanged(
@@ -1977,10 +1971,6 @@ pub fn expensive_or_invalid() i32 {
         );
         assert!(
             invalidated.contains(&"declaration_type_lowering"),
-            "{invalidated:?}"
-        );
-        assert!(
-            invalidated.contains(&"program_body_function_signatures"),
             "{invalidated:?}"
         );
         assert!(
@@ -2182,17 +2172,11 @@ pub fn expensive_or_invalid() i32 {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(ProgramBodyFunctionSignaturesQuery);
         let _ = db.query(ProgramBodyValueSignaturesQuery);
         let _ = db.query(ProgramBodyTypeSignaturesQuery);
         let _ = db.query(ProgramBodyTraitSignaturesQuery);
         let trace = db.query_trace();
 
-        assert!(trace_has_dependency(
-            &trace,
-            "program_body_function_signatures",
-            "program_signature_module_ids"
-        ));
         assert!(trace_has_dependency(
             &trace,
             "program_body_value_signatures",
@@ -2202,11 +2186,6 @@ pub fn expensive_or_invalid() i32 {
             &trace,
             "program_body_type_signatures",
             "program_signature_module_ids"
-        ));
-        assert!(trace_has_dependency(
-            &trace,
-            "program_body_function_signatures",
-            "module_program_signature_facts"
         ));
         assert!(trace_has_dependency(
             &trace,
@@ -2927,6 +2906,20 @@ pub fn expensive_or_invalid() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "body_check" && dependency.to.name == "comptime_array_lengths"
         }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check"
+                && dependency.to.name == "program_body_function_signatures"
+        }));
+        for query in [
+            "program_body_value_signatures",
+            "program_body_type_signatures",
+            "program_body_trait_signatures",
+        ] {
+            assert!(
+                trace_has_dependency(&trace, "body_check", query),
+                "body_check should still use {query}"
+            );
+        }
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "body_check"
                 && matches!(dependency.to.name, "item_signatures" | "comptime")
