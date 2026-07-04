@@ -49,6 +49,13 @@ pub(super) struct CompilerQueryProviders {
         ModuleId,
         nia_item_tree::SignatureItemSet,
     ) -> TypeNormalization,
+    pub(super) program_signature_inputs: fn(
+        &QueryDb<CompilerContext>,
+        nia_item_tree::SignatureItemSet,
+    ) -> ProgramSignatureInputsValue,
+    pub(super) extension_provider_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
+    pub(super) extension_signature_inputs:
+        fn(&QueryDb<CompilerContext>) -> ExtensionSignatureInputsValue,
     pub(super) program_body_function_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramBodyFunctionSignatures>,
     pub(super) program_body_value_signatures:
@@ -134,6 +141,9 @@ impl Default for CompilerQueryProviders {
             type_normalization: provide_type_normalization,
             layout_type_normalization: provide_layout_type_normalization,
             signature_type_normalization: provide_signature_type_normalization,
+            program_signature_inputs: provide_program_signature_inputs,
+            extension_provider_module_ids: provide_extension_provider_module_ids,
+            extension_signature_inputs: provide_extension_signature_inputs,
             program_body_function_signatures: provide_program_body_function_signatures,
             program_body_value_signatures: provide_program_body_value_signatures,
             program_body_type_signatures: provide_program_body_type_signatures,
@@ -579,8 +589,9 @@ pub(super) fn provide_program_body_function_signatures(
         db.context().timings(),
         "program_body_function_signatures",
         || {
-            let inputs =
-                module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions);
+            let inputs = db.query(ProgramSignatureInputsQuery(
+                nia_item_tree::SignatureItemSet::Functions,
+            ));
             let modules = inputs.modules();
             let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
             Arc::new(ProgramBodyFunctionSignatures {
@@ -600,7 +611,9 @@ pub(super) fn provide_program_body_value_signatures(
         db.context().timings(),
         "program_body_value_signatures",
         || {
-            let inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Values);
+            let inputs = db.query(ProgramSignatureInputsQuery(
+                nia_item_tree::SignatureItemSet::Values,
+            ));
             let modules = inputs.modules();
             Arc::new(ProgramBodyValueSignatures {
                 globals: collect_program_globals(&modules),
@@ -617,7 +630,9 @@ pub(super) fn provide_program_body_type_signatures(
         db.context().timings(),
         "program_body_type_signatures",
         || {
-            let inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
+            let inputs = db.query(ProgramSignatureInputsQuery(
+                nia_item_tree::SignatureItemSet::Types,
+            ));
             let modules = inputs.modules();
             Arc::new(ProgramBodyTypeSignatures {
                 structs: collect_program_structs(&modules),
@@ -636,7 +651,9 @@ pub(super) fn provide_program_body_trait_signatures(
         db.context().timings(),
         "program_body_trait_signatures",
         || {
-            let inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
+            let inputs = db.query(ProgramSignatureInputsQuery(
+                nia_item_tree::SignatureItemSet::Traits,
+            ));
             let modules = inputs.modules();
             let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
             Arc::new(ProgramBodyTraitSignatures {
@@ -647,112 +664,45 @@ pub(super) fn provide_program_body_trait_signatures(
     )
 }
 
-struct ProgramSignatureInputs {
-    module_ids: Vec<ModuleId>,
-    type_lowerings: Vec<TypeLowering>,
-    item_signatures: Vec<ItemSignatures>,
-    defs: Vec<DefCollection>,
-}
-
-impl ProgramSignatureInputs {
-    fn modules(&self) -> Vec<ModuleSignatureInput<'_>> {
-        self.module_ids
-            .iter()
-            .copied()
-            .zip(self.type_lowerings.iter())
-            .zip(self.item_signatures.iter())
-            .zip(self.defs.iter())
-            .map(
-                |(((module_id, lowering), signatures), defs)| ModuleSignatureInput {
-                    module_id,
-                    defs,
-                    lowering,
-                    signatures,
-                },
-            )
-            .collect()
-    }
-}
-
-struct ExtensionSignatureInputs {
-    trait_inputs: ProgramSignatureInputs,
-    function_signatures: Vec<ItemSignatures>,
-    type_signatures: Vec<ItemSignatures>,
-    normalizations: Vec<TypeNormalization>,
-}
-
-impl ExtensionSignatureInputs {
-    fn modules(&self) -> Vec<ModuleSignatureInput<'_>> {
-        self.trait_inputs.modules()
-    }
-
-    fn extension_modules(&self) -> Vec<ExtensionModuleInput<'_>> {
-        self.trait_inputs
-            .module_ids
-            .iter()
-            .zip(self.trait_inputs.defs.iter())
-            .zip(self.trait_inputs.type_lowerings.iter())
-            .zip(self.trait_inputs.item_signatures.iter())
-            .zip(self.function_signatures.iter())
-            .zip(self.type_signatures.iter())
-            .zip(self.normalizations.iter())
-            .map(
-                |(
-                    (
-                        ((((module_id, defs), lowering), signatures), function_signatures),
-                        type_signatures,
-                    ),
-                    normalization,
-                )| {
-                    ExtensionModuleInput {
-                        module_id: *module_id,
-                        defs,
-                        lowering,
-                        signatures,
-                        function_signatures,
-                        type_signatures,
-                        normalization,
-                    }
-                },
-            )
-            .collect()
-    }
-}
-
-fn module_signature_inputs_for(
+pub(super) fn provide_program_signature_inputs(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
-) -> ProgramSignatureInputs {
+) -> ProgramSignatureInputsValue {
     module_signature_inputs_for_modules(db, db.query(SemanticModuleIdsQuery), set)
 }
 
-fn trait_signature_inputs_for_extensions(db: &QueryDb<CompilerContext>) -> ProgramSignatureInputs {
+fn extension_trait_signature_inputs(db: &QueryDb<CompilerContext>) -> ProgramSignatureInputsValue {
+    module_signature_inputs_for_modules(
+        db,
+        db.query(ExtensionProviderModuleIdsQuery),
+        nia_item_tree::SignatureItemSet::Traits,
+    )
+}
+
+pub(super) fn provide_extension_provider_module_ids(
+    db: &QueryDb<CompilerContext>,
+) -> Vec<ModuleId> {
     let timings = db.context().timings();
     let semantic_modules = db.query(SemanticModuleIdsQuery);
-    let module_ids = time_provider(
-        timings,
-        "extension_signature_inputs.filter_trait_modules",
-        || {
-            semantic_modules
-                .into_iter()
-                .filter(|module_id| {
-                    let tree = db.query(SignatureItemTreeQuery(
-                        *module_id,
-                        nia_item_tree::SignatureItemSet::Traits,
-                    ));
-                    signature_tree_has_trait_or_extend(&tree)
-                })
-                .collect::<Vec<_>>()
-        },
-    );
-    module_signature_inputs_for_modules(db, module_ids, nia_item_tree::SignatureItemSet::Traits)
+    time_provider(timings, "extension_provider_module_ids.filter", || {
+        semantic_modules
+            .into_iter()
+            .filter(|module_id| {
+                let tree = db.query(SignatureItemTreeQuery(
+                    *module_id,
+                    nia_item_tree::SignatureItemSet::Traits,
+                ));
+                signature_tree_has_trait_or_extend(&tree)
+            })
+            .collect()
+    })
 }
 
 fn module_signature_inputs_for_modules(
     db: &QueryDb<CompilerContext>,
     module_ids: Vec<ModuleId>,
     set: nia_item_tree::SignatureItemSet,
-) -> ProgramSignatureInputs {
+) -> ProgramSignatureInputsValue {
     let type_lowerings = module_ids
         .iter()
         .copied()
@@ -768,12 +718,12 @@ fn module_signature_inputs_for_modules(
         .copied()
         .map(|module_id| db.query(ModuleDefsQuery(module_id)))
         .collect::<Vec<_>>();
-    ProgramSignatureInputs {
+    Arc::new(ProgramSignatureInputsQueryValue {
         module_ids,
         type_lowerings,
         item_signatures,
         defs,
-    }
+    })
 }
 
 fn signature_tree_has_trait_or_extend(tree: &ActiveModuleItemTree) -> bool {
@@ -785,10 +735,12 @@ fn signature_tree_has_trait_or_extend(tree: &ActiveModuleItemTree) -> bool {
     })
 }
 
-fn extension_signature_inputs(db: &QueryDb<CompilerContext>) -> ExtensionSignatureInputs {
+pub(super) fn provide_extension_signature_inputs(
+    db: &QueryDb<CompilerContext>,
+) -> ExtensionSignatureInputsValue {
     let timings = db.context().timings();
     let trait_inputs = time_provider(timings, "extension_signature_inputs.traits", || {
-        trait_signature_inputs_for_extensions(db)
+        extension_trait_signature_inputs(db)
     });
     let function_signatures = time_provider(
         timings,
@@ -837,28 +789,11 @@ fn extension_signature_inputs(db: &QueryDb<CompilerContext>) -> ExtensionSignatu
                 .collect::<Vec<_>>()
         },
     );
-    ExtensionSignatureInputs {
+    Arc::new(ExtensionSignatureInputsQueryValue {
         trait_inputs,
         function_signatures,
         type_signatures,
         normalizations,
-    }
-}
-
-fn extension_provider_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
-    let timings = db.context().timings();
-    let semantic_modules = db.query(SemanticModuleIdsQuery);
-    time_provider(timings, "extension_provider_module_ids.filter", || {
-        semantic_modules
-            .into_iter()
-            .filter(|module_id| {
-                let tree = db.query(SignatureItemTreeQuery(
-                    *module_id,
-                    nia_item_tree::SignatureItemSet::Traits,
-                ));
-                signature_tree_has_trait_or_extend(&tree)
-            })
-            .collect()
     })
 }
 
@@ -869,7 +804,7 @@ pub(super) fn provide_program_trait_solving_signatures(
         db.context().timings(),
         "program_trait_solving_signatures",
         || {
-            let inputs = extension_signature_inputs(db);
+            let inputs = db.query(ExtensionSignatureInputsQuery);
             let modules = inputs.modules();
             let extension_modules = inputs.extension_modules();
             let invalid_trait_impl_method_ids =
@@ -894,7 +829,9 @@ pub(super) fn provide_program_visible_type_signatures(
         db.context().timings(),
         "program_visible_type_signatures",
         || {
-            let inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
+            let inputs = db.query(ProgramSignatureInputsQuery(
+                nia_item_tree::SignatureItemSet::Types,
+            ));
             let modules = inputs.modules();
             Arc::new(ProgramVisibleTypeSignatures {
                 type_aliases: collect_program_type_aliases(&modules),
@@ -906,11 +843,17 @@ pub(super) fn provide_program_visible_type_signatures(
 fn executable_program_signatures_without_functions(
     db: &QueryDb<CompilerContext>,
 ) -> ProgramExecutableSignatures {
-    let value_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Values);
+    let value_inputs = db.query(ProgramSignatureInputsQuery(
+        nia_item_tree::SignatureItemSet::Values,
+    ));
     let value_modules = value_inputs.modules();
-    let type_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
+    let type_inputs = db.query(ProgramSignatureInputsQuery(
+        nia_item_tree::SignatureItemSet::Types,
+    ));
     let type_modules = type_inputs.modules();
-    let trait_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
+    let trait_inputs = db.query(ProgramSignatureInputsQuery(
+        nia_item_tree::SignatureItemSet::Traits,
+    ));
     let trait_modules = trait_inputs.modules();
     ProgramExecutableSignatures {
         functions: HashMap::new(),
@@ -973,12 +916,17 @@ pub(super) fn provide_program_backend_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramBackendSignatures> {
     time_provider(db.context().timings(), "program_backend_signatures", || {
-        let function_inputs =
-            module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Functions);
+        let function_inputs = db.query(ProgramSignatureInputsQuery(
+            nia_item_tree::SignatureItemSet::Functions,
+        ));
         let function_modules = function_inputs.modules();
-        let type_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Types);
+        let type_inputs = db.query(ProgramSignatureInputsQuery(
+            nia_item_tree::SignatureItemSet::Types,
+        ));
         let type_modules = type_inputs.modules();
-        let trait_inputs = module_signature_inputs_for(db, nia_item_tree::SignatureItemSet::Traits);
+        let trait_inputs = db.query(ProgramSignatureInputsQuery(
+            nia_item_tree::SignatureItemSet::Traits,
+        ));
         let trait_modules = trait_inputs.modules();
         let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
         Arc::new(ProgramBackendSignatures {
@@ -1041,7 +989,7 @@ pub(super) fn provide_extension_method_set(
     time_provider(db.context().timings(), "extension_method_set", || {
         let timings = db.context().timings();
         let inputs = time_provider(timings, "extension_method_set.inputs", || {
-            extension_signature_inputs(db)
+            db.query(ExtensionSignatureInputsQuery)
         });
         let inputs = time_provider(timings, "extension_method_set.input_modules", || {
             inputs.extension_modules()
@@ -1162,7 +1110,7 @@ pub(super) fn provide_extension_provider_nominal_index(
                 GlobalDefId,
                 Vec<crate::program_signatures::NominalExtensionProviderEntry>,
             > = HashMap::new();
-            for module_id in extension_provider_module_ids(db) {
+            for module_id in db.query(ExtensionProviderModuleIdsQuery) {
                 let nominal = db.query(ExtensionProviderNominalModuleQuery(module_id));
                 for provider in &nominal.providers {
                     providers_by_nominal
@@ -1198,7 +1146,7 @@ pub(super) fn provide_extension_method_index(
 ) -> ExtensionMethodIndexValue {
     time_provider(db.context().timings(), "extension_method_index", || {
         let timings = db.context().timings();
-        let module_ids = extension_provider_module_ids(db);
+        let module_ids = db.query(ExtensionProviderModuleIdsQuery);
         let facts = time_provider(timings, "extension_method_index.module_facts", || {
             module_ids
                 .into_iter()
@@ -1232,7 +1180,7 @@ pub(super) fn provide_extension_associated_values(
         db.context().timings(),
         "extension_associated_values",
         || {
-            let module_ids = extension_provider_module_ids(db);
+            let module_ids = db.query(ExtensionProviderModuleIdsQuery);
             let facts = module_ids
                 .into_iter()
                 .map(|module_id| db.query(ExtensionProviderModuleFactsQuery(module_id)))
