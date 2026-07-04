@@ -238,46 +238,22 @@ impl QueryKey<CompilerContext> for LayoutTypeNormalizationQuery {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ProgramSignatureInputsQueryValue {
+pub(super) struct SignatureModuleInputs {
     pub(super) module_ids: Vec<ModuleId>,
     pub(super) type_lowerings: Vec<TypeLowering>,
     pub(super) item_signatures: Vec<ItemSignatures>,
     pub(super) defs: Vec<DefCollection>,
 }
 
-impl ProgramSignatureInputsQueryValue {
-    pub(super) fn modules(&self) -> Vec<ModuleSignatureInput<'_>> {
-        self.module_ids
-            .iter()
-            .copied()
-            .zip(self.type_lowerings.iter())
-            .zip(self.item_signatures.iter())
-            .zip(self.defs.iter())
-            .map(
-                |(((module_id, lowering), signatures), defs)| ModuleSignatureInput {
-                    module_id,
-                    defs,
-                    lowering,
-                    signatures,
-                },
-            )
-            .collect()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionSignatureInputsQueryValue {
-    pub(super) trait_inputs: ProgramSignatureInputsValue,
+    pub(super) trait_inputs: SignatureModuleInputs,
     pub(super) function_signatures: Vec<ItemSignatures>,
     pub(super) type_signatures: Vec<ItemSignatures>,
     pub(super) normalizations: Vec<TypeNormalization>,
 }
 
 impl ExtensionSignatureInputsQueryValue {
-    pub(super) fn modules(&self) -> Vec<ModuleSignatureInput<'_>> {
-        self.trait_inputs.modules()
-    }
-
     pub(super) fn extension_modules(&self) -> Vec<ExtensionModuleInput<'_>> {
         self.trait_inputs
             .module_ids
@@ -312,21 +288,43 @@ impl ExtensionSignatureInputsQueryValue {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramSignatureInputsQuery(pub(super) nia_item_tree::SignatureItemSet);
+pub(super) struct ProgramSignatureModuleIdsQuery(pub(super) nia_item_tree::SignatureItemSet);
 
-impl QueryKey<CompilerContext> for ProgramSignatureInputsQuery {
-    type Value = ProgramSignatureInputsValue;
+impl QueryKey<CompilerContext> for ProgramSignatureModuleIdsQuery {
+    type Value = Vec<ModuleId>;
 
     fn name() -> &'static str {
-        "program_signature_inputs"
+        "program_signature_module_ids"
     }
 
     fn description(&self) -> String {
-        format!("program_signature_inputs({:?})", self.0)
+        format!("program_signature_module_ids({:?})", self.0)
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_signature_inputs)(db, self.0)
+        (db.context().providers.program_signature_module_ids)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleProgramSignatureFactsQuery(
+    pub(super) ModuleId,
+    pub(super) nia_item_tree::SignatureItemSet,
+);
+
+impl QueryKey<CompilerContext> for ModuleProgramSignatureFactsQuery {
+    type Value = ModuleProgramSignatureFactsValue;
+
+    fn name() -> &'static str {
+        "module_program_signature_facts"
+    }
+
+    fn description(&self) -> String {
+        format!("module_program_signature_facts({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.module_program_signature_facts)(db, self.0, self.1)
     }
 }
 

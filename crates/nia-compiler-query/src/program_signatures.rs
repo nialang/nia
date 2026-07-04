@@ -65,6 +65,36 @@ pub(crate) struct ExtensionMethodIndexModuleInput<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ModuleProgramSignatureFacts {
+    pub(crate) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub(crate) globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
+    pub(crate) comptimes: HashMap<GlobalDefId, ProgramComptimeSignature>,
+    pub(crate) structs: HashMap<GlobalDefId, ProgramStructSignature>,
+    pub(crate) unions: HashMap<GlobalDefId, ProgramUnionSignature>,
+    pub(crate) enums: HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub(crate) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub(crate) type_aliases: HashMap<GlobalDefId, ProgramTypeAliasSignature>,
+    pub(crate) trait_impls: Vec<ProgramTraitImplSignature>,
+}
+
+pub(crate) fn collect_module_program_signature_facts(
+    module: ModuleSignatureInput<'_>,
+) -> ModuleProgramSignatureFacts {
+    let modules = [module];
+    ModuleProgramSignatureFacts {
+        functions: collect_program_functions_excluding(&modules, &HashSet::new()),
+        globals: collect_program_globals(&modules),
+        comptimes: collect_program_comptimes(&modules),
+        structs: collect_program_structs(&modules),
+        unions: collect_program_unions(&modules),
+        enums: collect_program_enums(&modules),
+        traits: collect_program_traits(&modules),
+        type_aliases: collect_program_type_aliases(&modules),
+        trait_impls: collect_program_trait_impls(&modules),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct VisibleExtensionsForModule {
     pub(crate) methods: VisibleExtensionMethods,
     pub(crate) interner: TyInterner,

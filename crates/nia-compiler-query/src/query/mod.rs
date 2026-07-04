@@ -3,14 +3,11 @@ use crate::{
     CheckedModule, CheckedProgram, CodegenProgram, LoadedModule, LoadedProgram, ProgramDiagnostic,
     RuntimeModel, TimingMode, module_diagnostics,
     program_signatures::{
-        ExtensionMethodIndexModuleInput, ExtensionModuleInput, ModuleSignatureInput,
-        VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTypeSignatures,
-        collect_extension_associated_value_index_for_module,
+        ExtensionMethodIndexModuleInput, ExtensionModuleInput, ModuleProgramSignatureFacts,
+        ModuleSignatureInput, VisibleExtensionsForModule, VisibleExtensionsInput,
+        VisibleTypeSignatures, collect_extension_associated_value_index_for_module,
         collect_extension_method_index_for_module, collect_extension_methods,
-        collect_nominal_extension_providers_for_module, collect_program_comptimes,
-        collect_program_enums, collect_program_functions_excluding, collect_program_globals,
-        collect_program_structs, collect_program_trait_impls, collect_program_traits,
-        collect_program_type_aliases, collect_program_unions,
+        collect_nominal_extension_providers_for_module,
         collect_valid_trait_impls_for_extension_index_module, visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
@@ -80,8 +77,8 @@ type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
 type ExtensionAssociatedValuesValue = Arc<ExtensionAssociatedValuesQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
-type ProgramSignatureInputsValue = Arc<ProgramSignatureInputsQueryValue>;
 type ExtensionSignatureInputsValue = Arc<ExtensionSignatureInputsQueryValue>;
+type ModuleProgramSignatureFactsValue = Arc<ModuleProgramSignatureFacts>;
 
 #[derive(Debug, Clone)]
 pub struct CompileRequest {
@@ -2154,31 +2151,46 @@ pub fn expensive_or_invalid() i32 {
         assert!(trace_has_dependency(
             &trace,
             "program_body_function_signatures",
-            "program_signature_inputs"
+            "program_signature_module_ids"
         ));
         assert!(trace_has_dependency(
             &trace,
             "program_body_value_signatures",
-            "program_signature_inputs"
+            "program_signature_module_ids"
         ));
         assert!(trace_has_dependency(
             &trace,
             "program_body_type_signatures",
-            "program_signature_inputs"
+            "program_signature_module_ids"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "program_signature_inputs",
+            "program_body_function_signatures",
+            "module_program_signature_facts"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_body_value_signatures",
+            "module_program_signature_facts"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_body_type_signatures",
+            "module_program_signature_facts"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "module_program_signature_facts",
             "signature_item_signatures"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "program_signature_inputs",
+            "module_program_signature_facts",
             "signature_type_lowering"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "program_signature_inputs",
+            "module_program_signature_facts",
             "module_defs"
         ));
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -2225,10 +2237,14 @@ pub fn expensive_or_invalid() i32 {
         }
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_backend_signatures"
-                && dependency.to.name == "program_signature_inputs"
+                && dependency.to.name == "program_signature_module_ids"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_signature_inputs"
+            dependency.from.name == "program_backend_signatures"
+                && dependency.to.name == "module_program_signature_facts"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "module_program_signature_facts"
                 && dependency.to.name == "signature_item_signatures"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
