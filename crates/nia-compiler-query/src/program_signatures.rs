@@ -3155,25 +3155,43 @@ fn import_where_predicates(
 fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_ids::ModuleId> {
     let mut seen = HashSet::new();
     let mut queue = VecDeque::new();
+    let mut pending_provider_targets = Vec::new();
+    let mut resolved_provider_targets = HashSet::new();
     enqueue_using_scope_modules(context.using_scope, &mut queue);
-    enqueue_public_inherent_extension_providers_for_using_scope(
+    collect_public_inherent_extension_provider_targets_for_using_scope(
         context,
         context.using_scope,
-        &mut queue,
+        &mut pending_provider_targets,
     );
 
-    while let Some(visible) = queue.pop_front() {
-        if visible == context.module_id || !seen.insert(visible) {
-            continue;
+    loop {
+        while let Some(visible) = queue.pop_front() {
+            if visible == context.module_id || !seen.insert(visible) {
+                continue;
+            }
+            if let Some(using_scope) = context.using_scopes.get(&visible) {
+                enqueue_using_scope_modules(using_scope, &mut queue);
+                collect_public_inherent_extension_provider_targets_for_using_scope(
+                    context,
+                    using_scope,
+                    &mut pending_provider_targets,
+                );
+            }
         }
-        if let Some(using_scope) = context.using_scopes.get(&visible) {
-            enqueue_using_scope_modules(using_scope, &mut queue);
-            enqueue_public_inherent_extension_providers_for_using_scope(
-                context,
-                using_scope,
-                &mut queue,
-            );
+
+        pending_provider_targets.sort();
+        pending_provider_targets.dedup();
+        pending_provider_targets.retain(|target| resolved_provider_targets.insert(*target));
+        if pending_provider_targets.is_empty() {
+            break;
         }
+
+        enqueue_public_inherent_extension_provider_modules_for_targets(
+            context,
+            &pending_provider_targets,
+            &mut queue,
+        );
+        pending_provider_targets.clear();
     }
 
     let mut modules = seen.into_iter().collect::<Vec<_>>();
@@ -3199,34 +3217,40 @@ struct VisibilityClosureContext<'a> {
     nominal_extension_providers: NominalExtensionProviderResolver<'a>,
 }
 
-fn enqueue_public_inherent_extension_providers_for_using_scope(
+fn collect_public_inherent_extension_provider_targets_for_using_scope(
     context: &VisibilityClosureContext<'_>,
     using_scope: &nia_defs::ModuleUsingScope,
+    targets: &mut Vec<GlobalDefId>,
+) {
+    targets.extend(
+        using_scope
+            .types
+            .values()
+            .filter(|entry| entry.namespace == PublicNamespace::Type)
+            .filter_map(|entry| {
+                nominal_def_id_for_public_type(
+                    GlobalDefId {
+                        module_id: entry.target_module,
+                        def_id: entry.target_def_id,
+                    },
+                    context.defs,
+                    context.normalizations,
+                    context.visible_type_signatures,
+                )
+            }),
+    );
+}
+
+fn enqueue_public_inherent_extension_provider_modules_for_targets(
+    context: &VisibilityClosureContext<'_>,
+    type_def_ids: &[GlobalDefId],
     queue: &mut VecDeque<nia_ids::ModuleId>,
 ) {
-    let mut type_def_ids = using_scope
-        .types
-        .values()
-        .filter(|entry| entry.namespace == PublicNamespace::Type)
-        .filter_map(|entry| {
-            nominal_def_id_for_public_type(
-                GlobalDefId {
-                    module_id: entry.target_module,
-                    def_id: entry.target_def_id,
-                },
-                context.defs,
-                context.normalizations,
-                context.visible_type_signatures,
-            )
-        })
-        .collect::<Vec<_>>();
-    type_def_ids.sort();
-    type_def_ids.dedup();
     if type_def_ids.is_empty() {
         return;
     }
     queue.extend(
-        (context.nominal_extension_providers)(&type_def_ids)
+        (context.nominal_extension_providers)(type_def_ids)
             .into_iter()
             .filter(|provider| {
                 nia_imports::visibility_allows(
@@ -3269,5 +3293,138 @@ fn nominal_target_def_id(interner: &TyInterner, ty: InternedTyId) -> Option<Glob
     match interner.get(ty) {
         Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_defs::{ModuleUsingScope, PublicNamespace, UsingEntry};
+    use nia_imports::ModuleGraph;
+    use nia_item_signatures::ProgramTypeAliasSignature;
+    use nia_source::{SourceId, SourcePath, SourceRevision, SourceVersion};
+    use nia_span::Span;
+    use std::{cell::RefCell, collections::HashMap};
+
+    fn defs_from_source(module_id: nia_ids::ModuleId, source: &str) -> DefCollection {
+        let syntax = nia_syntax::parse_source(
+            source,
+            Some(SourceVersion {
+                id: SourceId(module_id.0),
+                revision: SourceRevision::INITIAL,
+            }),
+        );
+        let (module, parse_errors, _) = nia_parser::parse_module_syntax_with_origins(&syntax);
+        assert!(parse_errors.is_empty(), "{parse_errors:?}");
+        nia_defs::collect_module_defs(module_id, &module)
+    }
+
+    fn global_type_def_id(defs: &DefCollection, name: &str) -> GlobalDefId {
+        let def_id = defs
+            .module_scope
+            .types
+            .get(name)
+            .unwrap_or_else(|| panic!("missing type definition `{name}`"));
+        GlobalDefId {
+            module_id: defs.module_id,
+            def_id,
+        }
+    }
+
+    fn using_type_entry(def_id: GlobalDefId) -> UsingEntry {
+        UsingEntry {
+            target_module: def_id.module_id,
+            target_def_id: def_id.def_id,
+            namespace: PublicNamespace::Type,
+            directive_span: Span::default(),
+            name_span: Span::default(),
+            parent_enum: None,
+        }
+    }
+
+    #[test]
+    fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave() {
+        let entry = nia_ids::ModuleId(0);
+        let types_module = nia_ids::ModuleId(1);
+        let used_provider = nia_ids::ModuleId(2);
+        let other_provider = nia_ids::ModuleId(3);
+        let type_defs = defs_from_source(types_module, "pub struct Other {} pub struct Used {}");
+        let used = global_type_def_id(&type_defs, "Used");
+        let other = global_type_def_id(&type_defs, "Other");
+        let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
+        graph
+            .intern_declared_child(entry, "types", nia_ids::Visibility::Public, Span::default())
+            .expect("intern types module");
+        graph
+            .intern_declared_child(
+                entry,
+                "used_provider",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern used provider module");
+        graph
+            .intern_declared_child(
+                entry,
+                "other_provider",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern other provider module");
+        let mut using_scope = ModuleUsingScope::default();
+        using_scope
+            .types
+            .insert("Used".to_string(), using_type_entry(used));
+        using_scope
+            .types
+            .insert("Other".to_string(), using_type_entry(other));
+        let using_scopes = HashMap::new();
+        let empty_aliases = HashMap::<GlobalDefId, ProgramTypeAliasSignature>::new();
+        let empty_normalization = TypeNormalization {
+            interner: TyInterner::new(entry),
+            normalized: HashMap::new(),
+            diagnostics: Vec::new(),
+        };
+        let empty_defs = |module_id| (module_id == type_defs.module_id).then(|| type_defs.clone());
+        let normalizations = |_module_id| Some(empty_normalization.clone());
+        let calls = RefCell::new(Vec::<Vec<GlobalDefId>>::new());
+        let nominal_extension_providers = |targets: &[GlobalDefId]| {
+            calls.borrow_mut().push(targets.to_vec());
+            targets
+                .iter()
+                .filter_map(|target| {
+                    if *target == used {
+                        Some(used_provider)
+                    } else if *target == other {
+                        Some(other_provider)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let modules = visible_extension_provider_modules(VisibleExtensionProviderModulesInput {
+            module_id: entry,
+            graph: &graph,
+            using_scope: &using_scope,
+            using_scopes: &using_scopes,
+            defs: &empty_defs,
+            normalizations: &normalizations,
+            visible_type_signatures: VisibleTypeSignatures {
+                type_aliases: &empty_aliases,
+            },
+            nominal_extension_providers: &nominal_extension_providers,
+        });
+
+        assert_eq!(modules, vec![used_provider, other_provider]);
+        let calls = calls.borrow();
+        assert_eq!(
+            calls.len(),
+            1,
+            "provider targets in one visibility-closure wave should be batched"
+        );
+        assert_eq!(calls[0], vec![other, used]);
+        assert!(using_scopes.is_empty());
     }
 }
