@@ -182,12 +182,6 @@ pub(super) struct ExtensionProviderNominalCandidateIndexQueryValue(
 );
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionProviderNominalConservativeTargetIndexQueryValue {
-    pub(super) providers_by_target:
-        HashMap<GlobalDefId, Vec<crate::program_signatures::NominalExtensionProviderEntry>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderNominalTargetNamesQueryValue {
     pub(super) names_by_target: HashMap<GlobalDefId, Vec<String>>,
 }
@@ -287,23 +281,6 @@ impl QueryKey<CompilerContext> for ExtensionProviderNominalCandidateIndexQuery {
         (db.context()
             .providers
             .extension_provider_nominal_candidate_index)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionProviderNominalConservativeTargetIndexQuery;
-
-impl QueryKey<CompilerContext> for ExtensionProviderNominalConservativeTargetIndexQuery {
-    type Value = ExtensionProviderNominalConservativeTargetIndexValue;
-
-    fn name() -> &'static str {
-        "extension_provider_nominal_conservative_target_index"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context()
-            .providers
-            .extension_provider_nominal_conservative_target_index)(db)
     }
 }
 

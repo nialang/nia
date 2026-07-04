@@ -36,7 +36,6 @@ pub enum NominalProviderCandidate {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NominalProviderCandidateIndex<M> {
-    conservative: Vec<M>,
     named: HashMap<String, Vec<M>>,
 }
 
@@ -47,37 +46,19 @@ where
     pub fn from_summaries(
         summaries: impl IntoIterator<Item = (M, ProviderSummary)>,
     ) -> NominalProviderCandidateIndex<M> {
-        let mut conservative = Vec::new();
         let mut named: HashMap<String, Vec<M>> = HashMap::new();
         for (module, summary) in summaries {
             for provider in &summary.providers {
-                let Some(candidate) = provider.target.ty.nominal_provider_index_candidate() else {
-                    continue;
-                };
-                match candidate {
-                    NominalProviderCandidate::Named(name) => {
-                        named.entry(name).or_default().push(module);
-                    }
-                    NominalProviderCandidate::Conservative => {
-                        conservative.push(module);
-                    }
+                if let Some(name) = provider.target.ty.nominal_provider_index_name() {
+                    named.entry(name).or_default().push(module);
                 }
             }
         }
-        conservative.sort();
-        conservative.dedup();
         for modules in named.values_mut() {
             modules.sort();
             modules.dedup();
         }
-        NominalProviderCandidateIndex {
-            conservative,
-            named,
-        }
-    }
-
-    pub fn conservative(&self) -> &[M] {
-        &self.conservative
+        NominalProviderCandidateIndex { named }
     }
 
     pub fn named(&self, name: &str) -> &[M] {
@@ -262,11 +243,11 @@ impl ProviderTypeRef {
             .unwrap_or(NominalProviderCandidate::Conservative)
     }
 
-    fn nominal_provider_index_candidate(&self) -> Option<NominalProviderCandidate> {
+    fn nominal_provider_index_name(&self) -> Option<String> {
         if self.is_generic_or_structural_target {
             return None;
         }
-        self.last_name.clone().map(NominalProviderCandidate::Named)
+        self.last_name.clone()
     }
 
     fn is_definite_semantic_name(&self) -> bool {
@@ -492,7 +473,6 @@ extend void {
             vec![NominalProviderCandidate::Conservative]
         );
         let index = NominalProviderCandidateIndex::from_summaries([(0usize, summary)]);
-        assert!(index.conservative().is_empty());
         assert!(index.all_named().next().is_none());
     }
 
@@ -512,7 +492,6 @@ extend[T] T {
             vec![NominalProviderCandidate::Conservative]
         );
         let index = NominalProviderCandidateIndex::from_summaries([(0usize, summary)]);
-        assert!(index.conservative().is_empty());
         assert!(index.named("T").is_empty());
     }
 

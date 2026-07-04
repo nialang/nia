@@ -300,26 +300,6 @@ pub(super) fn provide_extension_provider_nominal_candidate_index(
     )
 }
 
-pub(super) fn provide_extension_provider_nominal_conservative_target_index(
-    db: &QueryDb<CompilerContext>,
-) -> ExtensionProviderNominalConservativeTargetIndexValue {
-    time_provider(
-        db.context().timings(),
-        "extension_provider_nominal_conservative_target_index",
-        || {
-            let candidate_index = db.query(ExtensionProviderNominalCandidateIndexQuery);
-            let providers = nominal_providers_from_modules(
-                db,
-                candidate_index.0.conservative().iter().copied(),
-            );
-            let providers_by_target = nominal_providers_by_target(providers);
-            Arc::new(ExtensionProviderNominalConservativeTargetIndexQueryValue {
-                providers_by_target,
-            })
-        },
-    )
-}
-
 pub(super) fn provide_extension_provider_nominal_target_names(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionProviderNominalTargetNamesValue {
@@ -406,41 +386,6 @@ pub(super) fn provide_extension_provider_nominal_target_names(
     )
 }
 
-fn nominal_providers_from_modules(
-    db: &QueryDb<CompilerContext>,
-    module_ids: impl IntoIterator<Item = ModuleId>,
-) -> Vec<crate::program_signatures::NominalExtensionProviderEntry> {
-    let mut module_ids = module_ids.into_iter().collect::<Vec<_>>();
-    module_ids.sort();
-    module_ids.dedup();
-
-    let mut providers = Vec::new();
-    for facts in db.query_many(
-        module_ids
-            .into_iter()
-            .map(ExtensionProviderNominalModuleFactsQuery),
-    ) {
-        providers.extend(facts.nominal_providers.iter().copied());
-    }
-    providers
-}
-
-fn nominal_providers_by_target(
-    providers: Vec<crate::program_signatures::NominalExtensionProviderEntry>,
-) -> HashMap<GlobalDefId, Vec<crate::program_signatures::NominalExtensionProviderEntry>> {
-    let mut providers_by_target: HashMap<GlobalDefId, Vec<_>> = HashMap::new();
-    for provider in providers {
-        providers_by_target
-            .entry(provider.target)
-            .or_default()
-            .push(provider);
-    }
-    for providers in providers_by_target.values_mut() {
-        sort_and_dedup_nominal_providers(providers);
-    }
-    providers_by_target
-}
-
 fn insert_nominal_target_name(
     names_by_target: &mut HashMap<GlobalDefId, Vec<String>>,
     target: GlobalDefId,
@@ -460,27 +405,10 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
         || {
             let graph = db.query(ModuleGraphQuery);
             let target_names = db.query(ExtensionProviderNominalTargetNamesQuery);
-            let conservative = db.query(ExtensionProviderNominalConservativeTargetIndexQuery);
             let candidate_index = db.query(ExtensionProviderNominalCandidateIndexQuery);
             let mut modules = Vec::new();
             let mut candidate_modules = Vec::new();
             for target in targets.as_slice().iter().copied() {
-                if let Some(providers) = conservative.providers_by_target.get(&target) {
-                    modules.extend(
-                        providers
-                            .iter()
-                            .copied()
-                            .filter(|provider| {
-                                nia_imports::visibility_allows(
-                                    provider.visibility,
-                                    &graph,
-                                    provider.module_id,
-                                    accessing_module,
-                                )
-                            })
-                            .map(|provider| provider.module_id),
-                    );
-                }
                 let Some(names) = target_names.names_by_target.get(&target) else {
                     continue;
                 };
@@ -517,24 +445,6 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
             Arc::new(ExtensionProviderNominalModulesForTargetsQueryValue { modules })
         },
     )
-}
-
-fn sort_and_dedup_nominal_providers(
-    providers: &mut Vec<crate::program_signatures::NominalExtensionProviderEntry>,
-) {
-    providers.sort_by_key(|provider| {
-        (
-            provider.target,
-            provider.module_id,
-            match provider.visibility {
-                nia_ids::Visibility::Private => 0,
-                nia_ids::Visibility::PublicSuper => 1,
-                nia_ids::Visibility::PublicPkg => 2,
-                nia_ids::Visibility::Public => 3,
-            },
-        )
-    });
-    providers.dedup();
 }
 
 pub(super) fn provide_extension_method_index(

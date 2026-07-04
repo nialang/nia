@@ -245,8 +245,6 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderNominalModuleFactsValue,
     pub(super) extension_provider_nominal_candidate_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalCandidateIndexValue,
-    pub(super) extension_provider_nominal_conservative_target_index:
-        fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalConservativeTargetIndexValue,
     pub(super) extension_provider_nominal_target_names:
         fn(&QueryDb<CompilerContext>) -> ExtensionProviderNominalTargetNamesValue,
     pub(super) extension_provider_nominal_modules_for_targets:
@@ -348,8 +346,6 @@ impl Default for CompilerQueryProviders {
                 provide_extension_provider_nominal_module_facts,
             extension_provider_nominal_candidate_index:
                 provide_extension_provider_nominal_candidate_index,
-            extension_provider_nominal_conservative_target_index:
-                provide_extension_provider_nominal_conservative_target_index,
             extension_provider_nominal_target_names:
                 provide_extension_provider_nominal_target_names,
             extension_provider_nominal_modules_for_targets:

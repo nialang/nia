@@ -82,8 +82,6 @@ type ExtensionProviderValidationProgramFactsValue =
 type ExtensionProviderNominalModuleFactsValue = Arc<ExtensionProviderNominalModuleFactsQueryValue>;
 type ExtensionProviderNominalCandidateIndexValue =
     Arc<ExtensionProviderNominalCandidateIndexQueryValue>;
-type ExtensionProviderNominalConservativeTargetIndexValue =
-    Arc<ExtensionProviderNominalConservativeTargetIndexQueryValue>;
 type ExtensionProviderNominalTargetNamesValue = Arc<ExtensionProviderNominalTargetNamesQueryValue>;
 type ExtensionProviderNominalModulesForTargetsValue =
     Arc<ExtensionProviderNominalModulesForTargetsQueryValue>;
@@ -3191,19 +3189,14 @@ extend Used {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_modules_for_targets"
-                && dependency.to.name == "extension_provider_nominal_conservative_target_index"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_provider_nominal_modules_for_targets"
-                && dependency.to.name == "extension_provider_nominal_candidate_index"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_provider_nominal_conservative_target_index"
                 && dependency.to.name == "extension_provider_nominal_candidate_index"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_modules_for_targets"
                 && dependency.to.name == "extension_provider_nominal_module_facts"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.to.name == "extension_provider_nominal_conservative_target_index"
         }));
         assert!(
             !trace
