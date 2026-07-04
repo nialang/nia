@@ -51,6 +51,8 @@ pub(super) struct CompilerQueryProviders {
     ) -> TypeNormalization,
     pub(super) program_signature_module_ids:
         fn(&QueryDb<CompilerContext>, nia_item_tree::SignatureItemSet) -> Vec<ModuleId>,
+    pub(super) program_signature_module_eligibility:
+        fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> bool,
     pub(super) module_program_signature_facts: fn(
         &QueryDb<CompilerContext>,
         ModuleId,
@@ -153,6 +155,7 @@ impl Default for CompilerQueryProviders {
             layout_type_normalization: provide_layout_type_normalization,
             signature_type_normalization: provide_signature_type_normalization,
             program_signature_module_ids: provide_program_signature_module_ids,
+            program_signature_module_eligibility: provide_program_signature_module_eligibility,
             module_program_signature_facts: provide_module_program_signature_facts,
             module_abi_signature_facts: provide_module_abi_signature_facts,
             extension_provider_module_ids: provide_extension_provider_module_ids,
@@ -670,9 +673,21 @@ pub(super) fn provide_program_body_trait_signatures(
 
 pub(super) fn provide_program_signature_module_ids(
     db: &QueryDb<CompilerContext>,
-    _set: nia_item_tree::SignatureItemSet,
+    set: nia_item_tree::SignatureItemSet,
 ) -> Vec<ModuleId> {
     db.query(SemanticModuleIdsQuery)
+        .into_iter()
+        .filter(|module_id| db.query(ProgramSignatureModuleEligibilityQuery(*module_id, set)))
+        .collect()
+}
+
+pub(super) fn provide_program_signature_module_eligibility(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+) -> bool {
+    let tree = db.query(SignatureItemTreeQuery(module_id, set));
+    crate::program_signatures::signature_tree_has_program_signature_facts(&tree, set)
 }
 
 pub(super) fn provide_module_program_signature_facts(

@@ -296,6 +296,31 @@ impl QueryKey<CompilerContext> for ProgramSignatureModuleIdsQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramSignatureModuleEligibilityQuery(
+    pub(super) ModuleId,
+    pub(super) nia_item_tree::SignatureItemSet,
+);
+
+impl QueryKey<CompilerContext> for ProgramSignatureModuleEligibilityQuery {
+    type Value = bool;
+
+    fn name() -> &'static str {
+        "program_signature_module_eligibility"
+    }
+
+    fn description(&self) -> String {
+        format!(
+            "program_signature_module_eligibility({:?}, {:?})",
+            self.0, self.1
+        )
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.program_signature_module_eligibility)(db, self.0, self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ModuleProgramSignatureFactsQuery(
     pub(super) ModuleId,
     pub(super) nia_item_tree::SignatureItemSet,
