@@ -84,7 +84,6 @@ type ExtensionProviderNominalModuleFactsValue = Arc<ExtensionProviderNominalModu
 type ExtensionProviderDiscoveryIndexValue = Arc<ExtensionProviderDiscoveryIndexQueryValue>;
 type ExtensionProviderNominalCandidateModulesValue =
     Arc<ExtensionProviderNominalCandidateModulesQueryValue>;
-type ExtensionProviderNominalTargetNamesValue = Arc<ExtensionProviderNominalTargetNamesQueryValue>;
 type ExtensionProviderNominalModulesForTargetsValue =
     Arc<ExtensionProviderNominalModulesForTargetsQueryValue>;
 type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
@@ -568,11 +567,15 @@ fn compiler_database_with_providers(
     request: CompileRequest,
     providers: CompilerQueryProviders,
 ) -> CompilerDatabase {
+    let timings = request.timings;
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
-    let db = QueryDb::new(CompilerContext {
-        inputs: inputs.clone(),
-        providers,
-    });
+    let db = QueryDb::new_with_timings(
+        CompilerContext {
+            inputs: inputs.clone(),
+            providers,
+        },
+        timings,
+    );
     CompilerDatabase { db, inputs }
 }
 
@@ -3218,7 +3221,7 @@ extend Used {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "extension_provider_nominal_modules_for_targets"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_modules_for_targets"
                 && dependency.to.name == "extension_provider_nominal_target_names"
         }));

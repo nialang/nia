@@ -3,7 +3,8 @@ pub(crate) struct ModuleGraphQuery;
 
 use crate::provider_loading::{
     add_public_reexport_extension_provider_modules, add_public_reexport_source_module,
-    module_defines_extensions, process_provider_request, process_reexport_provider_request,
+    module_defines_extensions, process_loaded_provider_request, process_provider_request,
+    process_reexport_provider_request,
 };
 use crate::queries::module_declarations_query;
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
@@ -14,6 +15,7 @@ use nia_imports::{
 };
 use nia_query::{QueryDb, QueryKey};
 use nia_span::Span;
+use std::collections::BTreeSet;
 
 impl QueryKey<LoaderContext> for ModuleGraphQuery {
     type Value = ModuleGraph;
@@ -26,34 +28,74 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
         let mut graph = ModuleGraph::new(db.context().entry_path.clone());
         inject_entry_runtime(db, &mut graph);
         let mut index = 0;
-        while index < graph.modules().count() {
-            let Some(node) = graph.get(nia_imports::ModuleId(index as u32)).cloned() else {
-                break;
-            };
-            let declarations = db.query(module_declarations_query(db, node.path.clone()));
-            for package in declarations.package_roots {
-                if graph.package_root(&package).is_none()
-                    && let Some(path) = db.context().module_map.get(&package)
-                {
-                    graph.intern_package_root(&package, path.clone());
-                }
-            }
-            if should_eager_add_declarations(db.context(), &node)
-                && let Err(diagnostic) = add_declared_module_children(db, &mut graph, node.id)
-            {
-                graph.push_diagnostic(node.path.clone(), diagnostic);
-            }
-            if should_process_used_module_paths(db.context(), &graph, &node) {
-                for path in declarations.used_module_paths {
-                    if let Err(diagnostic) = add_used_module_path(db, &mut graph, node.id, &path) {
-                        graph.push_diagnostic(node.path.clone(), diagnostic);
+        let mut pending_provider_requests = BTreeSet::new();
+        loop {
+            while index < graph.modules().count() {
+                let Some(node) = graph.get(nia_imports::ModuleId(index as u32)).cloned() else {
+                    break;
+                };
+                let declarations = db.query(module_declarations_query(db, node.path.clone()));
+                for package in declarations.package_roots {
+                    if graph.package_root(&package).is_none()
+                        && let Some(path) = db.context().module_map.get(&package)
+                    {
+                        graph.intern_package_root(&package, path.clone());
                     }
                 }
+                if should_eager_add_declarations(db.context(), &node)
+                    && let Err(diagnostic) = add_declared_module_children(db, &mut graph, node.id)
+                {
+                    graph.push_diagnostic(node.path.clone(), diagnostic);
+                }
+                if should_process_used_module_paths(db.context(), &graph, &node) {
+                    for path in declarations.used_module_paths {
+                        let processing = path.processing();
+                        if node.module_path.package == nia_imports::ENTRY_MODULE_MAP_NAME
+                            && processing.is_replayable_provider_request()
+                        {
+                            pending_provider_requests.insert(processing);
+                        }
+                        if let Err(diagnostic) =
+                            add_used_module_path(db, &mut graph, node.id, &path)
+                        {
+                            graph.push_diagnostic(node.path.clone(), diagnostic);
+                        }
+                    }
+                }
+                index += 1;
             }
-            index += 1;
+
+            let module_count = graph.modules().count();
+            if let Err(diagnostic) =
+                replay_pending_provider_requests(db, &mut graph, &pending_provider_requests)
+            {
+                graph.push_diagnostic(db.context().entry_path.clone(), diagnostic);
+            }
+            if graph.modules().count() == module_count {
+                break;
+            }
         }
         graph
     }
+}
+
+fn replay_pending_provider_requests(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    pending_provider_requests: &BTreeSet<UsedModulePathProcessing>,
+) -> Result<(), Diagnostic> {
+    if pending_provider_requests.is_empty() {
+        return Ok(());
+    }
+    let module_ids = graph
+        .modules()
+        .filter(|node| !node.module_path.is_package_root())
+        .map(|node| node.id)
+        .collect::<Vec<_>>();
+    for request in pending_provider_requests {
+        process_loaded_provider_request(db, graph, &module_ids, request)?;
+    }
+    Ok(())
 }
 
 fn should_eager_add_declarations(context: &LoaderContext, node: &ModuleNode) -> bool {
