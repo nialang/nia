@@ -1672,7 +1672,7 @@ fn extend_reachable_functions_from_traits_incremental(
 fn add_reachable_default_trait_method_for_method(
     program_signatures: ExecutableSignatureIndex<'_>,
     reachable: &ReachableTraitMethod,
-    reachable_modules: &HashSet<ModuleId>,
+    _reachable_modules: &HashSet<ModuleId>,
     reachable_functions: &mut HashSet<GlobalDefId>,
     modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
@@ -1680,9 +1680,6 @@ fn add_reachable_default_trait_method_for_method(
     let TraitId::Source(trait_def) = reachable.trait_id else {
         return;
     };
-    if !reachable_modules.contains(&trait_def.module_id) {
-        return;
-    }
     let Some(trait_signature) = (program_signatures.trait_)(trait_def) else {
         return;
     };
@@ -1705,7 +1702,7 @@ fn add_reachable_default_trait_method_for_method(
 fn add_reachable_default_trait_methods_for_vtable(
     program_signatures: ExecutableSignatureIndex<'_>,
     vtable: &ReachableTraitVtable,
-    reachable_modules: &HashSet<ModuleId>,
+    _reachable_modules: &HashSet<ModuleId>,
     reachable_functions: &mut HashSet<GlobalDefId>,
     modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
@@ -1713,9 +1710,6 @@ fn add_reachable_default_trait_methods_for_vtable(
     let TraitId::Source(trait_def) = vtable.trait_id else {
         return;
     };
-    if !reachable_modules.contains(&trait_def.module_id) {
-        return;
-    }
     let Some(trait_signature) = (program_signatures.trait_)(trait_def) else {
         return;
     };
