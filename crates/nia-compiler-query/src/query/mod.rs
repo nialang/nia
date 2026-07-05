@@ -30,7 +30,9 @@ use nia_monomorphize::MonomorphizeModuleInput;
 use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_parser::ParseError;
-use nia_public_surface::{compute_exported_public_surfaces, compute_using_scopes_from_surfaces};
+use nia_public_surface::{
+    TypeExposureIndex, compute_exported_public_surfaces, compute_using_scopes_from_surfaces,
+};
 use nia_query::{QueryDb, QueryError, QueryFrame, QueryKey, QueryTrace};
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;
@@ -86,6 +88,7 @@ type ExtensionProviderNominalCandidateModulesValue =
     Arc<ExtensionProviderNominalCandidateModulesQueryValue>;
 type ExtensionProviderNominalModulesForTargetsValue =
     Arc<ExtensionProviderNominalModulesForTargetsQueryValue>;
+type TypeExposureIndexValue = Arc<TypeExposureIndex>;
 type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
 type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
@@ -3224,6 +3227,10 @@ extend Used {
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_modules_for_targets"
                 && dependency.to.name == "extension_provider_nominal_target_names"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_provider_nominal_modules_for_targets"
+                && dependency.to.name == "type_exposure_index"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_provider_nominal_modules_for_targets"

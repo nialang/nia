@@ -33,6 +33,72 @@ pub struct PublicUsingScopes {
     pub diagnostics: Vec<(ModuleId, Diagnostic)>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TypeExposureIndex {
+    names_by_target: HashMap<GlobalDefId, Vec<String>>,
+}
+
+impl TypeExposureIndex {
+    pub fn from_defs_surfaces_and_using_scopes(
+        defs_by_module: &[DefCollection],
+        surfaces: &PublicSurfaces,
+        using_scopes: &HashMap<ModuleId, ModuleUsingScope>,
+    ) -> Self {
+        let mut names_by_target: HashMap<GlobalDefId, Vec<String>> = HashMap::new();
+        for defs in defs_by_module {
+            for (def_id, def) in defs.defs.iter() {
+                if !matches!(
+                    def.kind,
+                    DefKind::Struct | DefKind::Union | DefKind::Enum | DefKind::TypeAlias
+                ) {
+                    continue;
+                }
+                names_by_target
+                    .entry(GlobalDefId {
+                        module_id: defs.module_id,
+                        def_id,
+                    })
+                    .or_default()
+                    .push(def.name.clone());
+            }
+        }
+        for surface in surfaces.iter().map(|(_, surface)| surface) {
+            for (name, item) in &surface.types {
+                names_by_target
+                    .entry(GlobalDefId {
+                        module_id: item.target_module,
+                        def_id: item.target_def_id,
+                    })
+                    .or_default()
+                    .push(name.clone());
+            }
+        }
+        for using_scope in using_scopes.values() {
+            for (name, entry) in &using_scope.types {
+                names_by_target
+                    .entry(GlobalDefId {
+                        module_id: entry.target_module,
+                        def_id: entry.target_def_id,
+                    })
+                    .or_default()
+                    .push(name.clone());
+            }
+        }
+        for names in names_by_target.values_mut() {
+            names.sort();
+            names.dedup();
+        }
+        Self { names_by_target }
+    }
+
+    pub fn names_for(&self, target: GlobalDefId) -> &[String] {
+        self.names_by_target
+            .get(&target)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+}
+
 /// Compute every module's exported public surface and per-module using scope.
 pub fn compute_public_surfaces(
     defs_by_module: &[DefCollection],
@@ -1560,5 +1626,53 @@ using { left::*, right::* };
                 .contains("duplicate using name `value`")
         );
         assert_ne!(diagnostics[0].1.primary_span(), Some(Span::default()));
+    }
+
+    #[test]
+    fn type_exposure_index_collects_direct_public_and_using_names() {
+        let main = defs(
+            ModuleId(0),
+            r#"
+pub module facade;
+using entry::facade::FacadeUsed as LocalUsed;
+"#,
+        );
+        let facade = defs(
+            ModuleId(1),
+            r#"
+pub module types;
+pub using self::types::Used as FacadeUsed;
+"#,
+        );
+        let types = defs(ModuleId(2), "pub struct Used {}");
+        let used_def_id = types.module_scope.types.get("Used").expect("Used def");
+        let defs_by_module = vec![main, facade, types];
+        let mut graph = graph_with_public_children(&["facade"]);
+        graph
+            .intern_declared_child(ModuleId(1), "types", Visibility::Public, Span::default())
+            .expect("types child declaration");
+
+        let exported = compute_exported_public_surfaces(&defs_by_module, &graph);
+        let using_scopes =
+            compute_using_scopes_from_surfaces(&defs_by_module, &graph, &exported.surfaces);
+        let index = TypeExposureIndex::from_defs_surfaces_and_using_scopes(
+            &defs_by_module,
+            &exported.surfaces,
+            &using_scopes.using_scopes,
+        );
+
+        let names = index.names_for(GlobalDefId {
+            module_id: ModuleId(2),
+            def_id: used_def_id,
+        });
+
+        assert_eq!(
+            names,
+            &[
+                "FacadeUsed".to_string(),
+                "LocalUsed".to_string(),
+                "Used".to_string()
+            ]
+        );
     }
 }
