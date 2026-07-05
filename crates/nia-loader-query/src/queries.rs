@@ -110,6 +110,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
                 db.invalid_input(self, format!("missing module id for `{}`", self.0.as_str()))
             });
         let parsed = db.query(parsed_module_query(db, self.0.clone()));
+        let provider_summary = db.query(provider_summary_query(db, self.0.clone()));
         LoadedModule {
             id,
             path: self.0.clone(),
@@ -117,6 +118,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             source_version: parsed.source.version(),
             item_tree: parsed.item_tree.clone(),
             active_item_tree: parsed.active_item_tree.clone(),
+            provider_summary,
             origins: parsed.origins.clone(),
             parse_errors: parsed.parse_errors.clone(),
         }

@@ -18,6 +18,7 @@ use nia_monomorphize::Monomorphization;
 use nia_node_id::NodeOriginTable;
 use nia_opt::OptimizationPolicy;
 use nia_parser::ParseError;
+use nia_provider_summary::ProviderSummary;
 use nia_sema_ir::{SemanticFacts, SemanticUseTable};
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_static_check::StaticCheck;
@@ -55,6 +56,7 @@ pub struct LoadedModule {
     pub source_version: SourceVersion,
     pub item_tree: ModuleItemTree,
     pub active_item_tree: ActiveModuleItemTree,
+    pub provider_summary: ProviderSummary,
     pub origins: NodeOriginTable,
     pub parse_errors: Vec<ParseError>,
 }

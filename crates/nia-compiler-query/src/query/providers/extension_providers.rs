@@ -6,11 +6,7 @@ pub(super) fn provide_extension_provider_summary(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_provider_summary::ProviderSummary {
-    let tree = db.query(SignatureItemTreeQuery(
-        module_id,
-        nia_item_tree::SignatureItemSet::Traits,
-    ));
-    nia_provider_summary::ProviderSummary::from_active_item_tree(&tree)
+    db.context().module_provider_summary(db, module_id)
 }
 
 pub(super) fn provide_extension_provider_discovery_index(
