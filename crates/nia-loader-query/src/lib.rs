@@ -14,7 +14,7 @@ use nia_query::QueryDb;
 use nia_source::{SourceDatabase, SourceFile, SourcePath};
 use nia_target_config::TargetConfig;
 use queries::{LoadedProgramQuery, SourceTextQuery};
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 pub fn load_program(entry_path: impl Into<String>) -> LoadedProgram {
     load_program_with_map(entry_path, ModuleMap::default())
@@ -73,7 +73,7 @@ impl LoaderDatabase {
         &self.sources
     }
 
-    pub fn set_source(&self, path: impl Into<String>, text: impl Into<String>) -> SourceFile {
+    pub fn set_source(&self, path: impl Into<String>, text: impl Into<Arc<str>>) -> SourceFile {
         let path = SourcePath::new(path.into());
         let file = self.sources.set_source(path.clone(), text);
         self.db.invalidate(SourceTextQuery(path));
