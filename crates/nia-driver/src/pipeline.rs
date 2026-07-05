@@ -87,7 +87,7 @@ impl Driver {
         &self.sources
     }
 
-    pub fn set_source(&self, path: impl Into<String>, text: impl Into<String>) {
+    pub fn set_source(&self, path: impl Into<String>, text: impl Into<std::sync::Arc<str>>) {
         let path = path.into();
         let loader = self.loader.lock().expect("driver loader lock poisoned");
         if let Some(loader) = &*loader {

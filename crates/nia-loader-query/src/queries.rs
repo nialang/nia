@@ -10,6 +10,7 @@ use nia_provider_summary::ProviderSummary;
 use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceFile, SourcePath, SourceVersion};
 use nia_target_config::prune_module_for_target;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct LoadedProgramQuery;
@@ -114,10 +115,10 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             path: self.0.clone(),
             source_identity: self.0.identity(),
             source_version: parsed.source.version(),
-            item_tree: parsed.item_tree,
-            active_item_tree: parsed.active_item_tree,
-            origins: parsed.origins,
-            parse_errors: parsed.parse_errors,
+            item_tree: parsed.item_tree.clone(),
+            active_item_tree: parsed.active_item_tree.clone(),
+            origins: parsed.origins.clone(),
+            parse_errors: parsed.parse_errors.clone(),
         }
     }
 }
@@ -129,7 +130,7 @@ pub(crate) struct ParsedModuleQuery {
 }
 
 impl QueryKey<LoaderContext> for ParsedModuleQuery {
-    type Value = ParsedModule;
+    type Value = Arc<ParsedModule>;
 
     fn name() -> &'static str {
         "parsed_module"
@@ -149,7 +150,7 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             nia_parser::parse_module_syntax_with_origins(&syntax);
         let item_tree = ModuleItemTree::from_module(&raw_module);
         let prune_result = prune_module_for_target(raw_module, &db.context().target);
-        ParsedModule {
+        Arc::new(ParsedModule {
             source: source
                 .file
                 .unwrap_or_else(|| db.context().sources.empty_source(&self.path)),
@@ -159,7 +160,7 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             parse_errors,
             prune_diagnostics: prune_result.diagnostics,
             read_diagnostic: source.diagnostic,
-        }
+        })
     }
 }
 
@@ -170,7 +171,7 @@ struct SyntaxModuleQuery {
 }
 
 impl QueryKey<LoaderContext> for SyntaxModuleQuery {
-    type Value = nia_syntax::SyntaxTree;
+    type Value = Arc<nia_syntax::SyntaxTree>;
 
     fn name() -> &'static str {
         "syntax_module"
@@ -182,12 +183,14 @@ impl QueryKey<LoaderContext> for SyntaxModuleQuery {
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let source = db.query(SourceTextQuery(self.path.clone()));
-        source
-            .file
-            .as_ref()
-            .filter(|file| file.version() == self.version)
-            .map(|file| nia_syntax::parse_source(&file.text, Some(file.version())))
-            .unwrap_or_else(|| nia_syntax::parse_source("", Some(self.version)))
+        Arc::new(
+            source
+                .file
+                .as_ref()
+                .filter(|file| file.version() == self.version)
+                .map(|file| nia_syntax::parse_source(&file.text, Some(file.version())))
+                .unwrap_or_else(|| nia_syntax::parse_source("", Some(self.version))),
+        )
     }
 }
 
@@ -269,7 +272,11 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
             path: self.path.clone(),
             version: self.version,
         });
-        let mut diagnostics = parsed.read_diagnostic.into_iter().collect::<Vec<_>>();
+        let mut diagnostics = parsed
+            .read_diagnostic
+            .clone()
+            .into_iter()
+            .collect::<Vec<_>>();
         let (declarations, package_roots, used_module_paths) = if diagnostics.is_empty()
             && parsed.parse_errors.is_empty()
             && parsed.prune_diagnostics.is_empty()

@@ -88,16 +88,16 @@ pub struct SourceFile {
     pub id: SourceId,
     pub path: SourcePath,
     pub revision: SourceRevision,
-    pub text: String,
+    pub text: Arc<str>,
 }
 
 impl SourceFile {
-    pub fn new(id: SourceId, path: SourcePath, text: String) -> Self {
+    pub fn new(id: SourceId, path: SourcePath, text: impl Into<Arc<str>>) -> Self {
         Self {
             id,
             path,
             revision: SourceRevision::INITIAL,
-            text,
+            text: text.into(),
         }
     }
 
@@ -203,7 +203,7 @@ impl SourceDatabase {
             .collect()
     }
 
-    pub fn set_source(&self, path: SourcePath, text: impl Into<String>) -> SourceFile {
+    pub fn set_source(&self, path: SourcePath, text: impl Into<Arc<str>>) -> SourceFile {
         let id = self.id_for_path(&path);
         // Holding this lock covers both revision selection and replacement; a
         // poisoned lock would make stale source-version queries indistinguishable
@@ -213,7 +213,7 @@ impl SourceDatabase {
             .get(&id)
             .map(|file| file.revision.next())
             .unwrap_or(SourceRevision::INITIAL);
-        let file = SourceFile::new(id, path, text.into()).with_revision(revision);
+        let file = SourceFile::new(id, path, text).with_revision(revision);
         files.insert(id, file.clone());
         file
     }
@@ -228,7 +228,7 @@ impl SourceDatabase {
     }
 
     pub fn empty_source(&self, path: &SourcePath) -> SourceFile {
-        SourceFile::new(self.id_for_path(path), path.clone(), String::new())
+        SourceFile::new(self.id_for_path(path), path.clone(), "")
     }
 }
 
@@ -243,11 +243,7 @@ mod tests {
 
     #[test]
     fn source_file_defaults_to_initial_revision() {
-        let file = SourceFile::new(
-            SourceId(7),
-            SourcePath::new("main.nia"),
-            "fn main() {}".into(),
-        );
+        let file = SourceFile::new(SourceId(7), SourcePath::new("main.nia"), "fn main() {}");
 
         assert_eq!(file.revision, SourceRevision::INITIAL);
         assert_eq!(
@@ -316,7 +312,7 @@ mod tests {
         assert_eq!(first.id, second.id);
         assert_eq!(first.revision, SourceRevision::INITIAL);
         assert_eq!(second.revision, SourceRevision(1));
-        assert_eq!(second.text, "fn main() i32 { 1 }");
+        assert_eq!(second.text.as_ref(), "fn main() i32 { 1 }");
     }
 
     #[test]
