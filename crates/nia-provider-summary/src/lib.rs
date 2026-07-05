@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use nia_ast::{GenericParam, TypeKind, TypeRef};
+use nia_ast::{GenericParam, TypeKind, TypeRef, UsingGroupItem, UsingSelector};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -74,8 +74,11 @@ where
 
 impl ProviderSummary {
     pub fn from_active_item_tree(item_tree: &ActiveModuleItemTree) -> Self {
-        let local_nominal_names = local_nominal_type_names(item_tree);
-        let local_trait_names = local_trait_names(item_tree);
+        let mut local_nominal_names = local_nominal_type_names(item_tree);
+        let mut local_trait_names = local_trait_names(item_tree);
+        let using_names = module_using_names(item_tree);
+        local_nominal_names.extend(using_names.iter().copied());
+        local_trait_names.extend(using_names.iter().copied());
         let providers = item_tree
             .items
             .iter()
@@ -202,6 +205,7 @@ impl ProviderSummary {
                 }
             } else if provider.trait_ref.is_none()
                 && !provider.target.ty.is_generic_or_structural_target
+                && provider.target.ty.is_definite_semantic_name()
             {
                 return false;
             }
@@ -294,6 +298,51 @@ fn local_trait_names(item_tree: &ActiveModuleItemTree) -> HashSet<&str> {
             _ => None,
         })
         .collect()
+}
+
+fn module_using_names(item_tree: &ActiveModuleItemTree) -> HashSet<&str> {
+    let mut names = HashSet::new();
+    for item in &item_tree.items {
+        let ItemTreeNodeKind::Using(using) = &item.kind else {
+            continue;
+        };
+        collect_using_selector_names(&using.host, &using.selector, &mut names);
+    }
+    names
+}
+
+fn collect_using_selector_names<'a>(
+    host: &'a [nia_ast::UsingHostSegment],
+    selector: &'a UsingSelector,
+    names: &mut HashSet<&'a str>,
+) {
+    match selector {
+        UsingSelector::SelfName => {
+            if let Some(segment) = host.last() {
+                names.insert(segment.name.as_str());
+            }
+        }
+        UsingSelector::Wildcard { .. } => {}
+        UsingSelector::Single(name) => {
+            names.insert(name.alias.as_deref().unwrap_or(name.name.as_str()));
+        }
+        UsingSelector::Group(items) => {
+            for item in items {
+                collect_using_group_item_names(item, names);
+            }
+        }
+    }
+}
+
+fn collect_using_group_item_names<'a>(item: &'a UsingGroupItem, names: &mut HashSet<&'a str>) {
+    match item {
+        UsingGroupItem::Name(name) => {
+            names.insert(name.alias.as_deref().unwrap_or(name.name.as_str()));
+        }
+        UsingGroupItem::Nested { host, selector } => {
+            collect_using_selector_names(host, selector, names);
+        }
+    }
 }
 
 fn type_ref_last_name(ty: &TypeRef) -> Option<&str> {
@@ -440,6 +489,42 @@ extend Used {
             summary.nominal_provider_candidates(),
             vec![NominalProviderCandidate::Named("Used".to_string())]
         );
+    }
+
+    #[test]
+    fn nominal_provider_summary_filters_imported_using_targets_by_name() {
+        let summary = summary_for(
+            r#"
+module types;
+using types::{Used};
+
+extend Used {
+    pub fn init() Used {
+        Used {}
+    }
+}
+"#,
+        );
+
+        assert!(summary.defines_inherent_associated_item("Used", "init"));
+        assert!(!summary.defines_inherent_associated_item("Other", "init"));
+    }
+
+    #[test]
+    fn public_extension_summary_keeps_qualified_inherent_targets_for_unknown_receivers() {
+        let summary = summary_for(
+            r#"
+module fs;
+using fs;
+
+extend fs::File {
+    pub fn writer(&self) void {}
+}
+"#,
+        );
+
+        assert!(summary.defines_public_extension_method_for_facade(|_| false, None, "writer"));
+        assert!(!summary.defines_public_extension_method_for_facade(|_| false, None, "reader"));
     }
 
     #[test]

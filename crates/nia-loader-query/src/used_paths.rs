@@ -883,6 +883,16 @@ impl UsedModulePathProcessing {
         }
     }
 
+    pub(crate) fn is_replayable_provider_request(&self) -> bool {
+        matches!(
+            self,
+            Self::IfProvidesTraitMethod {
+                target_type_name: None,
+                ..
+            }
+        )
+    }
+
     pub(crate) fn should_process_module(self) -> bool {
         matches!(self, Self::Always | Self::IfSelectedItem)
     }

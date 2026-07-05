@@ -329,101 +329,6 @@ pub(super) fn provide_extension_provider_nominal_candidate_modules(
     )
 }
 
-pub(super) fn provide_extension_provider_nominal_target_names(
-    db: &QueryDb<CompilerContext>,
-) -> ExtensionProviderNominalTargetNamesValue {
-    time_provider(
-        db.context().timings(),
-        "extension_provider_nominal_target_names",
-        || {
-            let mut names_by_target: HashMap<GlobalDefId, Vec<String>> = HashMap::new();
-            let module_ids = db.query(ProgramSignatureModuleIdsQuery(
-                nia_item_tree::SignatureItemSet::Types,
-            ));
-            let public_surfaces = db.query(PublicSurfacesQuery);
-            let public_using_scopes = db.query(PublicUsingScopesQuery);
-            for module_id in module_ids {
-                let defs = db.query(ModuleDefsQuery(module_id));
-                let signatures = db.query(SignatureItemSignaturesQuery(
-                    module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ));
-                let normalization = db.query(SignatureTypeNormalizationQuery(
-                    module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ));
-                for (def_id, def) in defs.defs.iter() {
-                    let target = GlobalDefId { module_id, def_id };
-                    match def.kind {
-                        nia_defs::DefKind::Struct
-                        | nia_defs::DefKind::Union
-                        | nia_defs::DefKind::Enum => {
-                            insert_nominal_target_name(
-                                &mut names_by_target,
-                                target,
-                                def.name.clone(),
-                            );
-                        }
-                        nia_defs::DefKind::TypeAlias => {
-                            let Some(signature) = signatures.type_aliases.get(&def_id) else {
-                                continue;
-                            };
-                            if !signature.generics.is_empty() {
-                                continue;
-                            }
-                            let normalized = normalization.normalize(signature.target);
-                            let Some(TyKind::Nominal {
-                                def_id: alias_target,
-                                ..
-                            }) = normalization.interner.get(normalized)
-                            else {
-                                continue;
-                            };
-                            insert_nominal_target_name(
-                                &mut names_by_target,
-                                *alias_target,
-                                def.name.clone(),
-                            );
-                        }
-                        _ => {}
-                    }
-                }
-                if let Some(using_scope) = public_using_scopes.using_scopes.get(&module_id) {
-                    for (name, entry) in &using_scope.types {
-                        let target = GlobalDefId {
-                            module_id: entry.target_module,
-                            def_id: entry.target_def_id,
-                        };
-                        insert_nominal_target_name(&mut names_by_target, target, name.clone());
-                    }
-                }
-                if let Some(surface) = public_surfaces.surfaces.get(module_id) {
-                    for (name, item) in &surface.types {
-                        let target = GlobalDefId {
-                            module_id: item.target_module,
-                            def_id: item.target_def_id,
-                        };
-                        insert_nominal_target_name(&mut names_by_target, target, name.clone());
-                    }
-                }
-            }
-            for names in names_by_target.values_mut() {
-                names.sort();
-                names.dedup();
-            }
-            Arc::new(ExtensionProviderNominalTargetNamesQueryValue { names_by_target })
-        },
-    )
-}
-
-fn insert_nominal_target_name(
-    names_by_target: &mut HashMap<GlobalDefId, Vec<String>>,
-    target: GlobalDefId,
-    name: String,
-) {
-    names_by_target.entry(target).or_default().push(name);
-}
-
 pub(super) fn provide_extension_provider_nominal_modules_for_targets(
     db: &QueryDb<CompilerContext>,
     targets: ExtensionProviderNominalTargets,
@@ -434,14 +339,7 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
         "extension_provider_nominal_modules_for_targets",
         || {
             let graph = db.query(ModuleGraphQuery);
-            let target_names = db.query(ExtensionProviderNominalTargetNamesQuery);
-            let mut index_names = Vec::new();
-            for target in targets.as_slice().iter().copied() {
-                let Some(names) = target_names.names_by_target.get(&target) else {
-                    continue;
-                };
-                index_names.extend(names.iter().cloned());
-            }
+            let index_names = extension_provider_nominal_target_names_for_targets(db, &targets);
             let candidate_modules = db
                 .query(ExtensionProviderNominalCandidateModulesQuery(
                     ExtensionProviderNominalTargetNames::new(index_names),
@@ -476,6 +374,56 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
             Arc::new(ExtensionProviderNominalModulesForTargetsQueryValue { modules })
         },
     )
+}
+
+fn extension_provider_nominal_target_names_for_targets(
+    db: &QueryDb<CompilerContext>,
+    targets: &ExtensionProviderNominalTargets,
+) -> Vec<String> {
+    let target_set = targets.as_slice().iter().copied().collect::<HashSet<_>>();
+    let mut names = Vec::new();
+
+    for target in targets.as_slice().iter().copied() {
+        let defs = db.query(ModuleDefsQuery(target.module_id));
+        if let Some(def) = defs.defs.get(target.def_id) {
+            match def.kind {
+                nia_defs::DefKind::Struct | nia_defs::DefKind::Union | nia_defs::DefKind::Enum => {
+                    names.push(def.name.clone())
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let public_using_scopes = db.query(PublicUsingScopesQuery);
+    for using_scope in public_using_scopes.using_scopes.values() {
+        for (name, entry) in &using_scope.types {
+            let target = GlobalDefId {
+                module_id: entry.target_module,
+                def_id: entry.target_def_id,
+            };
+            if target_set.contains(&target) {
+                names.push(name.clone());
+            }
+        }
+    }
+
+    let public_surfaces = db.query(PublicSurfacesQuery);
+    for (_, surface) in public_surfaces.surfaces.iter() {
+        for (name, item) in &surface.types {
+            let target = GlobalDefId {
+                module_id: item.target_module,
+                def_id: item.target_def_id,
+            };
+            if target_set.contains(&target) {
+                names.push(name.clone());
+            }
+        }
+    }
+
+    names.sort();
+    names.dedup();
+    names
 }
 
 pub(super) fn provide_extension_method_index(

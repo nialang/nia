@@ -88,6 +88,52 @@ pub(crate) fn process_provider_request(
     }
 }
 
+pub(crate) fn process_loaded_provider_request(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    module_ids: &[nia_imports::ModuleId],
+    processing: &UsedModulePathProcessing,
+) -> Result<(), Diagnostic> {
+    let UsedModulePathProcessing::IfProvidesTraitMethod {
+        target_type_name: None,
+        associated_name,
+    } = processing
+    else {
+        return Ok(());
+    };
+    for module_id in module_ids.iter().copied() {
+        add_loaded_unknown_method_provider_modules(db, graph, module_id, associated_name)?;
+    }
+    Ok(())
+}
+
+fn add_loaded_unknown_method_provider_modules(
+    db: &QueryDb<LoaderContext>,
+    graph: &mut ModuleGraph,
+    facade_module: nia_imports::ModuleId,
+    associated_name: &str,
+) -> Result<(), Diagnostic> {
+    let Some(node) = graph.get(facade_module).cloned() else {
+        return Ok(());
+    };
+    let facts = db.query(module_facade_facts_query(db, node.path));
+    add_reexport_provider_modules_matching(
+        db,
+        graph,
+        facade_module,
+        facts.provider_source_paths(),
+        |db, path| {
+            provider_candidate_has_public_extension_method_for_facade(
+                db,
+                path,
+                &facts,
+                None,
+                associated_name,
+            )
+        },
+    )
+}
+
 pub(crate) fn add_public_reexport_source_module(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,

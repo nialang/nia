@@ -218,11 +218,6 @@ pub(super) struct ExtensionProviderNominalCandidateModulesQueryValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionProviderNominalTargetNamesQueryValue {
-    pub(super) names_by_target: HashMap<GlobalDefId, Vec<String>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderNominalModulesForTargetsQueryValue {
     pub(super) modules: Vec<ModuleId>,
 }
@@ -326,23 +321,6 @@ impl QueryKey<CompilerContext> for ExtensionProviderNominalCandidateModulesQuery
         (db.context()
             .providers
             .extension_provider_nominal_candidate_modules)(db, self.0.clone())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionProviderNominalTargetNamesQuery;
-
-impl QueryKey<CompilerContext> for ExtensionProviderNominalTargetNamesQuery {
-    type Value = ExtensionProviderNominalTargetNamesValue;
-
-    fn name() -> &'static str {
-        "extension_provider_nominal_target_names"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context()
-            .providers
-            .extension_provider_nominal_target_names)(db)
     }
 }
 
