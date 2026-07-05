@@ -30,10 +30,17 @@ impl<'a> BodyChecker<'a> {
             .map(|(target_ty, method)| crate::CallableExtensionMethod { target_ty, method })
             .collect::<Vec<_>>();
         let program_methods = self
-            .program_extension_methods
-            .methods_named(name)
+            .program
+            .extension_methods_named
+            .map(|methods_named| methods_named(name))
+            .unwrap_or_else(|| {
+                self.program_extension_methods
+                    .methods_named(name)
+                    .cloned()
+                    .collect()
+            })
+            .into_iter()
             .filter(|method| method.trait_id.is_none() && method.name == name)
-            .cloned()
             .collect::<Vec<_>>();
         for method in program_methods {
             if methods
@@ -1366,8 +1373,8 @@ impl<'a> BodyChecker<'a> {
             .collect()
     }
 
-    fn extension_impl_generics_for_method(&self, method_id: GlobalDefId) -> Option<&[String]> {
-        self.extension_method_lookup_for_id(method_id)
+    fn extension_impl_generics_for_method(&mut self, method_id: GlobalDefId) -> Option<&[String]> {
+        self.ensure_extension_method_lookup_for_id(method_id)
             .map(|method| method.effective_generics.as_slice())
     }
 

@@ -31,6 +31,7 @@ pub struct ExtensionMethods {
     by_module: HashMap<ModuleId, Vec<ExtensionMethod>>,
     by_nominal_target: HashMap<GlobalDefId, Vec<ExtensionMethod>>,
     by_name: HashMap<String, Vec<ExtensionMethod>>,
+    by_id: HashMap<GlobalDefId, ExtensionMethod>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,6 +112,7 @@ impl ExtensionMethods {
         for (name, methods) in other.by_name {
             self.by_name.entry(name).or_default().extend(methods);
         }
+        self.by_id.extend(other.by_id);
     }
 
     pub fn insert(&mut self, module_id: ModuleId, method: ExtensionMethod) {
@@ -118,6 +120,7 @@ impl ExtensionMethods {
             .entry(method.name.clone())
             .or_default()
             .push(method.clone());
+        self.by_id.insert(method.def_id, method.clone());
         self.by_module.entry(module_id).or_default().push(method);
     }
 
@@ -195,6 +198,10 @@ impl ExtensionMethods {
             .get(name)
             .into_iter()
             .flat_map(|methods| methods.iter())
+    }
+
+    pub fn method_by_id(&self, def_id: GlobalDefId) -> Option<&ExtensionMethod> {
+        self.by_id.get(&def_id)
     }
 
     pub fn methods_for_nominal_target(

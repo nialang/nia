@@ -65,7 +65,7 @@ impl<'a> BodyChecker<'a> {
         }
         let current_def_id = self.current_def_id?;
         let target_ty = self
-            .extension_method_lookup_for_id(current_def_id)?
+            .ensure_extension_method_lookup_for_id(current_def_id)?
             .target_ty;
         let candidates = self.method_candidates_for_target(target_ty, name);
         let candidate = self.single_method_candidate(callee.span, name, &candidates)?;

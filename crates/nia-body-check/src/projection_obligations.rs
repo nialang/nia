@@ -649,9 +649,6 @@ impl<'a> BodyChecker<'a> {
     ) {
         for impl_index in self.trait_impl_indexes_for_trait(trait_id) {
             let impl_signature = self.program_trait_impls[impl_index].clone();
-            if !self.trait_impl_signature_is_visible(&impl_signature) {
-                continue;
-            }
             let impl_target_ty =
                 self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
             let mut impl_substitutions = HashMap::new();
@@ -1130,13 +1127,14 @@ impl<'a> BodyChecker<'a> {
         {
             return self.local_trait_impl_context(&signature);
         }
-        let lookup = self.extension_method_lookup_for_id(method_id)?;
+        let impl_id = self
+            .ensure_extension_method_lookup_for_id(method_id)?
+            .impl_id;
         let impl_signature = self
             .program_trait_impls
             .iter()
             .find(|impl_signature| {
-                impl_signature.module_id == method_id.module_id
-                    && impl_signature.impl_id == lookup.impl_id
+                impl_signature.module_id == method_id.module_id && impl_signature.impl_id == impl_id
             })?
             .clone();
         Some(self.program_trait_impl_context(&impl_signature))
@@ -1385,9 +1383,6 @@ impl<'a> BodyChecker<'a> {
 
         for impl_index in self.trait_impl_indexes_for_trait(trait_id) {
             let impl_signature = self.program_trait_impls[impl_index].clone();
-            if !self.trait_impl_signature_is_visible(&impl_signature) {
-                continue;
-            }
             let target_ty =
                 self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
             let target_ty = self.normalization.normalize(target_ty);
@@ -1484,17 +1479,6 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         candidates.push((trait_args, trait_const_args));
-    }
-
-    fn trait_impl_signature_is_visible(
-        &mut self,
-        impl_signature: &ProgramTraitImplSignature,
-    ) -> bool {
-        if impl_signature.module_id == self.defs.module_id {
-            return true;
-        }
-        self.extensions
-            .has_trait_witness_impl(impl_signature.module_id, impl_signature.impl_id)
     }
 
     pub(crate) fn where_predicates_can_hold(
@@ -1891,10 +1875,7 @@ impl<'a> BodyChecker<'a> {
             local_enums: &self.signatures.enums,
             program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
-            impl_is_visible: Some(&|module_id, impl_id| {
-                module_id == self.defs.module_id
-                    || self.extensions.has_trait_witness_impl(module_id, impl_id)
-            }),
+            impl_is_visible: None,
         };
         let mut solver = context.solver_with_associated_type_assumptions(
             &mut self.interner,

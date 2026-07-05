@@ -14,6 +14,25 @@ use nia_imports::{
 };
 use nia_span::Span;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct PublicSurfaceComputation {
+    pub surfaces: PublicSurfaces,
+    pub using_scopes: HashMap<ModuleId, ModuleUsingScope>,
+    pub diagnostics: Vec<(ModuleId, Diagnostic)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PublicSurfaceExports {
+    pub surfaces: PublicSurfaces,
+    pub diagnostics: Vec<(ModuleId, Diagnostic)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PublicUsingScopes {
+    pub using_scopes: HashMap<ModuleId, ModuleUsingScope>,
+    pub diagnostics: Vec<(ModuleId, Diagnostic)>,
+}
+
 /// Compute every module's exported public surface and per-module using scope.
 pub fn compute_public_surfaces(
     defs_by_module: &[DefCollection],
@@ -23,6 +42,33 @@ pub fn compute_public_surfaces(
     HashMap<ModuleId, ModuleUsingScope>,
     Vec<(ModuleId, Diagnostic)>,
 ) {
+    let computation = compute_public_surface_computation(defs_by_module, graph);
+    (
+        computation.surfaces,
+        computation.using_scopes,
+        computation.diagnostics,
+    )
+}
+
+pub fn compute_public_surface_computation(
+    defs_by_module: &[DefCollection],
+    graph: &ModuleGraph,
+) -> PublicSurfaceComputation {
+    let exports = compute_exported_public_surfaces(defs_by_module, graph);
+    let scopes = compute_using_scopes_from_surfaces(defs_by_module, graph, &exports.surfaces);
+    let mut diagnostics = exports.diagnostics;
+    diagnostics.extend(scopes.diagnostics);
+    PublicSurfaceComputation {
+        surfaces: exports.surfaces,
+        using_scopes: scopes.using_scopes,
+        diagnostics,
+    }
+}
+
+pub fn compute_exported_public_surfaces(
+    defs_by_module: &[DefCollection],
+    graph: &ModuleGraph,
+) -> PublicSurfaceExports {
     let mut diagnostics: Vec<(ModuleId, Diagnostic)> = Vec::new();
     let defs_by_id = defs_by_module
         .iter()
@@ -171,7 +217,22 @@ pub fn compute_public_surfaces(
         }
     }
 
-    // Now compute per-module using scopes (both pub and non-pub directives).
+    PublicSurfaceExports {
+        surfaces,
+        diagnostics,
+    }
+}
+
+pub fn compute_using_scopes_from_surfaces(
+    defs_by_module: &[DefCollection],
+    graph: &ModuleGraph,
+    surfaces: &PublicSurfaces,
+) -> PublicUsingScopes {
+    let mut diagnostics: Vec<(ModuleId, Diagnostic)> = Vec::new();
+    let defs_by_id = defs_by_module
+        .iter()
+        .map(|defs| (defs.module_id, defs))
+        .collect::<HashMap<_, _>>();
     let mut using_scopes: HashMap<ModuleId, ModuleUsingScope> = HashMap::new();
     for defs in defs_by_module {
         let process_used_paths = graph
@@ -275,7 +336,10 @@ pub fn compute_public_surfaces(
         using_scopes.insert(defs.module_id, scope);
     }
 
-    (surfaces, using_scopes, diagnostics)
+    PublicUsingScopes {
+        using_scopes,
+        diagnostics,
+    }
 }
 
 fn namespace_for(kind: DefKind) -> Option<PublicNamespace> {

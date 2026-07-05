@@ -177,8 +177,12 @@ fn signature_tree_item_has_program_signature_facts(
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct VisibleExtensionsForModule {
     pub(crate) methods: VisibleExtensionMethods,
-    pub(crate) trait_impls: Vec<ProgramTraitImplSignature>,
     pub(crate) interner: TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct VisibleTraitImplsForModule {
+    pub(crate) trait_impls: Vec<ProgramTraitImplSignature>,
 }
 
 pub(crate) fn collect_program_functions_excluding(
@@ -514,7 +518,7 @@ pub(crate) fn collect_extension_methods_for_module(
             continue;
         }
         let target_ty = module.normalization.normalize(impl_signature.target_ty);
-        if !is_extendable_target(&module.lowering.interner, target_ty) {
+        if !is_extendable_target(&module.normalization.interner, target_ty) {
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
@@ -591,7 +595,7 @@ pub(crate) fn collect_extension_method_index_for_module(
     let mut extensions = ExtensionMethods::default();
     for impl_signature in &module.signatures.trait_impls {
         let target_ty = module.normalization.normalize(impl_signature.target_ty);
-        if !is_extendable_target(&module.lowering.interner, target_ty) {
+        if !is_extendable_target(&module.normalization.interner, target_ty) {
             continue;
         }
         let trait_id = impl_trait_id_for_index_with_defs(module, impl_signature, defs);
@@ -668,7 +672,7 @@ pub(crate) fn collect_nominal_extension_providers_for_module(
     let mut providers = Vec::new();
     for impl_signature in &module.signatures.trait_impls {
         let target_ty = module.normalization.normalize(impl_signature.target_ty);
-        if !is_extendable_target(&module.lowering.interner, target_ty) {
+        if !is_extendable_target(&module.normalization.interner, target_ty) {
             continue;
         }
         let Some(target) = nominal_target_def_id(&module.normalization.interner, target_ty) else {
@@ -794,7 +798,7 @@ pub(crate) fn collect_extension_associated_value_index_for_module(
     let mut diagnostics = Vec::new();
     for impl_signature in &module.signatures.trait_impls {
         let target_ty = module.normalization.normalize(impl_signature.target_ty);
-        if !is_extendable_target(&module.lowering.interner, target_ty) {
+        if !is_extendable_target(&module.normalization.interner, target_ty) {
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
@@ -2900,7 +2904,7 @@ pub(crate) fn visible_extensions_for_module(
         visible_type_signatures,
         extensions,
         associated_values,
-        trait_impls,
+        trait_impls: _,
         nominal_extension_providers,
         visible_modules,
     } = input;
@@ -2926,19 +2930,22 @@ pub(crate) fn visible_extensions_for_module(
     let Some(current_normalization) = resolver_cache.normalization(module_id).cloned() else {
         return VisibleExtensionsForModule {
             methods: VisibleExtensionMethods::default(),
-            trait_impls: Vec::new(),
             interner: TyInterner::default(),
         };
     };
+    let imported_visible_modules = visible_modules
+        .iter()
+        .copied()
+        .filter(|visible_module| *visible_module != module_id)
+        .collect::<Vec<_>>();
     let mut target_interner = current_normalization.interner.clone();
     let mut visible = VisibleExtensionMethods::default();
-    let mut visible_trait_impls = Vec::new();
     let extension_visibility_allows = |visibility, defining_module| {
         nia_imports::visibility_allows(visibility, graph, defining_module, module_id)
     };
     extensions.for_each_visible_method(
         module_id,
-        visible_modules.iter().copied(),
+        imported_visible_modules.iter().copied(),
         extension_visibility_allows,
         |method| {
             if !resolver_cache
@@ -3002,24 +3009,9 @@ pub(crate) fn visible_extensions_for_module(
             );
         },
     );
-    for impl_signature in trait_impls {
-        if !witness_modules.contains(&impl_signature.module_id) {
-            continue;
-        }
-        if trait_id_is_visible(
-            module_id,
-            &witness_modules,
-            impl_signature.trait_id,
-            public_surfaces,
-            &mut resolver_cache,
-        ) {
-            visible.insert_trait_witness_impl(impl_signature.module_id, impl_signature.impl_id);
-            visible_trait_impls.push(impl_signature.clone());
-        }
-    }
     associated_values.for_each_visible_value(
         module_id,
-        visible_modules.iter().copied(),
+        imported_visible_modules.iter().copied(),
         extension_visibility_allows,
         |value| {
             if !resolver_cache
@@ -3050,9 +3042,61 @@ pub(crate) fn visible_extensions_for_module(
     );
     VisibleExtensionsForModule {
         methods: visible,
-        trait_impls: visible_trait_impls,
         interner: target_interner,
     }
+}
+
+pub(crate) fn visible_trait_impls_for_module(
+    input: VisibleExtensionsInput<'_>,
+) -> VisibleTraitImplsForModule {
+    let VisibleExtensionsInput {
+        module_id,
+        graph,
+        using_scope,
+        using_scopes,
+        public_surfaces,
+        defs,
+        normalizations,
+        visible_type_signatures,
+        trait_impls,
+        nominal_extension_providers,
+        visible_modules,
+        ..
+    } = input;
+    let mut resolver_cache = VisibleExtensionResolverCache::new(defs, normalizations);
+    let computed_visible_modules;
+    let visible_modules = if let Some(visible_modules) = visible_modules {
+        visible_modules
+    } else {
+        let visibility_context = VisibilityClosureContext {
+            module_id,
+            graph,
+            using_scope,
+            using_scopes,
+            defs,
+            normalizations,
+            visible_type_signatures,
+            nominal_extension_providers,
+        };
+        computed_visible_modules = declared_module_closure(&visibility_context);
+        &computed_visible_modules
+    };
+    let witness_modules = visible_modules;
+    let trait_impls = trait_impls
+        .iter()
+        .filter(|impl_signature| {
+            witness_modules.contains(&impl_signature.module_id)
+                && trait_id_is_visible(
+                    module_id,
+                    witness_modules,
+                    impl_signature.trait_id,
+                    public_surfaces,
+                    &mut resolver_cache,
+                )
+        })
+        .cloned()
+        .collect();
+    VisibleTraitImplsForModule { trait_impls }
 }
 
 pub(crate) struct VisibleExtensionProviderModulesInput<'a> {
@@ -3069,7 +3113,21 @@ pub(crate) struct VisibleExtensionProviderModulesInput<'a> {
 pub(crate) fn visible_extension_provider_modules(
     input: VisibleExtensionProviderModulesInput<'_>,
 ) -> Vec<nia_ids::ModuleId> {
-    let context = VisibilityClosureContext {
+    let context = visibility_closure_context(input);
+    declared_module_closure(&context)
+}
+
+pub(crate) fn visible_trait_impl_modules(
+    input: VisibleExtensionProviderModulesInput<'_>,
+) -> Vec<nia_ids::ModuleId> {
+    let context = visibility_closure_context(input);
+    declared_module_closure_including_item_target_modules(&context)
+}
+
+fn visibility_closure_context<'a>(
+    input: VisibleExtensionProviderModulesInput<'a>,
+) -> VisibilityClosureContext<'a> {
+    VisibilityClosureContext {
         module_id: input.module_id,
         graph: input.graph,
         using_scope: input.using_scope,
@@ -3078,8 +3136,7 @@ pub(crate) fn visible_extension_provider_modules(
         normalizations: input.normalizations,
         visible_type_signatures: input.visible_type_signatures,
         nominal_extension_providers: input.nominal_extension_providers,
-    };
-    declared_module_closure(&context)
+    }
 }
 
 fn trait_id_is_visible(
@@ -3153,11 +3210,27 @@ fn import_where_predicates(
 }
 
 fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_ids::ModuleId> {
+    declared_module_closure_inner(context, false)
+}
+
+fn declared_module_closure_including_item_target_modules(
+    context: &VisibilityClosureContext<'_>,
+) -> Vec<nia_ids::ModuleId> {
+    declared_module_closure_inner(context, true)
+}
+
+fn declared_module_closure_inner(
+    context: &VisibilityClosureContext<'_>,
+    include_item_target_modules: bool,
+) -> Vec<nia_ids::ModuleId> {
     let mut seen = HashSet::new();
     let mut queue = VecDeque::new();
     let mut pending_provider_targets = Vec::new();
     let mut resolved_provider_targets = HashSet::new();
     enqueue_using_scope_modules(context.using_scope, &mut queue);
+    if include_item_target_modules {
+        enqueue_using_scope_item_target_modules(context.using_scope, &mut queue);
+    }
     collect_public_inherent_extension_provider_targets_for_using_scope(
         context,
         context.using_scope,
@@ -3171,6 +3244,9 @@ fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_id
             }
             if let Some(using_scope) = context.using_scopes.get(&visible) {
                 enqueue_using_scope_modules(using_scope, &mut queue);
+                if include_item_target_modules {
+                    enqueue_using_scope_item_target_modules(using_scope, &mut queue);
+                }
                 collect_public_inherent_extension_provider_targets_for_using_scope(
                     context,
                     using_scope,
@@ -3204,6 +3280,19 @@ fn enqueue_using_scope_modules(
     queue: &mut VecDeque<nia_ids::ModuleId>,
 ) {
     queue.extend(using_scope.modules.values().copied());
+}
+
+fn enqueue_using_scope_item_target_modules(
+    using_scope: &nia_defs::ModuleUsingScope,
+    queue: &mut VecDeque<nia_ids::ModuleId>,
+) {
+    queue.extend(
+        using_scope
+            .values
+            .values()
+            .chain(using_scope.types.values())
+            .map(|entry| entry.target_module),
+    );
 }
 
 struct VisibilityClosureContext<'a> {

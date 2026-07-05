@@ -119,25 +119,18 @@ impl<'a> LazyAssociatedValueResolver<'a> {
         visible_extensions
     }
 
-    fn target_ty(
-        visible_extensions: &VisibleExtensionsForModule,
+    fn target_matches(
+        interner: &nia_ty::TyInterner,
+        target_ty: InternedTyId,
         target: nia_value_resolve::AssociatedValueTarget,
-    ) -> Option<InternedTyId> {
+    ) -> bool {
         match target {
             nia_value_resolve::AssociatedValueTarget::Primitive(primitive) => {
-                Some(visible_extensions.interner.primitive(primitive))
+                matches!(interner.get(target_ty), Some(TyKind::Primitive(found)) if *found == primitive)
             }
-            nia_value_resolve::AssociatedValueTarget::Nominal(type_id) => visible_extensions
-                .interner
-                .iter()
-                .find_map(|(ty, kind)| match kind {
-                    TyKind::Nominal {
-                        def_id,
-                        args,
-                        const_args,
-                    } if *def_id == type_id && args.is_empty() && const_args.is_empty() => Some(ty),
-                    _ => None,
-                }),
+            nia_value_resolve::AssociatedValueTarget::Nominal(type_id) => {
+                matches!(interner.get(target_ty), Some(TyKind::Nominal { def_id, .. }) if *def_id == type_id)
+            }
         }
     }
 }
@@ -149,11 +142,27 @@ impl nia_value_resolve::AssociatedValueResolver for LazyAssociatedValueResolver<
         name: &str,
     ) -> Option<GlobalDefId> {
         let visible_extensions = self.visible_extensions();
-        let target_ty = Self::target_ty(&visible_extensions, target)?;
-        visible_extensions
-            .methods
-            .associated_value(target_ty, name)
-            .map(|value| value.def_id)
+        let mut matches = Vec::new();
+        for extension_target in visible_extensions.methods.targets() {
+            if !Self::target_matches(
+                &visible_extensions.interner,
+                extension_target.target_ty,
+                target,
+            ) {
+                continue;
+            }
+            for value in &extension_target.associated_values {
+                if value.name == name {
+                    matches.push(value.def_id);
+                }
+            }
+        }
+        matches.sort();
+        matches.dedup();
+        let [def_id] = matches.as_slice() else {
+            return None;
+        };
+        Some(*def_id)
     }
 }
 
@@ -174,7 +183,9 @@ pub(super) struct CompilerQueryProviders {
     pub(super) module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
     pub(super) full_module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
     pub(super) defs_by_module: fn(&QueryDb<CompilerContext>) -> Vec<DefCollection>,
-    pub(super) public_surface: fn(&QueryDb<CompilerContext>) -> PublicSurfaceQueryValue,
+    pub(super) public_surfaces: fn(&QueryDb<CompilerContext>) -> PublicSurfacesValue,
+    pub(super) public_using_scopes: fn(&QueryDb<CompilerContext>) -> PublicUsingScopesValue,
+    pub(super) module_using_scope: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleUsingScope,
     pub(super) type_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
     pub(super) declaration_type_resolution:
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
@@ -267,6 +278,8 @@ pub(super) struct CompilerQueryProviders {
     pub(super) extension_methods: fn(&QueryDb<CompilerContext>) -> ExtensionMethodsValue,
     pub(super) visible_extensions:
         fn(&QueryDb<CompilerContext>, ModuleId) -> VisibleExtensionsValue,
+    pub(super) visible_trait_impls:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> VisibleTraitImplsValue,
     pub(super) value_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> ValueResolution,
     pub(super) local_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> LocalResolution,
     pub(super) semantic_use_table:
@@ -312,7 +325,9 @@ impl Default for CompilerQueryProviders {
             module_defs: provide_module_defs,
             full_module_defs: provide_full_module_defs,
             defs_by_module: provide_defs_by_module,
-            public_surface: provide_public_surface,
+            public_surfaces: provide_public_surfaces,
+            public_using_scopes: provide_public_using_scopes,
+            module_using_scope: provide_module_using_scope,
             type_resolution: provide_type_resolution,
             declaration_type_resolution: provide_declaration_type_resolution,
             signature_type_resolution: provide_signature_type_resolution,
@@ -362,6 +377,7 @@ impl Default for CompilerQueryProviders {
             extension_associated_values: provide_extension_associated_values,
             extension_methods: provide_extension_methods,
             visible_extensions: provide_visible_extensions,
+            visible_trait_impls: provide_visible_trait_impls,
             value_resolution: provide_value_resolution,
             local_resolution: provide_local_resolution,
             semantic_use_table: provide_semantic_use_table,
@@ -587,17 +603,40 @@ pub(super) fn provide_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<DefCo
     )
 }
 
-pub(super) fn provide_public_surface(db: &QueryDb<CompilerContext>) -> PublicSurfaceQueryValue {
-    time_provider(db.context().timings(), "public_surface", || {
+pub(super) fn provide_public_surfaces(db: &QueryDb<CompilerContext>) -> PublicSurfacesValue {
+    time_provider(db.context().timings(), "public_surfaces", || {
         let defs = db.query(DefsByModuleQuery);
         let graph = db.query(ModuleGraphQuery);
-        let (surfaces, using_scopes, diagnostics) = compute_public_surfaces(&defs, &graph);
-        PublicSurfaceQueryValue {
-            surfaces,
-            using_scopes,
-            diagnostics,
-        }
+        let exports = compute_exported_public_surfaces(&defs, &graph);
+        Arc::new(PublicSurfacesQueryValue {
+            surfaces: exports.surfaces,
+            diagnostics: exports.diagnostics,
+        })
     })
+}
+
+pub(super) fn provide_public_using_scopes(db: &QueryDb<CompilerContext>) -> PublicUsingScopesValue {
+    time_provider(db.context().timings(), "public_using_scopes", || {
+        let defs = db.query(DefsByModuleQuery);
+        let graph = db.query(ModuleGraphQuery);
+        let surfaces = db.query(PublicSurfacesQuery);
+        let scopes = compute_using_scopes_from_surfaces(&defs, &graph, &surfaces.surfaces);
+        Arc::new(PublicUsingScopesQueryValue {
+            using_scopes: scopes.using_scopes,
+            diagnostics: scopes.diagnostics,
+        })
+    })
+}
+
+pub(super) fn provide_module_using_scope(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> ModuleUsingScope {
+    db.query(PublicUsingScopesQuery)
+        .using_scopes
+        .get(&module_id)
+        .cloned()
+        .unwrap_or_default()
 }
 
 pub(super) fn provide_type_resolution(
@@ -609,9 +648,8 @@ pub(super) fn provide_type_resolution(
         let defs = db.query(FullModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
         let graph = db.query(ModuleGraphQuery);
-        let public = db.query(PublicSurfaceQuery);
-        let empty_using = ModuleUsingScope::default();
-        let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+        let public_surfaces = db.query(PublicSurfacesQuery);
+        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         nia_type_resolve::resolve_module_types_from_active_item_tree(
             &active_item_tree,
             &defs,
@@ -619,8 +657,8 @@ pub(super) fn provide_type_resolution(
                 defs: Some(&program_defs),
                 graph: Some(&graph),
             },
-            &public.surfaces,
-            using_scope,
+            &public_surfaces.surfaces,
+            &using_scope,
         )
     })
 }
@@ -634,9 +672,8 @@ pub(super) fn provide_declaration_type_resolution(
         let defs = db.query(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
         let graph = db.query(ModuleGraphQuery);
-        let public = db.query(PublicSurfaceQuery);
-        let empty_using = ModuleUsingScope::default();
-        let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+        let public_surfaces = db.query(PublicSurfacesQuery);
+        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         nia_type_resolve::resolve_module_types_from_active_item_tree(
             &active_item_tree,
             &defs,
@@ -644,8 +681,8 @@ pub(super) fn provide_declaration_type_resolution(
                 defs: Some(&program_defs),
                 graph: Some(&graph),
             },
-            &public.surfaces,
-            using_scope,
+            &public_surfaces.surfaces,
+            &using_scope,
         )
     })
 }
@@ -660,9 +697,8 @@ pub(super) fn provide_signature_type_resolution(
         let defs = db.query(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
         let graph = db.query(ModuleGraphQuery);
-        let public = db.query(PublicSurfaceQuery);
-        let empty_using = ModuleUsingScope::default();
-        let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+        let public_surfaces = db.query(PublicSurfacesQuery);
+        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         nia_type_resolve::resolve_module_declaration_types_from_active_item_tree(
             &active_item_tree,
             &defs,
@@ -670,8 +706,8 @@ pub(super) fn provide_signature_type_resolution(
                 defs: Some(&program_defs),
                 graph: Some(&graph),
             },
-            &public.surfaces,
-            using_scope,
+            &public_surfaces.surfaces,
+            &using_scope,
         )
     })
 }
@@ -685,9 +721,8 @@ pub(super) fn provide_signature_comptime_type_resolution(
         let defs = db.query(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
         let graph = db.query(ModuleGraphQuery);
-        let public = db.query(PublicSurfaceQuery);
-        let empty_using = ModuleUsingScope::default();
-        let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+        let public_surfaces = db.query(PublicSurfacesQuery);
+        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         nia_type_resolve::resolve_module_types_from_active_item_tree(
             &active_item_tree,
             &defs,
@@ -695,8 +730,8 @@ pub(super) fn provide_signature_comptime_type_resolution(
                 defs: Some(&program_defs),
                 graph: Some(&graph),
             },
-            &public.surfaces,
-            using_scope,
+            &public_surfaces.surfaces,
+            &using_scope,
         )
     })
 }
@@ -859,9 +894,8 @@ pub(super) fn provide_value_resolution(
         let defs = db.query(FullModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
         let graph = db.query(ModuleGraphQuery);
-        let public = db.query(PublicSurfaceQuery);
-        let empty_using = ModuleUsingScope::default();
-        let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+        let public_surfaces = db.query(PublicSurfacesQuery);
+        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
         let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
         nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values(
@@ -871,8 +905,8 @@ pub(super) fn provide_value_resolution(
                 defs: Some(&program_defs),
                 graph: Some(&graph),
             },
-            &public.surfaces,
-            using_scope,
+            &public_surfaces.surfaces,
+            &using_scope,
             Some(&associated_values),
         )
     })
@@ -909,9 +943,8 @@ pub(super) fn provide_semantic_use_table(
         None
     } else {
         let defs = db.query(FullModuleDefsQuery(module_id));
-        let public = db.query(PublicSurfaceQuery);
-        let empty_using = ModuleUsingScope::default();
-        let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+        let public_surfaces = db.query(PublicSurfacesQuery);
+        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
         let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
         let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
@@ -925,8 +958,8 @@ pub(super) fn provide_semantic_use_table(
                     defs: Some(&program_defs),
                     graph: Some(&db.query(ModuleGraphQuery)),
                 },
-                &public.surfaces,
-                using_scope,
+                &public_surfaces.surfaces,
+                &using_scope,
                 Some(&associated_values),
             ),
         )
@@ -1698,7 +1731,7 @@ fn with_comptime_input_and_program_signatures<T>(
             return Some(signatures.trait_impls.clone());
         }
         Some(
-            db.query(VisibleExtensionsQuery(module_id))
+            db.query(VisibleTraitImplsQuery(module_id))
                 .trait_impls
                 .clone(),
         )
@@ -1951,14 +1984,18 @@ fn body_check_resolution_inputs_for_filter(
                 },
             );
             let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-            let public = time_module_provider(
+            let public_surfaces = time_module_provider(
                 db,
-                "executable_body_check.public_surface",
+                "executable_body_check.public_surfaces",
                 module_id,
-                || db.query(PublicSurfaceQuery),
+                || db.query(PublicSurfacesQuery),
             );
-            let empty_using = ModuleUsingScope::default();
-            let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+            let using_scope = time_module_provider(
+                db,
+                "executable_body_check.module_using_scope",
+                module_id,
+                || db.query(ModuleUsingScopeQuery(module_id)),
+            );
             let visible_extensions = || {
                 time_module_provider(
                     db,
@@ -1980,8 +2017,8 @@ fn body_check_resolution_inputs_for_filter(
                             defs: Some(&program_defs),
                             graph: Some(&db.query(ModuleGraphQuery)),
                         },
-                        &public.surfaces,
-                        using_scope,
+                        &public_surfaces.surfaces,
+                        &using_scope,
                         Some(&associated_values),
                     )
                 },
@@ -2024,8 +2061,8 @@ fn body_check_resolution_inputs_for_filter(
                                     defs: Some(&program_defs),
                                     graph: Some(&db.query(ModuleGraphQuery)),
                                 },
-                                &public.surfaces,
-                                using_scope,
+                                &public_surfaces.surfaces,
+                                &using_scope,
                                 Some(&associated_values),
                             )
                         },
@@ -2177,17 +2214,18 @@ fn filtered_comptime_global_initializer_for_body_check(
         },
     );
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-    let public = time_module_provider(
+    let public_surfaces = time_module_provider(
         db,
-        "executable_body_check.comptime.global_initializer.public_surface",
+        "executable_body_check.comptime.global_initializer.public_surfaces",
         global_id.module_id,
-        || db.query(PublicSurfaceQuery),
+        || db.query(PublicSurfacesQuery),
     );
-    let empty_using = ModuleUsingScope::default();
-    let using_scope = public
-        .using_scopes
-        .get(&global_id.module_id)
-        .unwrap_or(&empty_using);
+    let using_scope = time_module_provider(
+        db,
+        "executable_body_check.comptime.global_initializer.module_using_scope",
+        global_id.module_id,
+        || db.query(ModuleUsingScopeQuery(global_id.module_id)),
+    );
     let source_version = db.query(ModuleSourceVersionQuery(global_id.module_id));
     let origins = db.query(ModuleOriginsQuery(global_id.module_id));
     let lowered = time_module_provider(
@@ -2220,8 +2258,8 @@ fn filtered_comptime_global_initializer_for_body_check(
                     defs: Some(&program_defs),
                     graph: Some(&db.query(ModuleGraphQuery)),
                 },
-                &public.surfaces,
-                using_scope,
+                &public_surfaces.surfaces,
+                &using_scope,
                 Some(&associated_values),
             )
         },
@@ -2310,8 +2348,8 @@ fn filtered_comptime_global_initializer_for_body_check(
                     defs: Some(&program_defs),
                     graph: Some(&db.query(ModuleGraphQuery)),
                 },
-                &public.surfaces,
-                using_scope,
+                &public_surfaces.surfaces,
+                &using_scope,
                 Some(&associated_values),
             )
         },
@@ -2397,7 +2435,7 @@ fn comptime_inputs_for_body_check(
             return Some(signatures.trait_impls.clone());
         }
         Some(
-            db.query(VisibleExtensionsQuery(module_id))
+            db.query(VisibleTraitImplsQuery(module_id))
                 .trait_impls
                 .clone(),
         )
@@ -2668,7 +2706,21 @@ fn body_check_with_filter_and_layouts_with_inputs(
             .or_else(|| Some(db.query(SignatureLayoutsQuery(module_id))))
     };
     let extensions = db.query(VisibleExtensionsQuery(module_id));
-    let extension_methods = db.query(ExtensionMethodIndexQuery);
+    let empty_program_extension_methods = nia_defs::ExtensionMethods::default();
+    let program_extension_methods = &empty_program_extension_methods;
+    let program_extension_method_by_id = |def_id: GlobalDefId| {
+        db.query(ExtensionMethodIndexQuery)
+            .methods
+            .method_by_id(def_id)
+            .cloned()
+    };
+    let program_extension_methods_named = |name: &str| {
+        db.query(ExtensionMethodIndexQuery)
+            .methods
+            .methods_named(name)
+            .cloned()
+            .collect::<Vec<_>>()
+    };
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             return Some(db.query(SignatureTypeNormalizationQuery(
@@ -2890,10 +2942,12 @@ fn body_check_with_filter_and_layouts_with_inputs(
         fallback: resolver_program_signatures,
         maps: map_program_signatures,
     };
+    let visible_trait_impls;
     let program_signatures = if let Some(signatures) = fact_mode.program_signatures {
         ProgramSignatureContext::new(&program_signature_lookup, &signatures.trait_impls)
     } else {
-        ProgramSignatureContext::new(&program_signature_lookup, &extensions.trait_impls)
+        visible_trait_impls = db.query(VisibleTraitImplsQuery(module_id));
+        ProgramSignatureContext::new(&program_signature_lookup, &visible_trait_impls.trait_impls)
     };
     let item_signatures_for_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
@@ -3022,7 +3076,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 comptime_module,
                 layouts: &layouts,
                 extensions: &extensions.methods,
-                program_extension_methods: &extension_methods.methods,
+                program_extension_methods,
                 extension_interner: Some(&extensions.interner),
                 program: nia_body_check::BodyProgramContext {
                     defs: Some(&program_defs),
@@ -3031,6 +3085,8 @@ fn body_check_with_filter_and_layouts_with_inputs(
                     signatures: Some(&item_signatures_for_module),
                     layouts: Some(&program_layouts),
                     visible_extensions: Some(&program_visible_extensions),
+                    extension_method_by_id: Some(&program_extension_method_by_id),
+                    extension_methods_named: Some(&program_extension_methods_named),
                 },
                 program_signatures,
                 function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
@@ -4302,11 +4358,16 @@ fn extend_module_functions_from_filtered_value_refs(
         ))
     });
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-    let public = time_module_provider(db, "extend_value_refs.public_surface", module_id, || {
-        db.query(PublicSurfaceQuery)
-    });
-    let empty_using = ModuleUsingScope::default();
-    let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+    let public_surfaces =
+        time_module_provider(db, "extend_value_refs.public_surfaces", module_id, || {
+            db.query(PublicSurfacesQuery)
+        });
+    let using_scope = time_module_provider(
+        db,
+        "extend_value_refs.module_using_scope",
+        module_id,
+        || db.query(ModuleUsingScopeQuery(module_id)),
+    );
     let graph = time_module_provider(db, "extend_value_refs.module_graph", module_id, || {
         db.query(ModuleGraphQuery)
     });
@@ -4331,8 +4392,8 @@ fn extend_module_functions_from_filtered_value_refs(
                         defs: Some(&program_defs),
                         graph: Some(&graph),
                     },
-                    &public.surfaces,
-                    using_scope,
+                    &public_surfaces.surfaces,
+                    &using_scope,
                 )
             });
         let local_refs = LocalExecutableValueRefs {
@@ -5447,11 +5508,16 @@ fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagno
             });
         }
     }
-    let public = db.query(PublicSurfaceQuery);
-    for (module_id, diagnostic) in public.diagnostics {
+    let public_surfaces = db.query(PublicSurfacesQuery);
+    let public_using_scopes = db.query(PublicUsingScopesQuery);
+    for (module_id, diagnostic) in public_surfaces
+        .diagnostics
+        .iter()
+        .chain(public_using_scopes.diagnostics.iter())
+    {
         diagnostics.push(ProgramDiagnostic {
-            path: db.query(ModulePathQuery(module_id)),
-            diagnostic,
+            path: db.query(ModulePathQuery(*module_id)),
+            diagnostic: diagnostic.clone(),
         });
     }
     diagnostics

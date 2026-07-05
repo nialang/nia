@@ -5,11 +5,12 @@ use crate::{
     program_signatures::{
         ExtensionMethodIndexModuleInput, ExtensionMethodValidationInput, ExtensionModuleInput,
         ExtensionTraitSignatureIndex, ModuleProgramSignatureFacts, ModuleSignatureInput,
-        VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTypeSignatures,
-        collect_extension_associated_value_index_for_module,
+        VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTraitImplsForModule,
+        VisibleTypeSignatures, collect_extension_associated_value_index_for_module,
         collect_extension_method_index_for_module, collect_extension_methods_for_module,
         collect_nominal_extension_providers_for_module,
         collect_valid_trait_impls_for_extension_index_module, visible_extensions_for_module,
+        visible_trait_impls_for_module,
     },
 };
 use nia_backend_lower::BackendLowerModuleInput;
@@ -29,7 +30,7 @@ use nia_monomorphize::MonomorphizeModuleInput;
 use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_parser::ParseError;
-use nia_public_surface::compute_public_surfaces;
+use nia_public_surface::{compute_exported_public_surfaces, compute_using_scopes_from_surfaces};
 use nia_query::{QueryDb, QueryError, QueryFrame, QueryKey, QueryTrace};
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;
@@ -91,10 +92,13 @@ type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
 type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
 type ExtensionAssociatedValuesValue = Arc<ExtensionAssociatedValuesQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
+type VisibleTraitImplsValue = Arc<VisibleTraitImplsForModule>;
 type ExtensionSignatureModuleInputValue = Arc<ExtensionSignatureModuleInputQueryValue>;
 type ExtensionTraitSolvingModuleFactsValue = Arc<ExtensionTraitSolvingModuleFactsQueryValue>;
 type ModuleProgramSignatureFactsValue = Arc<ModuleProgramSignatureFacts>;
 type ModuleAbiSignatureFactsValue = Arc<ModuleAbiSignatureFactsQueryValue>;
+type PublicSurfacesValue = Arc<PublicSurfacesQueryValue>;
+type PublicUsingScopesValue = Arc<PublicUsingScopesQueryValue>;
 
 #[derive(Debug, Clone)]
 pub struct CompileRequest {
@@ -1784,7 +1788,7 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn function_body_update_keeps_public_surface_cached() {
+    fn function_body_update_keeps_public_surface_queries_cached() {
         let database =
             CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
                 loaded_module(
@@ -1821,7 +1825,11 @@ pub fn expensive_or_invalid() i32 {
         );
         assert!(invalidated.contains(&"body_check"), "{invalidated:?}");
         assert!(!invalidated.contains(&"loaded_modules"), "{invalidated:?}");
-        assert!(!invalidated.contains(&"public_surface"), "{invalidated:?}");
+        assert!(!invalidated.contains(&"public_surfaces"), "{invalidated:?}");
+        assert!(
+            !invalidated.contains(&"public_using_scopes"),
+            "{invalidated:?}"
+        );
 
         let second = database.check_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
@@ -1974,7 +1982,11 @@ pub fn expensive_or_invalid() i32 {
             "{invalidated:?}"
         );
         assert!(!invalidated.contains(&"module_defs"), "{invalidated:?}");
-        assert!(!invalidated.contains(&"public_surface"), "{invalidated:?}");
+        assert!(!invalidated.contains(&"public_surfaces"), "{invalidated:?}");
+        assert!(
+            !invalidated.contains(&"public_using_scopes"),
+            "{invalidated:?}"
+        );
     }
 
     #[test]
@@ -2053,7 +2065,11 @@ pub fn expensive_or_invalid() i32 {
 
         assert!(invalidated.contains(&"loaded_modules"), "{invalidated:?}");
         assert!(invalidated.contains(&"checked_module"), "{invalidated:?}");
-        assert!(invalidated.contains(&"public_surface"), "{invalidated:?}");
+        assert!(invalidated.contains(&"public_surfaces"), "{invalidated:?}");
+        assert!(
+            invalidated.contains(&"public_using_scopes"),
+            "{invalidated:?}"
+        );
         assert!(invalidated.contains(&"module_path"), "{invalidated:?}");
 
         let second = database.check_program();
@@ -2539,7 +2555,7 @@ extend Value : Ops {
     }
 
     #[test]
-    fn public_surface_query_uses_module_defs_queries() {
+    fn public_surface_queries_split_exports_from_using_scopes() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -2547,14 +2563,22 @@ extend Value : Ops {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(PublicSurfaceQuery);
+        let _ = db.query(PublicSurfacesQuery);
+        let _ = db.query(ModuleUsingScopeQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "defs_by_module" && dependency.to.name == "module_defs"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "public_surface" && dependency.to.name == "defs_by_module"
+            dependency.from.name == "public_surfaces" && dependency.to.name == "defs_by_module"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "public_using_scopes" && dependency.to.name == "public_surfaces"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "module_using_scope"
+                && dependency.to.name == "public_using_scopes"
         }));
     }
 
@@ -3364,6 +3388,37 @@ extend Used {
     }
 
     #[test]
+    fn body_check_without_method_lookup_does_not_build_global_extension_method_index() {
+        let loaded = loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "module providers; fn main() i32 { 1 }",
+            ),
+            loaded_module(
+                ModuleId(1),
+                "providers.nia",
+                "struct S {} extend S { pub fn make() S { {} } }",
+            ),
+        ]);
+        let db = query_db(loaded);
+
+        let checked = db.query(BodyCheckQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert!(
+            !trace
+                .queries
+                .iter()
+                .any(|query| { query.frame.name == "extension_method_index" })
+        );
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "extension_method_index"
+        }));
+    }
+
+    #[test]
     fn executable_checked_program_uses_lazy_extension_method_index() {
         let mut loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
@@ -3687,6 +3742,89 @@ pub struct Used {}
                     && dependency.to.name == "signature_type_normalization"
             }),
             "visible extensions should not normalize every module that merely defines a using-imported type"
+        );
+    }
+
+    #[test]
+    fn visible_trait_impls_follow_facade_reexport_item_modules() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module fmt;
+using entry::fmt;
+
+fn main() i32 {
+    fmt::parse[i32](&"abc")
+}
+"#,
+        );
+        let fmt = loaded_module(
+            ModuleId(1),
+            "fmt.nia",
+            r#"
+pub module parse_impl;
+pub using parse_impl::{ParseFrom, parse};
+"#,
+        );
+        let parse_impl = loaded_module(
+            ModuleId(2),
+            "fmt/parse_impl.nia",
+            r#"
+pub trait ParseFrom[Input] {
+    fn parse_from(input: Input) Self;
+}
+
+pub fn parse[T, Input](input: Input) T
+where T: ParseFrom[Input]
+{
+    [T]::parse_from(input)
+}
+
+extend i32 : ParseFrom[&[char]] {
+    fn parse_from(input: &[char]) i32 {
+        input.len() as i32
+    }
+}
+
+extend i32 : ParseFrom[&[u8]] {
+    fn parse_from(input: &[u8]) i32 {
+        input.len() as i32
+    }
+}
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(main.id, "fmt", nia_ids::Visibility::Public, Span::default())
+            .expect("intern fmt module");
+        graph
+            .intern_declared_child(
+                fmt.id,
+                "parse_impl",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern parse impl module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::Bare,
+            modules: vec![main, fmt, parse_impl],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let trait_impls = db.query(VisibleTraitImplsQuery(ModuleId(0)));
+
+        assert_eq!(trait_impls.trait_impls.len(), 2);
+        assert!(
+            trait_impls
+                .trait_impls
+                .iter()
+                .all(|impl_signature| impl_signature.module_id == ModuleId(2)),
+            "{:?}",
+            trait_impls.trait_impls
         );
     }
 
@@ -6202,7 +6340,15 @@ pub fn expensive_or_invalid() i32 {
 
         assert!(invalidated.contains(&"module_defs"), "{invalidated:?}");
         assert!(invalidated.contains(&"defs_by_module"), "{invalidated:?}");
-        assert!(invalidated.contains(&"public_surface"), "{invalidated:?}");
+        assert!(invalidated.contains(&"public_surfaces"), "{invalidated:?}");
+        assert!(
+            invalidated.contains(&"public_using_scopes"),
+            "{invalidated:?}"
+        );
+        assert!(
+            invalidated.contains(&"module_using_scope"),
+            "{invalidated:?}"
+        );
         assert!(invalidated.contains(&"type_resolution"), "{invalidated:?}");
 
         let _ = db.query(TypeResolutionQuery(ModuleId(0)));
