@@ -380,45 +380,11 @@ fn extension_provider_nominal_target_names_for_targets(
     db: &QueryDb<CompilerContext>,
     targets: &ExtensionProviderNominalTargets,
 ) -> Vec<String> {
-    let target_set = targets.as_slice().iter().copied().collect::<HashSet<_>>();
+    let type_exposures = db.query(TypeExposureIndexQuery);
     let mut names = Vec::new();
 
     for target in targets.as_slice().iter().copied() {
-        let defs = db.query(ModuleDefsQuery(target.module_id));
-        if let Some(def) = defs.defs.get(target.def_id) {
-            match def.kind {
-                nia_defs::DefKind::Struct | nia_defs::DefKind::Union | nia_defs::DefKind::Enum => {
-                    names.push(def.name.clone())
-                }
-                _ => {}
-            }
-        }
-    }
-
-    let public_using_scopes = db.query(PublicUsingScopesQuery);
-    for using_scope in public_using_scopes.using_scopes.values() {
-        for (name, entry) in &using_scope.types {
-            let target = GlobalDefId {
-                module_id: entry.target_module,
-                def_id: entry.target_def_id,
-            };
-            if target_set.contains(&target) {
-                names.push(name.clone());
-            }
-        }
-    }
-
-    let public_surfaces = db.query(PublicSurfacesQuery);
-    for (_, surface) in public_surfaces.surfaces.iter() {
-        for (name, item) in &surface.types {
-            let target = GlobalDefId {
-                module_id: item.target_module,
-                def_id: item.target_def_id,
-            };
-            if target_set.contains(&target) {
-                names.push(name.clone());
-            }
-        }
+        names.extend(type_exposures.names_for(target).iter().cloned());
     }
 
     names.sort();

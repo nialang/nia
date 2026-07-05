@@ -186,6 +186,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) public_surfaces: fn(&QueryDb<CompilerContext>) -> PublicSurfacesValue,
     pub(super) public_using_scopes: fn(&QueryDb<CompilerContext>) -> PublicUsingScopesValue,
     pub(super) module_using_scope: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleUsingScope,
+    pub(super) type_exposure_index: fn(&QueryDb<CompilerContext>) -> TypeExposureIndexValue,
     pub(super) type_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
     pub(super) declaration_type_resolution:
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
@@ -326,6 +327,7 @@ impl Default for CompilerQueryProviders {
             public_surfaces: provide_public_surfaces,
             public_using_scopes: provide_public_using_scopes,
             module_using_scope: provide_module_using_scope,
+            type_exposure_index: provide_type_exposure_index,
             type_resolution: provide_type_resolution,
             declaration_type_resolution: provide_declaration_type_resolution,
             signature_type_resolution: provide_signature_type_resolution,
@@ -633,6 +635,19 @@ pub(super) fn provide_module_using_scope(
         .get(&module_id)
         .cloned()
         .unwrap_or_default()
+}
+
+pub(super) fn provide_type_exposure_index(db: &QueryDb<CompilerContext>) -> TypeExposureIndexValue {
+    time_provider(db.context().timings(), "type_exposure_index", || {
+        let defs = db.query(DefsByModuleQuery);
+        let public_surfaces = db.query(PublicSurfacesQuery);
+        let public_using_scopes = db.query(PublicUsingScopesQuery);
+        Arc::new(TypeExposureIndex::from_defs_surfaces_and_using_scopes(
+            &defs,
+            &public_surfaces.surfaces,
+            &public_using_scopes.using_scopes,
+        ))
+    })
 }
 
 pub(super) fn provide_type_resolution(

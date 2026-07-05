@@ -587,3 +587,18 @@ impl QueryKey<CompilerContext> for ModuleUsingScopeQuery {
         (db.context().providers.module_using_scope)(db, self.0)
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct TypeExposureIndexQuery;
+
+impl QueryKey<CompilerContext> for TypeExposureIndexQuery {
+    type Value = TypeExposureIndexValue;
+
+    fn name() -> &'static str {
+        "type_exposure_index"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.type_exposure_index)(db)
+    }
+}
