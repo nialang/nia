@@ -323,9 +323,11 @@ impl CompilerDatabase {
                         nia_item_tree::SignatureItemSet::Types,
                     )));
                 }
-                if module.signature_trait_items {
+                if module.provider_summary {
                     invalidation
                         .extend(self.db.invalidate(ExtensionProviderSummaryQuery(module_id)));
+                }
+                if module.signature_trait_items {
                     invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
                         module_id,
                         nia_item_tree::SignatureItemSet::Traits,
@@ -856,6 +858,19 @@ impl CompilerContext {
         )
     }
 
+    fn module_provider_summary(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+    ) -> nia_provider_summary::ProviderSummary {
+        self.module_field(
+            db,
+            &ExtensionProviderSummaryQuery(module_id),
+            module_id,
+            |module| module.provider_summary.clone(),
+        )
+    }
+
     fn path_for_module(&self, module_id: ModuleId) -> SourcePath {
         self.loaded_module(module_id)
             .unwrap_or_else(|| panic!("Nia ICE: missing loaded module {module_id:?}"))
@@ -986,6 +1001,7 @@ struct ChangedModuleInput {
     signature_extension_function_items: bool,
     signature_value_items: bool,
     signature_type_items: bool,
+    provider_summary: bool,
     signature_trait_items: bool,
     signature_comptime_items: bool,
     full_active_item_tree: bool,
@@ -1044,6 +1060,7 @@ impl ChangedModuleInput {
                         &new.active_item_tree
                             .signature_items(nia_item_tree::SignatureItemSet::Types),
                     ),
+                provider_summary: old.provider_summary != new.provider_summary,
                 signature_trait_items: !old
                     .active_item_tree
                     .signature_items(nia_item_tree::SignatureItemSet::Traits)
@@ -1072,6 +1089,7 @@ impl ChangedModuleInput {
                 signature_extension_function_items: true,
                 signature_value_items: true,
                 signature_type_items: true,
+                provider_summary: true,
                 signature_trait_items: true,
                 signature_comptime_items: true,
                 full_active_item_tree: true,
@@ -1092,6 +1110,7 @@ impl ChangedModuleInput {
             || changed.signature_extension_function_items
             || changed.signature_value_items
             || changed.signature_type_items
+            || changed.provider_summary
             || changed.signature_trait_items
             || changed.signature_comptime_items
             || changed.full_active_item_tree
@@ -1119,6 +1138,7 @@ impl ChangedModuleInput {
             signature_extension_function_items: true,
             signature_value_items: true,
             signature_type_items: true,
+            provider_summary: true,
             signature_trait_items: true,
             signature_comptime_items: true,
             full_active_item_tree: true,
@@ -1310,16 +1330,18 @@ mod tests {
         let (module, parse_errors, origins) = nia_parser::parse_module_syntax_with_origins(&syntax);
         assert!(parse_errors.is_empty(), "{parse_errors:?}");
         let item_tree = ModuleItemTree::from_module(&module);
+        let active_item_tree =
+            ActiveModuleItemTree::new(item_tree.items.clone(), Default::default());
+        let provider_summary =
+            nia_provider_summary::ProviderSummary::from_active_item_tree(&active_item_tree);
         LoadedModule {
             id,
             path: SourcePath::new(path),
             source_identity: SourcePath::new(path).identity(),
             source_version,
             item_tree: item_tree.clone(),
-            active_item_tree: ActiveModuleItemTree::new(
-                item_tree.items.clone(),
-                Default::default(),
-            ),
+            active_item_tree,
+            provider_summary,
             parse_errors,
             origins,
         }
@@ -2705,7 +2727,7 @@ extend Value : Ops {
             "extension_provider_module_ids",
             "extension_provider_module_eligibility"
         ));
-        assert!(trace_has_dependency(
+        assert!(!trace_has_dependency(
             &trace,
             "extension_provider_summary",
             "signature_item_tree"
