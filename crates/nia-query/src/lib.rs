@@ -4,12 +4,77 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
     fmt::{self, Debug},
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::{Hash, Hasher},
     sync::{Arc, Condvar, Mutex},
 };
 
 const DEFAULT_MAX_QUERY_MANY_THREADS: usize = 4;
 const QUERY_THREADS_ENV: &str = "NIA_QUERY_THREADS";
+const FAST_HASH_MULTIPLIER: u64 = 0x517c_c1b7_2722_0a95;
+
+#[derive(Debug, Clone, Copy)]
+struct FastHasher {
+    hash: u64,
+}
+
+impl Default for FastHasher {
+    fn default() -> Self {
+        Self {
+            hash: 0xcbf2_9ce4_8422_2325,
+        }
+    }
+}
+
+impl FastHasher {
+    #[inline]
+    fn write_u64_value(&mut self, value: u64) {
+        self.hash ^= value;
+        self.hash = self.hash.rotate_left(5).wrapping_mul(FAST_HASH_MULTIPLIER);
+    }
+}
+
+impl Hasher for FastHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.hash
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for chunk in bytes.chunks(8) {
+            let mut value = 0u64;
+            for (index, byte) in chunk.iter().enumerate() {
+                value |= u64::from(*byte) << (index * 8);
+            }
+            self.write_u64_value(value);
+        }
+    }
+
+    #[inline]
+    fn write_u8(&mut self, i: u8) {
+        self.write_u64_value(u64::from(i));
+    }
+
+    #[inline]
+    fn write_u16(&mut self, i: u16) {
+        self.write_u64_value(u64::from(i));
+    }
+
+    #[inline]
+    fn write_u32(&mut self, i: u32) {
+        self.write_u64_value(u64::from(i));
+    }
+
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.write_u64_value(i);
+    }
+
+    #[inline]
+    fn write_usize(&mut self, i: usize) {
+        self.write_u64_value(i as u64);
+    }
+}
 
 pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     type Value: Clone + Send + Sync + 'static;
@@ -27,6 +92,7 @@ pub struct QueryDb<C> {
 
 struct QueryDbInner<C> {
     context: C,
+    timings: nia_timing::TimingMode,
     caches: Mutex<HashMap<TypeId, Box<dyn Any + Send + Sync>>>,
     slots: Mutex<HashMap<QueryFrameIdentity, Arc<dyn ErasedQuerySlot>>>,
     dependencies: Mutex<QueryDependencyGraph>,
@@ -88,18 +154,25 @@ pub struct QueryInvalidation {
 #[derive(Clone)]
 struct QueryFrameIdentity {
     type_id: TypeId,
+    name: &'static str,
     key_hash: u64,
-    key_debug: String,
     key: Arc<dyn ErasedQueryKey>,
+    make_frame: fn(&dyn ErasedQueryKey) -> QueryFrame,
 }
 
 impl Debug for QueryFrameIdentity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("QueryFrameIdentity")
+            .field("name", &self.name)
             .field("type_id", &self.type_id)
             .field("key_hash", &self.key_hash)
-            .field("key", &self.key_debug)
             .finish()
+    }
+}
+
+impl QueryFrameIdentity {
+    fn frame(&self) -> QueryFrame {
+        (self.make_frame)(self.key.as_ref())
     }
 }
 
@@ -141,7 +214,6 @@ where
 #[derive(Debug, Default)]
 struct QueryDependencyGraph {
     dependencies: Vec<QueryDependencyEdge>,
-    frames: HashMap<QueryFrameIdentity, QueryFrame>,
     forward: HashMap<QueryFrameIdentity, HashSet<QueryFrameIdentity>>,
     reverse: HashMap<QueryFrameIdentity, HashSet<QueryFrameIdentity>>,
 }
@@ -149,7 +221,7 @@ struct QueryDependencyGraph {
 #[derive(Debug, Clone)]
 struct QueryDependencyEdge {
     from: QueryFrameIdentity,
-    dependency: QueryDependency,
+    to: QueryFrameIdentity,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,19 +276,12 @@ pub struct QueryTraceQuery {
 
 #[derive(Debug, Default)]
 struct QueryStatsTable {
-    entries: HashMap<QueryFrameIdentity, QueryStatsEntry>,
-}
-
-#[derive(Debug, Clone)]
-struct QueryStatsEntry {
-    frame: QueryFrame,
-    stats: QueryFrameStats,
+    entries: HashMap<QueryFrameIdentity, QueryFrameStats>,
 }
 
 #[derive(Debug, Clone)]
 struct QueryStackEntry {
     identity: QueryFrameIdentity,
-    frame: QueryFrame,
 }
 
 struct QueryStackGuard;
@@ -231,9 +296,14 @@ thread_local! {
 
 impl<C> QueryDb<C> {
     pub fn new(context: C) -> Self {
+        Self::new_with_timings(context, nia_timing::TimingMode::Off)
+    }
+
+    pub fn new_with_timings(context: C, timings: nia_timing::TimingMode) -> Self {
         Self {
             inner: Arc::new(QueryDbInner {
                 context,
+                timings,
                 caches: Mutex::new(HashMap::new()),
                 slots: Mutex::new(HashMap::new()),
                 dependencies: Mutex::new(QueryDependencyGraph::default()),
@@ -268,18 +338,32 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
-        self.record_dependency::<K>(&key);
-        let slot = self.slot_for(&key);
+        let identity = query_frame_identity::<C, K>(&key);
+        let detail_timing = self.inner.timings.detail();
+        nia_timing::time_detail(detail_timing, "query.record_dependency", || {
+            self.record_dependency_identity(identity.clone())
+        });
+        let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || {
+            self.slot_for(&key, identity.clone())
+        });
         loop {
             let mut state = slot.state.lock().expect("query cache lock poisoned");
             match &*state {
                 QueryState::Ready(value) => {
-                    self.record_cache_hit::<K>(&key);
-                    return Ok(value.clone());
+                    nia_timing::time_detail(detail_timing, "query.record_cache_hit", || {
+                        self.record_cache_hit(identity.clone())
+                    });
+                    return Ok(nia_timing::time_detail(
+                        detail_timing,
+                        "query.clone.cache_hit",
+                        || value.clone(),
+                    ));
                 }
                 QueryState::Computing { .. } => {
-                    self.check_not_recursive::<K>(&key)?;
-                    self.record_wait::<K>(&key);
+                    self.check_not_recursive_identity(&identity)?;
+                    nia_timing::time_detail(detail_timing, "query.record_wait", || {
+                        self.record_wait(identity.clone())
+                    });
                     drop(
                         slot.ready
                             .wait(state)
@@ -290,13 +374,18 @@ impl<C> QueryDb<C> {
                     *state = QueryState::Computing { invalidated: false };
                     drop(state);
 
-                    let entry = query_stack_entry::<C, K>(&key);
-                    let identity = entry.identity.clone();
                     self.clear_dependencies_from(&identity);
+                    let entry = QueryStackEntry {
+                        identity: identity.clone(),
+                    };
                     let _guard = self.enter_query(entry)?;
-                    self.record_execution::<K>(&key);
+                    nia_timing::time_detail(detail_timing, "query.record_execution", || {
+                        self.record_execution(identity.clone())
+                    });
                     let value = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        key.execute(self)
+                        nia_timing::time_detail(detail_timing, "query.provider", || {
+                            key.execute(self)
+                        })
                     })) {
                         Ok(value) => value,
                         Err(payload) => {
@@ -325,7 +414,11 @@ impl<C> QueryDb<C> {
                         // entry and its edges so the next request recomputes against fresh inputs.
                         self.clear_dependencies_from(&identity);
                     } else {
-                        *state = QueryState::Ready(value.clone());
+                        let cached =
+                            nia_timing::time_detail(detail_timing, "query.clone.store", || {
+                                value.clone()
+                            });
+                        *state = QueryState::Ready(cached);
                     }
                     slot.ready.notify_all();
                     return Ok(value);
@@ -342,9 +435,6 @@ impl<C> QueryDb<C> {
         let keys = keys.into_iter().collect::<Vec<_>>();
         if keys.is_empty() {
             return Vec::new();
-        }
-        for key in &keys {
-            self.record_dependency::<K>(key);
         }
         // `query_many` runs work on fresh OS threads, so the thread-local query
         // stack has to be copied explicitly. Without this logical parent stack,
@@ -402,7 +492,10 @@ impl<C> QueryDb<C> {
                 .expect("query dependency lock poisoned")
                 .dependencies
                 .iter()
-                .map(|edge| edge.dependency.clone())
+                .map(|edge| QueryDependency {
+                    from: edge.from.frame(),
+                    to: edge.to.frame(),
+                })
                 .collect(),
             queries: self
                 .inner
@@ -417,7 +510,7 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
-        let root = query_frame_identity::<K>(&key);
+        let root = query_frame_identity::<C, K>(&key);
         let invalidated = self.collect_invalidated_frames(root.clone());
         let slots = self
             .inner
@@ -438,7 +531,7 @@ impl<C> QueryDb<C> {
             .expect("query dependency lock poisoned");
         let frames = invalidated
             .iter()
-            .filter_map(|identity| dependencies.frames.get(identity).cloned())
+            .map(QueryFrameIdentity::frame)
             .collect::<Vec<_>>();
         for identity in &invalidated {
             dependencies.remove_dependencies_from(identity);
@@ -448,12 +541,10 @@ impl<C> QueryDb<C> {
         }
     }
 
-    fn slot_for<K>(&self, key: &K) -> Arc<QuerySlot<K::Value>>
+    fn slot_for<K>(&self, key: &K, identity: QueryFrameIdentity) -> Arc<QuerySlot<K::Value>>
     where
         K: QueryKey<C>,
     {
-        let identity = query_frame_identity::<K>(key);
-        let frame = query_frame::<C, K>(key);
         let mut caches = self.inner.caches.lock().expect("query cache lock poisoned");
         let cache = caches
             .entry(TypeId::of::<K>())
@@ -475,11 +566,6 @@ impl<C> QueryDb<C> {
             .lock()
             .expect("query cache slot lock poisoned")
             .insert(identity.clone(), slot.clone() as Arc<dyn ErasedQuerySlot>);
-        self.inner
-            .dependencies
-            .lock()
-            .expect("query dependency lock poisoned")
-            .record_frame(identity, frame);
         slot
     }
 
@@ -491,31 +577,20 @@ impl<C> QueryDb<C> {
         Ok(QueryStackGuard)
     }
 
-    fn check_not_recursive<K>(&self, key: &K) -> QueryResult<()>
-    where
-        K: QueryKey<C>,
-    {
-        self.check_not_recursive_identity(&query_frame_identity::<K>(key))
-    }
-
     fn check_not_recursive_identity(&self, identity: &QueryFrameIdentity) -> QueryResult<()> {
         QUERY_STACK.with(|stack| {
             let stack = stack.borrow();
             if let Some(position) = stack.iter().position(|entry| &entry.identity == identity) {
                 let mut cycle = stack[position..]
                     .iter()
-                    .map(|entry| entry.frame.clone())
+                    .map(|entry| entry.identity.frame())
                     .collect::<Vec<_>>();
                 cycle.push(
                     stack
                         .iter()
                         .find(|entry| &entry.identity == identity)
-                        .map(|entry| entry.frame.clone())
-                        .unwrap_or_else(|| QueryFrame {
-                            name: "<unknown>",
-                            key: identity.key_debug.clone(),
-                            description: identity.key_debug.clone(),
-                        }),
+                        .map(|entry| entry.identity.frame())
+                        .unwrap_or_else(|| identity.frame()),
                 );
                 return Err(QueryError::Cycle { cycle });
             }
@@ -523,45 +598,32 @@ impl<C> QueryDb<C> {
         })
     }
 
-    fn record_dependency<K>(&self, key: &K)
-    where
-        K: QueryKey<C>,
-    {
-        self.record_dependency_from_stack(query_stack_entry::<C, K>(key));
+    fn record_dependency_identity(&self, identity: QueryFrameIdentity) {
+        self.record_dependency_from_stack(QueryStackEntry { identity });
     }
 
-    fn record_execution<K>(&self, key: &K)
-    where
-        K: QueryKey<C>,
-    {
-        self.record_query_stat::<K>(key, |stats| stats.executions += 1);
+    fn record_execution(&self, identity: QueryFrameIdentity) {
+        self.record_query_stat(identity, |stats| stats.executions += 1);
     }
 
-    fn record_cache_hit<K>(&self, key: &K)
-    where
-        K: QueryKey<C>,
-    {
-        self.record_query_stat::<K>(key, |stats| stats.cache_hits += 1);
+    fn record_cache_hit(&self, identity: QueryFrameIdentity) {
+        self.record_query_stat(identity, |stats| stats.cache_hits += 1);
     }
 
-    fn record_wait<K>(&self, key: &K)
-    where
-        K: QueryKey<C>,
-    {
-        self.record_query_stat::<K>(key, |stats| stats.waits += 1);
+    fn record_wait(&self, identity: QueryFrameIdentity) {
+        self.record_query_stat(identity, |stats| stats.waits += 1);
     }
 
-    fn record_query_stat<K>(&self, key: &K, update: impl FnOnce(&mut QueryFrameStats))
-    where
-        K: QueryKey<C>,
-    {
-        let identity = query_frame_identity::<K>(key);
-        let frame = query_frame::<C, K>(key);
+    fn record_query_stat(
+        &self,
+        identity: QueryFrameIdentity,
+        update: impl FnOnce(&mut QueryFrameStats),
+    ) {
         self.inner
             .stats
             .lock()
             .expect("query stats lock poisoned")
-            .record(identity, frame, update);
+            .record(identity, update);
     }
 
     fn record_dependency_from_stack(&self, to: QueryStackEntry) {
@@ -596,26 +658,18 @@ impl<C> QueryDb<C> {
 }
 
 impl QueryStatsTable {
-    fn record(
-        &mut self,
-        identity: QueryFrameIdentity,
-        frame: QueryFrame,
-        update: impl FnOnce(&mut QueryFrameStats),
-    ) {
-        let entry = self.entries.entry(identity).or_insert(QueryStatsEntry {
-            frame,
-            stats: QueryFrameStats::default(),
-        });
-        update(&mut entry.stats);
+    fn record(&mut self, identity: QueryFrameIdentity, update: impl FnOnce(&mut QueryFrameStats)) {
+        let stats = self.entries.entry(identity).or_default();
+        update(stats);
     }
 
     fn queries(&self) -> Vec<QueryTraceQuery> {
         let mut queries = self
             .entries
-            .values()
-            .map(|entry| QueryTraceQuery {
-                frame: entry.frame.clone(),
-                stats: entry.stats.clone(),
+            .iter()
+            .map(|(identity, stats)| QueryTraceQuery {
+                frame: identity.frame(),
+                stats: stats.clone(),
             })
             .collect::<Vec<_>>();
         queries.sort_by(|lhs, rhs| {
@@ -647,14 +701,7 @@ fn default_query_many_threads() -> usize {
 }
 
 impl QueryDependencyGraph {
-    fn record_frame(&mut self, identity: QueryFrameIdentity, frame: QueryFrame) {
-        self.frames.entry(identity).or_insert(frame);
-    }
-
     fn record(&mut self, from: QueryStackEntry, to: QueryStackEntry) {
-        self.record_frame(from.identity.clone(), from.frame.clone());
-        self.record_frame(to.identity.clone(), to.frame.clone());
-
         if self
             .forward
             .entry(from.identity.clone())
@@ -667,10 +714,7 @@ impl QueryDependencyGraph {
                 .insert(from.identity.clone());
             self.dependencies.push(QueryDependencyEdge {
                 from: from.identity,
-                dependency: QueryDependency {
-                    from: from.frame,
-                    to: to.frame,
-                },
+                to: to.identity,
             });
         }
     }
@@ -693,10 +737,8 @@ impl QueryDependencyGraph {
                 .flat_map(|dependents| dependents.iter().cloned())
                 .collect::<Vec<_>>();
             dependents.sort_by_key(|dependent| {
-                self.frames
-                    .get(dependent)
-                    .map(|frame| (frame.name, frame.key.clone()))
-                    .unwrap_or(("", dependent.key_debug.clone()))
+                let frame = dependent.frame();
+                (frame.name, frame.key)
             });
             dependents.reverse();
             queue.extend(dependents);
@@ -732,31 +774,32 @@ where
     }
 }
 
-fn query_stack_entry<C, K>(key: &K) -> QueryStackEntry
+fn query_frame_identity<C, K>(key: &K) -> QueryFrameIdentity
 where
     K: QueryKey<C>,
 {
-    QueryStackEntry {
-        identity: query_frame_identity::<K>(key),
-        frame: query_frame::<C, K>(key),
+    let mut hasher = FastHasher::default();
+    key.hash(&mut hasher);
+    // The hash is only a fast prefilter. Equality still compares the typed key
+    // through `ErasedQueryKey`, so debug labels are not part of identity.
+    QueryFrameIdentity {
+        type_id: TypeId::of::<K>(),
+        name: K::name(),
+        key_hash: hasher.finish(),
+        key: Arc::new(key.clone()),
+        make_frame: query_frame_from_erased::<C, K>,
     }
 }
 
-fn query_frame_identity<K>(key: &K) -> QueryFrameIdentity
+fn query_frame_from_erased<C, K>(key: &dyn ErasedQueryKey) -> QueryFrame
 where
-    K: Clone + Debug + Eq + Hash + Send + Sync + 'static,
+    K: QueryKey<C>,
 {
-    let mut hasher = DefaultHasher::new();
-    key.hash(&mut hasher);
-    // `key` stays as the human-readable query label used in traces. The hash is
-    // part of identity because `Debug` is not required to be unique: two keys can
-    // deliberately render the same label while still being distinct by `Eq`.
-    QueryFrameIdentity {
-        type_id: TypeId::of::<K>(),
-        key_hash: hasher.finish(),
-        key_debug: format!("{key:?}"),
-        key: Arc::new(key.clone()),
-    }
+    let key = key
+        .as_any()
+        .downcast_ref::<K>()
+        .expect("query frame identity key type mismatch");
+    query_frame::<C, K>(key)
 }
 
 impl<C> Clone for QueryDb<C> {

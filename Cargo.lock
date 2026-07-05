@@ -703,6 +703,9 @@ dependencies = [
 [[package]]
 name = "nia-query"
 version = "0.4.3"
+dependencies = [
+ "nia-timing",
+]
 
 [[package]]
 name = "nia-sema"
