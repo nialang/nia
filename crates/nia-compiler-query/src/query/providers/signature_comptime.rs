@@ -52,7 +52,7 @@ fn with_signature_comptime_input<T>(
             return Some(signatures.trait_impls.clone());
         }
         Some(
-            db.query(VisibleExtensionsQuery(module_id))
+            db.query(VisibleTraitImplsQuery(module_id))
                 .trait_impls
                 .clone(),
         )
@@ -228,9 +228,8 @@ fn signature_comptime_value_resolution(
         return empty_value_resolution();
     }
     let defs = db.query(ModuleDefsQuery(module_id));
-    let public = db.query(PublicSurfaceQuery);
-    let empty_using = ModuleUsingScope::default();
-    let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+    let public_surfaces = db.query(PublicSurfacesQuery);
+    let using_scope = db.query(ModuleUsingScopeQuery(module_id));
     let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
     let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
     let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
@@ -242,8 +241,8 @@ fn signature_comptime_value_resolution(
                 defs: Some(&program_defs),
                 graph: Some(&db.query(ModuleGraphQuery)),
             },
-            &public.surfaces,
-            using_scope,
+            &public_surfaces.surfaces,
+            &using_scope,
             Some(&associated_values),
         );
     if exprs.is_empty() {
@@ -257,8 +256,8 @@ fn signature_comptime_value_resolution(
                 defs: Some(&program_defs),
                 graph: Some(&db.query(ModuleGraphQuery)),
             },
-            &public.surfaces,
-            using_scope,
+            &public_surfaces.surfaces,
+            &using_scope,
             Some(&associated_values),
         );
     values.node_names.extend(const_expr_values.node_names);

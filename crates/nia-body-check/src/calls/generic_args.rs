@@ -372,7 +372,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn effective_generics_for_def(&self, def_id: GlobalDefId) -> Vec<String> {
+    pub(crate) fn effective_generics_for_def(&mut self, def_id: GlobalDefId) -> Vec<String> {
         if let Some(generics) = self.trait_method_effective_generics(def_id) {
             return generics;
         }
@@ -425,7 +425,7 @@ impl<'a> BodyChecker<'a> {
             })
     }
 
-    fn extension_method_effective_generics(&self, def_id: GlobalDefId) -> Vec<String> {
+    fn extension_method_effective_generics(&mut self, def_id: GlobalDefId) -> Vec<String> {
         self.extensions
             .targets()
             .iter()
@@ -434,8 +434,11 @@ impl<'a> BodyChecker<'a> {
             .map(|method| method.effective_generics.clone())
             .or_else(|| {
                 self.program_extension_methods
-                    .all_methods()
-                    .find(|method| method.def_id == def_id)
+                    .method_by_id(def_id)
+                    .map(|method| method.effective_generics.clone())
+            })
+            .or_else(|| {
+                self.ensure_extension_method_lookup_for_id(def_id)
                     .map(|method| method.effective_generics.clone())
             })
             .unwrap_or_default()

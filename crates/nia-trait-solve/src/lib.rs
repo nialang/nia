@@ -741,7 +741,12 @@ where
             active.remove(&key);
             return (!self.projection_matches_key(assumed, &key)).then_some(assumed);
         }
-        let resolved = match self.resolve(goal) {
+        let resolution = match self.select_user_impl_for_normalized_goal(&goal) {
+            TraitSelection::User(user_impl) => TraitResolution::User(user_impl),
+            TraitSelection::Ambiguous => TraitResolution::Ambiguous,
+            TraitSelection::Unsatisfied => self.resolve(goal),
+        };
+        let resolved = match resolution {
             TraitResolution::User(user_impl) => {
                 let impl_signature = &self.trait_impls[user_impl.impl_index];
                 let associated_type = impl_signature

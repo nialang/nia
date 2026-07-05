@@ -54,8 +54,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         method_id: GlobalDefId,
     ) -> Option<InternedTyId> {
-        self.extension_methods_by_id
-            .get(&method_id)
+        self.ensure_extension_method_lookup_for_id(method_id)
             .map(|method| method.target_ty)
     }
 

@@ -418,7 +418,17 @@ impl<'a> BodyChecker<'a> {
         trait_args: &[InternedTyId],
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let mut matches = Vec::new();
-        for method in self.program_extension_methods.all_methods() {
+        let program_methods = self
+            .program
+            .extension_methods_named
+            .map(|methods_named| methods_named(method_name))
+            .unwrap_or_else(|| {
+                self.program_extension_methods
+                    .methods_named(method_name)
+                    .cloned()
+                    .collect()
+            });
+        for method in &program_methods {
             if method.name != method_name {
                 continue;
             }

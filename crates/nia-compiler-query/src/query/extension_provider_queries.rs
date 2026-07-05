@@ -497,3 +497,18 @@ impl QueryKey<CompilerContext> for VisibleExtensionsQuery {
         (db.context().providers.visible_extensions)(db, self.0)
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct VisibleTraitImplsQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for VisibleTraitImplsQuery {
+    type Value = VisibleTraitImplsValue;
+
+    fn name() -> &'static str {
+        "visible_trait_impls"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.visible_trait_impls)(db, self.0)
+    }
+}

@@ -310,15 +310,20 @@ impl<'a> BodyChecker<'a> {
         if matches!(method.receiver_kind(), ReceiverKind::Ref) {
             self.check_receiver_match(call.receiver, call.receiver_ty, ReceiverKind::Ref);
         }
+        let self_ty = if matches!(trait_id, BuiltinTrait::Iterator) {
+            self.trait_receiver_self_ty(call.receiver_ty)
+                .unwrap_or(call.receiver_ty)
+        } else {
+            call.receiver_ty
+        };
         if !self.current_context_proves_trait_obligation(
-            call.receiver_ty,
+            self_ty,
             TraitId::Builtin(trait_id),
             trait_args.clone(),
         ) {
             return None;
         }
-        let output =
-            self.builtin_trait_place_method_output(call.receiver_ty, trait_id, trait_args.clone());
+        let output = self.builtin_trait_place_method_output(self_ty, trait_id, trait_args.clone());
         if let Some(expected) = call.expected {
             self.expect_type(call.span, expected, output, "builtin trait method call");
         }
@@ -328,7 +333,7 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::BuiltinPlaceMethod {
                 trait_id,
                 method,
-                self_ty: call.receiver_ty,
+                self_ty,
                 trait_args,
             },
         );

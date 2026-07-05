@@ -31,7 +31,7 @@ use nia_comptime_check::{
 };
 use nia_comptime_ir::ResolvedComptimeModule;
 use nia_defs::{
-    DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethod,
+    DefCollection, DefId, DefKind, ExtensionMethod, ExtensionMethods, VisibleExtensionMethod,
     VisibleExtensionMethods,
 };
 use nia_diagnostic::{Diagnostic, codes};
@@ -298,6 +298,8 @@ pub struct BodyProgramContext<'a> {
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
     pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<VisibleExtensionMethods>>,
+    pub extension_method_by_id: Option<&'a dyn Fn(GlobalDefId) -> Option<ExtensionMethod>>,
+    pub extension_methods_named: Option<&'a dyn Fn(&str) -> Vec<ExtensionMethod>>,
 }
 
 impl<'a> BodyProgramContext<'a> {
@@ -309,6 +311,8 @@ impl<'a> BodyProgramContext<'a> {
             signatures: None,
             layouts: None,
             visible_extensions: None,
+            extension_method_by_id: None,
+            extension_methods_named: None,
         }
     }
 }
@@ -338,6 +342,14 @@ impl fmt::Debug for BodyProgramContext<'_> {
             )
             .field("signatures", &self.signatures.is_some())
             .field("layouts", &self.layouts.is_some())
+            .field(
+                "extension_method_by_id",
+                &self.extension_method_by_id.is_some(),
+            )
+            .field(
+                "extension_methods_named",
+                &self.extension_methods_named.is_some(),
+            )
             .finish()
     }
 }
@@ -1181,6 +1193,20 @@ impl<'a> BodyChecker<'a> {
         self.extension_method_lookup_cache
             .get(&method_id)
             .or_else(|| self.extension_methods_by_id.get(&method_id))
+    }
+
+    fn ensure_extension_method_lookup_for_id(
+        &mut self,
+        method_id: GlobalDefId,
+    ) -> Option<&ExtensionMethodLookup> {
+        if self.extension_method_lookup_for_id(method_id).is_none()
+            && let Some(method_by_id) = self.program.extension_method_by_id
+            && let Some(method) = method_by_id(method_id)
+            && let Some(lookup) = self.import_program_extension_method_lookup(&method)
+        {
+            self.extension_method_lookup_cache.insert(method_id, lookup);
+        }
+        self.extension_method_lookup_for_id(method_id)
     }
 
     fn import_program_extension_method_lookup(

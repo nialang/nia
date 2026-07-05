@@ -528,23 +528,62 @@ impl QueryKey<CompilerContext> for DefsByModuleQuery {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct PublicSurfaceQueryValue {
-    pub(super) surfaces: PublicSurfaces,
+pub(super) struct PublicUsingScopesQueryValue {
     pub(super) using_scopes: HashMap<ModuleId, ModuleUsingScope>,
     pub(super) diagnostics: Vec<(ModuleId, Diagnostic)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct PublicSurfaceQuery;
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct PublicSurfacesQueryValue {
+    pub(super) surfaces: PublicSurfaces,
+    pub(super) diagnostics: Vec<(ModuleId, Diagnostic)>,
+}
 
-impl QueryKey<CompilerContext> for PublicSurfaceQuery {
-    type Value = PublicSurfaceQueryValue;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct PublicSurfacesQuery;
+
+impl QueryKey<CompilerContext> for PublicSurfacesQuery {
+    type Value = PublicSurfacesValue;
 
     fn name() -> &'static str {
-        "public_surface"
+        "public_surfaces"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.public_surface)(db)
+        (db.context().providers.public_surfaces)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct PublicUsingScopesQuery;
+
+impl QueryKey<CompilerContext> for PublicUsingScopesQuery {
+    type Value = PublicUsingScopesValue;
+
+    fn name() -> &'static str {
+        "public_using_scopes"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.public_using_scopes)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleUsingScopeQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ModuleUsingScopeQuery {
+    type Value = ModuleUsingScope;
+
+    fn name() -> &'static str {
+        "module_using_scope"
+    }
+
+    fn description(&self) -> String {
+        format!("module_using_scope({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.module_using_scope)(db, self.0)
     }
 }
