@@ -5677,6 +5677,133 @@ extend Token : Marker {}
     }
 
     #[test]
+    fn executable_backend_lowering_includes_cross_module_trait_default_vtable_instances() {
+        let main = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+module module1;
+module module2;
+using entry::module1;
+using entry::module2;
+
+fn main() i32 {
+    let mut page = module2::Page::init();
+    let allocator: &mut module1::Allocator = &mut page;
+    allocator.remap()
+}
+"#,
+        );
+        let traits = loaded_module(
+            ModuleId(1),
+            "module1.nia",
+            r#"
+pub trait Allocator {
+    fn alloc(&mut self) i32;
+
+    fn remap(&mut self) i32 {
+        self.alloc()
+    }
+}
+"#,
+        );
+        let impls = loaded_module(
+            ModuleId(2),
+            "module2.nia",
+            r#"
+using entry::module1;
+using module1::Allocator;
+
+pub struct Page {}
+
+extend Page {
+    pub fn init() Page {
+        {}
+    }
+}
+
+extend Page : Allocator {
+    fn alloc(&mut self) i32 {
+        _ = self;
+        7
+    }
+}
+"#,
+        );
+        let mut graph = ModuleGraph::new(main.path.clone());
+        graph
+            .intern_declared_child(
+                main.id,
+                "module1",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern trait module");
+        graph
+            .intern_declared_child(
+                main.id,
+                "module2",
+                nia_ids::Visibility::Public,
+                Span::default(),
+            )
+            .expect("intern impl module");
+        let loaded = LoadedProgram {
+            graph,
+            target: TargetConfig::host(),
+            runtime: RuntimeModel::FreestandingExecutable,
+            modules: vec![main, traits, impls],
+            diagnostics: Vec::new(),
+        };
+        let db = query_db(loaded);
+
+        let backend_lowering = db.query(BackendLoweringQuery);
+
+        assert!(
+            backend_lowering.diagnostics.is_empty(),
+            "backend lowering should not report diagnostics: {:?}",
+            backend_lowering.diagnostics
+        );
+        let vtable_instance_refs = backend_lowering
+            .program
+            .modules
+            .iter()
+            .flat_map(|module| module.trait_object_vtables.iter())
+            .flat_map(|vtable| vtable.entries.iter())
+            .filter_map(|entry| match &entry.function {
+                nia_backend_ir::BackendTraitObjectVtableFunction::FunctionInstance {
+                    def_id,
+                    arg_module_id,
+                    args,
+                    const_args,
+                } => Some((*def_id, *arg_module_id, args.clone(), const_args.clone())),
+                nia_backend_ir::BackendTraitObjectVtableFunction::Function(_) => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            !vtable_instance_refs.is_empty(),
+            "trait object vtable should reference a default method instance"
+        );
+        for (def_id, arg_module_id, args, const_args) in vtable_instance_refs {
+            let matches = backend_lowering
+                .program
+                .modules
+                .iter()
+                .flat_map(|module| module.function_instances.iter())
+                .filter(|instance| {
+                    instance.def_id == def_id
+                        && instance.arg_module_id == arg_module_id
+                        && instance.args.len() == args.len()
+                        && instance.const_args == const_args
+                })
+                .count();
+            assert_eq!(
+                matches, 1,
+                "expected one lowered vtable function instance for {def_id:?}"
+            );
+        }
+    }
+
+    #[test]
     fn executable_checked_modules_keep_type_owner_modules_type_only() {
         let entry = loaded_module(
             ModuleId(0),
