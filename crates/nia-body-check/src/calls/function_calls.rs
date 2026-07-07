@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
-
 use super::builtins::BuiltinCallTypeArgs;
 use super::std_builtin_function;
 use crate::{BodyChecker, ResolvedFunctionSignature, generic_inst_base};
@@ -11,6 +9,7 @@ use nia_item_signatures::{FunctionAttribute, FunctionSignature, GenericParamSign
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::{BracketSuffixResolution, FunctionReference, ResolvedCall};
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
@@ -187,7 +186,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         ty_expr: &Expr,
-        name: &str,
+        name: &SymbolId,
         expected: Option<InternedTyId>,
     ) -> Option<FunctionItemRef> {
         let target_ty = self.associated_target_ty(ty_expr, expected, name)?;
@@ -215,7 +214,7 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
         signature: &FunctionSignature,
         type_args: &[InternedTyId],
-    ) -> Option<HashMap<String, InternedTyId>> {
+    ) -> Option<SymbolMap<InternedTyId>> {
         let span = expr.span;
         let generics = self.effective_generics_for_def(def_id);
         if generics.len() != type_args.len() {
@@ -251,7 +250,10 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    format!("generic function pointer requires `{generic}`"),
+                    format!(
+                        "generic function pointer requires `{}`",
+                        self.symbol_name(*generic)
+                    ),
                 ));
                 return None;
             }
@@ -521,8 +523,8 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let span = expr.span;
-        let mut substitutions = HashMap::new();
-        let mut const_substitutions = HashMap::new();
+        let mut substitutions = SymbolMap::new();
+        let mut const_substitutions = SymbolMap::new();
         self.infer_generic_function_call_substitutions(
             span,
             signature,
@@ -583,8 +585,8 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
         args: &[Expr],
         expected: Option<InternedTyId>,
-        substitutions: &mut HashMap<String, InternedTyId>,
-        const_substitutions: &mut HashMap<String, ConstGenericArg>,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<ConstGenericArg>,
     ) {
         let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         if let Some(expected) = expected.and_then(|expected| self.generic_call_expected(expected)) {
@@ -628,7 +630,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         signature: &FunctionSignature,
         args: &[Expr],
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) {
         let mut changed = true;
         while changed {
@@ -658,7 +660,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         signature: &FunctionSignature,
         args: &[Expr],
-        candidate: &HashMap<String, InternedTyId>,
+        candidate: &SymbolMap<InternedTyId>,
     ) -> bool {
         for (index, arg) in args.iter().enumerate() {
             let Some(param) = signature.params.get(index).map(|param| param.ty) else {
@@ -706,8 +708,8 @@ impl<'a> BodyChecker<'a> {
     fn complete_generic_function_instance_args(
         &mut self,
         span: Span,
-        generics: &[String],
-        substitutions: &HashMap<String, InternedTyId>,
+        generics: &[SymbolId],
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<Vec<InternedTyId>> {
         self.complete_instance_args_for_generics(span, generics, substitutions)
     }
@@ -717,8 +719,8 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         signature: &FunctionSignature,
         args: &[Expr],
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) {
         let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         let instantiated_params: Vec<InternedTyId> = params
@@ -751,7 +753,7 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn type_contains_generic_param(&self, ty: InternedTyId) -> bool {
         match self.interner.get(self.normalization.normalize(ty)) {
-            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::GenericParam(_) | TyKind::SelfParam) => true,
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
@@ -819,7 +821,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         pattern: InternedTyId,
         actual: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
         span: Span,
     ) {
         let pattern = self.normalization.normalize(pattern);
@@ -830,6 +832,7 @@ impl<'a> BodyChecker<'a> {
                     if self.generic_substitution_is_self_mapping(&name, existing) {
                         substitutions.insert(name, actual);
                     } else if !self.types_match(existing, actual) {
+                        let name = self.symbol_name(name);
                         self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
                             span,
                             format!(
@@ -843,6 +846,7 @@ impl<'a> BodyChecker<'a> {
                     substitutions.insert(name, actual);
                 }
             }
+            Some(TyKind::SelfParam) => {}
             Some(TyKind::BuiltinType(_)) => {}
             Some(TyKind::Pointer {
                 is_readonly: pattern_const,
@@ -1105,7 +1109,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn generic_substitution_is_self_mapping(&self, name: &str, ty: InternedTyId) -> bool {
+    fn generic_substitution_is_self_mapping(&self, name: &SymbolId, ty: InternedTyId) -> bool {
         matches!(
             self.interner.get(self.normalization.normalize(ty)),
             Some(TyKind::GenericParam(existing)) if existing == name
@@ -1116,7 +1120,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         pattern: InternedTyId,
         actual: InternedTyId,
-        substitutions: &mut HashMap<String, ConstGenericArg>,
+        substitutions: &mut SymbolMap<ConstGenericArg>,
         span: Span,
     ) {
         let pattern = self.normalization.normalize(pattern);
@@ -1193,7 +1197,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         pattern: ArrayLenTy,
         actual: ArrayLenTy,
-        substitutions: &mut HashMap<String, ConstGenericArg>,
+        substitutions: &mut SymbolMap<ConstGenericArg>,
         span: Span,
     ) {
         let ArrayLenTy::GenericParam(name) = pattern else {
@@ -1213,13 +1217,14 @@ impl<'a> BodyChecker<'a> {
 
     fn record_const_generic_substitution(
         &mut self,
-        name: &str,
+        name: &SymbolId,
         arg: ConstGenericArg,
-        substitutions: &mut HashMap<String, ConstGenericArg>,
+        substitutions: &mut SymbolMap<ConstGenericArg>,
         span: Span,
     ) {
         if let Some(existing) = substitutions.get(name).cloned() {
             if !self.const_generic_args_match(&existing, &arg) {
+                let name = self.symbol_name(*name);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
@@ -1227,7 +1232,7 @@ impl<'a> BodyChecker<'a> {
                 ));
             }
         } else {
-            substitutions.insert(name.to_string(), arg);
+            substitutions.insert(name.clone(), arg);
         }
     }
 
@@ -1248,7 +1253,7 @@ impl<'a> BodyChecker<'a> {
     }
 }
 
-fn type_generic_names(signature: &FunctionSignature) -> Vec<String> {
+fn type_generic_names(signature: &FunctionSignature) -> Vec<SymbolId> {
     signature
         .generic_params
         .iter()

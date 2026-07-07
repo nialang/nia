@@ -22,6 +22,8 @@ use nia_item_signatures::{FunctionAttribute, FunctionSignature};
 use nia_local_resolve::LocalKind;
 use nia_sema_ir::BuiltinAssociatedValue;
 use nia_span::Span;
+use nia_symbol::SymbolId;
+use nia_symbol::symbol_identity_key;
 use nia_ty::{IntConst, TyKind};
 use std::path::{Path, PathBuf};
 
@@ -193,8 +195,8 @@ impl ComptimeCommonEnv for Analyzer<'_> {
         span: Span,
         module_id: ModuleId,
         function_id: Option<GlobalDefId>,
-        substitutions: Vec<(String, InternedTyId)>,
-        const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
+        substitutions: Vec<(SymbolId, InternedTyId)>,
+        const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
     ) -> Result<(), ComptimeError> {
         let resolved_const_substitutions = const_substitutions
             .into_iter()
@@ -280,7 +282,10 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                 .and_then(comptime_value_from_const_generic_arg)
                 .ok_or_else(|| ComptimeError {
                     span,
-                    message: format!("failed to evaluate comptime generic parameter `{name}`"),
+                    message: format!(
+                        "failed to evaluate comptime generic parameter `{}`",
+                        self.symbol_name(name)
+                    ),
                 }),
             ComptimeNameResolution::BuiltinAssociatedValue(value) => {
                 let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
@@ -300,7 +305,7 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                             span,
                             message: format!(
                                 "failed to evaluate associated comptime value `{}`",
-                                projection.name
+                                self.symbol_name(projection.name)
                             ),
                         })
                     }
@@ -311,7 +316,7 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                         span,
                         message: format!(
                             "failed to resolve associated comptime value `{}`",
-                            projection.name
+                            self.symbol_name(projection.name)
                         ),
                     }),
                 }
@@ -347,7 +352,7 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
         &mut self,
         span: Span,
         type_arg: &ResolvedComptimeTypeArg,
-        field: &str,
+        field: &SymbolId,
     ) -> Result<ComptimeValue, ComptimeError> {
         let module_id = self.current_execution_module_id();
         let ty_id = (|| {
@@ -472,7 +477,7 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
     fn bind_resolved_pattern_local(
         &mut self,
         span: Span,
-        _name: &str,
+        _name: &SymbolId,
         local_id: LocalId,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
@@ -670,7 +675,7 @@ impl Analyzer<'_> {
                             .to_string(),
                     });
                 }
-                let Some(field) = comptime_string_message(&args[0]) else {
+                let Some(field) = self.comptime_string_symbol(span, &args[0])? else {
                     return Err(ComptimeError {
                         span,
                         message: "builtin `offset` requires a comptime string field name"
@@ -688,6 +693,31 @@ impl Analyzer<'_> {
                 ),
             }),
         }
+    }
+}
+
+impl Analyzer<'_> {
+    fn comptime_string_symbol(
+        &self,
+        span: Span,
+        value: &ComptimeValue,
+    ) -> Result<Option<SymbolId>, ComptimeError> {
+        let Some(name) = comptime_string_message(value) else {
+            return Ok(None);
+        };
+        self.input
+            .symbols
+            .intern(&name)
+            .map(Some)
+            .map_err(|collision| ComptimeError {
+                span,
+                message: format!(
+                    "symbol collision for {}: `{}` and `{}`",
+                    symbol_identity_key(collision.symbol),
+                    collision.existing,
+                    collision.incoming
+                ),
+            })
     }
 }
 
@@ -756,7 +786,7 @@ impl Analyzer<'_> {
         &mut self,
         span: Span,
         local_id: LocalId,
-        name: &str,
+        name: &SymbolId,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         for index in (0..self.call_locals.len()).rev() {
@@ -764,6 +794,7 @@ impl Analyzer<'_> {
                 continue;
             }
             if !self.call_locals[index].mutable_locals.contains(&local_id) {
+                let name = self.symbol_name(*name);
                 return Err(ComptimeError {
                     span,
                     message: format!("cannot assign to immutable comptime local `{name}`"),
@@ -779,12 +810,21 @@ impl Analyzer<'_> {
                 value
             };
             if let Some(previous_value) = previous_value.as_ref() {
-                validate_assignment_shape(&mut self.diagnostics, span, &value, previous_value);
+                let resolver = self.input.symbols.resolver();
+                let symbol_name = |symbol| resolver.display(symbol).to_string();
+                validate_assignment_shape(
+                    &mut self.diagnostics,
+                    span,
+                    &value,
+                    previous_value,
+                    &symbol_name,
+                );
             }
             let frame = &mut self.call_locals[index];
             frame.locals.insert(local_id, value.clone());
             return Ok(());
         }
+        let name = self.symbol_name(*name);
         Err(ComptimeError {
             span,
             message: format!("unknown comptime assignment target `{name}`"),

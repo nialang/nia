@@ -12,7 +12,7 @@ fn lowers_body_to_entry_block_with_tail() {
         span,
         locals: vec![TypedLocal {
             id: LocalId(0),
-            name: "x".to_string(),
+            name: local_name("x"),
             kind: TypedLocalKind::Binding,
             ty,
             span,
@@ -91,7 +91,7 @@ fn lowers_try_expression_to_try_terminator_and_success_local() {
         span,
         locals: vec![TypedLocal {
             id: LocalId(0),
-            name: "value".to_string(),
+            name: local_name("value"),
             kind: TypedLocalKind::Binding,
             ty: optional_i32,
             span,
@@ -147,7 +147,7 @@ fn lowers_address_of_places_to_function_place() {
         span,
         locals: vec![TypedLocal {
             id: LocalId(0),
-            name: "x".to_string(),
+            name: local_name("x"),
             kind: TypedLocalKind::Binding,
             ty,
             span,
@@ -255,7 +255,7 @@ fn address_of_slice_lowers_to_slice_value_not_place() {
         span,
         locals: vec![TypedLocal {
             id: LocalId(0),
-            name: "ptr".to_string(),
+            name: local_name("ptr"),
             kind: TypedLocalKind::Binding,
             ty,
             span,

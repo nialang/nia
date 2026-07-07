@@ -4,8 +4,7 @@ use std::collections::HashMap;
 use nia_ast::{
     Attribute, AttributeKind, BindingItem, Block, EnumItem, ExtendItem, FunctionItem, GenericParam,
     GenericParamKind, Module, Param, StmtKind, StructItem, TraitItem, TypeAliasItem, TypeRef,
-    UnionItem, WhereClause, generic_param_identities, generic_param_names, type_ref_identity,
-    where_clause_identity,
+    UnionItem, WhereClause, generic_param_identities, type_ref_identity, where_clause_identity,
 };
 pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
@@ -17,6 +16,7 @@ use nia_ids::{
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
+use nia_symbol::{SymbolId, known, known_symbol_text_or_identity, symbol_identity_key};
 use nia_ty::PrimitiveTy;
 use nia_type_lower::TypeLowering;
 
@@ -36,7 +36,7 @@ pub struct ItemSignatures {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramFunctionSignature {
-    pub name: String,
+    pub name: SymbolId,
     pub signature: FunctionSignature,
     pub interner: nia_ty::TyInterner,
 }
@@ -88,7 +88,7 @@ pub struct ProgramTraitImplSignature {
     pub module_id: nia_ids::ModuleId,
     pub impl_id: TraitImplId,
     pub builtin: Option<String>,
-    pub generics: Vec<String>,
+    pub generics: Vec<SymbolId>,
     pub target_ty: InternedTyId,
     pub trait_id: nia_ty::TraitId,
     pub trait_args: Vec<InternedTyId>,
@@ -101,7 +101,7 @@ pub struct ProgramTraitImplSignature {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSignature {
-    pub generics: Vec<String>,
+    pub generics: Vec<SymbolId>,
     pub generic_params: Vec<GenericParamSignature>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub params: Vec<ParamSignature>,
@@ -116,7 +116,7 @@ pub struct FunctionSignature {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericParamSignature {
-    pub name: String,
+    pub name: SymbolId,
     pub kind: GenericParamSignatureKind,
 }
 
@@ -136,7 +136,7 @@ pub use nia_ids::{BuiltinFunction, BuiltinTrait};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamSignature {
-    pub name: Option<String>,
+    pub name: Option<SymbolId>,
     pub receiver: Option<ReceiverKind>,
     pub ty: InternedTyId,
     pub span: Span,
@@ -144,7 +144,7 @@ pub struct ParamSignature {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructSignature {
-    pub generics: Vec<String>,
+    pub generics: Vec<SymbolId>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub fields: Vec<FieldSignature>,
     pub is_extern: bool,
@@ -153,7 +153,7 @@ pub struct StructSignature {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnionSignature {
-    pub generics: Vec<String>,
+    pub generics: Vec<SymbolId>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub fields: Vec<FieldSignature>,
     pub is_extern: bool,
@@ -162,7 +162,7 @@ pub struct UnionSignature {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitSignature {
-    pub generics: Vec<String>,
+    pub generics: Vec<SymbolId>,
     pub where_predicates: Vec<WherePredicateSignature>,
     pub supertraits: Vec<TraitSupertraitSignature>,
     pub associated_types: Vec<TraitAssociatedTypeSignature>,
@@ -181,14 +181,14 @@ pub struct TraitSupertraitSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitAssociatedTypeSignature {
     pub def_id: DefId,
-    pub name: String,
+    pub name: SymbolId,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitAssociatedValueSignature {
     pub def_id: DefId,
-    pub name: String,
+    pub name: SymbolId,
     pub ty: InternedTyId,
     pub span: Span,
 }
@@ -196,7 +196,7 @@ pub struct TraitAssociatedValueSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitMethodSignature {
     pub def_id: DefId,
-    pub name: String,
+    pub name: SymbolId,
     pub signature: FunctionSignature,
     pub has_default: bool,
     pub span: Span,
@@ -206,7 +206,7 @@ pub struct TraitMethodSignature {
 pub struct TraitImplSignature {
     pub impl_id: TraitImplId,
     pub builtin: Option<String>,
-    pub generics: Vec<String>,
+    pub generics: Vec<SymbolId>,
     pub target_ty: InternedTyId,
     pub trait_ty: Option<InternedTyId>,
     pub trait_span: Option<Span>,
@@ -264,6 +264,39 @@ fn stable_trait_impl_id(identity: &TraitImplIdentity) -> u64 {
     hash.finish()
 }
 
+fn generic_signature_names(generics: &[GenericParam]) -> Vec<SymbolId> {
+    generics.iter().map(|generic| generic.name).collect()
+}
+
+fn symbol_debug_text(symbol: SymbolId) -> String {
+    if let Some((_, text)) = known::WELL_KNOWN
+        .iter()
+        .find(|(known_symbol, _)| *known_symbol == symbol)
+    {
+        return (*text).to_string();
+    }
+    symbol_identity_key(symbol)
+}
+
+fn attribute_path_text(path: &[SymbolId]) -> String {
+    path.iter()
+        .map(|name| symbol_debug_text(*name))
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+fn builtin_comptime_item_symbol(builtin: BuiltinComptime) -> SymbolId {
+    match builtin {
+        BuiltinComptime::TargetArch => known::ARCH,
+        BuiltinComptime::TargetVendor => known::VENDOR,
+        BuiltinComptime::TargetOs => known::OS,
+        BuiltinComptime::TargetEnv => known::ENV,
+        BuiltinComptime::TargetAbi => known::ABI,
+        BuiltinComptime::TargetEndian => known::ENDIAN,
+        BuiltinComptime::TargetPointerWidth => known::POINTER_WIDTH,
+    }
+}
+
 struct StableTraitImplHasher {
     value: u64,
 }
@@ -318,7 +351,7 @@ impl StableTraitImplHasher {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitImplAssociatedTypeSignature {
-    pub name: String,
+    pub name: SymbolId,
     pub ty: InternedTyId,
     pub span: Span,
 }
@@ -326,7 +359,7 @@ pub struct TraitImplAssociatedTypeSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitImplAssociatedValueSignature {
     pub def_id: DefId,
-    pub name: String,
+    pub name: SymbolId,
     pub visibility: Visibility,
     pub span: Span,
 }
@@ -334,7 +367,7 @@ pub struct TraitImplAssociatedValueSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitImplMethodSignature {
     pub def_id: DefId,
-    pub name: String,
+    pub name: SymbolId,
     pub visibility: Visibility,
     pub span: Span,
 }
@@ -354,7 +387,7 @@ impl UnionSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldSignature {
     pub def_id: DefId,
-    pub name: String,
+    pub name: SymbolId,
     pub ty: InternedTyId,
     pub span: Span,
 }
@@ -370,13 +403,13 @@ pub struct EnumSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariantSignature {
     pub def_id: DefId,
-    pub name: String,
+    pub name: SymbolId,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAliasSignature {
-    pub generics: Vec<String>,
+    pub generics: Vec<SymbolId>,
     pub target: InternedTyId,
     pub span: Span,
 }
@@ -557,7 +590,7 @@ impl<'a> SignatureCollector<'a> {
         signatures.structs.insert(
             def_id,
             StructSignature {
-                generics: generic_param_names(&item_struct.generics),
+                generics: generic_signature_names(&item_struct.generics),
                 where_predicates: self.where_predicate_signatures(&item_struct.where_clause),
                 fields,
                 is_extern: item_struct.is_extern,
@@ -592,7 +625,7 @@ impl<'a> SignatureCollector<'a> {
         signatures.unions.insert(
             def_id,
             UnionSignature {
-                generics: generic_param_names(&item_union.generics),
+                generics: generic_signature_names(&item_union.generics),
                 where_predicates: self.where_predicate_signatures(&item_union.where_clause),
                 fields,
                 is_extern: item_union.is_extern,
@@ -637,7 +670,7 @@ impl<'a> SignatureCollector<'a> {
         signatures.trait_impls.push(TraitImplSignature {
             impl_id,
             builtin: self.builtin_extend_attribute(&item.attributes),
-            generics: generic_param_names(&extend.generics),
+            generics: generic_signature_names(&extend.generics),
             target_ty: self.ty_for_type(&extend.target),
             trait_ty: extend
                 .trait_ref
@@ -737,7 +770,7 @@ impl<'a> SignatureCollector<'a> {
         signatures.traits.insert(
             def_id,
             TraitSignature {
-                generics: generic_param_names(&item_trait.generics),
+                generics: generic_signature_names(&item_trait.generics),
                 where_predicates: self.where_predicate_signatures(&item_trait.where_clause),
                 supertraits: item_trait
                     .supertraits
@@ -821,7 +854,7 @@ impl<'a> SignatureCollector<'a> {
         signatures.type_aliases.insert(
             def_id,
             TypeAliasSignature {
-                generics: generic_param_names(&alias.generics),
+                generics: generic_signature_names(&alias.generics),
                 target: self.type_alias_target(item, alias),
                 span: item.span,
             },
@@ -991,11 +1024,11 @@ impl<'a> SignatureCollector<'a> {
                 continue;
             };
             match meta.path.as_slice() {
-                [name] if name == "builtin" => {
+                [name] if *name == known::BUILTIN => {
                     let builtin_name =
                         self.parse_builtin_attribute_name(attribute, meta.args.as_slice());
                     if let Some(builtin_name) = builtin_name {
-                        if let Some(builtin) = BuiltinComptime::from_name(builtin_name) {
+                        if let Some(builtin) = BuiltinComptime::from_name(builtin_name.as_str()) {
                             if out.replace(builtin).is_some() {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::ITEM_SIGNATURE,
@@ -1003,13 +1036,13 @@ impl<'a> SignatureCollector<'a> {
                                     "duplicate `@[builtin]` comptime attribute",
                                 ));
                             }
-                            if builtin.item_name() != binding.name {
+                            if builtin_comptime_item_symbol(builtin) != binding.name {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::ITEM_SIGNATURE,
                                     attribute.span,
                                     format!(
                                         "builtin comptime source item `{}` must match descriptor item `{}`",
-                                        binding.name,
+                                        known_symbol_text_or_identity(binding.name),
                                         builtin.item_name()
                                     ),
                                 ));
@@ -1034,7 +1067,10 @@ impl<'a> SignatureCollector<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::ITEM_SIGNATURE,
                         attribute.span,
-                        format!("unknown comptime attribute `@[{}]`", meta.path.join(".")),
+                        format!(
+                            "unknown comptime attribute `@[{}]`",
+                            attribute_path_text(&meta.path)
+                        ),
                     ));
                 }
             }
@@ -1053,7 +1089,7 @@ impl<'a> SignatureCollector<'a> {
             None => self.primitive(PrimitiveTy::Void),
         };
         FunctionSignature {
-            generics: generic_param_names(&function.generics),
+            generics: generic_signature_names(&function.generics),
             generic_params: self.generic_param_signatures(&function.generics),
             where_predicates: self.where_predicate_signatures(&function.where_clause),
             params,
@@ -1106,7 +1142,7 @@ impl<'a> SignatureCollector<'a> {
                 continue;
             };
             match meta.path.as_slice() {
-                [name] if name == "naked" => {
+                [name] if *name == known::NAKED => {
                     if !meta.args.is_empty() {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::ITEM_SIGNATURE,
@@ -1123,41 +1159,11 @@ impl<'a> SignatureCollector<'a> {
                     }
                     out.push(FunctionAttribute::Naked);
                 }
-                [name] if name == "builtin" => {
-                    let builtin_name = match meta.args.as_slice() {
-                        [arg] => match &arg.kind {
-                            nia_ast::ExprKind::String(text) if text.parts.len() == 1 => {
-                                if let Some(name) = builtin_attribute_name(&text.parts[0]) {
-                                    Some(name)
-                                } else {
-                                    self.diagnostics.push(Diagnostic::user_error_at(
-                                        codes::ITEM_SIGNATURE,
-                                        arg.span,
-                                        "`@[builtin]` expects a plain string literal name",
-                                    ));
-                                    None
-                                }
-                            }
-                            _ => {
-                                self.diagnostics.push(Diagnostic::user_error_at(
-                                    codes::ITEM_SIGNATURE,
-                                    arg.span,
-                                    "`@[builtin]` expects a single string literal name",
-                                ));
-                                None
-                            }
-                        },
-                        _ => {
-                            self.diagnostics.push(Diagnostic::user_error_at(
-                                codes::ITEM_SIGNATURE,
-                                attribute.span,
-                                "`@[builtin]` expects exactly one string literal name",
-                            ));
-                            None
-                        }
-                    };
+                [name] if *name == known::BUILTIN => {
+                    let builtin_name =
+                        self.parse_builtin_attribute_name(attribute, meta.args.as_slice());
                     if let Some(builtin_name) = builtin_name {
-                        if let Some(builtin) = BuiltinFunction::from_name(builtin_name) {
+                        if let Some(builtin) = BuiltinFunction::from_name(builtin_name.as_str()) {
                             out.push(FunctionAttribute::Builtin(builtin));
                         } else {
                             self.diagnostics.push(Diagnostic::user_error_at(
@@ -1179,7 +1185,10 @@ impl<'a> SignatureCollector<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::ITEM_SIGNATURE,
                         attribute.span,
-                        format!("unknown function attribute `@[{}]`", meta.path.join(".")),
+                        format!(
+                            "unknown function attribute `@[{}]`",
+                            attribute_path_text(&meta.path)
+                        ),
                     ));
                 }
             }
@@ -1206,11 +1215,11 @@ impl<'a> SignatureCollector<'a> {
                 continue;
             };
             match meta.path.as_slice() {
-                [name] if name == "builtin" => {
+                [name] if *name == known::BUILTIN => {
                     let builtin_name =
                         self.parse_builtin_attribute_name(attribute, meta.args.as_slice());
                     if let Some(builtin_name) = builtin_name {
-                        if let Some(builtin) = BuiltinTrait::from_name(builtin_name) {
+                        if let Some(builtin) = BuiltinTrait::from_name(builtin_name.as_str()) {
                             if out.replace(builtin).is_some() {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::ITEM_SIGNATURE,
@@ -1231,7 +1240,10 @@ impl<'a> SignatureCollector<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::ITEM_SIGNATURE,
                         attribute.span,
-                        format!("unknown trait attribute `@[{}]`", meta.path.join(".")),
+                        format!(
+                            "unknown trait attribute `@[{}]`",
+                            attribute_path_text(&meta.path)
+                        ),
                     ));
                 }
             }
@@ -1249,11 +1261,13 @@ impl<'a> SignatureCollector<'a> {
                 continue;
             };
             match meta.path.as_slice() {
-                [name] if name == "builtin" => {
+                [name] if *name == known::BUILTIN => {
                     let builtin_name =
                         self.parse_builtin_attribute_name(attribute, meta.args.as_slice());
                     if let Some(builtin_name) = builtin_name {
-                        if let Some(builtin) = BuiltinTypeDeclaration::from_name(builtin_name) {
+                        if let Some(builtin) =
+                            BuiltinTypeDeclaration::from_name(builtin_name.as_str())
+                        {
                             if out.replace(builtin).is_some() {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::ITEM_SIGNATURE,
@@ -1274,7 +1288,10 @@ impl<'a> SignatureCollector<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::ITEM_SIGNATURE,
                         attribute.span,
-                        format!("unknown type attribute `@[{}]`", meta.path.join(".")),
+                        format!(
+                            "unknown type attribute `@[{}]`",
+                            attribute_path_text(&meta.path)
+                        ),
                     ));
                 }
             }
@@ -1288,13 +1305,13 @@ impl<'a> SignatureCollector<'a> {
             let AttributeKind::Meta(meta) = &attribute.kind else {
                 continue;
             };
-            if meta.path.as_slice() != ["builtin"] {
+            if meta.path.as_slice() != [known::BUILTIN] {
                 continue;
             }
             if let Some(builtin_name) =
                 self.parse_builtin_attribute_name(attribute, meta.args.as_slice())
             {
-                if out.replace(builtin_name.to_string()).is_some() {
+                if out.replace(builtin_name).is_some() {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::ITEM_SIGNATURE,
                         attribute.span,
@@ -1310,20 +1327,21 @@ impl<'a> SignatureCollector<'a> {
         &mut self,
         attribute: &Attribute,
         args: &'attr [nia_ast::Expr],
-    ) -> Option<&'attr str> {
+    ) -> Option<String> {
         match args {
             [arg] => match &arg.kind {
-                nia_ast::ExprKind::String(text) if text.parts.len() == 1 => {
-                    if let Some(name) = builtin_attribute_name(&text.parts[0]) {
-                        Some(name)
-                    } else {
+                nia_ast::ExprKind::String(text) => {
+                    let name = nia_literals::eval_string_literal_parts(
+                        text.parts.iter().map(String::as_str),
+                    );
+                    if name.is_none() {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::ITEM_SIGNATURE,
                             arg.span,
-                            "`@[builtin]` expects a plain string literal name",
+                            "`@[builtin]` expects a valid string literal name",
                         ));
-                        None
                     }
+                    name
                 }
                 _ => {
                     self.diagnostics.push(Diagnostic::user_error_at(
@@ -1402,7 +1420,7 @@ impl<'a> SignatureCollector<'a> {
             .filter_map(|arg| match arg {
                 nia_ast::TypeArg::AssocBinding { key, ty, span } => {
                     let name = match key {
-                        nia_ast::AssocBindingKey::Name(name) => name.clone(),
+                        nia_ast::AssocBindingKey::Name(name) => *name,
                         nia_ast::AssocBindingKey::Projection(projection) => {
                             let nia_ast::TypeKind::Projection { name, .. } = &projection.kind
                             else {
@@ -1501,10 +1519,6 @@ impl<'a> SignatureCollector<'a> {
     }
 }
 
-fn builtin_attribute_name(text: &str) -> Option<&str> {
-    text.strip_prefix('"')?.strip_suffix('"')
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1515,8 +1529,13 @@ mod tests {
     use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
     use nia_item_tree::ModuleItemTree;
     use nia_parser::parse_module;
+    use nia_symbol::{ToSymbolId, stable_hash};
     use nia_type_lower::lower_module_types;
     use nia_type_resolve::resolve_module_types;
+
+    fn sym(text: &str) -> SymbolId {
+        SymbolId::from_stable_hash(stable_hash(text))
+    }
 
     #[test]
     fn collects_item_signatures_without_checking_bodies() {
@@ -1579,7 +1598,7 @@ fn add(a: i32, b: i32) i32 {
         assert_eq!(signatures.trait_impls.len(), 1);
         let impl_signature = &signatures.trait_impls[0];
         assert_eq!(impl_signature.methods.len(), 1);
-        assert_eq!(impl_signature.methods[0].name, "len2");
+        assert_eq!(impl_signature.methods[0].name, sym("len2"));
         assert_eq!(impl_signature.methods[0].visibility, Visibility::Private);
         assert!(
             signatures
@@ -1587,7 +1606,7 @@ fn add(a: i32, b: i32) i32 {
                 .contains_key(&impl_signature.methods[0].def_id)
         );
         assert_eq!(impl_signature.associated_values.len(), 1);
-        assert_eq!(impl_signature.associated_values[0].name, "Origin");
+        assert_eq!(impl_signature.associated_values[0].name, sym("Origin"));
         assert_eq!(
             impl_signature.associated_values[0].visibility,
             Visibility::Public
@@ -1634,7 +1653,7 @@ fn selected() i32 { 1 }
         assert_eq!(active.items.len(), 1);
         assert!(matches!(
             &active_module.items[0].kind,
-            nia_ast::ItemKind::Function(function) if function.name == "selected"
+            nia_ast::ItemKind::Function(function) if function.name == sym("selected")
         ));
     }
 
@@ -1717,7 +1736,7 @@ trait Simd {
         let signature = signatures.traits.values().next().expect("simd signature");
         assert_eq!(signature.associated_types.len(), 1);
         assert_eq!(signature.associated_values.len(), 1);
-        assert_eq!(signature.associated_values[0].name, "Lanes");
+        assert_eq!(signature.associated_values[0].name, sym("Lanes"));
     }
 
     #[test]
@@ -1749,12 +1768,12 @@ extend[T, N: usize] [N]T : Len {
 
         let expected_functions = BuiltinFunction::ALL
             .iter()
-            .map(|builtin| builtin.name())
+            .map(|builtin| builtin.name().to_string())
             .collect::<BTreeSet<_>>();
         let actual_functions = declarations
             .functions
             .iter()
-            .map(String::as_str)
+            .map(|symbol| symbol_debug_text(*symbol))
             .collect::<BTreeSet<_>>();
         assert_eq!(actual_functions, expected_functions);
 
@@ -1771,34 +1790,34 @@ extend[T, N: usize] [N]T : Len {
 
         let expected_types = BuiltinType::ALL
             .iter()
-            .map(|builtin| builtin.name())
+            .map(|builtin| builtin.name().to_string())
             .collect::<BTreeSet<_>>();
         let actual_types = declarations
             .types
             .iter()
-            .map(String::as_str)
+            .map(|symbol| symbol_debug_text(*symbol))
             .collect::<BTreeSet<_>>();
         assert_eq!(actual_types, expected_types);
 
         let expected_type_anchors = BuiltinTypeAnchor::ALL
             .iter()
-            .map(|builtin| builtin.name())
+            .map(|builtin| builtin.name().to_string())
             .collect::<BTreeSet<_>>();
         let actual_type_anchors = declarations
             .type_anchors
             .iter()
-            .map(String::as_str)
+            .map(|symbol| symbol_debug_text(*symbol))
             .collect::<BTreeSet<_>>();
         assert_eq!(actual_type_anchors, expected_type_anchors);
 
         let expected_comptimes = BuiltinComptime::ALL
             .iter()
-            .map(|builtin| builtin.name())
+            .map(|builtin| builtin.name().to_string())
             .collect::<BTreeSet<_>>();
         let actual_comptimes = declarations
             .comptimes
             .iter()
-            .map(String::as_str)
+            .map(|symbol| symbol_debug_text(*symbol))
             .collect::<BTreeSet<_>>();
         assert_eq!(actual_comptimes, expected_comptimes);
 
@@ -1841,7 +1860,7 @@ extend[T, N: usize] [N]T : Len {
         ] {
             assert_eq!(
                 declarations.extends[primitive],
-                vec!["MIN".to_string(), "MAX".to_string()],
+                vec![known::MIN, known::MAX],
                 "primitive builtin extend associated values drift for {primitive}"
             );
         }
@@ -1853,7 +1872,8 @@ extend[T, N: usize] [N]T : Len {
                 .get(descriptor.name)
                 .unwrap_or_else(|| panic!("missing source declaration for {}", descriptor.name));
             assert_eq!(
-                source.item_name, descriptor.name,
+                source.item_name,
+                sym(descriptor.name),
                 "builtin trait source item name must match `@[builtin]` name"
             );
             assert_eq!(
@@ -1862,7 +1882,11 @@ extend[T, N: usize] [N]T : Len {
                 descriptor.name
             );
             assert_eq!(
-                source.associated_types,
+                source
+                    .associated_types
+                    .iter()
+                    .map(|name| symbol_debug_text(*name))
+                    .collect::<Vec<_>>(),
                 descriptor
                     .associated_types
                     .iter()
@@ -1872,7 +1896,11 @@ extend[T, N: usize] [N]T : Len {
                 descriptor.name
             );
             assert_eq!(
-                source.associated_values,
+                source
+                    .associated_values
+                    .iter()
+                    .map(|name| symbol_debug_text(*name))
+                    .collect::<Vec<_>>(),
                 builtin
                     .associated_comptimes()
                     .iter()
@@ -1885,7 +1913,7 @@ extend[T, N: usize] [N]T : Len {
                 source
                     .methods
                     .iter()
-                    .map(|method| method.name.as_str())
+                    .map(|method| symbol_debug_text(method.name))
                     .collect::<Vec<_>>(),
                 descriptor
                     .required_methods
@@ -1899,7 +1927,7 @@ extend[T, N: usize] [N]T : Len {
                 let source_method = source
                     .methods
                     .iter()
-                    .find(|candidate| candidate.name == method.name())
+                    .find(|candidate| symbol_debug_text(candidate.name) == method.name())
                     .unwrap_or_else(|| {
                         panic!(
                             "missing source method {}::{}",
@@ -1932,7 +1960,7 @@ extend[T, N: usize] [N]T : Len {
                     .supertraits
                     .iter()
                     .map(|supertrait| SourceBuiltinSupertrait {
-                        name: supertrait.trait_id.name().to_string(),
+                        name: sym(supertrait.trait_id.name()),
                         preserves_trait_args: supertrait.preserves_trait_args,
                     })
                     .collect::<Vec<_>>(),
@@ -1960,34 +1988,34 @@ extend[T, N: usize] [N]T : Len {
 
     #[derive(Debug, Default)]
     struct SourceBuiltinDeclarations {
-        functions: Vec<String>,
-        types: Vec<String>,
-        type_anchors: Vec<String>,
-        comptimes: Vec<String>,
+        functions: Vec<SymbolId>,
+        types: Vec<SymbolId>,
+        type_anchors: Vec<SymbolId>,
+        comptimes: Vec<SymbolId>,
         traits: BTreeMap<String, SourceBuiltinTrait>,
-        extends: BTreeMap<String, Vec<String>>,
+        extends: BTreeMap<String, Vec<SymbolId>>,
     }
 
     #[derive(Debug)]
     struct SourceBuiltinTrait {
-        item_name: String,
+        item_name: SymbolId,
         generic_count: usize,
-        associated_types: Vec<String>,
-        associated_values: Vec<String>,
+        associated_types: Vec<SymbolId>,
+        associated_values: Vec<SymbolId>,
         methods: Vec<SourceBuiltinMethod>,
         supertraits: Vec<SourceBuiltinSupertrait>,
     }
 
     #[derive(Debug)]
     struct SourceBuiltinMethod {
-        name: String,
+        name: SymbolId,
         param_count: usize,
         receiver: Option<ReceiverKind>,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct SourceBuiltinSupertrait {
-        name: String,
+        name: SymbolId,
         preserves_trait_args: bool,
     }
 
@@ -2006,25 +2034,27 @@ extend[T, N: usize] [N]T : Len {
                 match item.kind {
                     nia_ast::ItemKind::Function(function) => {
                         if let Some(name) = builtin_attribute(&item.attributes) {
+                            let name_symbol = sym(&name);
                             assert!(
                                 BuiltinFunction::from_name(&name).is_some(),
                                 "unknown builtin function `{name}` in {}",
                                 path.display()
                             );
                             assert_eq!(
-                                function.name, name,
+                                function.name, name_symbol,
                                 "builtin function source item name must match `@[builtin]` name"
                             );
                             assert!(
-                                !out.functions.contains(&name),
+                                !out.functions.contains(&name_symbol),
                                 "duplicate builtin function declaration `{name}` in {}",
                                 path.display()
                             );
-                            out.functions.push(name);
+                            out.functions.push(name_symbol);
                         }
                     }
                     nia_ast::ItemKind::TypeAlias(alias) => {
                         if let Some(name) = builtin_attribute(&item.attributes) {
+                            let name_symbol = sym(&name);
                             let is_opaque = BuiltinType::from_name(&name).is_some();
                             let is_anchor = BuiltinTypeAnchor::from_name(&name).is_some();
                             assert!(
@@ -2034,13 +2064,13 @@ extend[T, N: usize] [N]T : Len {
                             );
                             if is_opaque {
                                 assert_eq!(
-                                    alias.name, name,
+                                    alias.name, name_symbol,
                                     "builtin type source item name must match `@[builtin]` name"
                                 );
                             } else {
                                 assert_eq!(
                                     alias.name,
-                                    BuiltinTypeAnchor::from_name(&name).unwrap().name(),
+                                    BuiltinTypeAnchor::from_name(&name).unwrap().symbol_id(),
                                     "builtin type anchor source item name must match descriptor item name"
                                 );
                             }
@@ -2055,11 +2085,11 @@ extend[T, N: usize] [N]T : Len {
                                 &mut out.type_anchors
                             };
                             assert!(
-                                !declarations.contains(&name),
+                                !declarations.contains(&name_symbol),
                                 "duplicate builtin type declaration `{name}` in {}",
                                 path.display()
                             );
-                            declarations.push(name);
+                            declarations.push(name_symbol);
                         }
                     }
                     nia_ast::ItemKind::Trait(item_trait) => {
@@ -2081,6 +2111,7 @@ extend[T, N: usize] [N]T : Len {
                     }
                     nia_ast::ItemKind::Binding(binding) => {
                         if let Some(name) = builtin_attribute(&item.attributes) {
+                            let name_symbol = sym(&name);
                             assert!(
                                 BuiltinComptime::from_name(&name).is_some(),
                                 "unknown builtin comptime `{name}` in {}",
@@ -2088,7 +2119,7 @@ extend[T, N: usize] [N]T : Len {
                             );
                             assert_eq!(
                                 binding.name,
-                                BuiltinComptime::from_name(&name).unwrap().item_name(),
+                                sym(BuiltinComptime::from_name(&name).unwrap().item_name()),
                                 "builtin comptime source item name must match descriptor item name"
                             );
                             assert!(
@@ -2099,11 +2130,11 @@ extend[T, N: usize] [N]T : Len {
                                 path.display()
                             );
                             assert!(
-                                !out.comptimes.contains(&name),
+                                !out.comptimes.contains(&name_symbol),
                                 "duplicate builtin comptime declaration `{name}` in {}",
                                 path.display()
                             );
-                            out.comptimes.push(name);
+                            out.comptimes.push(name_symbol);
                         }
                     }
                     nia_ast::ItemKind::Extend(extend) => {
@@ -2154,7 +2185,7 @@ extend[T, N: usize] [N]T : Len {
         let generic_names = item_trait
             .generics
             .iter()
-            .map(|generic| generic.name.clone())
+            .map(|generic| generic.name)
             .collect::<Vec<_>>();
         let out = SourceBuiltinTrait {
             item_name: item_trait.name,
@@ -2189,7 +2220,8 @@ extend[T, N: usize] [N]T : Len {
                 .collect(),
         };
         assert_eq!(
-            out.item_name, builtin_name,
+            out.item_name,
+            sym(&builtin_name),
             "builtin trait source item name must match `@[builtin]` name"
         );
         out
@@ -2197,7 +2229,7 @@ extend[T, N: usize] [N]T : Len {
 
     fn source_builtin_supertrait(
         ty: &nia_ast::TypeRef,
-        generic_names: &[String],
+        generic_names: &[SymbolId],
     ) -> SourceBuiltinSupertrait {
         let nia_ast::TypeKind::Path { segments } = &ty.kind else {
             panic!(
@@ -2212,15 +2244,18 @@ extend[T, N: usize] [N]T : Len {
             ty.text
         );
         let segment = &segments[0];
+        let nia_ast::PathSegmentKind::Name(name) = segment.kind else {
+            panic!("builtin supertrait must be a named trait path: {}", ty.text);
+        };
         SourceBuiltinSupertrait {
-            name: segment.name.clone(),
+            name,
             preserves_trait_args: source_supertrait_preserves_trait_args(segment, generic_names),
         }
     }
 
     fn source_supertrait_preserves_trait_args(
         segment: &nia_ast::TypePathSegment,
-        generic_names: &[String],
+        generic_names: &[SymbolId],
     ) -> bool {
         if generic_names.is_empty() {
             return false;
@@ -2239,7 +2274,9 @@ extend[T, N: usize] [N]T : Len {
                     };
                     matches!(
                         segments.as_slice(),
-                        [segment] if segment.name == *generic_name && segment.args.is_empty()
+                        [segment]
+                            if matches!(segment.kind, nia_ast::PathSegmentKind::Name(name) if name == *generic_name)
+                                && segment.args.is_empty()
                     )
                 }
                 _ => false,
@@ -2252,7 +2289,7 @@ extend[T, N: usize] [N]T : Len {
             let AttributeKind::Meta(meta) = &attribute.kind else {
                 continue;
             };
-            if meta.path != ["builtin"] {
+            if meta.path != [known::BUILTIN] {
                 continue;
             }
             let [arg] = meta.args.as_slice() else {
@@ -2261,15 +2298,11 @@ extend[T, N: usize] [N]T : Len {
             let nia_ast::ExprKind::String(text) = &arg.kind else {
                 panic!("`@[builtin]` source declaration must use a string literal");
             };
-            assert_eq!(
-                text.parts.len(),
-                1,
-                "`@[builtin]` source declaration must use a plain string literal"
-            );
-            let name = builtin_attribute_name(&text.parts[0])
-                .unwrap_or_else(|| panic!("invalid builtin attribute string {}", text.parts[0]));
+            let name =
+                nia_literals::eval_string_literal_parts(text.parts.iter().map(String::as_str))
+                    .unwrap_or_else(|| panic!("invalid builtin attribute string {:?}", text.parts));
             assert!(
-                out.replace(name.to_string()).is_none(),
+                out.replace(name).is_none(),
                 "duplicate `@[builtin]` source declaration"
             );
         }

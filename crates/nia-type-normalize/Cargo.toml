@@ -10,6 +10,7 @@ nia-diagnostic.workspace = true
 nia-ids.workspace = true
 nia-item-signatures.workspace = true
 nia-span.workspace = true
+nia-symbol.workspace = true
 nia-ty.workspace = true
 
 [dev-dependencies]

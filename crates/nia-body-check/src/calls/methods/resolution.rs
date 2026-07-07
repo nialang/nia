@@ -5,7 +5,7 @@ struct DynamicTraitMethodSearch<'a> {
     candidates: &'a mut Vec<DynamicTraitMethodCandidate>,
     object_ty: InternedTyId,
     associated_type_bindings: Vec<nia_ty::AssociatedTypeBindingTy>,
-    name: &'a str,
+    name: &'a SymbolId,
     // Vtable slots are assigned by walking the object trait and its
     // supertraits in declaration order. This counter must be shared across the
     // recursive walk so codegen indexes the same slot order that type checking
@@ -17,7 +17,7 @@ struct DynamicTraitMethodSearch<'a> {
 impl<'a> BodyChecker<'a> {
     fn all_callable_extension_methods_named(
         &mut self,
-        name: &str,
+        name: &SymbolId,
     ) -> crate::CallableExtensionMethods {
         if let Some(methods) = self.callable_extension_methods_by_name.get(name) {
             return methods.clone();
@@ -40,7 +40,7 @@ impl<'a> BodyChecker<'a> {
                     .collect()
             })
             .into_iter()
-            .filter(|method| method.trait_id.is_none() && method.name == name)
+            .filter(|method| method.trait_id.is_none() && &method.name == name)
             .collect::<Vec<_>>();
         for method in program_methods {
             if methods
@@ -93,14 +93,14 @@ impl<'a> BodyChecker<'a> {
             }
         }
         self.callable_extension_methods_by_name
-            .insert(name.to_string(), indexed.clone());
+            .insert(name.clone(), indexed.clone());
         indexed
     }
 
     pub(in crate::calls) fn method_candidates_for_target(
         &mut self,
         target_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Vec<MethodCandidate> {
         let methods = self.profile_stage("body_check.profile.method.callable_named", |this| {
             this.all_callable_extension_methods_named(name)
@@ -108,8 +108,8 @@ impl<'a> BodyChecker<'a> {
         let mut candidates = Vec::new();
         for method in methods.methods {
             let candidate_ty = method.target_ty;
-            let mut target_substitutions = HashMap::new();
-            let mut target_const_substitutions = HashMap::new();
+            let mut target_substitutions = SymbolMap::new();
+            let mut target_const_substitutions = SymbolMap::new();
             if self.profile_stage("body_check.profile.method.match_target", |this| {
                 this.match_type_pattern_with_consts(
                     candidate_ty,
@@ -120,6 +120,7 @@ impl<'a> BodyChecker<'a> {
             }) {
                 candidates.push(MethodCandidate {
                     target_ty: candidate_ty,
+                    self_ty: target_ty,
                     method: method.method,
                     target_substitutions,
                     target_const_substitutions,
@@ -132,7 +133,7 @@ impl<'a> BodyChecker<'a> {
     pub(in crate::calls::methods) fn method_candidates_for_receiver(
         &mut self,
         receiver_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Vec<MethodCandidate> {
         let methods = self.profile_stage("body_check.profile.method.callable_named", |this| {
             this.all_callable_extension_methods_named(name)
@@ -151,8 +152,8 @@ impl<'a> BodyChecker<'a> {
                 if self.extension_receiver_base_mismatch(target_ty, receiver_base.as_ref()) {
                     continue;
                 }
-                let mut target_substitutions = HashMap::new();
-                let mut target_const_substitutions = HashMap::new();
+                let mut target_substitutions = SymbolMap::new();
+                let mut target_const_substitutions = SymbolMap::new();
                 let matches_receiver =
                     self.profile_stage("body_check.profile.method.match_receiver", |this| {
                         this.match_extension_receiver_target(
@@ -171,6 +172,7 @@ impl<'a> BodyChecker<'a> {
                 {
                     candidates.push(MethodCandidate {
                         target_ty,
+                        self_ty: receiver_ty,
                         method: method.method.clone(),
                         target_substitutions,
                         target_const_substitutions,
@@ -260,8 +262,8 @@ impl<'a> BodyChecker<'a> {
         target_ty: InternedTyId,
         method_id: GlobalDefId,
         receiver_ty: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
-        const_substitutions: &mut HashMap<String, nia_ty::ConstGenericArg>,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
     ) -> bool {
         let candidate_target_ty = self.receiver_candidate_target_ty(target_ty, method_id);
         if self.try_match_type_pattern_with_consts(
@@ -305,21 +307,18 @@ impl<'a> BodyChecker<'a> {
     fn bind_extension_self_from_target(
         &mut self,
         target_ty: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) {
-        if substitutions.contains_key("Self") {
-            return;
-        }
-        substitutions.insert("Self".to_string(), target_ty);
+        let _ = (target_ty, substitutions);
     }
 
     fn try_match_type_pattern(
         &self,
         pattern: InternedTyId,
         actual: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) -> bool {
-        let mut const_substitutions = HashMap::new();
+        let mut const_substitutions = SymbolMap::new();
         self.try_match_type_pattern_with_consts(
             pattern,
             actual,
@@ -332,8 +331,8 @@ impl<'a> BodyChecker<'a> {
         &self,
         pattern: InternedTyId,
         actual: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
-        const_substitutions: &mut HashMap<String, nia_ty::ConstGenericArg>,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
     ) -> bool {
         let mut candidate_substitutions = substitutions.clone();
         let mut candidate_const_substitutions = const_substitutions.clone();
@@ -354,7 +353,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         target_ty: InternedTyId,
         receiver_ty: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) -> bool {
         let Some(TyKind::TraitObjectPointee {
             trait_id,
@@ -397,16 +396,15 @@ impl<'a> BodyChecker<'a> {
         ) {
             return false;
         }
-        substitutions.entry("Self".to_string()).or_insert(target_ty);
         true
     }
 
     pub(in crate::calls::methods) fn trait_method_candidates_for_receiver(
         &mut self,
         receiver_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Vec<TraitMethodCandidate> {
-        let debug = std::env::var_os("NIA_DEBUG_FORMAT_METHOD").is_some() && name == "format";
+        let debug = std::env::var_os("NIA_DEBUG_FORMAT_METHOD").is_some() && *name == known::FORMAT;
         let mut candidates = self.assumed_trait_method_candidates_for_receiver(receiver_ty, name);
         if debug {
             eprintln!("  candidates from goals={}", candidates.len());
@@ -428,9 +426,9 @@ impl<'a> BodyChecker<'a> {
     pub(in crate::calls::methods) fn assumed_trait_method_candidates_for_receiver(
         &mut self,
         receiver_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Vec<TraitMethodCandidate> {
-        let debug = std::env::var_os("NIA_DEBUG_FORMAT_METHOD").is_some() && name == "format";
+        let debug = std::env::var_os("NIA_DEBUG_FORMAT_METHOD").is_some() && *name == known::FORMAT;
         let Some(self_ty) = self.trait_receiver_self_ty(receiver_ty) else {
             return Vec::new();
         };
@@ -488,7 +486,7 @@ impl<'a> BodyChecker<'a> {
     pub(in crate::calls::methods) fn trait_method_candidates_for_target(
         &mut self,
         target_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Vec<TraitMethodCandidate> {
         let self_ty = self.import_type_for_method_resolution(target_ty);
         let mut candidates = Vec::new();
@@ -542,7 +540,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         candidates: &mut Vec<TraitMethodCandidate>,
         self_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) {
         for trait_id in self.trait_ids_with_method_named(name) {
             let Some(trait_signature) = self.resolved_trait_signature(trait_id) else {
@@ -565,7 +563,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn trait_ids_with_method_named(&mut self, name: &str) -> Vec<GlobalDefId> {
+    fn trait_ids_with_method_named(&mut self, name: &SymbolId) -> Vec<GlobalDefId> {
         if let Some(trait_ids) = self.traits_by_method_name.get(name) {
             return trait_ids.clone();
         }
@@ -573,14 +571,14 @@ impl<'a> BodyChecker<'a> {
             .program_signature_scope
             .trait_ids_with_method_named(name);
         self.traits_by_method_name
-            .insert(name.to_string(), trait_ids.clone());
+            .insert(name.clone(), trait_ids.clone());
         trait_ids
     }
 
     pub(in crate::calls::methods) fn dynamic_trait_method_candidates_for_receiver(
         &mut self,
         receiver_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Vec<DynamicTraitMethodCandidate> {
         let receiver_ty = self.normalization.normalize(receiver_ty);
         let Some(TyKind::TraitObject {
@@ -643,7 +641,7 @@ impl<'a> BodyChecker<'a> {
         for method in &trait_signature.methods {
             let slot = *search.next_slot;
             *search.next_slot += 1;
-            if method.name != search.name {
+            if &method.name != search.name {
                 continue;
             }
             search.candidates.push(DynamicTraitMethodCandidate {
@@ -715,12 +713,12 @@ impl<'a> BodyChecker<'a> {
         trait_args: Vec<InternedTyId>,
         trait_const_args: Vec<ConstGenericArg>,
         self_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
         trait_signature: &nia_item_signatures::TraitSignature,
         is_assumed: bool,
     ) {
         for method in &trait_signature.methods {
-            if method.name == name {
+            if &method.name == name {
                 let method_id = GlobalDefId {
                     module_id: trait_id.module_id,
                     def_id: method.def_id,
@@ -821,7 +819,7 @@ impl<'a> BodyChecker<'a> {
     pub(in crate::calls) fn single_method_candidate(
         &mut self,
         span: Span,
-        name: &str,
+        name: &SymbolId,
         candidates: &[MethodCandidate],
     ) -> Option<MethodCandidate> {
         let mut selected = None;
@@ -838,6 +836,7 @@ impl<'a> BodyChecker<'a> {
             if count <= 1 {
                 continue;
             }
+            let name = self.symbol_name(*name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
@@ -939,14 +938,14 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn pattern_subsumes(&self, general: InternedTyId, specific: InternedTyId) -> bool {
         let mut checker = self.clone_for_type_compare();
-        checker.pattern_subsumes_inner(general, specific, &mut HashMap::new())
+        checker.pattern_subsumes_inner(general, specific, &mut SymbolMap::new())
     }
 
     fn pattern_subsumes_inner(
         &mut self,
         general: InternedTyId,
         specific: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) -> bool {
         let general = self.normalization.normalize(general);
         let specific = self.normalization.normalize(specific);
@@ -959,6 +958,7 @@ impl<'a> BodyChecker<'a> {
                     true
                 }
             }
+            Some(TyKind::SelfParam) => true,
             Some(TyKind::Primitive(general_primitive)) => matches!(
                 self.interner.get(specific).cloned(),
                 Some(TyKind::Primitive(specific_primitive)) if general_primitive == specific_primitive
@@ -1323,7 +1323,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         context: MethodGenericContext<'_>,
         signature: &FunctionSignature,
-    ) -> Option<HashMap<String, InternedTyId>> {
+    ) -> Option<SymbolMap<InternedTyId>> {
         let mut substitutions = context.target_substitutions.clone();
         let method_arg_count = context.lowered_method_args.len();
         if context.method_args.is_some() && signature.generics.len() != method_arg_count {
@@ -1354,7 +1354,7 @@ impl<'a> BodyChecker<'a> {
     fn extension_method_where_predicates_can_hold(
         &mut self,
         method: &nia_defs::VisibleExtensionMethod,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> bool {
         self.where_predicates_can_hold(&method.where_predicates, substitutions)
     }
@@ -1362,7 +1362,7 @@ impl<'a> BodyChecker<'a> {
     pub(in crate::calls) fn extension_target_instance_args(
         &mut self,
         method_id: GlobalDefId,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> Vec<InternedTyId> {
         let Some(impl_generics) = self.extension_impl_generics_for_method(method_id) else {
             return Vec::new();
@@ -1373,7 +1373,10 @@ impl<'a> BodyChecker<'a> {
             .collect()
     }
 
-    fn extension_impl_generics_for_method(&mut self, method_id: GlobalDefId) -> Option<&[String]> {
+    fn extension_impl_generics_for_method(
+        &mut self,
+        method_id: GlobalDefId,
+    ) -> Option<&[SymbolId]> {
         self.ensure_extension_method_lookup_for_id(method_id)
             .map(|method| method.effective_generics.as_slice())
     }
@@ -1382,9 +1385,9 @@ impl<'a> BodyChecker<'a> {
         &self,
         pattern: InternedTyId,
         actual: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) -> bool {
-        let mut const_substitutions = HashMap::new();
+        let mut const_substitutions = SymbolMap::new();
         self.match_type_pattern_with_consts(
             pattern,
             actual,
@@ -1397,8 +1400,8 @@ impl<'a> BodyChecker<'a> {
         &self,
         pattern: InternedTyId,
         actual: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
-        const_substitutions: &mut HashMap<String, nia_ty::ConstGenericArg>,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
     ) -> bool {
         let pattern = self.normalization.normalize(pattern);
         let actual = self.normalization.normalize(actual);
@@ -1411,6 +1414,7 @@ impl<'a> BodyChecker<'a> {
                     true
                 }
             }
+            Some(TyKind::SelfParam) => true,
             Some(TyKind::BuiltinType(pattern_builtin)) => {
                 matches!(self.interner.get(actual), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == actual_builtin)
             }
@@ -1849,7 +1853,7 @@ impl<'a> BodyChecker<'a> {
         &self,
         pattern: &ArrayLenTy,
         actual: &ArrayLenTy,
-        const_substitutions: &mut HashMap<String, nia_ty::ConstGenericArg>,
+        const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
     ) -> bool {
         if pattern == actual || self.array_lens_match(pattern, actual) {
             return true;
@@ -1871,7 +1875,7 @@ impl<'a> BodyChecker<'a> {
         &self,
         pattern: &nia_ty::ConstGenericArg,
         actual: &nia_ty::ConstGenericArg,
-        const_substitutions: &mut HashMap<String, nia_ty::ConstGenericArg>,
+        const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
     ) -> bool {
         if pattern == actual {
             return true;
@@ -1883,14 +1887,14 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn record_const_pattern_substitution(
-        name: &str,
+        name: &SymbolId,
         arg: nia_ty::ConstGenericArg,
-        const_substitutions: &mut HashMap<String, nia_ty::ConstGenericArg>,
+        const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
     ) -> bool {
         if let Some(existing) = const_substitutions.get(name) {
             existing == &arg
         } else {
-            const_substitutions.insert(name.to_string(), arg);
+            const_substitutions.insert(name.clone(), arg);
             true
         }
     }
@@ -1919,7 +1923,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         args: &[Expr],
         params: &[InternedTyId],
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) {
         let actuals = args
             .iter()
@@ -1950,7 +1954,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         signature: &FunctionSignature,
         extension_where_predicates: &[nia_defs::WherePredicateSignature],
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) {
         let mut changed = true;
         while changed {
@@ -1976,8 +1980,8 @@ impl<'a> BodyChecker<'a> {
 
     pub(in crate::calls) fn single_where_candidate<'b>(
         &mut self,
-        candidates: &'b [HashMap<String, InternedTyId>],
-    ) -> Option<&'b HashMap<String, InternedTyId>> {
+        candidates: &'b [SymbolMap<InternedTyId>],
+    ) -> Option<&'b SymbolMap<InternedTyId>> {
         let first = candidates.first()?;
         if candidates.iter().skip(1).any(|candidate| {
             candidate.len() != first.len()
@@ -1996,16 +2000,17 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         signature: &FunctionSignature,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> bool {
         let mut complete = true;
         for generic in &signature.generics {
             if !substitutions.contains_key(generic) {
                 complete = false;
+                let name = self.symbol_name(*generic);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    format!("cannot infer generic parameter `{generic}`"),
+                    format!("cannot infer generic parameter `{name}`"),
                 ));
             }
         }

@@ -1,3 +1,4 @@
+use nia_symbol::SymbolId;
 use nia_ty::IntConst;
 use std::collections::BTreeMap;
 
@@ -10,7 +11,7 @@ pub enum ComptimeValue {
     Pointer(Box<ComptimeValue>),
     Array(Vec<ComptimeValue>),
     Range(ComptimeRangeValue),
-    Struct(BTreeMap<String, ComptimeValue>),
+    Struct(BTreeMap<SymbolId, ComptimeValue>),
     Optional(Option<Box<ComptimeValue>>),
     ErrorUnion(Result<Box<ComptimeValue>, Box<ComptimeValue>>),
 }

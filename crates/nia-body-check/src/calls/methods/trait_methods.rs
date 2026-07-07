@@ -53,7 +53,6 @@ impl<'a> BodyChecker<'a> {
             &candidate.trait_args,
             &candidate.trait_const_args,
         );
-        substitutions.insert("Self".to_string(), candidate.self_ty);
         if call.type_args.is_some() {
             substitutions.extend(
                 self.generic_substitutions(
@@ -62,10 +61,11 @@ impl<'a> BodyChecker<'a> {
                 ),
             );
         } else if let Some(expected) = call.expected {
-            let return_type = self.substitute_generics_and_consts(
+            let return_type = self.substitute_generics_and_consts_with_self(
                 candidate.signature.return_type,
                 &substitutions,
                 &const_substitutions,
+                candidate.self_ty,
             );
             let expected = self.normalize_projection(expected);
             self.infer_generics_from_type(return_type, expected, &mut substitutions, call.span);
@@ -76,7 +76,12 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .skip(1)
             .map(|param| {
-                self.substitute_generics_and_consts(param.ty, &substitutions, &const_substitutions)
+                self.substitute_generics_and_consts_with_self(
+                    param.ty,
+                    &substitutions,
+                    &const_substitutions,
+                    candidate.self_ty,
+                )
             })
             .collect();
         if call.type_args.is_none() {
@@ -91,10 +96,11 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .skip(1)
                 .map(|param| {
-                    self.substitute_generics_and_consts(
+                    self.substitute_generics_and_consts_with_self(
                         param.ty,
                         &substitutions,
                         &const_substitutions,
+                        candidate.self_ty,
                     )
                 })
                 .collect();
@@ -104,14 +110,18 @@ impl<'a> BodyChecker<'a> {
             .trait_args
             .iter()
             .map(|arg| {
-                self.substitute_generics_and_consts(*arg, &substitutions, &const_substitutions)
+                self.substitute_generics_and_consts_with_self(
+                    *arg,
+                    &substitutions,
+                    &const_substitutions,
+                    candidate.self_ty,
+                )
             })
             .collect::<Vec<_>>();
         if candidate.has_default {
             let default_self_ty = self
                 .trait_receiver_self_ty(call.receiver_ty)
                 .unwrap_or(candidate.self_ty);
-            substitutions.insert("Self".to_string(), default_self_ty);
             for (name, arg) in candidate
                 .trait_generics
                 .iter()
@@ -134,8 +144,9 @@ impl<'a> BodyChecker<'a> {
                     &const_substitutions,
                 )
             {
-                self.record_generic_instantiation_with_const_args(
+                self.record_generic_instantiation_with_self_and_const_args(
                     candidate.method_id,
+                    Some(default_self_ty),
                     &instance_args,
                     &instance_const_args,
                     call.span,
@@ -148,17 +159,18 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::TraitMethod {
                 trait_id: candidate.trait_id,
                 method_id: candidate.method_id,
-                method_name: call.name.to_string(),
+                method_name: call.name.clone(),
                 self_ty: candidate.self_ty,
                 trait_args,
                 args: method_instantiation_args,
                 receiver_kind,
             },
         );
-        let return_type = self.substitute_generics_and_consts(
+        let return_type = self.substitute_generics_and_consts_with_self(
             candidate.signature.return_type,
             &substitutions,
             &const_substitutions,
+            candidate.self_ty,
         );
         let return_type = self.normalize_projection(return_type);
         Some(self.normalize_aliases_in_type(return_type))
@@ -173,10 +185,11 @@ impl<'a> BodyChecker<'a> {
             [candidate] => candidate,
             [] => return None,
             _ => {
+                let name = self.symbol_name(*call.name);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     call.span,
-                    format!("ambiguous dynamic trait method `{}`", call.name),
+                    format!("ambiguous dynamic trait method `{name}`"),
                 ));
                 return Some(self.error());
             }
@@ -220,36 +233,35 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         }
-        let mut substitutions =
+        let substitutions =
             self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
         let const_substitutions = self.trait_const_substitutions_for_trait_id(
             candidate.trait_id,
             &candidate.trait_args,
             &candidate.trait_const_args,
         );
-        substitutions.insert(
-            "Self".to_string(),
-            self.trait_object_self_ty(candidate.object_ty),
-        );
+        let self_ty = self.trait_object_self_ty(candidate.object_ty);
         let params: Vec<InternedTyId> = candidate
             .signature
             .params
             .iter()
             .skip(1)
             .map(|param| {
-                let ty = self.substitute_generics_and_consts(
+                let ty = self.substitute_generics_and_consts_with_self(
                     param.ty,
                     &substitutions,
                     &const_substitutions,
+                    self_ty,
                 );
                 self.normalize_dynamic_trait_object_projection(candidate, ty)
             })
             .collect();
         self.check_direct_call_args(call.span, call.args, &params, false);
-        let return_type = self.substitute_generics_and_consts(
+        let return_type = self.substitute_generics_and_consts_with_self(
             candidate.signature.return_type,
             &substitutions,
             &const_substitutions,
+            self_ty,
         );
         let return_type = self.normalize_dynamic_trait_object_projection(candidate, return_type);
         self.record_resolved_node_call(
@@ -259,7 +271,7 @@ impl<'a> BodyChecker<'a> {
                 object_ty: candidate.object_ty,
                 trait_id: candidate.trait_id,
                 method_id: candidate.method_id,
-                method_name: call.name.to_string(),
+                method_name: call.name.clone(),
                 trait_args: candidate.trait_args.clone(),
                 slot: candidate.slot,
                 params,
@@ -525,7 +537,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::ComptimeOnly
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
-                | TyKind::GenericParam(_),
+                | TyKind::GenericParam(_)
+                | TyKind::SelfParam,
             )
             | None => ty,
         }
@@ -536,7 +549,7 @@ impl<'a> BodyChecker<'a> {
         trait_id: GlobalDefId,
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
-    ) -> std::collections::HashMap<String, ConstGenericArg> {
+    ) -> SymbolMap<ConstGenericArg> {
         self.generic_substitutions_and_consts_for_def(trait_id, trait_args, trait_const_args)
             .1
     }
@@ -546,9 +559,9 @@ impl<'a> BodyChecker<'a> {
         trait_id: TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
-    ) -> std::collections::HashMap<String, ConstGenericArg> {
+    ) -> SymbolMap<ConstGenericArg> {
         let TraitId::Source(trait_id) = trait_id else {
-            return std::collections::HashMap::new();
+            return SymbolMap::new();
         };
         self.generic_substitutions_and_consts_for_def(trait_id, trait_args, trait_const_args)
             .1
@@ -599,11 +612,13 @@ impl<'a> BodyChecker<'a> {
         let filtered = candidates
             .iter()
             .filter(|candidate| {
-                let mut substitutions =
+                let substitutions =
                     self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
-                substitutions.insert("Self".to_string(), candidate.self_ty);
-                let return_type =
-                    self.substitute_generics(candidate.signature.return_type, &substitutions);
+                let return_type = self.substitute_generics_with_self(
+                    candidate.signature.return_type,
+                    &substitutions,
+                    candidate.self_ty,
+                );
                 let return_type = self.normalize_projection(return_type);
                 self.types_match(expected, return_type)
             })
@@ -621,7 +636,7 @@ impl<'a> BodyChecker<'a> {
     fn single_trait_method_candidate(
         &mut self,
         span: Span,
-        name: &str,
+        name: &SymbolId,
         candidates: &[TraitMethodCandidate],
     ) -> Option<TraitMethodCandidate> {
         let mut selected = None;
@@ -640,7 +655,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
-                format!("ambiguous trait method `{name}`"),
+                format!("ambiguous trait method `{}`", self.symbol_name(*name)),
             ));
             return None;
         }

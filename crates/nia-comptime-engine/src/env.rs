@@ -7,6 +7,7 @@ use nia_comptime_ir::{
 };
 use nia_ids::{BuiltinComptime, GlobalDefId, InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
 use nia_span::Span;
+use nia_symbol::{SymbolId, symbol_identity_key};
 use nia_ty::ConstGenericArg;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,8 +86,8 @@ pub trait ComptimeCommonEnv {
         span: Span,
         module_id: ModuleId,
         function_id: Option<GlobalDefId>,
-        substitutions: Vec<(String, InternedTyId)>,
-        const_substitutions: Vec<(String, ConstGenericArg)>,
+        substitutions: Vec<(SymbolId, InternedTyId)>,
+        const_substitutions: Vec<(SymbolId, ConstGenericArg)>,
     ) -> Result<(), ComptimeError> {
         let _ = span;
         let _ = module_id;
@@ -115,7 +116,7 @@ pub trait EarlyComptimeEnv: ComptimeCommonEnv {
         &mut self,
         span: Span,
         type_arg: &EarlyComptimeTypeArg,
-        field: &str,
+        field: &SymbolId,
     ) -> Result<ComptimeValue, ComptimeError> {
         let _ = type_arg;
         let _ = field;
@@ -188,7 +189,7 @@ pub trait EarlyComptimeEnv: ComptimeCommonEnv {
     fn bind_pattern_local(
         &mut self,
         span: Span,
-        name: &str,
+        name: &SymbolId,
         local_id: Option<nia_ids::LocalId>,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
@@ -197,7 +198,10 @@ pub trait EarlyComptimeEnv: ComptimeCommonEnv {
         if local_id.is_none() {
             return Err(ComptimeError {
                 span,
-                message: format!("failed to resolve comptime pattern local `{name}`"),
+                message: format!(
+                    "failed to resolve comptime pattern local `{}`",
+                    symbol_identity_key(*name)
+                ),
             });
         }
         Err(ComptimeError {
@@ -225,7 +229,7 @@ pub trait ResolvedComptimeEnv: ComptimeCommonEnv {
         &mut self,
         span: Span,
         type_arg: &ResolvedComptimeTypeArg,
-        field: &str,
+        field: &SymbolId,
     ) -> Result<ComptimeValue, ComptimeError> {
         let _ = type_arg;
         let _ = field;
@@ -300,7 +304,7 @@ pub trait ResolvedComptimeEnv: ComptimeCommonEnv {
     fn bind_resolved_pattern_local(
         &mut self,
         span: Span,
-        name: &str,
+        name: &SymbolId,
         local_id: nia_ids::LocalId,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
@@ -329,12 +333,13 @@ impl EarlyComptimeEnv for EmptyEnv {
         match name {
             EarlyComptimeName::Unresolved(display) => Err(ComptimeError {
                 span,
-                message: format!("unknown comptime value `{display}`"),
+                message: format!("unknown comptime value `{}`", symbol_identity_key(*display)),
             }),
             EarlyComptimeName::Resolved { display, .. } => Err(ComptimeError {
                 span,
                 message: format!(
-                    "resolved comptime value `{display}` is not available in this context"
+                    "resolved comptime value `{}` is not available in this context",
+                    symbol_identity_key(*display)
                 ),
             }),
         }

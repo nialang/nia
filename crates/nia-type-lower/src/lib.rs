@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use nia_ast::{
     ArrayLen, AssocBindingKey, Expr, ExprKind, FunctionItem, GenericParam, GenericParamKind, Item,
-    ItemKind, Module, TypeArg, TypeKind, TypePathSegment, TypeRef, WhereClause,
+    ItemKind, Module, PathSegmentKind, TypeArg, TypeKind, TypePathSegment, TypeRef, WhereClause,
 };
 use nia_ast_walk::Visitor;
 use nia_defs::DefCollection;
@@ -12,6 +12,10 @@ use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleI
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeSite;
 use nia_span::Span;
+use nia_symbol::{
+    SymbolId, SymbolText, ToSymbolId, known, symbol_identity_key,
+    symbol_text_from_optional_resolver,
+};
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, ConstExprSummary, ConstGenericArg,
     ConstGenericValue, IntConst, LayoutBuiltin, PrimitiveTy, PrimitiveTypeSpelling, RangeTyKind,
@@ -193,6 +197,42 @@ impl std::fmt::Debug for ProgramDefsContext<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct TypeLoweringContext<'a> {
+    pub program_defs: ProgramDefsContext<'a>,
+    pub symbols: Option<&'a dyn SymbolText>,
+}
+
+impl<'a> TypeLoweringContext<'a> {
+    pub fn empty() -> Self {
+        Self {
+            program_defs: ProgramDefsContext::empty(),
+            symbols: None,
+        }
+    }
+
+    pub fn from_program_defs(program_defs: ProgramDefsContext<'a>) -> Self {
+        Self {
+            program_defs,
+            symbols: None,
+        }
+    }
+
+    pub fn with_symbols(mut self, symbols: &'a dyn SymbolText) -> Self {
+        self.symbols = Some(symbols);
+        self
+    }
+}
+
+impl std::fmt::Debug for TypeLoweringContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TypeLoweringContext")
+            .field("program_defs", &self.program_defs)
+            .field("symbols", &self.symbols.is_some())
+            .finish()
+    }
+}
+
 pub fn lower_module_types(module: &Module, resolved: &TypeResolution) -> TypeLowering {
     let item_tree = ModuleItemTree::from_module(module);
     lower_module_types_from_item_tree(ModuleId(0), &item_tree, resolved)
@@ -224,8 +264,22 @@ pub fn lower_module_types_with_defs(
     resolved: &TypeResolution,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeLowering {
+    lower_module_types_with_context(
+        module_id,
+        module,
+        resolved,
+        TypeLoweringContext::from_program_defs(program_defs),
+    )
+}
+
+pub fn lower_module_types_with_context(
+    module_id: ModuleId,
+    module: &Module,
+    resolved: &TypeResolution,
+    context: TypeLoweringContext<'_>,
+) -> TypeLowering {
     let item_tree = ModuleItemTree::from_module(module);
-    lower_module_types_from_item_tree_with_defs(module_id, &item_tree, resolved, program_defs)
+    lower_module_types_from_item_tree_with_context(module_id, &item_tree, resolved, context)
 }
 
 pub fn lower_module_types_from_item_tree(
@@ -247,11 +301,25 @@ pub fn lower_module_types_from_active_item_tree(
     resolved: &TypeResolution,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeLowering {
+    lower_module_types_from_active_item_tree_with_context(
+        module_id,
+        item_tree,
+        resolved,
+        TypeLoweringContext::from_program_defs(program_defs),
+    )
+}
+
+pub fn lower_module_types_from_active_item_tree_with_context(
+    module_id: ModuleId,
+    item_tree: &ActiveModuleItemTree,
+    resolved: &TypeResolution,
+    context: TypeLoweringContext<'_>,
+) -> TypeLowering {
     lower_module_types_from_items(
         module_id,
         &item_tree.items,
         resolved,
-        program_defs,
+        context,
         TypeLowerMode::All,
     )
 }
@@ -262,11 +330,25 @@ pub fn lower_module_declaration_types_from_active_item_tree(
     resolved: &TypeResolution,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeLowering {
+    lower_module_declaration_types_from_active_item_tree_with_context(
+        module_id,
+        item_tree,
+        resolved,
+        TypeLoweringContext::from_program_defs(program_defs),
+    )
+}
+
+pub fn lower_module_declaration_types_from_active_item_tree_with_context(
+    module_id: ModuleId,
+    item_tree: &ActiveModuleItemTree,
+    resolved: &TypeResolution,
+    context: TypeLoweringContext<'_>,
+) -> TypeLowering {
     lower_module_types_from_items(
         module_id,
         &item_tree.items,
         resolved,
-        program_defs,
+        context,
         TypeLowerMode::Declarations,
     )
 }
@@ -277,11 +359,25 @@ pub fn lower_module_types_from_item_tree_with_defs(
     resolved: &TypeResolution,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeLowering {
+    lower_module_types_from_item_tree_with_context(
+        module_id,
+        item_tree,
+        resolved,
+        TypeLoweringContext::from_program_defs(program_defs),
+    )
+}
+
+pub fn lower_module_types_from_item_tree_with_context(
+    module_id: ModuleId,
+    item_tree: &ModuleItemTree,
+    resolved: &TypeResolution,
+    context: TypeLoweringContext<'_>,
+) -> TypeLowering {
     lower_module_types_from_items(
         module_id,
         &item_tree.items,
         resolved,
-        program_defs,
+        context,
         TypeLowerMode::All,
     )
 }
@@ -290,13 +386,14 @@ fn lower_module_types_from_items(
     module_id: ModuleId,
     items: &[ItemTreeNode],
     resolved: &TypeResolution,
-    program_defs: ProgramDefsContext<'_>,
+    context: TypeLoweringContext<'_>,
     mode: TypeLowerMode,
 ) -> TypeLowering {
     let mut lowerer = TypeLowerer {
         module_id,
         resolved,
-        program_defs,
+        program_defs: context.program_defs,
+        symbols: context.symbols,
         defs_cache: HashMap::new(),
         interner: TyInterner::new(module_id),
         type_uses: HashMap::new(),
@@ -331,6 +428,7 @@ struct TypeLowerer<'a> {
     module_id: ModuleId,
     resolved: &'a TypeResolution,
     program_defs: ProgramDefsContext<'a>,
+    symbols: Option<&'a dyn SymbolText>,
     defs_cache: HashMap<ModuleId, Option<DefCollection>>,
     interner: TyInterner,
     type_uses: HashMap<NodeSite, InternedTyId>,
@@ -350,7 +448,7 @@ struct AssociatedTypeScope {
     trait_id: TraitId,
     trait_args: Vec<InternedTyId>,
     trait_const_args: Vec<ConstGenericArg>,
-    names: Vec<String>,
+    names: Vec<SymbolId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -394,9 +492,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
             }
             ItemKind::Trait(item_trait) => {
                 self.with_generics(&item_trait.generics, |lowerer| {
-                    let self_ty = lowerer
-                        .interner
-                        .intern(TyKind::GenericParam("Self".to_string()));
+                    let self_ty = lowerer.interner.intern(TyKind::SelfParam);
                     lowerer.with_self_type(self_ty, |lowerer| {
                         if let Some(trait_id) = lowerer.local_trait_id(&item.node_key) {
                             let trait_args = item_trait
@@ -637,9 +733,7 @@ impl TypeLowerer<'_> {
             }
             ItemTreeNodeKind::Trait(item_trait) => {
                 self.with_generics(&item_trait.generics, |lowerer| {
-                    let self_ty = lowerer
-                        .interner
-                        .intern(TyKind::GenericParam("Self".to_string()));
+                    let self_ty = lowerer.interner.intern(TyKind::SelfParam);
                     lowerer.with_self_type(self_ty, |lowerer| {
                         if let Some(trait_id) = lowerer.local_trait_id(&item.node_key) {
                             let trait_args = item_trait
@@ -922,11 +1016,17 @@ impl<'a> TypeLowerer<'a> {
                             trait_id,
                             context,
                         ),
-                    Some(TypeNameResolution::GenericParam) => self
-                        .interner
-                        .intern(TyKind::GenericParam(first.name.clone())),
+                    Some(TypeNameResolution::GenericParam) => {
+                        let Some(name) = type_path_segment_name(first) else {
+                            return self.interner.error();
+                        };
+                        self.interner.intern(TyKind::GenericParam(*name))
+                    }
                     Some(TypeNameResolution::AssociatedType) => {
-                        self.lower_scoped_associated_type(ty.span, &first.name, type_segment)
+                        let Some(name) = type_path_segment_name(first) else {
+                            return self.interner.error();
+                        };
+                        self.lower_scoped_associated_type(ty.span, name, type_segment)
                     }
                     Some(TypeNameResolution::Def(def_id)) => {
                         let def_id = self
@@ -963,6 +1063,7 @@ impl<'a> TypeLowerer<'a> {
                     return self.interner.error();
                 };
                 if !self.trait_id_has_associated_type(trait_id, name) {
+                    let name = self.symbol_name(*name);
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_NORMALIZATION,
                         ty.span,
@@ -1166,6 +1267,7 @@ impl<'a> TypeLowerer<'a> {
                                 &[],
                                 &[],
                             )) {
+                                let name = self.symbol_name(*name);
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::TYPE_NORMALIZATION,
                                     *span,
@@ -1173,6 +1275,7 @@ impl<'a> TypeLowerer<'a> {
                                 ));
                             }
                             if !self.trait_has_associated_type(def_id, name) {
+                                let name = self.symbol_name(*name);
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::TYPE_NORMALIZATION,
                                     *span,
@@ -1440,6 +1543,7 @@ impl<'a> TypeLowerer<'a> {
                         &binding_trait_const_args,
                     );
                     if !seen_assoc_bindings.insert(seen_key) {
+                        let name = self.symbol_name(*name);
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_NORMALIZATION,
                             *span,
@@ -1448,6 +1552,7 @@ impl<'a> TypeLowerer<'a> {
                     }
                     let effective_trait = binding_trait_id.unwrap_or(trait_id);
                     if !self.trait_id_has_associated_type(effective_trait, name) {
+                        let name = self.symbol_name(*name);
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_NORMALIZATION,
                             *span,
@@ -1460,7 +1565,7 @@ impl<'a> TypeLowerer<'a> {
                             trait_id: binding_trait_id,
                             trait_args: binding_trait_args,
                             trait_const_args: binding_trait_const_args,
-                            name: name.to_string(),
+                            name: name.clone(),
                             ty: binding_ty,
                         });
                 }
@@ -1474,13 +1579,13 @@ impl<'a> TypeLowerer<'a> {
         key: &'b AssocBindingKey,
         target_trait: Option<TraitId>,
     ) -> Option<(
-        &'b str,
+        &'b SymbolId,
         Option<TraitId>,
         Vec<InternedTyId>,
         Vec<ConstGenericArg>,
     )> {
         match key {
-            AssocBindingKey::Name(name) => Some((name.as_str(), None, Vec::new(), Vec::new())),
+            AssocBindingKey::Name(name) => Some((name, None, Vec::new(), Vec::new())),
             AssocBindingKey::Projection(projection) => {
                 let TypeKind::Projection {
                     ty,
@@ -1491,7 +1596,7 @@ impl<'a> TypeLowerer<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_NORMALIZATION,
                         projection.span,
-                        "associated type binding projection key must be `[Self as Trait]::Name`",
+                        "associated type binding projection key must be `[Self as Trait]::SymbolId`",
                     ));
                     return None;
                 };
@@ -1534,21 +1639,24 @@ impl<'a> TypeLowerer<'a> {
                 if let Some(target_trait) = target_trait
                     && trait_id == target_trait
                 {
-                    return Some((name.as_str(), None, trait_args, trait_const_args));
+                    return Some((name, None, trait_args, trait_const_args));
                 }
-                Some((name.as_str(), Some(trait_id), trait_args, trait_const_args))
+                Some((name, Some(trait_id), trait_args, trait_const_args))
             }
         }
     }
 
     fn assoc_binding_seen_key(
         &self,
-        name: &str,
+        name: &SymbolId,
         trait_id: Option<TraitId>,
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
     ) -> String {
-        format!("{trait_id:?}:{trait_args:?}:{trait_const_args:?}:{name}")
+        format!(
+            "{trait_id:?}:{trait_args:?}:{trait_const_args:?}:{}",
+            symbol_identity_key(*name)
+        )
     }
 
     fn lower_builtin_trait_or_extend_target_type(
@@ -1626,6 +1734,7 @@ impl<'a> TypeLowerer<'a> {
                             &binding_trait_const_args,
                         );
                         if !seen_assoc_bindings.insert(seen_key) {
+                            let name = self.symbol_name(*name);
                             self.diagnostics.push(Diagnostic::user_error_at(
                                 codes::TYPE_NORMALIZATION,
                                 *span,
@@ -1634,14 +1743,15 @@ impl<'a> TypeLowerer<'a> {
                         }
                         let valid = match binding_trait_id {
                             Some(TraitId::Builtin(binding_trait)) => {
-                                binding_trait.has_associated_type(name)
+                                builtin_trait_has_associated_type(binding_trait, name)
                             }
                             Some(TraitId::Source(def_id)) => {
                                 self.trait_has_associated_type(def_id, name)
                             }
-                            None => trait_id.has_associated_type(name),
+                            None => builtin_trait_has_associated_type(trait_id, name),
                         };
                         if !valid {
+                            let name = self.symbol_name(*name);
                             self.diagnostics.push(Diagnostic::user_error_at(
                                 codes::TYPE_NORMALIZATION,
                                 *span,
@@ -1698,7 +1808,7 @@ impl<'a> TypeLowerer<'a> {
             == Some(nia_defs::DefKind::Trait)
     }
 
-    fn trait_has_associated_type(&mut self, trait_id: GlobalDefId, name: &str) -> bool {
+    fn trait_has_associated_type(&mut self, trait_id: GlobalDefId, name: &SymbolId) -> bool {
         let Some(defs) = self.defs_for_module(trait_id.module_id) else {
             return true;
         };
@@ -1712,10 +1822,10 @@ impl<'a> TypeLowerer<'a> {
         })
     }
 
-    fn trait_id_has_associated_type(&mut self, trait_id: TraitId, name: &str) -> bool {
+    fn trait_id_has_associated_type(&mut self, trait_id: TraitId, name: &SymbolId) -> bool {
         match trait_id {
             TraitId::Source(def_id) => self.trait_has_associated_type(def_id, name),
-            TraitId::Builtin(trait_id) => trait_id.has_associated_type(name),
+            TraitId::Builtin(trait_id) => builtin_trait_has_associated_type(trait_id, name),
         }
     }
 
@@ -1727,8 +1837,9 @@ impl<'a> TypeLowerer<'a> {
             return;
         };
         let expected = def.generics.len();
-        let name = def.name.clone();
+        let name = def.name;
         if expected != actual {
+            let name = self.symbol_name(name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_NORMALIZATION,
                 span,
@@ -1752,14 +1863,9 @@ impl<'a> TypeLowerer<'a> {
             return None;
         };
         if segments.len() == 1 && segments[0].args.is_empty() {
-            let name = &segments[0].name;
+            let name = type_path_segment_name(&segments[0])?;
             if self.is_comptime_generic_param(name) {
-                return Some(ConstGenericValue::GenericParam(name.clone()));
-            }
-            match name.as_str() {
-                "true" => return Some(ConstGenericValue::Bool(true)),
-                "false" => return Some(ConstGenericValue::Bool(false)),
-                _ => {}
+                return Some(ConstGenericValue::GenericParam(*name));
             }
         }
         None
@@ -1785,12 +1891,7 @@ impl<'a> TypeLowerer<'a> {
     fn lower_const_generic_value_from_expr(&mut self, expr: &Expr) -> Option<ConstGenericValue> {
         if let ExprKind::Ident(name) = &expr.kind {
             if self.is_comptime_generic_param(name) {
-                return Some(ConstGenericValue::GenericParam(name.clone()));
-            }
-            match name.as_str() {
-                "true" => return Some(ConstGenericValue::Bool(true)),
-                "false" => return Some(ConstGenericValue::Bool(false)),
-                _ => {}
+                return Some(ConstGenericValue::GenericParam(*name));
             }
         }
         if let ExprKind::Bool(value) = &expr.kind {
@@ -1829,10 +1930,10 @@ impl<'a> TypeLowerer<'a> {
         self.generic_stack.pop();
     }
 
-    fn is_comptime_generic_param(&self, name: &str) -> bool {
+    fn is_comptime_generic_param(&self, name: &SymbolId) -> bool {
         self.generic_stack.iter().rev().any(|generics| {
             generics.iter().any(|generic| {
-                generic.name == name && matches!(generic.kind, GenericParamKind::Comptime { .. })
+                &generic.name == name && matches!(generic.kind, GenericParamKind::Comptime { .. })
             })
         })
     }
@@ -1856,7 +1957,7 @@ impl<'a> TypeLowerer<'a> {
     fn lower_scoped_associated_type(
         &mut self,
         span: Span,
-        name: &str,
+        name: &SymbolId,
         segment: &TypePathSegment,
     ) -> InternedTyId {
         if !segment.args.is_empty() {
@@ -1874,6 +1975,7 @@ impl<'a> TypeLowerer<'a> {
             .find(|scope| scope.names.iter().any(|associated| associated == name))
             .cloned()
         else {
+            let name = self.symbol_name(*name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_NORMALIZATION,
                 span,
@@ -1886,8 +1988,12 @@ impl<'a> TypeLowerer<'a> {
             trait_id: scope.trait_id,
             trait_args: scope.trait_args,
             trait_const_args: scope.trait_const_args,
-            name: name.to_string(),
+            name: name.clone(),
         })
+    }
+
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_from_optional_resolver(self.symbols, symbol)
     }
 
     fn local_trait_id(&mut self, node_key: &nia_node_id::VersionedNodeKey) -> Option<GlobalDefId> {
@@ -1919,7 +2025,7 @@ impl<'a> TypeLowerer<'a> {
         })
     }
 
-    fn source_trait_associated_type_names(&mut self, trait_id: GlobalDefId) -> Vec<String> {
+    fn source_trait_associated_type_names(&mut self, trait_id: GlobalDefId) -> Vec<SymbolId> {
         let Some(defs) = self.defs_for_module(trait_id.module_id) else {
             return Vec::new();
         };
@@ -2055,6 +2161,28 @@ fn type_name_segment(segments: &[TypePathSegment]) -> Option<&TypePathSegment> {
     segments.last()
 }
 
+fn type_path_segment_name(segment: &TypePathSegment) -> Option<&SymbolId> {
+    match &segment.kind {
+        PathSegmentKind::Name(name) => Some(name),
+        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+    }
+}
+
+fn builtin_trait_has_associated_type(trait_id: BuiltinTrait, name: &SymbolId) -> bool {
+    trait_id
+        .associated_types()
+        .iter()
+        .any(|associated_type| associated_type.symbol_id() == *name)
+}
+
+fn layout_builtin_for_symbol(name: SymbolId) -> Option<LayoutBuiltin> {
+    match name {
+        known::SIZE => Some(LayoutBuiltin::Size),
+        known::ALIGN => Some(LayoutBuiltin::Align),
+        _ => None,
+    }
+}
+
 impl TypeLowerer<'_> {
     fn lower_primitive_type(&mut self, primitive: PrimitiveTypeSpelling) -> InternedTyId {
         match primitive {
@@ -2098,8 +2226,8 @@ fn layout_builtin_type_arg(expr: &Expr) -> Option<(LayoutBuiltin, &TypeRef)> {
     let ExprKind::Ident(root) = &std_expr.kind else {
         return None;
     };
-    if root == "std" && builtin_segment == "builtin" {
-        LayoutBuiltin::from_name(name).map(|builtin| (builtin, type_arg))
+    if *root == known::std() && *builtin_segment == known::builtin() {
+        layout_builtin_for_symbol(*name).map(|builtin| (builtin, type_arg))
     } else {
         None
     }
@@ -2127,18 +2255,25 @@ fn expr_from_type_path(
 ) -> Option<Expr> {
     let mut iter = segments.iter();
     let first = iter.next()?;
+    let first_kind = match first.kind {
+        PathSegmentKind::Name(name) => ExprKind::Ident(name),
+        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => {
+            ExprKind::PathRoot(first.kind)
+        }
+    };
     let mut expr = Expr {
         span,
         node_key: node_key.clone(),
-        kind: ExprKind::Ident(first.name.clone()),
+        kind: first_kind,
     };
     for segment in iter {
+        let name = *type_path_segment_name(segment)?;
         expr = Expr {
             span,
             node_key: node_key.clone(),
             kind: ExprKind::Qualified {
                 lhs: Box::new(expr),
-                name: segment.name.clone(),
+                name,
             },
         };
     }
@@ -2157,12 +2292,17 @@ mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
     use nia_item_tree::ModuleItemTree;
-    use nia_parser::parse_module;
+    use nia_parser::{parse_module, parse_module_with_symbols};
+    use nia_symbol_table::SymbolTable;
     use nia_type_resolve::{
         ProgramDefsContext as TypeResolveProgramDefsContext, resolve_module_types,
         resolve_module_types_from_active_item_tree,
     };
     use std::collections::HashMap;
+
+    fn sym(text: &str) -> SymbolId {
+        SymbolId::from_stable_hash(nia_symbol::stable_hash(text))
+    }
 
     #[test]
     fn lowers_primitive_pointer_array_function_and_nominal_types() {
@@ -2248,7 +2388,7 @@ fn use_buffer(buf: Buffer[u8, 4]) void {}
                 TyKind::Array {
                     len: ArrayLenTy::GenericParam(name),
                     ..
-                } if name == "N"
+                } if *name == sym("N")
             )
         }));
         assert!(lowered.interner.iter().any(|(_, ty)| {
@@ -2309,7 +2449,7 @@ extend Sink : Writer {
             .filter(|ty_id| {
                 matches!(
                     lowered.interner.get(**ty_id),
-                    Some(TyKind::Projection { name, .. }) if name == "Error"
+                    Some(TyKind::Projection { name, .. }) if *name == sym("Error")
                 )
             })
             .count();
@@ -2517,7 +2657,8 @@ fn write(source: &mut Source[i32, Item = i32]) void {}
 
     #[test]
     fn validates_trait_object_associated_type_bindings() {
-        let (module, errors) = parse_module(
+        let symbols = SymbolTable::new();
+        let (module, errors) = parse_module_with_symbols(
             r#"
 trait Source {
     type Item;
@@ -2526,6 +2667,7 @@ trait Source {
 fn unknown(source: &Source[Missing = i32]) void {}
 fn duplicate(source: &Source[Item = i32, Item = bool]) void {}
 "#,
+            symbols.clone(),
         );
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
@@ -2537,13 +2679,14 @@ fn duplicate(source: &Source[Item = i32, Item = bool]) void {}
         );
         let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
         let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
-        let lowered = lower_module_types_with_defs(
+        let lowered = lower_module_types_with_context(
             ModuleId(0),
             &module,
             &resolved,
-            ProgramDefsContext {
+            TypeLoweringContext::from_program_defs(ProgramDefsContext {
                 defs: Some(&program_defs_by_module),
-            },
+            })
+            .with_symbols(&symbols),
         );
         assert!(
             lowered.diagnostics.iter().any(|diagnostic| diagnostic

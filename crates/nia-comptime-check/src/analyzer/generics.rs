@@ -7,7 +7,7 @@ impl Analyzer<'_> {
         target_module_id: ModuleId,
         pattern_ty: InternedTyId,
         actual_ty: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) -> Result<(), ComptimeError> {
         let pattern_kind = self.active_ty_kind(pattern_ty);
         match pattern_kind {
@@ -15,6 +15,7 @@ impl Analyzer<'_> {
                 let imported = self.import_ty_into_module(actual_ty, target_module_id)?;
                 if let Some(existing) = substitutions.get(&name) {
                     if *existing != imported {
+                        let name = self.symbol_name(name);
                         return Err(ComptimeError {
                             span,
                             message: format!(
@@ -26,6 +27,7 @@ impl Analyzer<'_> {
                     substitutions.insert(name, imported);
                 }
             }
+            TyKind::SelfParam => {}
             TyKind::Pointer { is_readonly, elem } => {
                 if let Some(TyKind::Pointer {
                     is_readonly: actual_readonly,

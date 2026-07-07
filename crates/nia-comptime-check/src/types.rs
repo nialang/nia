@@ -13,6 +13,8 @@ use nia_item_tree::ActiveModuleItemTree;
 use nia_local_resolve::LocalResolution;
 use nia_sema_ir::SemanticUseTable;
 use nia_source::SourcePath;
+use nia_symbol::SymbolId;
+use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
 use nia_ty::{TyInterner, import_type_into};
 use nia_type_lower::TypeLowering;
@@ -80,7 +82,7 @@ pub enum ComptimeValueType {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComptimeValueFieldType {
-    pub name: String,
+    pub name: SymbolId,
     pub ty: ComptimeValueType,
 }
 
@@ -98,13 +100,13 @@ impl ComptimeValueType {
         }
     }
 
-    pub fn structural_field(&self, name: &str) -> Option<&ComptimeValueType> {
+    pub fn structural_field(&self, name: &SymbolId) -> Option<&ComptimeValueType> {
         let Self::Struct(fields) = self else {
             return None;
         };
         fields
             .iter()
-            .find(|field| field.name == name)
+            .find(|field| &field.name == name)
             .map(|field| &field.ty)
     }
 
@@ -177,6 +179,7 @@ pub struct ComptimeInput<'a> {
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub semantic_uses: &'a SemanticUseTable,
+    pub symbols: &'a SymbolTable,
     pub lowered: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub interner: &'a TyInterner,
@@ -200,6 +203,7 @@ pub struct ComptimeModuleInput<'a> {
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub semantic_uses: &'a SemanticUseTable,
+    pub symbols: &'a SymbolTable,
     pub const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
     pub source_path: &'a SourcePath,
 }

@@ -1,6 +1,16 @@
 use super::ty_substitution::substitute_ty_generics_in_interner;
 use super::*;
 
+fn builtin_trait_has_associated_comptime_symbol(
+    trait_id: nia_ty::BuiltinTrait,
+    name: SymbolId,
+) -> bool {
+    matches!(
+        (trait_id, name),
+        (nia_ty::BuiltinTrait::Simd, nia_symbol::known::LANES)
+    )
+}
+
 impl Analyzer<'_> {
     pub(super) fn normalize_projection(&mut self, ty: InternedTyId) -> InternedTyId {
         self.normalize_projection_inner(ty, &mut HashSet::new())
@@ -14,7 +24,7 @@ impl Analyzer<'_> {
             TraitId,
             Vec<InternedTyId>,
             Vec<nia_ty::ConstGenericArg>,
-            String,
+            SymbolId,
         )>,
     ) -> InternedTyId {
         let ty = self.normalized_ty(ty);
@@ -163,7 +173,7 @@ impl Analyzer<'_> {
         trait_id: TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[nia_ty::ConstGenericArg],
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         let module_id = self.ensure_trait_solver_module(self_ty, trait_args)?;
         let assumptions = self.current_trait_goals();
@@ -301,9 +311,10 @@ impl Analyzer<'_> {
         projection: &AssociatedComptimeProjection,
     ) -> Option<InternedTyId> {
         match projection.trait_id {
-            TraitId::Builtin(trait_id) => trait_id
-                .has_associated_comptime(&projection.name)
-                .then(|| self.primitive_ty_for_current_module(PrimitiveTy::Usize)),
+            TraitId::Builtin(trait_id) => {
+                builtin_trait_has_associated_comptime_symbol(trait_id, projection.name)
+                    .then(|| self.primitive_ty_for_current_module(PrimitiveTy::Usize))
+            }
             TraitId::Source(trait_def_id) => {
                 let signature = self.signatures_for_module(trait_def_id.module_id)?;
                 let associated_value = signature
@@ -320,12 +331,7 @@ impl Analyzer<'_> {
         }
     }
 
-    fn current_substitution_maps(
-        &self,
-    ) -> (
-        HashMap<String, InternedTyId>,
-        HashMap<String, ConstGenericArg>,
-    ) {
+    fn current_substitution_maps(&self) -> (SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>) {
         let mut type_substitutions = HashMap::new();
         let mut const_substitutions = HashMap::new();
         for frame in &self.call_locals {
@@ -389,8 +395,8 @@ impl Analyzer<'_> {
     pub(super) fn trait_goals_from_where_predicates(
         &mut self,
         predicates: &[WherePredicateSignature],
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Vec<TraitGoal> {
         let mut goals = Vec::new();
         for predicate in predicates {
@@ -425,7 +431,7 @@ impl Analyzer<'_> {
     pub(super) fn substitute_ty_generics_from_map(
         &mut self,
         ty: InternedTyId,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> InternedTyId {
         let module_id = self.type_owner(ty).module_id();
         if self.ensure_working_interner(module_id).is_none() {
@@ -441,8 +447,8 @@ impl Analyzer<'_> {
     pub(super) fn substitute_const_generic_arg_from_maps(
         &mut self,
         mut arg: ConstGenericArg,
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> ConstGenericArg {
         arg.ty = self.substitute_ty_generics_from_map(arg.ty, substitutions);
         if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value

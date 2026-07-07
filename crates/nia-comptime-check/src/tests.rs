@@ -8,15 +8,21 @@ use nia_ids::GlobalDefId;
 use nia_item_signatures::collect_item_signatures;
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::{LocalResolution, resolve_module_locals};
-use nia_parser::parse_module;
+use nia_parser::parse_module_with_symbols;
 use nia_sema_ir::SemanticUseTable;
 use nia_source::SourcePath;
 use nia_span::Span;
+use nia_symbol::{SymbolId, stable_hash};
+use nia_symbol_table::SymbolTable;
 use nia_ty::{PrimitiveTy, TyKind};
 use nia_type_lower::{TypeLowering, lower_module_types_with_id};
-use nia_type_resolve::resolve_module_types;
+use nia_type_resolve::resolve_module_types_with_symbols;
 use nia_value_resolve::resolve_module_values;
 use std::collections::HashMap;
+
+fn sym(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(stable_hash(text))
+}
 
 struct CheckedFixture {
     defs: DefCollection,
@@ -27,10 +33,11 @@ struct CheckedFixture {
 }
 
 fn check_source(source: &str) -> CheckedFixture {
-    let (module, errors) = parse_module(source);
+    let symbols = SymbolTable::new();
+    let (module, errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
-    let type_names = resolve_module_types(&module, &defs);
+    let type_names = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let lowered = lower_module_types_with_id(ModuleId(0), &module, &type_names);
     let signatures = collect_item_signatures(&module, &defs, &lowered);
     let values = resolve_module_values(&module, &defs);
@@ -51,6 +58,7 @@ fn check_source(source: &str) -> CheckedFixture {
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        symbols: &symbols,
         const_exprs: &lowered.const_exprs,
         source_path: &source_path,
     });
@@ -60,6 +68,7 @@ fn check_source(source: &str) -> CheckedFixture {
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        symbols: &symbols,
         lowered: &lowered,
         signatures: &signatures,
         interner: &lowered.interner,
@@ -154,7 +163,7 @@ xs[0]
         .defs
         .module_scope
         .values
-        .get("width")
+        .get(&sym("width"))
         .expect("width def");
     let width = fixture
         .checked
@@ -201,7 +210,7 @@ comptime OFF: usize = std::builtin::offset[Pair]("b");
         .defs
         .module_scope
         .values
-        .get("OFF")
+        .get(&sym("OFF"))
         .expect("OFF def");
     let typed = fixture
         .checked
@@ -257,24 +266,26 @@ fail = 2,
 
 #[test]
 fn semantic_comptime_lowering_requires_resolved_function_locals() {
-    let (module, errors) = parse_module(
+    let symbols = SymbolTable::new();
+    let (module, errors) = parse_module_with_symbols(
         r#"
 comptime fn add_one(x: usize) usize {
 let y = x + 1;
 y
 }
 "#,
+        symbols.clone(),
     );
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
-    let type_names = resolve_module_types(&module, &defs);
+    let type_names = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let lowered = lower_module_types_with_id(ModuleId(0), &module, &type_names);
     let signatures = collect_item_signatures(&module, &defs, &lowered);
     let values = resolve_module_values(&module, &defs);
     let mut locals = resolve_module_locals(&module, &defs, &values);
     let removed_key = locals.node_local_defs.iter().find_map(|(key, local_id)| {
         let local = locals.locals.get(*local_id)?;
-        (local.name == "y").then_some(key.clone())
+        (local.name.symbol() == Some(sym("y"))).then_some(key.clone())
     });
     let removed_key = removed_key.expect("local y node key");
     locals.node_local_defs.remove(&removed_key);
@@ -291,7 +302,7 @@ y
                     return None;
                 };
                 match &binding.pattern.kind {
-                    nia_ast::PatternKind::Bind { name, .. } if name == "y" => {
+                    nia_ast::PatternKind::Bind { name, .. } if *name == sym("y") => {
                         Some(binding.pattern.span)
                     }
                     _ => None,
@@ -315,6 +326,7 @@ y
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        symbols: &symbols,
         const_exprs: &lowered.const_exprs,
         source_path: &source_path,
     });

@@ -15,6 +15,7 @@ mod literals;
 mod places;
 mod projection_obligations;
 mod static_init;
+mod symbols;
 mod trait_objects;
 mod type_support;
 
@@ -46,6 +47,7 @@ use nia_item_signatures::{
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
+use nia_mangle::mangle_symbol_id;
 use nia_node_id::{NodeOriginTable, VersionedNodeKey};
 use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
 use nia_sema_ir::{
@@ -55,6 +57,8 @@ use nia_sema_ir::{
 };
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap, known};
+use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
 use nia_ty::{ConstGenericArg, PrimitiveTy, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
@@ -299,7 +303,7 @@ pub struct BodyProgramContext<'a> {
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
     pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<VisibleExtensionMethods>>,
     pub extension_method_by_id: Option<&'a dyn Fn(GlobalDefId) -> Option<ExtensionMethod>>,
-    pub extension_methods_named: Option<&'a dyn Fn(&str) -> Vec<ExtensionMethod>>,
+    pub extension_methods_named: Option<&'a dyn Fn(&SymbolId) -> Vec<ExtensionMethod>>,
 }
 
 impl<'a> BodyProgramContext<'a> {
@@ -358,6 +362,7 @@ impl fmt::Debug for BodyProgramContext<'_> {
 pub struct BodyCheckInput<'a> {
     pub source_version: Option<SourceVersion>,
     pub source_path: &'a SourcePath,
+    pub symbols: &'a SymbolTable,
     pub origins: &'a NodeOriginTable,
     pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
@@ -416,6 +421,7 @@ impl<'a> BodyLocalSignatures<'a> {
 pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub source_version: Option<SourceVersion>,
     pub source_path: &'a SourcePath,
+    pub symbols: &'a SymbolTable,
     pub origins: &'a NodeOriginTable,
     pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
@@ -480,6 +486,7 @@ pub fn check_module_bodies(
     };
     let target = TargetConfig::host();
     let source_path = SourcePath::new("main.nia");
+    let symbols = SymbolTable::new();
     let item_tree = ModuleItemTree::from_module(module);
     let active_item_tree = ActiveModuleItemTree::new(
         item_tree.active_items_without_comptime(),
@@ -495,6 +502,7 @@ pub fn check_module_bodies(
     let input = BodyCheckInput {
         source_version: None,
         source_path: &source_path,
+        symbols: &symbols,
         origins: &NodeOriginTable::default(),
         active_item_tree: &active_item_tree,
         defs,
@@ -545,6 +553,7 @@ pub fn check_module_bodies_with_program_signatures(
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         source_version: input.source_version,
         source_path: input.source_path,
+        symbols: input.symbols,
         origins: input.origins,
         active_item_tree: input.active_item_tree,
         defs: input.defs,
@@ -711,6 +720,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         program_comptime_array_lengths: input.program_comptime.array_lengths,
         program_comptime_module: input.program_comptime.module,
         source_path: input.source_path,
+        symbols: input.symbols,
         extension_methods_by_id,
         extension_method_lookup_cache: HashMap::new(),
         callable_extension_methods_by_name: HashMap::new(),
@@ -808,7 +818,7 @@ fn time_body_stage_if_slow<T>(
     enabled: bool,
     name: &str,
     module_id: ModuleId,
-    detail: &str,
+    detail: impl fmt::Display,
     threshold_seconds: f64,
     f: impl FnOnce() -> T,
 ) -> T {
@@ -847,9 +857,10 @@ struct BodyChecker<'a> {
     program_comptime_array_lengths: &'a dyn Fn(ModuleId) -> Option<ComptimeArrayLengths>,
     program_comptime_module: &'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>,
     source_path: &'a SourcePath,
+    symbols: &'a SymbolTable,
     extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,
     extension_method_lookup_cache: HashMap<GlobalDefId, ExtensionMethodLookup>,
-    callable_extension_methods_by_name: HashMap<String, CallableExtensionMethods>,
+    callable_extension_methods_by_name: SymbolMap<CallableExtensionMethods>,
     node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
     node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
     node_pointer_array_to_slice_coercions: HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
@@ -869,7 +880,7 @@ struct BodyChecker<'a> {
     global_types: HashMap<DefId, InternedTyId>,
     comptime_types: HashMap<DefId, InternedTyId>,
     method_receiver_kinds: HashMap<GlobalDefId, Option<ReceiverKind>>,
-    traits_by_method_name: HashMap<String, Vec<GlobalDefId>>,
+    traits_by_method_name: SymbolMap<Vec<GlobalDefId>>,
     trait_impls_by_trait: HashMap<nia_ty::TraitId, Vec<usize>>,
     def_trait_obligations_cache: HashMap<DefId, Vec<TraitObligation>>,
     trait_obligation_resolution_cache:
@@ -982,7 +993,7 @@ impl<'a> ProgramSignatureScope<'a> {
         }
     }
 
-    fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId> {
+    fn trait_ids_with_method_named(&self, name: &SymbolId) -> Vec<GlobalDefId> {
         match self {
             ProgramSignatureScope::LocalModule => Vec::new(),
             ProgramSignatureScope::Program(program) => program.trait_ids_with_method_named(name),
@@ -1010,7 +1021,7 @@ impl<'a> BodyChecker<'a> {
 struct ExtensionMethodLookup {
     target_ty: InternedTyId,
     impl_id: nia_ids::TraitImplId,
-    effective_generics: Vec<String>,
+    effective_generics: Vec<SymbolId>,
     where_predicates: Vec<nia_defs::WherePredicateSignature>,
 }
 
@@ -1021,8 +1032,8 @@ struct ComptimeCallFrame {
     locals: HashMap<LocalId, nia_comptime_check::ComptimeValue>,
     local_types: HashMap<LocalId, nia_comptime_check::ComptimeValueType>,
     mutable_locals: HashSet<LocalId>,
-    type_substitutions: HashMap<String, InternedTyId>,
-    const_substitutions: HashMap<String, ConstGenericArg>,
+    type_substitutions: SymbolMap<InternedTyId>,
+    const_substitutions: SymbolMap<ConstGenericArg>,
 }
 
 struct FunctionItemRef<'a> {
@@ -1729,7 +1740,7 @@ impl<'a> BodyChecker<'a> {
             timing,
             stage,
             module_id,
-            &item.function.name,
+            mangle_symbol_id(item.function.name),
             threshold,
             || {
                 self.check_function_with_kind(item.item_span, item.kind, item.function);
@@ -1976,7 +1987,7 @@ impl<'a> BodyChecker<'a> {
             self.timing,
             "body_check.function.projection_obligations",
             self.timing_module_id,
-            &function.name,
+            mangle_symbol_id(function.name),
             0.020,
             || {
                 self.profile_stage(
@@ -1998,7 +2009,7 @@ impl<'a> BodyChecker<'a> {
             self.timing,
             "body_check.function.object_safe",
             self.timing_module_id,
-            &function.name,
+            mangle_symbol_id(function.name),
             0.020,
             || {
                 self.profile_stage("body_check.profile.function.object_safe", |this| {
@@ -2010,7 +2021,7 @@ impl<'a> BodyChecker<'a> {
             self.timing,
             "body_check.function.seed_params",
             self.timing_module_id,
-            &function.name,
+            mangle_symbol_id(function.name),
             0.020,
             || {
                 self.profile_stage("body_check.profile.function.seed_params", |this| {
@@ -2032,7 +2043,7 @@ impl<'a> BodyChecker<'a> {
                 self.timing,
                 "body_check.function.check_block",
                 self.timing_module_id,
-                &function.name,
+                mangle_symbol_id(function.name),
                 0.020,
                 || {
                     self.profile_stage("body_check.profile.function.check_block", |this| {
@@ -2061,7 +2072,7 @@ impl<'a> BodyChecker<'a> {
                 self.timing,
                 "body_check.function.lower_body",
                 self.timing_module_id,
-                &function.name,
+                mangle_symbol_id(function.name),
                 0.020,
                 || {
                     self.profile_stage("body_check.profile.function.lower_body", |this| {
@@ -2313,7 +2324,7 @@ impl<'a> BodyChecker<'a> {
             trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
             trait_args: Vec::new(),
             trait_const_args: Vec::new(),
-            name: nia_ty::BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
+            name: known::ITEM,
         });
         self.normalize_projection(item)
     }
@@ -2324,7 +2335,7 @@ impl<'a> BodyChecker<'a> {
             trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
             trait_args: Vec::new(),
             trait_const_args: Vec::new(),
-            name: nia_ty::BuiltinTrait::ITER_ASSOC_TYPE.to_string(),
+            name: known::ITER,
         });
         self.normalize_projection(iter)
     }
@@ -2335,7 +2346,7 @@ impl<'a> BodyChecker<'a> {
             trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
             trait_args: Vec::new(),
             trait_const_args: Vec::new(),
-            name: nia_ty::BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
+            name: known::ITEM,
         });
         self.normalize_projection(item)
     }
@@ -3265,7 +3276,7 @@ fn has_builtin_attribute(attributes: &[Attribute]) -> bool {
     attributes.iter().any(|attribute| {
         matches!(
             &attribute.kind,
-            AttributeKind::Meta(meta) if meta.path == ["builtin"]
+            AttributeKind::Meta(meta) if meta.path == [known::BUILTIN]
         )
     })
 }

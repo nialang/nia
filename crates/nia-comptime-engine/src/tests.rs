@@ -11,8 +11,13 @@ use nia_comptime_ir::{
 };
 use nia_ids::{LayoutBuiltin, ModuleId, ValueBuiltin};
 use nia_span::Span;
+use nia_symbol::{SymbolId, stable_hash};
 use nia_ty::IntConst;
 use std::collections::BTreeMap;
+
+fn sym(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(stable_hash(text))
+}
 
 #[test]
 fn eval_int_literal_ignores_type_suffix() {
@@ -68,7 +73,7 @@ fn main() bool {
     let EarlyComptimeExprKind::Field { name, .. } = &lhs.kind else {
         panic!("expected lowered field expression");
     };
-    assert_eq!(name, "os");
+    assert_eq!(*name, sym("os"));
 
     let value = eval_early_comptime_bool_expr(&lowered, &mut ConfigEnv).unwrap();
     assert!(value);
@@ -95,7 +100,7 @@ fn resolved_names_do_not_fall_back_to_ident_lookup() {
     let expr = EarlyComptimeExpr {
         span: Span::new(0, 1),
         kind: EarlyComptimeExprKind::Ident(nia_comptime_ir::EarlyComptimeName::resolved(
-            "x".to_string(),
+            sym("x"),
             ComptimeNameResolution::Local(nia_ids::LocalId(0)),
         )),
     };
@@ -103,7 +108,10 @@ fn resolved_names_do_not_fall_back_to_ident_lookup() {
         .expect_err("resolved names must be handled explicitly");
     assert_eq!(
         err.message,
-        "resolved comptime value `x` is not available in this context"
+        format!(
+            "resolved comptime value `{}` is not available in this context",
+            sym("x")
+        )
     );
 }
 
@@ -182,7 +190,7 @@ fn assignment_targets_require_resolved_locals() {
         kind: EarlyComptimeExprKind::Assign(Box::new(EarlyComptimeAssign {
             lhs: EarlyComptimeAssignTarget::Local {
                 span: Span::new(0, 1),
-                name: "x".to_string(),
+                name: sym("x"),
                 local_id: None,
                 path: Vec::new(),
             },
@@ -197,7 +205,10 @@ fn assignment_targets_require_resolved_locals() {
         .expect_err("assignment targets must carry resolved local ids");
     assert_eq!(
         err.message,
-        "failed to resolve comptime assignment target `x`"
+        format!(
+            "failed to resolve comptime assignment target `{}`",
+            sym("x")
+        )
     );
 }
 
@@ -207,14 +218,17 @@ fn pattern_bindings_require_resolved_locals() {
     let err = EarlyComptimeEnv::bind_pattern_local(
         &mut env,
         Span::new(0, 1),
-        "payload",
+        &sym("payload"),
         None,
         ComptimeValue::Int(IntConst::signed(1)),
     )
     .expect_err("pattern bindings must carry resolved local ids");
     assert_eq!(
         err.message,
-        "failed to resolve comptime pattern local `payload`"
+        format!(
+            "failed to resolve comptime pattern local `{}`",
+            sym("payload")
+        )
     );
 }
 
@@ -355,20 +369,20 @@ impl EarlyComptimeEnv for ConfigEnv {
                 ),
             });
         };
-        if name != "config" {
+        if *name != sym("config") {
             return Err(ComptimeError {
                 span,
                 message: format!("unknown comptime value `{name}`"),
             });
         }
         let mut target = BTreeMap::new();
-        target.insert("os".to_string(), ComptimeValue::String("linux".to_string()));
+        target.insert(sym("os"), ComptimeValue::String("linux".to_string()));
         target.insert(
-            "pointer_width".to_string(),
+            sym("pointer_width"),
             ComptimeValue::Int(IntConst::signed(64)),
         );
         let mut builtin = BTreeMap::new();
-        builtin.insert("target".to_string(), ComptimeValue::Struct(target));
+        builtin.insert(sym("target"), ComptimeValue::Struct(target));
         Ok(ComptimeValue::Struct(builtin))
     }
 
@@ -387,7 +401,7 @@ impl EarlyComptimeEnv for ConfigEnv {
 
 #[derive(Default)]
 struct PatternEnv {
-    scopes: Vec<BTreeMap<String, ComptimeValue>>,
+    scopes: Vec<BTreeMap<SymbolId, ComptimeValue>>,
 }
 
 impl ComptimeCommonEnv for PatternEnv {
@@ -441,7 +455,7 @@ impl EarlyComptimeEnv for PatternEnv {
     fn bind_pattern_local(
         &mut self,
         span: Span,
-        name: &str,
+        name: &SymbolId,
         _local_id: Option<nia_ids::LocalId>,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
@@ -451,7 +465,7 @@ impl EarlyComptimeEnv for PatternEnv {
                 message: "internal comptime switch pattern scope is missing".to_string(),
             });
         };
-        scope.insert(name.to_string(), value);
+        scope.insert(*name, value);
         Ok(())
     }
 }

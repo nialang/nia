@@ -27,6 +27,7 @@ use nia_comptime_ir::{
 use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId};
 use nia_sema::{ArityCheck, NamedField, check_exact_arity, check_unique_field_set};
 use nia_span::Span;
+use nia_symbol::{SymbolId, symbol_identity_key};
 use nia_ty::IntConst;
 use std::collections::BTreeMap;
 
@@ -68,7 +69,7 @@ struct ComptimeSwitchMatch<'a> {
 
 struct ComptimeSwitchBinding {
     span: Span,
-    name: String,
+    name: SymbolId,
     local_id: Option<nia_ids::LocalId>,
     value: ComptimeValue,
 }
@@ -209,7 +210,7 @@ fn eval_resolved_comptime_expr_flow(
                 ComptimeValue::Struct(fields) => {
                     fields.get(name).cloned().ok_or_else(|| ComptimeError {
                         span,
-                        message: format!("unknown comptime field `{name}`"),
+                        message: format!("unknown comptime field `{}`", symbol_identity_key(*name)),
                     })?
                 }
                 _ => {
@@ -249,13 +250,7 @@ fn eval_resolved_comptime_expr_flow(
             env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
         }
         ResolvedComptimeExprKind::FieldOffsetBuiltin { type_arg, field } => {
-            let Some(field) = eval_string_literal(field) else {
-                return Err(ComptimeError {
-                    span,
-                    message: "invalid string literal in `offset` field name".to_string(),
-                });
-            };
-            env.resolve_resolved_field_offset_builtin(span, type_arg, &field)?
+            env.resolve_resolved_field_offset_builtin(span, type_arg, field)?
         }
         ResolvedComptimeExprKind::BuiltinComptime(builtin) => {
             env.resolve_builtin_comptime(span, *builtin)?
@@ -465,7 +460,7 @@ fn eval_comptime_expr_flow(
             ComptimeValue::Struct(fields) => {
                 fields.get(name).cloned().ok_or_else(|| ComptimeError {
                     span: expr.span,
-                    message: format!("unknown comptime field `{name}`"),
+                    message: format!("unknown comptime field `{}`", symbol_identity_key(*name)),
                 })?
             }
             _ => {
@@ -507,13 +502,7 @@ fn eval_comptime_expr_flow(
             env.resolve_layout_builtin(expr.span, *builtin, type_arg)?
         }
         EarlyComptimeExprKind::FieldOffsetBuiltin { type_arg, field } => {
-            let Some(field) = eval_string_literal(field) else {
-                return Err(ComptimeError {
-                    span: expr.span,
-                    message: "invalid string literal in `offset` field name".to_string(),
-                });
-            };
-            env.resolve_field_offset_builtin(expr.span, type_arg, &field)?
+            env.resolve_field_offset_builtin(expr.span, type_arg, field)?
         }
         EarlyComptimeExprKind::BuiltinComptime(builtin) => {
             env.resolve_builtin_comptime(expr.span, *builtin)?
@@ -1538,14 +1527,17 @@ fn eval_struct_literal_flow(
     if let Some(field) = check_unique_field_set(
         fields
             .iter()
-            .map(|field| NamedField::new(field.span, field.name.as_str())),
+            .map(|field| NamedField::new(field.span, field.name)),
     )
     .into_iter()
     .next()
     {
         return Err(ComptimeError {
             span: field.span,
-            message: format!("duplicate comptime struct field `{}`", field.name),
+            message: format!(
+                "duplicate comptime struct field `{}`",
+                symbol_identity_key(field.name)
+            ),
         });
     }
     let mut values = BTreeMap::new();
@@ -1572,13 +1564,16 @@ fn eval_resolved_struct_literal_flow(
     {
         return Err(ComptimeError {
             span: field.span,
-            message: format!("duplicate comptime struct field `{}`", field.name),
+            message: format!(
+                "duplicate comptime struct field `{}`",
+                symbol_identity_key(field.name)
+            ),
         });
     }
     let mut values = BTreeMap::new();
     for field in fields {
         values.insert(
-            field.name().to_string(),
+            field.name_symbol().clone(),
             eval_resolved_value_or_return_flow!(field.value(), env),
         );
     }
@@ -1694,8 +1689,8 @@ fn eval_comptime_function_call(
     function_module_id: ModuleId,
     params: &[EarlyComptimeParam],
     body: &EarlyComptimeBlock,
-    type_substitutions: Vec<(String, InternedTyId)>,
-    const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
+    type_substitutions: Vec<(SymbolId, InternedTyId)>,
+    const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
     args: Vec<ComptimeValue>,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
@@ -1747,7 +1742,7 @@ pub fn eval_early_comptime_function_call(
     span: Span,
     function_module_id: ModuleId,
     function: &EarlyComptimeFunction,
-    type_substitutions: Vec<(String, InternedTyId)>,
+    type_substitutions: Vec<(SymbolId, InternedTyId)>,
     args: Vec<ComptimeValue>,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
@@ -1768,8 +1763,8 @@ pub fn eval_resolved_comptime_function_call(
     function_id: GlobalDefId,
     function_module_id: ModuleId,
     function: &ResolvedComptimeFunction,
-    type_substitutions: Vec<(String, InternedTyId)>,
-    const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
+    type_substitutions: Vec<(SymbolId, InternedTyId)>,
+    const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
     args: Vec<ComptimeValue>,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
@@ -1794,8 +1789,8 @@ struct ResolvedComptimeCall<'a> {
     function_module_id: ModuleId,
     params: &'a [ResolvedComptimeParam],
     body: &'a ResolvedComptimeBlock,
-    type_substitutions: Vec<(String, InternedTyId)>,
-    const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
+    type_substitutions: Vec<(SymbolId, InternedTyId)>,
+    const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
     args: Vec<ComptimeValue>,
 }
 
@@ -2169,7 +2164,10 @@ fn eval_assign_target_root_value(
             let Some(local_id) = local_id else {
                 return Err(ComptimeError {
                     span,
-                    message: format!("failed to resolve comptime assignment target `{name}`"),
+                    message: format!(
+                        "failed to resolve comptime assignment target `{}`",
+                        symbol_identity_key(*name)
+                    ),
                 });
             };
             env.resolve_name(
@@ -2232,7 +2230,10 @@ fn eval_assign_path_value(
                 ComptimeValue::Struct(fields) => {
                     fields.get(name).cloned().ok_or_else(|| ComptimeError {
                         span: *span,
-                        message: format!("unknown comptime assignment field `{name}`"),
+                        message: format!(
+                            "unknown comptime assignment field `{}`",
+                            symbol_identity_key(*name)
+                        ),
                     })?
                 }
                 _ => {
@@ -2279,7 +2280,10 @@ fn eval_resolved_assign_path_value(
                 ComptimeValue::Struct(fields) => {
                     fields.get(name).cloned().ok_or_else(|| ComptimeError {
                         span: *span,
-                        message: format!("unknown comptime assignment field `{name}`"),
+                        message: format!(
+                            "unknown comptime assignment field `{}`",
+                            symbol_identity_key(*name)
+                        ),
                     })?
                 }
                 _ => {
@@ -2371,7 +2375,10 @@ fn write_assign_path_value(
             };
             let current = fields.remove(name).ok_or_else(|| ComptimeError {
                 span: *field_span,
-                message: format!("unknown comptime assignment field `{name}`"),
+                message: format!(
+                    "unknown comptime assignment field `{}`",
+                    symbol_identity_key(*name)
+                ),
             })?;
             let updated = write_assign_path_value(span, current, tail, value, env)?;
             fields.insert(name.clone(), updated);
@@ -2425,7 +2432,10 @@ fn write_resolved_assign_path_value(
             };
             let current = fields.remove(name).ok_or_else(|| ComptimeError {
                 span: *field_span,
-                message: format!("unknown comptime assignment field `{name}`"),
+                message: format!(
+                    "unknown comptime assignment field `{}`",
+                    symbol_identity_key(*name)
+                ),
             })?;
             let updated = write_resolved_assign_path_value(span, current, tail, value, env)?;
             fields.insert(name.clone(), updated);

@@ -121,14 +121,14 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
         locals: vec![
             TypedLocal {
                 id: target_local,
-                name: "value".to_string(),
+                name: local_name("value"),
                 kind: TypedLocalKind::Param,
                 ty,
                 span,
             },
             TypedLocal {
                 id: payload_local,
-                name: "x".to_string(),
+                name: local_name("x"),
                 kind: TypedLocalKind::Binding,
                 ty,
                 span,
@@ -155,7 +155,7 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
                                 span,
                                 kind: TypedPatternKind::Bind {
                                     local_id: payload_local,
-                                    name: "x".to_string(),
+                                    name: local_name("x"),
                                 },
                             })),
                         },
@@ -227,14 +227,14 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
         locals: vec![
             TypedLocal {
                 id: target_local,
-                name: "value".to_string(),
+                name: local_name("value"),
                 kind: TypedLocalKind::Param,
                 ty: error_ty,
                 span,
             },
             TypedLocal {
                 id: payload_local,
-                name: "x".to_string(),
+                name: local_name("x"),
                 kind: TypedLocalKind::Binding,
                 ty: i32_ty,
                 span,
@@ -261,7 +261,7 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
                                 span,
                                 kind: TypedPatternKind::Bind {
                                     local_id: payload_local,
-                                    name: "x".to_string(),
+                                    name: local_name("x"),
                                 },
                             })),
                         },
@@ -328,7 +328,7 @@ fn value_if_pattern_caches_target_and_stores_payload_binding() {
                             span,
                             kind: TypedPatternKind::Bind {
                                 local_id: payload_local,
-                                name: "payload".to_string(),
+                                name: local_name("payload"),
                             },
                         })),
                     },
@@ -369,14 +369,14 @@ fn value_if_pattern_caches_target_and_stores_payload_binding() {
         locals: vec![
             TypedLocal {
                 id: target_local,
-                name: "value".to_string(),
+                name: local_name("value"),
                 kind: TypedLocalKind::Param,
                 ty,
                 span,
             },
             TypedLocal {
                 id: payload_local,
-                name: "payload".to_string(),
+                name: local_name("payload"),
                 kind: TypedLocalKind::Binding,
                 ty,
                 span,
@@ -461,7 +461,7 @@ fn value_if_pattern_trap_else_lowers_as_effect_only() {
                         span,
                         kind: TypedPatternKind::Bind {
                             local_id: payload_local,
-                            name: "payload".to_string(),
+                            name: local_name("payload"),
                         },
                     })),
                 },
@@ -490,14 +490,14 @@ fn value_if_pattern_trap_else_lowers_as_effect_only() {
         locals: vec![
             TypedLocal {
                 id: target_local,
-                name: "value".to_string(),
+                name: local_name("value"),
                 kind: TypedLocalKind::Param,
                 ty,
                 span,
             },
             TypedLocal {
                 id: payload_local,
-                name: "payload".to_string(),
+                name: local_name("payload"),
                 kind: TypedLocalKind::Binding,
                 ty,
                 span,
@@ -609,7 +609,7 @@ fn collects_unique_locals_from_statement_switch_arms() {
     let ty = test_ty();
     let arm_local = TypedLocal {
         id: LocalId(1),
-        name: "arm_local".to_string(),
+        name: local_name("arm_local"),
         kind: TypedLocalKind::Binding,
         ty,
         span,

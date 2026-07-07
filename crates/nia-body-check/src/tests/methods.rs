@@ -543,7 +543,9 @@ fn main(flag: bool) i32 {
                 .summary
                 .contains("generic argument count mismatch for method"))
             .count(),
-        1
+        1,
+        "{:?}",
+        checked.diagnostics
     );
     assert_eq!(
         checked
@@ -553,7 +555,9 @@ fn main(flag: bool) i32 {
                 .summary
                 .contains("cannot infer generic parameter `U`"))
             .count(),
-        1
+        1,
+        "{:?}",
+        checked.diagnostics
     );
 }
 

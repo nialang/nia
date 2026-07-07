@@ -5,6 +5,7 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{DefId, InternedTyId, ModuleId};
 use nia_item_signatures::{ItemSignatures, TypeAliasSignature};
 use nia_span::Span;
+use nia_symbol::SymbolMap;
 use nia_ty::{ArrayLenTy, TyInterner, TyKind};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,7 +52,7 @@ impl<'a> TypeNormalizer<'a> {
             return normalized;
         }
         let normalized = match self.interner.get(ty_id).cloned() {
-            Some(TyKind::BuiltinType(_)) => ty_id,
+            Some(TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
@@ -300,7 +301,7 @@ impl<'a> TypeNormalizer<'a> {
             ));
             return self.interner.error();
         }
-        let substitutions: HashMap<String, InternedTyId> = alias
+        let substitutions: SymbolMap<InternedTyId> = alias
             .generics
             .iter()
             .cloned()
@@ -315,11 +316,11 @@ impl<'a> TypeNormalizer<'a> {
     fn normalize_ty_with_substitutions(
         &mut self,
         ty_id: InternedTyId,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
         stack: &mut Vec<DefId>,
     ) -> InternedTyId {
         match self.interner.get(ty_id).cloned() {
-            Some(TyKind::BuiltinType(_)) => ty_id,
+            Some(TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
             Some(TyKind::GenericParam(name)) => substitutions
                 .get(&name)
                 .copied()
@@ -591,7 +592,7 @@ impl<'a> TypeNormalizer<'a> {
     fn normalize_array_len_with_substitutions(
         &mut self,
         len: ArrayLenTy,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
         stack: &mut Vec<DefId>,
     ) -> ArrayLenTy {
         match len {

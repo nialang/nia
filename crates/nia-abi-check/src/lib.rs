@@ -414,11 +414,13 @@ impl AbiChecker<'_> {
                     builtin.name()
                 ),
             )),
-            Some(TyKind::GenericParam(_)) => self.diagnostics.push(Diagnostic::user_error_at(
-                codes::STATIC_CHECK,
-                span,
-                format!("{context_desc} cannot use generic parameter"),
-            )),
+            Some(TyKind::GenericParam(_) | TyKind::SelfParam) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::STATIC_CHECK,
+                    span,
+                    format!("{context_desc} cannot use generic parameter"),
+                ))
+            }
             Some(TyKind::Projection { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
                 span,

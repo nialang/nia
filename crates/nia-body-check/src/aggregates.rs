@@ -17,6 +17,7 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_item_signatures::{EnumSignature, StructSignature};
 use nia_local_resolve::LocalKind;
+use nia_mangle::mangle_symbol_id;
 use nia_sema::{
     ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
 };
@@ -24,6 +25,7 @@ use nia_sema_ir::{
     AssociatedComptimeProjection, BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse,
 };
 use nia_span::Span;
+use nia_symbol::SymbolId;
 use nia_ty::{ArrayLenTy, TyInterner, TyKind};
 
 impl<'a> BodyChecker<'a> {
@@ -286,11 +288,11 @@ impl<'a> BodyChecker<'a> {
         let signature_fields = resolved.signature.fields.clone();
         let (substitutions, const_substitutions) =
             self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
-        let field_tys: HashMap<&str, InternedTyId> = signature_fields
+        let field_tys: HashMap<SymbolId, InternedTyId> = signature_fields
             .iter()
             .map(|field| {
                 (
-                    field.name.as_str(),
+                    field.name,
                     self.substitute_generics_and_consts(
                         field.ty,
                         &substitutions,
@@ -302,11 +304,11 @@ impl<'a> BodyChecker<'a> {
         let field_set = check_required_field_set(
             fields
                 .iter()
-                .map(|field| NamedField::new(field.span, field.name.as_str())),
-            signature_fields.iter().map(|field| field.name.as_str()),
+                .map(|field| NamedField::new(field.span, field.name)),
+            signature_fields.iter().map(|field| field.name),
         );
         for field in fields {
-            if let Some(expected) = field_tys.get(field.name.as_str()).copied() {
+            if let Some(expected) = field_tys.get(&field.name).copied() {
                 let actual = self.check_expr_with_expected(&field.value, Some(expected));
                 self.expect_expr_type(&field.value, expected, actual, "struct literal field");
             } else {
@@ -314,20 +316,23 @@ impl<'a> BodyChecker<'a> {
             }
         }
         for field in field_set.duplicate_fields {
+            let name = self.symbol_name(field.name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 field.span,
-                format!("duplicate struct field `{}`", field.name),
+                format!("duplicate struct field `{name}`"),
             ));
         }
         for field in field_set.unknown_fields {
+            let name = self.symbol_name(field.name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 field.span,
-                format!("unknown struct field `{}`", field.name),
+                format!("unknown struct field `{name}`"),
             ));
         }
         for name in field_set.missing_fields {
+            let name = self.symbol_name(name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
@@ -387,10 +392,11 @@ impl<'a> BodyChecker<'a> {
             .find(|candidate| candidate.name == field.name)
         else {
             self.check_expr(&field.value);
+            let name = self.symbol_name(field.name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 field.span,
-                format!("unknown union field `{}`", field.name),
+                format!("unknown union field `{name}`"),
             ));
             return union_ty;
         };
@@ -408,7 +414,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         expr: &Expr,
         lhs: &Expr,
-        name: &str,
+        name: &SymbolId,
     ) -> InternedTyId {
         let span = expr.span;
         if let Some(ty) = self.comptime_field_expr_runtime_type(lhs, name) {
@@ -429,11 +435,15 @@ impl<'a> BodyChecker<'a> {
         self.field_access_type_from_lhs_ty(span, lhs_ty, name)
     }
 
-    fn comptime_field_expr_runtime_type(&mut self, lhs: &Expr, name: &str) -> Option<InternedTyId> {
+    fn comptime_field_expr_runtime_type(
+        &mut self,
+        lhs: &Expr,
+        name: &SymbolId,
+    ) -> Option<InternedTyId> {
         let expr = ResolvedComptimeExpr::field(
             lhs.span,
             self.lower_comptime_expr(lhs).ok()?,
-            name.to_string(),
+            name.clone(),
         );
         match self.comptime_expr_type_for_ir_with_expected(&expr, None)? {
             ComptimeValueType::Runtime(ty) => Some(ty),
@@ -473,7 +483,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         lhs_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> InternedTyId {
         let Some((def_id, args, const_args)) = self.field_base_type(lhs_ty) else {
             if matches!(self.interner.get(lhs_ty), Some(TyKind::ComptimeOnly)) {
@@ -500,7 +510,8 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         };
         let fields = resolved.signature.fields.clone();
-        let Some(field) = fields.iter().find(|field| field.name == name) else {
+        let Some(field) = fields.iter().find(|field| &field.name == name) else {
+            let name = self.symbol_name(*name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
@@ -519,7 +530,7 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
-        name: &str,
+        name: &SymbolId,
     ) -> InternedTyId {
         let Some(resolved) = self.resolved_union_signature(def_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -530,7 +541,8 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         };
         let fields = resolved.signature.fields.clone();
-        let Some(field) = fields.iter().find(|field| field.name == name) else {
+        let Some(field) = fields.iter().find(|field| &field.name == name) else {
+            let name = self.symbol_name(*name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
@@ -693,7 +705,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         lhs: &Expr,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         let enum_id = self.type_prefix_def_id(lhs)?;
         if !self.is_enum_def(enum_id) {
@@ -714,7 +726,7 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
-                format!("unknown enum variant `{name}`"),
+                format!("unknown enum variant `{}`", self.symbol_name(*name)),
             ));
             return Some(self.error());
         }
@@ -754,7 +766,10 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn enum_variant_scope(&self, enum_id: GlobalDefId) -> Option<Vec<(String, DefId)>> {
+    pub(crate) fn enum_variant_scope(
+        &self,
+        enum_id: GlobalDefId,
+    ) -> Option<Vec<(SymbolId, DefId)>> {
         let target_defs = self.defs_for_module(enum_id.module_id)?;
         let scope = target_defs
             .as_ref()
@@ -765,7 +780,7 @@ impl<'a> BodyChecker<'a> {
             scope
                 .variants
                 .entries()
-                .map(|(name, def_id)| (name.to_string(), def_id))
+                .map(|(name, def_id)| (name.clone(), def_id))
                 .collect(),
         )
     }
@@ -807,16 +822,16 @@ impl<'a> BodyChecker<'a> {
             ));
             return;
         }
-        let names_and_defs: Vec<(String, DefId)> = resolved
+        let names_and_defs: Vec<(SymbolId, DefId)> = resolved
             .signature
             .variants
             .iter()
             .map(|variant| (variant.name.clone(), variant.def_id))
             .collect();
-        let missing: Vec<&str> = names_and_defs
+        let missing: Vec<String> = names_and_defs
             .iter()
             .filter(|(_, def_id)| !covered_variants.contains(def_id))
-            .map(|(name, _)| name.as_str())
+            .map(|(name, _)| mangle_symbol_id(*name))
             .collect();
         if !missing.is_empty() {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -865,8 +880,8 @@ impl ComptimeCommonEnv for BodyChecker<'_> {
         span: Span,
         module_id: nia_ids::ModuleId,
         function_id: Option<GlobalDefId>,
-        substitutions: Vec<(String, InternedTyId)>,
-        const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
+        substitutions: Vec<(SymbolId, InternedTyId)>,
+        const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
     ) -> Result<(), ComptimeError> {
         let substitutions = substitutions
             .into_iter()
@@ -939,7 +954,10 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
                 .and_then(comptime_value_from_const_generic_arg)
                 .ok_or_else(|| ComptimeError {
                     span,
-                    message: format!("failed to evaluate comptime generic parameter `{name}`"),
+                    message: format!(
+                        "failed to evaluate comptime generic parameter `{}`",
+                        self.symbol_name(name)
+                    ),
                 }),
             ComptimeNameResolution::BuiltinAssociatedValue(value) => {
                 let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
@@ -1067,7 +1085,7 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
     fn bind_resolved_pattern_local(
         &mut self,
         span: Span,
-        _name: &str,
+        _name: &SymbolId,
         local_id: LocalId,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
@@ -1099,7 +1117,8 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
     ) -> Result<nia_comptime_ir::ResolvedComptimeExpr, nia_comptime_ir::ComptimeLowerError> {
         let semantic_uses = self.comptime_semantic_uses();
-        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses);
+        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses)
+            .with_symbols(self.symbols);
         nia_comptime_ir::lower_expr_resolved_with_context(expr, &context)
     }
 
@@ -1178,6 +1197,7 @@ impl<'a> BodyChecker<'a> {
                 values: self.values,
                 locals: self.locals,
                 semantic_uses: self.semantic_uses,
+                symbols: self.symbols,
                 lowered: self.type_lowering,
                 signatures: self.comptime_signatures,
                 interner: &self.interner,
@@ -1240,6 +1260,7 @@ impl<'a> BodyChecker<'a> {
             values: self.values,
             locals: self.locals,
             semantic_uses: self.semantic_uses,
+            symbols: self.symbols,
             lowered: self.type_lowering,
             signatures: self.comptime_signatures,
             interner: &query_interner,
@@ -1376,7 +1397,7 @@ impl<'a> BodyChecker<'a> {
                         span,
                         message: format!(
                             "failed to evaluate associated comptime value `{}`",
-                            projection.name
+                            self.symbol_name(projection.name)
                         ),
                     })
             }
@@ -1387,7 +1408,7 @@ impl<'a> BodyChecker<'a> {
                 span,
                 message: format!(
                     "failed to resolve associated comptime value `{}`",
-                    projection.name
+                    self.symbol_name(projection.name)
                 ),
             }),
         }
@@ -1422,10 +1443,11 @@ impl<'a> BodyChecker<'a> {
     fn eval_user_associated_comptime_for_env(
         &mut self,
         span: Span,
-        name: String,
+        name: SymbolId,
         user: nia_trait_solve::UserAssociatedComptime,
     ) -> Result<ComptimeValue, ComptimeError> {
         let Some(expr) = self.associated_comptime_initializer(user.def_id) else {
+            let name = self.symbol_name(name);
             return Err(ComptimeError {
                 span,
                 message: format!("associated comptime value `{name}` has no initializer"),
@@ -1509,12 +1531,13 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         local_id: LocalId,
-        name: &str,
+        name: &SymbolId,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         for frame in self.comptime_call_locals.iter_mut().rev() {
             if frame.locals.contains_key(&local_id) {
                 if !frame.mutable_locals.contains(&local_id) {
+                    let name = self.symbol_name(*name);
                     return Err(ComptimeError {
                         span,
                         message: format!("cannot assign to immutable comptime local `{name}`"),
@@ -1526,7 +1549,10 @@ impl<'a> BodyChecker<'a> {
         }
         Err(ComptimeError {
             span,
-            message: format!("unknown comptime assignment target `{name}`"),
+            message: format!(
+                "unknown comptime assignment target `{}`",
+                self.symbol_name(*name)
+            ),
         })
     }
 

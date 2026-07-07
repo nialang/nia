@@ -111,14 +111,14 @@ fn lowers_for_in_iterator_next_payload_and_edges() {
         locals: vec![
             TypedLocal {
                 id: LocalId(0),
-                name: "i".to_string(),
+                name: local_name("i"),
                 kind: TypedLocalKind::Binding,
                 ty,
                 span,
             },
             TypedLocal {
                 id: LocalId(10),
-                name: "iter".to_string(),
+                name: local_name("iter"),
                 kind: TypedLocalKind::Binding,
                 ty,
                 span,
@@ -155,7 +155,8 @@ fn lowers_for_in_iterator_next_payload_and_edges() {
             block.ops.iter().any(|op| {
                 matches!(
                     op,
-                    FunctionOp::Binding(binding) if binding.name == "__for_next"
+                    FunctionOp::Binding(binding)
+                        if binding.name == LocalName::generated(GeneratedLocalName::ForNext)
                 )
             })
         })
@@ -168,7 +169,9 @@ fn lowers_for_in_iterator_next_payload_and_edges() {
             .any(|op| {
                 matches!(
                     op,
-                    FunctionOp::Binding(binding) if binding.name == "__for_iter" && !binding.is_let
+                    FunctionOp::Binding(binding)
+                        if binding.name == LocalName::generated(GeneratedLocalName::ForIterator)
+                            && !binding.is_let
                 )
             })
     );
@@ -176,7 +179,7 @@ fn lowers_for_in_iterator_next_payload_and_edges() {
         matches!(
             op,
             FunctionOp::Binding(binding)
-                if binding.name == "__for_next"
+                if binding.name == LocalName::generated(GeneratedLocalName::ForNext)
                     && matches!(
                         binding.value.as_ref().map(|value| &value.kind),
                         Some(FunctionExprKind::Call {
@@ -250,14 +253,14 @@ fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
         locals: vec![
             TypedLocal {
                 id: LocalId(0),
-                name: "i".to_string(),
+                name: local_name("i"),
                 kind: TypedLocalKind::Binding,
                 ty: item_ty,
                 span,
             },
             TypedLocal {
                 id: LocalId(10),
-                name: "iter".to_string(),
+                name: local_name("iter"),
                 kind: TypedLocalKind::Binding,
                 ty: item_ty,
                 span,
@@ -271,7 +274,7 @@ fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
                     span,
                     kind: TypedPatternKind::Bind {
                         local_id: LocalId(0),
-                        name: "i".to_string(),
+                        name: local_name("i"),
                     },
                 },
                 item_ty,
@@ -380,14 +383,14 @@ fn preserves_unique_locals_from_flattened_loop_bodies() {
     );
     let outer_local = TypedLocal {
         id: LocalId(0),
-        name: "outer".to_string(),
+        name: local_name("outer"),
         kind: TypedLocalKind::Binding,
         ty,
         span,
     };
     let inner_local = TypedLocal {
         id: LocalId(1),
-        name: "inner".to_string(),
+        name: local_name("inner"),
         kind: TypedLocalKind::Binding,
         ty,
         span,

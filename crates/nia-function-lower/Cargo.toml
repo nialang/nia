@@ -16,3 +16,6 @@ nia-ty.workspace = true
 
 [lib]
 path = "src/lib.rs"
+
+[dev-dependencies]
+nia-symbol.workspace = true

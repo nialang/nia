@@ -366,7 +366,7 @@ fn simplifies_same_target_if_with_pure_condition() {
     ]);
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
-        name: "cond".to_string(),
+        name: local_name("cond"),
         kind: FunctionLocalKind::Binding,
         ty,
         span,
@@ -434,7 +434,7 @@ fn simplifies_same_target_if_inside_defer_bodies() {
     }]);
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
-        name: "cond".to_string(),
+        name: local_name("cond"),
         kind: FunctionLocalKind::Binding,
         ty,
         span,
@@ -553,7 +553,7 @@ fn simplifies_same_target_switch_with_pure_target() {
     ]);
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
-        name: "target".to_string(),
+        name: local_name("target"),
         kind: FunctionLocalKind::Binding,
         ty,
         span,
@@ -942,7 +942,7 @@ fn preserves_same_target_switch_with_effectful_pattern() {
     ]);
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
-        name: "target".to_string(),
+        name: local_name("target"),
         kind: FunctionLocalKind::Binding,
         ty,
         span,
@@ -1014,7 +1014,7 @@ fn simplifies_same_target_switches_inside_defer_bodies() {
     }]);
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
-        name: "target".to_string(),
+        name: local_name("target"),
         kind: FunctionLocalKind::Binding,
         ty,
         span,

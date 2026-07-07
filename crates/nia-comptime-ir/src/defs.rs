@@ -6,6 +6,7 @@ use nia_ids::{
 };
 use nia_sema_ir::{AssociatedComptimeProjection, BuiltinAssociatedValue, SemanticValueUse};
 use nia_span::Span;
+use nia_symbol::SymbolId;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -207,7 +208,7 @@ impl ResolvedComptimeExpr {
         }
     }
 
-    pub fn field(span: Span, lhs: ResolvedComptimeExpr, name: String) -> Self {
+    pub fn field(span: Span, lhs: ResolvedComptimeExpr, name: SymbolId) -> Self {
         Self {
             span,
             kind: ResolvedComptimeExprKind::Field {
@@ -287,13 +288,13 @@ impl ResolvedComptimeFunction {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeParam {
     span: Span,
-    name: String,
+    name: SymbolId,
     local_id: LocalId,
     ty: Option<InternedTyId>,
 }
 
 impl ResolvedComptimeParam {
-    pub fn new(span: Span, name: String, local_id: LocalId, ty: Option<InternedTyId>) -> Self {
+    pub fn new(span: Span, name: SymbolId, local_id: LocalId, ty: Option<InternedTyId>) -> Self {
         Self {
             span,
             name,
@@ -306,8 +307,8 @@ impl ResolvedComptimeParam {
         self.span
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn name(&self) -> SymbolId {
+        self.name
     }
 
     pub fn local_id(&self) -> LocalId {
@@ -397,7 +398,7 @@ pub enum ResolvedComptimeStmtKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeBinding {
     span: Span,
-    name: String,
+    name: SymbolId,
     local_id: LocalId,
     explicit_type: Option<InternedTyId>,
     is_mutable: bool,
@@ -407,7 +408,7 @@ pub struct ResolvedComptimeBinding {
 impl ResolvedComptimeBinding {
     pub fn new(
         span: Span,
-        name: String,
+        name: SymbolId,
         local_id: LocalId,
         explicit_type: Option<InternedTyId>,
         is_mutable: bool,
@@ -427,8 +428,8 @@ impl ResolvedComptimeBinding {
         self.span
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn name(&self) -> SymbolId {
+        self.name
     }
 
     pub fn local_id(&self) -> LocalId {
@@ -485,7 +486,7 @@ pub struct ResolvedComptimeAssignTarget {
 impl ResolvedComptimeAssignTarget {
     pub fn local(
         span: Span,
-        name: String,
+        name: SymbolId,
         local_id: LocalId,
         path: Vec<ResolvedComptimeAssignPathElem>,
     ) -> Self {
@@ -508,7 +509,7 @@ impl ResolvedComptimeAssignTarget {
 pub enum ResolvedComptimeAssignTargetKind {
     Local {
         span: Span,
-        name: String,
+        name: SymbolId,
         local_id: LocalId,
         path: Vec<ResolvedComptimeAssignPathElem>,
     },
@@ -520,7 +521,7 @@ pub struct ResolvedComptimeAssignPathElem {
 }
 
 impl ResolvedComptimeAssignPathElem {
-    pub fn field(span: Span, name: String) -> Self {
+    pub fn field(span: Span, name: SymbolId) -> Self {
         Self {
             kind: ResolvedComptimeAssignPathElemKind::Field { span, name },
         }
@@ -541,7 +542,7 @@ impl ResolvedComptimeAssignPathElem {
 pub enum ResolvedComptimeAssignPathElemKind {
     Field {
         span: Span,
-        name: String,
+        name: SymbolId,
     },
     Index {
         span: Span,
@@ -656,7 +657,7 @@ impl ResolvedComptimePattern {
         }
     }
 
-    pub fn bind(name: String, local_id: LocalId, span: Span) -> Self {
+    pub fn bind(name: SymbolId, local_id: LocalId, span: Span) -> Self {
         Self {
             kind: ResolvedComptimePatternKind::Bind {
                 name,
@@ -760,7 +761,7 @@ pub enum ResolvedComptimePatternKind {
         span: Span,
     },
     Bind {
-        name: String,
+        name: SymbolId,
         local_id: LocalId,
         span: Span,
     },
@@ -845,7 +846,7 @@ pub enum ResolvedComptimeExprKind {
     Name(ComptimeNameResolution),
     Field {
         lhs: Box<ResolvedComptimeExpr>,
-        name: String,
+        name: SymbolId,
     },
     BuiltinMethod {
         method: BuiltinTraitMethod,
@@ -878,7 +879,7 @@ pub enum ResolvedComptimeExprKind {
     },
     FieldOffsetBuiltin {
         type_arg: ResolvedComptimeTypeArg,
-        field: ComptimeStringLiteral,
+        field: SymbolId,
     },
     Embed {
         path: ComptimeStringLiteral,
@@ -1028,12 +1029,12 @@ pub enum ResolvedComptimeArrayElementsKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeFieldInit {
     span: Span,
-    name: String,
+    name: SymbolId,
     value: ResolvedComptimeExpr,
 }
 
 impl ResolvedComptimeFieldInit {
-    pub fn new(span: Span, name: String, value: ResolvedComptimeExpr) -> Self {
+    pub fn new(span: Span, name: SymbolId, value: ResolvedComptimeExpr) -> Self {
         Self { span, name, value }
     }
 
@@ -1041,7 +1042,11 @@ impl ResolvedComptimeFieldInit {
         self.span
     }
 
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> SymbolId {
+        self.name
+    }
+
+    pub fn name_symbol(&self) -> &SymbolId {
         &self.name
     }
 
@@ -1085,7 +1090,7 @@ pub struct EarlyComptimeFunction {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EarlyComptimeParam {
     pub span: Span,
-    pub name: String,
+    pub name: SymbolId,
     pub local_id: Option<LocalId>,
     pub ty: Option<InternedTyId>,
 }
@@ -1128,7 +1133,7 @@ pub enum EarlyComptimeStmtKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EarlyComptimeBinding {
     pub span: Span,
-    pub name: String,
+    pub name: SymbolId,
     pub local_id: Option<LocalId>,
     pub explicit_type: Option<InternedTyId>,
     pub is_mutable: bool,
@@ -1146,7 +1151,7 @@ pub struct EarlyComptimeAssign {
 pub enum EarlyComptimeAssignTarget {
     Local {
         span: Span,
-        name: String,
+        name: SymbolId,
         local_id: Option<LocalId>,
         path: Vec<EarlyComptimeAssignPathElem>,
     },
@@ -1156,7 +1161,7 @@ pub enum EarlyComptimeAssignTarget {
 pub enum EarlyComptimeAssignPathElem {
     Field {
         span: Span,
-        name: String,
+        name: SymbolId,
     },
     Index {
         span: Span,
@@ -1191,7 +1196,7 @@ pub enum EarlyComptimePattern {
         span: Span,
     },
     Bind {
-        name: String,
+        name: SymbolId,
         local_id: Option<LocalId>,
         span: Span,
     },
@@ -1252,28 +1257,28 @@ impl EarlyComptimeExpr {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EarlyComptimeName {
-    Unresolved(String),
+    Unresolved(SymbolId),
     Resolved {
-        display: String,
+        display: SymbolId,
         resolution: ComptimeNameResolution,
     },
 }
 
 impl EarlyComptimeName {
-    pub fn unresolved(display: String) -> Self {
+    pub fn unresolved(display: SymbolId) -> Self {
         Self::Unresolved(display)
     }
 
-    pub fn resolved(display: String, resolution: ComptimeNameResolution) -> Self {
+    pub fn resolved(display: SymbolId, resolution: ComptimeNameResolution) -> Self {
         Self::Resolved {
             display,
             resolution,
         }
     }
 
-    pub fn display(&self) -> &str {
+    pub fn display(&self) -> SymbolId {
         match self {
-            Self::Unresolved(display) | Self::Resolved { display, .. } => display,
+            Self::Unresolved(display) | Self::Resolved { display, .. } => *display,
         }
     }
 
@@ -1309,7 +1314,7 @@ pub enum EarlyComptimeExprKind {
     Qualified(EarlyComptimeName),
     Field {
         lhs: Box<EarlyComptimeExpr>,
-        name: String,
+        name: SymbolId,
     },
     BuiltinMethod {
         method: BuiltinTraitMethod,
@@ -1342,7 +1347,7 @@ pub enum EarlyComptimeExprKind {
     },
     FieldOffsetBuiltin {
         type_arg: EarlyComptimeTypeArg,
-        field: ComptimeStringLiteral,
+        field: SymbolId,
     },
     Embed {
         path: ComptimeStringLiteral,
@@ -1467,7 +1472,7 @@ pub enum EarlyComptimeArrayElements {
 pub enum ComptimeNameResolution {
     Local(LocalId),
     Global(GlobalDefId),
-    GenericParam(String),
+    GenericParam(SymbolId),
     BuiltinAssociatedValue(BuiltinAssociatedValue),
     AssociatedComptimeProjection(AssociatedComptimeProjection),
 }
@@ -1484,7 +1489,7 @@ impl From<SemanticValueUse> for ComptimeNameResolution {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EarlyComptimeFieldInit {
     pub span: Span,
-    pub name: String,
+    pub name: SymbolId,
     pub value: EarlyComptimeExpr,
 }
 

@@ -3,7 +3,7 @@ use super::*;
 pub(super) fn substitute_ty_generics_in_interner(
     interner: &mut TyInterner,
     ty: InternedTyId,
-    lookup: &impl Fn(&str) -> Option<InternedTyId>,
+    lookup: &impl Fn(&SymbolId) -> Option<InternedTyId>,
 ) -> InternedTyId {
     match interner.get(ty).cloned() {
         Some(TyKind::GenericParam(name)) => lookup(&name).unwrap_or(ty),
@@ -208,6 +208,7 @@ pub(super) fn substitute_ty_generics_in_interner(
         Some(
             TyKind::Error
             | TyKind::ComptimeOnly
+            | TyKind::SelfParam
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. },

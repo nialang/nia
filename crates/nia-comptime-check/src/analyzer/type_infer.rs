@@ -105,9 +105,10 @@ impl Analyzer<'_> {
             }
             for generic in &signature.generics {
                 if !substitutions.contains_key(generic) {
+                    let name = self.symbol_name(*generic);
                     return Err(ComptimeError {
                         span,
-                        message: format!("cannot infer comptime generic type argument `{generic}`"),
+                        message: format!("cannot infer comptime generic type argument `{name}`"),
                     });
                 }
             }
@@ -160,7 +161,7 @@ impl Analyzer<'_> {
         &mut self,
         module_id: ModuleId,
         ty: InternedTyId,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<InternedTyId> {
         self.ensure_working_interner(module_id)?;
         let interner = self.working_interners.get_mut(&module_id)?;
@@ -256,7 +257,7 @@ impl Analyzer<'_> {
         span: Span,
         expected: InternedTyId,
         actual: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) -> Option<()> {
         self.infer_generics_from_tys(
             span,
@@ -543,7 +544,7 @@ impl Analyzer<'_> {
     pub(super) fn comptime_field_type(
         &mut self,
         lhs: ComptimeValueType,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<ComptimeValueType> {
         match &lhs {
             ComptimeValueType::Struct(_) => lhs.structural_field(name).cloned(),
@@ -593,7 +594,7 @@ impl Analyzer<'_> {
                     TraitId::Builtin(trait_id),
                     &[],
                     &[],
-                    BuiltinAssociatedType::Output.name(),
+                    &nia_symbol::known::OUTPUT,
                 )
                 .and_then(|ty| {
                     self.import_ty_into_module_or_none(ty, self.current_execution_module_id())
@@ -939,7 +940,7 @@ impl Analyzer<'_> {
             return false;
         }
         match self.ty_kind(ty) {
-            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::GenericParam(_) | TyKind::SelfParam) => true,
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
@@ -1033,15 +1034,15 @@ impl Analyzer<'_> {
         let field_set = check_required_field_set(
             fields
                 .iter()
-                .map(|field| NamedField::new(field.span(), field.name())),
-            field_tys.keys().map(String::as_str),
+                .map(|field| NamedField::new(field.span(), field.name_symbol().clone())),
+            field_tys.keys().cloned(),
         );
         if !field_set.is_valid() {
             return None;
         }
         let mut substitutions = HashMap::new();
         for field in fields {
-            let expected_field = *field_tys.get(field.name())?;
+            let expected_field = *field_tys.get(field.name_symbol())?;
             if let Some(actual_field) =
                 self.resolved_comptime_struct_field_actual_type(field.value(), expected_field)
             {
@@ -1054,8 +1055,10 @@ impl Analyzer<'_> {
             }
         }
         for field in fields {
-            let expected_field =
-                self.substitute_current_ty_generics(*field_tys.get(field.name())?, &substitutions)?;
+            let expected_field = self.substitute_current_ty_generics(
+                *field_tys.get(field.name_symbol())?,
+                &substitutions,
+            )?;
             let actual_field =
                 self.resolved_comptime_arg_runtime_type(field.value(), Some(expected_field))?;
             if actual_field != expected_field {
@@ -1073,11 +1076,11 @@ impl Analyzer<'_> {
         let mut seen = HashSet::new();
         let mut typed_fields = Vec::with_capacity(fields.len());
         for field in fields {
-            if !seen.insert(field.name()) {
+            if !seen.insert(field.name_symbol()) {
                 return None;
             }
             typed_fields.push(ComptimeValueFieldType {
-                name: field.name().to_string(),
+                name: field.name_symbol().clone(),
                 ty: self.resolved_comptime_expr_type(field.value(), None)?,
             });
         }
@@ -1087,7 +1090,7 @@ impl Analyzer<'_> {
     pub(super) fn comptime_nominal_struct_field_type(
         &mut self,
         ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         let (def_id, args) = self.expected_nominal_parts(ty)?;
         if self.def_kind_of(def_id) != Some(DefKind::Struct) {
@@ -1112,7 +1115,7 @@ impl Analyzer<'_> {
     pub(super) fn substitute_current_ty_generics(
         &mut self,
         ty: InternedTyId,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<InternedTyId> {
         let current_module = self.current_execution_module_id();
         let interner = self.working_interners.get_mut(&current_module)?;
@@ -1147,7 +1150,7 @@ impl Analyzer<'_> {
         &mut self,
         signature: &nia_item_signatures::StructSignature,
         expected_args: &[InternedTyId],
-    ) -> Option<HashMap<String, InternedTyId>> {
+    ) -> Option<SymbolMap<InternedTyId>> {
         if signature.generics.len() != expected_args.len() {
             return None;
         }
@@ -1181,7 +1184,7 @@ impl Analyzer<'_> {
         &mut self,
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<InternedTyId> {
         let current_module = self.current_execution_module_id();
         let args = {
@@ -1717,7 +1720,7 @@ impl Analyzer<'_> {
             trait_id: TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
             trait_args: Vec::new(),
             trait_const_args: Vec::new(),
-            name: nia_ty::BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
+            name: nia_symbol::known::ITEM,
         })?;
         Some(ComptimeValueType::Runtime(self.normalize_projection(item)))
     }

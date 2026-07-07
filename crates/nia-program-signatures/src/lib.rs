@@ -7,6 +7,7 @@ use nia_item_signatures::{
     ProgramGlobalSignature, ProgramStructSignature, ProgramTraitImplSignature,
     ProgramTraitSignature, ProgramTypeAliasSignature, ProgramUnionSignature,
 };
+use nia_symbol::{SymbolId, SymbolMap};
 
 pub trait ProgramSignatureLookup {
     fn function(&self, def_id: GlobalDefId) -> Option<ProgramFunctionSignature>;
@@ -17,7 +18,7 @@ pub trait ProgramSignatureLookup {
     fn enum_(&self, def_id: GlobalDefId) -> Option<ProgramEnumSignature>;
     fn trait_(&self, def_id: GlobalDefId) -> Option<ProgramTraitSignature>;
     fn type_alias(&self, def_id: GlobalDefId) -> Option<ProgramTypeAliasSignature>;
-    fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId>;
+    fn trait_ids_with_method_named(&self, name: &SymbolId) -> Vec<GlobalDefId>;
     fn trait_owning_method(
         &self,
         method_id: GlobalDefId,
@@ -113,7 +114,7 @@ impl ProgramSignatureLookup for EmptyProgramSignatureLookup {
         None
     }
 
-    fn trait_ids_with_method_named(&self, _name: &str) -> Vec<GlobalDefId> {
+    fn trait_ids_with_method_named(&self, _name: &SymbolId) -> Vec<GlobalDefId> {
         Vec::new()
     }
 
@@ -149,7 +150,7 @@ pub struct ProgramSignatureMaps<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ProgramTraitMethodIndex {
-    trait_ids_by_method_name: HashMap<String, Vec<GlobalDefId>>,
+    trait_ids_by_method_name: SymbolMap<Vec<GlobalDefId>>,
     trait_id_by_method_id: HashMap<GlobalDefId, GlobalDefId>,
 }
 
@@ -167,7 +168,7 @@ impl ProgramTraitMethodIndex {
     pub fn from_trait_signatures<'a>(
         traits: impl IntoIterator<Item = (GlobalDefId, &'a ProgramTraitSignature)>,
     ) -> ProgramTraitMethodIndex {
-        let mut trait_ids_by_method_name: HashMap<String, Vec<GlobalDefId>> = HashMap::new();
+        let mut trait_ids_by_method_name: SymbolMap<Vec<GlobalDefId>> = SymbolMap::default();
         let mut trait_id_by_method_id = HashMap::new();
         for (trait_id, signature) in traits {
             for method in &signature.signature.methods {
@@ -194,7 +195,7 @@ impl ProgramTraitMethodIndex {
         }
     }
 
-    pub fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId> {
+    pub fn trait_ids_with_method_named(&self, name: &SymbolId) -> Vec<GlobalDefId> {
         self.trait_ids_by_method_name
             .get(name)
             .cloned()
@@ -239,7 +240,7 @@ impl ProgramSignatureLookup for ProgramSignatureMaps<'_> {
         self.type_aliases.get(&def_id).cloned()
     }
 
-    fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId> {
+    fn trait_ids_with_method_named(&self, name: &SymbolId) -> Vec<GlobalDefId> {
         self.trait_method_index.trait_ids_with_method_named(name)
     }
 
@@ -300,7 +301,7 @@ pub struct ProgramSignatureResolvers<'a> {
     pub enum_: &'a dyn Fn(GlobalDefId) -> Option<ProgramEnumSignature>,
     pub trait_: &'a dyn Fn(GlobalDefId) -> Option<ProgramTraitSignature>,
     pub type_alias: &'a dyn Fn(GlobalDefId) -> Option<ProgramTypeAliasSignature>,
-    pub trait_ids_with_method_named: &'a dyn Fn(&str) -> Vec<GlobalDefId>,
+    pub trait_ids_with_method_named: &'a dyn Fn(&SymbolId) -> Vec<GlobalDefId>,
     pub trait_owning_method:
         &'a dyn Fn(GlobalDefId) -> Option<(GlobalDefId, ProgramTraitSignature)>,
 }
@@ -338,7 +339,7 @@ impl ProgramSignatureLookup for ProgramSignatureResolvers<'_> {
         (self.type_alias)(def_id)
     }
 
-    fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId> {
+    fn trait_ids_with_method_named(&self, name: &SymbolId) -> Vec<GlobalDefId> {
         (self.trait_ids_with_method_named)(name)
     }
 

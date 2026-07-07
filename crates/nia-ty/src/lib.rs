@@ -6,6 +6,7 @@ use nia_ids::{
     GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerId, TyInternerIndex,
 };
 use nia_span::Span;
+use nia_symbol::SymbolId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TyKind {
@@ -79,9 +80,10 @@ pub enum TyKind {
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
         trait_const_args: Vec<ConstGenericArg>,
-        name: String,
+        name: SymbolId,
     },
-    GenericParam(String),
+    GenericParam(SymbolId),
+    SelfParam,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -89,7 +91,7 @@ pub struct AssociatedTypeBindingTy {
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
     pub trait_const_args: Vec<ConstGenericArg>,
-    pub name: String,
+    pub name: SymbolId,
     pub ty: InternedTyId,
 }
 
@@ -193,7 +195,7 @@ pub struct ConstGenericArg {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ConstGenericValue {
-    GenericParam(String),
+    GenericParam(SymbolId),
     ConstExpr(GlobalConstExprId),
     Int(IntConst),
     Bool(bool),
@@ -209,7 +211,7 @@ pub enum PrimitiveTypeSpelling {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArrayLenTy {
     Infer,
-    GenericParam(String),
+    GenericParam(SymbolId),
     ConstValue(u64),
     ConstExpr(GlobalConstExprId),
     Builtin {
@@ -364,7 +366,8 @@ impl TyInterner {
                 TyKind::ComptimeOnly
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
-                | TyKind::GenericParam(_),
+                | TyKind::GenericParam(_)
+                | TyKind::SelfParam,
             ) => false,
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
@@ -470,6 +473,7 @@ pub fn try_import_type_into(
         Some(TyKind::ComptimeOnly) => Ok(target.intern(TyKind::ComptimeOnly)),
         Some(TyKind::Primitive(primitive)) => Ok(target.primitive(primitive)),
         Some(TyKind::GenericParam(name)) => Ok(target.intern(TyKind::GenericParam(name))),
+        Some(TyKind::SelfParam) => Ok(target.intern(TyKind::SelfParam)),
         Some(TyKind::Pointer { is_readonly, elem }) => {
             let elem = try_import_type_into(target, source, elem)?;
             Ok(target.intern(TyKind::Pointer { is_readonly, elem }))
@@ -739,6 +743,7 @@ pub trait TypeEquivalence {
             (Some(TyKind::Error), Some(TyKind::Error)) => true,
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
+            (Some(TyKind::SelfParam), Some(TyKind::SelfParam)) => true,
             (Some(TyKind::BuiltinType(left)), Some(TyKind::BuiltinType(right))) => left == right,
             (
                 Some(TyKind::Pointer {
@@ -1191,9 +1196,9 @@ mod tests {
     fn interner_snapshots_accept_only_prefix_growth() {
         let mut base = TyInterner::new(ModuleId(0));
         let snapshot = base.clone();
-        base.intern(TyKind::GenericParam("T".to_string()));
+        base.intern(TyKind::GenericParam(nia_symbol::known::ITEM));
         let mut diverged = snapshot.clone();
-        diverged.intern(TyKind::GenericParam("U".to_string()));
+        diverged.intern(TyKind::GenericParam(nia_symbol::known::OUTPUT));
 
         assert!(snapshot.is_prefix_of(&base));
         assert!(!base.is_prefix_of(&snapshot));

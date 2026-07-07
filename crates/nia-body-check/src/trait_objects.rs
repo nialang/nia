@@ -5,6 +5,7 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_sema_ir::{PointerArrayToSliceCoercion, TraitObjectCoercion, TraitObjectUpcast};
 use nia_span::Span;
+use nia_symbol::SymbolId;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
 use nia_ty::{AssociatedTypeBindingTy, TraitId, TyKind};
 
@@ -403,9 +404,12 @@ impl<'a> BodyChecker<'a> {
                 self.record_generic_instantiation(def_id, &args, span);
             } else if method.has_default {
                 let default_self_ty = self.trait_receiver_self_ty(self_ty).unwrap_or(self_ty);
-                let mut args = vec![default_self_ty];
-                args.extend(trait_args.iter().copied());
-                self.record_generic_instantiation(method_id, &args, span);
+                self.record_generic_instantiation_with_self_arg(
+                    method_id,
+                    Some(default_self_ty),
+                    trait_args,
+                    span,
+                );
             }
         }
     }
@@ -413,7 +417,7 @@ impl<'a> BodyChecker<'a> {
     fn trait_object_impl_method_instance(
         &mut self,
         trait_id: GlobalDefId,
-        method_name: &str,
+        method_name: &SymbolId,
         self_ty: InternedTyId,
         trait_args: &[InternedTyId],
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
@@ -429,7 +433,7 @@ impl<'a> BodyChecker<'a> {
                     .collect()
             });
         for method in &program_methods {
-            if method.name != method_name {
+            if &method.name != method_name {
                 continue;
             }
             if method.trait_id != Some(nia_ty::TraitId::Source(trait_id))
@@ -543,9 +547,7 @@ impl<'a> BodyChecker<'a> {
             return false;
         };
         let mut ok = true;
-        let self_ty = self
-            .interner
-            .intern(TyKind::GenericParam("Self".to_string()));
+        let self_ty = self.interner.intern(TyKind::SelfParam);
         let mut visiting = Vec::new();
         self.check_object_safe_trait_signature(
             &mut ObjectSafetyCheck {
@@ -646,7 +648,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. }
-                | TyKind::GenericParam(_),
+                | TyKind::GenericParam(_)
+                | TyKind::SelfParam,
             )
             | None => {}
         }
@@ -670,25 +673,27 @@ impl<'a> BodyChecker<'a> {
                 .first()
                 .is_none_or(|param| param.receiver.is_none())
             {
+                let method_name = self.symbol_name(method.name);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` has no receiver",
                         self.nominal_ty_name(trait_id, trait_args),
-                        method.name
+                        method_name
                     ),
                 ));
                 *check.ok = false;
             }
             if !method.signature.generics.is_empty() {
+                let method_name = self.symbol_name(method.name);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` has method generics",
                         self.nominal_ty_name(trait_id, trait_args),
-                        method.name
+                        method_name
                     ),
                 ));
                 *check.ok = false;
@@ -699,13 +704,14 @@ impl<'a> BodyChecker<'a> {
                 .first()
                 .is_some_and(|param| param.receiver == Some(nia_ids::ReceiverKind::Value))
             {
+                let method_name = self.symbol_name(method.name);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` takes `self` by value",
                         self.nominal_ty_name(trait_id, trait_args),
-                        method.name
+                        method_name
                     ),
                 ));
                 *check.ok = false;
@@ -715,12 +721,13 @@ impl<'a> BodyChecker<'a> {
                 let ty = self.substitute_generics(param.ty, &substitutions);
                 let ty = self.object_safe_ty(check, ty);
                 if self.type_mentions_self(ty, check.self_ty) {
+                    let method_name = self.symbol_name(method.name);
                     self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
                         check.span,
                         format!(
                             "trait `{}` is not object safe because method `{}` mentions `Self` outside the receiver",
                             self.nominal_ty_name(trait_id, trait_args),
-                            method.name
+                            method_name
                         ),
                     ));
                     *check.ok = false;
@@ -730,13 +737,14 @@ impl<'a> BodyChecker<'a> {
                 self.substitute_generics(method.signature.return_type, &substitutions);
             let return_type = self.object_safe_ty(check, return_type);
             if self.type_mentions_self(return_type, check.self_ty) {
+                let method_name = self.symbol_name(method.name);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` returns `Self`",
                         self.nominal_ty_name(trait_id, trait_args),
-                        method.name
+                        method_name
                     ),
                 ));
                 *check.ok = false;
@@ -991,7 +999,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::ComptimeOnly
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
-                | TyKind::GenericParam(_),
+                | TyKind::GenericParam(_)
+                | TyKind::SelfParam,
             )
             | None => ty,
         }
@@ -1063,6 +1072,7 @@ impl<'a> BodyChecker<'a> {
                         .into_iter()
                         .any(|arg| self.type_mentions_self(arg, self_ty))
             }
+            Some(TyKind::SelfParam) => true,
             Some(
                 TyKind::Error
                 | TyKind::ComptimeOnly

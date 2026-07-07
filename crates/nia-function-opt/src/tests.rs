@@ -3,11 +3,12 @@ use super::*;
 use nia_function_ir::{
     FunctionArrayElements, FunctionBlock, FunctionBlockId, FunctionCallee, FunctionExpr,
     FunctionExprKind, FunctionLocalKind, FunctionOp, FunctionScope, FunctionScopeId,
-    FunctionTerminator, FunctionTryKind, validate_function_body,
+    FunctionTerminator, FunctionTryKind, LocalName, validate_function_body,
 };
 use nia_ids::LocalId;
 use nia_opt::NiaOptimizationLevel;
 use nia_span::Span;
+use nia_symbol::{SymbolId, stable_hash};
 use std::collections::HashSet;
 
 mod cfg;
@@ -44,4 +45,12 @@ fn test_ty() -> nia_ids::InternedTyId {
         nia_ids::TyInternerId::for_module(nia_ids::ModuleId(0)),
         nia_ids::TyInternerIndex::from_interner_index(0),
     )
+}
+
+fn sym(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(stable_hash(text))
+}
+
+fn local_name(text: &str) -> LocalName {
+    LocalName::named(sym(text))
 }

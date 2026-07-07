@@ -9,14 +9,20 @@ pub(super) use nia_item_signatures::{
 pub(super) use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 pub(super) use nia_local_resolve::resolve_module_locals;
 pub(super) use nia_node_id::{NodeOriginTable, NodePosition, SyntaxKind};
-pub(super) use nia_parser::{parse_module, parse_module_syntax_with_origins};
+pub(super) use nia_parser::parse_module_with_symbols;
 pub(super) use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
 pub(super) use nia_sema_ir::{BracketSuffixResolution, BuiltinValue, SemanticUseTable};
 pub(super) use nia_source::{SourceId, SourcePath, SourceRevision, SourceVersion};
+pub(super) use nia_symbol::{SymbolId, stable_hash};
+pub(super) use nia_symbol_table::SymbolTable;
 pub(super) use nia_ty::{TraitId, TyKind};
 pub(super) use nia_type_lower::lower_module_types;
-pub(super) use nia_type_resolve::resolve_module_types;
+pub(super) use nia_type_resolve::resolve_module_types_with_symbols;
 pub(super) use std::collections::HashMap;
+
+pub(super) fn sym(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(stable_hash(text))
+}
 
 pub(super) struct EmptyBodyProgramSignatures {
     pub functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
@@ -92,7 +98,7 @@ impl ProgramSignatureLookup for EmptyBodyProgramSignatures {
         self.type_aliases.get(&def_id).cloned()
     }
 
-    fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId> {
+    fn trait_ids_with_method_named(&self, name: &SymbolId) -> Vec<GlobalDefId> {
         self.traits
             .iter()
             .filter_map(|(trait_id, signature)| {
@@ -100,7 +106,7 @@ impl ProgramSignatureLookup for EmptyBodyProgramSignatures {
                     .signature
                     .methods
                     .iter()
-                    .any(|method| method.name == name)
+                    .any(|method| &method.name == name)
                     .then_some(*trait_id)
             })
             .collect()
@@ -154,11 +160,12 @@ fn pipeline_with_options(
     ),
     include_visible_extensions: bool,
 ) -> BodyCheck {
-    let (module, parse_errors) = parse_module(source);
+    let symbols = SymbolTable::new();
+    let (module, parse_errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
-    let type_resolved = resolve_module_types(&module, &defs);
+    let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     assert!(
         type_resolved.diagnostics.is_empty(),
         "{:?}",
@@ -190,6 +197,7 @@ fn pipeline_with_options(
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            symbols: &symbols,
             const_exprs: &lowered.const_exprs,
             source_path: &source_path,
         });
@@ -204,6 +212,7 @@ fn pipeline_with_options(
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        symbols: &symbols,
         lowered: &lowered,
         signatures: &signatures,
         interner: &lowered.interner,
@@ -308,6 +317,7 @@ fn pipeline_with_options(
     check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
         source_path: &source_path,
+        symbols: &symbols,
         origins: &origins,
         active_item_tree: &active_item_tree,
         defs: &defs,
