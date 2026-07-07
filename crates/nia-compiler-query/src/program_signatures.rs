@@ -9,8 +9,8 @@ use nia_defs::{
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{
-    BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ReceiverKind, TraitImplId,
-    Visibility,
+    BuiltinAssociatedType, BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId,
+    ReceiverKind, TraitImplId, Visibility,
 };
 use nia_item_signatures::{
     FunctionSignature, ItemSignatures, ParamSignature, ProgramComptimeSignature,
@@ -18,6 +18,8 @@ use nia_item_signatures::{
     ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
     ProgramUnionSignature, TraitImplSignature, TraitSignature,
 };
+use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, symbol_text_or_unresolved};
+use nia_symbol_table::SymbolTable;
 use nia_trait_solve::{
     AssociatedTypeProjectionEq, IntrinsicOverlap, TraitGoal, TraitSolverContext,
 };
@@ -74,6 +76,11 @@ pub(crate) struct ExtensionMethodValidationInput<'a> {
     pub(crate) trait_defs: &'a HashSet<GlobalDefId>,
     pub(crate) trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
     pub(crate) trait_impls: &'a [ProgramTraitImplSignature],
+    pub(crate) symbols: &'a SymbolTable,
+}
+
+fn symbol_name(symbols: &SymbolTable, symbol: SymbolId) -> String {
+    symbol_text_or_unresolved(symbols, symbol)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -207,7 +214,7 @@ pub(crate) fn collect_program_functions_excluding(
                         .defs
                         .get(*def_id)
                         .map(|def| def.name.clone())
-                        .unwrap_or_else(|| format!("def{}", def_id.0)),
+                        .unwrap_or_default(),
                     signature: signature.clone(),
                     interner: module.lowering.interner.clone(),
                 },
@@ -547,6 +554,7 @@ pub(crate) fn collect_extension_methods_for_module(
                 trait_id,
                 input.trait_signatures,
                 input.trait_impls,
+                input.symbols,
                 &mut diagnostics,
             ),
             Some(TraitId::Builtin(trait_id)) => validate_builtin_trait_impl(
@@ -555,6 +563,7 @@ pub(crate) fn collect_extension_methods_for_module(
                 target_ty,
                 trait_id,
                 input.trait_impls,
+                input.symbols,
                 &mut diagnostics,
             ),
             None => true,
@@ -720,16 +729,9 @@ fn extension_method_effective_generics(
     module: &impl ExtensionMethodModule,
     impl_signature: &TraitImplSignature,
     method: &nia_item_signatures::TraitImplMethodSignature,
-    target_ty: InternedTyId,
-) -> Vec<String> {
+    _target_ty: InternedTyId,
+) -> Vec<SymbolId> {
     let mut generics = impl_signature.generics.clone();
-    if matches!(
-        module.interner().get(target_ty),
-        Some(TyKind::TraitObjectPointee { .. })
-    ) && !generics.iter().any(|generic| generic == "Self")
-    {
-        generics.push("Self".to_string());
-    }
     if let Some(def) = module.defs().defs.get(method.def_id) {
         generics.extend(def.generics.iter().cloned());
     }
@@ -738,26 +740,17 @@ fn extension_method_effective_generics(
 
 trait ExtensionMethodModule {
     fn defs(&self) -> &DefCollection;
-    fn interner(&self) -> &TyInterner;
 }
 
 impl ExtensionMethodModule for ExtensionModuleInput<'_> {
     fn defs(&self) -> &DefCollection {
         self.defs
     }
-
-    fn interner(&self) -> &TyInterner {
-        &self.lowering.interner
-    }
 }
 
 impl ExtensionMethodModule for ExtensionMethodIndexModuleInput<'_> {
     fn defs(&self) -> &DefCollection {
         self.defs
-    }
-
-    fn interner(&self) -> &TyInterner {
-        &self.lowering.interner
     }
 }
 
@@ -955,7 +948,7 @@ fn impl_trait_args_for_index(
 
 fn associated_type_ty(
     impl_signature: &TraitImplSignature,
-    name: &str,
+    name: SymbolId,
 ) -> Option<nia_ids::InternedTyId> {
     impl_signature
         .associated_types
@@ -1039,6 +1032,7 @@ fn validate_trait_impl(
     trait_id: GlobalDefId,
     trait_signatures: &HashMap<GlobalDefId, ProgramTraitSignature>,
     trait_impls: &[ProgramTraitImplSignature],
+    symbols: &SymbolTable,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> bool {
     let Some(trait_signature) = trait_signature_ref(trait_signatures, trait_id) else {
@@ -1055,13 +1049,11 @@ fn validate_trait_impl(
             .iter()
             .any(|required| required.name == associated_type.name)
         {
+            let name = symbol_name(symbols, associated_type.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 associated_type.span,
-                format!(
-                    "associated type `{}` is not a member of implemented trait",
-                    associated_type.name
-                ),
+                format!("associated type `{name}` is not a member of implemented trait"),
             ));
         }
     }
@@ -1072,13 +1064,11 @@ fn validate_trait_impl(
             .iter()
             .find(|required| required.name == associated_value.name)
         else {
+            let name = symbol_name(symbols, associated_value.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 associated_value.span,
-                format!(
-                    "associated comptime `{}` is not a member of implemented trait",
-                    associated_value.name
-                ),
+                format!("associated comptime `{name}` is not a member of implemented trait"),
             ));
             continue;
         };
@@ -1088,12 +1078,12 @@ fn validate_trait_impl(
             .get(&associated_value.def_id)
             .and_then(|signature| signature.explicit_type)
         else {
+            let name = symbol_name(symbols, associated_value.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 associated_value.span,
                 format!(
-                    "associated comptime `{}` requires an explicit type to satisfy the trait requirement",
-                    associated_value.name
+                    "associated comptime `{name}` requires an explicit type to satisfy the trait requirement"
                 ),
             ));
             continue;
@@ -1109,12 +1099,12 @@ fn validate_trait_impl(
             trait_const_args: &trait_const_args,
             impl_signature,
         }) {
+            let name = symbol_name(symbols, associated_value.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 associated_value.span,
                 format!(
-                    "implementation of associated comptime `{}` does not match the trait requirement",
-                    associated_value.name
+                    "implementation of associated comptime `{name}` does not match the trait requirement"
                 ),
             ));
         }
@@ -1125,10 +1115,11 @@ fn validate_trait_impl(
             .iter()
             .any(|associated_type| associated_type.name == required.name)
         {
+            let name = symbol_name(symbols, required.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
-                format!("missing definition for associated type `{}`", required.name),
+                format!("missing definition for associated type `{name}`"),
             ));
         }
     }
@@ -1138,13 +1129,11 @@ fn validate_trait_impl(
             .iter()
             .any(|associated_value| associated_value.name == required.name)
         {
+            let name = symbol_name(symbols, required.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
-                format!(
-                    "missing definition for associated comptime `{}`",
-                    required.name
-                ),
+                format!("missing definition for associated comptime `{name}`"),
             ));
         }
     }
@@ -1155,13 +1144,11 @@ fn validate_trait_impl(
             .iter()
             .any(|required| required.name == method.name)
         {
+            let name = symbol_name(symbols, method.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 method.span,
-                format!(
-                    "method `{}` is not a member of implemented trait",
-                    method.name
-                ),
+                format!("method `{name}` is not a member of implemented trait"),
             ));
         }
     }
@@ -1172,6 +1159,7 @@ fn validate_trait_impl(
         trait_signature,
         &trait_args,
         trait_impls,
+        symbols,
         diagnostics,
     );
     let mut comparison_interner = module.normalization.interner.clone();
@@ -1182,13 +1170,11 @@ fn validate_trait_impl(
             .find(|method| method.name == required.name)
         else {
             if !required.has_default {
+                let name = symbol_name(symbols, required.name);
                 diagnostics.push(Diagnostic::user_error_at(
                     codes::NAME_RESOLUTION,
                     impl_signature.span,
-                    format!(
-                        "missing implementation for trait method `{}`",
-                        required.name
-                    ),
+                    format!("missing implementation for trait method `{name}`"),
                 ));
             }
             continue;
@@ -1232,12 +1218,12 @@ fn validate_trait_impl(
             &required_signature,
             &actual_signature,
         ) {
+            let name = symbol_name(symbols, required.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 method.span,
                 format!(
-                    "implementation of trait method `{}` does not match the trait signature",
-                    required.name
+                    "implementation of trait method `{name}` does not match the trait signature"
                 ),
             ));
         }
@@ -1259,7 +1245,7 @@ struct TraitAssociatedComptimeTypeMatch<'a> {
 
 fn trait_associated_comptime_type_matches(input: TraitAssociatedComptimeTypeMatch<'_>) -> bool {
     let mut comparison_interner = input.module.normalization.interner.clone();
-    let mut substitutions = input
+    let substitutions = input
         .trait_signature
         .signature
         .generics
@@ -1267,7 +1253,6 @@ fn trait_associated_comptime_type_matches(input: TraitAssociatedComptimeTypeMatc
         .zip(input.trait_args)
         .map(|(generic, arg)| (generic.clone(), *arg))
         .collect::<HashMap<_, _>>();
-    substitutions.insert("Self".to_string(), input.target_ty);
     let const_substitutions = const_substitutions_from_self_describing_args(input.trait_const_args);
     let projection_context = Some(ProjectionImplContext {
         trait_id: input.trait_id,
@@ -1284,6 +1269,7 @@ fn trait_associated_comptime_type_matches(input: TraitAssociatedComptimeTypeMatc
         &substitutions,
         &const_substitutions,
         projection_context,
+        Some(input.target_ty),
     );
     let actual = substitute_imported_type(
         &mut comparison_interner,
@@ -1293,6 +1279,7 @@ fn trait_associated_comptime_type_matches(input: TraitAssociatedComptimeTypeMatc
         &HashMap::new(),
         &HashMap::new(),
         projection_context,
+        None,
     );
     types_equivalent_in_interner(&comparison_interner, required, actual)
 }
@@ -1303,6 +1290,7 @@ fn validate_builtin_trait_impl(
     target_ty: nia_ids::InternedTyId,
     trait_id: BuiltinTrait,
     trait_impls: &[ProgramTraitImplSignature],
+    symbols: &SymbolTable,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> bool {
     let start_len = diagnostics.len();
@@ -1318,32 +1306,32 @@ fn validate_builtin_trait_impl(
         return false;
     }
     for associated_type in &impl_signature.associated_types {
-        if !trait_id.has_associated_type(&associated_type.name) {
+        if !trait_id
+            .associated_types()
+            .iter()
+            .any(|expected| expected.symbol_id() == associated_type.name)
+        {
+            let name = symbol_name(symbols, associated_type.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 associated_type.span,
-                format!(
-                    "associated type `{}` is not a member of implemented trait",
-                    associated_type.name
-                ),
+                format!("associated type `{name}` is not a member of implemented trait"),
             ));
         }
     }
-    for associated_type_name in trait_id
-        .associated_types()
-        .iter()
-        .map(|associated_type| associated_type.name())
-    {
-        if trait_id.has_associated_type(associated_type_name)
-            && !impl_signature
-                .associated_types
-                .iter()
-                .any(|associated_type| associated_type.name == associated_type_name)
+    for associated_type_name in trait_id.associated_types().iter().copied() {
+        if !impl_signature
+            .associated_types
+            .iter()
+            .any(|associated_type| associated_type.name == associated_type_name.symbol_id())
         {
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
-                format!("missing definition for associated type `{associated_type_name}`"),
+                format!(
+                    "missing definition for associated type `{}`",
+                    associated_type_name.name()
+                ),
             ));
         }
     }
@@ -1359,15 +1347,13 @@ fn validate_builtin_trait_impl(
     for method in &impl_signature.methods {
         if !expected_methods
             .iter()
-            .any(|expected_method| expected_method.name() == method.name)
+            .any(|expected_method| expected_method.symbol_id() == method.name)
         {
+            let name = symbol_name(symbols, method.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 method.span,
-                format!(
-                    "method `{}` is not a member of implemented trait",
-                    method.name
-                ),
+                format!("method `{name}` is not a member of implemented trait"),
             ));
         }
     }
@@ -1375,7 +1361,7 @@ fn validate_builtin_trait_impl(
         let matching_methods = impl_signature
             .methods
             .iter()
-            .filter(|method| method.name == expected_method.name())
+            .filter(|method| method.name == expected_method.symbol_id())
             .collect::<Vec<_>>();
         match matching_methods.as_slice() {
             [] => diagnostics.push(Diagnostic::user_error_at(
@@ -1558,8 +1544,8 @@ fn builtin_place_trait_method_signature_matches(
         return false;
     }
     let assoc_name = match trait_id {
-        BuiltinTrait::Deref | BuiltinTrait::DerefMut => BuiltinTrait::TARGET_ASSOC_TYPE,
-        BuiltinTrait::Index | BuiltinTrait::IndexMut => BuiltinTrait::OUTPUT_ASSOC_TYPE,
+        BuiltinTrait::Deref | BuiltinTrait::DerefMut => BuiltinAssociatedType::Target.symbol_id(),
+        BuiltinTrait::Index | BuiltinTrait::IndexMut => BuiltinAssociatedType::Output.symbol_id(),
         _ => return false,
     };
     let Some(associated_type) = associated_type_ty(impl_signature, assoc_name) else {
@@ -1592,7 +1578,9 @@ fn builtin_slice_trait_method_signature_matches(
     if !types_equivalent(module.lowering, range_param.ty, range_ty) {
         return false;
     }
-    let Some(output) = associated_type_ty(impl_signature, BuiltinTrait::OUTPUT_ASSOC_TYPE) else {
+    let Some(output) =
+        associated_type_ty(impl_signature, BuiltinAssociatedType::Output.symbol_id())
+    else {
         return false;
     };
     types_equivalent(module.lowering, actual.return_type, output)
@@ -1606,7 +1594,8 @@ fn builtin_iterator_method_signature_matches(
     if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::Ref) {
         return false;
     }
-    let Some(item) = associated_type_ty(impl_signature, BuiltinTrait::ITEM_ASSOC_TYPE) else {
+    let Some(item) = associated_type_ty(impl_signature, BuiltinAssociatedType::Item.symbol_id())
+    else {
         return false;
     };
     let actual_return = module.normalization.normalize(actual.return_type);
@@ -1624,7 +1613,8 @@ fn builtin_iterable_method_signature_matches(
     if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::RefReadOnly) {
         return false;
     }
-    let Some(iter) = associated_type_ty(impl_signature, BuiltinTrait::ITER_ASSOC_TYPE) else {
+    let Some(iter) = associated_type_ty(impl_signature, BuiltinAssociatedType::Iter.symbol_id())
+    else {
         return false;
     };
     types_equivalent(module.lowering, actual.return_type, iter)
@@ -1652,7 +1642,9 @@ fn builtin_bound_method_signature_matches(
     if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::RefReadOnly) {
         return false;
     }
-    let Some(output) = associated_type_ty(impl_signature, BuiltinTrait::OUTPUT_ASSOC_TYPE) else {
+    let Some(output) =
+        associated_type_ty(impl_signature, BuiltinAssociatedType::Output.symbol_id())
+    else {
         return false;
     };
     types_equivalent(module.lowering, actual.return_type, output)
@@ -1699,6 +1691,7 @@ fn validate_supertrait_impls(
     trait_signature: TraitSignatureRef<'_>,
     trait_args: &[nia_ids::InternedTyId],
     trait_impls: &[ProgramTraitImplSignature],
+    symbols: &SymbolTable,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for supertrait in &trait_signature.signature.supertraits {
@@ -1731,7 +1724,7 @@ fn validate_supertrait_impls(
                 impl_signature.span,
                 format!(
                     "implementation of trait requires explicit implementation of supertrait `{}`",
-                    trait_name(module, supertrait_id)
+                    trait_name(module, supertrait_id, symbols)
                 ),
             ));
         }
@@ -1743,7 +1736,7 @@ fn import_trait_bound(
     module: &ExtensionModuleInput<'_>,
     source_interner: &TyInterner,
     ty: nia_ids::InternedTyId,
-    trait_generics: &[String],
+    trait_generics: &[SymbolId],
     trait_args: &[nia_ids::InternedTyId],
 ) -> nia_ids::InternedTyId {
     let substitutions = trait_generics
@@ -1758,6 +1751,7 @@ fn import_trait_bound(
         ty,
         &substitutions,
         &HashMap::new(),
+        None,
         None,
     )
 }
@@ -1881,24 +1875,27 @@ impl SignatureTypeEquivalence<'_> {
     }
 }
 
-fn trait_name(module: &ExtensionModuleInput<'_>, trait_id: GlobalDefId) -> String {
+fn trait_name(
+    module: &ExtensionModuleInput<'_>,
+    trait_id: GlobalDefId,
+    symbols: &SymbolTable,
+) -> String {
     module
         .defs
         .defs
         .get(trait_id.def_id)
         .filter(|_| trait_id.module_id == module.module_id)
-        .map(|def| def.name.clone())
+        .map(|def| symbol_name(symbols, def.name))
         .unwrap_or_else(|| format!("trait#{}.{}", trait_id.module_id.0, trait_id.def_id.0))
 }
 
 fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> FunctionSignature {
-    let mut substitutions = input
+    let substitutions = input
         .trait_generics
         .iter()
         .zip(input.trait_args)
         .map(|(generic, arg)| (generic.clone(), *arg))
         .collect::<HashMap<_, _>>();
-    substitutions.insert("Self".to_string(), input.self_ty);
     let const_substitutions = const_substitutions_from_self_describing_args(input.trait_const_args);
     let mut signature = input.signature.clone();
     signature.params = signature
@@ -1921,6 +1918,7 @@ fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> FunctionSignatu
                     self_ty: input.self_ty,
                     associated_types: &input.impl_signature.associated_types,
                 }),
+                Some(input.self_ty),
             ),
             span: param.span,
         })
@@ -1939,6 +1937,7 @@ fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> FunctionSignatu
             self_ty: input.self_ty,
             associated_types: &input.impl_signature.associated_types,
         }),
+        Some(input.self_ty),
     );
     signature
 }
@@ -1968,6 +1967,7 @@ fn normalize_impl_method_signature(input: ImplMethodSignatureNormalize<'_>) -> F
                 &substitutions,
                 &const_substitutions,
                 context,
+                Some(input.self_ty),
             ),
             span: param.span,
         })
@@ -1980,6 +1980,7 @@ fn normalize_impl_method_signature(input: ImplMethodSignatureNormalize<'_>) -> F
         &substitutions,
         &const_substitutions,
         context,
+        Some(input.self_ty),
     );
     signature
 }
@@ -1992,7 +1993,7 @@ struct TraitMethodImport<'a> {
     // Required trait methods are authored in the trait module/interner but are
     // checked against an impl in the current module/interner. These fields keep
     // the substitution environment and projection-impl context in one place.
-    trait_generics: &'a [String],
+    trait_generics: &'a [SymbolId],
     trait_args: &'a [nia_ids::InternedTyId],
     trait_const_args: &'a [nia_ty::ConstGenericArg],
     self_ty: nia_ids::InternedTyId,
@@ -2026,14 +2027,17 @@ fn substitute_imported_type(
     module: &ExtensionModuleInput<'_>,
     source_interner: &TyInterner,
     ty: nia_ids::InternedTyId,
-    substitutions: &HashMap<String, nia_ids::InternedTyId>,
-    const_substitutions: &HashMap<String, nia_ty::ConstGenericArg>,
+    substitutions: &SymbolMap<nia_ids::InternedTyId>,
+    const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     projection_context: Option<ProjectionImplContext<'_>>,
+    self_substitution: Option<nia_ids::InternedTyId>,
 ) -> nia_ids::InternedTyId {
     match source_interner.get(ty) {
         Some(TyKind::GenericParam(name)) => substitutions
             .get(name)
             .copied()
+            .unwrap_or_else(|| import_type_into(target_interner, source_interner, ty)),
+        Some(TyKind::SelfParam) => self_substitution
             .unwrap_or_else(|| import_type_into(target_interner, source_interner, ty)),
         Some(TyKind::Pointer { is_readonly, elem }) => {
             let is_readonly = *is_readonly;
@@ -2045,6 +2049,7 @@ fn substitute_imported_type(
                 substitutions,
                 const_substitutions,
                 projection_context,
+                self_substitution,
             );
             target_interner.intern(TyKind::Pointer { is_readonly, elem })
         }
@@ -2058,6 +2063,7 @@ fn substitute_imported_type(
                 substitutions,
                 const_substitutions,
                 projection_context,
+                self_substitution,
             );
             target_interner.intern(TyKind::VolatilePointer { is_readonly, elem })
         }
@@ -2071,6 +2077,7 @@ fn substitute_imported_type(
                 substitutions,
                 const_substitutions,
                 projection_context,
+                self_substitution,
             );
             target_interner.intern(TyKind::Slice { is_readonly, elem })
         }
@@ -2083,6 +2090,7 @@ fn substitute_imported_type(
                 substitutions,
                 const_substitutions,
                 projection_context,
+                self_substitution,
             );
             target_interner.intern(TyKind::SlicePointee { elem })
         }
@@ -2096,6 +2104,7 @@ fn substitute_imported_type(
                 substitutions,
                 const_substitutions,
                 projection_context,
+                self_substitution,
             );
             target_interner.intern(TyKind::Array { len, elem })
         }
@@ -2109,6 +2118,7 @@ fn substitute_imported_type(
                     substitutions,
                     const_substitutions,
                     projection_context,
+                    self_substitution,
                 )
             });
             target_interner.intern(TyKind::Range { kind: *kind, bound })
@@ -2122,6 +2132,7 @@ fn substitute_imported_type(
                 substitutions,
                 const_substitutions,
                 projection_context,
+                self_substitution,
             );
             target_interner.intern(TyKind::Optional { elem })
         }
@@ -2134,6 +2145,7 @@ fn substitute_imported_type(
                 substitutions,
                 const_substitutions,
                 projection_context,
+                self_substitution,
             );
             let value = substitute_imported_type(
                 target_interner,
@@ -2143,6 +2155,7 @@ fn substitute_imported_type(
                 substitutions,
                 const_substitutions,
                 projection_context,
+                self_substitution,
             );
             target_interner.intern(TyKind::ErrorUnion { error, value })
         }
@@ -2162,6 +2175,7 @@ fn substitute_imported_type(
                         substitutions,
                         const_substitutions,
                         projection_context,
+                        self_substitution,
                     )
                 })
                 .collect();
@@ -2173,6 +2187,7 @@ fn substitute_imported_type(
                 substitutions,
                 const_substitutions,
                 projection_context,
+                self_substitution,
             );
             target_interner.intern(TyKind::FunctionPointer {
                 params,
@@ -2196,6 +2211,7 @@ fn substitute_imported_type(
                         substitutions,
                         const_substitutions,
                         projection_context,
+                        self_substitution,
                     )
                 })
                 .collect();
@@ -2210,6 +2226,7 @@ fn substitute_imported_type(
                         substitutions,
                         const_substitutions,
                         projection_context,
+                        self_substitution,
                     )
                 })
                 .collect();
@@ -2231,6 +2248,7 @@ fn substitute_imported_type(
                         substitutions,
                         const_substitutions,
                         projection_context,
+                        self_substitution,
                     )
                 })
                 .collect();
@@ -2258,6 +2276,7 @@ fn substitute_imported_type(
                         substitutions,
                         const_substitutions,
                         projection_context,
+                        self_substitution,
                     )
                 })
                 .collect();
@@ -2272,6 +2291,7 @@ fn substitute_imported_type(
                         substitutions,
                         const_substitutions,
                         projection_context,
+                        self_substitution,
                     )
                 })
                 .collect();
@@ -2291,6 +2311,7 @@ fn substitute_imported_type(
                                 substitutions,
                                 const_substitutions,
                                 projection_context,
+                                self_substitution,
                             )
                         })
                         .collect(),
@@ -2306,6 +2327,7 @@ fn substitute_imported_type(
                                 substitutions,
                                 const_substitutions,
                                 projection_context,
+                                self_substitution,
                             )
                         })
                         .collect(),
@@ -2318,6 +2340,7 @@ fn substitute_imported_type(
                         substitutions,
                         const_substitutions,
                         projection_context,
+                        self_substitution,
                     ),
                 })
                 .collect();
@@ -2346,6 +2369,7 @@ fn substitute_imported_type(
                         substitutions,
                         const_substitutions,
                         projection_context,
+                        self_substitution,
                     )
                 })
                 .collect();
@@ -2360,6 +2384,7 @@ fn substitute_imported_type(
                         substitutions,
                         const_substitutions,
                         projection_context,
+                        self_substitution,
                     )
                 })
                 .collect();
@@ -2379,6 +2404,7 @@ fn substitute_imported_type(
                                 substitutions,
                                 const_substitutions,
                                 projection_context,
+                                self_substitution,
                             )
                         })
                         .collect(),
@@ -2394,6 +2420,7 @@ fn substitute_imported_type(
                                 substitutions,
                                 const_substitutions,
                                 projection_context,
+                                self_substitution,
                             )
                         })
                         .collect(),
@@ -2406,6 +2433,7 @@ fn substitute_imported_type(
                         substitutions,
                         const_substitutions,
                         projection_context,
+                        self_substitution,
                     ),
                 })
                 .collect();
@@ -2431,6 +2459,7 @@ fn substitute_imported_type(
                 substitutions,
                 const_substitutions,
                 projection_context,
+                self_substitution,
             );
             let trait_args = trait_args
                 .iter()
@@ -2443,6 +2472,7 @@ fn substitute_imported_type(
                         substitutions,
                         const_substitutions,
                         projection_context,
+                        self_substitution,
                     )
                 })
                 .collect::<Vec<_>>();
@@ -2457,6 +2487,7 @@ fn substitute_imported_type(
                         substitutions,
                         const_substitutions,
                         projection_context,
+                        self_substitution,
                     )
                 })
                 .collect::<Vec<_>>();
@@ -2490,7 +2521,7 @@ fn substitute_imported_type(
 
 fn const_substitutions_from_self_describing_args(
     const_args: &[nia_ty::ConstGenericArg],
-) -> HashMap<String, nia_ty::ConstGenericArg> {
+) -> SymbolMap<nia_ty::ConstGenericArg> {
     const_args
         .iter()
         .filter_map(|arg| match &arg.value {
@@ -2505,9 +2536,10 @@ fn substitute_imported_const_arg(
     module: &ExtensionModuleInput<'_>,
     source_interner: &TyInterner,
     arg: &nia_ty::ConstGenericArg,
-    substitutions: &HashMap<String, nia_ids::InternedTyId>,
-    const_substitutions: &HashMap<String, nia_ty::ConstGenericArg>,
+    substitutions: &SymbolMap<nia_ids::InternedTyId>,
+    const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     projection_context: Option<ProjectionImplContext<'_>>,
+    self_substitution: Option<nia_ids::InternedTyId>,
 ) -> nia_ty::ConstGenericArg {
     if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
         && let Some(substituted) = const_substitutions.get(name)
@@ -2523,6 +2555,7 @@ fn substitute_imported_const_arg(
             substitutions,
             const_substitutions,
             projection_context,
+            self_substitution,
         ),
         value: arg.value.clone(),
     }
@@ -2530,7 +2563,7 @@ fn substitute_imported_const_arg(
 
 fn substitute_imported_array_len(
     len: nia_ty::ArrayLenTy,
-    const_substitutions: &HashMap<String, nia_ty::ConstGenericArg>,
+    const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
 ) -> nia_ty::ArrayLenTy {
     match len {
         nia_ty::ArrayLenTy::GenericParam(name) => const_substitutions
@@ -2780,6 +2813,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                     &substitutions,
                     &const_substitutions,
                     None,
+                    Some(self_ty),
                 );
                 let Some((supertrait_id, supertrait_args, supertrait_const_args)) =
                     trait_id_and_args(interner, supertrait)
@@ -2824,7 +2858,8 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
             | TyKind::Range { .. }
             | TyKind::Optional { .. }
             | TyKind::ErrorUnion { .. }
-            | TyKind::GenericParam(_),
+            | TyKind::GenericParam(_)
+            | TyKind::SelfParam,
         ) => true,
     }
 }
@@ -3038,6 +3073,7 @@ pub(crate) fn visible_extensions_for_module(
                     def_id: value.def_id,
                 },
             );
+            visible.insert_trait_witness_impl(value.def_id.module_id, value.impl_id);
         },
     );
     VisibleExtensionsForModule {
@@ -3393,7 +3429,24 @@ mod tests {
     use nia_item_signatures::ProgramTypeAliasSignature;
     use nia_source::{SourceId, SourcePath, SourceRevision, SourceVersion};
     use nia_span::Span;
+    use nia_symbol::stable_hash;
     use std::{cell::RefCell, collections::HashMap};
+
+    fn sym(text: &str) -> SymbolId {
+        SymbolId::from_stable_hash(stable_hash(text))
+    }
+
+    fn intern_child(
+        graph: &mut ModuleGraph,
+        parent: nia_ids::ModuleId,
+        child_name: &str,
+        visibility: nia_ids::Visibility,
+    ) {
+        let child = sym(child_name);
+        graph
+            .intern_declared_child(parent, &child, visibility, Span::default())
+            .expect("intern child module");
+    }
 
     fn defs_from_source(module_id: nia_ids::ModuleId, source: &str) -> DefCollection {
         let syntax = nia_syntax::parse_source(
@@ -3412,7 +3465,7 @@ mod tests {
         let def_id = defs
             .module_scope
             .types
-            .get(name)
+            .get(&sym(name))
             .unwrap_or_else(|| panic!("missing type definition `{name}`"));
         GlobalDefId {
             module_id: defs.module_id,
@@ -3441,32 +3494,26 @@ mod tests {
         let used = global_type_def_id(&type_defs, "Used");
         let other = global_type_def_id(&type_defs, "Other");
         let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
-        graph
-            .intern_declared_child(entry, "types", nia_ids::Visibility::Public, Span::default())
-            .expect("intern types module");
-        graph
-            .intern_declared_child(
-                entry,
-                "used_provider",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern used provider module");
-        graph
-            .intern_declared_child(
-                entry,
-                "other_provider",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern other provider module");
+        intern_child(&mut graph, entry, "types", nia_ids::Visibility::Public);
+        intern_child(
+            &mut graph,
+            entry,
+            "used_provider",
+            nia_ids::Visibility::Public,
+        );
+        intern_child(
+            &mut graph,
+            entry,
+            "other_provider",
+            nia_ids::Visibility::Public,
+        );
         let mut using_scope = ModuleUsingScope::default();
         using_scope
             .types
-            .insert("Used".to_string(), using_type_entry(used));
+            .insert(sym("Used"), using_type_entry(used));
         using_scope
             .types
-            .insert("Other".to_string(), using_type_entry(other));
+            .insert(sym("Other"), using_type_entry(other));
         let using_scopes = HashMap::new();
         let empty_aliases = HashMap::<GlobalDefId, ProgramTypeAliasSignature>::new();
         let empty_normalization = TypeNormalization {

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use nia_ast::{GenericParam, TypeKind, TypeRef, UsingGroupItem, UsingSelector};
+use nia_ast::{GenericParam, PathSegmentKind, TypeKind, TypeRef, UsingGroupItem, UsingSelector};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
+use nia_symbol::{SymbolId, SymbolMap, SymbolSet, ToSymbolId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ProviderSummary {
@@ -13,12 +14,12 @@ pub struct ProviderSummary {
 pub struct Provider {
     pub target: ProviderTarget,
     pub trait_ref: Option<ProviderTypeRef>,
-    pub associated_items: Vec<String>,
+    pub associated_items: Vec<SymbolId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderTypeRef {
-    pub last_name: Option<String>,
+    pub last_name: Option<SymbolId>,
     pub is_generic_or_structural_target: bool,
     pub semantic_is_conservative: bool,
 }
@@ -30,13 +31,13 @@ pub struct ProviderTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum NominalProviderCandidate {
-    Named(String),
+    Named(SymbolId),
     Conservative,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NominalProviderCandidateIndex<M> {
-    named: HashMap<String, Vec<M>>,
+    named: SymbolMap<Vec<M>>,
 }
 
 impl<M> NominalProviderCandidateIndex<M>
@@ -46,11 +47,11 @@ where
     pub fn from_summaries(
         summaries: impl IntoIterator<Item = (M, ProviderSummary)>,
     ) -> NominalProviderCandidateIndex<M> {
-        let mut named: HashMap<String, Vec<M>> = HashMap::new();
+        let mut named: SymbolMap<Vec<M>> = SymbolMap::default();
         for (module, summary) in summaries {
             for provider in &summary.providers {
                 if let Some(name) = provider.target.ty.nominal_provider_index_name() {
-                    named.entry(name.to_string()).or_default().push(module);
+                    named.entry(name.clone()).or_default().push(module);
                 }
             }
         }
@@ -61,7 +62,7 @@ where
         NominalProviderCandidateIndex { named }
     }
 
-    pub fn named(&self, name: &str) -> &[M] {
+    pub fn named(&self, name: &SymbolId) -> &[M] {
         self.named.get(name).map(Vec::as_slice).unwrap_or(&[])
     }
 
@@ -77,8 +78,13 @@ impl ProviderSummary {
         let mut local_nominal_names = local_nominal_type_names(item_tree);
         let mut local_trait_names = local_trait_names(item_tree);
         let using_names = module_using_names(item_tree);
-        local_nominal_names.extend(using_names.iter().copied());
-        local_trait_names.extend(using_names.iter().copied());
+        local_nominal_names.extend(using_names.iter().cloned());
+        local_trait_names.extend(using_names.iter().cloned());
+        local_trait_names.extend(
+            nia_ids::BuiltinTrait::ALL
+                .iter()
+                .map(|trait_id| trait_id.symbol_id()),
+        );
         let providers = item_tree
             .items
             .iter()
@@ -124,7 +130,7 @@ impl ProviderSummary {
         !self.providers.is_empty()
     }
 
-    pub fn may_define_nominal_provider_for(&self, target_type_name: &str) -> bool {
+    pub fn may_define_nominal_provider_for(&self, target_type_name: &SymbolId) -> bool {
         self.providers
             .iter()
             .any(|provider| provider.target.ty.may_match_nominal_name(target_type_name))
@@ -153,17 +159,11 @@ impl ProviderSummary {
         candidates
     }
 
-    pub fn nominal_provider_index_names(&self) -> Vec<String> {
+    pub fn nominal_provider_index_names(&self) -> Vec<SymbolId> {
         let mut names = self
             .providers
             .iter()
-            .filter_map(|provider| {
-                provider
-                    .target
-                    .ty
-                    .nominal_provider_index_name()
-                    .map(str::to_string)
-            })
+            .filter_map(|provider| provider.target.ty.nominal_provider_index_name().cloned())
             .collect::<Vec<_>>();
         names.sort();
         names.dedup();
@@ -172,8 +172,8 @@ impl ProviderSummary {
 
     pub fn defines_inherent_associated_item(
         &self,
-        target_type_name: &str,
-        associated_name: &str,
+        target_type_name: &SymbolId,
+        associated_name: &SymbolId,
     ) -> bool {
         self.providers.iter().any(|provider| {
             provider.trait_ref.is_none()
@@ -182,21 +182,25 @@ impl ProviderSummary {
         })
     }
 
-    pub fn defines_trait_impl(&self, trait_name: &str, associated_name: Option<&str>) -> bool {
+    pub fn defines_trait_impl(
+        &self,
+        trait_name: &SymbolId,
+        associated_name: Option<&SymbolId>,
+    ) -> bool {
         self.providers.iter().any(|provider| {
             provider
                 .trait_ref
                 .as_ref()
-                .is_some_and(|trait_ref| trait_ref.may_match_nominal_name(trait_name))
+                .is_some_and(|trait_ref| trait_ref.may_match_trait_name(trait_name))
                 && associated_name.is_none_or(|name| provider.has_associated_item(name))
         })
     }
 
     pub fn defines_public_extension_method_for_facade(
         &self,
-        facade_exposes_type: impl Fn(&str) -> bool,
-        target_type_name: Option<&str>,
-        associated_name: &str,
+        facade_exposes_type: impl Fn(&SymbolId) -> bool,
+        target_type_name: Option<&SymbolId>,
+        associated_name: &SymbolId,
     ) -> bool {
         self.providers.iter().any(|provider| {
             if let Some(target_type_name) = target_type_name {
@@ -210,7 +214,7 @@ impl ProviderSummary {
                 return false;
             }
             if let Some(trait_ref) = &provider.trait_ref {
-                let Some(trait_name) = trait_ref.last_name.as_deref() else {
+                let Some(trait_name) = trait_ref.last_name.as_ref() else {
                     return false;
                 };
                 if !facade_exposes_type(trait_name) && trait_ref.is_definite_semantic_name() {
@@ -223,7 +227,7 @@ impl ProviderSummary {
 }
 
 impl Provider {
-    fn has_associated_item(&self, name: &str) -> bool {
+    fn has_associated_item(&self, name: &SymbolId) -> bool {
         self.associated_items
             .iter()
             .any(|associated| associated == name)
@@ -231,12 +235,8 @@ impl Provider {
 }
 
 impl ProviderTypeRef {
-    fn from_type_ref(
-        ty: &TypeRef,
-        generic_names: &HashSet<&str>,
-        definite_names: &HashSet<&str>,
-    ) -> Self {
-        let last_name = type_ref_last_name(ty).map(ToString::to_string);
+    fn from_type_ref(ty: &TypeRef, generic_names: &SymbolSet, definite_names: &SymbolSet) -> Self {
+        let last_name = type_ref_last_name(ty);
         let is_generic_or_structural_target =
             type_ref_is_generic_or_structural_provider_target(ty, generic_names);
         let semantic_is_conservative =
@@ -248,10 +248,14 @@ impl ProviderTypeRef {
         }
     }
 
-    fn may_match_nominal_name(&self, name: &str) -> bool {
+    fn may_match_nominal_name(&self, name: &SymbolId) -> bool {
         self.is_generic_or_structural_target
             || self.semantic_is_conservative
-            || self.last_name.as_deref().is_none_or(|last| last == name)
+            || self.last_name.as_ref().is_none_or(|last| last == name)
+    }
+
+    fn may_match_trait_name(&self, name: &SymbolId) -> bool {
+        self.last_name.as_ref().is_none_or(|last| last == name)
     }
 
     fn semantic_nominal_provider_candidate(&self) -> NominalProviderCandidate {
@@ -264,11 +268,11 @@ impl ProviderTypeRef {
             .unwrap_or(NominalProviderCandidate::Conservative)
     }
 
-    fn nominal_provider_index_name(&self) -> Option<&str> {
+    fn nominal_provider_index_name(&self) -> Option<&SymbolId> {
         if self.is_generic_or_structural_target {
             return None;
         }
-        self.last_name.as_deref()
+        self.last_name.as_ref()
     }
 
     fn is_definite_semantic_name(&self) -> bool {
@@ -276,32 +280,32 @@ impl ProviderTypeRef {
     }
 }
 
-fn local_nominal_type_names(item_tree: &ActiveModuleItemTree) -> HashSet<&str> {
+fn local_nominal_type_names(item_tree: &ActiveModuleItemTree) -> SymbolSet {
     item_tree
         .items
         .iter()
         .filter_map(|item| match &item.kind {
-            ItemTreeNodeKind::Struct(item) => Some(item.name.as_str()),
-            ItemTreeNodeKind::Union(item) => Some(item.name.as_str()),
-            ItemTreeNodeKind::Enum(item) => Some(item.name.as_str()),
+            ItemTreeNodeKind::Struct(item) => Some(item.name.clone()),
+            ItemTreeNodeKind::Union(item) => Some(item.name.clone()),
+            ItemTreeNodeKind::Enum(item) => Some(item.name.clone()),
             _ => None,
         })
         .collect()
 }
 
-fn local_trait_names(item_tree: &ActiveModuleItemTree) -> HashSet<&str> {
+fn local_trait_names(item_tree: &ActiveModuleItemTree) -> SymbolSet {
     item_tree
         .items
         .iter()
         .filter_map(|item| match &item.kind {
-            ItemTreeNodeKind::Trait(item) => Some(item.name.as_str()),
+            ItemTreeNodeKind::Trait(item) => Some(item.name.clone()),
             _ => None,
         })
         .collect()
 }
 
-fn module_using_names(item_tree: &ActiveModuleItemTree) -> HashSet<&str> {
-    let mut names = HashSet::new();
+fn module_using_names(item_tree: &ActiveModuleItemTree) -> SymbolSet {
+    let mut names = SymbolSet::default();
     for item in &item_tree.items {
         let ItemTreeNodeKind::Using(using) = &item.kind else {
             continue;
@@ -311,20 +315,22 @@ fn module_using_names(item_tree: &ActiveModuleItemTree) -> HashSet<&str> {
     names
 }
 
-fn collect_using_selector_names<'a>(
-    host: &'a [nia_ast::UsingHostSegment],
-    selector: &'a UsingSelector,
-    names: &mut HashSet<&'a str>,
+fn collect_using_selector_names(
+    host: &[nia_ast::UsingHostSegment],
+    selector: &UsingSelector,
+    names: &mut SymbolSet,
 ) {
     match selector {
         UsingSelector::SelfName => {
-            if let Some(segment) = host.last() {
-                names.insert(segment.name.as_str());
+            if let Some(segment) = host.last()
+                && let PathSegmentKind::Name(name) = segment.kind
+            {
+                names.insert(name);
             }
         }
         UsingSelector::Wildcard { .. } => {}
         UsingSelector::Single(name) => {
-            names.insert(name.alias.as_deref().unwrap_or(name.name.as_str()));
+            names.insert(name.alias.clone().unwrap_or_else(|| name.name.clone()));
         }
         UsingSelector::Group(items) => {
             for item in items {
@@ -334,10 +340,10 @@ fn collect_using_selector_names<'a>(
     }
 }
 
-fn collect_using_group_item_names<'a>(item: &'a UsingGroupItem, names: &mut HashSet<&'a str>) {
+fn collect_using_group_item_names(item: &UsingGroupItem, names: &mut SymbolSet) {
     match item {
         UsingGroupItem::Name(name) => {
-            names.insert(name.alias.as_deref().unwrap_or(name.name.as_str()));
+            names.insert(name.alias.clone().unwrap_or_else(|| name.name.clone()));
         }
         UsingGroupItem::Nested { host, selector } => {
             collect_using_selector_names(host, selector, names);
@@ -345,45 +351,51 @@ fn collect_using_group_item_names<'a>(item: &'a UsingGroupItem, names: &mut Hash
     }
 }
 
-fn type_ref_last_name(ty: &TypeRef) -> Option<&str> {
+fn type_ref_last_name(ty: &TypeRef) -> Option<SymbolId> {
     match &ty.kind {
-        TypeKind::Path { segments } => segments.last().map(|segment| segment.name.as_str()),
+        TypeKind::Path { segments } => segments.last().and_then(|segment| match segment.kind {
+            PathSegmentKind::Name(name) => Some(name),
+            PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+        }),
         _ => None,
     }
 }
 
 fn type_ref_is_definite_local_nominal_name(
     ty: &TypeRef,
-    generic_names: &HashSet<&str>,
-    definite_names: &HashSet<&str>,
+    generic_names: &SymbolSet,
+    definite_names: &SymbolSet,
 ) -> bool {
     match &ty.kind {
         TypeKind::Path { segments } => {
             segments.len() == 1
                 && segments[0].args.is_empty()
-                && !generic_names.contains(segments[0].name.as_str())
-                && definite_names.contains(segments[0].name.as_str())
+                && matches!(
+                    segments[0].kind,
+                    PathSegmentKind::Name(name)
+                        if !generic_names.contains(&name) && definite_names.contains(&name)
+                )
         }
         _ => false,
     }
 }
 
-fn generic_param_names(generics: &[GenericParam]) -> HashSet<&str> {
-    generics
-        .iter()
-        .map(|generic| generic.name.as_str())
-        .collect()
+fn generic_param_names(generics: &[GenericParam]) -> SymbolSet {
+    generics.iter().map(|generic| generic.name).collect()
 }
 
 fn type_ref_is_generic_or_structural_provider_target(
     ty: &TypeRef,
-    generic_names: &HashSet<&str>,
+    generic_names: &SymbolSet,
 ) -> bool {
     match &ty.kind {
         TypeKind::Path { segments } => {
             segments.len() == 1
                 && segments[0].args.is_empty()
-                && generic_names.contains(segments[0].name.as_str())
+                && matches!(
+                    segments[0].kind,
+                    PathSegmentKind::Name(name) if generic_names.contains(&name)
+                )
         }
         TypeKind::Pointer { .. }
         | TypeKind::VolatilePointer { .. }
@@ -405,6 +417,11 @@ mod tests {
     use super::*;
     use nia_item_tree::ModuleItemTree;
     use nia_parser::parse_module;
+    use nia_symbol::stable_hash;
+
+    fn sym(text: &str) -> SymbolId {
+        SymbolId::from_stable_hash(stable_hash(text))
+    }
 
     #[test]
     fn summarizes_inherent_associated_items() {
@@ -420,9 +437,9 @@ extend Widget {
         );
 
         assert!(summary.has_providers());
-        assert!(summary.defines_inherent_associated_item("Widget", "score"));
-        assert!(summary.defines_inherent_associated_item("Widget", "Kind"));
-        assert!(!summary.defines_inherent_associated_item("Widget", "missing"));
+        assert!(summary.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
+        assert!(summary.defines_inherent_associated_item(&sym("Widget"), &sym("Kind")));
+        assert!(!summary.defines_inherent_associated_item(&sym("Widget"), &sym("missing")));
     }
 
     #[test]
@@ -440,9 +457,9 @@ extend Widget : Hash {
 "#,
         );
 
-        assert!(summary.defines_trait_impl("Hash", None));
-        assert!(summary.defines_trait_impl("Hash", Some("hash")));
-        assert!(!summary.defines_trait_impl("Hash", Some("finish")));
+        assert!(summary.defines_trait_impl(&sym("Hash"), None));
+        assert!(summary.defines_trait_impl(&sym("Hash"), Some(&sym("hash"))));
+        assert!(!summary.defines_trait_impl(&sym("Hash"), Some(&sym("finish"))));
     }
 
     #[test]
@@ -467,7 +484,7 @@ where Source: IntoError[Target]
 "#,
         );
 
-        assert!(summary.may_define_nominal_provider_for("Error"));
+        assert!(summary.may_define_nominal_provider_for(&sym("Error")));
     }
 
     #[test]
@@ -483,11 +500,11 @@ extend Used {
 "#,
         );
 
-        assert!(summary.may_define_nominal_provider_for("Used"));
-        assert!(!summary.may_define_nominal_provider_for("Other"));
+        assert!(summary.may_define_nominal_provider_for(&sym("Used")));
+        assert!(!summary.may_define_nominal_provider_for(&sym("Other")));
         assert_eq!(
             summary.nominal_provider_candidates(),
-            vec![NominalProviderCandidate::Named("Used".to_string())]
+            vec![NominalProviderCandidate::Named(sym("Used"))]
         );
     }
 
@@ -506,8 +523,8 @@ extend Used {
 "#,
         );
 
-        assert!(summary.defines_inherent_associated_item("Used", "init"));
-        assert!(!summary.defines_inherent_associated_item("Other", "init"));
+        assert!(summary.defines_inherent_associated_item(&sym("Used"), &sym("init")));
+        assert!(!summary.defines_inherent_associated_item(&sym("Other"), &sym("init")));
     }
 
     #[test]
@@ -523,8 +540,16 @@ extend fs::File {
 "#,
         );
 
-        assert!(summary.defines_public_extension_method_for_facade(|_| false, None, "writer"));
-        assert!(!summary.defines_public_extension_method_for_facade(|_| false, None, "reader"));
+        assert!(summary.defines_public_extension_method_for_facade(
+            |_| false,
+            None,
+            &sym("writer")
+        ));
+        assert!(!summary.defines_public_extension_method_for_facade(
+            |_| false,
+            None,
+            &sym("reader")
+        ));
     }
 
     #[test]
@@ -540,15 +565,15 @@ extend Alias {
 "#,
         );
 
-        assert!(summary.may_define_nominal_provider_for("Used"));
-        assert!(summary.may_define_nominal_provider_for("Other"));
+        assert!(summary.may_define_nominal_provider_for(&sym("Used")));
+        assert!(summary.may_define_nominal_provider_for(&sym("Other")));
         assert_eq!(
             summary.nominal_provider_candidates(),
             vec![NominalProviderCandidate::Conservative]
         );
         let index = NominalProviderCandidateIndex::from_summaries([(0usize, summary)]);
-        assert_eq!(index.named("Alias"), &[0usize]);
-        assert!(index.named("Used").is_empty());
+        assert_eq!(index.named(&sym("Alias")), &[0usize]);
+        assert!(index.named(&sym("Used")).is_empty());
     }
 
     #[test]
@@ -569,7 +594,7 @@ extend void {
 "#,
         );
 
-        assert!(summary.may_define_nominal_provider_for("Used"));
+        assert!(summary.may_define_nominal_provider_for(&sym("Used")));
         assert_eq!(
             summary.nominal_provider_candidates(),
             vec![NominalProviderCandidate::Conservative]
@@ -588,13 +613,13 @@ extend[T] T {
 "#,
         );
 
-        assert!(summary.may_define_nominal_provider_for("Used"));
+        assert!(summary.may_define_nominal_provider_for(&sym("Used")));
         assert_eq!(
             summary.nominal_provider_candidates(),
             vec![NominalProviderCandidate::Conservative]
         );
         let index = NominalProviderCandidateIndex::from_summaries([(0usize, summary)]);
-        assert!(index.named("T").is_empty());
+        assert!(index.named(&sym("T")).is_empty());
     }
 
     #[test]
@@ -613,15 +638,34 @@ extend Widget : Hash {
         );
 
         assert!(summary.defines_public_extension_method_for_facade(
-            |name| name == "Hash",
-            Some("Widget"),
-            "hash",
+            |name| *name == sym("Hash"),
+            Some(&sym("Widget")),
+            &sym("hash"),
         ));
         assert!(!summary.defines_public_extension_method_for_facade(
             |_| false,
-            Some("Widget"),
-            "hash",
+            Some(&sym("Widget")),
+            &sym("hash"),
         ));
+    }
+
+    #[test]
+    fn trait_impl_provider_summary_uses_qualified_trait_last_name() {
+        let summary = summary_for(
+            r#"
+module error;
+using error;
+
+struct SpawnError {}
+
+extend SpawnError : error::IntoError {
+    fn into_error(self) void {}
+}
+"#,
+        );
+
+        assert!(summary.defines_trait_impl(&sym("IntoError"), None));
+        assert!(!summary.defines_trait_impl(&sym("Iterable"), None));
     }
 
     fn summary_for(source: &str) -> ProviderSummary {

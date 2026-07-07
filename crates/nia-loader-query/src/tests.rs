@@ -3,6 +3,8 @@ use crate::queries::{LoadedModuleQuery, provider_summary_query};
 use nia_compiler_query::RuntimeModel;
 use nia_imports::ModuleNode;
 use nia_item_tree::ItemTreeNodeKind;
+use nia_symbol::{SymbolId, stable_hash};
+use nia_symbol_table::SymbolTable;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -10,6 +12,26 @@ use std::{
 };
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+fn sym(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(stable_hash(text))
+}
+
+fn test_loader_context(
+    entry_path: SourcePath,
+    module_map: ModuleMap,
+    sources: SourceDatabase,
+) -> LoaderContext {
+    LoaderContext {
+        entry_path: entry_path.clone(),
+        module_map: effective_module_map(&entry_path, module_map),
+        sources,
+        symbols: SymbolTable::new(),
+        target: TargetConfig::host(),
+        entry_runtime: EntryRuntime::None,
+        package_root_used_paths: false,
+    }
+}
 
 #[test]
 fn query_loader_loads_declared_modules_once() {
@@ -71,8 +93,8 @@ module present;
         .graph
         .get(program.graph.entry())
         .expect("entry module");
-    assert!(root_module.children.contains_key("present"));
-    assert!(!root_module.children.contains_key("missing"));
+    assert!(root_module.children.contains_key(&sym("present")));
+    assert!(!root_module.children.contains_key(&sym("missing")));
 }
 
 #[test]
@@ -101,8 +123,8 @@ module present;
         .graph
         .get(program.graph.entry())
         .expect("entry module");
-    assert!(root_module.children.contains_key("present"));
-    assert!(!root_module.children.contains_key("missing"));
+    assert!(root_module.children.contains_key(&sym("present")));
+    assert!(!root_module.children.contains_key(&sym("missing")));
 }
 
 #[test]
@@ -126,7 +148,7 @@ fn query_loader_uses_package_module_map() {
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert_eq!(program.runtime, RuntimeModel::Bare);
-    assert!(program.graph.package_root("std").is_some());
+    assert!(program.graph.package_root(&sym("std")).is_some());
     assert!(
         program.modules.iter().any(
             |module| module.path.as_str() == root.join("std/io.nia").to_string_lossy().as_ref()
@@ -182,10 +204,15 @@ fn query_loader_injects_default_std_module_map_to_toolchain_lib() {
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     let std_module = program
         .graph
-        .get(program.graph.package_root("std").expect("std package root"))
+        .get(
+            program
+                .graph
+                .package_root(&sym("std"))
+                .expect("std package root"),
+        )
         .expect("std module");
     assert_eq!(std_module.path.as_str(), default_std_module_path().as_str());
-    assert!(!program.graph.package_facade_active("std"));
+    assert!(!program.graph.package_facade_active(&sym("std")));
     assert_module_not_loaded(&program, "lib/std/build.nia");
     assert_module_not_loaded(&program, "lib/std/process.nia");
 }
@@ -199,7 +226,7 @@ fn query_loader_loads_std_builtin_target_module() {
     let program = load_program(main_path.to_string_lossy().into_owned());
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert!(program.graph.package_root("builtin").is_none());
+    assert!(program.graph.package_root(&sym("builtin")).is_none());
     let target_loaded = program
         .modules
         .iter()
@@ -209,7 +236,7 @@ fn query_loader_loads_std_builtin_target_module() {
         matches!(
             &item.kind,
             ItemTreeNodeKind::Binding(binding)
-                if binding.is_comptime && binding.name == "pointer_width"
+                if binding.is_comptime && binding.name == sym("pointer_width")
         )
     }));
 }
@@ -291,7 +318,10 @@ _ = CStringView::from_ptr(&0u8);
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     let cstring = module_by_suffix(&program, "lib/std/cstring.nia");
-    let std_root = program.graph.package_root("std").expect("std package root");
+    let std_root = program
+        .graph
+        .package_root(&sym("std"))
+        .expect("std package root");
     let std_root = program.graph.get(std_root).expect("std root module");
     let fmt = module_by_suffix(&program, "lib/std/fmt.nia");
     let fmt_core = module_by_suffix(&program, "lib/std/fmt/core.nia");
@@ -300,7 +330,7 @@ _ = CStringView::from_ptr(&0u8);
         std_root
             .declarations
             .iter()
-            .any(|declaration| declaration.name == "fmt"),
+            .any(|declaration| declaration.name == sym("fmt")),
         "std root should record the fmt module declaration: {std_root:?}"
     );
     assert!(
@@ -362,12 +392,15 @@ fn query_loader_injects_freestanding_entry_runtime_through_std_start_facade() {
             .modules()
             .any(|module| module.path.as_str().ends_with("lib/std/start.nia"))
     );
-    let std_root = program.graph.package_root("std").expect("std package root");
+    let std_root = program
+        .graph
+        .package_root(&sym("std"))
+        .expect("std package root");
     let std = program.graph.get(std_root).expect("std entry module");
     let start_declaration = std
         .declarations
         .iter()
-        .find(|declaration| declaration.name == "start")
+        .find(|declaration| declaration.name == sym("start"))
         .expect("injected std start declaration");
     assert_eq!(
         start_declaration.visibility,
@@ -391,7 +424,7 @@ fn query_loader_loads_std_package_root_children_on_demand() {
     );
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert!(!program.graph.package_facade_active("std"));
+    assert!(!program.graph.package_facade_active(&sym("std")));
     let process = module_by_suffix(&program, "lib/std/process.nia");
     assert!(
         !process.process_used_paths,
@@ -401,7 +434,7 @@ fn query_loader_loads_std_package_root_children_on_demand() {
         process
             .declarations
             .iter()
-            .any(|declaration| declaration.name == "types"),
+            .any(|declaration| declaration.name == sym("types")),
         "process should record the selected types child: {process:?}"
     );
     let process_types = module_by_suffix(&program, "lib/std/process/types.nia");
@@ -425,6 +458,29 @@ fn query_loader_loads_std_package_root_children_on_demand() {
     assert_module_not_loaded(&program, "lib/std/build/core.nia");
     assert_module_not_loaded(&program, "lib/std/atomic.nia");
     assert_module_not_loaded(&program, "lib/std/debug.nia");
+}
+
+#[test]
+fn query_loader_loads_implicit_builtin_trait_provider_from_facade() {
+    let root = temp_dir("query_loader_loads_implicit_builtin_trait_provider_from_facade");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std;
+
+fn main() void {
+    for _ in 1usize..4usize {}
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_module_loaded(&program, "lib/std/iter.nia");
+    assert_module_loaded(&program, "lib/std/iter/range.nia");
+    assert_module_not_loaded(&program, "lib/std/process/command.nia");
 }
 
 #[test]
@@ -579,7 +635,7 @@ fn query_loader_resolves_std_root_reexport_import_shallowly() {
     let program = load_program(main_path.to_string_lossy().into_owned());
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert!(!program.graph.package_facade_active("std"));
+    assert!(!program.graph.package_facade_active(&sym("std")));
     assert_module_loaded(&program, "lib/std/cstring.nia");
     assert_module_not_loaded(&program, "lib/std/process.nia");
 }
@@ -593,7 +649,7 @@ fn query_loader_resolves_std_single_value_reexport_import_shallowly() {
     let program = load_program(main_path.to_string_lossy().into_owned());
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert!(!program.graph.package_facade_active("std"));
+    assert!(!program.graph.package_facade_active(&sym("std")));
     assert_module_loaded(&program, "lib/std/cstring.nia");
     assert_module_not_loaded(&program, "lib/std/process.nia");
 }
@@ -610,7 +666,7 @@ fn query_loader_resolves_std_qualified_root_reexport_shallowly() {
     let program = load_program(main_path.to_string_lossy().into_owned());
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert!(!program.graph.package_facade_active("std"));
+    assert!(!program.graph.package_facade_active(&sym("std")));
     assert_module_loaded(&program, "lib/std/cstring.nia");
     assert_module_not_loaded(&program, "lib/std/process.nia");
 }
@@ -636,8 +692,8 @@ _ = value;
     let program = load_program(main_path.to_string_lossy().into_owned());
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert!(!program.graph.package_facade_active("std"));
-    assert!(program.graph.package_root("std").is_none());
+    assert!(!program.graph.package_facade_active(&sym("std")));
+    assert!(program.graph.package_root(&sym("std")).is_none());
     assert!(
         program
             .modules
@@ -666,7 +722,7 @@ fn query_loader_resolves_root_children_relative_to_entry_file() {
         .expect("entry module");
     let defs_module = program
         .graph
-        .get(root_module.children["defs"])
+        .get(root_module.children[&sym("defs")])
         .expect("defs module");
     assert_eq!(
         defs_module.path.as_str(),
@@ -688,7 +744,7 @@ fn query_loader_accepts_in_memory_sources() {
             && module.item_tree.items.iter().any(|item| {
                 matches!(
                     &item.kind,
-                    ItemTreeNodeKind::Module(module_item) if module_item.name == "defs"
+                    ItemTreeNodeKind::Module(module_item) if module_item.name == sym("defs")
                 )
             })
     }));
@@ -697,7 +753,7 @@ fn query_loader_accepts_in_memory_sources() {
             && module.item_tree.items.iter().any(|item| {
                 matches!(
                     &item.kind,
-                    ItemTreeNodeKind::Function(function) if function.name == "value"
+                    ItemTreeNodeKind::Function(function) if function.name == sym("value")
                 )
             })
     }));
@@ -759,17 +815,14 @@ extend Widget {
 }
 "#,
     );
-    let db = QueryDb::new(LoaderContext {
-        entry_path: main.clone(),
-        module_map: effective_module_map(&main, ModuleMap::default()),
+    let db = QueryDb::new(test_loader_context(
+        main.clone(),
+        ModuleMap::default(),
         sources,
-        target: TargetConfig::host(),
-        entry_runtime: EntryRuntime::None,
-        package_root_used_paths: false,
-    });
+    ));
     let first = db.query(provider_summary_query(&db, provider.clone()));
     let second = db.query(provider_summary_query(&db, provider.clone()));
-    assert!(first.defines_inherent_associated_item("Widget", "score"));
+    assert!(first.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     assert_eq!(first, second);
 
     let trace = db.query_trace();
@@ -830,14 +883,11 @@ extend types::Widget {
     module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
 
     let entry_path = SourcePath::new(main.to_string_lossy());
-    let db = QueryDb::new(LoaderContext {
-        entry_path: entry_path.clone(),
-        module_map: effective_module_map(&entry_path, module_map),
-        sources: SourceDatabase::new(),
-        target: TargetConfig::host(),
-        entry_runtime: EntryRuntime::None,
-        package_root_used_paths: false,
-    });
+    let db = QueryDb::new(test_loader_context(
+        entry_path.clone(),
+        module_map,
+        SourceDatabase::new(),
+    ));
     let program = db.query(LoadedProgramQuery);
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
@@ -873,14 +923,11 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     sources.set_source(main.clone(), "fn main() i32 { 0 }");
-    let db = QueryDb::new(LoaderContext {
-        entry_path: main.clone(),
-        module_map: effective_module_map(&main, ModuleMap::default()),
-        sources: sources.clone(),
-        target: TargetConfig::host(),
-        entry_runtime: EntryRuntime::None,
-        package_root_used_paths: false,
-    });
+    let db = QueryDb::new(test_loader_context(
+        main.clone(),
+        ModuleMap::default(),
+        sources.clone(),
+    ));
 
     let first = db.query(LoadedProgramQuery);
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
@@ -931,14 +978,11 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
     let main = SourcePath::new("main.nia");
     sources.set_source(main.clone(), "");
     sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
-    let db = QueryDb::new(LoaderContext {
-        entry_path: main.clone(),
-        module_map: effective_module_map(&main, ModuleMap::default()),
-        sources: sources.clone(),
-        target: TargetConfig::host(),
-        entry_runtime: EntryRuntime::None,
-        package_root_used_paths: false,
-    });
+    let db = QueryDb::new(test_loader_context(
+        main.clone(),
+        ModuleMap::default(),
+        sources.clone(),
+    ));
 
     let first = db.query(LoadedProgramQuery);
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
@@ -960,14 +1004,11 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
 
 #[test]
 fn loaded_module_query_reports_paths_outside_module_graph() {
-    let db = QueryDb::new(LoaderContext {
-        entry_path: SourcePath::new("main.nia"),
-        module_map: ModuleMap::default(),
-        sources: SourceDatabase::new(),
-        target: TargetConfig::host(),
-        entry_runtime: EntryRuntime::None,
-        package_root_used_paths: false,
-    });
+    let db = QueryDb::new(test_loader_context(
+        SourcePath::new("main.nia"),
+        ModuleMap::default(),
+        SourceDatabase::new(),
+    ));
 
     let err = db
         .try_query(LoadedModuleQuery(SourcePath::new("missing.nia")))

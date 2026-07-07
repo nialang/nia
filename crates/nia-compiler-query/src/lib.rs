@@ -22,6 +22,7 @@ use nia_provider_summary::ProviderSummary;
 use nia_sema_ir::{SemanticFacts, SemanticUseTable};
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_static_check::StaticCheck;
+use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
@@ -35,6 +36,7 @@ pub use query::{CompileRequest, CompilerDatabase, compiler_work_permit};
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedProgram {
     pub graph: ModuleGraph,
+    pub symbols: SymbolTable,
     pub target: TargetConfig,
     pub runtime: RuntimeModel,
     pub modules: Vec<LoadedModule>,

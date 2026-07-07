@@ -11,6 +11,7 @@ use nia_program_signatures::{
     ProgramSignatureContext, ProgramSignatureMaps, ProgramSignatureResolvers,
     ProgramTraitMethodIndex,
 };
+use nia_symbol::{SymbolId, SymbolMap};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -80,7 +81,7 @@ impl nia_program_signatures::ProgramSignatureLookup for BodyProgramSignatureLook
             .or_else(|| self.fallback.type_alias(def_id))
     }
 
-    fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId> {
+    fn trait_ids_with_method_named(&self, name: &SymbolId) -> Vec<GlobalDefId> {
         if let Some(maps) = self.maps {
             return maps.trait_ids_with_method_named(name);
         }
@@ -139,7 +140,7 @@ impl nia_value_resolve::AssociatedValueResolver for LazyAssociatedValueResolver<
     fn associated_value(
         &self,
         target: nia_value_resolve::AssociatedValueTarget,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<GlobalDefId> {
         let visible_extensions = self.visible_extensions();
         let mut matches = Vec::new();
@@ -152,7 +153,7 @@ impl nia_value_resolve::AssociatedValueResolver for LazyAssociatedValueResolver<
                 continue;
             }
             for value in &extension_target.associated_values {
-                if value.name == name {
+                if &value.name == name {
                     matches.push(value.def_id);
                 }
             }
@@ -605,7 +606,8 @@ pub(super) fn provide_public_surfaces(db: &QueryDb<CompilerContext>) -> PublicSu
     time_provider(db.context().timings(), "public_surfaces", || {
         let defs = db.query(DefsByModuleQuery);
         let graph = db.query(ModuleGraphQuery);
-        let exports = compute_exported_public_surfaces(&defs, &graph);
+        let symbols = db.context().symbols();
+        let exports = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
         Arc::new(PublicSurfacesQueryValue {
             surfaces: exports.surfaces,
             diagnostics: exports.diagnostics,
@@ -618,7 +620,13 @@ pub(super) fn provide_public_using_scopes(db: &QueryDb<CompilerContext>) -> Publ
         let defs = db.query(DefsByModuleQuery);
         let graph = db.query(ModuleGraphQuery);
         let surfaces = db.query(PublicSurfacesQuery);
-        let scopes = compute_using_scopes_from_surfaces(&defs, &graph, &surfaces.surfaces);
+        let symbols = db.context().symbols();
+        let scopes = compute_using_scopes_from_surfaces_with_symbols(
+            &defs,
+            &graph,
+            &surfaces.surfaces,
+            &symbols,
+        );
         Arc::new(PublicUsingScopesQueryValue {
             using_scopes: scopes.using_scopes,
             diagnostics: scopes.diagnostics,
@@ -661,7 +669,8 @@ pub(super) fn provide_type_resolution(
         let graph = db.query(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
-        nia_type_resolve::resolve_module_types_from_active_item_tree(
+        let symbols = db.context().symbols();
+        nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -670,6 +679,7 @@ pub(super) fn provide_type_resolution(
             },
             &public_surfaces.surfaces,
             &using_scope,
+            &symbols,
         )
     })
 }
@@ -685,7 +695,8 @@ pub(super) fn provide_declaration_type_resolution(
         let graph = db.query(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
-        nia_type_resolve::resolve_module_types_from_active_item_tree(
+        let symbols = db.context().symbols();
+        nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -694,6 +705,7 @@ pub(super) fn provide_declaration_type_resolution(
             },
             &public_surfaces.surfaces,
             &using_scope,
+            &symbols,
         )
     })
 }
@@ -710,7 +722,8 @@ pub(super) fn provide_signature_type_resolution(
         let graph = db.query(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
-        nia_type_resolve::resolve_module_declaration_types_from_active_item_tree(
+        let symbols = db.context().symbols();
+        nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -719,6 +732,7 @@ pub(super) fn provide_signature_type_resolution(
             },
             &public_surfaces.surfaces,
             &using_scope,
+            &symbols,
         )
     })
 }
@@ -734,7 +748,8 @@ pub(super) fn provide_signature_comptime_type_resolution(
         let graph = db.query(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
-        nia_type_resolve::resolve_module_types_from_active_item_tree(
+        let symbols = db.context().symbols();
+        nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -743,6 +758,7 @@ pub(super) fn provide_signature_comptime_type_resolution(
             },
             &public_surfaces.surfaces,
             &using_scope,
+            &symbols,
         )
     })
 }
@@ -754,13 +770,17 @@ pub(super) fn provide_type_lowering(
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
     let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
-    nia_type_lower::lower_module_types_from_active_item_tree(
+    let symbols = db.context().symbols();
+    nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
         &active_item_tree,
         &type_resolution,
-        nia_type_lower::ProgramDefsContext {
-            defs: Some(&program_defs),
-        },
+        nia_type_lower::TypeLoweringContext::from_program_defs(
+            nia_type_lower::ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
+        )
+        .with_symbols(&symbols),
     )
 }
 
@@ -771,13 +791,17 @@ pub(super) fn provide_declaration_type_lowering(
     let active_item_tree = db.query(DeclarationActiveModuleItemTreeQuery(module_id));
     let type_resolution = db.query(DeclarationTypeResolutionQuery(module_id));
     let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
-    nia_type_lower::lower_module_types_from_active_item_tree(
+    let symbols = db.context().symbols();
+    nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
         &active_item_tree,
         &type_resolution,
-        nia_type_lower::ProgramDefsContext {
-            defs: Some(&program_defs),
-        },
+        nia_type_lower::TypeLoweringContext::from_program_defs(
+            nia_type_lower::ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
+        )
+        .with_symbols(&symbols),
     )
 }
 
@@ -789,13 +813,17 @@ pub(super) fn provide_signature_type_lowering(
     let active_item_tree = db.query(SignatureItemTreeQuery(module_id, set));
     let type_resolution = db.query(SignatureTypeResolutionQuery(module_id, set));
     let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
-    nia_type_lower::lower_module_declaration_types_from_active_item_tree(
+    let symbols = db.context().symbols();
+    nia_type_lower::lower_module_declaration_types_from_active_item_tree_with_context(
         module_id,
         &active_item_tree,
         &type_resolution,
-        nia_type_lower::ProgramDefsContext {
-            defs: Some(&program_defs),
-        },
+        nia_type_lower::TypeLoweringContext::from_program_defs(
+            nia_type_lower::ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
+        )
+        .with_symbols(&symbols),
     )
 }
 
@@ -806,13 +834,17 @@ pub(super) fn provide_signature_comptime_type_lowering(
     let active_item_tree = db.query(SignatureComptimeItemTreeQuery(module_id));
     let type_resolution = db.query(SignatureComptimeTypeResolutionQuery(module_id));
     let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
-    nia_type_lower::lower_module_types_from_active_item_tree(
+    let symbols = db.context().symbols();
+    nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
         &active_item_tree,
         &type_resolution,
-        nia_type_lower::ProgramDefsContext {
-            defs: Some(&program_defs),
-        },
+        nia_type_lower::TypeLoweringContext::from_program_defs(
+            nia_type_lower::ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
+        )
+        .with_symbols(&symbols),
     )
 }
 
@@ -909,7 +941,8 @@ pub(super) fn provide_value_resolution(
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
         let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
-        nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values(
+        let symbols = db.context().symbols();
+        nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
             &active_item_tree,
             &defs,
             nia_value_resolve::ProgramDefsContext {
@@ -919,6 +952,7 @@ pub(super) fn provide_value_resolution(
             &public_surfaces.surfaces,
             &using_scope,
             Some(&associated_values),
+            Some(&symbols),
         )
     })
 }
@@ -959,8 +993,9 @@ pub(super) fn provide_semantic_use_table(
         let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
         let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
         let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+        let symbols = db.context().symbols();
         Some(
-            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values(
+            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
                 type_lowering.const_exprs.iter().filter_map(|(id, expr)| {
                     needed_const_exprs.contains(id).then_some(expr.clone())
                 }),
@@ -972,6 +1007,7 @@ pub(super) fn provide_semantic_use_table(
                 &public_surfaces.surfaces,
                 &using_scope,
                 Some(&associated_values),
+                Some(&symbols),
             ),
         )
     };
@@ -1202,7 +1238,7 @@ impl AssociatedComptimeProjectionCollector<'_> {
         expr: &nia_ast::Expr,
         target: &nia_ast::TypeRef,
         trait_ref: &nia_ast::TypeRef,
-        name: &str,
+        name: &SymbolId,
     ) {
         let Some(self_ty) = self.type_lowering.ty_for_key(&target.node_key) else {
             return;
@@ -1222,7 +1258,7 @@ impl AssociatedComptimeProjectionCollector<'_> {
                 trait_id,
                 trait_args,
                 trait_const_args,
-                name: name.to_string(),
+                name: name.clone(),
             },
         ));
     }
@@ -1436,6 +1472,7 @@ fn collect_array_len_const_exprs_in_ty(
             TyKind::Range { bound: None, .. }
             | TyKind::Error
             | TyKind::ComptimeOnly
+            | TyKind::SelfParam
             | TyKind::GenericParam(_)
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
@@ -1620,6 +1657,7 @@ pub(super) fn provide_comptime_module(
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let signatures = db.query(ItemSignaturesQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
+    let symbols = db.context().symbols();
     nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
         active_item_tree: &active_item_tree,
         defs: &defs,
@@ -1627,6 +1665,7 @@ pub(super) fn provide_comptime_module(
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        symbols: &symbols,
         const_exprs: &type_lowering.const_exprs,
         source_path: &source_path,
     })
@@ -1774,6 +1813,7 @@ fn with_comptime_input_and_program_signatures<T>(
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let type_normalization = db.query(TypeNormalizationQuery(module_id));
     let target = db.query(CompilerTargetQuery);
+    let symbols = db.context().symbols();
     f(
         nia_comptime_check::ComptimeInput {
             module: &module.module,
@@ -1781,6 +1821,7 @@ fn with_comptime_input_and_program_signatures<T>(
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            symbols: &symbols,
             lowered: &type_lowering,
             signatures: &item_signatures,
             interner: &type_normalization.interner,
@@ -1903,6 +1944,7 @@ pub(super) fn provide_static_check(
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
+    let symbols = db.context().symbols();
     let signatures = db.query(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Values,
@@ -1917,6 +1959,7 @@ pub(super) fn provide_static_check(
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            symbols: &symbols,
             signatures: nia_static_check::StaticCheckSignatures {
                 globals: &signatures.globals,
             },
@@ -2016,12 +2059,13 @@ fn body_check_resolution_inputs_for_filter(
                 )
             };
             let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+            let symbols = db.context().symbols();
             let filtered_values = time_module_provider(
                 db,
                 "executable_body_check.value_resolution",
                 module_id,
                 || {
-                    nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values(
+                    nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
                         &filtered_active_item_tree,
                         context.defs,
                         nia_value_resolve::ProgramDefsContext {
@@ -2031,6 +2075,7 @@ fn body_check_resolution_inputs_for_filter(
                         &public_surfaces.surfaces,
                         &using_scope,
                         Some(&associated_values),
+                        Some(&symbols),
                     )
                 },
             );
@@ -2063,7 +2108,7 @@ fn body_check_resolution_inputs_for_filter(
                         "executable_body_check.const_expr_value_resolution",
                         module_id,
                         || {
-                            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values(
+                            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
                                 context.lowered.const_exprs.iter().filter_map(|(id, expr)| {
                                     needed_const_exprs.contains(id).then_some(expr.clone())
                                 }),
@@ -2075,6 +2120,7 @@ fn body_check_resolution_inputs_for_filter(
                                 &public_surfaces.surfaces,
                                 &using_scope,
                                 Some(&associated_values),
+                                Some(&symbols),
                             )
                         },
                     );
@@ -2260,7 +2306,8 @@ fn filtered_comptime_global_initializer_for_body_check(
         || {
             let visible_extensions = || db.query(VisibleExtensionsQuery(global_id.module_id));
             let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
-            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values(
+            let symbols = db.context().symbols();
+            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
                 lowered.const_exprs.iter().filter_map(|(id, expr)| {
                     needed_const_exprs.contains(id).then_some(expr.clone())
                 }),
@@ -2272,6 +2319,7 @@ fn filtered_comptime_global_initializer_for_body_check(
                 &public_surfaces.surfaces,
                 &using_scope,
                 Some(&associated_values),
+                Some(&symbols),
             )
         },
     );
@@ -2314,6 +2362,7 @@ fn filtered_comptime_global_initializer_for_body_check(
             "executable_body_check.comptime.global_initializer.lower_module",
             global_id.module_id,
             || {
+                let symbols = db.context().symbols();
                 nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
                     active_item_tree: &filtered_active_item_tree,
                     defs: &defs,
@@ -2321,6 +2370,7 @@ fn filtered_comptime_global_initializer_for_body_check(
                     values: &values,
                     locals: &locals,
                     semantic_uses: &semantic_uses,
+                    symbols: &symbols,
                     const_exprs: &filtered_const_exprs,
                     source_path: &source_path,
                 })
@@ -2352,7 +2402,8 @@ fn filtered_comptime_global_initializer_for_body_check(
                 )
             };
             let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
-            nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values(
+            let symbols = db.context().symbols();
+            nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
                 &filtered_active_item_tree,
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
@@ -2362,6 +2413,7 @@ fn filtered_comptime_global_initializer_for_body_check(
                 &public_surfaces.surfaces,
                 &using_scope,
                 Some(&associated_values),
+                Some(&symbols),
             )
         },
     );
@@ -2406,6 +2458,7 @@ fn comptime_inputs_for_body_check(
         "executable_body_check.comptime.lower_module",
         module_id,
         || {
+            let symbols = db.context().symbols();
             nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
                 active_item_tree: &inputs.active_item_tree,
                 defs,
@@ -2413,6 +2466,7 @@ fn comptime_inputs_for_body_check(
                 values: &inputs.values,
                 locals: &inputs.locals,
                 semantic_uses: &inputs.semantic_uses,
+                symbols: &symbols,
                 const_exprs: &filtered_const_exprs,
                 source_path,
             })
@@ -2491,12 +2545,14 @@ fn comptime_inputs_for_body_check(
         executable_program_global_initializer(db, global_id, fact_mode)
     };
     let target = db.query(CompilerTargetQuery);
+    let symbols = db.context().symbols();
     let comptime_input = nia_comptime_check::ComptimeInput {
         module: &module.module,
         defs,
         values: &inputs.values,
         locals: &inputs.locals,
         semantic_uses: &inputs.semantic_uses,
+        symbols: &symbols,
         lowered,
         signatures,
         interner: &normalization.interner,
@@ -2725,7 +2781,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
             .method_by_id(def_id)
             .cloned()
     };
-    let program_extension_methods_named = |name: &str| {
+    let program_extension_methods_named = |name: &SymbolId| {
         db.query(ExtensionMethodIndexQuery)
             .methods
             .methods_named(name)
@@ -2766,7 +2822,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                     .defs
                     .get(def_id.def_id)
                     .map(|def| def.name.clone())
-                    .unwrap_or_else(|| format!("def{}", def_id.def_id.0)),
+                    .unwrap_or_default(),
                 signature,
                 interner: db
                     .query(SignatureTypeLoweringQuery(
@@ -2911,7 +2967,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 .interner,
         })
     };
-    let program_traits_by_method_name = |name: &str| {
+    let program_traits_by_method_name = |name: &SymbolId| {
         db.query(ProgramTraitMethodIndexQuery)
             .trait_ids_with_method_named(name)
     };
@@ -3071,6 +3127,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
             nia_body_check::BodyCheckInput {
                 source_version: Some(source_version),
                 source_path: &source_path,
+                symbols: &db.context().symbols(),
                 origins: &origins,
                 active_item_tree: &inputs.active_item_tree,
                 defs: &defs,
@@ -3782,6 +3839,7 @@ impl<'a> LayoutRootCollector<'a> {
             | Some(TyKind::Vector { .. })
             | Some(TyKind::Error)
             | Some(TyKind::ComptimeOnly)
+            | Some(TyKind::SelfParam)
             | Some(TyKind::GenericParam(_))
             | None => {}
         }
@@ -3852,7 +3910,7 @@ impl<'a> LayoutRootCollector<'a> {
 
     fn add_aggregate_fields(
         &mut self,
-        generics: &[String],
+        generics: &[SymbolId],
         fields: &[nia_item_signatures::FieldSignature],
         args: &[InternedTyId],
     ) {
@@ -3863,7 +3921,7 @@ impl<'a> LayoutRootCollector<'a> {
             .iter()
             .cloned()
             .zip(args.iter().copied())
-            .collect::<HashMap<_, _>>();
+            .collect::<SymbolMap<_>>();
         for field in fields {
             let field_ty = self.substitute_generics(field.ty, &substitutions);
             self.add(field_ty);
@@ -3873,7 +3931,7 @@ impl<'a> LayoutRootCollector<'a> {
     fn substitute_generics(
         &mut self,
         ty: InternedTyId,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> InternedTyId {
         match self.interner.get(ty).cloned() {
             Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
@@ -4080,6 +4138,7 @@ impl<'a> LayoutRootCollector<'a> {
             | Some(TyKind::Vector { .. })
             | Some(TyKind::Error)
             | Some(TyKind::ComptimeOnly)
+            | Some(TyKind::SelfParam)
             | None => ty,
         }
     }
@@ -4087,7 +4146,7 @@ impl<'a> LayoutRootCollector<'a> {
     fn substitute_array_len_generics(
         &mut self,
         len: nia_ty::ArrayLenTy,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> nia_ty::ArrayLenTy {
         match len {
             nia_ty::ArrayLenTy::Builtin { builtin, ty } => nia_ty::ArrayLenTy::Builtin {
@@ -4590,7 +4649,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                     .defs
                     .get(def_id.def_id)
                     .map(|def| def.name.clone())
-                    .unwrap_or_else(|| format!("def{}", def_id.def_id.0)),
+                    .unwrap_or_default(),
                 signature,
                 interner: lowering.interner,
             })?;
@@ -4687,7 +4746,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                     })
             })
     };
-    let named_function = |module_id, name: &str| {
+    let named_function = |module_id, name: SymbolId| {
         let defs = db.query(FullModuleDefsQuery(module_id));
         defs.defs.iter().find_map(|(def_id, def)| {
             (def.kind == DefKind::Function && def.name == name)
@@ -4882,6 +4941,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             reachability
                 .functions
                 .extend(module.body_ir.function_bodies.keys().copied());
+            reachability_state.replace_reachability(reachability.clone());
             let flow_check = executable_flow_check(db, module_id, &checked_this_round);
             let mut module = module;
             module.flow_check = flow_check;
@@ -5283,20 +5343,7 @@ fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModu
 }
 
 fn checked_modules_for_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
-    if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
-        return db.query(ExecutableCheckedModulesQuery);
-    }
-    let graph = db.query(ModuleGraphQuery);
-    db.query_many(
-        db.query(SemanticModuleIdsQuery)
-            .into_iter()
-            .filter(|module_id| {
-                graph.get(*module_id).is_some_and(|node| {
-                    node.module_path.package == nia_imports::ENTRY_MODULE_MAP_NAME
-                })
-            })
-            .map(CheckedModuleQuery),
-    )
+    db.query(ExecutableCheckedModulesQuery)
 }
 
 fn function_bodies_from_checked_modules(
@@ -5469,11 +5516,13 @@ fn provide_backend_lowering_inner(
             backend_program_signatures = db.query(ProgramBackendSignaturesQuery);
             backend_program_signatures.codegen_maps()
         };
+    let symbols = db.context().symbols();
     let inputs = time_provider(
         db.context().timings(),
         "backend_lowering.module_inputs",
         || {
             build_backend_lowering_module_inputs(BackendLoweringModuleInputsInput {
+                symbols: &symbols,
                 checked_modules: &checked_modules,
                 runtime: db.query(CompilerRuntimeQuery),
                 active_item_trees: &active_item_trees,

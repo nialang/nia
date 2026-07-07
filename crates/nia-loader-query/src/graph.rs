@@ -15,6 +15,7 @@ use nia_imports::{
 };
 use nia_query::{QueryDb, QueryKey};
 use nia_span::Span;
+use nia_symbol::{SymbolId, known};
 use std::collections::BTreeSet;
 
 impl QueryKey<LoaderContext> for ModuleGraphQuery {
@@ -25,7 +26,10 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let mut graph = ModuleGraph::new(db.context().entry_path.clone());
+        let mut graph = ModuleGraph::with_symbol_text(
+            db.context().entry_path.clone(),
+            std::sync::Arc::new(db.context().symbols.clone()),
+        );
         inject_entry_runtime(db, &mut graph);
         let mut index = 0;
         let mut pending_provider_requests = BTreeSet::new();
@@ -37,7 +41,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
                 let declarations = db.query(module_declarations_query(db, node.path.clone()));
                 for package in declarations.package_roots {
                     if graph.package_root(&package).is_none()
-                        && let Some(path) = db.context().module_map.get(&package)
+                        && let Some(path) = db.context().module_map.get_name(&package)
                     {
                         graph.intern_package_root(&package, path.clone());
                     }
@@ -50,7 +54,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
                 if should_process_used_module_paths(db.context(), &graph, &node) {
                     for path in declarations.used_module_paths {
                         let processing = path.processing();
-                        if node.module_path.package == nia_imports::ENTRY_MODULE_MAP_NAME
+                        if node.module_path.is_entry_package()
                             && processing.is_replayable_provider_request()
                         {
                             pending_provider_requests.insert(processing);
@@ -101,12 +105,7 @@ fn replay_pending_provider_requests(
 fn should_eager_add_declarations(context: &LoaderContext, node: &ModuleNode) -> bool {
     node.process_declared_children
         || (context.package_root_used_paths && node.module_path.is_package_root())
-        || (node.module_path.package == nia_imports::STD_MODULE_MAP_NAME
-            && node
-                .module_path
-                .segments
-                .first()
-                .is_some_and(|segment| segment == "start"))
+        || node.module_path.is_std_start_module()
 }
 
 fn should_process_used_module_paths(
@@ -117,8 +116,8 @@ fn should_process_used_module_paths(
     node.process_used_paths
         && (!node.module_path.is_package_root()
             || context.package_root_used_paths
-            || node.module_path.package != nia_imports::STD_MODULE_MAP_NAME
-            || graph.package_facade_active(nia_imports::STD_MODULE_MAP_NAME))
+            || !node.module_path.is_std_package()
+            || graph.std_package_facade_active())
 }
 
 fn add_used_module_path(
@@ -153,12 +152,12 @@ fn add_used_module_path(
 fn activate_package_facade(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
-    package: &str,
+    package: SymbolId,
 ) -> Result<(), Diagnostic> {
-    if graph.package_facade_active(package) {
+    if graph.package_facade_active(&package) {
         return Ok(());
     }
-    let Some(root) = graph.mark_package_facade_active(package) else {
+    let Some(root) = graph.mark_package_facade_active(&package) else {
         return Ok(());
     };
     let Some(node) = graph.get(root).cloned() else {
@@ -167,7 +166,7 @@ fn activate_package_facade(
     let declarations = db.query(module_declarations_query(db, node.path));
     for package in declarations.package_roots {
         if graph.package_root(&package).is_none()
-            && let Some(path) = db.context().module_map.get(&package)
+            && let Some(path) = db.context().module_map.get_name(&package)
         {
             graph.intern_package_root(&package, path.clone());
         }
@@ -186,6 +185,9 @@ pub(crate) fn used_path_start(
     match path {
         UsedModulePath::Package { package, .. } => graph.package_root(package),
         UsedModulePath::PackageRelative { .. } => graph.current_package_root(current_module),
+        UsedModulePath::ParentRelative { .. } => {
+            graph.get(current_module).and_then(|node| node.parent)
+        }
         UsedModulePath::Local { .. } => Some(current_module),
     }
 }
@@ -204,7 +206,7 @@ pub(crate) fn mark_process_used_paths_and_process(
     let declarations = db.query(module_declarations_query(db, node.path));
     for package in declarations.package_roots {
         if graph.package_root(&package).is_none()
-            && let Some(path) = db.context().module_map.get(&package)
+            && let Some(path) = db.context().module_map.get_name(&package)
         {
             graph.intern_package_root(&package, path.clone());
         }
@@ -220,7 +222,7 @@ pub(crate) fn add_visible_declared_module_path(
     graph: &mut ModuleGraph,
     accessing_module: nia_imports::ModuleId,
     start: nia_imports::ModuleId,
-    segments: &[String],
+    segments: &[SymbolId],
     processing: UsedModulePathProcessing,
 ) -> Result<Option<nia_imports::ModuleId>, Diagnostic> {
     let mut current = start;
@@ -342,7 +344,7 @@ pub(crate) fn add_visible_declared_module_child_if_present(
     graph: &mut ModuleGraph,
     accessing_module: nia_imports::ModuleId,
     module_id: nia_imports::ModuleId,
-    name: &str,
+    name: &SymbolId,
     process_used_paths: bool,
 ) -> Result<Option<nia_imports::ModuleId>, Diagnostic> {
     if let Some(existing) = graph
@@ -359,7 +361,7 @@ pub(crate) fn add_visible_declared_module_child_if_present(
     };
     let declarations = db.query(module_declarations_query(db, node.path));
     let Some(declaration) = declarations.declarations.into_iter().find(|declaration| {
-        declaration.name == name
+        declaration.name == *name
             && module_declaration_visibility_allows(
                 declaration.visibility,
                 graph,
@@ -423,21 +425,16 @@ fn inject_entry_runtime(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
     match db.context().entry_runtime {
         EntryRuntime::None => {}
         EntryRuntime::Freestanding => {
-            let std_root = graph
-                .package_root(nia_imports::STD_MODULE_MAP_NAME)
-                .or_else(|| {
-                    db.context()
-                        .module_map
-                        .get(nia_imports::STD_MODULE_MAP_NAME)
-                        .map(|path| {
-                            graph
-                                .intern_package_root(nia_imports::STD_MODULE_MAP_NAME, path.clone())
-                        })
-                });
+            let std_root = graph.std_package_root().or_else(|| {
+                db.context()
+                    .module_map
+                    .std_path()
+                    .map(|path| graph.intern_std_package_root(path.clone()))
+            });
             let Some(std_root) = std_root else { return };
             if let Err(diagnostic) = graph.intern_declared_child(
                 std_root,
-                "start",
+                &known::START,
                 nia_imports::Visibility::PublicPkg,
                 Span::default(),
             ) {

@@ -285,7 +285,7 @@ pub(super) fn executable_program_functions_for_modules(
                         .defs
                         .get(def_id)
                         .map(|def| def.name.clone())
-                        .unwrap_or_else(|| format!("def{}", def_id.0));
+                        .unwrap_or_default();
                     (
                         global_def_id,
                         ProgramFunctionSignature {

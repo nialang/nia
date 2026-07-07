@@ -2,18 +2,19 @@ use crate::used_paths::{UsedModulePath, host_segments, module_using_aliases, usi
 use nia_ast::{UsingGroupItem, UsingSelector};
 use nia_imports::{ModuleMap, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
+use nia_symbol::SymbolId;
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ModuleFacadeFacts {
-    public_type_names: HashSet<String>,
+    public_type_names: HashSet<SymbolId>,
     public_reexports: Vec<PublicReexportSource>,
     provider_source_paths: Vec<UsedModulePath>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct PublicReexportSource {
-    exposed_name: Option<String>,
+    exposed_name: Option<SymbolId>,
     source: UsedModulePath,
 }
 
@@ -23,6 +24,7 @@ impl ModuleFacadeFacts {
         module_map: &ModuleMap,
     ) -> Self {
         let local_module_names = local_module_names(item_tree);
+        let has_declared_modules = !local_module_names.is_empty();
         let aliases = module_using_aliases(item_tree, module_map, &local_module_names);
         let mut public_type_names = HashSet::new();
         let mut public_reexports = Vec::new();
@@ -32,7 +34,7 @@ impl ModuleFacadeFacts {
             if item.visibility == Visibility::Public
                 && let Some(name) = public_type_name(item)
             {
-                public_type_names.insert(name.to_string());
+                public_type_names.insert(name);
             }
 
             let ItemTreeNodeKind::Using(using) = &item.kind else {
@@ -47,7 +49,13 @@ impl ModuleFacadeFacts {
             if item.visibility == Visibility::Public {
                 collect_public_reexport_sources(&host_path, &using.selector, &mut public_reexports);
             }
-            collect_provider_source_paths(&host_path, &using.selector, &mut provider_source_paths);
+            if item.visibility == Visibility::Public || has_declared_modules {
+                collect_provider_source_paths(
+                    &host_path,
+                    &using.selector,
+                    &mut provider_source_paths,
+                );
+            }
         }
 
         public_reexports.sort();
@@ -62,19 +70,19 @@ impl ModuleFacadeFacts {
         }
     }
 
-    pub(crate) fn public_reexport_exposes_name(&self, name: &str) -> bool {
+    pub(crate) fn public_reexport_exposes_name(&self, name: &SymbolId) -> bool {
         self.public_reexports
             .iter()
             .any(|reexport| reexport.exposes_name(name))
     }
 
-    pub(crate) fn public_type_exposes_name(&self, name: &str) -> bool {
+    pub(crate) fn public_type_exposes_name(&self, name: &SymbolId) -> bool {
         self.public_type_names.contains(name) || self.public_reexport_exposes_name(name)
     }
 
     pub(crate) fn reexport_source_paths<'a>(
         &'a self,
-        name: &'a str,
+        name: &'a SymbolId,
     ) -> impl Iterator<Item = &'a UsedModulePath> + 'a {
         self.public_reexports
             .iter()
@@ -88,7 +96,7 @@ impl ModuleFacadeFacts {
 }
 
 impl PublicReexportSource {
-    fn exact(exposed_name: String, source: UsedModulePath) -> Self {
+    fn exact(exposed_name: SymbolId, source: UsedModulePath) -> Self {
         Self {
             exposed_name: Some(exposed_name),
             source,
@@ -102,31 +110,29 @@ impl PublicReexportSource {
         }
     }
 
-    fn exposes_name(&self, name: &str) -> bool {
-        self.exposed_name
-            .as_deref()
-            .is_none_or(|exposed| exposed == name)
+    fn exposes_name(&self, name: &SymbolId) -> bool {
+        self.exposed_name.is_none_or(|exposed| exposed == *name)
     }
 }
 
-fn local_module_names(item_tree: &ActiveModuleItemTree) -> Vec<String> {
+fn local_module_names(item_tree: &ActiveModuleItemTree) -> Vec<SymbolId> {
     item_tree
         .items
         .iter()
         .filter_map(|item| match &item.kind {
-            ItemTreeNodeKind::Module(module) => Some(module.name.clone()),
+            ItemTreeNodeKind::Module(module) => Some(module.name),
             _ => None,
         })
         .collect()
 }
 
-fn public_type_name(item: &nia_item_tree::ItemTreeNode) -> Option<&str> {
+fn public_type_name(item: &nia_item_tree::ItemTreeNode) -> Option<SymbolId> {
     match &item.kind {
-        ItemTreeNodeKind::Struct(item) => Some(&item.name),
-        ItemTreeNodeKind::Union(item) => Some(&item.name),
-        ItemTreeNodeKind::Trait(item) => Some(&item.name),
-        ItemTreeNodeKind::Enum(item) => Some(&item.name),
-        ItemTreeNodeKind::TypeAlias(item) => Some(&item.name),
+        ItemTreeNodeKind::Struct(item) => Some(item.name),
+        ItemTreeNodeKind::Union(item) => Some(item.name),
+        ItemTreeNodeKind::Trait(item) => Some(item.name),
+        ItemTreeNodeKind::Enum(item) => Some(item.name),
+        ItemTreeNodeKind::TypeAlias(item) => Some(item.name),
         _ => None,
     }
 }
@@ -139,10 +145,7 @@ fn collect_public_reexport_sources(
     match selector {
         UsingSelector::SelfName => {
             if let Some(name) = host_path.last_segment_name() {
-                sources.push(PublicReexportSource::exact(
-                    name.to_string(),
-                    host_path.clone(),
-                ));
+                sources.push(PublicReexportSource::exact(name, host_path.clone()));
             }
         }
         UsingSelector::Wildcard { .. } => {
@@ -150,7 +153,7 @@ fn collect_public_reexport_sources(
         }
         UsingSelector::Single(name) => {
             sources.push(PublicReexportSource::exact(
-                name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                name.alias.unwrap_or(name.name),
                 host_path.clone(),
             ));
         }
@@ -170,7 +173,7 @@ fn collect_public_reexport_sources_for_group_item(
     match item {
         UsingGroupItem::Name(name) => {
             sources.push(PublicReexportSource::exact(
-                name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                name.alias.unwrap_or(name.name),
                 host_path.clone(),
             ));
         }

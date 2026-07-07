@@ -68,6 +68,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
 }
 
 pub(super) struct BackendLoweringModuleInputsInput<'a> {
+    pub(super) symbols: &'a dyn nia_symbol::SymbolText,
     pub(super) checked_modules: &'a [CheckedModule],
     pub(super) runtime: RuntimeModel,
     pub(super) active_item_trees: &'a [ActiveModuleItemTree],
@@ -111,6 +112,7 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                 BackendLowerModuleInput {
                     module_id: checked_module.id,
                     module_name: checked_module.path.as_str().to_string(),
+                    symbols: input.symbols,
                     active_item_tree,
                     defs: &checked_module.defs,
                     extensions: &visible_extensions.methods,

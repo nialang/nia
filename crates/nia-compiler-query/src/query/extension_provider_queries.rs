@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use nia_symbol::SymbolId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionSignatureModuleInputQueryValue {
@@ -194,20 +195,20 @@ pub(super) struct ExtensionProviderNominalModuleFactsQueryValue {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderDiscoveryIndexQueryValue {
     pub(super) provider_modules: Vec<ModuleId>,
-    pub(super) nominal_candidates_by_name: HashMap<String, Vec<ModuleId>>,
+    pub(super) nominal_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionProviderNominalTargetNames(pub(super) Vec<String>);
+pub(super) struct ExtensionProviderNominalTargetNames(pub(super) Vec<SymbolId>);
 
 impl ExtensionProviderNominalTargetNames {
-    pub(super) fn new(mut names: Vec<String>) -> Self {
+    pub(super) fn new(mut names: Vec<SymbolId>) -> Self {
         names.sort();
         names.dedup();
         Self(names)
     }
 
-    pub(super) fn as_slice(&self) -> &[String] {
+    pub(super) fn as_slice(&self) -> &[SymbolId] {
         &self.0
     }
 }

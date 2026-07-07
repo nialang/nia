@@ -12,6 +12,7 @@ use nia_compiler_query::LoadedProgram;
 use nia_imports::ModuleMap;
 use nia_query::QueryDb;
 use nia_source::{SourceDatabase, SourceFile, SourcePath};
+use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
 use queries::{LoadedProgramQuery, SourceTextQuery};
 use std::{path::Path, sync::Arc};
@@ -54,10 +55,12 @@ impl LoaderDatabase {
         let entry_path = SourcePath::new(request.entry_path);
         let module_map = effective_module_map(&entry_path, request.module_map);
         let sources = request.sources;
+        let symbols = SymbolTable::new();
         let db = QueryDb::new(LoaderContext {
             entry_path,
             module_map,
             sources: sources.clone(),
+            symbols,
             target: request.target,
             entry_runtime: request.entry_runtime,
             package_root_used_paths: request.package_root_used_paths,
@@ -169,6 +172,7 @@ fn load_program_trace(
         entry_path,
         module_map,
         sources: SourceDatabase::new(),
+        symbols: SymbolTable::new(),
         target: TargetConfig::host(),
         entry_runtime: EntryRuntime::None,
         package_root_used_paths: false,
@@ -201,6 +205,7 @@ pub(crate) struct LoaderContext {
     pub(crate) entry_path: SourcePath,
     pub(crate) module_map: ModuleMap,
     pub(crate) sources: SourceDatabase,
+    pub(crate) symbols: SymbolTable,
     pub(crate) target: TargetConfig,
     pub(crate) entry_runtime: EntryRuntime,
     pub(crate) package_root_used_paths: bool,
