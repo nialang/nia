@@ -180,12 +180,6 @@ pub(super) struct ExtensionProviderValidationFactsQueryValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionProviderValidationProgramFactsQueryValue {
-    pub(super) methods: nia_defs::ExtensionMethods,
-    pub(super) diagnostics: Vec<Diagnostic>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderNominalModuleFactsQueryValue {
     pub(super) nominal_providers: Vec<crate::program_signatures::NominalExtensionProviderEntry>,
 }
@@ -256,23 +250,6 @@ impl QueryKey<CompilerContext> for ExtensionProviderValidationFactsQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_provider_validation_facts)(db, self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionProviderValidationProgramFactsQuery;
-
-impl QueryKey<CompilerContext> for ExtensionProviderValidationProgramFactsQuery {
-    type Value = ExtensionProviderValidationProgramFactsValue;
-
-    fn name() -> &'static str {
-        "extension_provider_validation_program_facts"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context()
-            .providers
-            .extension_provider_validation_program_facts)(db)
     }
 }
 
@@ -393,70 +370,6 @@ impl QueryKey<CompilerContext> for ExtensionTraitSignatureIndexQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_trait_signature_index)(db)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionMethodSetQueryValue {
-    pub(super) methods: nia_defs::ExtensionMethods,
-    pub(super) diagnostics: Vec<Diagnostic>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionMethodSetQuery;
-
-impl QueryKey<CompilerContext> for ExtensionMethodSetQuery {
-    type Value = ExtensionMethodSetValue;
-
-    fn name() -> &'static str {
-        "extension_method_set"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.extension_method_set)(db)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionAssociatedValuesQueryValue {
-    pub(super) values: nia_defs::ExtensionAssociatedValues,
-    pub(super) diagnostics: Vec<Diagnostic>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionAssociatedValuesQuery;
-
-impl QueryKey<CompilerContext> for ExtensionAssociatedValuesQuery {
-    type Value = ExtensionAssociatedValuesValue;
-
-    fn name() -> &'static str {
-        "extension_associated_values"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.extension_associated_values)(db)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct ExtensionMethodsQueryValue {
-    pub(super) methods: nia_defs::ExtensionMethods,
-    pub(super) associated_values: nia_defs::ExtensionAssociatedValues,
-    pub(super) diagnostics: Vec<Diagnostic>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExtensionMethodsQuery;
-
-impl QueryKey<CompilerContext> for ExtensionMethodsQuery {
-    type Value = ExtensionMethodsValue;
-
-    fn name() -> &'static str {
-        "extension_methods"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.extension_methods)(db)
     }
 }
 

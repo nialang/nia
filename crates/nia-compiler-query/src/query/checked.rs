@@ -17,17 +17,17 @@ impl QueryKey<CompilerContext> for CheckedModuleQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct CheckedModulesQuery;
+pub(super) struct CheckedModuleIdsQuery;
 
-impl QueryKey<CompilerContext> for CheckedModulesQuery {
-    type Value = Vec<CheckedModule>;
+impl QueryKey<CompilerContext> for CheckedModuleIdsQuery {
+    type Value = Vec<ModuleId>;
 
     fn name() -> &'static str {
-        "checked_modules"
+        "checked_module_ids"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.checked_modules)(db)
+        (db.context().providers.checked_module_ids)(db)
     }
 }
 

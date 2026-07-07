@@ -131,18 +131,6 @@ pub(super) fn provide_program_trait_solving_signatures(
     )
 }
 
-pub(super) fn provide_extension_method_set(
-    db: &QueryDb<CompilerContext>,
-) -> ExtensionMethodSetValue {
-    time_provider(db.context().timings(), "extension_method_set", || {
-        let facts = db.query(ExtensionProviderValidationProgramFactsQuery);
-        Arc::new(ExtensionMethodSetQueryValue {
-            methods: facts.methods.clone(),
-            diagnostics: facts.diagnostics.clone(),
-        })
-    })
-}
-
 pub(super) fn provide_extension_provider_module_facts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -230,32 +218,6 @@ fn extension_provider_module_facts(
         db.query(ExtensionProviderModuleIdsQuery)
             .into_iter()
             .map(ExtensionProviderModuleFactsQuery),
-    )
-}
-
-pub(super) fn provide_extension_provider_validation_program_facts(
-    db: &QueryDb<CompilerContext>,
-) -> ExtensionProviderValidationProgramFactsValue {
-    time_provider(
-        db.context().timings(),
-        "extension_provider_validation_program_facts",
-        || {
-            let facts = db.query_many(
-                db.query(ExtensionProviderModuleIdsQuery)
-                    .into_iter()
-                    .map(ExtensionProviderValidationFactsQuery),
-            );
-            let mut methods = nia_defs::ExtensionMethods::default();
-            let mut diagnostics = Vec::new();
-            for facts in facts {
-                methods.extend(facts.methods.clone());
-                diagnostics.extend(facts.diagnostics.iter().cloned());
-            }
-            Arc::new(ExtensionProviderValidationProgramFactsQueryValue {
-                methods,
-                diagnostics,
-            })
-        },
     )
 }
 
@@ -424,41 +386,6 @@ pub(super) fn provide_extension_trait_signature_index(
             })
         },
     )
-}
-
-pub(super) fn provide_extension_associated_values(
-    db: &QueryDb<CompilerContext>,
-) -> ExtensionAssociatedValuesValue {
-    time_provider(
-        db.context().timings(),
-        "extension_associated_values",
-        || {
-            let mut values = nia_defs::ExtensionAssociatedValues::default();
-            let mut diagnostics = Vec::new();
-            for facts in extension_provider_module_facts(db) {
-                values.extend(facts.associated_values.clone());
-                diagnostics.extend(facts.associated_value_diagnostics.iter().cloned());
-            }
-            Arc::new(ExtensionAssociatedValuesQueryValue {
-                values,
-                diagnostics,
-            })
-        },
-    )
-}
-
-pub(super) fn provide_extension_methods(db: &QueryDb<CompilerContext>) -> ExtensionMethodsValue {
-    time_provider(db.context().timings(), "extension_methods", || {
-        let method_set = db.query(ExtensionMethodSetQuery);
-        let associated_values = db.query(ExtensionAssociatedValuesQuery);
-        let mut diagnostics = method_set.diagnostics.clone();
-        diagnostics.extend(associated_values.diagnostics.iter().cloned());
-        Arc::new(ExtensionMethodsQueryValue {
-            methods: method_set.methods.clone(),
-            associated_values: associated_values.values.clone(),
-            diagnostics,
-        })
-    })
 }
 
 fn visible_provider_modules_for_module(
