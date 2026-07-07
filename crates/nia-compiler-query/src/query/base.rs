@@ -248,7 +248,7 @@ impl QueryKey<CompilerContext> for ModuleParseErrorsQuery {
 pub(super) struct ModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ModuleItemTreeInputQuery {
-    type Value = ModuleItemTree;
+    type Value = Arc<ModuleItemTree>;
 
     fn name() -> &'static str {
         "module_item_tree_input"
@@ -267,7 +267,7 @@ impl QueryKey<CompilerContext> for ModuleItemTreeInputQuery {
 pub(super) struct DeclarationModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for DeclarationModuleItemTreeInputQuery {
-    type Value = ModuleItemTree;
+    type Value = Arc<ModuleItemTree>;
 
     fn name() -> &'static str {
         "declaration_module_item_tree_input"
@@ -286,7 +286,7 @@ impl QueryKey<CompilerContext> for DeclarationModuleItemTreeInputQuery {
 pub(super) struct ActiveModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ActiveModuleItemTreeInputQuery {
-    type Value = ActiveModuleItemTree;
+    type Value = Arc<ActiveModuleItemTree>;
 
     fn name() -> &'static str {
         "active_module_item_tree_input"
@@ -305,7 +305,7 @@ impl QueryKey<CompilerContext> for ActiveModuleItemTreeInputQuery {
 pub(super) struct DeclarationActiveModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeInputQuery {
-    type Value = ActiveModuleItemTree;
+    type Value = Arc<ActiveModuleItemTree>;
 
     fn name() -> &'static str {
         "declaration_active_module_item_tree_input"
@@ -324,7 +324,7 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeInputQuery {
 pub(super) struct FullModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for FullModuleItemTreeInputQuery {
-    type Value = ModuleItemTree;
+    type Value = Arc<ModuleItemTree>;
 
     fn name() -> &'static str {
         "full_module_item_tree_input"
@@ -343,7 +343,7 @@ impl QueryKey<CompilerContext> for FullModuleItemTreeInputQuery {
 pub(super) struct FullActiveModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for FullActiveModuleItemTreeInputQuery {
-    type Value = ActiveModuleItemTree;
+    type Value = Arc<ActiveModuleItemTree>;
 
     fn name() -> &'static str {
         "full_active_module_item_tree_input"
@@ -444,6 +444,8 @@ impl QueryKey<CompilerContext> for DeclarationModuleItemTreeQuery {
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         let _raw_item_tree = db.query_shared(ModuleItemTreeQuery(self.0));
         db.query(DeclarationModuleItemTreeInputQuery(self.0))
+            .as_ref()
+            .clone()
     }
 }
 
@@ -461,6 +463,8 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeQuery {
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         let _raw_item_tree = db.query_shared(DeclarationModuleItemTreeQuery(self.0));
         db.query(DeclarationActiveModuleItemTreeInputQuery(self.0))
+            .as_ref()
+            .clone()
     }
 }
 

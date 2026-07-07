@@ -222,7 +222,6 @@ impl CompilerDatabase {
         self.inputs
             .read()
             .expect("compiler input lock poisoned")
-            .loaded
             .graph
             .clone()
     }
@@ -545,7 +544,7 @@ impl std::fmt::Debug for CompilerDatabase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inputs = self.inputs.read().expect("compiler input lock poisoned");
         f.debug_struct("CompilerDatabase")
-            .field("graph", &inputs.loaded.graph)
+            .field("graph", &inputs.graph)
             .field("optimization", &inputs.optimization)
             .finish_non_exhaustive()
     }
@@ -678,27 +677,72 @@ struct ExecutableCheckedModuleSetData {
 
 #[derive(Debug, Clone)]
 struct CompilerInputs {
-    loaded: LoadedProgram,
+    graph: ModuleGraph,
+    symbols: nia_symbol_table::SymbolTable,
+    modules: Vec<CompilerInputModule>,
     modules_by_id: HashMap<ModuleId, usize>,
     modules_by_source_identity: HashMap<SourceIdentity, usize>,
+    diagnostics: Vec<ProgramDiagnostic>,
     target: TargetConfig,
     runtime: crate::RuntimeModel,
     optimization: OptimizationPolicy,
     timings: TimingMode,
 }
 
+#[derive(Debug, Clone)]
+struct CompilerInputModule {
+    id: ModuleId,
+    path: SourcePath,
+    source_identity: SourceIdentity,
+    source_version: SourceVersion,
+    item_tree: Arc<ModuleItemTree>,
+    active_item_tree: Arc<ActiveModuleItemTree>,
+    provider_summary: nia_provider_summary::ProviderSummary,
+    origins: NodeOriginTable,
+    parse_errors: Vec<ParseError>,
+}
+
+impl CompilerInputModule {
+    fn from_loaded(module: LoadedModule) -> Self {
+        Self {
+            id: module.id,
+            path: module.path,
+            source_identity: module.source_identity,
+            source_version: module.source_version,
+            item_tree: Arc::new(module.item_tree),
+            active_item_tree: Arc::new(module.active_item_tree),
+            provider_summary: module.provider_summary,
+            origins: module.origins,
+            parse_errors: module.parse_errors,
+        }
+    }
+}
+
 impl CompilerInputs {
     fn new(request: CompileRequest) -> Self {
         let loaded = request.loaded;
         validate_loaded_module_identities(&loaded);
-        let modules_by_id = index_loaded_modules(&loaded);
-        let modules_by_source_identity = index_loaded_module_identities(&loaded);
+        let graph = loaded.graph;
+        let symbols = loaded.symbols;
+        let target = loaded.target;
+        let runtime = loaded.runtime;
+        let diagnostics = loaded.diagnostics;
+        let modules = loaded
+            .modules
+            .into_iter()
+            .map(CompilerInputModule::from_loaded)
+            .collect::<Vec<_>>();
+        let modules_by_id = index_input_modules(&modules);
+        let modules_by_source_identity = index_input_module_identities(&modules);
         Self {
-            target: loaded.target.clone(),
-            runtime: loaded.runtime,
-            loaded,
+            graph,
+            symbols,
+            modules,
             modules_by_id,
             modules_by_source_identity,
+            diagnostics,
+            target,
+            runtime,
             optimization: request.optimization.policy(),
             timings: request.timings,
         }
@@ -786,7 +830,7 @@ impl CompilerContext {
         db: &QueryDb<CompilerContext>,
         key: &K,
         module_id: ModuleId,
-        field: impl FnOnce(&LoadedModule) -> T,
+        field: impl FnOnce(&CompilerInputModule) -> T,
     ) -> T
     where
         K: QueryKey<CompilerContext>,
@@ -802,19 +846,18 @@ impl CompilerContext {
         self.inputs
             .read()
             .expect("compiler input lock poisoned")
-            .loaded
             .modules
             .iter()
             .map(|module| module.id)
             .collect()
     }
 
-    fn loaded_module(&self, module_id: ModuleId) -> Option<LoadedModule> {
+    fn loaded_module(&self, module_id: ModuleId) -> Option<CompilerInputModule> {
         let inputs = self.inputs.read().expect("compiler input lock poisoned");
         inputs
             .modules_by_id
             .get(&module_id)
-            .and_then(|index| inputs.loaded.modules.get(*index))
+            .and_then(|index| inputs.modules.get(*index))
             .cloned()
     }
 
@@ -864,12 +907,12 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> ModuleItemTree {
+    ) -> Arc<ModuleItemTree> {
         self.module_field(
             db,
             &ModuleItemTreeInputQuery(module_id),
             module_id,
-            |module| module.item_tree.clone(),
+            |module| Arc::clone(&module.item_tree),
         )
     }
 
@@ -877,12 +920,12 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> ModuleItemTree {
+    ) -> Arc<ModuleItemTree> {
         self.module_field(
             db,
             &DeclarationModuleItemTreeInputQuery(module_id),
             module_id,
-            |module| module.item_tree.clone(),
+            |module| Arc::clone(&module.item_tree),
         )
     }
 
@@ -890,12 +933,12 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> ActiveModuleItemTree {
+    ) -> Arc<ActiveModuleItemTree> {
         self.module_field(
             db,
             &ActiveModuleItemTreeInputQuery(module_id),
             module_id,
-            |module| module.active_item_tree.clone(),
+            |module| Arc::clone(&module.active_item_tree),
         )
     }
 
@@ -903,12 +946,12 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> ActiveModuleItemTree {
+    ) -> Arc<ActiveModuleItemTree> {
         self.module_field(
             db,
             &DeclarationActiveModuleItemTreeInputQuery(module_id),
             module_id,
-            |module| module.active_item_tree.clone(),
+            |module| Arc::clone(&module.active_item_tree),
         )
     }
 
@@ -963,7 +1006,6 @@ impl CompilerContext {
         self.inputs
             .read()
             .expect("compiler input lock poisoned")
-            .loaded
             .graph
             .clone()
     }
@@ -972,7 +1014,6 @@ impl CompilerContext {
         self.inputs
             .read()
             .expect("compiler input lock poisoned")
-            .loaded
             .diagnostics
             .clone()
     }
@@ -989,7 +1030,6 @@ impl CompilerContext {
         self.inputs
             .read()
             .expect("compiler input lock poisoned")
-            .loaded
             .symbols
             .clone()
     }
@@ -1016,9 +1056,9 @@ impl CompilerContext {
     }
 }
 
-fn index_loaded_modules(loaded: &LoadedProgram) -> HashMap<ModuleId, usize> {
+fn index_input_modules(modules: &[CompilerInputModule]) -> HashMap<ModuleId, usize> {
     let mut modules_by_id = HashMap::new();
-    for (index, module) in loaded.modules.iter().enumerate() {
+    for (index, module) in modules.iter().enumerate() {
         if let Some(existing) = modules_by_id.insert(module.id, index) {
             panic!(
                 "Nia ICE: duplicate loaded module id {:?} at indexes {existing} and {index}",
@@ -1029,16 +1069,18 @@ fn index_loaded_modules(loaded: &LoadedProgram) -> HashMap<ModuleId, usize> {
     modules_by_id
 }
 
-fn index_loaded_module_identities(loaded: &LoadedProgram) -> HashMap<SourceIdentity, usize> {
+fn index_input_module_identities(
+    modules: &[CompilerInputModule],
+) -> HashMap<SourceIdentity, usize> {
     let mut modules_by_source_identity = HashMap::new();
-    for (index, module) in loaded.modules.iter().enumerate() {
+    for (index, module) in modules.iter().enumerate() {
         if let Some(existing) =
             modules_by_source_identity.insert(module.source_identity.clone(), index)
         {
             panic!(
                 "Nia ICE: duplicate source identity `{}` for loaded modules {:?} and {:?}",
                 module.source_identity.normalized_path(),
-                loaded.modules[existing].id,
+                modules[existing].id,
                 module.id
             );
         }
@@ -1061,11 +1103,11 @@ impl CompilerInputDiff {
     fn between(old: &CompilerInputs, new: &CompilerInputs) -> Self {
         let changed_modules = changed_loaded_modules(old, new);
         Self {
-            graph_changed: old.loaded.graph != new.loaded.graph,
+            graph_changed: old.graph != new.graph,
             loaded_modules_changed: loaded_module_ids(old) != loaded_module_ids(new)
                 || loaded_module_identity_assignments(old)
                     != loaded_module_identity_assignments(new),
-            loaded_diagnostics_changed: old.loaded.diagnostics != new.loaded.diagnostics,
+            loaded_diagnostics_changed: old.diagnostics != new.diagnostics,
             target_changed: old.target != new.target,
             runtime_changed: old.runtime != new.runtime,
             optimization_changed: old.optimization != new.optimization,
@@ -1099,8 +1141,8 @@ struct ChangedModuleInput {
 
 impl ChangedModuleInput {
     fn between_source_identity(
-        old: Option<&LoadedModule>,
-        new: Option<&LoadedModule>,
+        old: Option<&CompilerInputModule>,
+        new: Option<&CompilerInputModule>,
     ) -> Option<Self> {
         let ids = changed_module_ids(old, new);
         if ids.is_empty() {
@@ -1238,13 +1280,11 @@ impl ChangedModuleInput {
 
 fn changed_loaded_modules(old: &CompilerInputs, new: &CompilerInputs) -> Vec<ChangedModuleInput> {
     let source_identities = old
-        .loaded
         .modules
         .iter()
         .map(|module| module.source_identity.clone())
         .chain(
-            new.loaded
-                .modules
+            new.modules
                 .iter()
                 .map(|module| module.source_identity.clone()),
         )
@@ -1262,7 +1302,10 @@ fn changed_loaded_modules(old: &CompilerInputs, new: &CompilerInputs) -> Vec<Cha
     changed
 }
 
-fn changed_module_ids(old: Option<&LoadedModule>, new: Option<&LoadedModule>) -> Vec<ModuleId> {
+fn changed_module_ids(
+    old: Option<&CompilerInputModule>,
+    new: Option<&CompilerInputModule>,
+) -> Vec<ModuleId> {
     let mut ids = Vec::new();
     if let Some(module) = old {
         ids.push(module.id);
@@ -1276,17 +1319,11 @@ fn changed_module_ids(old: Option<&LoadedModule>, new: Option<&LoadedModule>) ->
 }
 
 fn loaded_module_ids(inputs: &CompilerInputs) -> Vec<ModuleId> {
-    inputs
-        .loaded
-        .modules
-        .iter()
-        .map(|module| module.id)
-        .collect()
+    inputs.modules.iter().map(|module| module.id).collect()
 }
 
 fn loaded_module_identity_assignments(inputs: &CompilerInputs) -> Vec<(ModuleId, SourceIdentity)> {
     let mut assignments = inputs
-        .loaded
         .modules
         .iter()
         .map(|module| (module.id, module.source_identity.clone()))
@@ -1296,19 +1333,19 @@ fn loaded_module_identity_assignments(inputs: &CompilerInputs) -> Vec<(ModuleId,
 }
 
 impl CompilerInputs {
-    fn loaded_module(&self, module_id: ModuleId) -> Option<&LoadedModule> {
+    fn loaded_module(&self, module_id: ModuleId) -> Option<&CompilerInputModule> {
         self.modules_by_id
             .get(&module_id)
-            .and_then(|index| self.loaded.modules.get(*index))
+            .and_then(|index| self.modules.get(*index))
     }
 
     fn loaded_module_by_source_identity(
         &self,
         source_identity: &SourceIdentity,
-    ) -> Option<&LoadedModule> {
+    ) -> Option<&CompilerInputModule> {
         self.modules_by_source_identity
             .get(source_identity)
-            .and_then(|index| self.loaded.modules.get(*index))
+            .and_then(|index| self.modules.get(*index))
     }
 }
 
