@@ -10,6 +10,7 @@ use std::{
 use nia_driver::{CheckRequest, Driver, DriverError, LinkExecutableRequest, TimingMode};
 use nia_imports::ModuleMap;
 use nia_source::{SourceDatabase, SourcePath};
+use nia_timing::TimingOptions;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildRequest {
@@ -220,7 +221,7 @@ impl fmt::Display for BuildError {
 impl std::error::Error for BuildError {}
 
 pub fn run_build(request: BuildRequest) -> Result<(), BuildError> {
-    nia_timing::collect_to_stderr(|| {
+    nia_timing::collect_to_stderr(TimingOptions::new(request.timings), || {
         let timings = request.timings;
         let plan = time_summary_stage(timings, "build_resolve_plan", || {
             resolve_build_plan(request)

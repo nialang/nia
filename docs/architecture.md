@@ -1172,7 +1172,12 @@ Global timing options are also accepted before or after the command:
 --timings
 --timings=summary
 --timings=detail
+--timing-trace=events
 ```
+
+`--timings=detail` reports aggregated query timings. `--timing-trace=events`
+also prints raw timing events and is intended for diagnosing timing collection
+rather than normal performance measurement.
 
 `nia check <file.nia> --opt-report` prints the active optimization
 policy, LLVM codegen optimization level, enabled backend module/function/global

@@ -16,6 +16,33 @@ pub enum TimingMode {
     Detail,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TimingOptions {
+    pub mode: TimingMode,
+    pub trace: TimingTrace,
+}
+
+impl TimingOptions {
+    pub fn new(mode: TimingMode) -> Self {
+        Self {
+            mode,
+            trace: TimingTrace::Off,
+        }
+    }
+
+    pub fn with_trace(mut self, trace: TimingTrace) -> Self {
+        self.trace = trace;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TimingTrace {
+    #[default]
+    Off,
+    Events,
+}
+
 impl TimingMode {
     pub fn enabled(self) -> bool {
         !matches!(self, Self::Off)
@@ -174,7 +201,7 @@ impl TimingAccumulator {
     }
 }
 
-pub fn collect_to_stderr<T>(f: impl FnOnce() -> T) -> T {
+pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T {
     let collector = {
         let current_thread = std::thread::current().id();
         let (state, finished) = timing_collector_state();
@@ -192,9 +219,7 @@ pub fn collect_to_stderr<T>(f: impl FnOnce() -> T) -> T {
                 .wait(state)
                 .expect("timing collector state poisoned");
         }
-        let collector = Arc::new(Mutex::new(TimingCollector::new(
-            timing_trace_events_enabled(),
-        )));
+        let collector = Arc::new(Mutex::new(TimingCollector::new(options.trace)));
         state.active = Some(ActiveTimingCollector {
             owner: current_thread,
             collector: Arc::clone(&collector),
@@ -283,13 +308,6 @@ fn active_timing_collector() -> Option<Arc<Mutex<TimingCollector>>> {
         .map(|active| Arc::clone(&active.collector))
 }
 
-fn timing_trace_events_enabled() -> bool {
-    matches!(
-        std::env::var("NIA_TIMING_TRACE_EVENTS").as_deref(),
-        Ok("1" | "true" | "yes" | "on")
-    )
-}
-
 fn emit(kind: TimingEventKind, name: String, measurement: TimingMeasurement) {
     if let Some(collector) = active_timing_collector() {
         collector
@@ -374,10 +392,10 @@ struct TimingCollector {
 }
 
 impl TimingCollector {
-    fn new(trace_events: bool) -> Self {
+    fn new(trace: TimingTrace) -> Self {
         Self {
             report: TimingReportBuilder::default(),
-            trace_events: trace_events.then(Vec::new),
+            trace_events: matches!(trace, TimingTrace::Events).then(Vec::new),
         }
     }
 
@@ -500,6 +518,14 @@ fn format_report_entry(entry: &TimingReportEntry) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn collector_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("timing collector test lock poisoned")
+    }
 
     #[test]
     fn timing_mode_levels_are_explicit() {
@@ -546,9 +572,10 @@ mod tests {
 
     #[test]
     fn collector_restores_outer_state_after_run() {
-        collect_to_stderr(|| {
+        let _lock = collector_test_lock();
+        collect_to_stderr(TimingOptions::default(), || {
             emit_timing("outer", Duration::from_millis(1));
-            collect_to_stderr(|| {
+            collect_to_stderr(TimingOptions::default(), || {
                 emit_query_timing("inner", Duration::from_millis(2));
             });
         });
@@ -557,7 +584,7 @@ mod tests {
 
     #[test]
     fn collector_aggregates_without_trace_events_by_default() {
-        let mut collector = TimingCollector::new(false);
+        let mut collector = TimingCollector::new(TimingTrace::Off);
         collector.emit_measurement(
             TimingEventKind::Query,
             "checked_module".to_string(),
@@ -590,7 +617,7 @@ mod tests {
 
     #[test]
     fn collector_can_keep_trace_events_when_requested() {
-        let mut collector = TimingCollector::new(true);
+        let mut collector = TimingCollector::new(TimingTrace::Events);
         collector.emit_measurement(
             TimingEventKind::Stage,
             "check".to_string(),
@@ -610,7 +637,8 @@ mod tests {
 
     #[test]
     fn collector_captures_events_from_worker_threads() {
-        collect_to_stderr(|| {
+        let _lock = collector_test_lock();
+        collect_to_stderr(TimingOptions::default(), || {
             std::thread::scope(|scope| {
                 scope.spawn(|| {
                     emit_query_timing("worker_query", Duration::from_millis(2));

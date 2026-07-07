@@ -239,7 +239,8 @@ NIA_COMPILER_CHECK_LIMIT=1 cargo test --workspace -- --test-threads 2
 
 Some CLI integration tests compile and run Nia programs. They inherit
 `NIA_TEST_COMMAND_TIMEOUT_SECS` when a slower machine needs a larger per-command
-timeout.
+timeout. Environment variables used by the project are cataloged in
+[docs/contributing.md](docs/contributing.md).
 
 Do not add lint suppressions just to pass Clippy. Fix the code instead, or
 document and review a narrow exception.

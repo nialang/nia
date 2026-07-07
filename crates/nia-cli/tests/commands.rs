@@ -142,6 +142,7 @@ fn help_and_version_use_nia_command_name() {
         "{help_stdout}"
     );
     assert!(help_stdout.contains("--timings"), "{help_stdout}");
+    assert!(help_stdout.contains("--timing-trace"), "{help_stdout}");
     for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"] {
         assert!(help_stdout.contains(level), "{help_stdout}");
     }
@@ -171,6 +172,7 @@ fn help_and_version_use_nia_command_name() {
         "{check_stdout}"
     );
     assert!(check_stdout.contains("--timings"), "{check_stdout}");
+    assert!(check_stdout.contains("--timing-trace"), "{check_stdout}");
     assert!(
         check_stdout.contains("Timing reports are written to stderr"),
         "{check_stdout}"
@@ -230,6 +232,7 @@ fn help_and_version_use_nia_command_name() {
     assert!(emit_stdout.contains("--link-arg <arg>"), "{emit_stdout}");
     assert!(emit_stdout.contains("--opt-report"), "{emit_stdout}");
     assert!(emit_stdout.contains("--timings"), "{emit_stdout}");
+    assert!(emit_stdout.contains("--timing-trace"), "{emit_stdout}");
     assert!(
         emit_stdout
             .contains("optimization policy, enabled passes, change count, and changes to stderr"),
@@ -1079,11 +1082,11 @@ fn main() i32 {
     );
 
     let traced = Command::new(env!("CARGO_BIN_EXE_nia"))
-        .env("NIA_TIMING_TRACE_EVENTS", "1")
         .arg("--timings")
+        .arg("--timing-trace=events")
         .arg("check")
         .arg(&main)
-        .output_timeout("run nia check --timings with trace events");
+        .output_timeout("run nia check --timing-trace=events");
     assert!(
         traced.status.success(),
         "stderr:\n{}",
@@ -1109,6 +1112,23 @@ fn invalid_timings_option_reports_expected_modes() {
         "{stderr}"
     );
     assert!(stderr.contains("--timings=detail"), "{stderr}");
+}
+
+#[test]
+fn invalid_timing_trace_option_reports_expected_modes() {
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("--timing-trace=spans")
+        .arg("check")
+        .arg("main.nia")
+        .output_timeout("run nia with invalid timing trace option");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown timing trace mode `--timing-trace=spans`"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("--timing-trace=events"), "{stderr}");
 }
 
 #[test]
