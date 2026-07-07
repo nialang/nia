@@ -2476,29 +2476,45 @@ fn comptime_inputs_for_body_check(
     global_initializer_cache: Option<
         &RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
     >,
+    comptime_module_cache: Option<&RefCell<HashMap<ModuleId, ComptimeModuleLowering>>>,
 ) -> BodyCheckComptimeInputs {
     let needed_const_exprs =
         needed_const_exprs_for_active_item_tree(&inputs.active_item_tree, lowered);
     let filtered_const_exprs = const_expr_subset_for_ids(&lowered.const_exprs, &needed_const_exprs);
-    let module = time_module_provider(
-        db,
-        "executable_body_check.comptime.lower_module",
-        module_id,
-        || {
-            let symbols = db.context().symbols();
-            nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
-                active_item_tree: &inputs.active_item_tree,
-                defs,
-                signatures,
-                values: &inputs.values,
-                locals: &inputs.locals,
-                semantic_uses: &inputs.semantic_uses,
-                symbols: &symbols,
-                const_exprs: &filtered_const_exprs,
-                source_path,
-            })
-        },
-    );
+    let lower_module = || {
+        time_module_provider(
+            db,
+            "executable_body_check.comptime.lower_module",
+            module_id,
+            || {
+                let symbols = db.context().symbols();
+                nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
+                    active_item_tree: &inputs.active_item_tree,
+                    defs,
+                    signatures,
+                    values: &inputs.values,
+                    locals: &inputs.locals,
+                    semantic_uses: &inputs.semantic_uses,
+                    symbols: &symbols,
+                    const_exprs: &filtered_const_exprs,
+                    source_path,
+                })
+            },
+        )
+    };
+    let module = if let Some(cache) = comptime_module_cache {
+        if !cache.borrow().contains_key(&module_id) {
+            let module = lower_module();
+            cache.borrow_mut().insert(module_id, module);
+        }
+        cache
+            .borrow()
+            .get(&module_id)
+            .expect("cached comptime module lowering must exist")
+            .clone()
+    } else {
+        lower_module()
+    };
     let program_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             return Some(signature_comptime_module_lowering(db, module_id).module);
@@ -2678,6 +2694,7 @@ fn body_check_with_filter_and_layouts(
         None,
         None,
         None,
+        None,
     )
     .body_check
 }
@@ -2694,6 +2711,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
     global_initializer_cache: Option<
         &RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
     >,
+    comptime_module_cache: Option<&RefCell<HashMap<ModuleId, ComptimeModuleLowering>>>,
     program_function_signature_cache: Option<
         &RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>,
     >,
@@ -2777,6 +2795,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                         inputs,
                         fact_mode,
                         global_initializer_cache,
+                        comptime_module_cache,
                     )
                 },
             ));
@@ -4776,6 +4795,7 @@ fn executable_checked_module_set_inner(
             .collect::<Vec<_>>()
     };
     let mut checked_by_id = HashMap::<ModuleId, ExecutableCheckedModuleState>::new();
+    let comptime_module_cache = RefCell::new(HashMap::<ModuleId, ComptimeModuleLowering>::new());
     let mut reachability_state = IncrementalExecutableReachability::default();
     let program_trait_impls = executable_program_trait_impls(db);
     let extension_index = ExecutableExtensionIndex::new(&extension_methods, &program_trait_impls);
@@ -4928,6 +4948,7 @@ fn executable_checked_module_set_inner(
                         None,
                         seed_interner,
                         Some(&caches.global_initializers),
+                        Some(&comptime_module_cache),
                         Some(&caches.body_function_signatures),
                     )
                 })
