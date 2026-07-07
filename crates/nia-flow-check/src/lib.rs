@@ -7,6 +7,7 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{DefId, GlobalDefId, ModuleId};
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_symbol::SymbolId;
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 use std::collections::HashSet;
 
@@ -67,8 +68,8 @@ enum ExprFingerprint {
     ByteChar(String),
     Bool(bool),
     Null,
-    Ident(String),
-    Qualified(Box<ExprFingerprint>, String),
+    Ident(SymbolId),
+    Qualified(Box<ExprFingerprint>, SymbolId),
 }
 
 pub fn check_module_flow(
@@ -505,6 +506,8 @@ impl FlowChecker<'_> {
             | ExprKind::Bool(_)
             | ExprKind::Null
             | ExprKind::Ident(_)
+            | ExprKind::SelfValue
+            | ExprKind::PathRoot(_)
             | ExprKind::Underscore
             | ExprKind::TypeTarget { .. }
             | ExprKind::TraitTarget { .. }

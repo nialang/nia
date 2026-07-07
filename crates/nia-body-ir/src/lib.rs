@@ -5,6 +5,7 @@ use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_ids::{
     BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ReceiverKind,
 };
+pub use nia_ir_names::{GeneratedLocalName, LocalName};
 pub use nia_sema_ir::{
     BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, BuiltinValue, FunctionReference,
     GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall, TraitObjectCoercion,
@@ -12,6 +13,7 @@ pub use nia_sema_ir::{
 };
 use nia_span::Span;
 use nia_static_ir::StaticInit;
+use nia_symbol::SymbolId;
 use nia_ty::IntConst;
 use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, TraitId, TyInterner};
 
@@ -34,7 +36,7 @@ pub struct TypedBody {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedLocal {
     pub id: LocalId,
-    pub name: String,
+    pub name: LocalName,
     pub kind: TypedLocalKind,
     pub ty: InternedTyId,
     pub span: Span,
@@ -69,7 +71,7 @@ pub enum TypedStmtKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedBinding {
     pub local_id: LocalId,
-    pub name: String,
+    pub name: LocalName,
     pub ty: InternedTyId,
     pub value: Option<TypedExpr>,
     pub is_mutable: bool,
@@ -137,7 +139,7 @@ pub enum TypedPatternKind {
     Wildcard,
     Bind {
         local_id: LocalId,
-        name: String,
+        name: LocalName,
     },
     Pointer(Box<TypedPattern>),
     MutPointer(Box<TypedPattern>),
@@ -508,7 +510,7 @@ pub enum TypedCallee {
     TraitMethod {
         trait_id: GlobalDefId,
         method_id: GlobalDefId,
-        method_name: String,
+        method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
@@ -518,7 +520,7 @@ pub enum TypedCallee {
     TraitAssociatedFunction {
         trait_id: GlobalDefId,
         method_id: GlobalDefId,
-        method_name: String,
+        method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
@@ -527,7 +529,7 @@ pub enum TypedCallee {
         object_ty: InternedTyId,
         trait_id: TraitId,
         method_id: GlobalDefId,
-        method_name: String,
+        method_name: SymbolId,
         trait_args: Vec<InternedTyId>,
         slot: usize,
         params: Vec<InternedTyId>,

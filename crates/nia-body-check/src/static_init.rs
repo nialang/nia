@@ -10,6 +10,7 @@ use nia_ids::{GlobalDefId, InternedTyId};
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::BuiltinValue;
 use nia_static_ir::{StaticAddressElem, StaticFieldInit, StaticInit};
+use nia_symbol::SymbolId;
 use nia_ty::{IntConst, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
@@ -243,7 +244,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn static_field_ty(&mut self, ty: InternedTyId, name: &str) -> Option<InternedTyId> {
+    fn static_field_ty(&mut self, ty: InternedTyId, name: &SymbolId) -> Option<InternedTyId> {
         let ty = self.normalization.normalize(ty);
         let TyKind::Nominal { def_id, args, .. } = self.interner.get(ty).cloned()? else {
             return None;
@@ -259,7 +260,7 @@ impl<'a> BodyChecker<'a> {
         resolved
             .fields
             .iter()
-            .find(|field| field.name == name)
+            .find(|field| &field.name == name)
             .map(|field| self.substitute_generics(field.ty, &substitutions))
     }
 

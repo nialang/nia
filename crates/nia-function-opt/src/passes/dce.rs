@@ -102,7 +102,9 @@ pub(crate) fn remove_unused_local_bindings(body: &mut FunctionBody) -> bool {
 }
 
 pub(crate) fn remove_unused_temp_bindings(body: &mut FunctionBody) -> bool {
-    remove_unused_bindings_matching(body, |local| local.name.starts_with("fir.tmp."))
+    remove_unused_bindings_matching(body, |local| {
+        matches!(local.name, nia_function_ir::LocalName::Temporary(_))
+    })
 }
 
 pub(crate) fn remove_unused_bindings_matching(

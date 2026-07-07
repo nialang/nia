@@ -16,10 +16,12 @@ fn main() i32 {
 "#,
         Some(version),
     );
-    let (module, parse_errors, origins) = parse_module_syntax_with_origins(&syntax);
+    let symbols = SymbolTable::new();
+    let (module, parse_errors, origins) =
+        nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, symbols.clone());
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
-    let type_resolved = resolve_module_types(&module, &defs);
+    let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let lowered = lower_module_types(&module, &type_resolved);
     let values = nia_value_resolve::resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
@@ -37,6 +39,7 @@ fn main() i32 {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            symbols: &symbols,
             const_exprs: &lowered.const_exprs,
             source_path: &source_path,
         });
@@ -51,6 +54,7 @@ fn main() i32 {
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        symbols: &symbols,
         lowered: &lowered,
         signatures: &signatures,
         interner: &lowered.interner,
@@ -96,6 +100,7 @@ fn main() i32 {
     let checked = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: Some(version),
         source_path: &source_path,
+        symbols: &symbols,
         origins: &origins,
         active_item_tree: &active_item_tree,
         defs: &defs,
@@ -164,10 +169,12 @@ fn main() i32 {
 "#,
         Some(version),
     );
-    let (module, parse_errors, origins) = parse_module_syntax_with_origins(&syntax);
+    let symbols = SymbolTable::new();
+    let (module, parse_errors, origins) =
+        nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, symbols.clone());
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
-    let type_resolved = resolve_module_types(&module, &defs);
+    let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let lowered = lower_module_types(&module, &type_resolved);
     let values = nia_value_resolve::resolve_module_values(&module, &defs);
     let locals = nia_local_resolve::resolve_module_locals_with_origins(
@@ -191,6 +198,7 @@ fn main() i32 {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            symbols: &symbols,
             const_exprs: &lowered.const_exprs,
             source_path: &source_path,
         });
@@ -205,6 +213,7 @@ fn main() i32 {
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        symbols: &symbols,
         lowered: &lowered,
         signatures: &signatures,
         interner: &lowered.interner,
@@ -250,6 +259,7 @@ fn main() i32 {
     let checked = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: Some(version),
         source_path: &source_path,
+        symbols: &symbols,
         origins: &origins,
         active_item_tree: &active_item_tree,
         defs: &defs,

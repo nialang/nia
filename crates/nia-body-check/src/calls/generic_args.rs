@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
-use nia_ast::{BracketArg, ExprKind, TypeKind};
+use nia_ast::{BracketArg, ExprKind, PathSegmentKind, TypeKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{GenericParamSignature, GenericParamSignatureKind};
 use nia_sema_ir::GenericInstantiation;
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, TyKind};
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct LoweredGenericArgs {
     pub(crate) type_args: Vec<InternedTyId>,
     pub(crate) const_args: Vec<ConstGenericArg>,
-    pub(crate) type_substitutions: std::collections::HashMap<String, InternedTyId>,
-    pub(crate) const_substitutions: std::collections::HashMap<String, ConstGenericArg>,
+    pub(crate) type_substitutions: SymbolMap<InternedTyId>,
+    pub(crate) const_substitutions: SymbolMap<ConstGenericArg>,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -80,20 +81,22 @@ impl<'a> BodyChecker<'a> {
                         lowered.type_args.push(ty);
                         lowered.type_substitutions.insert(param.name.clone(), ty);
                     } else {
+                        let name = self.symbol_name(param.name);
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
                             arg.span,
-                            format!("generic argument `{}` must be a type", param.name),
+                            format!("generic argument `{name}` must be a type"),
                         ));
                         return None;
                     }
                 }
                 GenericParamSignatureKind::Comptime { ty } => {
                     let Some(value) = self.const_generic_value_from_bracket_arg(arg, *ty) else {
+                        let name = self.symbol_name(param.name);
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
                             arg.span,
-                            format!("generic argument `{}` must be a comptime value", param.name),
+                            format!("generic argument `{name}` must be a comptime value"),
                         ));
                         return None;
                     };
@@ -129,10 +132,9 @@ impl<'a> BodyChecker<'a> {
         if segments.len() != 1 || !segments[0].args.is_empty() {
             return None;
         }
-        match segments[0].name.as_str() {
-            "true" => Some(ConstGenericValue::Bool(true)),
-            "false" => Some(ConstGenericValue::Bool(false)),
-            name => Some(ConstGenericValue::GenericParam(name.to_string())),
+        match segments[0].kind {
+            PathSegmentKind::Name(name) => Some(ConstGenericValue::GenericParam(name)),
+            PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
         }
         .filter(|value| self.const_generic_value_matches_type(value, expected_ty))
     }
@@ -243,17 +245,18 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn complete_instance_args_for_generics(
         &mut self,
         span: Span,
-        generics: &[String],
-        substitutions: &std::collections::HashMap<String, InternedTyId>,
+        generics: &[SymbolId],
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<Vec<InternedTyId>> {
         let mut complete = true;
         for generic in generics {
             if !substitutions.contains_key(generic) {
                 complete = false;
+                let name = self.symbol_name(*generic);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    format!("cannot infer generic parameter `{generic}`"),
+                    format!("cannot infer generic parameter `{name}`"),
                 ));
             }
         }
@@ -272,7 +275,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         generic_params: &[GenericParamSignature],
-        substitutions: &std::collections::HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<Vec<ConstGenericArg>> {
         let mut complete = true;
         let mut args = Vec::new();
@@ -284,10 +287,11 @@ impl<'a> BodyChecker<'a> {
                 args.push(arg.clone());
             } else {
                 complete = false;
+                let name = self.symbol_name(generic.name);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    format!("cannot infer comptime generic parameter `{}`", generic.name),
+                    format!("cannot infer comptime generic parameter `{name}`"),
                 ));
             }
         }
@@ -298,7 +302,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         def_id: GlobalDefId,
-        substitutions: &std::collections::HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<Vec<InternedTyId>> {
         let generics = self.effective_generics_for_def(def_id);
         self.complete_instance_args_for_generics(span, &generics, substitutions)
@@ -308,8 +312,8 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         def_id: GlobalDefId,
-        substitutions: &std::collections::HashMap<String, InternedTyId>,
-        const_substitutions: &std::collections::HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<(Vec<InternedTyId>, Vec<ConstGenericArg>)> {
         let mut complete = true;
         let mut args = Vec::new();
@@ -321,10 +325,11 @@ impl<'a> BodyChecker<'a> {
                 const_args.push(arg);
             } else {
                 complete = false;
+                let name = self.symbol_name(generic);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    format!("cannot infer generic parameter `{generic}`"),
+                    format!("cannot infer generic parameter `{name}`"),
                 ));
             }
         }
@@ -337,8 +342,19 @@ impl<'a> BodyChecker<'a> {
         args: &[InternedTyId],
         span: Span,
     ) {
+        self.record_generic_instantiation_with_self_arg(def_id, None, args, span);
+    }
+
+    pub(crate) fn record_generic_instantiation_with_self_arg(
+        &mut self,
+        def_id: GlobalDefId,
+        self_arg: Option<InternedTyId>,
+        args: &[InternedTyId],
+        span: Span,
+    ) {
         let instantiation = GenericInstantiation {
             def_id,
+            self_arg,
             args: args.to_vec(),
             const_args: Vec::new(),
             generics: self.effective_generics_for_def(def_id),
@@ -358,8 +374,22 @@ impl<'a> BodyChecker<'a> {
         const_args: &[ConstGenericArg],
         span: Span,
     ) {
+        self.record_generic_instantiation_with_self_and_const_args(
+            def_id, None, args, const_args, span,
+        );
+    }
+
+    pub(crate) fn record_generic_instantiation_with_self_and_const_args(
+        &mut self,
+        def_id: GlobalDefId,
+        self_arg: Option<InternedTyId>,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+        span: Span,
+    ) {
         let instantiation = GenericInstantiation {
             def_id,
+            self_arg,
             args: args.to_vec(),
             const_args: const_args.to_vec(),
             generics: self.effective_generics_for_def(def_id),
@@ -372,7 +402,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn effective_generics_for_def(&mut self, def_id: GlobalDefId) -> Vec<String> {
+    pub(crate) fn effective_generics_for_def(&mut self, def_id: GlobalDefId) -> Vec<SymbolId> {
         if let Some(generics) = self.trait_method_effective_generics(def_id) {
             return generics;
         }
@@ -392,18 +422,16 @@ impl<'a> BodyChecker<'a> {
         generics
     }
 
-    fn trait_method_effective_generics(&self, def_id: GlobalDefId) -> Option<Vec<String>> {
+    fn trait_method_effective_generics(&self, def_id: GlobalDefId) -> Option<Vec<SymbolId>> {
         if def_id.module_id == self.defs.module_id
             && let Some(def) = self.defs.defs.get(def_id.def_id)
             && def.kind == nia_defs::DefKind::TraitMethod
         {
-            let mut generics = vec!["Self".to_string()];
-            generics.extend(
-                def.parent
-                    .and_then(|parent| self.defs.defs.get(parent))
-                    .map(|parent| parent.generics.clone())
-                    .unwrap_or_default(),
-            );
+            let mut generics = def
+                .parent
+                .and_then(|parent| self.defs.defs.get(parent))
+                .map(|parent| parent.generics.clone())
+                .unwrap_or_default();
             generics.extend(def.generics.clone());
             return Some(generics);
         }
@@ -416,8 +444,7 @@ impl<'a> BodyChecker<'a> {
                         def_id: method.def_id,
                     } == def_id)
                         .then(|| {
-                            let mut generics = vec!["Self".to_string()];
-                            generics.extend(signature.signature.generics.iter().cloned());
+                            let mut generics = signature.signature.generics.clone();
                             generics.extend(method.signature.generics.iter().cloned());
                             generics
                         })
@@ -425,7 +452,7 @@ impl<'a> BodyChecker<'a> {
             })
     }
 
-    fn extension_method_effective_generics(&mut self, def_id: GlobalDefId) -> Vec<String> {
+    fn extension_method_effective_generics(&mut self, def_id: GlobalDefId) -> Vec<SymbolId> {
         self.extensions
             .targets()
             .iter()

@@ -642,7 +642,7 @@ impl Analyzer<'_> {
         &mut self,
         span: Span,
         ty: nia_ids::InternedTyId,
-        field: &str,
+        field: &SymbolId,
     ) -> Result<ComptimeValue, ComptimeError> {
         let module_id = self.current_execution_module_id();
         let layout_array_lengths = self.program_array_lengths_for_layout(ty);
@@ -712,6 +712,7 @@ impl Analyzer<'_> {
             });
         }
         let Some(field_def) = self.field_def_for_nominal(def_id, field) else {
+            let field = self.symbol_name(*field);
             return Err(ComptimeError {
                 span,
                 message: format!("type has no field `{field}` for builtin `offset`"),
@@ -733,7 +734,7 @@ impl Analyzer<'_> {
         Ok(ComptimeValue::Int(IntConst::unsigned(offset as u128)))
     }
 
-    fn field_def_for_nominal(&self, def_id: GlobalDefId, name: &str) -> Option<GlobalDefId> {
+    fn field_def_for_nominal(&self, def_id: GlobalDefId, name: &SymbolId) -> Option<GlobalDefId> {
         let defs = self.global_defs(def_id.module_id)?;
         let defs = defs.as_ref();
         defs.scopes
@@ -897,6 +898,7 @@ impl Analyzer<'_> {
                 | TyKind::Error
                 | TyKind::ComptimeOnly
                 | TyKind::GenericParam(_)
+                | TyKind::SelfParam
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. },

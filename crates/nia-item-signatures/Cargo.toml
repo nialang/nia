@@ -11,8 +11,10 @@ nia-defs.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
 nia-item-tree.workspace = true
+nia-literals.workspace = true
 nia-node-id.workspace = true
 nia-span.workspace = true
+nia-symbol.workspace = true
 nia-ty.workspace = true
 nia-type-lower.workspace = true
 

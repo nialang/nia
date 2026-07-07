@@ -25,8 +25,8 @@ use nia_comptime_ir::{
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{
-    BuiltinAssociatedType, BuiltinFunction, BuiltinTraitMethod, GlobalConstExprId, GlobalDefId,
-    InternedTyId, LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
+    BuiltinFunction, BuiltinTraitMethod, GlobalConstExprId, GlobalDefId, InternedTyId,
+    LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
 };
 use nia_item_signatures::{
     FunctionAttribute, FunctionSignature, GenericParamSignatureKind, ItemSignatures,
@@ -40,6 +40,7 @@ use nia_sema::{
 use nia_sema_ir::{AssociatedComptimeProjection, BuiltinAssociatedValue, SemanticUseTable};
 use nia_source::SourcePath;
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap, symbol_text_or_unresolved};
 use nia_target_config::TargetConfig;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
 use nia_ty::{
@@ -61,8 +62,8 @@ pub struct TypedComptimeFrame {
     pub module_id: Option<ModuleId>,
     pub function_id: Option<GlobalDefId>,
     pub local_types: HashMap<LocalId, ComptimeValueType>,
-    pub type_substitutions: HashMap<String, InternedTyId>,
-    pub const_substitutions: HashMap<String, ConstGenericArg>,
+    pub type_substitutions: SymbolMap<InternedTyId>,
+    pub const_substitutions: SymbolMap<ConstGenericArg>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -72,6 +73,7 @@ pub struct TypedComptimeQueryInput<'a> {
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub semantic_uses: &'a SemanticUseTable,
+    pub symbols: &'a nia_symbol_table::SymbolTable,
     pub lowered: &'a nia_type_lower::TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub interner: &'a TyInterner,
@@ -86,8 +88,8 @@ pub struct TypedComptimeQueryInput<'a> {
 
 #[derive(Debug, Clone)]
 pub struct ComptimeGenericInstantiation {
-    pub type_substitutions: HashMap<String, InternedTyId>,
-    pub const_substitutions: HashMap<String, ConstGenericArg>,
+    pub type_substitutions: SymbolMap<InternedTyId>,
+    pub const_substitutions: SymbolMap<ConstGenericArg>,
 }
 
 pub fn instantiate_resolved_comptime_function_generics(
@@ -278,7 +280,7 @@ pub(crate) struct Analyzer<'a> {
     program_trait_impls: RefCell<HashMap<ModuleId, Vec<ProgramTraitImplSignature>>>,
     program_global_initializers:
         RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
-    resolved_call_type_substitutions: HashMap<Span, HashMap<String, InternedTyId>>,
+    resolved_call_type_substitutions: HashMap<Span, SymbolMap<InternedTyId>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -288,8 +290,8 @@ pub(crate) struct ComptimeCallFrame {
     locals: HashMap<LocalId, ComptimeValue>,
     local_types: HashMap<LocalId, ComptimeValueType>,
     mutable_locals: HashSet<LocalId>,
-    type_substitutions: HashMap<String, InternedTyId>,
-    const_substitutions: HashMap<String, ConstGenericArg>,
+    type_substitutions: SymbolMap<InternedTyId>,
+    const_substitutions: SymbolMap<ConstGenericArg>,
 }
 
 impl From<TypedComptimeFrame> for ComptimeCallFrame {
@@ -307,6 +309,10 @@ impl From<TypedComptimeFrame> for ComptimeCallFrame {
 }
 
 impl Analyzer<'_> {
+    pub(crate) fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_or_unresolved(self.input.symbols, symbol)
+    }
+
     fn new(input: ComptimeInput<'_>) -> Analyzer<'_> {
         Analyzer {
             input,
@@ -343,6 +349,7 @@ impl Analyzer<'_> {
                 values: input.values,
                 locals: input.locals,
                 semantic_uses: input.semantic_uses,
+                symbols: input.symbols,
                 lowered: input.lowered,
                 signatures: input.signatures,
                 interner: input.interner,
@@ -650,7 +657,7 @@ impl Analyzer<'_> {
                     self.push_comptime_type_mismatch(span, "struct");
                     return;
                 };
-                let field_set: FieldSetCheck<String> = check_value_field_set(
+                let field_set: FieldSetCheck<SymbolId> = check_value_field_set(
                     values.keys().cloned(),
                     fields.iter().map(|field| field.name.clone()),
                 );
@@ -895,10 +902,10 @@ impl Analyzer<'_> {
         let Some(field_tys) = self.comptime_struct_field_types(&signature, &args) else {
             return;
         };
-        let field_set: FieldSetCheck<String> =
+        let field_set: FieldSetCheck<SymbolId> =
             check_value_field_set(values.keys().cloned(), field_tys.keys().cloned());
         for (name, field_ty) in &field_tys {
-            if let Some(value) = values.get(name.as_str()) {
+            if let Some(value) = values.get(name) {
                 self.validate_runtime_typed_value(span, value, *field_ty);
             }
         }
@@ -1001,7 +1008,8 @@ impl Analyzer<'_> {
         ));
     }
 
-    fn push_comptime_missing_struct_field(&mut self, span: Span, name: &str) {
+    fn push_comptime_missing_struct_field(&mut self, span: Span, name: &SymbolId) {
+        let name = self.symbol_name(*name);
         self.diagnostics.push(Diagnostic::user_error_at(
             codes::COMPTIME,
             span,
@@ -1009,7 +1017,8 @@ impl Analyzer<'_> {
         ));
     }
 
-    fn push_comptime_extra_struct_field(&mut self, span: Span, name: &str) {
+    fn push_comptime_extra_struct_field(&mut self, span: Span, name: &SymbolId) {
+        let name = self.symbol_name(*name);
         self.diagnostics.push(Diagnostic::user_error_at(
             codes::COMPTIME,
             span,

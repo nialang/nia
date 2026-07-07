@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId, ReceiverKind};
+pub use nia_ir_names::{GeneratedLocalName, LocalName};
 use nia_span::Span;
+use nia_symbol::SymbolId;
 use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, IntConst, TraitId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -23,7 +25,7 @@ pub struct FunctionBody {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionLocal {
     pub id: LocalId,
-    pub name: String,
+    pub name: LocalName,
     pub kind: FunctionLocalKind,
     pub ty: InternedTyId,
     pub span: Span,
@@ -68,7 +70,7 @@ pub enum FunctionOp {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionBinding {
     pub local_id: LocalId,
-    pub name: String,
+    pub name: LocalName,
     pub ty: InternedTyId,
     pub value: Option<FunctionExpr>,
     pub is_let: bool,
@@ -229,6 +231,7 @@ pub enum FunctionExprKind {
     FunctionInstance {
         def_id: nia_ids::GlobalDefId,
         arg_module_id: nia_ids::ModuleId,
+        self_arg: Option<InternedTyId>,
         args: Vec<InternedTyId>,
         const_args: Vec<ConstGenericArg>,
     },
@@ -501,12 +504,14 @@ pub enum FunctionCallee {
     FunctionInstance {
         def_id: nia_ids::GlobalDefId,
         arg_module_id: nia_ids::ModuleId,
+        self_arg: Option<InternedTyId>,
         args: Vec<InternedTyId>,
         const_args: Vec<ConstGenericArg>,
     },
     Method {
         def_id: nia_ids::GlobalDefId,
         arg_module_id: nia_ids::ModuleId,
+        self_arg: Option<InternedTyId>,
         args: Vec<InternedTyId>,
         receiver_kind: ReceiverKind,
         receiver: Box<FunctionExpr>,
@@ -514,7 +519,7 @@ pub enum FunctionCallee {
     TraitMethod {
         trait_id: nia_ids::GlobalDefId,
         method_id: nia_ids::GlobalDefId,
-        method_name: String,
+        method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
@@ -524,7 +529,7 @@ pub enum FunctionCallee {
     TraitAssociatedFunction {
         trait_id: nia_ids::GlobalDefId,
         method_id: nia_ids::GlobalDefId,
-        method_name: String,
+        method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
@@ -533,7 +538,7 @@ pub enum FunctionCallee {
         object_ty: InternedTyId,
         trait_id: TraitId,
         method_id: nia_ids::GlobalDefId,
-        method_name: String,
+        method_name: SymbolId,
         trait_args: Vec<InternedTyId>,
         slot: usize,
         params: Vec<InternedTyId>,

@@ -4,13 +4,14 @@ use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
 use nia_defs::{DefId, DefKind, VisibleExtensionAssociatedValue};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::InternedTyId;
+use nia_ids::{BuiltinAssociatedComptime, InternedTyId};
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::{
     AssociatedComptimeProjection, BracketSuffixResolution, BuiltinAssociatedValue,
     BuiltinOperatorOp, BuiltinValue,
 };
 use nia_span::Span;
+use nia_symbol::{SymbolId, known};
 use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, RangeTyKind, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
@@ -52,7 +53,8 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Bool(_) => self.bool(),
             ExprKind::Null => self.check_null_expr(expr.span, expected),
             ExprKind::Underscore => self.error(),
-            ExprKind::Ident(_) => self.ident_type(expr),
+            ExprKind::Ident(_) | ExprKind::SelfValue => self.ident_type(expr),
+            ExprKind::PathRoot(_) => self.error(),
             ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. } => self.error(),
             ExprKind::BracketSuffix { callee, args } => {
                 self.check_bracket_suffix_expr(expr, callee, args, expected)
@@ -327,7 +329,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         expr: &Expr,
         lhs: &Expr,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         let target_ty = self.associated_target_ty(lhs, None, name)?;
         let value = self.associated_comptime_value_for_target(target_ty, name)?;
@@ -366,7 +368,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         target: &nia_ast::TypeRef,
         trait_ref: &nia_ast::TypeRef,
-        name: &str,
+        name: &SymbolId,
     ) -> InternedTyId {
         let target_ty = self.ty_for_type(target);
         let target_ty = self.normalize_projection(target_ty);
@@ -387,7 +389,7 @@ impl<'a> BodyChecker<'a> {
                 trait_id,
                 trait_args: trait_args.clone(),
                 trait_const_args: trait_const_args.clone(),
-                name: name.to_string(),
+                name: name.clone(),
             },
         );
         if !self.current_context_proves_trait_obligation_with_const_args(
@@ -410,9 +412,11 @@ impl<'a> BodyChecker<'a> {
             let TraitId::Builtin(trait_id) = trait_id else {
                 unreachable!("trait_id matched source or builtin");
             };
-            if trait_id.has_associated_comptime(name) {
+            if let Some(associated) =
+                crate::symbols::builtin_associated_comptime_symbol(trait_id, *name)
+            {
                 if matches!(trait_id, BuiltinTrait::Simd)
-                    && name == BuiltinTrait::LANES_ASSOC_COMPTIME
+                    && matches!(associated, BuiltinAssociatedComptime::Lanes)
                     && let Some(TyKind::Vector { lanes, .. }) =
                         self.interner.get(target_ty).cloned()
                 {
@@ -423,7 +427,10 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,
-                format!("trait has no associated comptime value `{name}`"),
+                format!(
+                    "trait has no associated comptime value `{}`",
+                    self.symbol_name(*name)
+                ),
             ));
             return self.error();
         };
@@ -433,22 +440,28 @@ impl<'a> BodyChecker<'a> {
         let Some(associated_value) = signature
             .associated_values
             .iter()
-            .find(|associated_value| associated_value.name == name)
+            .find(|associated_value| &associated_value.name == name)
         else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,
-                format!("trait has no associated comptime value `{name}`"),
+                format!(
+                    "trait has no associated comptime value `{}`",
+                    self.symbol_name(*name)
+                ),
             ));
             return self.error();
         };
-        let (mut substitutions, const_substitutions) = self
-            .generic_substitutions_and_consts_for_def(trait_def_id, &trait_args, &trait_const_args);
-        substitutions.insert("Self".to_string(), target_ty);
-        let ty = self.substitute_generics_and_consts(
+        let (substitutions, const_substitutions) = self.generic_substitutions_and_consts_for_def(
+            trait_def_id,
+            &trait_args,
+            &trait_const_args,
+        );
+        let ty = self.substitute_generics_and_consts_with_self(
             associated_value.ty,
             &substitutions,
             &const_substitutions,
+            target_ty,
         );
         self.normalize_projection(ty)
     }
@@ -456,12 +469,12 @@ impl<'a> BodyChecker<'a> {
     fn associated_comptime_value_for_target(
         &mut self,
         target_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<VisibleExtensionAssociatedValue> {
         let mut matches = Vec::new();
         for extension_target in self.extensions.targets() {
-            let mut substitutions = std::collections::HashMap::new();
-            let mut const_substitutions = std::collections::HashMap::new();
+            let mut substitutions = nia_symbol::SymbolMap::new();
+            let mut const_substitutions = nia_symbol::SymbolMap::new();
             if !self.match_type_pattern_with_consts(
                 extension_target.target_ty,
                 target_ty,
@@ -471,7 +484,7 @@ impl<'a> BodyChecker<'a> {
                 continue;
             }
             for value in &extension_target.associated_values {
-                if value.name == name {
+                if &value.name == name {
                     matches.push(value.clone());
                 }
             }
@@ -1195,7 +1208,7 @@ impl<'a> BodyChecker<'a> {
                 trait_id: TraitId::Builtin(finish.trait_id),
                 trait_args,
                 trait_const_args: Vec::new(),
-                name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+                name: known::OUTPUT,
             });
             self.normalize_projection(output)
         };
@@ -1241,7 +1254,7 @@ impl<'a> BodyChecker<'a> {
             trait_id: TraitId::Builtin(trait_id),
             trait_args: Vec::new(),
             trait_const_args: Vec::new(),
-            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+            name: known::OUTPUT,
         });
         self.normalize_projection(output)
     }
@@ -1476,7 +1489,7 @@ impl<'a> BodyChecker<'a> {
     }
 }
 
-fn expr_ident_name(expr: &Expr) -> Option<&str> {
+fn expr_ident_name(expr: &Expr) -> Option<&SymbolId> {
     match &expr.kind {
         ExprKind::Ident(name) => Some(name),
         _ => None,

@@ -12,6 +12,7 @@ nia-ids.workspace = true
 nia-literals.workspace = true
 nia-sema.workspace = true
 nia-span.workspace = true
+nia-symbol.workspace = true
 nia-ty.workspace = true
 
 [dev-dependencies]

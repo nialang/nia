@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
-
 use crate::BodyChecker;
 use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_defs::VisibleExtensionMethod;
@@ -9,6 +7,7 @@ use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, ReceiverKind, Trait
 use nia_item_signatures::FunctionSignature;
 use nia_sema_ir::{BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, ResolvedCall};
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap, known};
 use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, PrimitiveTy, TyKind};
 
 pub(super) struct MethodCall<'a> {
@@ -17,7 +16,7 @@ pub(super) struct MethodCall<'a> {
     pub(super) receiver: &'a Expr,
     pub(super) receiver_ty: InternedTyId,
     pub(super) actual_receiver_ty: InternedTyId,
-    pub(super) name: &'a str,
+    pub(super) name: &'a SymbolId,
     pub(super) type_args: Option<&'a [BracketArg]>,
     pub(super) args: &'a [Expr],
     pub(super) expected: Option<InternedTyId>,
@@ -25,8 +24,8 @@ pub(super) struct MethodCall<'a> {
 
 pub(super) struct MethodGenericContext<'a> {
     pub(super) span: Span,
-    pub(super) target_substitutions: &'a HashMap<String, InternedTyId>,
-    pub(super) target_const_substitutions: &'a HashMap<String, ConstGenericArg>,
+    pub(super) target_substitutions: &'a SymbolMap<InternedTyId>,
+    pub(super) target_const_substitutions: &'a SymbolMap<ConstGenericArg>,
     pub(super) method_args: Option<&'a [BracketArg]>,
     pub(super) lowered_method_args: &'a [InternedTyId],
     pub(super) expected: Option<InternedTyId>,
@@ -38,7 +37,7 @@ pub(super) struct TraitMethodCandidate {
     pub(super) trait_method_id: GlobalDefId,
     pub(super) method_id: GlobalDefId,
     pub(super) self_ty: InternedTyId,
-    pub(super) trait_generics: Vec<String>,
+    pub(super) trait_generics: Vec<SymbolId>,
     pub(super) trait_args: Vec<InternedTyId>,
     pub(super) trait_const_args: Vec<ConstGenericArg>,
     pub(super) signature: FunctionSignature,
@@ -50,7 +49,7 @@ pub(super) struct DynamicTraitMethodCandidate {
     pub(super) object_ty: InternedTyId,
     pub(super) trait_id: TraitId,
     pub(super) method_id: GlobalDefId,
-    pub(super) trait_generics: Vec<String>,
+    pub(super) trait_generics: Vec<SymbolId>,
     pub(super) trait_args: Vec<InternedTyId>,
     pub(super) trait_const_args: Vec<ConstGenericArg>,
     pub(super) associated_type_bindings: Vec<nia_ty::AssociatedTypeBindingTy>,
@@ -61,9 +60,10 @@ pub(super) struct DynamicTraitMethodCandidate {
 #[derive(Clone)]
 pub(super) struct MethodCandidate {
     pub(super) target_ty: InternedTyId,
+    pub(super) self_ty: InternedTyId,
     pub(super) method: VisibleExtensionMethod,
-    pub(super) target_substitutions: HashMap<String, InternedTyId>,
-    pub(super) target_const_substitutions: HashMap<String, ConstGenericArg>,
+    pub(super) target_substitutions: SymbolMap<InternedTyId>,
+    pub(super) target_const_substitutions: SymbolMap<ConstGenericArg>,
 }
 
 mod associated;
@@ -76,7 +76,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         expr: &Expr,
         receiver: &Expr,
-        name: &str,
+        name: &SymbolId,
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
@@ -113,7 +113,7 @@ impl<'a> BodyChecker<'a> {
             .unwrap_or_default();
         let mut call_receiver_ty = dynamic_receiver_ty.unwrap_or(receiver_ty);
         if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
-            BuiltinTraitMethod::from_name(name)?;
+            crate::symbols::builtin_trait_method_symbol(*name)?;
             call_receiver_ty = self
                 .builtin_place_method_receiver_coercion(receiver, name, receiver_ty)
                 .unwrap_or(receiver_ty);
@@ -141,7 +141,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         expr: &Expr,
         receiver: &Expr,
-        name: &str,
+        name: &SymbolId,
         type_args: &[BracketArg],
         args: &[Expr],
         expected: Option<InternedTyId>,
@@ -179,7 +179,7 @@ impl<'a> BodyChecker<'a> {
             .unwrap_or_default();
         let mut call_receiver_ty = dynamic_receiver_ty.unwrap_or(receiver_ty);
         if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
-            BuiltinTraitMethod::from_name(name)?;
+            crate::symbols::builtin_trait_method_symbol(*name)?;
             call_receiver_ty = self
                 .builtin_place_method_receiver_coercion(receiver, name, receiver_ty)
                 .unwrap_or(receiver_ty);
@@ -297,10 +297,11 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         };
         let receiver_expected_ty = self.receiver_ty_for_target(candidate.target_ty, receiver_kind);
-        let receiver_expected_ty = self.substitute_generics_and_consts(
+        let receiver_expected_ty = self.substitute_generics_and_consts_with_self(
             receiver_expected_ty,
             &candidate.target_substitutions,
             &candidate.target_const_substitutions,
+            candidate.self_ty,
         );
         let receiver_expr_expected_ty = self.method_receiver_expr_expected_ty(
             receiver_expected_ty,
@@ -360,10 +361,11 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .skip(1)
             .map(|param| {
-                self.substitute_generics_and_consts(
+                self.substitute_generics_and_consts_with_self(
                     param.ty,
                     &substitutions,
                     &candidate.target_const_substitutions,
+                    candidate.self_ty,
                 )
             })
             .collect();
@@ -380,10 +382,11 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .skip(1)
                 .map(|param| {
-                    self.substitute_generics_and_consts(
+                    self.substitute_generics_and_consts_with_self(
                         param.ty,
                         &substitutions,
                         &candidate.target_const_substitutions,
+                        candidate.self_ty,
                     )
                 })
                 .collect();
@@ -452,10 +455,11 @@ impl<'a> BodyChecker<'a> {
             );
         }
         self.profile_stage("body_check.profile.method.return_type", |this| {
-            let return_type = this.substitute_generics_and_consts(
+            let return_type = this.substitute_generics_and_consts_with_self(
                 signature.return_type,
                 &substitutions,
                 &candidate.target_const_substitutions,
+                candidate.self_ty,
             );
             let return_type = this.normalize_projection(return_type);
             Some(this.normalize_aliases_in_type(return_type))
@@ -530,10 +534,10 @@ impl<'a> BodyChecker<'a> {
     fn builtin_place_method_receiver_coercion(
         &mut self,
         receiver: &Expr,
-        name: &str,
+        name: &SymbolId,
         receiver_ty: InternedTyId,
     ) -> Option<InternedTyId> {
-        let method = BuiltinTraitMethod::from_name(name)?;
+        let method = crate::symbols::builtin_trait_method_symbol(*name)?;
         if !method.is_place_method() {
             return None;
         }

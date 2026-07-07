@@ -4,6 +4,8 @@ use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId};
 use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
+use nia_symbol::{SymbolId, known, known_symbol_text_or_identity};
+use nia_symbol_table::SymbolTable;
 
 pub fn lower_expr_early(expr: &nia_ast::Expr) -> Result<EarlyComptimeExpr, ComptimeLowerError> {
     lower_expr_internal(expr, &EarlyComptimeLowerInputs::default())
@@ -19,6 +21,7 @@ pub fn lower_expr_early_with_context(
 #[derive(Clone, Copy, Default)]
 pub struct EarlyComptimeLowerInputs<'a> {
     pub semantic_uses: Option<&'a SemanticUseTable>,
+    pub symbols: Option<&'a SymbolTable>,
 }
 
 impl<'a> EarlyComptimeLowerInputs<'a> {
@@ -30,16 +33,30 @@ impl<'a> EarlyComptimeLowerInputs<'a> {
         self.semantic_uses = Some(semantic_uses);
         self
     }
+
+    pub fn with_symbols(mut self, symbols: &'a SymbolTable) -> Self {
+        self.symbols = Some(symbols);
+        self
+    }
 }
 
 #[derive(Clone, Copy)]
 pub struct ResolvedComptimeLowerInputs<'a> {
     pub semantic_uses: &'a SemanticUseTable,
+    pub symbols: Option<&'a SymbolTable>,
 }
 
 impl<'a> ResolvedComptimeLowerInputs<'a> {
     pub fn new(semantic_uses: &'a SemanticUseTable) -> Self {
-        Self { semantic_uses }
+        Self {
+            semantic_uses,
+            symbols: None,
+        }
+    }
+
+    pub fn with_symbols(mut self, symbols: &'a SymbolTable) -> Self {
+        self.symbols = Some(symbols);
+        self
     }
 }
 
@@ -67,6 +84,8 @@ pub(crate) trait ComptimeLowerContext {
         key: &VersionedNodeKey,
         _span: Span,
     ) -> Result<Option<InternedTyId>, ComptimeLowerError>;
+
+    fn intern_name(&self, text: &str, span: Span) -> Result<Option<SymbolId>, ComptimeLowerError>;
 }
 
 impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
@@ -88,7 +107,7 @@ impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
                 .or_else(|| {
                     semantic_uses
                         .node_const_generic_use(key)
-                        .map(|name| ComptimeNameResolution::GenericParam(name.to_string()))
+                        .map(|name| ComptimeNameResolution::GenericParam(name.clone()))
                 })
                 .or_else(|| {
                     semantic_uses
@@ -131,6 +150,19 @@ impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
             .semantic_uses
             .and_then(|semantic_uses| semantic_uses.node_type_use(key)))
     }
+
+    fn intern_name(&self, text: &str, span: Span) -> Result<Option<SymbolId>, ComptimeLowerError> {
+        self.symbols
+            .map(|symbols| {
+                symbols
+                    .intern(text)
+                    .map_err(|collision| ComptimeLowerError {
+                        span,
+                        message: collision.to_string(),
+                    })
+            })
+            .transpose()
+    }
 }
 
 impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
@@ -148,7 +180,7 @@ impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
             return Ok(Some(ComptimeNameResolution::BuiltinAssociatedValue(value)));
         }
         if let Some(name) = self.semantic_uses.node_const_generic_use(key) {
-            return Ok(Some(ComptimeNameResolution::GenericParam(name.to_string())));
+            return Ok(Some(ComptimeNameResolution::GenericParam(name.clone())));
         }
         self.semantic_uses
             .node_value_use(key)
@@ -190,6 +222,23 @@ impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
             .node_type_use(key)
             .map(Some)
             .ok_or_else(|| unresolved_error(span, "comptime type"))
+    }
+
+    fn intern_name(&self, text: &str, span: Span) -> Result<Option<SymbolId>, ComptimeLowerError> {
+        let Some(symbols) = self.symbols else {
+            return Err(ComptimeLowerError {
+                span,
+                message: "comptime lowering requires a symbol table for dynamic field names"
+                    .to_string(),
+            });
+        };
+        symbols
+            .intern(text)
+            .map(Some)
+            .map_err(|collision| ComptimeLowerError {
+                span,
+                message: collision.to_string(),
+            })
     }
 }
 
@@ -361,6 +410,24 @@ fn lower_string_literal(literal: &nia_ast::StringLiteral) -> ComptimeStringLiter
     }
 }
 
+fn lower_string_literal_name(
+    literal: &nia_ast::StringLiteral,
+    span: Span,
+    context: &dyn ComptimeLowerContext,
+) -> Result<SymbolId, ComptimeLowerError> {
+    let text = nia_literals::eval_string_literal_parts(literal.parts.iter().map(String::as_str))
+        .ok_or_else(|| ComptimeLowerError {
+            span,
+            message: "invalid string literal in comptime field name".to_string(),
+        })?;
+    context
+        .intern_name(text.as_str(), span)?
+        .ok_or_else(|| ComptimeLowerError {
+            span,
+            message: "comptime field name lowering requires a symbol table".to_string(),
+        })
+}
+
 fn lower_unary_op(op: nia_ast::UnaryOp) -> ComptimeUnaryOp {
     match op {
         nia_ast::UnaryOp::Neg => ComptimeUnaryOp::Neg,
@@ -417,7 +484,7 @@ fn lower_call_with_context(
     context: &dyn ComptimeLowerContext,
 ) -> Result<EarlyComptimeExprKind, ComptimeLowerError> {
     if let Some((name, type_arg, builtin_span)) = std_builtin_call(callee) {
-        if name == "error" {
+        if name == known::ERROR {
             if type_arg.is_some() {
                 return Err(ComptimeLowerError {
                     span: builtin_span,
@@ -434,14 +501,16 @@ fn lower_call_with_context(
                 message: Box::new(lower_expr_internal(&args[0], context)?),
             });
         }
-        if let Some(builtin) = LayoutBuiltin::from_name(name) {
+        if let Some(builtin) = layout_builtin_from_symbol(name) {
             let Some(type_arg) = type_arg else {
+                let name = known_symbol_text_or_identity(name);
                 return Err(ComptimeLowerError {
                     span: builtin_span,
                     message: format!("builtin `{name}` requires a type argument"),
                 });
             };
             if !args.is_empty() {
+                let name = known_symbol_text_or_identity(name);
                 return Err(ComptimeLowerError {
                     span: builtin_span,
                     message: format!("builtin `{name}` does not take value arguments"),
@@ -452,7 +521,7 @@ fn lower_call_with_context(
                 type_arg: EarlyComptimeTypeArg::from_type_ref(type_arg, context)?,
             });
         }
-        if name == "offset" {
+        if name == known::OFFSET {
             let Some(type_arg) = type_arg else {
                 return Err(ComptimeLowerError {
                     span: builtin_span,
@@ -474,10 +543,10 @@ fn lower_call_with_context(
             };
             return Ok(EarlyComptimeExprKind::FieldOffsetBuiltin {
                 type_arg: EarlyComptimeTypeArg::from_type_ref(type_arg, context)?,
-                field: lower_string_literal(field),
+                field: lower_string_literal_name(field, arg.span, context)?,
             });
         }
-        if name == "embed" {
+        if name == known::EMBED {
             if type_arg.is_some() {
                 return Err(ComptimeLowerError {
                     span: builtin_span,
@@ -503,7 +572,7 @@ fn lower_call_with_context(
     }
     if args.is_empty()
         && let nia_ast::ExprKind::Field { lhs, name } = &callee.kind
-        && let Some(method) = comptime_builtin_method_name(name)
+        && let Some(method) = comptime_builtin_method_name(*name)
     {
         return Ok(EarlyComptimeExprKind::BuiltinMethod {
             method,
@@ -530,7 +599,15 @@ fn lower_call_with_context(
     })
 }
 
-fn std_builtin_call(callee: &nia_ast::Expr) -> Option<(&str, Option<&nia_ast::TypeRef>, Span)> {
+fn layout_builtin_from_symbol(name: SymbolId) -> Option<LayoutBuiltin> {
+    match name {
+        known::SIZE => Some(LayoutBuiltin::Size),
+        known::ALIGN => Some(LayoutBuiltin::Align),
+        _ => None,
+    }
+}
+
+fn std_builtin_call(callee: &nia_ast::Expr) -> Option<(SymbolId, Option<&nia_ast::TypeRef>, Span)> {
     if let nia_ast::ExprKind::BracketSuffix { callee, args } = &callee.kind {
         let [arg] = args.as_slice() else {
             return None;
@@ -553,14 +630,18 @@ fn std_builtin_call(callee: &nia_ast::Expr) -> Option<(&str, Option<&nia_ast::Ty
     let nia_ast::ExprKind::Ident(root) = &std_expr.kind else {
         return None;
     };
-    (root == "std" && builtin_segment == "builtin").then_some((name.as_str(), None, callee.span))
+    (*root == known::STD && *builtin_segment == known::BUILTIN).then_some((
+        *name,
+        None,
+        callee.span,
+    ))
 }
 
-fn comptime_builtin_method_name(name: &str) -> Option<BuiltinTraitMethod> {
+fn comptime_builtin_method_name(name: SymbolId) -> Option<BuiltinTraitMethod> {
     match name {
-        "len" => Some(BuiltinTraitMethod::Len),
-        "start" => Some(BuiltinTraitMethod::Start),
-        "end" => Some(BuiltinTraitMethod::End),
+        known::LEN => Some(BuiltinTraitMethod::Len),
+        known::START => Some(BuiltinTraitMethod::Start),
+        known::END => Some(BuiltinTraitMethod::End),
         _ => None,
     }
 }
@@ -637,7 +718,7 @@ fn lower_assign_target_base_with_context(
     expr: &nia_ast::Expr,
     context: &dyn ComptimeLowerContext,
     path: &mut Vec<EarlyComptimeAssignPathElem>,
-) -> Result<(Span, String, Option<LocalId>), ComptimeLowerError> {
+) -> Result<(Span, SymbolId, Option<LocalId>), ComptimeLowerError> {
     match &expr.kind {
         nia_ast::ExprKind::Ident(name) => Ok((
             expr.span,
@@ -722,14 +803,14 @@ fn resolve_name(
 }
 
 fn lower_comptime_name(
-    name: &str,
+    name: &SymbolId,
     key: &VersionedNodeKey,
     span: Span,
     context: &dyn ComptimeLowerContext,
 ) -> Result<EarlyComptimeName, ComptimeLowerError> {
     match resolve_name(context, key, span)? {
-        Some(resolution) => Ok(EarlyComptimeName::resolved(name.to_string(), resolution)),
-        None => Ok(EarlyComptimeName::unresolved(name.to_string())),
+        Some(resolution) => Ok(EarlyComptimeName::resolved(name.clone(), resolution)),
+        None => Ok(EarlyComptimeName::unresolved(name.clone())),
     }
 }
 
@@ -1320,7 +1401,7 @@ fn lower_stmt_with_context(
                 })?;
             EarlyComptimeStmtKind::Binding(EarlyComptimeBinding {
                 span: stmt.span,
-                name: name.to_string(),
+                name: name.clone(),
                 local_id: lower_local_id(context, node_key, binding.pattern.span)?,
                 explicit_type: binding
                     .ty
@@ -1559,7 +1640,7 @@ fn lower_pattern_with_context(
 
 fn single_pattern_binding(
     pattern: &nia_ast::Pattern,
-) -> Option<(&str, &nia_node_id::VersionedNodeKey)> {
+) -> Option<(&SymbolId, &nia_node_id::VersionedNodeKey)> {
     match &pattern.kind {
         nia_ast::PatternKind::Bind { name, node_key, .. } => Some((name, node_key)),
         nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {

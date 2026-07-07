@@ -11,6 +11,7 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_sema_ir::PointerArrayToSliceCoercion;
 use nia_span::Span;
+use nia_symbol::{SymbolId, symbol_text_or_unresolved};
 use nia_trait_solve::TraitSolverContext;
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy,
@@ -24,10 +25,14 @@ struct ProjectionNormalizationKey {
     trait_id: TraitId,
     trait_args: Vec<InternedTyId>,
     trait_const_args: Vec<ConstGenericArg>,
-    name: String,
+    name: SymbolId,
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_or_unresolved(self.symbols, symbol)
+    }
+
     pub(crate) fn expect_ty_kind(&self, ty: InternedTyId) -> &TyKind {
         self.interner.get(ty).unwrap_or_else(|| {
             panic!(
@@ -340,7 +345,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::ComptimeOnly
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
-                | TyKind::GenericParam(_),
+                | TyKind::GenericParam(_)
+                | TyKind::SelfParam,
             )
             | None => ty,
         }
@@ -352,7 +358,7 @@ impl<'a> BodyChecker<'a> {
         trait_id: TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         let assumptions = self.current_trait_goals();
         let associated_type_assumptions = self.current_associated_type_assumptions();
@@ -387,7 +393,7 @@ impl<'a> BodyChecker<'a> {
         trait_id: TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
-        name: &str,
+        name: &SymbolId,
     ) -> Option<nia_trait_solve::AssociatedComptimeResolution> {
         let assumptions = self.current_trait_goals();
         let const_expr_values = self.const_expr_values_for_trait_solver(trait_const_args);
@@ -1095,6 +1101,7 @@ impl<'a> BodyChecker<'a> {
             program_comptime_array_lengths: self.program_comptime_array_lengths,
             program_comptime_module: self.program_comptime_module,
             source_path: self.source_path,
+            symbols: self.symbols,
             extension_methods_by_id: self.extension_methods_by_id.clone(),
             extension_method_lookup_cache: self.extension_method_lookup_cache.clone(),
             callable_extension_methods_by_name: HashMap::new(),
@@ -1291,7 +1298,8 @@ impl<'a> BodyChecker<'a> {
             }
             ArrayLenTy::Infer => Err(format!("array length at {span:?} is not concrete")),
             ArrayLenTy::GenericParam(name) => Err(format!(
-                "array length const generic `{name}` at {span:?} is not substituted"
+                "array length const generic `{}` at {span:?} is not substituted",
+                self.symbol_name(*name)
             )),
         }
     }
@@ -1372,9 +1380,11 @@ impl<'a> BodyChecker<'a> {
             }) => {
                 let self_ty = self.ty_name(*self_ty);
                 let trait_name = self.trait_ty_name(*trait_id, trait_args);
+                let name = self.symbol_name(*name);
                 format!("[{self_ty} as {trait_name}]::{name}")
             }
-            Some(TyKind::GenericParam(name)) => name.clone(),
+            Some(TyKind::GenericParam(name)) => self.symbol_name(*name),
+            Some(TyKind::SelfParam) => "Self".to_string(),
             Some(TyKind::ComptimeOnly) => "<comptime-only value>".to_string(),
             Some(TyKind::Error) => "<error type>".to_string(),
             None => "<unknown type>".to_string(),
@@ -1402,7 +1412,7 @@ impl<'a> BodyChecker<'a> {
     fn array_len_name(&self, len: &ArrayLenTy) -> String {
         match len {
             ArrayLenTy::Infer => "_".to_string(),
-            ArrayLenTy::GenericParam(name) => name.clone(),
+            ArrayLenTy::GenericParam(name) => self.symbol_name(*name),
             ArrayLenTy::ConstValue(value) => value.to_string(),
             ArrayLenTy::ConstExpr(id) => self
                 .array_len_const_expr_value(*id)
@@ -1472,7 +1482,7 @@ impl<'a> BodyChecker<'a> {
                 defs.as_ref()
                     .defs
                     .get(def_id.def_id)
-                    .map(|def| def.name.clone())
+                    .map(|def| self.symbol_name(def.name))
             })
             .unwrap_or_else(|| "<unknown type>".to_string());
         if args.is_empty() {
@@ -1509,7 +1519,7 @@ impl<'a> BodyChecker<'a> {
                     defs.as_ref()
                         .defs
                         .get(def_id.def_id)
-                        .map(|def| def.name.clone())
+                        .map(|def| self.symbol_name(def.name))
                 })
                 .unwrap_or_else(|| "<unknown trait>".to_string()),
             TraitId::Builtin(trait_id) => trait_id.name().to_string(),
@@ -1523,10 +1533,10 @@ impl<'a> BodyChecker<'a> {
                 format!(
                     "[Self as {}]::{}",
                     self.trait_binding_name(trait_id, &binding.trait_args),
-                    binding.name
+                    self.symbol_name(binding.name)
                 )
             } else {
-                binding.name.clone()
+                self.symbol_name(binding.name)
             };
             format!("{name} = {}", self.ty_name(binding.ty))
         }));
@@ -1550,7 +1560,7 @@ impl<'a> BodyChecker<'a> {
                     defs.as_ref()
                         .defs
                         .get(def_id.def_id)
-                        .map(|def| def.name.clone())
+                        .map(|def| self.symbol_name(def.name))
                 })
                 .unwrap_or_else(|| "<unknown trait>".to_string()),
             TraitId::Builtin(trait_id) => trait_id.name().to_string(),
@@ -1564,10 +1574,10 @@ impl<'a> BodyChecker<'a> {
                 format!(
                     "[Self as {}]::{}",
                     self.trait_binding_name(trait_id, &binding.trait_args),
-                    binding.name
+                    self.symbol_name(binding.name)
                 )
             } else {
-                binding.name.clone()
+                self.symbol_name(binding.name)
             };
             format!("{name} = {}", self.ty_name(binding.ty))
         }));
@@ -1586,7 +1596,7 @@ impl<'a> BodyChecker<'a> {
                     defs.as_ref()
                         .defs
                         .get(def_id.def_id)
-                        .map(|def| def.name.clone())
+                        .map(|def| self.symbol_name(def.name))
                 })
                 .unwrap_or_else(|| "<unknown trait>".to_string()),
             TraitId::Builtin(trait_id) => trait_id.name().to_string(),

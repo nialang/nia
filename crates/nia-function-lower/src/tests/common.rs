@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub(super) use crate::*;
 pub(super) use nia_body_ir::{
-    AtomicOrder, MemoryIntrinsicOp, PlaceBase, TypedBody, TypedExpr, TypedExprKind, TypedForIn,
-    TypedIfPattern, TypedIfPatternArm, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
-    TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedStmt,
-    TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
+    AtomicOrder, GeneratedLocalName, LocalName, MemoryIntrinsicOp, PlaceBase, TypedBody, TypedExpr,
+    TypedExprKind, TypedForIn, TypedIfPattern, TypedIfPatternArm, TypedLocal, TypedLocalKind,
+    TypedLoop, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind,
+    TypedPlace, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
 };
 pub(super) use nia_function_ir::{
     FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,
@@ -13,6 +13,7 @@ pub(super) use nia_function_ir::{
 };
 pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId, TyInternerIndex};
 pub(super) use nia_span::Span;
+pub(super) use nia_symbol::{SymbolId, stable_hash};
 pub(super) use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 
 pub(super) fn only_next_target(
@@ -34,6 +35,14 @@ pub(super) fn test_ty() -> InternedTyId {
         nia_ids::TyInternerId::for_module(ModuleId(0)),
         TyInternerIndex::from_interner_index(0),
     )
+}
+
+pub(super) fn sym(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(stable_hash(text))
+}
+
+pub(super) fn local_name(text: &str) -> LocalName {
+    LocalName::named(sym(text))
 }
 
 pub(super) fn int_expr(value: i32) -> TypedExpr {
@@ -80,7 +89,7 @@ pub(super) fn for_iterator_stmt(local_id: LocalId, body: TypedBody) -> TypedStmt
                 span,
                 kind: TypedPatternKind::Bind {
                     local_id,
-                    name: "i".to_string(),
+                    name: local_name("i"),
                 },
             },
             item_ty: ty,

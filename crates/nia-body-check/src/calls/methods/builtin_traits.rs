@@ -5,7 +5,7 @@ struct BuiltinAssociatedPlaceMethodCall<'a> {
     span: Span,
     node_key: &'a nia_node_id::VersionedNodeKey,
     target_ty: InternedTyId,
-    name: &'a str,
+    name: &'a SymbolId,
     method: BuiltinTraitMethod,
     args: &'a [Expr],
     expected: Option<InternedTyId>,
@@ -15,7 +15,7 @@ struct BuiltinAssociatedIntrinsicMethodCall<'a> {
     span: Span,
     node_key: &'a nia_node_id::VersionedNodeKey,
     target_ty: InternedTyId,
-    name: &'a str,
+    name: &'a SymbolId,
     method: BuiltinTraitMethod,
     intrinsic: BuiltinMethod,
     args: &'a [Expr],
@@ -27,7 +27,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         call: &MethodCall<'_>,
     ) -> Option<InternedTyId> {
-        let method = BuiltinTraitMethod::from_name(call.name)?;
+        let method = crate::symbols::builtin_trait_method_symbol(*call.name)?;
         if call.type_args.is_some() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -97,13 +97,13 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         expr: &Expr,
         target_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
         method_type_args: Option<&[BracketArg]>,
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
         let span = expr.span;
-        let method = BuiltinTraitMethod::from_name(name)?;
+        let method = crate::symbols::builtin_trait_method_symbol(*name)?;
         if method_type_args.is_some() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -145,6 +145,7 @@ impl<'a> BodyChecker<'a> {
         let op = BuiltinOperatorOp::from_method(method)?;
         let trait_id = method.trait_id();
         let Some((receiver, value_args)) = args.split_first() else {
+            let name = self.symbol_name(*name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
@@ -242,13 +243,11 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let trait_id = call.method.trait_id();
         let Some((receiver, value_args)) = call.args.split_first() else {
+            let name = self.symbol_name(*call.name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call.span,
-                format!(
-                    "receiver method `{}` requires a receiver argument",
-                    call.name
-                ),
+                format!("receiver method `{name}` requires a receiver argument"),
             ));
             return Some(self.error());
         };
@@ -346,13 +345,11 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let trait_id = call.method.trait_id();
         let Some((receiver, value_args)) = call.args.split_first() else {
+            let name = self.symbol_name(*call.name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 call.span,
-                format!(
-                    "receiver method `{}` requires a receiver argument",
-                    call.name
-                ),
+                format!("receiver method `{name}` requires a receiver argument"),
             ));
             return Some(self.error());
         };
@@ -524,7 +521,7 @@ impl<'a> BodyChecker<'a> {
                 trait_id: TraitId::Builtin(trait_id),
                 trait_args: Vec::new(),
                 trait_const_args: Vec::new(),
-                name: BuiltinTrait::ITER_ASSOC_TYPE.to_string(),
+                name: known::ITER,
             });
             return self.normalize_projection(iter);
         }
@@ -541,7 +538,7 @@ impl<'a> BodyChecker<'a> {
             trait_id: TraitId::Builtin(trait_id),
             trait_args,
             trait_const_args: Vec::new(),
-            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+            name: known::OUTPUT,
         });
         self.normalize_projection(output)
     }
@@ -559,7 +556,7 @@ impl<'a> BodyChecker<'a> {
                     trait_id: TraitId::Builtin(trait_id),
                     trait_args,
                     trait_const_args: Vec::new(),
-                    name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+                    name: known::OUTPUT,
                 });
                 self.normalize_projection(output)
             }
@@ -569,7 +566,7 @@ impl<'a> BodyChecker<'a> {
                     trait_id: TraitId::Builtin(trait_id),
                     trait_args: Vec::new(),
                     trait_const_args: Vec::new(),
-                    name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
+                    name: known::TARGET,
                 });
                 let target = self.normalize_projection(target);
                 self.interner.intern(TyKind::Pointer {
@@ -583,7 +580,7 @@ impl<'a> BodyChecker<'a> {
                     trait_id: TraitId::Builtin(trait_id),
                     trait_args: Vec::new(),
                     trait_const_args: Vec::new(),
-                    name: BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
+                    name: known::ITEM,
                 });
                 let item = self.normalize_projection(item);
                 self.interner.intern(TyKind::Optional { elem: item })

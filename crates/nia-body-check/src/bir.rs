@@ -5,19 +5,20 @@ use nia_ast::{
     StmtKind, SwitchArmBody, UnaryOp,
 };
 use nia_body_ir::{
-    AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinOperator, BuiltinPlaceMethod, MemoryIntrinsicOp,
-    PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBinding, TypedBody, TypedCallee,
-    TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn, TypedIfPattern, TypedIfPatternArm,
-    TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic, TypedMemoryIntrinsicSource,
-    TypedPattern, TypedPatternKind, TypedPlace, TypedRange, TypedSliceRange, TypedStmt,
-    TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
-    TypedSwitchPatternKind, TypedWhile,
+    AtomicOrder, AtomicRmwOp, BuiltinConst, BuiltinOperator, BuiltinPlaceMethod, LocalName,
+    MemoryIntrinsicOp, PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBinding,
+    TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn, TypedIfPattern,
+    TypedIfPatternArm, TypedLocal, TypedLocalKind, TypedLoop, TypedMemoryIntrinsic,
+    TypedMemoryIntrinsicSource, TypedPattern, TypedPatternKind, TypedPlace, TypedRange,
+    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
+    TypedSwitchPattern, TypedSwitchPatternKind, TypedWhile,
 };
 use nia_ids::{BuiltinFunction, BuiltinTraitMethod, InternedTyId, ReceiverKind, TraitId};
 use nia_item_signatures::FunctionAttribute;
-use nia_local_resolve::{LocalKind, LocalUse};
+use nia_local_resolve::{LocalBindingName, LocalKind, LocalUse};
 use nia_sema_ir::{BracketSuffixResolution, BuiltinOperatorOp, BuiltinValue, ResolvedCall};
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap, known};
 use nia_trait_solve::TraitResolution;
 use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TyKind};
 use nia_value_resolve::ValueNameResolution;
@@ -26,11 +27,17 @@ use crate::literals::{
     decode_byte_string_literal, decode_char_literal, decode_string_literal,
     float_literal_suffix_ty, integer_literal_suffix_ty, numeric_literal_body,
 };
-use std::collections::HashMap;
 
 mod asm;
 
 impl<'a> BodyChecker<'a> {
+    fn local_name(&self, name: LocalBindingName) -> LocalName {
+        match name {
+            LocalBindingName::Named(name) => LocalName::named(name),
+            LocalBindingName::SelfValue => LocalName::SelfValue,
+        }
+    }
+
     fn is_array_ty(&self, ty: nia_ids::InternedTyId) -> bool {
         matches!(
             self.interner.get(self.normalization.normalize(ty)),
@@ -171,7 +178,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 Some(TypedLocal {
                     id,
-                    name: local.name.clone(),
+                    name: self.local_name(local.name),
                     kind,
                     ty: self
                         .local_types
@@ -251,7 +258,7 @@ impl<'a> BodyChecker<'a> {
         };
         Some(TypedBinding {
             local_id,
-            name: name.to_string(),
+            name: LocalName::named(*name),
             ty,
             value: binding.value.as_ref().map(|value| {
                 self.lower_binding_initializer_for_pattern(&binding.pattern, value, ty)
@@ -305,7 +312,7 @@ impl<'a> BodyChecker<'a> {
     fn single_pattern_binding<'b>(
         &self,
         pattern: &'b nia_ast::Pattern,
-    ) -> Option<(&'b str, &'b nia_node_id::VersionedNodeKey)> {
+    ) -> Option<(&'b SymbolId, &'b nia_node_id::VersionedNodeKey)> {
         match &pattern.kind {
             nia_ast::PatternKind::Bind { name, node_key, .. } => Some((name, node_key)),
             nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
@@ -391,7 +398,7 @@ impl<'a> BodyChecker<'a> {
                     .unwrap_or(nia_ids::LocalId(u32::MAX));
                 TypedPatternKind::Bind {
                     local_id,
-                    name: name.clone(),
+                    name: LocalName::named(*name),
                 }
             }
             nia_ast::PatternKind::Pointer(inner) => {
@@ -599,7 +606,9 @@ impl<'a> BodyChecker<'a> {
         }
         let mut lowered_ty = ty;
         let kind = match &expr.kind {
-            ExprKind::Error | ExprKind::Raw(_) | ExprKind::Underscore => TypedExprKind::Error,
+            ExprKind::Error | ExprKind::Raw(_) | ExprKind::Underscore | ExprKind::PathRoot(_) => {
+                TypedExprKind::Error
+            }
             ExprKind::Integer(text) => {
                 TypedExprKind::Integer(numeric_literal_body(text).to_string())
             }
@@ -626,7 +635,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::ByteChar(text) => TypedExprKind::ByteChar(text.clone()),
             ExprKind::Bool(value) => TypedExprKind::Bool(*value),
             ExprKind::Null => TypedExprKind::Null,
-            ExprKind::Ident(_) => {
+            ExprKind::Ident(_) | ExprKind::SelfValue => {
                 if let Some(local_id) = self.local_comptime_use(expr) {
                     return self.lower_comptime_value_expr(
                         expr.span,
@@ -722,7 +731,7 @@ impl<'a> BodyChecker<'a> {
                         let field_ty = self.field_ty_for_struct_ty(ty, &field.name);
                         TypedFieldInit {
                             field: field_def,
-                            name: field.name.clone(),
+                            name: self.symbol_name(field.name),
                             value: self.lower_expr_with_ty(&field.value, field_ty),
                             span: field.span,
                         }
@@ -750,7 +759,7 @@ impl<'a> BodyChecker<'a> {
                                 let field_ty = self.field_ty_for_struct_ty(ty, &field.name);
                                 TypedFieldInit {
                                     field: field_def,
-                                    name: field.name.clone(),
+                                    name: self.symbol_name(field.name),
                                     value: self.lower_expr_with_ty(&field.value, field_ty),
                                     span: field.span,
                                 }
@@ -1599,7 +1608,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn field_def_for_struct_ty(
         &self,
         ty: nia_ids::InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<nia_ids::GlobalDefId> {
         let def_id = self.nominal_global_def(ty)?;
         self.field_def_for_nominal(def_id, name)
@@ -1608,7 +1617,7 @@ impl<'a> BodyChecker<'a> {
     fn field_ty_for_struct_ty(
         &mut self,
         ty: nia_ids::InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<nia_ids::InternedTyId> {
         let ty = self.normalization.normalize(ty);
         let Some(TyKind::Nominal {
@@ -1626,7 +1635,7 @@ impl<'a> BodyChecker<'a> {
             .signature
             .fields
             .iter()
-            .find(|field| field.name == name)?;
+            .find(|field| &field.name == name)?;
         let ty =
             self.substitute_generics_and_consts(field.ty, &substitutions, &const_substitutions);
         Some(self.normalize_aliases_in_type(ty))
@@ -1635,13 +1644,13 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn field_def_for_base_ty(
         &self,
         ty: nia_ids::InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<nia_ids::GlobalDefId> {
         let base = self.receiver_base_type(ty)?;
         self.field_def_for_nominal(base.def_id, name)
     }
 
-    fn lower_field_access_expr(&mut self, lhs: &Expr, name: &str) -> Option<TypedExprKind> {
+    fn lower_field_access_expr(&mut self, lhs: &Expr, name: &SymbolId) -> Option<TypedExprKind> {
         let lhs_expr = self.lower_expr(lhs);
         let (lhs_expr, base_ty) = self.lower_field_lhs_to_value(lhs_expr)?;
         let field = self.field_def_for_struct_ty(base_ty, name)?;
@@ -1679,7 +1688,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn field_def_for_nominal(
         &self,
         def_id: nia_ids::GlobalDefId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<nia_ids::GlobalDefId> {
         let defs = self.defs_for_module(def_id.module_id)?;
         let defs = defs.as_ref();
@@ -1707,7 +1716,7 @@ impl<'a> BodyChecker<'a> {
     fn enum_variant_for_qualified(
         &mut self,
         lhs: &Expr,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<nia_ids::GlobalDefId> {
         let enum_id = self.type_prefix_def_id(lhs)?;
         if !self.is_enum_def(enum_id) {
@@ -2114,6 +2123,7 @@ impl<'a> BodyChecker<'a> {
                     &signature.params,
                     &mut substitutions,
                     receiver_ty,
+                    receiver_ty,
                 ))
             }
             ResolvedCall::TraitMethod {
@@ -2129,7 +2139,6 @@ impl<'a> BodyChecker<'a> {
                 let mut substitutions = self.generic_substitutions_for_trait_call(
                     trait_id,
                     &signature.generics,
-                    self_ty,
                     &trait_args,
                     &args,
                 );
@@ -2149,6 +2158,7 @@ impl<'a> BodyChecker<'a> {
                     &signature.params,
                     &mut substitutions,
                     receiver_ty,
+                    Some(self_ty),
                 ))
             }
             ResolvedCall::TraitAssociatedFunction {
@@ -2163,11 +2173,15 @@ impl<'a> BodyChecker<'a> {
                 let mut substitutions = self.generic_substitutions_for_trait_call(
                     trait_id,
                     &signature.generics,
-                    self_ty,
                     &trait_args,
                     &args,
                 );
-                Some(self.substituted_call_param_tys(&signature.params, &mut substitutions, None))
+                Some(self.substituted_call_param_tys(
+                    &signature.params,
+                    &mut substitutions,
+                    None,
+                    Some(self_ty),
+                ))
             }
             ResolvedCall::DynamicTraitMethod { params, .. } => Some(params),
             _ => None,
@@ -2179,7 +2193,7 @@ impl<'a> BodyChecker<'a> {
         def_id: nia_ids::GlobalDefId,
         signature: &nia_item_signatures::FunctionSignature,
         args: &[nia_ids::InternedTyId],
-    ) -> HashMap<String, nia_ids::InternedTyId> {
+    ) -> SymbolMap<nia_ids::InternedTyId> {
         let generics = self.effective_generics_for_def(def_id);
         let mut substitutions = self.generic_substitutions(&generics, args);
         for (generic, arg) in signature
@@ -2196,7 +2210,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         def_id: nia_ids::GlobalDefId,
         signature: &nia_item_signatures::FunctionSignature,
-        substitutions: &HashMap<String, nia_ids::InternedTyId>,
+        substitutions: &SymbolMap<nia_ids::InternedTyId>,
     ) -> Option<nia_ids::InternedTyId> {
         if let Some(owner_ty) = self.method_owner_type_by_global(def_id) {
             let ty = self.substitute_generics(owner_ty, substitutions);
@@ -2212,17 +2226,15 @@ impl<'a> BodyChecker<'a> {
     fn generic_substitutions_for_trait_call(
         &mut self,
         trait_id: nia_ids::GlobalDefId,
-        method_generics: &[String],
-        self_ty: nia_ids::InternedTyId,
+        method_generics: &[SymbolId],
         trait_args: &[nia_ids::InternedTyId],
         method_args: &[nia_ids::InternedTyId],
-    ) -> HashMap<String, nia_ids::InternedTyId> {
+    ) -> SymbolMap<nia_ids::InternedTyId> {
         let trait_generics = self
             .resolved_trait_signature(trait_id)
             .map(|signature| signature.generics)
             .unwrap_or_default();
         let mut substitutions = self.generic_substitutions(&trait_generics, trait_args);
-        substitutions.insert("Self".to_string(), self_ty);
         substitutions.extend(self.generic_substitutions(method_generics, method_args));
         substitutions
     }
@@ -2230,29 +2242,40 @@ impl<'a> BodyChecker<'a> {
     fn trait_method_signature(
         &mut self,
         trait_id: nia_ids::GlobalDefId,
-        method_name: &str,
+        method_name: &SymbolId,
     ) -> Option<nia_item_signatures::FunctionSignature> {
         self.resolved_trait_signature(trait_id)?
             .methods
             .into_iter()
-            .find(|method| method.name == method_name)
+            .find(|method| &method.name == method_name)
             .map(|method| method.signature)
     }
 
     fn substituted_call_param_tys(
         &mut self,
         params: &[nia_item_signatures::ParamSignature],
-        substitutions: &mut HashMap<String, nia_ids::InternedTyId>,
+        substitutions: &mut SymbolMap<nia_ids::InternedTyId>,
         receiver_ty: Option<nia_ids::InternedTyId>,
+        self_ty: Option<nia_ids::InternedTyId>,
     ) -> Vec<nia_ids::InternedTyId> {
         params
             .iter()
             .enumerate()
             .map(|(index, param)| {
                 let ty = if index == 0 {
-                    receiver_ty.unwrap_or_else(|| self.substitute_generics(param.ty, substitutions))
+                    receiver_ty.unwrap_or_else(|| match self_ty {
+                        Some(self_ty) => {
+                            self.substitute_generics_with_self(param.ty, substitutions, self_ty)
+                        }
+                        None => self.substitute_generics(param.ty, substitutions),
+                    })
                 } else {
-                    self.substitute_generics(param.ty, substitutions)
+                    match self_ty {
+                        Some(self_ty) => {
+                            self.substitute_generics_with_self(param.ty, substitutions, self_ty)
+                        }
+                        None => self.substitute_generics(param.ty, substitutions),
+                    }
                 };
                 let ty = self.normalize_projection(ty);
                 self.normalize_aliases_in_type(ty)
@@ -2619,7 +2642,7 @@ impl<'a> BodyChecker<'a> {
             return PlaceBase::Global(def_id);
         }
         match &expr.kind {
-            ExprKind::Ident(_) => match self.local_use(expr) {
+            ExprKind::Ident(_) | ExprKind::SelfValue => match self.local_use(expr) {
                 Some(LocalUse::Local(local)) => PlaceBase::Local(local),
                 Some(LocalUse::Static(global_id)) => PlaceBase::Global(global_id),
                 Some(LocalUse::ModuleValue) => match self.value_name(expr) {
@@ -2724,7 +2747,7 @@ impl<'a> BodyChecker<'a> {
             trait_id: TraitId::Builtin(trait_id),
             trait_args: Vec::new(),
             trait_const_args: Vec::new(),
-            name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
+            name: known::TARGET,
         });
         let target = self.normalize_projection(target);
         let pointer_ty = self.interner.intern(TyKind::Pointer {
@@ -2775,7 +2798,7 @@ impl<'a> BodyChecker<'a> {
             trait_id: TraitId::Builtin(BuiltinTrait::Index),
             trait_args: trait_args.clone(),
             trait_const_args: Vec::new(),
-            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+            name: known::OUTPUT,
         });
         let output = self.normalize_projection(output);
         let pointer_ty = self.interner.intern(TyKind::Pointer {
@@ -2832,7 +2855,7 @@ impl<'a> BodyChecker<'a> {
             trait_id: TraitId::Builtin(trait_id),
             trait_args: trait_args.clone(),
             trait_const_args: Vec::new(),
-            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+            name: known::OUTPUT,
         });
         let output = self.normalize_projection(output);
         let pointer_ty = self.interner.intern(TyKind::Pointer {

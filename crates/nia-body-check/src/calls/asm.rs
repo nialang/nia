@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
+use crate::symbols::AsmConfigField;
 use nia_ast::{ArrayElements, Expr, ExprKind, StringLiteral};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::InternedTyId;
@@ -37,8 +38,8 @@ impl<'a> BodyChecker<'a> {
 
         let mut has_code = false;
         for field in fields {
-            match field.name.as_str() {
-                "code" => {
+            match crate::symbols::asm_config_field(field.name) {
+                Some(AsmConfigField::Code) => {
                     has_code = true;
                     if !matches!(field.value.kind, ExprKind::ByteString(_)) {
                         self.diagnostics.push(Diagnostic::user_error_at(
@@ -48,15 +49,16 @@ impl<'a> BodyChecker<'a> {
                         ));
                     }
                 }
-                "inputs" => self.check_asm_inputs(&field.value),
-                "outputs" => self.check_asm_outputs(&field.value),
-                "clobbers" => self.check_asm_clobbers(&field.value),
-                "options" => self.check_asm_options(&field.value),
-                _ => {
+                Some(AsmConfigField::Inputs) => self.check_asm_inputs(&field.value),
+                Some(AsmConfigField::Outputs) => self.check_asm_outputs(&field.value),
+                Some(AsmConfigField::Clobbers) => self.check_asm_clobbers(&field.value),
+                Some(AsmConfigField::Options) => self.check_asm_options(&field.value),
+                None => {
+                    let name = self.symbol_name(field.name);
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         field.span,
-                        format!("unknown `asm` field `{}`", field.name),
+                        format!("unknown `asm` field `{name}`"),
                     ));
                     self.check_expr(&field.value);
                 }
@@ -165,6 +167,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(
                 TyKind::GenericParam(_)
+                | TyKind::SelfParam
                 | TyKind::Projection { .. }
                 | TyKind::ComptimeOnly
                 | TyKind::Error,
@@ -236,7 +239,10 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_asm_option_name(&mut self, span: Span, text: &StringLiteral) {
-        match decode_asm_string(text).as_deref() {
+        match nia_literals::eval_byte_string_literal_parts(text.parts.iter().map(String::as_str))
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .as_deref()
+        {
             Some("volatile") => {}
             Some(name) => self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -250,35 +256,4 @@ impl<'a> BodyChecker<'a> {
             )),
         }
     }
-}
-
-fn decode_asm_string(literal: &StringLiteral) -> Option<String> {
-    let mut out = String::new();
-    for part in &literal.parts {
-        out.push_str(&decode_asm_string_part(part)?);
-    }
-    Some(out)
-}
-
-fn decode_asm_string_part(text: &str) -> Option<String> {
-    let inner = text.strip_prefix("b\"")?.strip_suffix('"')?;
-    let mut out = String::new();
-    let mut chars = inner.chars();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            out.push(ch);
-            continue;
-        }
-        match chars.next()? {
-            'n' => out.push('\n'),
-            'r' => out.push('\r'),
-            't' => out.push('\t'),
-            '\\' => out.push('\\'),
-            '\'' => out.push('\''),
-            '"' => out.push('"'),
-            '0' => out.push('\0'),
-            _ => return None,
-        }
-    }
-    Some(out)
 }

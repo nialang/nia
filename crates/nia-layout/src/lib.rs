@@ -10,6 +10,7 @@ use nia_item_signatures::{
     UnionSignature,
 };
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap, symbol_identity_key};
 use nia_ty::{
     ArrayLenTy, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy, RangeTyKind,
     TyInterner, TyKind,
@@ -571,6 +572,7 @@ impl<'a> LayoutComputer<'a> {
             Some(
                 TyKind::Error
                 | TyKind::ComptimeOnly
+                | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
@@ -610,7 +612,7 @@ impl<'a> LayoutComputer<'a> {
             return false;
         }
         match self.interner.get(ty_id) {
-            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::GenericParam(_) | TyKind::SelfParam) => true,
             Some(TyKind::Array { len, elem }) => {
                 self.is_open_generic_array_len(len) || self.is_open_generic_type_inner(*elem, seen)
             }
@@ -772,7 +774,10 @@ impl<'a> LayoutComputer<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::STATIC_CHECK,
                     span,
-                    format!("array layout requires concrete value for const generic `{name}`"),
+                    format!(
+                        "array layout requires concrete value for const generic `{}`",
+                        symbol_identity_key(name)
+                    ),
                 ));
                 return None;
             }
@@ -954,7 +959,7 @@ impl<'a> LayoutComputer<'a> {
         if signature.generics.len() != args.len() {
             return None;
         }
-        let substitutions: HashMap<String, InternedTyId> = signature
+        let substitutions: SymbolMap<InternedTyId> = signature
             .generics
             .iter()
             .cloned()
@@ -988,7 +993,7 @@ impl<'a> LayoutComputer<'a> {
         if signature.generics.len() != args.len() + const_args.len() {
             return None;
         }
-        let substitutions: HashMap<String, InternedTyId> = signature
+        let substitutions: SymbolMap<InternedTyId> = signature
             .generics
             .iter()
             .cloned()
@@ -1037,7 +1042,7 @@ impl<'a> LayoutComputer<'a> {
             ));
             return None;
         }
-        let substitutions: HashMap<String, InternedTyId> = signature
+        let substitutions: SymbolMap<InternedTyId> = signature
             .generics
             .iter()
             .cloned()
@@ -1087,7 +1092,7 @@ impl<'a> LayoutComputer<'a> {
             ));
             return None;
         }
-        let substitutions: HashMap<String, InternedTyId> = signature
+        let substitutions: SymbolMap<InternedTyId> = signature
             .generics
             .iter()
             .cloned()
@@ -1143,7 +1148,7 @@ impl<'a> LayoutComputer<'a> {
             ));
             return None;
         }
-        let substitutions: HashMap<String, InternedTyId> = signature
+        let substitutions: SymbolMap<InternedTyId> = signature
             .generics
             .iter()
             .cloned()
@@ -1165,8 +1170,8 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         key: &StructLayoutKey,
         signature: &StructSignature,
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<StructLayout> {
         self.sorted_field_layout(key, signature, substitutions, const_substitutions)
     }
@@ -1175,8 +1180,8 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         key: &StructLayoutKey,
         signature: &StructSignature,
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<StructLayout> {
         self.field_order_layout(key, signature, substitutions, const_substitutions)
     }
@@ -1185,8 +1190,8 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         key: &StructLayoutKey,
         signature: &StructSignature,
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<StructLayout> {
         let fields =
             self.layout_fields(key, &signature.fields, substitutions, const_substitutions)?;
@@ -1197,8 +1202,8 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         key: &StructLayoutKey,
         signature: &StructSignature,
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<StructLayout> {
         let mut fields =
             self.layout_fields(key, &signature.fields, substitutions, const_substitutions)?;
@@ -1217,8 +1222,8 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         key: &StructLayoutKey,
         fields: &[nia_item_signatures::FieldSignature],
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<Vec<PendingFieldLayout>> {
         let mut layouts = Vec::new();
         for (source_index, field) in fields.iter().enumerate() {
@@ -1246,8 +1251,8 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         key: &StructLayoutKey,
         signature: &UnionSignature,
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<StructLayout> {
         let mut fields = Vec::new();
         let mut max_size = 0u64;
@@ -1386,8 +1391,8 @@ impl LayoutComputer<'_> {
 fn substitute_generics(
     interner: &mut TyInterner,
     ty: InternedTyId,
-    substitutions: &HashMap<String, InternedTyId>,
-    const_substitutions: &HashMap<String, ConstGenericArg>,
+    substitutions: &SymbolMap<InternedTyId>,
+    const_substitutions: &SymbolMap<ConstGenericArg>,
 ) -> InternedTyId {
     match interner.get(ty).cloned() {
         Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
@@ -1504,8 +1509,8 @@ fn substitute_generics(
 fn substitute_array_len_generics(
     interner: &mut TyInterner,
     len: ArrayLenTy,
-    substitutions: &HashMap<String, InternedTyId>,
-    const_substitutions: &HashMap<String, ConstGenericArg>,
+    substitutions: &SymbolMap<InternedTyId>,
+    const_substitutions: &SymbolMap<ConstGenericArg>,
 ) -> ArrayLenTy {
     match len {
         ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
@@ -1521,10 +1526,10 @@ fn substitute_array_len_generics(
 }
 
 fn const_substitutions(
-    generics: &[String],
+    generics: &[SymbolId],
     type_arg_count: usize,
     const_args: &[ConstGenericArg],
-) -> HashMap<String, ConstGenericArg> {
+) -> SymbolMap<ConstGenericArg> {
     generics
         .iter()
         .skip(type_arg_count)
@@ -1579,16 +1584,23 @@ mod tests {
     use nia_item_signatures::collect_item_signatures;
     use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
     use nia_local_resolve::resolve_module_locals;
-    use nia_parser::parse_module;
+    use nia_parser::parse_module_with_symbols;
     use nia_sema_ir::SemanticUseTable;
     use nia_source::SourcePath;
+    use nia_symbol::stable_hash;
+    use nia_symbol_table::SymbolTable;
     use nia_ty::{PrimitiveTy, TyKind};
     use nia_type_lower::lower_module_types_with_id;
-    use nia_type_resolve::resolve_module_types;
+    use nia_type_resolve::resolve_module_types_with_symbols;
     use nia_value_resolve::resolve_module_values;
+
+    fn sym(text: &str) -> SymbolId {
+        SymbolId::from_stable_hash(stable_hash(text))
+    }
 
     fn compute_test_comptime(
         module: &nia_ast::Module,
+        symbols: &SymbolTable,
         defs: &nia_defs::DefCollection,
         signatures: &ItemSignatures,
         lowered: &nia_type_lower::TypeLowering,
@@ -1611,6 +1623,7 @@ mod tests {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            symbols,
             const_exprs: &lowered.const_exprs,
             source_path: &source_path,
         });
@@ -1625,6 +1638,7 @@ mod tests {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            symbols,
             lowered,
             signatures,
             interner: &lowered.interner,
@@ -1685,9 +1699,16 @@ mod tests {
         builder.finish()
     }
 
+    fn parse_test_module(source: &str) -> (nia_ast::Module, SymbolTable) {
+        let symbols = SymbolTable::new();
+        let (module, errors) = parse_module_with_symbols(source, symbols.clone());
+        assert!(errors.is_empty(), "{errors:?}");
+        (module, symbols)
+    }
+
     #[test]
     fn computes_primitive_pointer_array_and_struct_layouts() {
-        let (module, errors) = parse_module(
+        let (module, symbols) = parse_test_module(
             r#"
 struct Pair {
     a: u8,
@@ -1697,12 +1718,11 @@ struct Pair {
 fn main(p: &Pair, xs: [3]u16) {}
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
+        let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let comptime = compute_test_comptime(&module, &defs, &signatures, &lowered);
+        let comptime = compute_test_comptime(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
             &lowered.interner,
@@ -1727,7 +1747,7 @@ fn main(p: &Pair, xs: [3]u16) {}
             matches!(ty, TyKind::Array { .. })
                 && layouts.types.get(&ty_id) == Some(&TypeLayout { size: 6, align: 2 })
         }));
-        let pair_id = defs.module_scope.types.get("Pair").expect("Pair def");
+        let pair_id = defs.module_scope.types.get(&sym("Pair")).expect("Pair def");
         let pair = layouts.structs.get(&pair_id).expect("Pair layout");
         assert_eq!(pair.layout, TypeLayout { size: 8, align: 4 });
         assert_eq!(pair.fields[0].offset, 0);
@@ -1736,7 +1756,7 @@ fn main(p: &Pair, xs: [3]u16) {}
 
     #[test]
     fn computes_layout_builtin_array_lengths() {
-        let (module, errors) = parse_module(
+        let (module, symbols) = parse_test_module(
             r#"
 struct Pair {
     a: u8,
@@ -1746,12 +1766,11 @@ struct Pair {
 fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8) {}
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
+        let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let comptime = compute_test_comptime(&module, &defs, &signatures, &lowered);
+        let comptime = compute_test_comptime(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
             &lowered.interner,
@@ -1783,7 +1802,7 @@ fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8)
 
     #[test]
     fn substitutes_const_generic_array_lengths_in_struct_layouts() {
-        let (module, errors) = parse_module(
+        let (module, symbols) = parse_test_module(
             r#"
 struct Buffer[T, N: usize] {
     data: [N]T,
@@ -1792,9 +1811,8 @@ struct Buffer[T, N: usize] {
 fn main(buf: Buffer[u8, 4]) {}
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
+        let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         assert!(
             resolved.diagnostics.is_empty(),
             "{:?}",
@@ -1803,7 +1821,7 @@ fn main(buf: Buffer[u8, 4]) {}
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let comptime = compute_test_comptime(&module, &defs, &signatures, &lowered);
+        let comptime = compute_test_comptime(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
             &lowered.interner,
@@ -1823,19 +1841,18 @@ fn main(buf: Buffer[u8, 4]) {}
 
     #[test]
     fn computes_empty_struct_layout() {
-        let (module, errors) = parse_module(
+        let (module, symbols) = parse_test_module(
             r#"
 struct Empty {}
 
 fn main(value: Empty) {}
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
+        let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let comptime = compute_test_comptime(&module, &defs, &signatures, &lowered);
+        let comptime = compute_test_comptime(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
             &lowered.interner,
@@ -1845,7 +1862,11 @@ fn main(value: Empty) {}
             TargetDataLayout::LP64,
         );
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
-        let empty_id = defs.module_scope.types.get("Empty").expect("Empty def");
+        let empty_id = defs
+            .module_scope
+            .types
+            .get(&sym("Empty"))
+            .expect("Empty def");
         let empty = layouts.structs.get(&empty_id).expect("Empty layout");
         assert_eq!(empty.layout, TypeLayout { size: 0, align: 1 });
         assert!(empty.fields.is_empty());
@@ -1853,7 +1874,7 @@ fn main(value: Empty) {}
 
     #[test]
     fn computes_nia_struct_layout_in_physical_field_order() {
-        let (module, errors) = parse_module(
+        let (module, symbols) = parse_test_module(
             r#"
 struct Mixed {
     a: u8,
@@ -1862,12 +1883,15 @@ struct Mixed {
 }
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
+        let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let mixed_id = defs.module_scope.types.get("Mixed").expect("Mixed def");
+        let mixed_id = defs
+            .module_scope
+            .types
+            .get(&sym("Mixed"))
+            .expect("Mixed def");
         let signature = signatures.structs.get(&mixed_id).expect("Mixed signature");
         let a_id = signature.fields[0].def_id;
         let b_id = signature.fields[1].def_id;
@@ -1893,16 +1917,15 @@ struct Mixed {
 
     #[test]
     fn ignores_inferred_array_placeholders_during_global_layout_scan() {
-        let (module, errors) = parse_module(
+        let (module, symbols) = parse_test_module(
             r#"
 fn main() {
     let mut xs: [_]u8 = [1, 2];
 }
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
+        let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         assert!(lowered.interner.iter().any(|(_, ty)| matches!(
@@ -1923,7 +1946,7 @@ fn main() {
 
     #[test]
     fn computes_extern_struct_c_field_layout() {
-        let (module, errors) = parse_module(
+        let (module, symbols) = parse_test_module(
             r#"
 extern struct CPair {
     tag: u8,
@@ -1931,12 +1954,15 @@ extern struct CPair {
 }
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
+        let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let cpair_id = defs.module_scope.types.get("CPair").expect("CPair def");
+        let cpair_id = defs
+            .module_scope
+            .types
+            .get(&sym("CPair"))
+            .expect("CPair def");
         assert!(
             signatures
                 .structs
@@ -1959,7 +1985,7 @@ extern struct CPair {
 
     #[test]
     fn computes_separate_generic_struct_instance_layouts() {
-        let (module, errors) = parse_module(
+        let (module, symbols) = parse_test_module(
             r#"
 struct ArrayBox[T] {
     values: [3]T,
@@ -1968,12 +1994,11 @@ struct ArrayBox[T] {
 fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
+        let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let comptime = compute_test_comptime(&module, &defs, &signatures, &lowered);
+        let comptime = compute_test_comptime(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
             &lowered.interner,
@@ -1986,7 +2011,7 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
         let array_box_id = defs
             .module_scope
             .types
-            .get("ArrayBox")
+            .get(&sym("ArrayBox"))
             .expect("ArrayBox def");
         let u8_layout = layouts
             .struct_instances
@@ -2010,7 +2035,7 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
 
     #[test]
     fn computes_union_layouts() {
-        let (module, errors) = parse_module(
+        let (module, symbols) = parse_test_module(
             r#"
 union Bits[T] {
     byte: u8,
@@ -2020,9 +2045,8 @@ union Bits[T] {
 fn main(a: Bits[i32]) {}
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
+        let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let layouts = compute_layouts(
@@ -2032,7 +2056,7 @@ fn main(a: Bits[i32]) {}
             TargetDataLayout::LP64,
         );
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
-        let bits_id = defs.module_scope.types.get("Bits").expect("Bits def");
+        let bits_id = defs.module_scope.types.get(&sym("Bits")).expect("Bits def");
         let bits_i32 = layouts
             .union_instances
             .get(&StructLayoutKey {

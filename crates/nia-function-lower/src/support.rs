@@ -144,7 +144,7 @@ impl FunctionLowerer {
         let value = self.lower_value_expr(expr, scope, current, ops, blocks);
         ops.push(FunctionOp::Binding(FunctionBinding {
             local_id,
-            name: format!("fir.tmp.{}", local_id.0),
+            name: LocalName::temporary(local_id.0),
             ty: expr.ty,
             value: Some(value),
             is_let: false,
@@ -171,7 +171,7 @@ impl FunctionLowerer {
             .map(|value| self.lower_value_expr(value, scope, current, ops, blocks));
         FunctionBinding {
             local_id: binding.local_id,
-            name: binding.name.clone(),
+            name: binding.name,
             ty: binding.ty,
             value,
             is_let: !binding.is_mutable,
@@ -183,7 +183,7 @@ impl FunctionLowerer {
         self.next_temp_local += 1;
         self.temp_locals.push(FunctionLocal {
             id,
-            name: format!("fir.tmp.{}", id.0),
+            name: LocalName::temporary(id.0),
             kind: FunctionLocalKind::Binding,
             ty,
             span,
@@ -641,7 +641,7 @@ impl FunctionLowerer {
     pub(super) fn lower_local(local: &TypedLocal) -> FunctionLocal {
         FunctionLocal {
             id: local.id,
-            name: local.name.clone(),
+            name: local.name,
             kind: Self::lower_local_kind(local.kind),
             ty: local.ty,
             span: local.span,

@@ -11,6 +11,7 @@ use nia_node_id::{NodeChildPath, SyntaxKind, VersionedNodeKey};
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_source::{SourceId, SourceRevision, SourceVersion};
 use nia_span::Span;
+use nia_symbol::{SymbolId, stable_hash};
 
 fn span() -> Span {
     Span::new(0, 1)
@@ -18,6 +19,10 @@ fn span() -> Span {
 
 fn other_span() -> Span {
     Span::new(2, 3)
+}
+
+fn sym(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(stable_hash(text))
 }
 
 fn int_expr(value: &str) -> EarlyComptimeExpr {
@@ -54,7 +59,7 @@ fn ast_ident(name: &str) -> nia_ast::Expr {
     nia_ast::Expr {
         span: span(),
         node_key: expr_key(0),
-        kind: nia_ast::ExprKind::Ident(name.to_string()),
+        kind: nia_ast::ExprKind::Ident(sym(name)),
     }
 }
 
@@ -62,7 +67,7 @@ fn ast_ident(name: &str) -> nia_ast::Expr {
 fn resolved_expr_rejects_unresolved_names() {
     let expr = EarlyComptimeExpr {
         span: span(),
-        kind: EarlyComptimeExprKind::Ident(EarlyComptimeName::unresolved("x".to_string())),
+        kind: EarlyComptimeExprKind::Ident(EarlyComptimeName::unresolved(sym("x"))),
     };
 
     let err = ResolvedComptimeExpr::new(expr).expect_err("unresolved name must be rejected");
@@ -76,7 +81,7 @@ fn resolved_expr_rejects_unresolved_assignment_targets() {
         kind: EarlyComptimeExprKind::Assign(Box::new(EarlyComptimeAssign {
             lhs: EarlyComptimeAssignTarget::Local {
                 span: span(),
-                name: "x".to_string(),
+                name: sym("x"),
                 local_id: None,
                 path: Vec::new(),
             },
@@ -96,7 +101,7 @@ fn resolved_function_rejects_unresolved_locals() {
         span: span(),
         params: vec![EarlyComptimeParam {
             span: span(),
-            name: "x".to_string(),
+            name: sym("x"),
             local_id: None,
             ty: None,
         }],
@@ -148,7 +153,7 @@ fn early_name_lowering_separates_unresolved_and_resolved_states() {
     let EarlyComptimeExprKind::Ident(name) = early.kind else {
         panic!("identifier should lower to early comptime name");
     };
-    assert_eq!(name.display(), "x");
+    assert_eq!(name.display(), sym("x"));
     assert_eq!(name.resolution(), None);
 
     let ident = ast_ident("x");
@@ -162,7 +167,7 @@ fn early_name_lowering_separates_unresolved_and_resolved_states() {
     let EarlyComptimeExprKind::Ident(name) = early.kind else {
         panic!("identifier should lower to early comptime name");
     };
-    assert_eq!(name.display(), "x");
+    assert_eq!(name.display(), sym("x"));
     assert_eq!(
         name.resolution(),
         Some(ComptimeNameResolution::Local(LocalId(0)))
@@ -181,7 +186,7 @@ fn resolved_lowering_requires_local_ids() {
                 pattern: nia_ast::Pattern {
                     span: span(),
                     kind: nia_ast::PatternKind::Bind {
-                        name: "x".to_string(),
+                        name: sym("x"),
                         node_key: stmt_key(2),
                         is_mutable: false,
                     },
@@ -220,7 +225,7 @@ fn resolved_lowering_uses_local_uses_for_assignment_targets() {
             lhs: Box::new(nia_ast::Expr {
                 span: assign_span,
                 node_key: lhs_key.clone(),
-                kind: nia_ast::ExprKind::Ident("x".to_string()),
+                kind: nia_ast::ExprKind::Ident(sym("x")),
             }),
             op: nia_ast::AssignOp::Assign,
             rhs: Box::new(nia_ast::Expr {
@@ -262,7 +267,7 @@ fn resolved_lowering_requires_type_ids() {
                 text: "i32".to_string(),
                 kind: nia_ast::TypeKind::Path {
                     segments: vec![nia_ast::TypePathSegment {
-                        name: "i32".to_string(),
+                        kind: nia_ast::PathSegmentKind::Name(sym("i32")),
                         args: Vec::new(),
                     }],
                 },

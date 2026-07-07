@@ -99,7 +99,7 @@ fn simplifies_constant_logical_exprs_without_dropping_effects() {
     }]);
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
-        name: "flag".to_string(),
+        name: local_name("flag"),
         kind: FunctionLocalKind::Param,
         ty,
         span,

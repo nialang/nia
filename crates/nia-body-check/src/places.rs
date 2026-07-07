@@ -7,6 +7,7 @@ use nia_ids::InternedTyId;
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_sema_ir::BracketSuffixResolution;
 use nia_span::Span;
+use nia_symbol::known;
 use nia_ty::{BuiltinTrait, PrimitiveTy, RangeTyKind, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
@@ -74,7 +75,7 @@ impl<'a> BodyChecker<'a> {
                     trait_id: TraitId::Builtin(BuiltinTrait::DerefMut),
                     trait_args: Vec::new(),
                     trait_const_args: Vec::new(),
-                    name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
+                    name: known::TARGET,
                 });
                 self.normalize_projection(target)
             }
@@ -93,7 +94,7 @@ impl<'a> BodyChecker<'a> {
                     trait_id: TraitId::Builtin(BuiltinTrait::IndexMut),
                     trait_args: vec![index_ty],
                     trait_const_args: Vec::new(),
-                    name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+                    name: known::OUTPUT,
                 });
                 self.normalize_projection(output)
             }
@@ -112,7 +113,7 @@ impl<'a> BodyChecker<'a> {
                     trait_id: TraitId::Builtin(BuiltinTrait::IndexMut),
                     trait_args: vec![index_ty],
                     trait_const_args: Vec::new(),
-                    name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+                    name: known::OUTPUT,
                 });
                 self.normalize_projection(output)
             }
@@ -181,7 +182,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         match &expr.kind {
-            ExprKind::Ident(_) => match self.local_use(expr) {
+            ExprKind::Ident(_) | ExprKind::SelfValue => match self.local_use(expr) {
                 Some(LocalUse::Local(_))
                 | Some(LocalUse::Static(_))
                 | Some(LocalUse::ModuleValue) => None,
@@ -225,7 +226,7 @@ impl<'a> BodyChecker<'a> {
             return Some("cross-module value is not assignable");
         }
         match &expr.kind {
-            ExprKind::Ident(_) => self.ident_not_assignable_reason(expr),
+            ExprKind::Ident(_) | ExprKind::SelfValue => self.ident_not_assignable_reason(expr),
             ExprKind::Field { lhs, .. } => self.not_assignable_reason(lhs),
             ExprKind::Index { lhs, index } => match index {
                 IndexArg::Range(_) => Some("range index must be taken as a slice pointer"),
@@ -418,7 +419,7 @@ impl<'a> BodyChecker<'a> {
                     trait_id: TraitId::Builtin(BuiltinTrait::Slice),
                     trait_args: vec![range_ty],
                     trait_const_args: Vec::new(),
-                    name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+                    name: known::OUTPUT,
                 });
                 return self.normalize_projection(output);
             }
@@ -445,7 +446,7 @@ impl<'a> BodyChecker<'a> {
                 trait_id: TraitId::Builtin(BuiltinTrait::SliceMut),
                 trait_args: vec![range_ty],
                 trait_const_args: Vec::new(),
-                name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+                name: known::OUTPUT,
             });
             return self.normalize_projection(output);
         }
@@ -494,7 +495,7 @@ impl<'a> BodyChecker<'a> {
             trait_id: TraitId::Builtin(BuiltinTrait::Index),
             trait_args,
             trait_const_args: Vec::new(),
-            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+            name: known::OUTPUT,
         });
         self.normalize_projection(output)
     }
@@ -530,7 +531,7 @@ impl<'a> BodyChecker<'a> {
             trait_id: TraitId::Builtin(BuiltinTrait::IndexMut),
             trait_args,
             trait_const_args: Vec::new(),
-            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+            name: known::OUTPUT,
         });
         self.normalize_projection(output)
     }
@@ -649,7 +650,7 @@ impl<'a> BodyChecker<'a> {
                     trait_id: TraitId::Builtin(BuiltinTrait::Deref),
                     trait_args: Vec::new(),
                     trait_const_args: Vec::new(),
-                    name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
+                    name: known::TARGET,
                 });
                 self.normalize_projection(target)
             }
@@ -696,7 +697,7 @@ impl<'a> BodyChecker<'a> {
                     trait_id: TraitId::Builtin(BuiltinTrait::DerefMut),
                     trait_args: Vec::new(),
                     trait_const_args: Vec::new(),
-                    name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
+                    name: known::TARGET,
                 });
                 self.normalize_projection(target)
             }
@@ -709,7 +710,7 @@ impl<'a> BodyChecker<'a> {
             return true;
         }
         match &expr.kind {
-            ExprKind::Ident(_) => matches!(
+            ExprKind::Ident(_) | ExprKind::SelfValue => matches!(
                 self.local_use(expr),
                 Some(LocalUse::Local(_) | LocalUse::ModuleValue)
             ),

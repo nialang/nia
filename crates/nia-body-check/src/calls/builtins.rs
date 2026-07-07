@@ -5,6 +5,8 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{BuiltinFunction, GlobalDefId, InternedTyId, LayoutBuiltin, TraitId};
 use nia_sema_ir::BuiltinValue;
 use nia_span::Span;
+use nia_symbol::SymbolId;
+use nia_symbol_table::SymbolCollision;
 use nia_ty::{PrimitiveTy, TyKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -400,7 +402,7 @@ impl<'a> BodyChecker<'a> {
         self.primitive(PrimitiveTy::Usize)
     }
 
-    fn offset_field_name(&mut self, arg: &Expr) -> Option<String> {
+    fn offset_field_name(&mut self, arg: &Expr) -> Option<SymbolId> {
         let ExprKind::String(literal) = &arg.kind else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -429,14 +431,31 @@ impl<'a> BodyChecker<'a> {
             };
             name.push(ch);
         }
-        Some(name)
+        match self.symbols.intern(&name) {
+            Ok(symbol) => Some(symbol),
+            Err(SymbolCollision {
+                symbol,
+                existing,
+                incoming,
+            }) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    arg.span,
+                    format!(
+                        "symbol collision for {}: `{existing}` and `{incoming}`",
+                        nia_symbol::symbol_identity_key(symbol)
+                    ),
+                ));
+                None
+            }
+        }
     }
 
     fn offset_field_def(
         &mut self,
         span: Span,
         ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<(GlobalDefId, GlobalDefId)> {
         let ty = self.normalization.normalize(ty);
         let Some(TyKind::Nominal { def_id, .. }) = self
@@ -452,6 +471,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let Some(field) = self.field_def_for_nominal(*def_id, name) else {
+            let name = self.symbol_name(*name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,

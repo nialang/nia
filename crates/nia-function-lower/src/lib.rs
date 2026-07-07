@@ -22,7 +22,7 @@ use nia_function_ir::{
     FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionOp, FunctionOptionalTag,
     FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionRange, FunctionScope,
     FunctionScopeId, FunctionSliceRange, FunctionSwitchArm, FunctionTerminator, FunctionTryKind,
-    validate_function_body,
+    GeneratedLocalName, LocalName, validate_function_body,
 };
 
 mod expr;

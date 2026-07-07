@@ -104,7 +104,7 @@ fn value(input: ?S) ?i32 {
             .items
             .iter()
             .find_map(|item| match &item.kind {
-                ItemKind::Function(function) if function.name == "imported_range" => {
+                ItemKind::Function(function) if function.name == sym("imported_range") => {
                     defs.def_nodes.get(&function.node_key)
                 }
                 _ => None,
@@ -132,7 +132,7 @@ fn if_pattern_payload_field_lhs_key(module: &nia_ast::Module) -> VersionedNodeKe
         .items
         .iter()
         .find_map(|item| match &item.kind {
-            ItemKind::Function(function) if function.name == "value" => {
+            ItemKind::Function(function) if function.name == sym("value") => {
                 let body = function.body.as_ref()?;
                 let tail = body.tail.as_ref()?;
                 let ExprKind::IfPattern(if_pattern) = &tail.kind else {

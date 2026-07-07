@@ -247,6 +247,7 @@ impl FunctionLowerer {
             } => FunctionExprKind::FunctionInstance {
                 def_id: *def_id,
                 arg_module_id: *arg_module_id,
+                self_arg: None,
                 args: args.clone(),
                 const_args: const_args.clone(),
             },
@@ -1121,6 +1122,7 @@ impl FunctionLowerer {
             } => FunctionCallee::FunctionInstance {
                 def_id: *def_id,
                 arg_module_id: *arg_module_id,
+                self_arg: None,
                 args: args.clone(),
                 const_args: const_args.clone(),
             },
@@ -1132,6 +1134,7 @@ impl FunctionLowerer {
             } => FunctionCallee::Method {
                 def_id: *def_id,
                 arg_module_id: self.module_id,
+                self_arg: None,
                 args: args.clone(),
                 receiver_kind: *receiver_kind,
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
@@ -1148,7 +1151,7 @@ impl FunctionLowerer {
             } => FunctionCallee::TraitMethod {
                 trait_id: *trait_id,
                 method_id: *method_id,
-                method_name: method_name.clone(),
+                method_name: *method_name,
                 self_ty: *self_ty,
                 trait_args: trait_args.clone(),
                 args: args.clone(),
@@ -1165,7 +1168,7 @@ impl FunctionLowerer {
             } => FunctionCallee::TraitAssociatedFunction {
                 trait_id: *trait_id,
                 method_id: *method_id,
-                method_name: method_name.clone(),
+                method_name: *method_name,
                 self_ty: *self_ty,
                 trait_args: trait_args.clone(),
                 args: args.clone(),
@@ -1185,7 +1188,7 @@ impl FunctionLowerer {
                 object_ty: *object_ty,
                 trait_id: *trait_id,
                 method_id: *method_id,
-                method_name: method_name.clone(),
+                method_name: *method_name,
                 trait_args: trait_args.clone(),
                 slot: *slot,
                 params: params.clone(),

@@ -658,6 +658,10 @@ mod tests {
         interner.primitive(nia_ty::PrimitiveTy::Void)
     }
 
+    fn sym(text: &str) -> nia_symbol::SymbolId {
+        nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash(text))
+    }
+
     #[test]
     fn rejects_scope_parent_cycles() {
         let body = empty_body(vec![
@@ -765,7 +769,7 @@ mod tests {
                 span,
                 locals: vec![FunctionLocal {
                     id: LocalId(0),
-                    name: "value".to_string(),
+                    name: crate::LocalName::named(sym("value")),
                     kind: crate::FunctionLocalKind::Binding,
                     ty,
                     span,

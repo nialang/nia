@@ -9,6 +9,7 @@ use nia_item_signatures::{
 };
 use nia_sema_ir::{AssociatedComptimeProjection, SemanticUseTable};
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap};
 use nia_trait_solve::{AssociatedTypeProjectionEq, TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue};
 use nia_ty::{TraitId, TyKind};
@@ -24,7 +25,7 @@ pub(crate) struct TraitObligation {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct TraitObligationAssociatedTypeBinding {
-    name: String,
+    name: SymbolId,
     ty: InternedTyId,
 }
 
@@ -63,6 +64,8 @@ impl AssociatedComptimeProjectionUseCollector<'_> {
             | nia_ast::ExprKind::Bool(_)
             | nia_ast::ExprKind::Null
             | nia_ast::ExprKind::Ident(_)
+            | nia_ast::ExprKind::SelfValue
+            | nia_ast::ExprKind::PathRoot(_)
             | nia_ast::ExprKind::Underscore
             | nia_ast::ExprKind::TypeTarget { .. } => {}
             nia_ast::ExprKind::BracketSuffix { callee, args } => {
@@ -527,8 +530,8 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn substitute_where_predicate_with_consts(
         &mut self,
         predicate: &WherePredicateSignature,
-        substitutions: &std::collections::HashMap<String, InternedTyId>,
-        const_substitutions: &std::collections::HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> WherePredicateSignature {
         WherePredicateSignature {
             ty: self.substitute_generics_and_consts(
@@ -570,8 +573,8 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn check_where_predicates_hold(
         &mut self,
         predicates: &[WherePredicateSignature],
-        substitutions: &std::collections::HashMap<String, InternedTyId>,
-        const_substitutions: &std::collections::HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
         span: Span,
     ) {
         let predicates = predicates
@@ -615,8 +618,8 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn infer_where_predicate_candidates(
         &mut self,
         predicate: &WherePredicateSignature,
-        substitutions: &HashMap<String, InternedTyId>,
-    ) -> Vec<HashMap<String, InternedTyId>> {
+        substitutions: &SymbolMap<InternedTyId>,
+    ) -> Vec<SymbolMap<InternedTyId>> {
         let self_ty = self.substitute_ty(predicate.ty, substitutions);
         let bounds = predicate.bounds.clone();
         let mut candidates = Vec::new();
@@ -644,14 +647,14 @@ impl<'a> BodyChecker<'a> {
         trait_id: TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
-        substitutions: &HashMap<String, InternedTyId>,
-        candidates: &mut Vec<HashMap<String, InternedTyId>>,
+        substitutions: &SymbolMap<InternedTyId>,
+        candidates: &mut Vec<SymbolMap<InternedTyId>>,
     ) {
         for impl_index in self.trait_impl_indexes_for_trait(trait_id) {
             let impl_signature = self.program_trait_impls[impl_index].clone();
             let impl_target_ty =
                 self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
-            let mut impl_substitutions = HashMap::new();
+            let mut impl_substitutions = SymbolMap::new();
             if !self.match_type_pattern(impl_target_ty, self_ty, &mut impl_substitutions) {
                 continue;
             }
@@ -693,7 +696,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         required: InternedTyId,
         actual: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) -> bool {
         let required = self.normalization.normalize(required);
         let actual = self.normalization.normalize(actual);
@@ -777,8 +780,8 @@ impl<'a> BodyChecker<'a> {
 
     fn push_unique_where_candidate(
         &mut self,
-        candidates: &mut Vec<HashMap<String, InternedTyId>>,
-        candidate: HashMap<String, InternedTyId>,
+        candidates: &mut Vec<SymbolMap<InternedTyId>>,
+        candidate: SymbolMap<InternedTyId>,
     ) {
         if candidates.iter().any(|existing| {
             existing.len() == candidate.len()
@@ -796,7 +799,7 @@ impl<'a> BodyChecker<'a> {
     fn substitute_ty(
         &mut self,
         ty: InternedTyId,
-        substitutions: &std::collections::HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> InternedTyId {
         match self.interner.get(ty).cloned() {
             Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
@@ -993,7 +996,11 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             Some(
-                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::Vector { .. }
+                | TyKind::SelfParam,
             )
             | None => ty,
         }
@@ -1027,9 +1034,7 @@ impl<'a> BodyChecker<'a> {
                     .map(TraitId::Builtin)
                     .unwrap_or(TraitId::Source(trait_id));
                 Some(TraitObligation {
-                    self_ty: self
-                        .interner
-                        .intern(TyKind::GenericParam("Self".to_string())),
+                    self_ty: self.interner.intern(TyKind::SelfParam),
                     trait_id,
                     trait_args,
                     trait_const_args,
@@ -1048,9 +1053,7 @@ impl<'a> BodyChecker<'a> {
                     .and_then(|ty| self.interner.get(self.normalization.normalize(ty)).cloned())
                 {
                     return Some(TraitObligation {
-                        self_ty: self
-                            .interner
-                            .intern(TyKind::GenericParam("Self".to_string())),
+                        self_ty: self.interner.intern(TyKind::SelfParam),
                         trait_id,
                         trait_args,
                         trait_const_args,
@@ -1484,16 +1487,16 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn where_predicates_can_hold(
         &mut self,
         predicates: &[WherePredicateSignature],
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> bool {
-        self.where_predicates_can_hold_with_consts(predicates, substitutions, &HashMap::new())
+        self.where_predicates_can_hold_with_consts(predicates, substitutions, &SymbolMap::new())
     }
 
     pub(crate) fn where_predicates_can_hold_with_consts(
         &mut self,
         predicates: &[WherePredicateSignature],
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> bool {
         self.profile_stage("body_check.profile.where_predicates.can_hold", |this| {
             predicates.iter().all(|predicate| {
@@ -1673,7 +1676,8 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. }
-                | TyKind::GenericParam(_),
+                | TyKind::GenericParam(_)
+                | TyKind::SelfParam,
             )
             | None => {}
         }

@@ -11,7 +11,7 @@ fn propagates_local_copies_within_one_block() {
         ops: vec![
             FunctionOp::Binding(nia_function_ir::FunctionBinding {
                 local_id: LocalId(0),
-                name: "source".to_string(),
+                name: local_name("source"),
                 ty,
                 value: Some(FunctionExpr {
                     span,
@@ -22,7 +22,7 @@ fn propagates_local_copies_within_one_block() {
             }),
             FunctionOp::Binding(nia_function_ir::FunctionBinding {
                 local_id: LocalId(1),
-                name: "copy".to_string(),
+                name: local_name("copy"),
                 ty,
                 value: Some(FunctionExpr {
                     span,
@@ -44,14 +44,14 @@ fn propagates_local_copies_within_one_block() {
     body.locals = vec![
         nia_function_ir::FunctionLocal {
             id: LocalId(0),
-            name: "source".to_string(),
+            name: local_name("source"),
             kind: FunctionLocalKind::Binding,
             ty,
             span,
         },
         nia_function_ir::FunctionLocal {
             id: LocalId(1),
-            name: "copy".to_string(),
+            name: local_name("copy"),
             kind: FunctionLocalKind::Binding,
             ty,
             span,
@@ -92,7 +92,7 @@ fn propagates_local_copies_inside_defer_bodies() {
                 ops: vec![
                     FunctionOp::Binding(nia_function_ir::FunctionBinding {
                         local_id: LocalId(0),
-                        name: "source".to_string(),
+                        name: local_name("source"),
                         ty,
                         value: Some(FunctionExpr {
                             span,
@@ -103,7 +103,7 @@ fn propagates_local_copies_inside_defer_bodies() {
                     }),
                     FunctionOp::Binding(nia_function_ir::FunctionBinding {
                         local_id: LocalId(1),
-                        name: "copy".to_string(),
+                        name: local_name("copy"),
                         ty,
                         value: Some(FunctionExpr {
                             span,
@@ -129,14 +129,14 @@ fn propagates_local_copies_inside_defer_bodies() {
     body.locals = vec![
         nia_function_ir::FunctionLocal {
             id: LocalId(0),
-            name: "source".to_string(),
+            name: local_name("source"),
             kind: FunctionLocalKind::Binding,
             ty,
             span,
         },
         nia_function_ir::FunctionLocal {
             id: LocalId(1),
-            name: "copy".to_string(),
+            name: local_name("copy"),
             kind: FunctionLocalKind::Binding,
             ty,
             span,
@@ -168,7 +168,7 @@ fn propagates_local_constants_within_one_block() {
         span,
         ops: vec![FunctionOp::Binding(nia_function_ir::FunctionBinding {
             local_id: LocalId(0),
-            name: "value".to_string(),
+            name: local_name("value"),
             ty,
             value: Some(FunctionExpr {
                 span,
@@ -188,7 +188,7 @@ fn propagates_local_constants_within_one_block() {
     }]);
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
-        name: "value".to_string(),
+        name: local_name("value"),
         kind: FunctionLocalKind::Binding,
         ty,
         span,
@@ -230,7 +230,7 @@ fn propagates_local_constants_inside_defer_bodies() {
                 span,
                 ops: vec![FunctionOp::Binding(nia_function_ir::FunctionBinding {
                     local_id: LocalId(0),
-                    name: "value".to_string(),
+                    name: local_name("value"),
                     ty,
                     value: Some(FunctionExpr {
                         span,
@@ -254,7 +254,7 @@ fn propagates_local_constants_inside_defer_bodies() {
     }]);
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
-        name: "value".to_string(),
+        name: local_name("value"),
         kind: FunctionLocalKind::Binding,
         ty,
         span,
@@ -289,7 +289,7 @@ fn does_not_propagate_constants_for_locals_used_as_places() {
         ops: vec![
             FunctionOp::Binding(nia_function_ir::FunctionBinding {
                 local_id: LocalId(0),
-                name: "value".to_string(),
+                name: local_name("value"),
                 ty,
                 value: Some(FunctionExpr {
                     span,
@@ -319,7 +319,7 @@ fn does_not_propagate_constants_for_locals_used_as_places() {
     }]);
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
-        name: "value".to_string(),
+        name: local_name("value"),
         kind: FunctionLocalKind::Binding,
         ty,
         span,
@@ -348,7 +348,7 @@ fn does_not_propagate_locals_used_as_places() {
         ops: vec![
             FunctionOp::Binding(nia_function_ir::FunctionBinding {
                 local_id: LocalId(0),
-                name: "source".to_string(),
+                name: local_name("source"),
                 ty,
                 value: Some(FunctionExpr {
                     span,
@@ -359,7 +359,7 @@ fn does_not_propagate_locals_used_as_places() {
             }),
             FunctionOp::Binding(nia_function_ir::FunctionBinding {
                 local_id: LocalId(1),
-                name: "copy".to_string(),
+                name: local_name("copy"),
                 ty,
                 value: Some(FunctionExpr {
                     span,
@@ -390,14 +390,14 @@ fn does_not_propagate_locals_used_as_places() {
     body.locals = vec![
         nia_function_ir::FunctionLocal {
             id: LocalId(0),
-            name: "source".to_string(),
+            name: local_name("source"),
             kind: FunctionLocalKind::Binding,
             ty,
             span,
         },
         nia_function_ir::FunctionLocal {
             id: LocalId(1),
-            name: "copy".to_string(),
+            name: local_name("copy"),
             kind: FunctionLocalKind::Binding,
             ty,
             span,

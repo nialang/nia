@@ -11,6 +11,8 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_local_resolve::{LocalResolution, LocalUse};
 use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
+use nia_symbol::{SymbolId, symbol_text_or_unresolved};
+use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
@@ -25,6 +27,7 @@ pub struct StaticCheckInput<'a> {
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub semantic_uses: &'a SemanticUseTable,
+    pub symbols: &'a SymbolTable,
     pub signatures: &'a ItemSignatures,
     pub comptime: &'a ComptimeValues,
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
@@ -44,6 +47,7 @@ pub fn check_module_static_initializers(input: StaticCheckInput<'_>) -> StaticCh
         values: input.values,
         locals: input.locals,
         semantic_uses: input.semantic_uses,
+        symbols: input.symbols,
         signatures: StaticCheckSignatures {
             globals: &input.signatures.globals,
         },
@@ -60,6 +64,7 @@ pub struct StaticCheckPreciseInput<'a> {
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub semantic_uses: &'a SemanticUseTable,
+    pub symbols: &'a SymbolTable,
     pub signatures: StaticCheckSignatures<'a>,
     pub comptime: &'a ComptimeValues,
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
@@ -75,6 +80,7 @@ pub fn check_module_static_initializers_with_signatures(
         values: input.values,
         locals: input.locals,
         semantic_uses: input.semantic_uses,
+        symbols: input.symbols,
         signatures: input.signatures,
         comptime: input.comptime,
         program_defs: input.program_defs,
@@ -93,6 +99,7 @@ struct StaticChecker<'a> {
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
     semantic_uses: &'a SemanticUseTable,
+    symbols: &'a SymbolTable,
     signatures: StaticCheckSignatures<'a>,
     comptime: &'a ComptimeValues,
     program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
@@ -234,6 +241,8 @@ impl StaticChecker<'_> {
             ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. } => {
                 Some("type target is not static data")
             }
+            ExprKind::SelfValue => Some("self value is not available in global storage"),
+            ExprKind::PathRoot(_) => Some("path root is not static data"),
             ExprKind::Ident(_) => match self.local_use(expr) {
                 Some(LocalUse::ModuleValue) => match self.value_name(expr) {
                     Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(def_id) => None,
@@ -418,12 +427,14 @@ impl StaticChecker<'_> {
         ) -> Result<T, nia_comptime_engine::ComptimeError>,
     ) -> Result<T, nia_comptime_engine::ComptimeError> {
         let semantic_uses = self.comptime_semantic_uses();
-        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses);
+        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses)
+            .with_symbols(self.symbols);
         let mut env = StaticComptimeEnv {
             defs: self.defs,
             comptime: self.comptime,
             program_defs: self.program_defs,
             program_comptime: self.program_comptime,
+            symbols: self.symbols,
             target: self.target,
         };
         let expr =
@@ -538,6 +549,7 @@ struct StaticComptimeEnv<'a> {
     comptime: &'a ComptimeValues,
     program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
     program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
+    symbols: &'a SymbolTable,
     target: &'a TargetConfig,
 }
 
@@ -578,7 +590,8 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
                 return Err(ComptimeError {
                     span,
                     message: format!(
-                        "static constant expression cannot use unresolved comptime generic parameter `{name}`"
+                        "static constant expression cannot use unresolved comptime generic parameter `{}`",
+                        self.symbol_name(name)
                     ),
                 });
             }
@@ -587,7 +600,7 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
                     span,
                     message: format!(
                         "static constant expression cannot use unresolved associated comptime value `{}`",
-                        projection.name
+                        self.symbol_name(projection.name)
                     ),
                 });
             }
@@ -614,7 +627,7 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
         &mut self,
         span: Span,
         _type_arg: &ResolvedComptimeTypeArg,
-        _field: &str,
+        _field: &SymbolId,
     ) -> Result<ComptimeValue, ComptimeError> {
         Err(ComptimeError {
             span,
@@ -625,6 +638,10 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
 }
 
 impl StaticComptimeEnv<'_> {
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_or_unresolved(self.symbols, symbol)
+    }
+
     fn value_for_key(&self, key: ComptimeKey) -> Option<ComptimeValue> {
         match key {
             ComptimeKey::Local(_) => self.comptime.values.get(&key).cloned(),
@@ -652,20 +669,22 @@ mod tests {
     use nia_item_signatures::collect_item_signatures;
     use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
     use nia_local_resolve::resolve_module_locals;
-    use nia_parser::parse_module;
+    use nia_parser::parse_module_with_symbols;
     use nia_sema_ir::SemanticUseTable;
     use nia_source::SourcePath;
+    use nia_symbol_table::SymbolTable;
     use nia_type_lower::lower_module_types_with_id;
     use nia_type_normalize::normalize_module_types;
-    use nia_type_resolve::resolve_module_types;
+    use nia_type_resolve::resolve_module_types_with_symbols;
     use nia_value_resolve::resolve_module_values;
 
     fn check(source: &str) -> StaticCheck {
-        let (module, errors) = parse_module(source);
+        let symbols = SymbolTable::new();
+        let (module, errors) = parse_module_with_symbols(source, symbols.clone());
         assert!(errors.is_empty(), "{errors:?}");
         let module_id = ModuleId(0);
         let defs = collect_module_defs(module_id, &module);
-        let type_resolution = resolve_module_types(&module, &defs);
+        let type_resolution = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let type_lowering = lower_module_types_with_id(module_id, &module, &type_resolution);
         let signatures = collect_item_signatures(&module, &defs, &type_lowering);
         let values = resolve_module_values(&module, &defs);
@@ -693,6 +712,7 @@ mod tests {
                 values: &values,
                 locals: &locals,
                 semantic_uses: &semantic_uses,
+                symbols: &symbols,
                 const_exprs: &type_lowering.const_exprs,
                 source_path: &source_path,
             });
@@ -707,6 +727,7 @@ mod tests {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            symbols: &symbols,
             lowered: &type_lowering,
             signatures: &signatures,
             interner: &normalization.interner,
@@ -739,6 +760,7 @@ mod tests {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            symbols: &symbols,
             signatures: &signatures,
             comptime: &comptime,
             program_defs: &no_program_defs,

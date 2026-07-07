@@ -389,7 +389,7 @@ impl Analyzer<'_> {
         &mut self,
         source_module_id: ModuleId,
         ty: InternedTyId,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<InternedTyId> {
         self.ensure_working_interner(source_module_id)?;
         let substituted = {

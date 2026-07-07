@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use nia_comptime_engine::ComptimeValue;
 use nia_diagnostic::{Diagnostic, codes};
 use nia_span::Span;
+use nia_symbol::SymbolId;
 use nia_ty::{IntConst, PrimitiveTy};
 
 pub(crate) fn validate_assignment_shape(
@@ -10,6 +11,7 @@ pub(crate) fn validate_assignment_shape(
     span: Span,
     value: &ComptimeValue,
     previous: &ComptimeValue,
+    symbol_name: &impl Fn(SymbolId) -> String,
 ) {
     match (value, previous) {
         (ComptimeValue::Array(values), ComptimeValue::Array(previous_values)) => {
@@ -25,18 +27,16 @@ pub(crate) fn validate_assignment_shape(
                 ));
             }
             for (value, previous) in values.iter().zip(previous_values) {
-                validate_assignment_shape(diagnostics, span, value, previous);
+                validate_assignment_shape(diagnostics, span, value, previous, symbol_name);
             }
         }
         (ComptimeValue::Struct(values), ComptimeValue::Struct(previous_values)) => {
-            let previous_names = previous_values
-                .keys()
-                .map(String::as_str)
-                .collect::<HashSet<_>>();
+            let previous_names = previous_values.keys().cloned().collect::<HashSet<_>>();
             for (name, previous) in previous_values {
                 if let Some(value) = values.get(name) {
-                    validate_assignment_shape(diagnostics, span, value, previous);
+                    validate_assignment_shape(diagnostics, span, value, previous, symbol_name);
                 } else {
+                    let name = symbol_name(*name);
                     diagnostics.push(Diagnostic::user_error_at(
                         codes::COMPTIME,
                         span,
@@ -45,7 +45,8 @@ pub(crate) fn validate_assignment_shape(
                 }
             }
             for name in values.keys() {
-                if !previous_names.contains(name.as_str()) {
+                if !previous_names.contains(name) {
+                    let name = symbol_name(*name);
                     diagnostics.push(Diagnostic::user_error_at(
                         codes::COMPTIME,
                         span,
@@ -55,11 +56,11 @@ pub(crate) fn validate_assignment_shape(
             }
         }
         (ComptimeValue::Optional(Some(value)), ComptimeValue::Optional(Some(previous))) => {
-            validate_assignment_shape(diagnostics, span, value, previous);
+            validate_assignment_shape(diagnostics, span, value, previous, symbol_name);
         }
         (ComptimeValue::ErrorUnion(Ok(value)), ComptimeValue::ErrorUnion(Ok(previous)))
         | (ComptimeValue::ErrorUnion(Err(value)), ComptimeValue::ErrorUnion(Err(previous))) => {
-            validate_assignment_shape(diagnostics, span, value, previous);
+            validate_assignment_shape(diagnostics, span, value, previous, symbol_name);
         }
         _ => {}
     }

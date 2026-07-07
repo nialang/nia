@@ -7,6 +7,7 @@ use nia_ids::{
 };
 use nia_item_signatures::{EnumSignature, ProgramTraitImplSignature};
 use nia_layout::Layouts;
+use nia_symbol::{SymbolId, SymbolMap, known};
 use nia_ty::{
     ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy, RangeTyKind, TyInterner, TyKind,
     TypeEquivalence, import_type_into,
@@ -24,14 +25,14 @@ pub struct TraitGoal {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AssociatedTypeProjectionEq {
     pub goal: TraitGoal,
-    pub name: String,
+    pub name: SymbolId,
     pub ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct AssociatedTypeProjectionKey {
     goal: TraitGoal,
-    name: String,
+    name: SymbolId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,8 +60,8 @@ pub struct IntrinsicImpl {
 pub struct UserImpl {
     pub goal: TraitGoal,
     pub impl_index: usize,
-    pub substitutions: HashMap<String, InternedTyId>,
-    pub const_substitutions: HashMap<String, ConstGenericArg>,
+    pub substitutions: SymbolMap<InternedTyId>,
+    pub const_substitutions: SymbolMap<ConstGenericArg>,
 }
 
 #[derive(Debug, Clone)]
@@ -72,8 +73,8 @@ pub enum AssociatedComptimeResolution {
 #[derive(Debug, Clone)]
 pub struct UserAssociatedComptime {
     pub def_id: GlobalDefId,
-    pub substitutions: HashMap<String, InternedTyId>,
-    pub const_substitutions: HashMap<String, ConstGenericArg>,
+    pub substitutions: SymbolMap<InternedTyId>,
+    pub const_substitutions: SymbolMap<ConstGenericArg>,
     pub impl_module_id: ModuleId,
     pub resolution_interner: TyInterner,
 }
@@ -104,6 +105,26 @@ pub struct TraitSolverContext<'a> {
     pub const_expr_value:
         Option<&'a dyn Fn(GlobalConstExprId, InternedTyId) -> Option<ConstGenericValue>>,
     pub impl_is_visible: Option<&'a dyn Fn(ModuleId, TraitImplId) -> bool>,
+}
+
+fn builtin_associated_type_from_symbol(name: SymbolId) -> Option<BuiltinAssociatedType> {
+    match name {
+        known::OUTPUT => Some(BuiltinAssociatedType::Output),
+        known::TARGET => Some(BuiltinAssociatedType::Target),
+        known::ITEM => Some(BuiltinAssociatedType::Item),
+        known::ITER => Some(BuiltinAssociatedType::Iter),
+        known::LANE => Some(BuiltinAssociatedType::Lane),
+        _ => None,
+    }
+}
+
+fn builtin_associated_comptime_from_symbol(
+    name: SymbolId,
+) -> Option<nia_ids::BuiltinAssociatedComptime> {
+    match name {
+        known::LANES => Some(nia_ids::BuiltinAssociatedComptime::Lanes),
+        _ => None,
+    }
 }
 
 fn trait_impl_visible_by_default(_: ModuleId, _: TraitImplId) -> bool {
@@ -642,7 +663,7 @@ where
         trait_id: TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         self.resolve_associated_type_inner(
             self_ty,
@@ -660,7 +681,7 @@ where
         trait_id: TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
-        name: &str,
+        name: &SymbolId,
     ) -> Option<AssociatedComptimeResolution> {
         let goal = self.normalize_goal(TraitGoal {
             self_ty,
@@ -679,7 +700,7 @@ where
                 let associated_value = impl_signature
                     .associated_values
                     .iter()
-                    .find(|associated_value| associated_value.name == name)?;
+                    .find(|associated_value| &associated_value.name == name)?;
                 Some(AssociatedComptimeResolution::User(UserAssociatedComptime {
                     def_id: GlobalDefId {
                         module_id: impl_signature.module_id,
@@ -711,7 +732,7 @@ where
         trait_id: TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
-        name: &str,
+        name: &SymbolId,
         active: &mut HashSet<AssociatedTypeProjectionKey>,
     ) -> Option<InternedTyId> {
         let goal = self.normalize_goal(TraitGoal {
@@ -722,7 +743,7 @@ where
         });
         let key = AssociatedTypeProjectionKey {
             goal: goal.clone(),
-            name: name.to_string(),
+            name: name.clone(),
         };
         if !active.insert(key.clone()) {
             return None;
@@ -731,7 +752,7 @@ where
             .associated_type_assumptions
             .iter()
             .find_map(|assumption| {
-                if assumption.name == name && self.goals_equivalent(&assumption.goal, &goal) {
+                if &assumption.name == name && self.goals_equivalent(&assumption.goal, &goal) {
                     Some(self.normalize(assumption.ty))
                 } else {
                     None
@@ -752,7 +773,7 @@ where
                 let associated_type = impl_signature
                     .associated_types
                     .iter()
-                    .find(|associated_type| associated_type.name == name)?;
+                    .find(|associated_type| &associated_type.name == name)?;
                 let ty =
                     import_type_into(self.interner, &impl_signature.interner, associated_type.ty);
                 Some(self.substitute_ty(ty, &user_impl.substitutions))
@@ -989,15 +1010,12 @@ where
         self_ty: InternedTyId,
         trait_id: TraitId,
         trait_args: &[InternedTyId],
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         let TraitId::Builtin(trait_id) = trait_id else {
             return None;
         };
-        if !trait_id.has_associated_type(name) {
-            return None;
-        }
-        match (trait_id, BuiltinAssociatedType::from_name(name)?) {
+        match (trait_id, builtin_associated_type_from_symbol(*name)?) {
             (
                 BuiltinTrait::Add
                 | BuiltinTrait::Sub
@@ -1088,7 +1106,7 @@ where
                     trait_id: TraitId::Builtin(BuiltinTrait::Iterator),
                     trait_args: Vec::new(),
                     trait_const_args: Vec::new(),
-                    name: BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
+                    name: known::ITEM,
                 });
                 Some(self.normalize(item))
             }
@@ -1111,15 +1129,12 @@ where
         self_ty: InternedTyId,
         trait_id: TraitId,
         trait_args: &[InternedTyId],
-        name: &str,
+        name: &SymbolId,
     ) -> Option<ConstGenericArg> {
         let TraitId::Builtin(trait_id) = trait_id else {
             return None;
         };
-        match (
-            trait_id,
-            nia_ids::BuiltinAssociatedComptime::from_name(name)?,
-        ) {
+        match (trait_id, builtin_associated_comptime_from_symbol(*name)?) {
             (BuiltinTrait::Simd, nia_ids::BuiltinAssociatedComptime::Lanes) => {
                 trait_args.is_empty().then_some(())?;
                 let Some(TyKind::Vector { lanes, .. }) = self.kind(self_ty) else {
@@ -1840,7 +1855,7 @@ where
         &mut self,
         general: InternedTyId,
         specific: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) -> bool {
         self.match_impl_pattern_with_consts(general, specific, substitutions, &mut HashMap::new())
     }
@@ -1848,7 +1863,7 @@ where
     fn impl_where_predicates_hold(
         &mut self,
         impl_signature: &ProgramTraitImplSignature,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> bool {
         for predicate in &impl_signature.where_predicates {
             let self_ty = import_type_into(self.interner, &impl_signature.interner, predicate.ty);
@@ -1896,8 +1911,8 @@ where
         &mut self,
         pattern: InternedTyId,
         actual: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
-        const_substitutions: &mut HashMap<String, ConstGenericArg>,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<ConstGenericArg>,
     ) -> bool {
         let pattern = self.normalize(pattern);
         let actual = self.normalize(actual);
@@ -1930,6 +1945,7 @@ where
                     true
                 }
             }
+            Some(TyKind::SelfParam) => matches!(self.interner.get(actual), Some(TyKind::SelfParam)),
             Some(TyKind::BuiltinType(pattern_builtin)) => {
                 matches!(self.interner.get(actual), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == *actual_builtin)
             }
@@ -2298,7 +2314,7 @@ where
         &mut self,
         pattern: &ConstGenericArg,
         actual: &ConstGenericArg,
-        substitutions: &mut HashMap<String, ConstGenericArg>,
+        substitutions: &mut SymbolMap<ConstGenericArg>,
     ) -> bool {
         if !self.types_equivalent(pattern.ty, actual.ty) {
             return false;
@@ -2320,7 +2336,7 @@ where
         &mut self,
         pattern: &ArrayLenTy,
         actual: &ArrayLenTy,
-        substitutions: &mut HashMap<String, ConstGenericArg>,
+        substitutions: &mut SymbolMap<ConstGenericArg>,
     ) -> bool {
         if pattern == actual {
             return true;
@@ -2357,11 +2373,12 @@ where
     fn substitute_ty(
         &mut self,
         ty: InternedTyId,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> InternedTyId {
         let ty = self.normalize(ty);
         match self.interner.get(ty).cloned() {
             Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
+            Some(TyKind::SelfParam) => ty,
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })

@@ -8,12 +8,13 @@ use nia_ids::{
 };
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
+use nia_symbol::SymbolId;
 use nia_ty::{BuiltinTrait, ConstGenericArg, IntConst, PrimitiveTy, TraitId};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticUseTable {
     pub node_value_uses: HashMap<VersionedNodeKey, SemanticValueUse>,
-    pub node_const_generic_uses: HashMap<VersionedNodeKey, String>,
+    pub node_const_generic_uses: HashMap<VersionedNodeKey, SymbolId>,
     pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
     pub node_associated_comptime_projections:
         HashMap<VersionedNodeKey, AssociatedComptimeProjection>,
@@ -44,8 +45,8 @@ impl SemanticUseTable {
         self.node_associated_comptime_projections.get(key)
     }
 
-    pub fn node_const_generic_use(&self, key: &VersionedNodeKey) -> Option<&str> {
-        self.node_const_generic_uses.get(key).map(String::as_str)
+    pub fn node_const_generic_use(&self, key: &VersionedNodeKey) -> Option<&SymbolId> {
+        self.node_const_generic_uses.get(key)
     }
 
     pub fn node_local_def(&self, key: &VersionedNodeKey) -> Option<LocalId> {
@@ -80,13 +81,13 @@ impl SemanticUseTableBuilder {
             .or_insert(SemanticValueUse::Global(global_id));
     }
 
-    pub fn insert_node_const_generic_use(&mut self, key: VersionedNodeKey, name: String) {
+    pub fn insert_node_const_generic_use(&mut self, key: VersionedNodeKey, name: SymbolId) {
         self.table.node_const_generic_uses.insert(key, name);
     }
 
     pub fn extend_node_const_generic_uses(
         &mut self,
-        uses: impl IntoIterator<Item = (VersionedNodeKey, String)>,
+        uses: impl IntoIterator<Item = (VersionedNodeKey, SymbolId)>,
     ) {
         self.table.node_const_generic_uses.extend(uses);
     }
@@ -173,7 +174,7 @@ pub struct AssociatedComptimeProjection {
     pub trait_id: TraitId,
     pub trait_args: Vec<InternedTyId>,
     pub trait_const_args: Vec<ConstGenericArg>,
-    pub name: String,
+    pub name: SymbolId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -346,9 +347,10 @@ pub struct TraitObjectUpcast {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GenericInstantiation {
     pub def_id: GlobalDefId,
+    pub self_arg: Option<InternedTyId>,
     pub args: Vec<InternedTyId>,
     pub const_args: Vec<ConstGenericArg>,
-    pub generics: Vec<String>,
+    pub generics: Vec<SymbolId>,
     pub span: Span,
     pub source_def_id: Option<GlobalDefId>,
 }
@@ -382,7 +384,7 @@ pub enum ResolvedCall {
     TraitMethod {
         trait_id: GlobalDefId,
         method_id: GlobalDefId,
-        method_name: String,
+        method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
@@ -391,7 +393,7 @@ pub enum ResolvedCall {
     TraitAssociatedFunction {
         trait_id: GlobalDefId,
         method_id: GlobalDefId,
-        method_name: String,
+        method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
@@ -400,7 +402,7 @@ pub enum ResolvedCall {
         object_ty: InternedTyId,
         trait_id: TraitId,
         method_id: GlobalDefId,
-        method_name: String,
+        method_name: SymbolId,
         trait_args: Vec<InternedTyId>,
         slot: usize,
         params: Vec<InternedTyId>,

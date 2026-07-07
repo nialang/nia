@@ -4,7 +4,7 @@ use super::*;
 struct TraitAssociatedFunctionCall<'b> {
     expr: &'b Expr,
     target_ty: InternedTyId,
-    name: &'b str,
+    name: &'b SymbolId,
     method_type_args: Option<&'b [BracketArg]>,
     args: &'b [Expr],
     expected: Option<InternedTyId>,
@@ -16,7 +16,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         expr: &Expr,
         ty_expr: &Expr,
-        name: &str,
+        name: &SymbolId,
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
@@ -27,7 +27,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         expr: &Expr,
         ty_expr: &Expr,
-        name: &str,
+        name: &SymbolId,
         method_type_args: &[BracketArg],
         args: &[Expr],
         expected: Option<InternedTyId>,
@@ -46,7 +46,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         expr: &Expr,
         ty_expr: &Expr,
-        name: &str,
+        name: &SymbolId,
         method_type_args: Option<&[BracketArg]>,
         args: &[Expr],
         expected: Option<InternedTyId>,
@@ -66,7 +66,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         expr: &Expr,
         target_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
         method_type_args: Option<&[BracketArg]>,
         args: &[Expr],
         expected: Option<InternedTyId>,
@@ -103,6 +103,7 @@ impl<'a> BodyChecker<'a> {
             });
         }
         let Some(candidate) = self.single_method_candidate(span, name, &candidates) else {
+            let name = self.symbol_name(*name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
@@ -161,6 +162,7 @@ impl<'a> BodyChecker<'a> {
             .first()
             .is_some_and(|param| param.receiver.is_some());
         if is_receiver_method && args.is_empty() {
+            let name = self.symbol_name(*name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
@@ -180,7 +182,9 @@ impl<'a> BodyChecker<'a> {
             .params
             .iter()
             .skip(if is_receiver_method { 1 } else { 0 })
-            .map(|param| self.substitute_generics(param.ty, &substitutions))
+            .map(|param| {
+                self.substitute_generics_with_self(param.ty, &substitutions, candidate.self_ty)
+            })
             .collect();
         let value_args = if is_receiver_method && !args.is_empty() {
             &args[1..]
@@ -202,20 +206,22 @@ impl<'a> BodyChecker<'a> {
         self.check_where_predicates_hold(
             &signature.where_predicates,
             &substitutions,
-            &HashMap::new(),
+            &SymbolMap::new(),
             span,
         );
         self.check_where_predicates_hold(
             &candidate.method.where_predicates,
             &substitutions,
-            &HashMap::new(),
+            &SymbolMap::new(),
             span,
         );
         let params: Vec<InternedTyId> = signature
             .params
             .iter()
             .skip(if is_receiver_method { 1 } else { 0 })
-            .map(|param| self.substitute_generics(param.ty, &substitutions))
+            .map(|param| {
+                self.substitute_generics_with_self(param.ty, &substitutions, candidate.self_ty)
+            })
             .collect();
         self.check_direct_call_args(span, value_args, &params, false);
         let Some(instance_args) =
@@ -238,7 +244,11 @@ impl<'a> BodyChecker<'a> {
         } else {
             self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::Function(method_id));
         }
-        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        let return_type = self.substitute_generics_with_self(
+            signature.return_type,
+            &substitutions,
+            candidate.self_ty,
+        );
         let return_type = self.normalize_projection(return_type);
         Some(self.normalize_aliases_in_type(return_type))
     }
@@ -266,6 +276,7 @@ impl<'a> BodyChecker<'a> {
             [candidate] => candidate,
             [] => return None,
             _ => {
+                let name = self.symbol_name(*name);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     expr.span,
@@ -280,6 +291,7 @@ impl<'a> BodyChecker<'a> {
             .first()
             .is_some_and(|param| param.receiver.is_some())
         {
+            let name = self.symbol_name(*name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,
@@ -316,7 +328,6 @@ impl<'a> BodyChecker<'a> {
         }
         let mut substitutions =
             self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
-        substitutions.insert("Self".to_string(), target_ty);
         if method_type_args.is_some() {
             substitutions.extend(
                 self.generic_substitutions(
@@ -325,8 +336,11 @@ impl<'a> BodyChecker<'a> {
                 ),
             );
         } else if let Some(expected) = expected {
-            let return_type =
-                self.substitute_generics(candidate.signature.return_type, &substitutions);
+            let return_type = self.substitute_generics_with_self(
+                candidate.signature.return_type,
+                &substitutions,
+                target_ty,
+            );
             let expected = self.normalize_projection(expected);
             self.infer_generics_from_type(return_type, expected, &mut substitutions, expr.span);
         }
@@ -334,7 +348,7 @@ impl<'a> BodyChecker<'a> {
             .signature
             .params
             .iter()
-            .map(|param| self.substitute_generics(param.ty, &substitutions))
+            .map(|param| self.substitute_generics_with_self(param.ty, &substitutions, target_ty))
             .collect();
         if method_type_args.is_none() {
             self.infer_method_generics_from_args(args, &params, &mut substitutions);
@@ -346,20 +360,26 @@ impl<'a> BodyChecker<'a> {
                 .signature
                 .params
                 .iter()
-                .map(|param| self.substitute_generics(param.ty, &substitutions))
+                .map(|param| {
+                    self.substitute_generics_with_self(param.ty, &substitutions, target_ty)
+                })
                 .collect();
         }
         self.check_direct_call_args(expr.span, args, &params, false);
         let trait_args = candidate
             .trait_args
             .iter()
-            .map(|arg| self.substitute_generics(*arg, &substitutions))
+            .map(|arg| self.substitute_generics_with_self(*arg, &substitutions, target_ty))
             .collect::<Vec<_>>();
         if candidate.has_default {
-            let mut instance_args = vec![target_ty];
-            instance_args.extend(trait_args.iter().copied());
+            let mut instance_args = trait_args.clone();
             instance_args.extend(method_instantiation_args.iter().copied());
-            self.record_generic_instantiation(candidate.method_id, &instance_args, expr.span);
+            self.record_generic_instantiation_with_self_arg(
+                candidate.method_id,
+                Some(target_ty),
+                &instance_args,
+                expr.span,
+            );
         }
         self.record_resolved_node_call(
             expr.span,
@@ -367,13 +387,17 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::TraitAssociatedFunction {
                 trait_id: candidate.trait_id,
                 method_id: candidate.method_id,
-                method_name: name.to_string(),
+                method_name: name.clone(),
                 self_ty: target_ty,
                 trait_args,
                 args: method_instantiation_args,
             },
         );
-        let return_type = self.substitute_generics(candidate.signature.return_type, &substitutions);
+        let return_type = self.substitute_generics_with_self(
+            candidate.signature.return_type,
+            &substitutions,
+            target_ty,
+        );
         let return_type = self.normalize_projection(return_type);
         Some(self.normalize_aliases_in_type(return_type))
     }
@@ -384,14 +408,13 @@ impl<'a> BodyChecker<'a> {
         target_ty: InternedTyId,
         args: &[Expr],
     ) -> bool {
-        let mut substitutions =
+        let substitutions =
             self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
-        substitutions.insert("Self".to_string(), target_ty);
         for (index, arg) in args.iter().enumerate() {
             let Some(param) = candidate.signature.params.get(index) else {
                 continue;
             };
-            let expected = self.substitute_generics(param.ty, &substitutions);
+            let expected = self.substitute_generics_with_self(param.ty, &substitutions, target_ty);
             if self.type_contains_generic_param(expected) {
                 continue;
             }
@@ -406,7 +429,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         ty_expr: &Expr,
         expected: Option<InternedTyId>,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         if let ExprKind::TypeTarget { ty } = &ty_expr.kind {
             let ty = self.ty_for_type(ty);
@@ -578,9 +601,9 @@ impl<'a> BodyChecker<'a> {
                 defs.as_ref()
                     .defs
                     .get(def_id.def_id)
-                    .map(|def| def.name.clone())
+                    .map(|def| self.symbol_name(def.name))
             })
-            .unwrap_or_else(|| "<unavailable type name>".to_string());
+            .unwrap_or_else(|| "<unknown type>".to_string());
         self.diagnostics.push(Diagnostic::user_error_at(
             codes::TYPE_CHECK,
             span,

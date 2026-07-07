@@ -6,6 +6,7 @@ use nia_ast::GenericParamKind;
 use nia_defs::{DefId, DefKind};
 use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind};
 use nia_item_signatures::{FunctionSignature, GenericParamSignature, GenericParamSignatureKind};
+use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, TyKind};
 
 impl<'a> BodyChecker<'a> {
@@ -26,9 +27,7 @@ impl<'a> BodyChecker<'a> {
             return Some(self.receiver_ty_for_target(self_nominal, receiver));
         }
         if method.kind == DefKind::TraitMethod {
-            let self_nominal = self
-                .interner
-                .intern(TyKind::GenericParam("Self".to_string()));
+            let self_nominal = self.interner.intern(TyKind::SelfParam);
             let receiver = signature.params.first()?.receiver?;
             return Some(match receiver {
                 ReceiverKind::Value => self_nominal,
@@ -187,9 +186,9 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn generic_substitutions(
         &self,
-        generics: &[String],
+        generics: &[SymbolId],
         args: &[InternedTyId],
-    ) -> HashMap<String, InternedTyId> {
+    ) -> SymbolMap<InternedTyId> {
         generics
             .iter()
             .zip(args)
@@ -197,21 +196,24 @@ impl<'a> BodyChecker<'a> {
             .collect()
     }
 
-    pub(crate) fn current_comptime_generic_arg(&mut self, name: &str) -> Option<ConstGenericArg> {
+    pub(crate) fn current_comptime_generic_arg(
+        &mut self,
+        name: &SymbolId,
+    ) -> Option<ConstGenericArg> {
         let current_def_id = self.current_def_id?;
         let ty = self
             .current_comptime_generic_type(current_def_id, name)
             .or_else(|| self.current_method_owner_comptime_generic_type(current_def_id, name))?;
         Some(ConstGenericArg {
             ty,
-            value: ConstGenericValue::GenericParam(name.to_string()),
+            value: ConstGenericValue::GenericParam(name.clone()),
         })
     }
 
     fn current_comptime_generic_type(
         &mut self,
         current_def_id: GlobalDefId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         let ty = {
             let defs = self.defs_for_module(current_def_id.module_id)?;
@@ -221,7 +223,7 @@ impl<'a> BodyChecker<'a> {
             while let Some(id) = def_id {
                 let def = defs.defs.get(id)?;
                 if let Some(param) = def.generic_params.iter().find(|param| {
-                    param.name == name && matches!(param.kind, GenericParamKind::Comptime { .. })
+                    &param.name == name && matches!(param.kind, GenericParamKind::Comptime { .. })
                 }) {
                     if let GenericParamKind::Comptime { ty: param_ty } = &param.kind {
                         ty = Some(param_ty.clone());
@@ -238,7 +240,7 @@ impl<'a> BodyChecker<'a> {
     fn current_method_owner_comptime_generic_type(
         &mut self,
         current_def_id: GlobalDefId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         if current_def_id.module_id != self.defs.module_id {
             return None;
@@ -254,7 +256,7 @@ impl<'a> BodyChecker<'a> {
     fn comptime_generic_type_from_ty(
         &mut self,
         ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         match self.interner.get(self.normalization.normalize(ty)).cloned()? {
             TyKind::Nominal { const_args, .. } => const_args.into_iter().find_map(|arg| {
@@ -264,7 +266,7 @@ impl<'a> BodyChecker<'a> {
             TyKind::Array {
                 len: ArrayLenTy::GenericParam(len_name),
                 ..
-            } if len_name == name => Some(self.primitive(nia_ty::PrimitiveTy::Usize)),
+            } if &len_name == name => Some(self.primitive(nia_ty::PrimitiveTy::Usize)),
             TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. } => {
                 self.comptime_generic_type_from_ty(elem, name)
             }
@@ -277,10 +279,7 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
-    ) -> (
-        HashMap<String, InternedTyId>,
-        HashMap<String, ConstGenericArg>,
-    ) {
+    ) -> (SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>) {
         let Some(defs) = self.defs_for_module(def_id.module_id) else {
             return (HashMap::new(), HashMap::new());
         };
@@ -310,7 +309,7 @@ impl<'a> BodyChecker<'a> {
         (substitutions, const_substitutions)
     }
 
-    pub(crate) fn nominal_type_generics(&mut self, def_id: GlobalDefId) -> Option<Vec<String>> {
+    pub(crate) fn nominal_type_generics(&mut self, def_id: GlobalDefId) -> Option<Vec<SymbolId>> {
         if let Some(resolved) = self.resolved_struct_signature(def_id) {
             return Some(resolved.signature.generics);
         }
@@ -354,7 +353,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
-    ) -> HashMap<String, InternedTyId> {
+    ) -> SymbolMap<InternedTyId> {
         self.nominal_type_generics(def_id)
             .map(|generics| self.generic_substitutions(&generics, args))
             .unwrap_or_default()
@@ -421,58 +420,118 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn substitute_generics(
         &mut self,
         ty: InternedTyId,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> InternedTyId {
         self.substitute_generics_and_consts(ty, substitutions, &HashMap::new())
+    }
+
+    pub(crate) fn substitute_generics_with_self(
+        &mut self,
+        ty: InternedTyId,
+        substitutions: &SymbolMap<InternedTyId>,
+        self_ty: InternedTyId,
+    ) -> InternedTyId {
+        self.substitute_generics_and_consts_with_self(ty, substitutions, &HashMap::new(), self_ty)
     }
 
     pub(crate) fn substitute_generics_and_consts(
         &mut self,
         ty: InternedTyId,
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> InternedTyId {
+        self.substitute_generics_and_consts_inner(ty, substitutions, const_substitutions, None)
+    }
+
+    pub(crate) fn substitute_generics_and_consts_with_self(
+        &mut self,
+        ty: InternedTyId,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+        self_ty: InternedTyId,
+    ) -> InternedTyId {
+        self.substitute_generics_and_consts_inner(
+            ty,
+            substitutions,
+            const_substitutions,
+            Some(self_ty),
+        )
+    }
+
+    fn substitute_generics_and_consts_inner(
+        &mut self,
+        ty: InternedTyId,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+        self_ty: Option<InternedTyId>,
     ) -> InternedTyId {
         match self.interner.get(ty) {
             Some(TyKind::GenericParam(name)) => substitutions.get(name).copied().unwrap_or(ty),
+            Some(TyKind::SelfParam) => self_ty.unwrap_or(ty),
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let is_readonly = *is_readonly;
                 let elem = *elem;
-                let elem =
-                    self.substitute_generics_and_consts(elem, substitutions, const_substitutions);
+                let elem = self.substitute_generics_and_consts_inner(
+                    elem,
+                    substitutions,
+                    const_substitutions,
+                    self_ty,
+                );
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
             Some(TyKind::VolatilePointer { is_readonly, elem }) => {
                 let is_readonly = *is_readonly;
                 let elem = *elem;
-                let elem =
-                    self.substitute_generics_and_consts(elem, substitutions, const_substitutions);
+                let elem = self.substitute_generics_and_consts_inner(
+                    elem,
+                    substitutions,
+                    const_substitutions,
+                    self_ty,
+                );
                 self.interner
                     .intern(TyKind::VolatilePointer { is_readonly, elem })
             }
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let is_readonly = *is_readonly;
                 let elem = *elem;
-                let elem =
-                    self.substitute_generics_and_consts(elem, substitutions, const_substitutions);
+                let elem = self.substitute_generics_and_consts_inner(
+                    elem,
+                    substitutions,
+                    const_substitutions,
+                    self_ty,
+                );
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
             Some(TyKind::SlicePointee { elem }) => {
                 let elem = *elem;
-                let elem =
-                    self.substitute_generics_and_consts(elem, substitutions, const_substitutions);
+                let elem = self.substitute_generics_and_consts_inner(
+                    elem,
+                    substitutions,
+                    const_substitutions,
+                    self_ty,
+                );
                 self.interner.intern(TyKind::SlicePointee { elem })
             }
             Some(TyKind::Array { len, elem }) => {
                 let len = self.substitute_array_len(len.clone(), const_substitutions);
                 let elem = *elem;
-                let elem =
-                    self.substitute_generics_and_consts(elem, substitutions, const_substitutions);
+                let elem = self.substitute_generics_and_consts_inner(
+                    elem,
+                    substitutions,
+                    const_substitutions,
+                    self_ty,
+                );
                 self.interner.intern(TyKind::Array { len, elem })
             }
             Some(TyKind::Range { kind, bound }) => {
                 let kind = *kind;
                 let bound = bound.map(|bound| {
-                    self.substitute_generics_and_consts(bound, substitutions, const_substitutions)
+                    self.substitute_generics_and_consts_inner(
+                        bound,
+                        substitutions,
+                        const_substitutions,
+                        self_ty,
+                    )
                 });
                 self.interner.intern(TyKind::Range { kind, bound })
             }
@@ -487,17 +546,19 @@ impl<'a> BodyChecker<'a> {
                 let params = params
                     .iter()
                     .map(|param| {
-                        self.substitute_generics_and_consts(
+                        self.substitute_generics_and_consts_inner(
                             *param,
                             substitutions,
                             const_substitutions,
+                            self_ty,
                         )
                     })
                     .collect();
-                let return_type = self.substitute_generics_and_consts(
+                let return_type = self.substitute_generics_and_consts_inner(
                     return_type,
                     substitutions,
                     const_substitutions,
+                    self_ty,
                 );
                 self.interner.intern(TyKind::FunctionPointer {
                     params,
@@ -507,17 +568,29 @@ impl<'a> BodyChecker<'a> {
             }
             Some(TyKind::Optional { elem }) => {
                 let elem = *elem;
-                let elem =
-                    self.substitute_generics_and_consts(elem, substitutions, const_substitutions);
+                let elem = self.substitute_generics_and_consts_inner(
+                    elem,
+                    substitutions,
+                    const_substitutions,
+                    self_ty,
+                );
                 self.interner.intern(TyKind::Optional { elem })
             }
             Some(TyKind::ErrorUnion { error, value }) => {
                 let error = *error;
                 let value = *value;
-                let error =
-                    self.substitute_generics_and_consts(error, substitutions, const_substitutions);
-                let value =
-                    self.substitute_generics_and_consts(value, substitutions, const_substitutions);
+                let error = self.substitute_generics_and_consts_inner(
+                    error,
+                    substitutions,
+                    const_substitutions,
+                    self_ty,
+                );
+                let value = self.substitute_generics_and_consts_inner(
+                    value,
+                    substitutions,
+                    const_substitutions,
+                    self_ty,
+                );
                 self.interner.intern(TyKind::ErrorUnion { error, value })
             }
             Some(TyKind::Nominal {
@@ -531,10 +604,11 @@ impl<'a> BodyChecker<'a> {
                 let args = args
                     .iter()
                     .map(|arg| {
-                        self.substitute_generics_and_consts(
+                        self.substitute_generics_and_consts_inner(
                             *arg,
                             substitutions,
                             const_substitutions,
+                            self_ty,
                         )
                     })
                     .collect();
@@ -554,10 +628,11 @@ impl<'a> BodyChecker<'a> {
                 let args = args
                     .iter()
                     .map(|arg| {
-                        self.substitute_generics_and_consts(
+                        self.substitute_generics_and_consts_inner(
                             *arg,
                             substitutions,
                             const_substitutions,
+                            self_ty,
                         )
                     })
                     .collect();
@@ -580,7 +655,14 @@ impl<'a> BodyChecker<'a> {
                 let associated_type_bindings = associated_type_bindings.clone();
                 let trait_args = trait_args
                     .iter()
-                    .map(|arg| self.substitute_generics(*arg, substitutions))
+                    .map(|arg| {
+                        self.substitute_generics_and_consts_inner(
+                            *arg,
+                            substitutions,
+                            const_substitutions,
+                            self_ty,
+                        )
+                    })
                     .collect();
                 let trait_const_args = trait_const_args
                     .iter()
@@ -594,10 +676,11 @@ impl<'a> BodyChecker<'a> {
                             .trait_args
                             .iter()
                             .map(|arg| {
-                                self.substitute_generics_and_consts(
+                                self.substitute_generics_and_consts_inner(
                                     *arg,
                                     substitutions,
                                     const_substitutions,
+                                    self_ty,
                                 )
                             })
                             .collect(),
@@ -607,10 +690,11 @@ impl<'a> BodyChecker<'a> {
                             .map(|arg| self.substitute_const_generic_arg(arg, const_substitutions))
                             .collect(),
                         name: binding.name.clone(),
-                        ty: self.substitute_generics_and_consts(
+                        ty: self.substitute_generics_and_consts_inner(
                             binding.ty,
                             substitutions,
                             const_substitutions,
+                            self_ty,
                         ),
                     })
                     .collect();
@@ -636,10 +720,11 @@ impl<'a> BodyChecker<'a> {
                 let trait_args = trait_args
                     .iter()
                     .map(|arg| {
-                        self.substitute_generics_and_consts(
+                        self.substitute_generics_and_consts_inner(
                             *arg,
                             substitutions,
                             const_substitutions,
+                            self_ty,
                         )
                     })
                     .collect();
@@ -655,10 +740,11 @@ impl<'a> BodyChecker<'a> {
                             .trait_args
                             .iter()
                             .map(|arg| {
-                                self.substitute_generics_and_consts(
+                                self.substitute_generics_and_consts_inner(
                                     *arg,
                                     substitutions,
                                     const_substitutions,
+                                    self_ty,
                                 )
                             })
                             .collect(),
@@ -668,10 +754,11 @@ impl<'a> BodyChecker<'a> {
                             .map(|arg| self.substitute_const_generic_arg(arg, const_substitutions))
                             .collect(),
                         name: binding.name.clone(),
-                        ty: self.substitute_generics_and_consts(
+                        ty: self.substitute_generics_and_consts_inner(
                             binding.ty,
                             substitutions,
                             const_substitutions,
+                            self_ty,
                         ),
                     })
                     .collect();
@@ -683,30 +770,32 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             Some(TyKind::Projection {
-                self_ty,
+                self_ty: projection_self_ty,
                 trait_id,
                 trait_args,
                 trait_const_args,
                 name,
                 ..
             }) => {
-                let self_ty = *self_ty;
+                let projection_self_ty = *projection_self_ty;
                 let trait_id = *trait_id;
                 let trait_args = trait_args.clone();
                 let trait_const_args = trait_const_args.clone();
                 let name = name.clone();
-                let self_ty = self.substitute_generics_and_consts(
-                    self_ty,
+                let projection_self_ty = self.substitute_generics_and_consts_inner(
+                    projection_self_ty,
                     substitutions,
                     const_substitutions,
+                    self_ty,
                 );
                 let trait_args = trait_args
                     .iter()
                     .map(|arg| {
-                        self.substitute_generics_and_consts(
+                        self.substitute_generics_and_consts_inner(
                             *arg,
                             substitutions,
                             const_substitutions,
+                            self_ty,
                         )
                     })
                     .collect();
@@ -715,7 +804,7 @@ impl<'a> BodyChecker<'a> {
                     .map(|arg| self.substitute_const_generic_arg(arg, const_substitutions))
                     .collect();
                 self.interner.intern(TyKind::Projection {
-                    self_ty,
+                    self_ty: projection_self_ty,
                     trait_id,
                     trait_args,
                     trait_const_args,
@@ -732,7 +821,7 @@ impl<'a> BodyChecker<'a> {
     fn substitute_array_len(
         &self,
         len: ArrayLenTy,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> ArrayLenTy {
         match len {
             ArrayLenTy::GenericParam(name) => const_substitutions
@@ -746,7 +835,7 @@ impl<'a> BodyChecker<'a> {
     fn substitute_const_generic_arg(
         &self,
         arg: &ConstGenericArg,
-        const_substitutions: &HashMap<String, ConstGenericArg>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> ConstGenericArg {
         match &arg.value {
             ConstGenericValue::GenericParam(name) => const_substitutions

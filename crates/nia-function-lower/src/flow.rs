@@ -684,7 +684,7 @@ impl FunctionLowerer {
         let iterable_local = self.alloc_temp_local(for_stmt.iter.span, for_stmt.iter.ty);
         ops.push(FunctionOp::Binding(FunctionBinding {
             local_id: iterable_local,
-            name: "__for_iterable".to_string(),
+            name: LocalName::generated(GeneratedLocalName::ForIterable),
             ty: for_stmt.iter.ty,
             value: Some(iterable_value),
             is_let: false,
@@ -693,7 +693,7 @@ impl FunctionLowerer {
         let iter_local = self.alloc_temp_local(span, for_stmt.iterator_ty);
         ops.push(FunctionOp::Binding(FunctionBinding {
             local_id: iter_local,
-            name: "__for_iter".to_string(),
+            name: LocalName::generated(GeneratedLocalName::ForIterator),
             ty: for_stmt.iterator_ty,
             value: Some(iterator_value),
             is_let: false,
@@ -720,7 +720,7 @@ impl FunctionLowerer {
             self.iterator_next_expr(span, iter_local, for_stmt.iterator_ty, optional_item_ty);
         header_ops.push(FunctionOp::Binding(FunctionBinding {
             local_id: next_local,
-            name: "__for_next".to_string(),
+            name: LocalName::generated(GeneratedLocalName::ForNext),
             ty: next_value.ty,
             value: Some(next_value),
             is_let: true,

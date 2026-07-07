@@ -176,7 +176,8 @@ impl ComptimeModuleLowerer<'_> {
         };
         let function_locals = self.function_locals(function);
         let semantic_uses = self.semantic_uses_with_allowed_locals(&function_locals);
-        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses);
+        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses)
+            .with_symbols(self.input.symbols);
         match nia_comptime_ir::lower_function_resolved_with_context(
             function.span,
             function,
@@ -198,7 +199,8 @@ impl ComptimeModuleLowerer<'_> {
         let mut allowed_locals = HashSet::new();
         self.collect_expr_locals(expr, &mut allowed_locals);
         let semantic_uses = self.semantic_uses_with_allowed_locals(&allowed_locals);
-        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses);
+        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses)
+            .with_symbols(self.input.symbols);
         match nia_comptime_ir::lower_expr_resolved_with_context(expr, &context) {
             Ok(expr) => Some(expr),
             Err(err) => {
@@ -439,6 +441,8 @@ impl ComptimeModuleLowerer<'_> {
             | nia_ast::ExprKind::Raw(_)
             | nia_ast::ExprKind::Bool(_)
             | nia_ast::ExprKind::Null
+            | nia_ast::ExprKind::SelfValue
+            | nia_ast::ExprKind::PathRoot(_)
             | nia_ast::ExprKind::Underscore
             | nia_ast::ExprKind::TypeTarget { .. }
             | nia_ast::ExprKind::TraitTarget { .. } => {}
