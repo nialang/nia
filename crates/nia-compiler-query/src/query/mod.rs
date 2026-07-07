@@ -96,6 +96,7 @@ type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
 type VisibleTraitImplsValue = Arc<VisibleTraitImplsForModule>;
 type ExtensionSignatureModuleInputValue = Arc<ExtensionSignatureModuleInputQueryValue>;
 type ExtensionTraitSolvingModuleFactsValue = Arc<ExtensionTraitSolvingModuleFactsQueryValue>;
+type ExtensionTraitImplsForTraitValue = Arc<ExtensionTraitImplsForTraitQueryValue>;
 type ModuleProgramSignatureFactsValue = Arc<ModuleProgramSignatureFacts>;
 type ModuleAbiSignatureFactsValue = Arc<ModuleAbiSignatureFactsQueryValue>;
 type PublicSurfacesValue = Arc<PublicSurfacesQueryValue>;
@@ -3661,6 +3662,10 @@ extend Used {
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "executable_checked_module_set"
+                && dependency.to.name == "extension_trait_impls_for_trait"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "executable_checked_module_set"
                 && dependency.to.name == "program_trait_solving_signatures"
         }));

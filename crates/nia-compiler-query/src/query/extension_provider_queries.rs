@@ -34,6 +34,11 @@ pub(super) struct ExtensionTraitSolvingModuleFactsQueryValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionTraitImplsForTraitQueryValue {
+    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramTraitSolvingSignatures {
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
     pub(super) trait_impl_index: nia_item_signatures::ProgramTraitImplIndex,
@@ -94,6 +99,25 @@ impl QueryKey<CompilerContext> for ExtensionTraitSolvingModuleFactsQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_trait_solving_module_facts)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionTraitImplsForTraitQuery(pub(super) nia_ty::TraitId);
+
+impl QueryKey<CompilerContext> for ExtensionTraitImplsForTraitQuery {
+    type Value = ExtensionTraitImplsForTraitValue;
+
+    fn name() -> &'static str {
+        "extension_trait_impls_for_trait"
+    }
+
+    fn description(&self) -> String {
+        format!("extension_trait_impls_for_trait({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_trait_impls_for_trait)(db, self.0)
     }
 }
 
@@ -200,6 +224,7 @@ pub(super) struct ExtensionProviderDiscoveryIndexQueryValue {
     pub(super) provider_modules: Vec<ModuleId>,
     pub(super) nominal_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>>,
     pub(super) method_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>>,
+    pub(super) trait_impl_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
