@@ -2,6 +2,7 @@
 use std::{env, fs, path::PathBuf, process::ExitCode};
 
 use nia_driver::{ModuleMap, NiaOptimizationLevel, Runtime, SourcePath};
+use nia_timing::{TimingOptions, TimingTrace};
 
 mod help;
 
@@ -9,23 +10,6 @@ use help::{HelpStyle, help_text};
 
 fn main() -> ExitCode {
     nia_ice::install_panic_hook();
-    run_with_ice_boundary(run_main, |ice| eprintln!("{}", ice.render_message()))
-}
-
-fn run_with_ice_boundary(
-    f: impl FnOnce() -> ExitCode,
-    report: impl FnOnce(&nia_ice::Ice),
-) -> ExitCode {
-    match nia_ice::catch_ice(|| nia_timing::collect_to_stderr(f)) {
-        Ok(code) => code,
-        Err(ice) => {
-            report(&ice);
-            ExitCode::FAILURE
-        }
-    }
-}
-
-fn run_main() -> ExitCode {
     match parse_cli(env::args().skip(1).collect()) {
         Ok(CliAction::Help(topic)) => {
             print!("{}", help_text(topic, HelpStyle::for_stdout()));
@@ -35,7 +19,14 @@ fn run_main() -> ExitCode {
             println!("nia {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
-        Ok(CliAction::Run(cli)) => run_cli(cli),
+        Ok(CliAction::Run(cli)) => {
+            let timing_options = cli.timing_options();
+            run_with_ice_boundary(
+                timing_options,
+                || run_cli(cli),
+                |ice| eprintln!("{}", ice.render_message()),
+            )
+        }
         Err(error) => {
             if error.is_help {
                 print!("{}", help_text(error.help, HelpStyle::for_stdout()));
@@ -49,12 +40,33 @@ fn run_main() -> ExitCode {
     }
 }
 
+fn run_with_ice_boundary(
+    timing_options: TimingOptions,
+    f: impl FnOnce() -> ExitCode,
+    report: impl FnOnce(&nia_ice::Ice),
+) -> ExitCode {
+    match nia_ice::catch_ice(|| nia_timing::collect_to_stderr(timing_options, f)) {
+        Ok(code) => code,
+        Err(ice) => {
+            report(&ice);
+            ExitCode::FAILURE
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Cli {
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
+    timing_trace: TimingTrace,
     command: CliCommand,
+}
+
+impl Cli {
+    fn timing_options(&self) -> TimingOptions {
+        TimingOptions::new(self.timings).with_trace(self.timing_trace)
+    }
 }
 
 #[derive(Debug)]
@@ -206,6 +218,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
             module_map: global_options.module_map,
             optimization: global_options.optimization,
             timings: global_options.timings,
+            timing_trace: global_options.timing_trace,
             command,
         })),
     }
@@ -215,6 +228,7 @@ struct GlobalOptions {
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
+    timing_trace: TimingTrace,
 }
 
 fn extract_global_options(
@@ -224,6 +238,7 @@ fn extract_global_options(
     let mut map = ModuleMap::new();
     let mut optimization = NiaOptimizationLevel::default();
     let mut timings = nia_driver::TimingMode::Off;
+    let mut timing_trace = TimingTrace::Off;
     let mut remaining = Vec::new();
     let mut iter = args.into_iter();
     let mut preserve_next = false;
@@ -270,6 +285,10 @@ fn extract_global_options(
             timings = mode.map_err(|message| CliError::new(message, help))?;
             continue;
         }
+        if let Some(trace) = parse_timing_trace_flag(&arg, &mut iter) {
+            timing_trace = trace.map_err(|message| CliError::new(message, help))?;
+            continue;
+        }
         remaining.push(arg);
     }
     Ok((
@@ -278,6 +297,7 @@ fn extract_global_options(
             module_map: map,
             optimization,
             timings,
+            timing_trace,
         },
     ))
 }
@@ -340,6 +360,32 @@ fn parse_timings_flag(arg: &str) -> Option<Result<nia_driver::TimingMode, String
             "unknown timings mode `{arg}`; expected --timings, --timings=summary, or --timings=detail"
         ))),
         _ => None,
+    }
+}
+
+fn parse_timing_trace_flag(
+    arg: &str,
+    iter: &mut impl Iterator<Item = String>,
+) -> Option<Result<TimingTrace, String>> {
+    if let Some(value) = arg.strip_prefix("--timing-trace=") {
+        return Some(parse_timing_trace_value(value));
+    }
+    if arg == "--timing-trace" {
+        let Some(value) = iter.next() else {
+            return Some(Err("missing mode after `--timing-trace`".to_string()));
+        };
+        return Some(parse_timing_trace_value(&value));
+    }
+    None
+}
+
+fn parse_timing_trace_value(value: &str) -> Result<TimingTrace, String> {
+    match value {
+        "off" => Ok(TimingTrace::Off),
+        "events" => Ok(TimingTrace::Events),
+        _ => Err(format!(
+            "unknown timing trace mode `--timing-trace={value}`; expected --timing-trace=off or --timing-trace=events"
+        )),
     }
 }
 

@@ -45,6 +45,30 @@ Tests should reflect the current language. A removed spelling may be tested as a
 normal rejection if it marks an important boundary, but it should not be treated
 as a compatibility feature.
 
+## Environment Variables
+
+Nia's normal compiler behavior should be configured with CLI flags or typed API
+options, not hidden environment variables. Environment variables that remain in
+the tree are grouped here so their role stays explicit:
+
+- `NIA_LINKER`: user-facing override for the executable linker.
+- `NIA_LLD`: user-facing override for the `ld.lld` executable used by the lld
+  linker flavor.
+- `NIA_QUERY_THREADS`: developer tuning knob for query worker parallelism.
+- `NIA_DEBUG_EXEC_REACHABILITY`: developer debug output for executable
+  reachability.
+- `NIA_COMPILER_CHECK_LIMIT`: test/development guard for limiting expensive
+  compiler checks.
+- `NIA_TEST_COMMAND_TIMEOUT_SECS`: CLI integration-test timeout override.
+- `NO_COLOR`: standard terminal convention respected by CLI help rendering.
+- `LLVM_SYS_221_PREFIX`: `llvm-sys` build-time override for non-standard LLVM
+  installations.
+
+Test-only fixture variables such as `NIA_TEST_ENV` may appear inside tests that
+verify process environment behavior. Do not add new `NIA_*` variables without
+documenting them in this section and deciding whether the feature should be a
+CLI/API option instead.
+
 ## Review
 
 Pull requests should be understandable by a human reviewer. Explain the design

@@ -137,6 +137,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "print compiler stage timings to stderr; detail also includes aggregated query timings",
                 },
                 HelpRow {
+                    left: TIMING_TRACE_OPTION_HELP,
+                    right: "also print raw timing events; intended for diagnosing the timing system",
+                },
+                HelpRow {
                     left: "-h, --help",
                     right: "show this help text",
                 },
@@ -252,6 +256,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "print compiler stage timings to stderr; detail also includes aggregated query timings",
                 },
                 HelpRow {
+                    left: TIMING_TRACE_OPTION_HELP,
+                    right: "also print raw timing events; intended for diagnosing the timing system",
+                },
+                HelpRow {
                     left: "-h, --help",
                     right: "show this help text",
                 },
@@ -296,6 +304,10 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
         right: "print compiler stage timings to stderr; use detail for aggregated query timings",
     },
     HelpRow {
+        left: TIMING_TRACE_OPTION_HELP,
+        right: "also print raw timing events; intended for diagnosing the timing system",
+    },
+    HelpRow {
         left: "-h, --help",
         right: "show help",
     },
@@ -307,6 +319,7 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
 
 const OPTIMIZATION_OPTION_HELP: &str = "-O, -O0, -O1, -O2, -O3, -Os, -Oz";
 const TIMINGS_OPTION_HELP: &str = "--timings[=summary|detail]";
+const TIMING_TRACE_OPTION_HELP: &str = "--timing-trace <off|events>";
 
 fn render_help(doc: HelpDoc, style: HelpStyle) -> String {
     let mut out = String::new();

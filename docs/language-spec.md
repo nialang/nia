@@ -3071,8 +3071,9 @@ optimization policy and backend optimization report to stdout. `nia check
 write the same report to stderr when
 `--opt-report` is supplied, so stdout remains backend IR or LLVM IR and native
 emit targets remain file-only.
-Timing reports are written to stderr; `--timings=detail` also includes query
-timings.
+Timing reports are written to stderr; `--timings=detail` also includes
+aggregated query timings. Raw timing events are available through the explicit
+`--timing-trace=events` diagnostic option.
 
 `emit --obj` defaults to the bare runtime and writes one object per backend
 codegen unit without injecting startup code. `emit --obj --runtime freestanding`
