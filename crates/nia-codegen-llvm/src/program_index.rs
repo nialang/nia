@@ -374,7 +374,12 @@ mod tests {
     use nia_ids::{DefId, ModuleId};
     use nia_layout::{StructLayout, TypeLayout};
     use nia_span::Span;
+    use nia_symbol::{SymbolId, stable_hash};
     use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+
+    fn sym(text: &str) -> SymbolId {
+        SymbolId::from_stable_hash(stable_hash(text))
+    }
 
     #[test]
     fn indexes_codegen_lookup_tables_by_exact_keys_and_fallback_groups() {
@@ -405,7 +410,7 @@ mod tests {
         };
         let function_instance = BackendFunctionInstance {
             def_id: function_def,
-            name: "id".to_string(),
+            name: sym("id"),
             arg_module_id: module_id,
             self_arg: None,
             args: vec![i32_ty],
@@ -413,7 +418,7 @@ mod tests {
             symbol: "id_i32".to_string(),
             params: vec![BackendParam {
                 local_id: None,
-                name: Some(crate::tests::common::sym("value")),
+                name: Some(sym("value")),
                 receiver: None,
                 passing_ty: i32_ty,
                 local_ty: i32_ty,
@@ -458,7 +463,7 @@ mod tests {
                 unions: Vec::new(),
                 struct_instances: vec![BackendStructInstance {
                     def_id: struct_def,
-                    name: "Box".to_string(),
+                    name: sym("Box"),
                     args: vec![i32_ty],
                     const_args: Vec::new(),
                     symbol: "Box_i32".to_string(),
@@ -469,18 +474,18 @@ mod tests {
                 union_instances: Vec::new(),
                 enums: vec![BackendEnum {
                     def_id: enum_def,
-                    name: "Choice".to_string(),
+                    name: sym("Choice"),
                     backing_type: i32_ty,
                     variants: vec![
                         BackendEnumVariant {
                             def_id: first_variant,
-                            name: "First".to_string(),
+                            name: sym("First"),
                             value: None,
                             span: Span::default(),
                         },
                         BackendEnumVariant {
                             def_id: second_variant,
-                            name: "Second".to_string(),
+                            name: sym("Second"),
                             value: Some(7),
                             span: Span::default(),
                         },

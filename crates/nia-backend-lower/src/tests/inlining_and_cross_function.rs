@@ -20,7 +20,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -60,7 +60,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -99,7 +99,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -140,7 +140,7 @@ fn main() [2]i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -180,7 +180,7 @@ fn main() [2]i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -221,7 +221,7 @@ fn main() [2]i32 {
         let main = lowering.program.modules[0]
             .functions
             .iter()
-            .find(|function| function.name == "main")
+            .find(|function| function.name == sym("main"))
             .expect("main function");
         let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -265,7 +265,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -307,7 +307,7 @@ fn main() i32 {
         let main = lowering.program.modules[0]
             .functions
             .iter()
-            .find(|function| function.name == "main")
+            .find(|function| function.name == sym("main"))
             .expect("main function");
         let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -355,7 +355,7 @@ fn main() i32 {
         let main = module
             .functions
             .iter()
-            .find(|function| function.name == "main")
+            .find(|function| function.name == sym("main"))
             .expect("main function");
         let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -367,7 +367,7 @@ fn main() i32 {
             !module
                 .function_instances
                 .iter()
-                .any(|instance| instance.name == "identity"),
+                .any(|instance| instance.name == sym("identity")),
             "{level:?}"
         );
         assert!(
@@ -429,7 +429,7 @@ fn main() i32 {
         let main = lowering.program.modules[0]
             .functions
             .iter()
-            .find(|function| function.name == "main")
+            .find(|function| function.name == sym("main"))
             .expect("main function");
         let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -473,7 +473,7 @@ fn main() [5]i32 {
     let o2_main = o2.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let o2_value = first_terminal_value(o2_main.function_body.as_ref().expect("main body"));
 
@@ -499,7 +499,7 @@ fn main() [5]i32 {
     let o3_main = o3.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let o3_value = first_terminal_value(o3_main.function_body.as_ref().expect("main body"));
 
@@ -541,7 +541,7 @@ fn main() [5]i32 {
     let o2_main = o2.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let o2_value = first_terminal_value(o2_main.function_body.as_ref().expect("main body"));
 
@@ -568,7 +568,7 @@ fn main() [5]i32 {
     let o3_main = o3.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let o3_value = first_terminal_value(o3_main.function_body.as_ref().expect("main body"));
 
@@ -611,7 +611,7 @@ fn main() i32 {
     let o2_main = o2.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let o2_value = first_terminal_value(o2_main.function_body.as_ref().expect("main body"));
 
@@ -637,7 +637,7 @@ fn main() i32 {
     let o3_main = o3.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let o3_value = first_terminal_value(o3_main.function_body.as_ref().expect("main body"));
 
@@ -676,7 +676,7 @@ fn main() i32 {
     let main = o3.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -714,7 +714,7 @@ fn main() i32 {
     let main = o3.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -752,7 +752,7 @@ fn main() i32 {
     let main = o3.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -793,7 +793,7 @@ fn main() [5]i32 {
     let o2_main = o2.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let o2_value = first_terminal_value(o2_main.function_body.as_ref().expect("main body"));
 
@@ -807,7 +807,7 @@ fn main() [5]i32 {
     let o3_main = o3.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let o3_value = first_terminal_value(o3_main.function_body.as_ref().expect("main body"));
 
@@ -957,7 +957,7 @@ fn main() i32 {
     let o2_main = o2.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let o2_value = first_terminal_value(o2_main.function_body.as_ref().expect("main body"));
 
@@ -979,7 +979,7 @@ fn main() i32 {
     let o3_main = o3.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let o3_value = first_terminal_value(o3_main.function_body.as_ref().expect("main body"));
 
@@ -1148,7 +1148,7 @@ fn main() i32 {
     let main = o3.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -1192,7 +1192,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -1233,7 +1233,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -1272,7 +1272,7 @@ fn main() [2]i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -1312,7 +1312,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 
@@ -1343,7 +1343,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
 

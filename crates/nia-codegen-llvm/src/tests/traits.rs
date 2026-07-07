@@ -105,10 +105,10 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("__deref"), "{ir}");
-    assert!(ir.contains("__deref_mut"), "{ir}");
-    assert!(ir.contains("__index"), "{ir}");
-    assert!(ir.contains("__index_mut"), "{ir}");
+    assert_contains_mangled_symbol(ir, '@', 0, "deref");
+    assert_contains_mangled_symbol(ir, '@', 0, "deref_mut");
+    assert_contains_mangled_symbol(ir, '@', 0, "index");
+    assert_contains_mangled_symbol(ir, '@', 0, "index_mut");
     assert!(ir.contains("ret i32"), "{ir}");
 }
 
@@ -896,27 +896,45 @@ fn main() i32 {
     assert!(
         !instance_symbols
             .iter()
-            .any(|symbol| symbol.contains("__inst__ptr__nom__Sink")),
+            .any(|symbol| symbol.contains(&format!(
+                "__inst__ptr__nom__{}",
+                backend_symbol_suffix("Sink")
+            ))),
         "{instance_symbols:#?}"
     );
     assert!(
         instance_symbols
             .iter()
-            .any(|symbol| symbol.contains("write_all__inst__t_self_nom__")),
+            .any(|symbol| symbol.contains(&format!(
+                "{}__inst__t_self_nom__",
+                backend_symbol_suffix("write_all")
+            ))),
         "{instance_symbols:#?}"
     );
     assert!(
         instance_symbols
             .iter()
-            .any(|symbol| symbol.contains("write_fmt_bytes__inst__t_nom__")),
+            .any(|symbol| symbol.contains(&format!(
+                "{}__inst__t_nom__",
+                backend_symbol_suffix("write_fmt_bytes")
+            ))),
         "{instance_symbols:#?}"
     );
 
     let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("write_all__inst__"), "{ir}");
-    assert!(ir.contains("write_fmt_bytes__inst__"), "{ir}");
+    assert!(
+        ir.contains(&format!("{}__inst__", backend_symbol_suffix("write_all"))),
+        "{ir}"
+    );
+    assert!(
+        ir.contains(&format!(
+            "{}__inst__",
+            backend_symbol_suffix("write_fmt_bytes")
+        )),
+        "{ir}"
+    );
     assert!(ir.contains("ret i32"), "{ir}");
 }
 

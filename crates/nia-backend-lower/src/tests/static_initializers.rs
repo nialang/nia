@@ -18,7 +18,7 @@ fn main() i32 {
     let zeroes = lowering.program.modules[0]
         .globals
         .iter()
-        .find(|global| global.name == "zeroes")
+        .find(|global| global.name == sym("zeroes"))
         .expect("zeroes global");
 
     assert!(matches!(zeroes.init, Some(StaticInit::Zero)));
@@ -55,7 +55,7 @@ fn main() i32 {
     let zeroes = lowering.program.modules[0]
         .globals
         .iter()
-        .find(|global| global.name == "zeroes")
+        .find(|global| global.name == sym("zeroes"))
         .expect("zeroes global");
 
     assert!(matches!(zeroes.init, Some(StaticInit::Zero)));
@@ -92,7 +92,7 @@ fn main() i32 {
     let values = lowering.program.modules[0]
         .globals
         .iter()
-        .find(|global| global.name == "values")
+        .find(|global| global.name == sym("values"))
         .expect("values global");
 
     assert!(matches!(values.init, Some(StaticInit::Zero)));
@@ -129,7 +129,7 @@ fn main() i32 {
     let values = lowering.program.modules[0]
         .globals
         .iter()
-        .find(|global| global.name == "values")
+        .find(|global| global.name == sym("values"))
         .expect("values global");
 
     assert!(matches!(
@@ -172,7 +172,7 @@ fn main() u8 {
     let bytes = lowering.program.modules[0]
         .globals
         .iter()
-        .find(|global| global.name == "bytes")
+        .find(|global| global.name == sym("bytes"))
         .expect("bytes global");
 
     assert!(matches!(
@@ -201,7 +201,7 @@ fn main() char {
     let text = lowering.program.modules[0]
         .globals
         .iter()
-        .find(|global| global.name == "text")
+        .find(|global| global.name == sym("text"))
         .expect("text global");
 
     assert!(matches!(
@@ -234,12 +234,12 @@ fn main() i32 {
         let zeroes = module
             .globals
             .iter()
-            .find(|global| global.name == "zeroes")
+            .find(|global| global.name == sym("zeroes"))
             .expect("zeroes global");
         let values = module
             .globals
             .iter()
-            .find(|global| global.name == "values")
+            .find(|global| global.name == sym("values"))
             .expect("values global");
 
         assert!(matches!(zeroes.init, Some(StaticInit::Zero)), "{level:?}");
@@ -289,7 +289,7 @@ fn main() i32 {
     let zeroes = lowering.program.modules[0]
         .globals
         .iter()
-        .find(|global| global.name == "zeroes")
+        .find(|global| global.name == sym("zeroes"))
         .expect("zeroes global");
 
     assert!(matches!(
@@ -328,7 +328,7 @@ fn main() i32 {
     let zeroes = lowering.program.modules[0]
         .globals
         .iter()
-        .find(|global| global.name == "zeroes")
+        .find(|global| global.name == sym("zeroes"))
         .expect("zeroes global");
 
     assert!(matches!(zeroes.init, Some(StaticInit::Array(_))));
@@ -364,7 +364,7 @@ fn main() i32 {
     let values = lowering.program.modules[0]
         .globals
         .iter()
-        .find(|global| global.name == "values")
+        .find(|global| global.name == sym("values"))
         .expect("values global");
 
     assert!(matches!(values.init, Some(StaticInit::Array(_))));
@@ -402,12 +402,12 @@ fn main() u8 {
     let bytes = module
         .globals
         .iter()
-        .find(|global| global.name == "bytes")
+        .find(|global| global.name == sym("bytes"))
         .expect("bytes global");
     let text = module
         .globals
         .iter()
-        .find(|global| global.name == "text")
+        .find(|global| global.name == sym("text"))
         .expect("text global");
 
     assert!(matches!(bytes.init, Some(StaticInit::Bytes(_))));
@@ -446,12 +446,12 @@ fn main() u8 {
     let bytes = module
         .globals
         .iter()
-        .find(|global| global.name == "bytes")
+        .find(|global| global.name == sym("bytes"))
         .expect("bytes global");
     let text = module
         .globals
         .iter()
-        .find(|global| global.name == "text")
+        .find(|global| global.name == sym("text"))
         .expect("text global");
 
     assert!(matches!(bytes.init, Some(StaticInit::Bytes(_))));

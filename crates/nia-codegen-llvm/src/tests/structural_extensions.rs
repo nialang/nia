@@ -173,7 +173,10 @@ extend[T] &T {
         .map(|module| module.ir.as_str())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(ir.contains("__is_null__inst__t_u8"), "{ir}");
+    assert!(
+        ir.contains(&backend_symbol_suffix("is_null__inst__t_u8")),
+        "{ir}"
+    );
     assert!(ir.contains("call i1 @"), "{ir}");
     assert!(ir.contains("define i1 @"), "{ir}");
 }
@@ -420,9 +423,18 @@ fn main(ptr: &u8, triple: [3]i32) i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("__is_null__inst__t_u8"), "{ir}");
-    assert!(ir.contains("__zero__inst__t_u8"), "{ir}");
-    assert!(ir.contains("__first__inst__t_i32"), "{ir}");
+    assert!(
+        ir.contains(&backend_symbol_suffix("is_null__inst__t_u8")),
+        "{ir}"
+    );
+    assert!(
+        ir.contains(&backend_symbol_suffix("zero__inst__t_u8")),
+        "{ir}"
+    );
+    assert!(
+        ir.contains(&backend_symbol_suffix("first__inst__t_i32")),
+        "{ir}"
+    );
     assert!(ir.contains("call i1 %"), "{ir}");
     assert!(ir.contains("call i1 @"), "{ir}");
     assert!(ir.contains("call i64 %"), "{ir}");

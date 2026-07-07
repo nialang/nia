@@ -22,10 +22,11 @@ pub(super) use nia_ids::{
     BuiltinTraitMethod, ConstExprId, DefId, GlobalConstExprId, GlobalDefId, LocalId, ModuleId,
 };
 pub(super) use nia_layout::{FieldLayout, StructLayout, TypeLayout};
+pub(super) use nia_mangle::mangle_symbol_id;
 pub(super) use nia_opt::NiaOptimizationLevel;
 pub(super) use nia_span::Span;
 pub(super) use nia_static_ir::{StaticFieldInit, StaticInit};
-pub(super) use nia_symbol::{SymbolId, known, stable_hash};
+pub(super) use nia_symbol::{SymbolId, known, stable_hash, symbol_text_or_unresolved};
 use nia_symbol_table::SymbolTable;
 pub(super) use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyKind};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -50,7 +51,7 @@ pub(super) fn function_local_names(
             (
                 local.id,
                 match local.name {
-                    LocalName::Named(symbol) => symbols.text(symbol),
+                    LocalName::Named(symbol) => symbol_text_or_unresolved(&symbols, symbol),
                     name => name.internal_storage_name(),
                 },
             )
@@ -490,12 +491,14 @@ pub(super) fn assert_substrings_in_order(haystack: &str, needles: &[&str]) {
 }
 
 pub(super) fn mangled_symbol(ir: &str, sigil: char, module: u32, name: &str) -> String {
-    find_mangled_symbol(ir, sigil, module, name)
+    let name = expected_backend_symbol_suffix(name);
+    find_mangled_symbol(ir, sigil, module, &name)
         .unwrap_or_else(|| panic!("missing mangled symbol `{sigil}nia__m{module}__d...__{name}`"))
 }
 
 pub(super) fn mangled_symbol_any_module(ir: &str, sigil: char, name: &str) -> String {
-    find_mangled_symbol_any_module(ir, sigil, name)
+    let name = expected_backend_symbol_suffix(name);
+    find_mangled_symbol_any_module(ir, sigil, &name)
         .unwrap_or_else(|| panic!("missing mangled symbol `{sigil}nia__m...__d...__{name}`"))
 }
 
@@ -503,10 +506,22 @@ pub(super) fn assert_contains_mangled_symbol(ir: &str, sigil: char, module: u32,
     let _ = mangled_symbol(ir, sigil, module, name);
 }
 
+pub(super) fn backend_symbol_suffix(name: &str) -> String {
+    expected_backend_symbol_suffix(name)
+}
+
 pub(super) fn assert_not_contains_mangled_symbol(ir: &str, sigil: char, module: u32, name: &str) {
-    if let Some(symbol) = find_mangled_symbol(ir, sigil, module, name) {
+    let name = expected_backend_symbol_suffix(name);
+    if let Some(symbol) = find_mangled_symbol(ir, sigil, module, &name) {
         panic!("unexpected mangled symbol `{symbol}` in IR:\n{ir}");
     }
+}
+
+fn expected_backend_symbol_suffix(name: &str) -> String {
+    let Some((base, rest)) = name.split_once("__") else {
+        return mangle_symbol_id(sym(name));
+    };
+    format!("{}__{rest}", mangle_symbol_id(sym(base)))
 }
 
 fn find_mangled_symbol(ir: &str, sigil: char, module: u32, name: &str) -> Option<String> {

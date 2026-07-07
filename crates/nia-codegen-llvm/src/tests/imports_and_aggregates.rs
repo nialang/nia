@@ -195,8 +195,8 @@ extend Item {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    assert!(main_ir.ir.contains("__HoldsItem"));
-    assert!(main_ir.ir.contains("__Item"));
+    assert!(main_ir.ir.contains(&backend_symbol_suffix("HoldsItem")));
+    assert!(main_ir.ir.contains(&backend_symbol_suffix("Item")));
     assert!(main_ir.ir.contains("ret i32"));
 }
 

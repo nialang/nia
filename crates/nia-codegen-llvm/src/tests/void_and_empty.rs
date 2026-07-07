@@ -81,7 +81,12 @@ pub fn take(value: Empty) i32 {
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
     let take = mangled_symbol_any_module(&main_ir.ir, '@', "take");
-    assert!(main_ir.ir.contains("__take_local()"), "{}", main_ir.ir);
+    let take_local = mangled_symbol(&main_ir.ir, '@', 0, "take_local");
+    assert!(
+        main_ir.ir.contains(&format!("call i32 {take_local}()")),
+        "{}",
+        main_ir.ir
+    );
     assert!(
         main_ir.ir.contains(&format!("call i32 {take}()")),
         "{}",
@@ -141,8 +146,18 @@ pub fn take(value: Empty) i32 {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    assert!(main_ir.ir.contains("__take_local()"), "{}", main_ir.ir);
-    assert!(main_ir.ir.contains("__take()"), "{}", main_ir.ir);
+    let take_local = mangled_symbol(&main_ir.ir, '@', 0, "take_local");
+    let take = mangled_symbol_any_module(&main_ir.ir, '@', "take");
+    assert!(
+        main_ir.ir.contains(&format!("call i32 {take_local}()")),
+        "{}",
+        main_ir.ir
+    );
+    assert!(
+        main_ir.ir.contains(&format!("call i32 {take}()")),
+        "{}",
+        main_ir.ir
+    );
 }
 
 #[test]
@@ -225,8 +240,18 @@ pub fn take(value: Box[i32]) i32 {
         .iter()
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module IR");
-    assert!(main_ir.ir.contains("__take_local()"), "{}", main_ir.ir);
-    assert!(main_ir.ir.contains("__take()"), "{}", main_ir.ir);
+    let take_local = mangled_symbol(&main_ir.ir, '@', 0, "take_local");
+    let take = mangled_symbol_any_module(&main_ir.ir, '@', "take");
+    assert!(
+        main_ir.ir.contains(&format!("call i32 {take_local}()")),
+        "{}",
+        main_ir.ir
+    );
+    assert!(
+        main_ir.ir.contains(&format!("call i32 {take}()")),
+        "{}",
+        main_ir.ir
+    );
 }
 
 #[test]

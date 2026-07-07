@@ -18,6 +18,8 @@ use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBody, FunctionLocalKind};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::TypeLayout;
+use nia_mangle::mangle_symbol_id;
+use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, PrimitiveTy};
 
 type FunctionInstanceKey = (
@@ -29,6 +31,10 @@ type FunctionInstanceKey = (
 );
 type AggregateInstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>);
 type AggregateFieldsLookup = RefCell<HashMap<AggregateInstanceKey, Option<Vec<InternedTyId>>>>;
+
+pub(super) fn backend_symbol_debug_name(name: SymbolId) -> String {
+    mangle_symbol_id(name)
+}
 
 pub(super) fn validate_backend_program(
     program: &BackendProgram,
@@ -73,7 +79,9 @@ impl BackendValidator<'_> {
             if function.generics.is_empty() {
                 self.current_item = Some(format!(
                     "function {} in {}::{:?}",
-                    function.name, module.name, function.def_id
+                    backend_symbol_debug_name(function.name),
+                    module.name,
+                    function.def_id
                 ));
                 self.validate_type(function.return_type, function.span);
                 for param in &function.params {
@@ -93,7 +101,10 @@ impl BackendValidator<'_> {
         for function in &module.function_instances {
             self.current_item = Some(format!(
                 "function instance {} in {}::{:?}::{:?}",
-                function.name, module.name, function.def_id, function.args
+                backend_symbol_debug_name(function.name),
+                module.name,
+                function.def_id,
+                function.args
             ));
             self.validate_type(function.return_type, function.span);
             for param in &function.params {
@@ -110,7 +121,7 @@ impl BackendValidator<'_> {
             self.current_item = None;
         }
         for global in &module.globals {
-            self.current_item = Some(format!("global {}", global.name));
+            self.current_item = Some(format!("global {}", backend_symbol_debug_name(global.name)));
             self.validate_runtime_type(global.ty, global.span);
             if let Some(init) = &global.init {
                 self.validate_static_init(global.ty, init, global.span);
@@ -119,7 +130,8 @@ impl BackendValidator<'_> {
         }
         for item in &module.structs {
             if item.generics.is_empty() {
-                self.current_item = Some(format!("struct {}", item.name));
+                self.current_item =
+                    Some(format!("struct {}", backend_symbol_debug_name(item.name)));
                 for field in &item.fields {
                     self.validate_runtime_type(field.ty, field.span);
                 }
@@ -127,7 +139,11 @@ impl BackendValidator<'_> {
             }
         }
         for item in &module.struct_instances {
-            self.current_item = Some(format!("struct instance {}::{:?}", item.name, item.args));
+            self.current_item = Some(format!(
+                "struct instance {}::{:?}",
+                backend_symbol_debug_name(item.name),
+                item.args
+            ));
             for field in &item.fields {
                 self.validate_runtime_type(field.ty, field.span);
             }
@@ -135,7 +151,7 @@ impl BackendValidator<'_> {
         }
         for item in &module.unions {
             if item.generics.is_empty() {
-                self.current_item = Some(format!("union {}", item.name));
+                self.current_item = Some(format!("union {}", backend_symbol_debug_name(item.name)));
                 for field in &item.fields {
                     self.validate_runtime_type(field.ty, field.span);
                 }
@@ -143,14 +159,18 @@ impl BackendValidator<'_> {
             }
         }
         for item in &module.union_instances {
-            self.current_item = Some(format!("union instance {}::{:?}", item.name, item.args));
+            self.current_item = Some(format!(
+                "union instance {}::{:?}",
+                backend_symbol_debug_name(item.name),
+                item.args
+            ));
             for field in &item.fields {
                 self.validate_runtime_type(field.ty, field.span);
             }
             self.current_item = None;
         }
         for item in &module.enums {
-            self.current_item = Some(format!("enum {}", item.name));
+            self.current_item = Some(format!("enum {}", backend_symbol_debug_name(item.name)));
             self.validate_runtime_type(item.backing_type, item.span);
             self.current_item = None;
         }

@@ -33,7 +33,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -92,7 +92,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -243,7 +243,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -287,7 +287,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -310,7 +310,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -345,7 +345,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -403,7 +403,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -456,7 +456,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -510,7 +510,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -563,7 +563,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
     let effectful_exprs = body
@@ -623,7 +623,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -665,7 +665,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
     let source_id = body
@@ -700,7 +700,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
     let copy_id = body
@@ -735,7 +735,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
     let value = first_terminal_value(body);
@@ -780,7 +780,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
     let value_id = body
@@ -826,7 +826,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -869,7 +869,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -936,7 +936,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -993,7 +993,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -1041,7 +1041,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
@@ -1087,7 +1087,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 

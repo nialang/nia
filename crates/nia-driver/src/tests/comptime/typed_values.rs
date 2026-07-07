@@ -329,13 +329,13 @@ static mut signed_global: i32 = signed_value;
     let narrow_global = main_module
         .globals
         .iter()
-        .find(|global| global.name == "narrow_global")
+        .find(|global| global.name == sym("narrow_global"))
         .expect("narrow_global");
     assert_eq!(narrow_global.init, Some(static_int(2)));
     let signed_global = main_module
         .globals
         .iter()
-        .find(|global| global.name == "signed_global")
+        .find(|global| global.name == sym("signed_global"))
         .expect("signed_global");
     assert_eq!(signed_global.init, Some(static_int(-1)));
 }
@@ -378,7 +378,7 @@ static mut value: i32 = n as i32;
     let value = main_module
         .globals
         .iter()
-        .find(|global| global.name == "value")
+        .find(|global| global.name == sym("value"))
         .expect("value global");
     assert_eq!(value.init, Some(static_int(7)));
 }
@@ -463,7 +463,7 @@ static mut value: i32 = n as i32;
     let value = main_module
         .globals
         .iter()
-        .find(|global| global.name == "value")
+        .find(|global| global.name == sym("value"))
         .expect("value global");
     assert_eq!(value.init, Some(static_int(8)));
 }

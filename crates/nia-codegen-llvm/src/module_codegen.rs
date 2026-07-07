@@ -21,8 +21,9 @@ use nia_llvm::{
     types::{BasicTypeEnum, FunctionType, StructType},
     values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue},
 };
-use nia_mangle::{mangle_base_symbol, mangle_type_with};
+use nia_mangle::{mangle_base_symbol_id, mangle_symbol_id, mangle_type_with};
 use nia_span::Span;
+use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, PrimitiveTy, TyInterner, TyKind};
 
 type InstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>);
@@ -405,7 +406,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         function.span,
                         format!(
                             "missing function body for `{}` {:?}",
-                            function.name, function.def_id
+                            self.symbol_debug_name(function.name),
+                            function.def_id
                         ),
                     ));
                 }
@@ -414,7 +416,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let Some(llvm_function) = self.functions.get(&function.def_id).copied() else {
                 return Err(self.error(
                     function.span,
-                    format!("missing function `{}`", function.name),
+                    format!(
+                        "missing function `{}`",
+                        self.symbol_debug_name(function.name)
+                    ),
                 ));
             };
             let mut codegen = FunctionCodegen::new(self, function, llvm_function);
@@ -427,7 +432,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         instance.span,
                         format!(
                             "missing function instance body for `{}` {:?} with args {:?}",
-                            instance.name, instance.def_id, instance.args
+                            self.symbol_debug_name(instance.name),
+                            instance.def_id,
+                            instance.args
                         ),
                     ));
                 }
@@ -461,27 +468,37 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self.source.interner
     }
 
-    fn symbol_name(&self, def_id: GlobalDefId, name: &str) -> String {
-        mangle_base_symbol(def_id, name)
+    pub(super) fn symbol_debug_name(&self, name: SymbolId) -> String {
+        mangle_symbol_id(name)
     }
 
-    fn struct_symbol_name(&self, def_id: GlobalDefId, name: &str) -> String {
+    fn symbol_name(&self, def_id: GlobalDefId, name: SymbolId) -> String {
+        mangle_base_symbol_id(def_id, name)
+    }
+
+    fn struct_symbol_name(&self, def_id: GlobalDefId, name: SymbolId) -> String {
         self.symbol_name(def_id, name)
     }
 
     fn function_symbol_name(&self, function: &BackendFunction) -> String {
         if function.is_extern {
-            function.name.clone()
+            function
+                .link_name
+                .clone()
+                .unwrap_or_else(|| self.symbol_debug_name(function.name))
         } else {
-            self.symbol_name(function.def_id, &function.name)
+            self.symbol_name(function.def_id, function.name)
         }
     }
 
     fn global_symbol_name(&self, global: &nia_backend_ir::BackendGlobal) -> String {
         if global.is_extern {
-            global.name.clone()
+            global
+                .link_name
+                .clone()
+                .unwrap_or_else(|| self.symbol_debug_name(global.name))
         } else {
-            self.symbol_name(global.def_id, &global.name)
+            self.symbol_name(global.def_id, global.name)
         }
     }
 
@@ -519,24 +536,24 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 self.program
                     .structs
                     .get(&def_id)
-                    .map(|item| item.name.clone())
+                    .map(|item| mangle_symbol_id(item.name))
                     .or_else(|| {
                         self.program
                             .unions
                             .get(&def_id)
-                            .map(|item| item.name.clone())
+                            .map(|item| mangle_symbol_id(item.name))
                     })
                     .or_else(|| {
                         self.program
                             .enums
                             .get(&def_id)
-                            .map(|item| item.name.clone())
+                            .map(|item| mangle_symbol_id(item.name))
                     })
                     .or_else(|| {
                         self.program
                             .functions
                             .get(&def_id)
-                            .map(|item| item.name.clone())
+                            .map(|item| mangle_symbol_id(item.name))
                     })
                     .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
             },

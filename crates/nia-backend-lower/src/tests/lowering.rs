@@ -288,7 +288,7 @@ fn main() i32 {
     let main = module
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     assert!(
         main.function_body
@@ -314,7 +314,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
     let Some(FunctionOp::Binding(binding)) = body.blocks[0].ops.first() else {
@@ -354,7 +354,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let function_body = main.function_body.as_ref().expect("main function body");
     assert_eq!(function_body.blocks.len(), 2);
@@ -393,7 +393,7 @@ fn main() i32 {
     let main = lowering.program.modules[0]
         .functions
         .iter()
-        .find(|function| function.name == "main")
+        .find(|function| function.name == sym("main"))
         .expect("main function");
     let function_body = main.function_body.as_ref().expect("main function body");
     let FunctionTerminator::Next { target, .. } = function_body.blocks[0].terminator else {
@@ -431,7 +431,7 @@ fn main() i32 {
     let instance = module
         .function_instances
         .iter()
-        .find(|instance| instance.name == "id")
+        .find(|instance| instance.name == sym("id"))
         .expect("id instance");
     let body = instance
         .function_body
@@ -464,7 +464,7 @@ fn main() usize {
     let mut instances = module
         .function_instances
         .iter()
-        .filter(|instance| instance.name == "take")
+        .filter(|instance| instance.name == sym("take"))
         .collect::<Vec<_>>();
     instances.sort_by_key(|instance| {
         instance
@@ -525,7 +525,7 @@ fn main() usize {
     let mut instances = module
         .struct_instances
         .iter()
-        .filter(|instance| instance.name == "Buffer")
+        .filter(|instance| instance.name == sym("Buffer"))
         .collect::<Vec<_>>();
     instances.sort_by_key(|instance| {
         instance
@@ -580,13 +580,16 @@ fn main() i32 {
     let u64_ty = module.interner.primitive(nia_ty::PrimitiveTy::U64);
 
     assert!(
-        module.globals.iter().all(|global| global.name != "item"),
+        module
+            .globals
+            .iter()
+            .all(|global| global.name != sym("item")),
         "generic local static must not lower as shared ordinary global"
     );
     let mut item_instances = module
         .global_instances
         .iter()
-        .filter(|global| global.name == "item")
+        .filter(|global| global.name == sym("item"))
         .collect::<Vec<_>>();
     item_instances.sort_by_key(|global| global.symbol.clone());
 
@@ -638,7 +641,7 @@ fn main() i32 {
     let instance = module
         .function_instances
         .iter()
-        .find(|instance| instance.name == "inner")
+        .find(|instance| instance.name == sym("inner"))
         .expect("inner instance");
 
     assert_eq!(instance.args, vec![i32_ptr]);
@@ -716,22 +719,28 @@ fn main(argc: usize, argv: &&u8, envp: &&u8) usize {
         .functions
         .iter()
         .filter(|function| {
-            matches!(
-                function.name.as_str(),
-                "init" | "argc" | "args" | "env" | "argv" | "envp"
-            )
+            matches!(function.name, name if [
+                sym("init"),
+                sym("argc"),
+                sym("args"),
+                sym("env"),
+                sym("argv"),
+                sym("envp"),
+            ]
+            .contains(&name))
         })
-        .map(|function| function.name.as_str())
+        .map(|function| function.name)
         .collect::<Vec<_>>();
 
     for name in ["argc", "args", "env", "argv", "envp"] {
+        let name_symbol = sym(name);
         assert!(
-            init_methods.contains(&name),
+            init_methods.contains(&name_symbol),
             "missing concrete extension method `{name}` from backend functions: {init_methods:?}"
         );
     }
     assert!(
-        !init_methods.contains(&"init"),
+        !init_methods.contains(&sym("init")),
         "unused extension constructors should not be lowered eagerly: {init_methods:?}"
     );
 }

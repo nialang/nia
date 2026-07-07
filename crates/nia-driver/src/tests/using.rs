@@ -681,7 +681,7 @@ fn same(a: palette::Color, b: palette::Color) bool {
     let same = main_module
         .functions
         .iter()
-        .find(|function| function.name == "same")
+        .find(|function| function.name == sym("same"))
         .expect("same function");
     let body = same.function_body.as_ref().expect("same body");
     assert!(

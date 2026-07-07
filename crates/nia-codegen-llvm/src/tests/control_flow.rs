@@ -733,7 +733,7 @@ fn main() i32 {
         module
             .function_instances
             .iter()
-            .any(|instance| instance.name == "id"),
+            .any(|instance| instance.name == sym("id")),
         "{:?}",
         module.function_instances
     );

@@ -3,7 +3,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
 
-use super::BackendValidator;
+use super::{BackendValidator, backend_symbol_debug_name};
 
 impl BackendValidator<'_> {
     pub(super) fn validate_function_ref(&mut self, def_id: GlobalDefId, span: Span, message: &str) {
@@ -79,8 +79,8 @@ impl BackendValidator<'_> {
                 .index
                 .functions
                 .get(&def_id)
-                .map(|function| function.name.as_str())
-                .unwrap_or("<missing template>");
+                .map(|function| backend_symbol_debug_name(function.name))
+                .unwrap_or_else(|| "<missing template>".to_string());
             let module_name = self
                 .index
                 .modules

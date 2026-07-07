@@ -12,6 +12,7 @@ use nia_backend_ir::{
 use nia_function_ir::{FunctionBody, FunctionLocal, FunctionLocalKind};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::FunctionAttribute;
+use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, TyKind};
 
 pub(crate) type InstanceKey = (
@@ -201,6 +202,7 @@ impl<'a> ModuleLowerer<'a> {
     ) {
         let name = self
             .function_instance_name(&mut HashMap::new(), def_id)
+            .map(|name| self.symbol_name(name))
             .unwrap_or_else(|| format!("def{}", def_id.def_id.0));
         let type_args = args
             .iter()
@@ -238,6 +240,7 @@ impl<'a> ModuleLowerer<'a> {
     ) {
         let name = self
             .function_instance_name(&mut HashMap::new(), def_id)
+            .map(|name| self.symbol_name(name))
             .unwrap_or_else(|| format!("def{}", def_id.def_id.0));
         self.diagnostics.push(
             nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
@@ -355,7 +358,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         functions_by_def: &mut HashMap<GlobalDefId, BackendFunction>,
         def_id: GlobalDefId,
-    ) -> Option<String> {
+    ) -> Option<SymbolId> {
         if !functions_by_def.contains_key(&def_id)
             && let Some(function) = self.backend_function_template_for_program_def(def_id)
         {
@@ -505,7 +508,11 @@ impl<'a> ModuleLowerer<'a> {
         });
         Some(BackendFunction {
             def_id,
-            name: self.symbol_name(signature.name),
+            name: signature.name,
+            link_name: signature
+                .signature
+                .is_extern
+                .then(|| self.symbol_name(signature.name)),
             generics: effective_generics,
             params: signature
                 .signature
