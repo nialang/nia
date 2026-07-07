@@ -72,6 +72,7 @@ dependencies = [
  "nia-ids",
  "nia-node-id",
  "nia-span",
+ "nia-symbol",
 ]
 
 [[package]]
@@ -93,6 +94,7 @@ dependencies = [
  "nia-layout",
  "nia-span",
  "nia-static-ir",
+ "nia-symbol",
  "nia-ty",
 ]
 
@@ -128,6 +130,8 @@ dependencies = [
  "nia-source",
  "nia-span",
  "nia-static-ir",
+ "nia-symbol",
+ "nia-symbol-table",
  "nia-target-config",
  "nia-timing",
  "nia-trait-solve",
@@ -155,6 +159,7 @@ dependencies = [
  "nia-layout",
  "nia-literals",
  "nia-local-resolve",
+ "nia-mangle",
  "nia-node-id",
  "nia-parser",
  "nia-program-signatures",
@@ -163,6 +168,8 @@ dependencies = [
  "nia-source",
  "nia-span",
  "nia-static-ir",
+ "nia-symbol",
+ "nia-symbol-table",
  "nia-syntax",
  "nia-target-config",
  "nia-timing",
@@ -180,10 +187,12 @@ version = "0.4.3"
 dependencies = [
  "nia-ast",
  "nia-ids",
+ "nia-ir-names",
  "nia-node-id",
  "nia-sema-ir",
  "nia-span",
  "nia-static-ir",
+ "nia-symbol",
  "nia-ty",
 ]
 
@@ -234,6 +243,7 @@ dependencies = [
  "nia-opt",
  "nia-span",
  "nia-static-ir",
+ "nia-symbol",
  "nia-ty",
 ]
 
@@ -275,6 +285,8 @@ dependencies = [
  "nia-source",
  "nia-span",
  "nia-static-check",
+ "nia-symbol",
+ "nia-symbol-table",
  "nia-syntax",
  "nia-target-config",
  "nia-timing",
@@ -306,6 +318,8 @@ dependencies = [
  "nia-sema-ir",
  "nia-source",
  "nia-span",
+ "nia-symbol",
+ "nia-symbol-table",
  "nia-target-config",
  "nia-trait-solve",
  "nia-ty",
@@ -327,6 +341,7 @@ dependencies = [
  "nia-parser",
  "nia-sema",
  "nia-span",
+ "nia-symbol",
  "nia-ty",
 ]
 
@@ -336,10 +351,13 @@ version = "0.4.3"
 dependencies = [
  "nia-ast",
  "nia-ids",
+ "nia-literals",
  "nia-node-id",
  "nia-sema-ir",
  "nia-source",
  "nia-span",
+ "nia-symbol",
+ "nia-symbol-table",
 ]
 
 [[package]]
@@ -353,6 +371,7 @@ dependencies = [
  "nia-node-id",
  "nia-parser",
  "nia-span",
+ "nia-symbol",
 ]
 
 [[package]]
@@ -385,6 +404,7 @@ dependencies = [
  "nia-source",
  "nia-span",
  "nia-static-ir",
+ "nia-symbol",
  "nia-target-config",
  "nia-ty",
 ]
@@ -399,6 +419,7 @@ dependencies = [
  "nia-sema-ir",
  "nia-span",
  "nia-static-ir",
+ "nia-symbol",
  "nia-ty",
  "nia-type-lower",
  "nia-type-normalize",
@@ -415,6 +436,7 @@ dependencies = [
  "nia-item-signatures",
  "nia-sema-ir",
  "nia-span",
+ "nia-symbol",
  "nia-timing",
  "nia-ty",
  "nia-type-lower",
@@ -433,6 +455,7 @@ dependencies = [
  "nia-item-tree",
  "nia-parser",
  "nia-span",
+ "nia-symbol",
  "nia-ty",
  "nia-type-lower",
  "nia-type-resolve",
@@ -444,7 +467,9 @@ version = "0.4.3"
 dependencies = [
  "nia-ast",
  "nia-ids",
+ "nia-ir-names",
  "nia-span",
+ "nia-symbol",
  "nia-ty",
 ]
 
@@ -458,6 +483,7 @@ dependencies = [
  "nia-ids",
  "nia-sema-ir",
  "nia-span",
+ "nia-symbol",
  "nia-ty",
 ]
 
@@ -471,6 +497,7 @@ dependencies = [
  "nia-literals",
  "nia-opt",
  "nia-span",
+ "nia-symbol",
 ]
 
 [[package]]
@@ -496,6 +523,14 @@ dependencies = [
  "nia-parser",
  "nia-source",
  "nia-span",
+ "nia-symbol",
+]
+
+[[package]]
+name = "nia-ir-names"
+version = "0.4.3"
+dependencies = [
+ "nia-symbol",
 ]
 
 [[package]]
@@ -507,9 +542,11 @@ dependencies = [
  "nia-diagnostic",
  "nia-ids",
  "nia-item-tree",
+ "nia-literals",
  "nia-node-id",
  "nia-parser",
  "nia-span",
+ "nia-symbol",
  "nia-ty",
  "nia-type-lower",
  "nia-type-resolve",
@@ -524,6 +561,7 @@ dependencies = [
  "nia-parser",
  "nia-source",
  "nia-span",
+ "nia-symbol",
  "nia-syntax",
 ]
 
@@ -543,6 +581,8 @@ dependencies = [
  "nia-sema-ir",
  "nia-source",
  "nia-span",
+ "nia-symbol",
+ "nia-symbol-table",
  "nia-target-config",
  "nia-ty",
  "nia-type-lower",
@@ -586,6 +626,7 @@ dependencies = [
  "nia-ast-walk",
  "nia-compiler-query",
  "nia-diagnostic",
+ "nia-ids",
  "nia-imports",
  "nia-item-tree",
  "nia-node-id",
@@ -594,6 +635,8 @@ dependencies = [
  "nia-query",
  "nia-source",
  "nia-span",
+ "nia-symbol",
+ "nia-symbol-table",
  "nia-syntax",
  "nia-target-config",
 ]
@@ -612,6 +655,7 @@ dependencies = [
  "nia-parser",
  "nia-source",
  "nia-span",
+ "nia-symbol",
  "nia-syntax",
  "nia-value-resolve",
 ]
@@ -621,6 +665,7 @@ name = "nia-mangle"
 version = "0.4.3"
 dependencies = [
  "nia-ids",
+ "nia-symbol",
  "nia-ty",
 ]
 
@@ -642,6 +687,7 @@ dependencies = [
  "nia-sema-ir",
  "nia-source",
  "nia-span",
+ "nia-symbol",
  "nia-trait-solve",
  "nia-ty",
  "nia-type-normalize",
@@ -668,6 +714,8 @@ dependencies = [
  "nia-node-id",
  "nia-source",
  "nia-span",
+ "nia-symbol",
+ "nia-symbol-table",
  "nia-syntax",
 ]
 
@@ -677,6 +725,7 @@ version = "0.4.3"
 dependencies = [
  "nia-ids",
  "nia-item-signatures",
+ "nia-symbol",
 ]
 
 [[package]]
@@ -684,8 +733,10 @@ name = "nia-provider-summary"
 version = "0.4.3"
 dependencies = [
  "nia-ast",
+ "nia-ids",
  "nia-item-tree",
  "nia-parser",
+ "nia-symbol",
 ]
 
 [[package]]
@@ -698,6 +749,7 @@ dependencies = [
  "nia-imports",
  "nia-parser",
  "nia-span",
+ "nia-symbol",
 ]
 
 [[package]]
@@ -724,6 +776,7 @@ dependencies = [
  "nia-node-id",
  "nia-source",
  "nia-span",
+ "nia-symbol",
  "nia-ty",
 ]
 
@@ -754,6 +807,8 @@ dependencies = [
  "nia-sema-ir",
  "nia-source",
  "nia-span",
+ "nia-symbol",
+ "nia-symbol-table",
  "nia-target-config",
  "nia-type-lower",
  "nia-type-normalize",
@@ -767,6 +822,20 @@ version = "0.4.3"
 dependencies = [
  "nia-ids",
  "nia-ty",
+]
+
+[[package]]
+name = "nia-symbol"
+version = "0.4.3"
+dependencies = [
+ "nia-ids",
+]
+
+[[package]]
+name = "nia-symbol-table"
+version = "0.4.3"
+dependencies = [
+ "nia-symbol",
 ]
 
 [[package]]
@@ -784,14 +853,14 @@ name = "nia-target-config"
 version = "0.4.3"
 dependencies = [
  "nia-ast",
- "nia-comptime-engine",
- "nia-comptime-ir",
  "nia-diagnostic",
  "nia-ids",
  "nia-item-tree",
+ "nia-literals",
  "nia-node-id",
  "nia-parser",
  "nia-span",
+ "nia-symbol",
 ]
 
 [[package]]
@@ -805,6 +874,7 @@ dependencies = [
  "nia-ids",
  "nia-item-signatures",
  "nia-layout",
+ "nia-symbol",
  "nia-ty",
  "nia-type-normalize",
 ]
@@ -815,6 +885,7 @@ version = "0.4.3"
 dependencies = [
  "nia-ids",
  "nia-span",
+ "nia-symbol",
 ]
 
 [[package]]
@@ -832,6 +903,8 @@ dependencies = [
  "nia-node-id",
  "nia-parser",
  "nia-span",
+ "nia-symbol",
+ "nia-symbol-table",
  "nia-ty",
  "nia-type-resolve",
 ]
@@ -846,6 +919,7 @@ dependencies = [
  "nia-item-signatures",
  "nia-parser",
  "nia-span",
+ "nia-symbol",
  "nia-ty",
  "nia-type-lower",
  "nia-type-resolve",
@@ -865,6 +939,8 @@ dependencies = [
  "nia-node-id",
  "nia-parser",
  "nia-span",
+ "nia-symbol",
+ "nia-symbol-table",
  "nia-ty",
 ]
 
@@ -883,6 +959,7 @@ dependencies = [
  "nia-parser",
  "nia-sema-ir",
  "nia-span",
+ "nia-symbol",
  "nia-ty",
 ]
 

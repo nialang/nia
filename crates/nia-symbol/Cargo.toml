@@ -1,0 +1,12 @@
+[package]
+name = "nia-symbol"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+nia-ids.workspace = true
+
+[lib]
+path = "src/lib.rs"
