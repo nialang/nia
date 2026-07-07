@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
+    cell::RefCell,
     collections::HashMap,
-    sync::{Arc, Condvar, Mutex, OnceLock},
+    sync::{
+        Arc, Condvar, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
     thread::ThreadId,
     time::{Duration, Instant},
 };
 
 const TIMING_REPORT_ENTRY_LIMIT: usize = 64;
+const THREAD_TIMING_BAG_FLUSH_LIMIT: usize = 2048;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimingMode {
@@ -202,7 +207,7 @@ impl TimingAccumulator {
 }
 
 pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T {
-    let collector = {
+    let session = {
         let current_thread = std::thread::current().id();
         let (state, finished) = timing_collector_state();
         let mut state = state.lock().expect("timing collector state poisoned");
@@ -219,26 +224,29 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
                 .wait(state)
                 .expect("timing collector state poisoned");
         }
-        let collector = Arc::new(Mutex::new(TimingCollector::new(options.trace)));
+        let session = Arc::new(TimingSession::new(options.trace));
         state.active = Some(ActiveTimingCollector {
             owner: current_thread,
-            collector: Arc::clone(&collector),
+            session: Arc::clone(&session),
         });
-        collector
+        session
     };
 
     struct TimingCollectionGuard {
-        collector: Arc<Mutex<TimingCollector>>,
+        session: Arc<TimingSession>,
     }
 
     impl Drop for TimingCollectionGuard {
         fn drop(&mut self) {
+            self.session.finish();
+            flush_local_timing_bag_for_session(self.session.id);
+
             let (state, finished) = timing_collector_state();
             let mut state = state.lock().expect("timing collector state poisoned");
             let Some(current) = state.active.as_ref() else {
                 return;
             };
-            if !Arc::ptr_eq(&current.collector, &self.collector) {
+            if !Arc::ptr_eq(&current.session, &self.session) {
                 return;
             }
             state.active = None;
@@ -246,6 +254,7 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
             drop(state);
 
             let (report, trace_events) = self
+                .session
                 .collector
                 .lock()
                 .expect("timing collector poisoned")
@@ -259,7 +268,7 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
         }
     }
 
-    let _guard = TimingCollectionGuard { collector };
+    let _guard = TimingCollectionGuard { session };
     f()
 }
 
@@ -290,7 +299,7 @@ struct TimingCollectorState {
 #[derive(Debug)]
 struct ActiveTimingCollector {
     owner: ThreadId,
-    collector: Arc<Mutex<TimingCollector>>,
+    session: Arc<TimingSession>,
 }
 
 fn timing_collector_state() -> &'static (Mutex<TimingCollectorState>, Condvar) {
@@ -298,44 +307,172 @@ fn timing_collector_state() -> &'static (Mutex<TimingCollectorState>, Condvar) {
     COLLECTOR.get_or_init(|| (Mutex::new(TimingCollectorState::default()), Condvar::new()))
 }
 
-fn active_timing_collector() -> Option<Arc<Mutex<TimingCollector>>> {
+// Shared collection state for one `collect_to_stderr` scope. Hot event recording
+// stays in `ThreadTimingBag`; this sink is touched only when a thread flushes.
+#[derive(Debug)]
+struct TimingSession {
+    id: u64,
+    trace: TimingTrace,
+    active: AtomicBool,
+    collector: Mutex<TimingCollector>,
+}
+
+impl TimingSession {
+    fn new(trace: TimingTrace) -> Self {
+        Self {
+            id: next_timing_session_id(),
+            trace,
+            active: AtomicBool::new(true),
+            collector: Mutex::new(TimingCollector::new(trace)),
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        self.active.load(Ordering::Acquire)
+    }
+
+    fn finish(&self) {
+        self.active.store(false, Ordering::Release);
+    }
+
+    fn merge(&self, collector: TimingCollector) {
+        self.collector
+            .lock()
+            .expect("timing collector poisoned")
+            .merge(collector);
+    }
+}
+
+fn next_timing_session_id() -> u64 {
+    static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+    let id = NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed);
+    assert_ne!(id, u64::MAX, "timing session id overflowed");
+    id
+}
+
+fn active_timing_session() -> Option<Arc<TimingSession>> {
     timing_collector_state()
         .0
         .lock()
         .expect("timing collector state poisoned")
         .active
         .as_ref()
-        .map(|active| Arc::clone(&active.collector))
+        .map(|active| Arc::clone(&active.session))
 }
 
 fn emit(kind: TimingEventKind, name: String, measurement: TimingMeasurement) {
-    if let Some(collector) = active_timing_collector() {
-        collector
-            .lock()
-            .expect("timing collector poisoned")
-            .emit_measurement(kind, name, measurement);
-        return;
-    }
-    print_event(&TimingEvent {
+    let event = TimingEvent {
         kind,
         name,
         data: TimingEventData::Measurement(measurement),
-    });
+    };
+    match record_timing_event(event) {
+        Ok(()) => {}
+        Err(event) => print_event(&event),
+    }
 }
 
 fn emit_note(kind: TimingEventKind, name: String, detail: String) {
-    if let Some(collector) = active_timing_collector() {
-        collector
-            .lock()
-            .expect("timing collector poisoned")
-            .emit_note(kind, name, detail);
-        return;
-    }
-    print_event(&TimingEvent {
+    let event = TimingEvent {
         kind,
         name,
         data: TimingEventData::Note(detail),
+    };
+    match record_timing_event(event) {
+        Ok(()) => {}
+        Err(event) => print_event(&event),
+    }
+}
+
+thread_local! {
+    static LOCAL_TIMING_BAG: RefCell<Option<ThreadTimingBag>> = const { RefCell::new(None) };
+}
+
+fn record_timing_event(event: TimingEvent) -> Result<(), TimingEvent> {
+    LOCAL_TIMING_BAG.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if let Some(bag) = slot.as_mut() {
+            if bag.session.is_active() {
+                bag.record(event);
+                return Ok(());
+            }
+            if let Some(mut stale_bag) = slot.take() {
+                stale_bag.flush();
+            }
+        }
+
+        let Some(session) = active_timing_session() else {
+            return Err(event);
+        };
+        if !session.is_active() {
+            return Err(event);
+        }
+        let mut bag = ThreadTimingBag::new(session);
+        bag.record(event);
+        *slot = Some(bag);
+        Ok(())
+    })
+}
+
+fn flush_local_timing_bag_for_session(session_id: u64) {
+    LOCAL_TIMING_BAG.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let should_flush = slot
+            .as_ref()
+            .is_some_and(|bag| bag.session.id == session_id);
+        if !should_flush {
+            return;
+        }
+        if let Some(mut bag) = slot.take() {
+            bag.flush();
+        }
     });
+}
+
+// Per-thread hot-path buffer. Once a thread has attached to a session, events only
+// touch this TLS bag until it flushes or the collection scope ends.
+#[derive(Debug)]
+struct ThreadTimingBag {
+    session: Arc<TimingSession>,
+    collector: TimingCollector,
+    pending_events: usize,
+}
+
+impl ThreadTimingBag {
+    fn new(session: Arc<TimingSession>) -> Self {
+        let trace = session.trace;
+        Self {
+            session,
+            collector: TimingCollector::new(trace),
+            pending_events: 0,
+        }
+    }
+
+    fn record(&mut self, event: TimingEvent) {
+        self.collector.record(event);
+        self.pending_events += 1;
+        if self.pending_events >= THREAD_TIMING_BAG_FLUSH_LIMIT {
+            self.flush();
+        }
+    }
+
+    fn flush(&mut self) {
+        if self.pending_events == 0 {
+            return;
+        }
+        let collector = std::mem::replace(
+            &mut self.collector,
+            TimingCollector::new(self.session.trace),
+        );
+        self.pending_events = 0;
+        self.session.merge(collector);
+    }
+}
+
+impl Drop for ThreadTimingBag {
+    fn drop(&mut self) {
+        self.flush();
+    }
 }
 
 fn print_event(event: &TimingEvent) {
@@ -399,6 +536,17 @@ impl TimingCollector {
         }
     }
 
+    fn record(&mut self, event: TimingEvent) {
+        match event.data {
+            TimingEventData::Measurement(measurement) => {
+                self.emit_measurement(event.kind, event.name, measurement);
+            }
+            TimingEventData::Note(detail) => {
+                self.emit_note(event.kind, event.name, detail);
+            }
+        }
+    }
+
     fn emit_measurement(
         &mut self,
         kind: TimingEventKind,
@@ -422,6 +570,15 @@ impl TimingCollector {
                 name,
                 data: TimingEventData::Note(detail),
             });
+        }
+    }
+
+    fn merge(&mut self, mut other: TimingCollector) {
+        self.report.merge(std::mem::take(&mut other.report));
+        if let (Some(events), Some(other_events)) =
+            (&mut self.trace_events, other.trace_events.take())
+        {
+            events.extend(other_events);
         }
     }
 
@@ -453,6 +610,20 @@ impl TimingReportBuilder {
         entry.count += measurement.count;
         entry.total += measurement.total;
         entry.max = entry.max.max(measurement.max);
+    }
+
+    fn merge(&mut self, other: TimingReportBuilder) {
+        for entry in other.entries_by_key.into_values() {
+            self.record(
+                entry.kind,
+                entry.name,
+                TimingMeasurement {
+                    total: entry.total,
+                    max: entry.max,
+                    count: entry.count,
+                },
+            );
+        }
     }
 
     fn finish(self) -> TimingReport {
@@ -579,7 +750,7 @@ mod tests {
                 emit_query_timing("inner", Duration::from_millis(2));
             });
         });
-        assert!(active_timing_collector().is_none());
+        assert!(active_timing_session().is_none());
     }
 
     #[test]
@@ -636,6 +807,48 @@ mod tests {
     }
 
     #[test]
+    fn thread_bag_flushes_measurements_and_trace_into_session() {
+        let session = Arc::new(TimingSession::new(TimingTrace::Events));
+        let mut bag = ThreadTimingBag::new(Arc::clone(&session));
+        bag.record(TimingEvent {
+            kind: TimingEventKind::Query,
+            name: "body_check".to_string(),
+            data: TimingEventData::Measurement(TimingMeasurement::single(Duration::from_millis(2))),
+        });
+        bag.record(TimingEvent {
+            kind: TimingEventKind::Query,
+            name: "body_check".to_string(),
+            data: TimingEventData::Measurement(TimingMeasurement::single(Duration::from_millis(5))),
+        });
+        bag.record(TimingEvent {
+            kind: TimingEventKind::Query,
+            name: "body_check".to_string(),
+            data: TimingEventData::Note("items=4".to_string()),
+        });
+        bag.flush();
+
+        let (report, trace_events) = session
+            .collector
+            .lock()
+            .expect("timing collector poisoned")
+            .drain();
+        assert_eq!(
+            report.entries,
+            vec![TimingReportEntry {
+                kind: TimingEventKind::Query,
+                name: "body_check".to_string(),
+                count: 2,
+                total: Duration::from_millis(7),
+                max: Duration::from_millis(5),
+            }]
+        );
+        assert_eq!(
+            trace_events.expect("trace events should be retained").len(),
+            3
+        );
+    }
+
+    #[test]
     fn collector_captures_events_from_worker_threads() {
         let _lock = collector_test_lock();
         collect_to_stderr(TimingOptions::default(), || {
@@ -645,7 +858,7 @@ mod tests {
                 });
             });
         });
-        assert!(active_timing_collector().is_none());
+        assert!(active_timing_session().is_none());
     }
 
     #[test]
