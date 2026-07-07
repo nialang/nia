@@ -233,6 +233,7 @@ impl CompilerDatabase {
     }
 
     fn invalidate_inputs(&self, diff: CompilerInputDiff) -> CompilerInvalidation {
+        self.db.context().clear_executable_checked_module_sets();
         let mut invalidation = CompilerInvalidation::default();
         if diff.graph_changed {
             invalidation.extend(self.db.invalidate(ModuleGraphQuery));
@@ -569,10 +570,12 @@ fn compiler_database_with_providers(
 ) -> CompilerDatabase {
     let timings = request.timings;
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
+    let executable_checked_modules = Arc::new(RwLock::new(ExecutableCheckedModuleStore::default()));
     let db = QueryDb::new_with_timings(
         CompilerContext {
             inputs: inputs.clone(),
             providers,
+            executable_checked_modules,
         },
         timings,
     );
@@ -648,6 +651,27 @@ fn query_error_diagnostic(err: QueryError) -> Diagnostic {
 struct CompilerContext {
     inputs: Arc<RwLock<CompilerInputs>>,
     providers: CompilerQueryProviders,
+    executable_checked_modules: Arc<RwLock<ExecutableCheckedModuleStore>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExecutableCheckedModuleSetId(u64);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ExecutableCheckedModuleSet {
+    pub(super) id: ExecutableCheckedModuleSetId,
+    pub(super) module_ids: Vec<ModuleId>,
+}
+
+#[derive(Default)]
+struct ExecutableCheckedModuleStore {
+    next_id: u64,
+    sets: HashMap<ExecutableCheckedModuleSetId, ExecutableCheckedModuleSetData>,
+}
+
+struct ExecutableCheckedModuleSetData {
+    module_ids: Vec<ModuleId>,
+    modules: HashMap<ModuleId, CheckedModule>,
 }
 
 #[derive(Debug, Clone)]
@@ -695,6 +719,66 @@ fn validate_loaded_module_identities(loaded: &LoadedProgram) {
 }
 
 impl CompilerContext {
+    fn store_executable_checked_modules(
+        &self,
+        modules: Vec<CheckedModule>,
+    ) -> ExecutableCheckedModuleSet {
+        let module_ids = modules.iter().map(|module| module.id).collect::<Vec<_>>();
+        let modules = modules
+            .into_iter()
+            .map(|module| (module.id, module))
+            .collect::<HashMap<_, _>>();
+        let mut store = self
+            .executable_checked_modules
+            .write()
+            .expect("executable checked module store lock poisoned");
+        let id = ExecutableCheckedModuleSetId(store.next_id);
+        store.next_id += 1;
+        store.sets.insert(
+            id,
+            ExecutableCheckedModuleSetData {
+                module_ids: module_ids.clone(),
+                modules,
+            },
+        );
+        ExecutableCheckedModuleSet { id, module_ids }
+    }
+
+    fn executable_checked_modules(&self, set: &ExecutableCheckedModuleSet) -> Vec<CheckedModule> {
+        let store = self
+            .executable_checked_modules
+            .read()
+            .expect("executable checked module store lock poisoned");
+        let data = store.sets.get(&set.id).unwrap_or_else(|| {
+            panic!(
+                "Nia ICE: missing executable checked module set {:?}",
+                set.id
+            )
+        });
+        data.module_ids
+            .iter()
+            .map(|module_id| {
+                data.modules
+                    .get(module_id)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Nia ICE: missing executable checked module {:?} in set {:?}",
+                            module_id, set.id
+                        )
+                    })
+                    .clone()
+            })
+            .collect()
+    }
+
+    fn clear_executable_checked_module_sets(&self) {
+        let mut store = self
+            .executable_checked_modules
+            .write()
+            .expect("executable checked module store lock poisoned");
+        store.sets.clear();
+    }
+
     fn module_field<T, K>(
         &self,
         db: &QueryDb<CompilerContext>,
@@ -1455,6 +1539,9 @@ mod tests {
         QueryDb::new(CompilerContext {
             inputs,
             providers: CompilerQueryProviders::default(),
+            executable_checked_modules: Arc::new(RwLock::new(
+                ExecutableCheckedModuleStore::default(),
+            )),
         })
     }
 
@@ -3446,16 +3533,16 @@ extend Used {
         let trace = db.query_trace();
 
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_modules"
+            dependency.from.name == "executable_checked_module_set"
                 && dependency.to.name == "program_executable_reachability_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_modules"
+            dependency.from.name == "executable_checked_module_set"
                 && dependency.to.name == "signature_item_signatures"
         }));
         assert!(!depends_on_body_signature_query(
             &trace,
-            "executable_checked_modules"
+            "executable_checked_module_set"
         ));
     }
 
@@ -3505,7 +3592,7 @@ extend Used {
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_modules"
+            dependency.from.name == "executable_checked_module_set"
                 && dependency.to.name == "extension_method_index"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -3536,7 +3623,7 @@ extend Used {
         );
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "entry_checked_program"
-                && dependency.to.name == "executable_checked_modules"
+                && dependency.to.name == "executable_checked_module_set"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "entry_checked_program"
@@ -3575,7 +3662,7 @@ extend Used {
         );
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "entry_checked_program"
-                && dependency.to.name == "executable_checked_modules"
+                && dependency.to.name == "executable_checked_module_set"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "entry_checked_program"
@@ -4107,7 +4194,7 @@ fn main() i32 {
                 && dependency.to.name == "program_trait_solving_signatures"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_modules"
+            dependency.from.name == "executable_checked_module_set"
                 && matches!(dependency.to.name, "comptime" | "comptime_enum_values")
         }));
     }

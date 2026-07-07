@@ -427,13 +427,7 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
         let optimization = db.query(CompilerOptimizationQuery);
         let mut diagnostics = early_program_diagnostics(db);
         let modules = checked_modules_for_codegen(db);
-        let diagnostic_modules =
-            if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
-                checked_modules_for_diagnostics(db)
-            } else {
-                modules.clone()
-            };
-        diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
+        diagnostics.extend(checked_module_diagnostics(db, &modules));
         if !diagnostics.is_empty() {
             return CodegenProgram {
                 graph,
@@ -4603,15 +4597,29 @@ pub(super) fn provide_checked_module_ids(db: &QueryDb<CompilerContext>) -> Vec<M
     })
 }
 
+pub(super) fn provide_executable_checked_module_set(
+    db: &QueryDb<CompilerContext>,
+) -> ExecutableCheckedModuleSet {
+    time_provider(
+        db.context().timings(),
+        "executable_checked_module_set",
+        || executable_checked_module_set_inner(db),
+    )
+}
+
+#[cfg(test)]
 pub(super) fn provide_executable_checked_modules(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<CheckedModule> {
     time_provider(db.context().timings(), "executable_checked_modules", || {
-        executable_checked_modules_inner(db)
+        let set = db.query(ExecutableCheckedModuleSetQuery);
+        db.context().executable_checked_modules(&set)
     })
 }
 
-fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
+fn executable_checked_module_set_inner(
+    db: &QueryDb<CompilerContext>,
+) -> ExecutableCheckedModuleSet {
     let parse_ok = db.query(SemanticModuleIdsQuery);
     let graph = db.query(ModuleGraphQuery);
     let mut program_signatures = None::<ProgramExecutableSignatures>;
@@ -5148,7 +5156,8 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
             }
         },
     );
-    codegen_modules
+    db.context()
+        .store_executable_checked_modules(codegen_modules)
 }
 
 fn extend_module_functions_from_local_static_globals(
@@ -5329,7 +5338,7 @@ pub(super) fn provide_monomorphization(
 
 fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
     if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
-        db.query(ExecutableCheckedModulesQuery)
+        materialize_executable_checked_modules(db, db.query(ExecutableCheckedModuleSetQuery))
     } else {
         materialize_checked_modules(db, db.query(CheckedModuleIdsQuery))
     }
@@ -5337,7 +5346,7 @@ fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModu
 
 fn checked_modules_for_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
     if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
-        db.query(ExecutableCheckedModulesQuery)
+        materialize_executable_checked_modules(db, db.query(ExecutableCheckedModuleSetQuery))
     } else {
         materialize_checked_modules(db, db.query(CheckedModuleIdsQuery))
     }
@@ -5348,6 +5357,13 @@ fn materialize_checked_modules(
     module_ids: Vec<ModuleId>,
 ) -> Vec<CheckedModule> {
     db.query_many(module_ids.into_iter().map(CheckedModuleQuery))
+}
+
+fn materialize_executable_checked_modules(
+    db: &QueryDb<CompilerContext>,
+    set: ExecutableCheckedModuleSet,
+) -> Vec<CheckedModule> {
+    db.context().executable_checked_modules(&set)
 }
 
 fn function_bodies_from_checked_modules(
