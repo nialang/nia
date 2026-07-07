@@ -10,6 +10,7 @@ use std::{cell::RefCell, collections::HashMap};
 
 use crate::function_codegen::{FunctionCodegen, FunctionCodegenInput};
 use crate::program_index::ProgramIndex;
+use crate::time_codegen_module_stage;
 use nia_backend_ir::{BackendFunction, BackendLayouts, BackendModule};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
@@ -115,6 +116,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     trait_object_vtable_lookups:
         RefCell<HashMap<(InternedTyId, InternedTyId), Option<GlobalValue<'ctx>>>>,
     trait_object_adapters: RefCell<HashMap<TraitObjectAdapterKey, FunctionValue<'ctx>>>,
+    timings: nia_timing::TimingMode,
 }
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
@@ -122,7 +124,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         context: &'ctx Context,
         source: &'a BackendModule,
         program: &'a ProgramIndex<'a>,
-        _options: crate::output::LlvmCodegenOptions,
+        options: crate::output::LlvmCodegenOptions,
     ) -> Result<Self, Diagnostic> {
         Ok(Self {
             context,
@@ -154,14 +156,19 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             trait_object_vtables: HashMap::new(),
             trait_object_vtable_lookups: RefCell::new(HashMap::new()),
             trait_object_adapters: RefCell::new(HashMap::new()),
+            timings: options.timings,
         })
     }
 
     pub(super) fn emit_ir(&mut self) -> Result<String, Diagnostic> {
-        self.emit_module()?;
-        self.module
-            .ir_string()
-            .map_err(Self::diagnostic_from_llvm_error)
+        time_codegen_module_stage(self.timings, "emit_module", &self.source.name, || {
+            self.emit_module()
+        })?;
+        time_codegen_module_stage(self.timings, "ir_string", &self.source.name, || {
+            self.module
+                .ir_string()
+                .map_err(Self::diagnostic_from_llvm_error)
+        })
     }
 
     pub(super) fn next_static_array_name(&self) -> String {
@@ -208,22 +215,49 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(super) fn emit_object(&mut self, target: &TargetMachine) -> Result<Vec<u8>, Diagnostic> {
-        self.emit_module()?;
-        target
-            .emit_object(&self.module)
-            .map_err(Self::diagnostic_from_llvm_error)
+        time_codegen_module_stage(self.timings, "emit_module", &self.source.name, || {
+            self.emit_module()
+        })?;
+        time_codegen_module_stage(self.timings, "emit_object", &self.source.name, || {
+            target
+                .emit_object(&self.module)
+                .map_err(Self::diagnostic_from_llvm_error)
+        })
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        self.declare_structs()?;
-        self.define_struct_bodies()?;
-        self.declare_functions()?;
-        self.declare_globals()?;
-        self.declare_trait_object_vtables()?;
-        self.emit_function_bodies()?;
-        self.module
-            .verify()
-            .map_err(Self::diagnostic_from_llvm_error)
+        time_codegen_module_stage(self.timings, "declare_structs", &self.source.name, || {
+            self.declare_structs()
+        })?;
+        time_codegen_module_stage(
+            self.timings,
+            "define_struct_bodies",
+            &self.source.name,
+            || self.define_struct_bodies(),
+        )?;
+        time_codegen_module_stage(self.timings, "declare_functions", &self.source.name, || {
+            self.declare_functions()
+        })?;
+        time_codegen_module_stage(self.timings, "declare_globals", &self.source.name, || {
+            self.declare_globals()
+        })?;
+        time_codegen_module_stage(
+            self.timings,
+            "declare_trait_object_vtables",
+            &self.source.name,
+            || self.declare_trait_object_vtables(),
+        )?;
+        time_codegen_module_stage(
+            self.timings,
+            "emit_function_bodies",
+            &self.source.name,
+            || self.emit_function_bodies(),
+        )?;
+        time_codegen_module_stage(self.timings, "verify", &self.source.name, || {
+            self.module
+                .verify()
+                .map_err(Self::diagnostic_from_llvm_error)
+        })
     }
 
     pub(super) fn layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {

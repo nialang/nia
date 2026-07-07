@@ -29,4 +29,5 @@ pub struct LlvmObjectModuleOutput {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LlvmCodegenOptions {
     pub optimization: OptimizationPolicy,
+    pub timings: nia_timing::TimingMode,
 }

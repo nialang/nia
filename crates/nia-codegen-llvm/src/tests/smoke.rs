@@ -93,6 +93,7 @@ fn main() i32 {
             &codegen.backend_lowering.program,
             LlvmCodegenOptions {
                 optimization: codegen.optimization,
+                ..LlvmCodegenOptions::default()
             },
         );
         assert!(

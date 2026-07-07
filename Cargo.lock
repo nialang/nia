@@ -245,6 +245,7 @@ dependencies = [
  "nia-static-ir",
  "nia-symbol",
  "nia-symbol-table",
+ "nia-timing",
  "nia-ty",
 ]
 
