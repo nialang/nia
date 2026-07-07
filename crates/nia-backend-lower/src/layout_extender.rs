@@ -30,6 +30,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
     ) {
         let array_lengths = |id| self.program_array_len(id);
         let program = ProgramLayoutContext {
+            symbols: Some(self.input.symbols),
             layouts: None,
             array_lengths: Some(&array_lengths),
             structs: Some(self.input.program_structs),
@@ -149,6 +150,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
     ) {
         let array_lengths = |id| self.program_array_len(id);
         let program = ProgramLayoutContext {
+            symbols: Some(self.input.symbols),
             layouts: None,
             array_lengths: Some(&array_lengths),
             structs: Some(self.input.program_structs),

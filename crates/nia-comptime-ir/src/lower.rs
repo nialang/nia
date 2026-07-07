@@ -4,7 +4,7 @@ use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId};
 use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
-use nia_symbol::{SymbolId, known, known_symbol_text_or_identity};
+use nia_symbol::{SymbolId, known, symbol_text_from_optional_resolver};
 use nia_symbol_table::SymbolTable;
 
 pub fn lower_expr_early(expr: &nia_ast::Expr) -> Result<EarlyComptimeExpr, ComptimeLowerError> {
@@ -86,6 +86,10 @@ pub(crate) trait ComptimeLowerContext {
     ) -> Result<Option<InternedTyId>, ComptimeLowerError>;
 
     fn intern_name(&self, text: &str, span: Span) -> Result<Option<SymbolId>, ComptimeLowerError>;
+
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_from_optional_resolver(None, symbol)
+    }
 }
 
 impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
@@ -163,6 +167,10 @@ impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
             })
             .transpose()
     }
+
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_from_optional_resolver(self.symbols.map(|symbols| symbols as _), symbol)
+    }
 }
 
 impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
@@ -239,6 +247,10 @@ impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
                 span,
                 message: collision.to_string(),
             })
+    }
+
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_from_optional_resolver(self.symbols.map(|symbols| symbols as _), symbol)
     }
 }
 
@@ -503,14 +515,14 @@ fn lower_call_with_context(
         }
         if let Some(builtin) = layout_builtin_from_symbol(name) {
             let Some(type_arg) = type_arg else {
-                let name = known_symbol_text_or_identity(name);
+                let name = context.symbol_name(name);
                 return Err(ComptimeLowerError {
                     span: builtin_span,
                     message: format!("builtin `{name}` requires a type argument"),
                 });
             };
             if !args.is_empty() {
-                let name = known_symbol_text_or_identity(name);
+                let name = context.symbol_name(name);
                 return Err(ComptimeLowerError {
                     span: builtin_span,
                     message: format!("builtin `{name}` does not take value arguments"),
