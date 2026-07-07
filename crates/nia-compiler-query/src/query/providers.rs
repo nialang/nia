@@ -964,12 +964,14 @@ pub(super) fn provide_local_resolution(
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query(FullModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
-    nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins(
+    let symbols = db.context().symbols();
+    nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
         &active_item_tree,
         &defs,
         &values,
         None,
         &nia_node_id::NodeOriginTable::default(),
+        &symbols,
     )
 }
 
@@ -2084,13 +2086,14 @@ fn body_check_resolution_inputs_for_filter(
                 "executable_body_check.local_resolution",
                 module_id,
                 || {
-                    nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins(
+                    nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
                         &filtered_active_item_tree,
                         &context.active_item_tree,
                         context.defs,
                         &filtered_values,
                         Some(context.source_version),
                         context.origins,
+                        &symbols,
                     )
                 },
             );
@@ -2299,6 +2302,7 @@ fn filtered_comptime_global_initializer_for_body_check(
         global_id.module_id,
         || needed_const_exprs_for_active_item_tree(&filtered_active_item_tree, &lowered),
     );
+    let symbols = db.context().symbols();
     let const_expr_value_resolution = time_module_provider(
         db,
         "executable_body_check.comptime.global_initializer.const_expr_value_resolution",
@@ -2306,7 +2310,6 @@ fn filtered_comptime_global_initializer_for_body_check(
         || {
             let visible_extensions = || db.query(VisibleExtensionsQuery(global_id.module_id));
             let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
-            let symbols = db.context().symbols();
             nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
                 lowered.const_exprs.iter().filter_map(|(id, expr)| {
                     needed_const_exprs.contains(id).then_some(expr.clone())
@@ -2330,13 +2333,14 @@ fn filtered_comptime_global_initializer_for_body_check(
             "executable_body_check.comptime.global_initializer.local_resolution",
             global_id.module_id,
             || {
-                nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins(
+                nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
                     &filtered_active_item_tree,
                     &active_item_tree,
                     &defs,
                     &values,
                     Some(source_version),
                     &origins,
+                    &symbols,
                 )
             },
         );
