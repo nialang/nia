@@ -167,6 +167,16 @@ pub(super) struct ExtensionMethodIndexQueryValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionMethodsNamedQueryValue {
+    pub(super) methods: Vec<nia_defs::ExtensionMethod>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExtensionMethodByIdQueryValue {
+    pub(super) method: Option<nia_defs::ExtensionMethod>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderModuleFactsQueryValue {
     pub(super) methods: nia_defs::ExtensionMethods,
     pub(super) associated_values: nia_defs::ExtensionAssociatedValues,
@@ -189,6 +199,7 @@ pub(super) struct ExtensionProviderNominalModuleFactsQueryValue {
 pub(super) struct ExtensionProviderDiscoveryIndexQueryValue {
     pub(super) provider_modules: Vec<ModuleId>,
     pub(super) nominal_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>>,
+    pub(super) method_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -356,6 +367,44 @@ impl QueryKey<CompilerContext> for ExtensionMethodIndexQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_method_index)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionMethodsNamedQuery(pub(super) SymbolId);
+
+impl QueryKey<CompilerContext> for ExtensionMethodsNamedQuery {
+    type Value = ExtensionMethodsNamedValue;
+
+    fn name() -> &'static str {
+        "extension_methods_named"
+    }
+
+    fn description(&self) -> String {
+        format!("extension_methods_named({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_methods_named)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExtensionMethodByIdQuery(pub(super) GlobalDefId);
+
+impl QueryKey<CompilerContext> for ExtensionMethodByIdQuery {
+    type Value = ExtensionMethodByIdValue;
+
+    fn name() -> &'static str {
+        "extension_method_by_id"
+    }
+
+    fn description(&self) -> String {
+        format!("extension_method_by_id({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.extension_method_by_id)(db, self.0)
     }
 }
 

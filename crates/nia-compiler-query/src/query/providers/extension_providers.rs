@@ -45,6 +45,7 @@ pub(super) fn provide_extension_provider_discovery_index(
     time_provider(timings, "extension_provider_discovery_index", || {
         let mut provider_modules = Vec::new();
         let mut nominal_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
+        let mut method_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         for module_id in trait_modules {
             let summary = db.query(ExtensionProviderSummaryQuery(module_id));
             if !summary.has_providers() {
@@ -57,6 +58,12 @@ pub(super) fn provide_extension_provider_discovery_index(
                     .or_default()
                     .push(module_id);
             }
+            for name in summary.method_index_names() {
+                method_candidates_by_name
+                    .entry(name)
+                    .or_default()
+                    .push(module_id);
+            }
         }
         provider_modules.sort();
         provider_modules.dedup();
@@ -64,9 +71,14 @@ pub(super) fn provide_extension_provider_discovery_index(
             modules.sort();
             modules.dedup();
         }
+        for modules in method_candidates_by_name.values_mut() {
+            modules.sort();
+            modules.dedup();
+        }
         Arc::new(ExtensionProviderDiscoveryIndexQueryValue {
             provider_modules,
             nominal_candidates_by_name,
+            method_candidates_by_name,
         })
     })
 }
@@ -386,6 +398,41 @@ pub(super) fn provide_extension_method_index(
             methods.extend(facts.methods.clone());
         }
         Arc::new(ExtensionMethodIndexQueryValue { methods })
+    })
+}
+
+pub(super) fn provide_extension_methods_named(
+    db: &QueryDb<CompilerContext>,
+    name: SymbolId,
+) -> ExtensionMethodsNamedValue {
+    time_provider(db.context().timings(), "extension_methods_named", || {
+        let discovery = db.query(ExtensionProviderDiscoveryIndexQuery);
+        let mut methods = Vec::new();
+        if let Some(candidate_modules) = discovery.method_candidates_by_name.get(&name) {
+            for facts in db.query_many(
+                candidate_modules
+                    .iter()
+                    .copied()
+                    .map(ExtensionProviderModuleFactsQuery),
+            ) {
+                methods.extend(facts.methods.methods_named(&name).cloned());
+            }
+        }
+        Arc::new(ExtensionMethodsNamedQueryValue { methods })
+    })
+}
+
+pub(super) fn provide_extension_method_by_id(
+    db: &QueryDb<CompilerContext>,
+    def_id: GlobalDefId,
+) -> ExtensionMethodByIdValue {
+    time_provider(db.context().timings(), "extension_method_by_id", || {
+        let method = db
+            .query(ExtensionProviderModuleFactsQuery(def_id.module_id))
+            .methods
+            .method_by_id(def_id)
+            .cloned();
+        Arc::new(ExtensionMethodByIdQueryValue { method })
     })
 }
 
