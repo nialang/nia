@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    sync::Arc,
+};
 
 use nia_defs::{
     AssociatedTypeBindingSignature, DefCollection, ExtensionAssociatedValue,
@@ -599,7 +602,7 @@ pub(crate) fn collect_extension_methods_for_module(
 
 pub(crate) fn collect_extension_method_index_for_module(
     module: &ExtensionMethodIndexModuleInput<'_>,
-    defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+    defs: &dyn ProgramDefsResolver,
 ) -> ExtensionMethods {
     let mut extensions = ExtensionMethods::default();
     for impl_signature in &module.signatures.trait_impls {
@@ -640,7 +643,7 @@ pub(crate) fn collect_extension_method_index_for_module(
 
 pub(crate) fn collect_nominal_extension_providers_for_module(
     module: &ExtensionMethodIndexModuleInput<'_>,
-    defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+    defs: &dyn ProgramDefsResolver,
 ) -> Vec<NominalExtensionProviderEntry> {
     let mut providers = Vec::new();
     for impl_signature in &module.signatures.trait_impls {
@@ -821,12 +824,12 @@ fn impl_trait_id(
 fn impl_trait_id_for_index_with_defs(
     module: &ExtensionMethodIndexModuleInput<'_>,
     impl_signature: &TraitImplSignature,
-    defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+    defs: &dyn ProgramDefsResolver,
 ) -> Option<TraitId> {
     let trait_ty = impl_signature.trait_ty?;
     let ty = module.normalization.normalize(trait_ty);
     match module.lowering.interner.get(ty).cloned() {
-        Some(TyKind::Nominal { def_id, .. }) => defs(def_id.module_id).and_then(|defs| {
+        Some(TyKind::Nominal { def_id, .. }) => defs.defs(def_id.module_id).and_then(|defs| {
             matches!(
                 defs.defs.get(def_id.def_id).map(|def| def.kind),
                 Some(nia_defs::DefKind::Trait)
@@ -2828,13 +2831,17 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
     }
 }
 
+pub(crate) trait ProgramDefsResolver {
+    fn defs(&self, module_id: nia_ids::ModuleId) -> Option<Arc<DefCollection>>;
+}
+
 pub(crate) struct VisibleExtensionsInput<'a> {
     pub module_id: nia_ids::ModuleId,
     pub graph: &'a nia_imports::ModuleGraph,
     pub using_scope: &'a nia_defs::ModuleUsingScope,
     pub using_scopes: &'a HashMap<nia_ids::ModuleId, nia_defs::ModuleUsingScope>,
     pub public_surfaces: &'a PublicSurfaces,
-    pub defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+    pub defs: &'a dyn ProgramDefsResolver,
     pub normalizations: TypeNormalizationResolver<'a>,
     pub visible_type_signatures: VisibleTypeSignatures<'a>,
     pub extensions: &'a ExtensionMethods,
@@ -2850,32 +2857,25 @@ pub(crate) struct VisibleTypeSignatures<'a> {
 }
 
 struct VisibleExtensionResolverCache<'a> {
-    defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+    defs: &'a dyn ProgramDefsResolver,
     normalizations: TypeNormalizationResolver<'a>,
-    defs_cache: HashMap<nia_ids::ModuleId, Option<DefCollection>>,
     normalization_cache: HashMap<nia_ids::ModuleId, Option<TypeNormalization>>,
 }
 
 impl<'a> VisibleExtensionResolverCache<'a> {
     fn new(
-        defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+        defs: &'a dyn ProgramDefsResolver,
         normalizations: TypeNormalizationResolver<'a>,
     ) -> Self {
         Self {
             defs,
             normalizations,
-            defs_cache: HashMap::new(),
             normalization_cache: HashMap::new(),
         }
     }
 
-    fn defs(&mut self, module_id: nia_ids::ModuleId) -> Option<&DefCollection> {
-        if !self.defs_cache.contains_key(&module_id) {
-            self.defs_cache.insert(module_id, (self.defs)(module_id));
-        }
-        self.defs_cache
-            .get(&module_id)
-            .and_then(|defs| defs.as_ref())
+    fn defs(&self, module_id: nia_ids::ModuleId) -> Option<Arc<DefCollection>> {
+        self.defs.defs(module_id)
     }
 
     fn normalization(&mut self, module_id: nia_ids::ModuleId) -> Option<&TypeNormalization> {
@@ -3104,7 +3104,7 @@ pub(crate) struct VisibleExtensionProviderModulesInput<'a> {
     pub graph: &'a nia_imports::ModuleGraph,
     pub using_scope: &'a nia_defs::ModuleUsingScope,
     pub using_scopes: &'a HashMap<nia_ids::ModuleId, nia_defs::ModuleUsingScope>,
-    pub defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+    pub defs: &'a dyn ProgramDefsResolver,
     pub normalizations: TypeNormalizationResolver<'a>,
     pub visible_type_signatures: VisibleTypeSignatures<'a>,
     pub nominal_extension_providers: NominalExtensionProviderResolver<'a>,
@@ -3300,7 +3300,7 @@ struct VisibilityClosureContext<'a> {
     graph: &'a nia_imports::ModuleGraph,
     using_scope: &'a nia_defs::ModuleUsingScope,
     using_scopes: &'a HashMap<nia_ids::ModuleId, nia_defs::ModuleUsingScope>,
-    defs: &'a dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+    defs: &'a dyn ProgramDefsResolver,
     normalizations: TypeNormalizationResolver<'a>,
     visible_type_signatures: VisibleTypeSignatures<'a>,
     nominal_extension_providers: NominalExtensionProviderResolver<'a>,
@@ -3354,11 +3354,11 @@ fn enqueue_public_inherent_extension_provider_modules_for_targets(
 
 fn nominal_def_id_for_public_type(
     def_id: GlobalDefId,
-    defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,
+    defs: &dyn ProgramDefsResolver,
     normalizations: TypeNormalizationResolver<'_>,
     visible_type_signatures: VisibleTypeSignatures<'_>,
 ) -> Option<GlobalDefId> {
-    let defs = defs(def_id.module_id)?;
+    let defs = defs.defs(def_id.module_id)?;
     let def = defs.defs.get(def_id.def_id)?;
     if matches!(
         def.kind,

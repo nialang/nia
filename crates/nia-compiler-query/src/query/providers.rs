@@ -662,7 +662,7 @@ pub(super) fn provide_type_resolution(
     time_module_provider(db, "type_resolution", module_id, || {
         let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
         let defs = db.query(FullModuleDefsQuery(module_id));
-        let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+        let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
         let graph = db.query(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
@@ -688,7 +688,7 @@ pub(super) fn provide_declaration_type_resolution(
     time_module_provider(db, "declaration_type_resolution", module_id, || {
         let active_item_tree = db.query(DeclarationActiveModuleItemTreeQuery(module_id));
         let defs = db.query(ModuleDefsQuery(module_id));
-        let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+        let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
         let graph = db.query(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
@@ -713,9 +713,9 @@ pub(super) fn provide_signature_type_resolution(
     set: nia_item_tree::SignatureItemSet,
 ) -> TypeResolution {
     time_module_provider(db, "signature_type_resolution", module_id, || {
-        let active_item_tree = db.query(SignatureItemTreeQuery(module_id, set));
+        let active_item_tree = db.query_shared(SignatureItemTreeQuery(module_id, set));
         let defs = db.query(ModuleDefsQuery(module_id));
-        let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+        let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
         let graph = db.query(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
@@ -741,7 +741,7 @@ pub(super) fn provide_signature_comptime_type_resolution(
     time_module_provider(db, "signature_comptime_type_resolution", module_id, || {
         let active_item_tree = db.query(SignatureComptimeItemTreeQuery(module_id));
         let defs = db.query(ModuleDefsQuery(module_id));
-        let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+        let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
         let graph = db.query(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
@@ -766,7 +766,7 @@ pub(super) fn provide_type_lowering(
 ) -> TypeLowering {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
-    let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
     nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
@@ -787,7 +787,7 @@ pub(super) fn provide_declaration_type_lowering(
 ) -> TypeLowering {
     let active_item_tree = db.query(DeclarationActiveModuleItemTreeQuery(module_id));
     let type_resolution = db.query(DeclarationTypeResolutionQuery(module_id));
-    let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
     nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
@@ -807,9 +807,9 @@ pub(super) fn provide_signature_type_lowering(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> TypeLowering {
-    let active_item_tree = db.query(SignatureItemTreeQuery(module_id, set));
+    let active_item_tree = db.query_shared(SignatureItemTreeQuery(module_id, set));
     let type_resolution = db.query(SignatureTypeResolutionQuery(module_id, set));
-    let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
     nia_type_lower::lower_module_declaration_types_from_active_item_tree_with_context(
         module_id,
@@ -830,7 +830,7 @@ pub(super) fn provide_signature_comptime_type_lowering(
 ) -> TypeLowering {
     let active_item_tree = db.query(SignatureComptimeItemTreeQuery(module_id));
     let type_resolution = db.query(SignatureComptimeTypeResolutionQuery(module_id));
-    let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
     nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
@@ -866,7 +866,7 @@ pub(super) fn provide_signature_item_signatures(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> ItemSignatures {
-    let active_item_tree = db.query(SignatureItemTreeQuery(module_id, set));
+    let active_item_tree = db.query_shared(SignatureItemTreeQuery(module_id, set));
     let defs = db.query(ModuleDefsQuery(module_id));
     let type_lowering = db.query(SignatureTypeLoweringQuery(module_id, set));
     let symbols = db.context().symbols();
@@ -938,7 +938,7 @@ pub(super) fn provide_value_resolution(
     time_module_provider(db, "value_resolution", module_id, || {
         let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
         let defs = db.query(FullModuleDefsQuery(module_id));
-        let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+        let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
         let graph = db.query(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
@@ -997,7 +997,7 @@ pub(super) fn provide_semantic_use_table(
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
         let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
-        let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+        let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
         let symbols = db.context().symbols();
         Some(
             nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
@@ -1773,7 +1773,7 @@ fn with_comptime_input_and_program_signatures<T>(
     let defs = db.query(FullModuleDefsQuery(module_id));
     let program_module = |module_id| Some(db.query(ComptimeModuleQuery(module_id)).module);
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
-    let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| Some(db.query(TypeNormalizationQuery(module_id)));
     let value_type_normalization = |module_id| {
         Some(db.query(SignatureTypeNormalizationQuery(
@@ -1957,7 +1957,7 @@ pub(super) fn provide_static_check(
         nia_item_tree::SignatureItemSet::Values,
     ));
     let comptime = db.query(ComptimeValuesQuery(module_id));
-    let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
     let program_comptime_values = |module_id| Some(db.query(ComptimeValuesQuery(module_id)));
     nia_static_check::check_module_static_initializers_with_signatures(
         nia_static_check::StaticCheckPreciseInput {
@@ -2044,7 +2044,7 @@ fn body_check_resolution_inputs_for_filter(
                     )
                 },
             );
-            let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+            let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
             let public_surfaces = time_module_provider(
                 db,
                 "executable_body_check.public_surfaces",
@@ -2278,7 +2278,7 @@ fn filtered_comptime_global_initializer_for_body_check(
             )
         },
     );
-    let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
     let public_surfaces = time_module_provider(
         db,
         "executable_body_check.comptime.global_initializer.public_surfaces",
@@ -2488,7 +2488,7 @@ fn comptime_inputs_for_body_check(
         Some(db.query(ComptimeModuleQuery(module_id)).module)
     };
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
-    let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             return Some(db.query(SignatureTypeNormalizationQuery(
@@ -2684,7 +2684,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
     let origins = db.query(ModuleOriginsQuery(module_id));
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query(FullModuleDefsQuery(module_id));
-    let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
     let lowered = db.query(TypeLoweringQuery(module_id));
     let executable_reachable_filter = matches!(
@@ -3294,7 +3294,7 @@ fn collect_body_signature_subset(
     defs: &DefCollection,
     lowered: &TypeLowering,
 ) -> ItemSignatures {
-    let active_item_tree = db.query(SignatureItemTreeQuery(module_id, set));
+    let active_item_tree = db.query_shared(SignatureItemTreeQuery(module_id, set));
     let symbols = db.context().symbols();
     nia_item_signatures::collect_item_signatures_from_active_item_tree_with_symbols(
         &active_item_tree,
@@ -4442,7 +4442,7 @@ fn extend_module_functions_from_filtered_value_refs(
             nia_item_tree::SignatureItemSet::Functions,
         ))
     });
-    let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
     let public_surfaces =
         time_module_provider(db, "extend_value_refs.public_surfaces", module_id, || {
             db.query(PublicSurfacesQuery)
@@ -5544,7 +5544,7 @@ fn provide_backend_lowering_inner_for_modules(
             &function_bodies,
         )
     });
-    let program_defs = |module_id| Some(db.query(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
     let mut executable_program_signatures;
     let executable_program_functions;
     let backend_program_signatures;

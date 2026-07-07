@@ -120,7 +120,7 @@ pub struct BackendLowerModuleInput<'a> {
         ModuleId,
         (&'a VisibleExtensionMethods, &'a nia_ty::TyInterner),
     >,
-    pub program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
+    pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     pub program_function_body_interners: &'a ProgramFunctionBodyInterners<'a>,
     pub program_type_normalizations:
         &'a std::collections::HashMap<ModuleId, nia_type_normalize::TypeNormalization>,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use nia_ast::{Expr, ExprKind, Module, PathSegmentKind, TypeArg, TypeKind, TypeRef, Visibility};
 use nia_ast_walk::{Visitor, walk_expr, walk_where_clause};
@@ -73,7 +73,7 @@ where
 
 #[derive(Clone, Copy)]
 pub struct ProgramDefsContext<'a> {
-    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
+    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
     pub graph: Option<&'a ModuleGraph>,
 }
 
@@ -97,14 +97,14 @@ impl std::fmt::Debug for ProgramDefsContext<'_> {
 
 enum ModuleDefs<'a> {
     Borrowed(&'a DefCollection),
-    Owned(DefCollection),
+    Shared(Arc<DefCollection>),
 }
 
 impl ModuleDefs<'_> {
     fn as_ref(&self) -> &DefCollection {
         match self {
             ModuleDefs::Borrowed(defs) => defs,
-            ModuleDefs::Owned(defs) => defs,
+            ModuleDefs::Shared(defs) => defs,
         }
     }
 }
@@ -1091,7 +1091,7 @@ impl<'a> ValueResolver<'a> {
         if module_id == self.defs.module_id {
             Some(ModuleDefs::Borrowed(self.defs))
         } else {
-            Some(ModuleDefs::Owned((self.program_defs.defs?)(module_id)?))
+            Some(ModuleDefs::Shared((self.program_defs.defs?)(module_id)?))
         }
     }
 

@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use nia_ast::{
     ArrayLen, AssocBindingKey, Expr, ExprKind, FunctionItem, GenericParam, GenericParamKind, Item,
@@ -180,7 +183,7 @@ impl VersionedTypeUseCollector<'_> {
 
 #[derive(Clone, Copy)]
 pub struct ProgramDefsContext<'a> {
-    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
+    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
 }
 
 impl<'a> ProgramDefsContext<'a> {
@@ -245,7 +248,7 @@ pub fn lower_module_types_with_id(
 ) -> TypeLowering {
     let defs = nia_defs::collect_module_defs(module_id, module);
     let mut program_defs = HashMap::new();
-    program_defs.insert(module_id, defs);
+    program_defs.insert(module_id, Arc::new(defs));
     let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
     let item_tree = ModuleItemTree::from_module(module);
     lower_module_types_from_item_tree_with_defs(
@@ -429,7 +432,7 @@ struct TypeLowerer<'a> {
     resolved: &'a TypeResolution,
     program_defs: ProgramDefsContext<'a>,
     symbols: Option<&'a dyn SymbolText>,
-    defs_cache: HashMap<ModuleId, Option<DefCollection>>,
+    defs_cache: HashMap<ModuleId, Option<Arc<DefCollection>>>,
     interner: TyInterner,
     type_uses: HashMap<NodeSite, InternedTyId>,
     const_exprs: HashMap<GlobalConstExprId, Expr>,
@@ -2153,7 +2156,7 @@ impl<'a> TypeLowerer<'a> {
         }
         self.defs_cache
             .get(&module_id)
-            .and_then(|defs| defs.as_ref())
+            .and_then(|defs| defs.as_deref())
     }
 }
 
@@ -2536,7 +2539,7 @@ fn non_generic_arg(a: Point[i32]) {}
             "{:?}",
             resolved.diagnostics
         );
-        let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let program_defs = HashMap::from([(ModuleId(0), Arc::new(defs.clone()))]);
         let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
         let lowered = lower_module_types_with_defs(
             ModuleId(0),
@@ -2623,7 +2626,7 @@ fn write(source: &mut Source[i32, Item = i32]) void {}
             "{:?}",
             resolved.diagnostics
         );
-        let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let program_defs = HashMap::from([(ModuleId(0), Arc::new(defs.clone()))]);
         let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
         let lowered = lower_module_types_with_defs(
             ModuleId(0),
@@ -2677,7 +2680,7 @@ fn duplicate(source: &Source[Item = i32, Item = bool]) void {}
             "{:?}",
             resolved.diagnostics
         );
-        let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let program_defs = HashMap::from([(ModuleId(0), Arc::new(defs.clone()))]);
         let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
         let lowered = lower_module_types_with_context(
             ModuleId(0),
@@ -2721,7 +2724,7 @@ fn bad(value: Show) void {}
             "{:?}",
             resolved.diagnostics
         );
-        let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let program_defs = HashMap::from([(ModuleId(0), Arc::new(defs.clone()))]);
         let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
         let lowered = lower_module_types_with_defs(
             ModuleId(0),

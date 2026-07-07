@@ -2,14 +2,14 @@ use super::*;
 
 pub(super) enum ModuleDefs<'a> {
     Borrowed(&'a DefCollection),
-    Owned(DefCollection),
+    Shared(std::sync::Arc<DefCollection>),
 }
 
 impl ModuleDefs<'_> {
     pub(super) fn as_ref(&self) -> &DefCollection {
         match self {
             ModuleDefs::Borrowed(defs) => defs,
-            ModuleDefs::Owned(defs) => defs,
+            ModuleDefs::Shared(defs) => defs,
         }
     }
 }
@@ -259,7 +259,7 @@ impl Analyzer<'_> {
         if module_id == self.input.defs.module_id {
             Some(ModuleDefs::Borrowed(self.input.defs))
         } else {
-            Some(ModuleDefs::Owned((self.input.program.defs?)(module_id)?))
+            Some(ModuleDefs::Shared((self.input.program.defs?)(module_id)?))
         }
     }
 

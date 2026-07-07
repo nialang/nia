@@ -296,7 +296,7 @@ fn empty_global_def_ids() -> &'static HashSet<GlobalDefId> {
 
 #[derive(Clone, Copy)]
 pub struct BodyProgramContext<'a> {
-    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
+    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
     pub type_normalizations: Option<&'a dyn Fn(ModuleId) -> Option<TypeNormalization>>,
     pub extension_type_normalizations: Option<&'a dyn Fn(ModuleId) -> Option<TypeNormalization>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
@@ -323,14 +323,14 @@ impl<'a> BodyProgramContext<'a> {
 
 enum ModuleDefs<'a> {
     Borrowed(&'a DefCollection),
-    Owned(DefCollection),
+    Shared(Arc<DefCollection>),
 }
 
 impl ModuleDefs<'_> {
     fn as_ref(&self) -> &DefCollection {
         match self {
             ModuleDefs::Borrowed(defs) => defs,
-            ModuleDefs::Owned(defs) => defs,
+            ModuleDefs::Shared(defs) => defs,
         }
     }
 }
@@ -1540,7 +1540,7 @@ impl<'a> BodyChecker<'a> {
         if module_id == self.defs.module_id {
             Some(ModuleDefs::Borrowed(self.defs))
         } else {
-            Some(ModuleDefs::Owned((self.program.defs?)(module_id)?))
+            Some(ModuleDefs::Shared((self.program.defs?)(module_id)?))
         }
     }
 }

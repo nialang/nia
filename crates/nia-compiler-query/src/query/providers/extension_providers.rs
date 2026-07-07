@@ -1,6 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::program_signatures::program_signature_facts;
 use super::*;
+use std::cell::RefCell;
+
+struct SharedProgramDefsResolver<'a> {
+    db: &'a QueryDb<CompilerContext>,
+    cache: RefCell<HashMap<ModuleId, Option<Arc<DefCollection>>>>,
+}
+
+impl<'a> SharedProgramDefsResolver<'a> {
+    fn new(db: &'a QueryDb<CompilerContext>) -> Self {
+        Self {
+            db,
+            cache: RefCell::new(HashMap::new()),
+        }
+    }
+}
+
+impl crate::program_signatures::ProgramDefsResolver for SharedProgramDefsResolver<'_> {
+    fn defs(&self, module_id: ModuleId) -> Option<Arc<DefCollection>> {
+        if let Some(defs) = self.cache.borrow().get(&module_id) {
+            return defs.clone();
+        }
+        let defs = Some(self.db.query_shared(ModuleDefsQuery(module_id)));
+        self.cache.borrow_mut().insert(module_id, defs.clone());
+        defs
+    }
+}
 
 pub(super) fn provide_extension_provider_summary(
     db: &QueryDb<CompilerContext>,
@@ -67,7 +93,7 @@ pub(super) fn provide_extension_signature_module_input(
 ) -> ExtensionSignatureModuleInputValue {
     Arc::new(ExtensionSignatureModuleInputQueryValue {
         module_id,
-        defs: db.query(ModuleDefsQuery(module_id)),
+        defs: db.query_shared(ModuleDefsQuery(module_id)),
         lowering: db.query(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
@@ -145,7 +171,7 @@ pub(super) fn provide_extension_provider_module_facts(
             });
         }
 
-        let defs = db.query(ModuleDefsQuery(module_id));
+        let defs = db.query_shared(ModuleDefsQuery(module_id));
         let lowering = db.query(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
@@ -165,7 +191,7 @@ pub(super) fn provide_extension_provider_module_facts(
             signatures: &signatures,
             normalization: &normalization,
         };
-        let module_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+        let module_defs = SharedProgramDefsResolver::new(db);
         let methods = collect_extension_method_index_for_module(&module, &module_defs);
         let (associated_values, associated_value_diagnostics) =
             collect_extension_associated_value_index_for_module(&module);
@@ -236,7 +262,7 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
                 });
             }
 
-            let defs = db.query(ModuleDefsQuery(module_id));
+            let defs = db.query_shared(ModuleDefsQuery(module_id));
             let lowering = db.query(SignatureTypeLoweringQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,
@@ -256,7 +282,7 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
                 signatures: &signatures,
                 normalization: &normalization,
             };
-            let module_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+            let module_defs = SharedProgramDefsResolver::new(db);
             let nominal_providers =
                 collect_nominal_extension_providers_for_module(&module, &module_defs);
             Arc::new(ExtensionProviderNominalModuleFactsQueryValue { nominal_providers })
@@ -418,7 +444,7 @@ fn visible_modules_for_module(
     ) -> Vec<ModuleId>,
 ) -> Vec<ModuleId> {
     let graph = db.query(ModuleGraphQuery);
-    let defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+    let defs = SharedProgramDefsResolver::new(db);
     let public_using_scopes = db.query(PublicUsingScopesQuery);
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
     let extension_method_normalization = |module_id| {
@@ -463,7 +489,7 @@ pub(super) fn provide_visible_extensions(
     module_id: ModuleId,
 ) -> VisibleExtensionsValue {
     let graph = db.query(ModuleGraphQuery);
-    let defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+    let defs = SharedProgramDefsResolver::new(db);
     let public_surfaces = db.query(PublicSurfacesQuery);
     let public_using_scopes = db.query(PublicUsingScopesQuery);
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
@@ -514,7 +540,7 @@ pub(super) fn provide_visible_trait_impls(
     module_id: ModuleId,
 ) -> VisibleTraitImplsValue {
     let graph = db.query(ModuleGraphQuery);
-    let defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+    let defs = SharedProgramDefsResolver::new(db);
     let public_surfaces = db.query(PublicSurfacesQuery);
     let public_using_scopes = db.query(PublicUsingScopesQuery);
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::sync::Arc;
+
 use nia_ast::{ArrayElements, BindingItem, Block, Expr, ExprKind, IndexArg, StmtKind, UnaryOp};
 use nia_comptime_check::{ComptimeKey, ComptimeValues};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, ResolvedComptimeEnv};
@@ -30,7 +32,7 @@ pub struct StaticCheckInput<'a> {
     pub symbols: &'a SymbolTable,
     pub signatures: &'a ItemSignatures,
     pub comptime: &'a ComptimeValues,
-    pub program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
+    pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     pub program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
     pub target: &'a TargetConfig,
 }
@@ -67,7 +69,7 @@ pub struct StaticCheckPreciseInput<'a> {
     pub symbols: &'a SymbolTable,
     pub signatures: StaticCheckSignatures<'a>,
     pub comptime: &'a ComptimeValues,
-    pub program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
+    pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     pub program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
     pub target: &'a TargetConfig,
 }
@@ -102,7 +104,7 @@ struct StaticChecker<'a> {
     symbols: &'a SymbolTable,
     signatures: StaticCheckSignatures<'a>,
     comptime: &'a ComptimeValues,
-    program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
+    program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
     target: &'a TargetConfig,
     diagnostics: Vec<Diagnostic>,
@@ -547,7 +549,7 @@ impl StaticChecker<'_> {
 struct StaticComptimeEnv<'a> {
     defs: &'a DefCollection,
     comptime: &'a ComptimeValues,
-    program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
+    program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
     symbols: &'a SymbolTable,
     target: &'a TargetConfig,
