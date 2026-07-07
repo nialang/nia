@@ -3437,6 +3437,17 @@ mod tests {
         }
     }
 
+    struct SingleModuleDefs {
+        module_id: nia_ids::ModuleId,
+        defs: Arc<DefCollection>,
+    }
+
+    impl ProgramDefsResolver for SingleModuleDefs {
+        fn defs(&self, module_id: nia_ids::ModuleId) -> Option<Arc<DefCollection>> {
+            (module_id == self.module_id).then(|| Arc::clone(&self.defs))
+        }
+    }
+
     fn using_type_entry(def_id: GlobalDefId) -> UsingEntry {
         UsingEntry {
             target_module: def_id.module_id,
@@ -3485,7 +3496,10 @@ mod tests {
             normalized: HashMap::new(),
             diagnostics: Vec::new(),
         };
-        let empty_defs = |module_id| (module_id == type_defs.module_id).then(|| type_defs.clone());
+        let defs = SingleModuleDefs {
+            module_id: type_defs.module_id,
+            defs: Arc::new(type_defs.clone()),
+        };
         let normalizations = |_module_id| Some(empty_normalization.clone());
         let calls = RefCell::new(Vec::<Vec<GlobalDefId>>::new());
         let nominal_extension_providers = |targets: &[GlobalDefId]| {
@@ -3509,7 +3523,7 @@ mod tests {
             graph: &graph,
             using_scope: &using_scope,
             using_scopes: &using_scopes,
-            defs: &empty_defs,
+            defs: &defs,
             normalizations: &normalizations,
             visible_type_signatures: VisibleTypeSignatures {
                 type_aliases: &empty_aliases,

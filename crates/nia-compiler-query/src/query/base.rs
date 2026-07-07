@@ -442,7 +442,7 @@ impl QueryKey<CompilerContext> for DeclarationModuleItemTreeQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        let _raw_item_tree = db.query(ModuleItemTreeQuery(self.0));
+        let _raw_item_tree = db.query_shared(ModuleItemTreeQuery(self.0));
         db.query(DeclarationModuleItemTreeInputQuery(self.0))
     }
 }
@@ -459,7 +459,7 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        let _raw_item_tree = db.query(DeclarationModuleItemTreeQuery(self.0));
+        let _raw_item_tree = db.query_shared(DeclarationModuleItemTreeQuery(self.0));
         db.query(DeclarationActiveModuleItemTreeInputQuery(self.0))
     }
 }
