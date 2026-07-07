@@ -3641,7 +3641,7 @@ extend Used {
     }
 
     #[test]
-    fn bare_entry_checked_program_uses_entry_module_diagnostics_without_executable_reachability() {
+    fn bare_entry_checked_program_uses_rooted_diagnostics_without_freestanding_start() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -3660,13 +3660,9 @@ extend Used {
             "{:?}",
             checked.diagnostics
         );
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "entry_checked_program"
-                && dependency.to.name == "executable_checked_module_set"
-        }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "entry_checked_program"
-                && dependency.to.name == "checked_module"
+                && dependency.to.name == "executable_checked_module_set"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "entry_checked_program"

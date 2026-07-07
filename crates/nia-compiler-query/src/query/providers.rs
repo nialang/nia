@@ -5384,11 +5384,7 @@ fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModu
 }
 
 fn checked_modules_for_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
-    if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
-        materialize_executable_checked_modules(db, db.query(ExecutableCheckedModuleSetQuery))
-    } else {
-        materialize_checked_modules(db, db.query(CheckedModuleIdsQuery))
-    }
+    materialize_executable_checked_modules(db, db.query(ExecutableCheckedModuleSetQuery))
 }
 
 fn materialize_checked_modules(
