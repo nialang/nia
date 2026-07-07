@@ -5035,8 +5035,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                 .iter()
                 .copied()
                 .filter(|module_id| reachability.modules.contains(module_id))
-                .filter_map(|module_id| checked_by_id.get(&module_id))
-                .map(|state| state.module.clone())
+                .filter_map(|module_id| checked_by_id.remove(&module_id).map(|state| state.module))
                 .collect::<Vec<_>>()
         },
     );
