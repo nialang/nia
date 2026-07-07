@@ -192,12 +192,10 @@ extend Build {
         let mut source_storage: [os::max_path_bytes]u8 = [_]u8[0; os::max_path_bytes];
         let source_arg = mod_record.root_source.encode(&mut source_storage[..]).as_build_error().?;
         let check_arg = b"check\0";
-        let exe_arg = b"--exe\0";
         let runtime_arg = runtime.argv();
         let optimization_arg = mod_record.optimization.argv();
         self.run_toolchain_module_args(&[
             &check_arg[0],
-            &exe_arg[0],
             source_arg.ptr(),
             runtime_arg,
             optimization_arg,

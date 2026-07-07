@@ -43,15 +43,15 @@ traversal.
 Run an example from the repository root with:
 
 ```sh
-cargo run -p nia-cli -- check --exe examples/00_minimal.nia
+cargo run -p nia-cli -- check examples/00_minimal.nia --runtime freestanding
 cargo run -p nia-cli -- emit --llvm examples/00_minimal.nia
 ```
 
 Check all examples from the repository root with:
 
 ```sh
-for file in examples/*.nia; do cargo run -p nia-cli -- check --exe "$file"; done
-cargo run -p nia-cli -- check --exe examples/modules/main.nia
+for file in examples/*.nia; do cargo run -p nia-cli -- check "$file" --runtime freestanding; done
+cargo run -p nia-cli -- check examples/modules/main.nia --runtime freestanding
 ```
 
 The CLI test suite parses every repository example and freestanding-checks

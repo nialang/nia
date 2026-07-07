@@ -113,13 +113,9 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::Check => HelpDoc {
             title: "nia check",
             about: "Run the frontend and semantic checking pipeline.",
-            usage: &["nia check <file.nia> [--exe | --runtime <runtime>] [--opt-report] [options]"],
+            usage: &["nia check <file.nia> [--runtime <runtime>] [--opt-report] [options]"],
             commands: &[],
             options: &[
-                HelpRow {
-                    left: "--exe",
-                    right: "alias for --runtime freestanding",
-                },
                 HelpRow {
                     left: "--runtime <bare|freestanding>",
                     right: "select checking runtime; bare is the default, freestanding injects the executable startup runtime",
@@ -138,7 +134,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: TIMINGS_OPTION_HELP,
-                    right: "print compiler stage timings to stderr; detail also includes query timings",
+                    right: "print compiler stage timings to stderr; detail also includes aggregated query timings",
                 },
                 HelpRow {
                     left: "-h, --help",
@@ -147,7 +143,6 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             examples: &[
                 "nia check src/main.nia",
-                "nia check --exe src/main.nia",
                 "nia check src/main.nia --runtime freestanding",
                 "nia -O1 check src/main.nia --opt-report",
                 "nia check src/main.nia -M std=/usr/share/nia/std.nia",
@@ -160,9 +155,9 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             usage: &[
                 "nia emit --tokens <file.nia> [options]",
                 "nia emit --ast <file.nia> [options]",
-                "nia emit --checked <file.nia> [--opt-report] [options]",
-                "nia emit --backend <file.nia> [--opt-report] [options]",
-                "nia emit --llvm <file.nia> [--opt-report] [options]",
+                "nia emit --checked <file.nia> [--runtime <runtime>] [--opt-report] [options]",
+                "nia emit --backend <file.nia> [--runtime <runtime>] [--opt-report] [options]",
+                "nia emit --llvm <file.nia> [--runtime <runtime>] [--opt-report] [options]",
                 "nia emit --obj <file.nia> [-o <file.o> | --out-dir <dir>] [--runtime <runtime>] [--opt-report] [options]",
                 "nia emit --exe <file.nia> [-o <executable>] [--runtime freestanding] [link options] [--opt-report] [options]",
             ],
@@ -198,7 +193,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "--runtime <bare|freestanding>",
-                    right: "select runtime for --obj; bare is the default, --exe supports freestanding",
+                    right: "select runtime for checked/backend/llvm inspection and --obj; bare is the default, --exe supports freestanding",
                 },
                 HelpRow {
                     left: "--link-arg <arg>",
@@ -254,7 +249,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: TIMINGS_OPTION_HELP,
-                    right: "print compiler stage timings to stderr; detail also includes query timings",
+                    right: "print compiler stage timings to stderr; detail also includes aggregated query timings",
                 },
                 HelpRow {
                     left: "-h, --help",
@@ -265,7 +260,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "nia emit --tokens src/main.nia",
                 "nia emit --ast src/main.nia",
                 "nia -O2 emit --backend src/main.nia --opt-report",
-                "nia emit --llvm src/main.nia",
+                "nia emit --llvm src/main.nia --runtime freestanding",
                 "nia emit --obj src/main.nia --out-dir build/obj",
                 "nia emit --obj src/main.nia --runtime freestanding -o build/startup.o",
                 "nia emit --exe src/main.nia -o build/main",
@@ -274,6 +269,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "Use exactly one emit target flag.",
                 "The optimization report is written to stderr so stdout remains inspection output and native targets remain file-only.",
                 "Timing reports are written to stderr so stdout remains inspection output and native targets remain file-only.",
+                "`emit --checked`, `emit --backend`, and `emit --llvm` default to the bare runtime; pass --runtime freestanding to inspect executable lowering with startup injection and reachability pruning.",
                 "`emit --obj` defaults to the bare runtime and does not inject startup code.",
                 "Use --out-dir when --obj emits multiple codegen units.",
                 "-o for --obj is accepted only when one object file is produced.",
@@ -297,7 +293,7 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
     },
     HelpRow {
         left: TIMINGS_OPTION_HELP,
-        right: "print compiler stage timings to stderr; use detail for query timings",
+        right: "print compiler stage timings to stderr; use detail for aggregated query timings",
     },
     HelpRow {
         left: "-h, --help",

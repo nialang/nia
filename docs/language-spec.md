@@ -2998,12 +2998,12 @@ The CLI surface is:
 
 ```text
 nia build [step] [--root dir]
-nia check <file.nia> [--exe | --runtime bare|freestanding] [--opt-report]
+nia check <file.nia> [--runtime bare|freestanding] [--opt-report]
 nia emit --tokens <file.nia>
 nia emit --ast <file.nia>
-nia emit --checked <file.nia> [--opt-report]
-nia emit --backend <file.nia> [--opt-report]
-nia emit --llvm <file.nia> [--opt-report]
+nia emit --checked <file.nia> [--runtime bare|freestanding] [--opt-report]
+nia emit --backend <file.nia> [--runtime bare|freestanding] [--opt-report]
+nia emit --llvm <file.nia> [--runtime bare|freestanding] [--opt-report]
 nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--runtime bare|freestanding] [--opt-report]
 nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg arg] [--opt-report]
 ```
@@ -3024,9 +3024,9 @@ ExecutableOptions::init(name, root_module))` declares an executable artifact and
 returns an executable handle; `ExecutableOptions::with_output_name(name)` and
 `ExecutableOptions::with_runtime(runtime)` customize it.
 `Build::add_check_executable_step(name, target)` adds a graph step that checks
-that artifact through the same toolchain as `nia check --exe <path>` with the
-package root as the working directory. `Build::add_emit_executable_step(name,
-target)` adds a graph step that emits the artifact to
+that artifact through the freestanding executable runtime with the package root
+as the working directory. `Build::add_emit_executable_step(name, target)` adds
+a graph step that emits the artifact to
 `.nia-build/<output-name-or-target-name>` through the same toolchain as
 `nia emit --exe <path> -o ...`.
 `Build::set_default_step(step)` selects the graph step used by `nia build` when
@@ -3064,11 +3064,11 @@ Timing options are accepted before or after the command:
 ```
 
 `-O` means `-O2`. `nia check <file.nia> --opt-report` prints the active
-optimization policy and backend optimization report to stdout. `nia check --exe
-<file.nia>` is an alias for `nia check <file.nia> --runtime freestanding`, which
-checks with the same startup runtime that `emit --exe` injects, including the
-public `root::main(process::Init) process::ExitCode!void` entry contract. Emit
-commands write the same report to stderr when
+optimization policy and backend optimization report to stdout. `nia check
+<file.nia> --runtime freestanding` checks with the same startup runtime that
+`emit --exe` injects, including the public
+`root::main(process::Init) process::ExitCode!void` entry contract. Emit commands
+write the same report to stderr when
 `--opt-report` is supplied, so stdout remains backend IR or LLVM IR and native
 emit targets remain file-only.
 Timing reports are written to stderr; `--timings=detail` also includes query

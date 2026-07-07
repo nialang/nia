@@ -112,7 +112,7 @@ Make sure `~/.local/bin` is on `PATH`, then verify the command:
 
 ```sh
 nia --version
-nia check --exe examples/00_minimal.nia
+nia check examples/00_minimal.nia --runtime freestanding
 ```
 
 This source-tree workflow is the recommended pre-1.0 installation path. The
@@ -132,12 +132,12 @@ The compiler binary is named `nia`. Its core pipeline commands are:
 
 ```text
 nia build [step] [--root dir]
-nia check <file.nia> [--exe | --runtime bare|freestanding] [--opt-report]
+nia check <file.nia> [--runtime bare|freestanding] [--opt-report]
 nia emit --tokens <file.nia>
 nia emit --ast <file.nia>
-nia emit --checked <file.nia> [--opt-report]
-nia emit --backend <file.nia> [--opt-report]
-nia emit --llvm <file.nia> [--opt-report]
+nia emit --checked <file.nia> [--runtime bare|freestanding] [--opt-report]
+nia emit --backend <file.nia> [--runtime bare|freestanding] [--opt-report]
+nia emit --llvm <file.nia> [--runtime bare|freestanding] [--opt-report]
 nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--runtime bare|freestanding] [--opt-report]
 nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg arg] [--opt-report]
 ```
@@ -171,8 +171,8 @@ are global options and may appear before or after the command.
 Check every top-level example from the repository root with:
 
 ```sh
-for file in examples/*.nia; do cargo run -p nia-cli -- check --exe "$file"; done
-cargo run -p nia-cli -- check --exe examples/modules/main.nia
+for file in examples/*.nia; do cargo run -p nia-cli -- check "$file" --runtime freestanding; done
+cargo run -p nia-cli -- check examples/modules/main.nia --runtime freestanding
 ```
 
 See [examples/README.md](examples/README.md) for the reading order. The example
@@ -220,9 +220,9 @@ See [docs/platform-support.md](docs/platform-support.md).
 
 Optimization levels are `-O0`, `-O1`, `-O2`, `-O3`, `-Os`, and `-Oz`; `-O`
 means `-O2`. `nia check <file.nia> --opt-report` prints the active
-optimization policy and backend optimization report to stdout. `nia check --exe
-<file.nia>` is an alias for `nia check <file.nia> --runtime freestanding`,
-which checks with the same startup runtime that `emit --exe` injects.
+optimization policy and backend optimization report to stdout. `nia check
+<file.nia> --runtime freestanding` checks with the same startup runtime that
+`emit --exe` injects.
 `emit --obj` defaults to the bare runtime and can opt into startup injection
 with `--runtime freestanding`. Emit commands write the same report to stderr
 when `--opt-report` is supplied.
