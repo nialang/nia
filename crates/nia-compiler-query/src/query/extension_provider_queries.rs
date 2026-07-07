@@ -5,7 +5,7 @@ use nia_symbol::SymbolId;
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionSignatureModuleInputQueryValue {
     pub(super) module_id: ModuleId,
-    pub(super) lowering: TypeLowering,
+    pub(super) lowering: Arc<TypeLowering>,
     pub(super) signatures: ItemSignatures,
     pub(super) defs: Arc<DefCollection>,
     pub(super) function_signatures: ItemSignatures,

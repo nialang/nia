@@ -94,7 +94,7 @@ pub(super) fn provide_extension_signature_module_input(
     Arc::new(ExtensionSignatureModuleInputQueryValue {
         module_id,
         defs: db.query_shared(ModuleDefsQuery(module_id)),
-        lowering: db.query(SignatureTypeLoweringQuery(
+        lowering: db.query_shared(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         )),
@@ -172,7 +172,7 @@ pub(super) fn provide_extension_provider_module_facts(
         }
 
         let defs = db.query_shared(ModuleDefsQuery(module_id));
-        let lowering = db.query(SignatureTypeLoweringQuery(
+        let lowering = db.query_shared(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
@@ -263,7 +263,7 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
             }
 
             let defs = db.query_shared(ModuleDefsQuery(module_id));
-            let lowering = db.query(SignatureTypeLoweringQuery(
+            let lowering = db.query_shared(SignatureTypeLoweringQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,
             ));

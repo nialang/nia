@@ -876,7 +876,7 @@ pub(super) fn provide_signature_item_signatures(
 ) -> ItemSignatures {
     let active_item_tree = db.query_shared(SignatureItemTreeQuery(module_id, set));
     let defs = db.query_shared(ModuleDefsQuery(module_id));
-    let type_lowering = db.query(SignatureTypeLoweringQuery(module_id, set));
+    let type_lowering = db.query_shared(SignatureTypeLoweringQuery(module_id, set));
     let symbols = db.context().symbols();
     nia_item_signatures::collect_item_signatures_from_active_item_tree_with_symbols(
         &active_item_tree,
@@ -925,7 +925,7 @@ pub(super) fn provide_signature_type_normalization(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> TypeNormalization {
-    let type_lowering = db.query(SignatureTypeLoweringQuery(module_id, set));
+    let type_lowering = db.query_shared(SignatureTypeLoweringQuery(module_id, set));
     let item_signatures = db.query(SignatureItemSignaturesQuery(module_id, set));
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
 }
@@ -1623,6 +1623,16 @@ fn body_check_filter_includes_global(
     body_check_filter_includes_def(module_id, defs, node_key, filter, false)
 }
 
+fn signature_type_interner(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    set: nia_item_tree::SignatureItemSet,
+) -> nia_ty::TyInterner {
+    db.query_shared(SignatureTypeLoweringQuery(module_id, set))
+        .interner
+        .clone()
+}
+
 fn body_check_filter_includes_def(
     module_id: ModuleId,
     defs: &DefCollection,
@@ -1905,7 +1915,7 @@ pub(super) fn provide_abi_check(
     module_id: ModuleId,
 ) -> nia_abi_check::AbiCheck {
     let defs = db.query_shared(FullModuleDefsQuery(module_id));
-    let function_lowering = db.query(SignatureTypeLoweringQuery(
+    let function_lowering = db.query_shared(SignatureTypeLoweringQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));
@@ -1913,7 +1923,7 @@ pub(super) fn provide_abi_check(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));
-    let type_lowering = db.query(SignatureTypeLoweringQuery(
+    let type_lowering = db.query_shared(SignatureTypeLoweringQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
@@ -1921,7 +1931,7 @@ pub(super) fn provide_abi_check(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
-    let value_lowering = db.query(SignatureTypeLoweringQuery(
+    let value_lowering = db.query_shared(SignatureTypeLoweringQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Values,
     ));
@@ -1991,7 +2001,7 @@ pub(super) fn provide_flow_check(
     module_id: ModuleId,
 ) -> nia_flow_check::FlowCheck {
     let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
-    let type_lowering = db.query(SignatureTypeLoweringQuery(
+    let type_lowering = db.query_shared(SignatureTypeLoweringQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));
@@ -2841,12 +2851,11 @@ fn body_check_with_filter_and_layouts_with_inputs(
                     .map(|def| def.name.clone())
                     .unwrap_or_default(),
                 signature,
-                interner: db
-                    .query(SignatureTypeLoweringQuery(
-                        def_id.module_id,
-                        nia_item_tree::SignatureItemSet::Functions,
-                    ))
-                    .interner,
+                interner: signature_type_interner(
+                    db,
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Functions,
+                ),
             };
             if let Some(cache) = program_function_signature_cache {
                 cache.borrow_mut().insert(def_id, signature.clone());
@@ -2868,12 +2877,11 @@ fn body_check_with_filter_and_layouts_with_inputs(
         .cloned()
         .map(|signature| ProgramGlobalSignature {
             signature,
-            interner: db
-                .query(SignatureTypeLoweringQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Values,
-                ))
-                .interner,
+            interner: signature_type_interner(
+                db,
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Values,
+            ),
         })
     };
     let program_comptime_signature = |def_id: GlobalDefId| {
@@ -2886,12 +2894,11 @@ fn body_check_with_filter_and_layouts_with_inputs(
         .cloned()
         .map(|signature| ProgramComptimeSignature {
             signature,
-            interner: db
-                .query(SignatureTypeLoweringQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Values,
-                ))
-                .interner,
+            interner: signature_type_interner(
+                db,
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Values,
+            ),
         })
     };
     let program_struct_signature = |def_id: GlobalDefId| {
@@ -2904,12 +2911,11 @@ fn body_check_with_filter_and_layouts_with_inputs(
         .cloned()
         .map(|signature| ProgramStructSignature {
             signature,
-            interner: db
-                .query(SignatureTypeLoweringQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ))
-                .interner,
+            interner: signature_type_interner(
+                db,
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ),
         })
     };
     let program_union_signature = |def_id: GlobalDefId| {
@@ -2922,12 +2928,11 @@ fn body_check_with_filter_and_layouts_with_inputs(
         .cloned()
         .map(|signature| ProgramUnionSignature {
             signature,
-            interner: db
-                .query(SignatureTypeLoweringQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ))
-                .interner,
+            interner: signature_type_interner(
+                db,
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ),
         })
     };
     let program_enum_signature = |def_id: GlobalDefId| {
@@ -2940,12 +2945,11 @@ fn body_check_with_filter_and_layouts_with_inputs(
         .cloned()
         .map(|signature| ProgramEnumSignature {
             signature,
-            interner: db
-                .query(SignatureTypeLoweringQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ))
-                .interner,
+            interner: signature_type_interner(
+                db,
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ),
         })
     };
     let program_trait_signature = |def_id: GlobalDefId| {
@@ -2958,12 +2962,11 @@ fn body_check_with_filter_and_layouts_with_inputs(
         .cloned()
         .map(|signature| ProgramTraitSignature {
             signature,
-            interner: db
-                .query(SignatureTypeLoweringQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Traits,
-                ))
-                .interner,
+            interner: signature_type_interner(
+                db,
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Traits,
+            ),
         })
     };
     let program_type_alias_signature = |def_id: GlobalDefId| {
@@ -2976,12 +2979,11 @@ fn body_check_with_filter_and_layouts_with_inputs(
         .cloned()
         .map(|signature| ProgramTypeAliasSignature {
             signature,
-            interner: db
-                .query(SignatureTypeLoweringQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ))
-                .interner,
+            interner: signature_type_interner(
+                db,
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ),
         })
     };
     let program_traits_by_method_name = |name: &SymbolId| {
@@ -3338,12 +3340,11 @@ fn executable_layouts_for_reachable_items(
             .cloned()
             .map(|signature| ProgramStructSignature {
                 signature,
-                interner: db
-                    .query(SignatureTypeLoweringQuery(
-                        def_id.module_id,
-                        nia_item_tree::SignatureItemSet::Types,
-                    ))
-                    .interner,
+                interner: signature_type_interner(
+                    db,
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ),
             })
         };
         let program_union = |def_id: GlobalDefId| {
@@ -3356,12 +3357,11 @@ fn executable_layouts_for_reachable_items(
             .cloned()
             .map(|signature| ProgramUnionSignature {
                 signature,
-                interner: db
-                    .query(SignatureTypeLoweringQuery(
-                        def_id.module_id,
-                        nia_item_tree::SignatureItemSet::Types,
-                    ))
-                    .interner,
+                interner: signature_type_interner(
+                    db,
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ),
             })
         };
         let program_enum = |def_id: GlobalDefId| {
@@ -3374,12 +3374,11 @@ fn executable_layouts_for_reachable_items(
             .cloned()
             .map(|signature| ProgramEnumSignature {
                 signature,
-                interner: db
-                    .query(SignatureTypeLoweringQuery(
-                        def_id.module_id,
-                        nia_item_tree::SignatureItemSet::Types,
-                    ))
-                    .interner,
+                interner: signature_type_interner(
+                    db,
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ),
             })
         };
         let program_type_alias = |def_id: GlobalDefId| {
@@ -3392,12 +3391,11 @@ fn executable_layouts_for_reachable_items(
             .cloned()
             .map(|signature| ProgramTypeAliasSignature {
                 signature,
-                interner: db
-                    .query(SignatureTypeLoweringQuery(
-                        def_id.module_id,
-                        nia_item_tree::SignatureItemSet::Types,
-                    ))
-                    .interner,
+                interner: signature_type_interner(
+                    db,
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ),
             })
         };
         let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
@@ -4654,7 +4652,7 @@ fn executable_checked_module_set_inner(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Functions,
         ));
-        let lowering = db.query(SignatureTypeLoweringQuery(
+        let lowering = db.query_shared(SignatureTypeLoweringQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Functions,
         ));
@@ -4670,7 +4668,7 @@ fn executable_checked_module_set_inner(
                     .map(|def| def.name.clone())
                     .unwrap_or_default(),
                 signature,
-                interner: lowering.interner,
+                interner: lowering.interner.clone(),
             })?;
         let signature = Arc::new(signature);
         caches
@@ -4689,12 +4687,11 @@ fn executable_checked_module_set_inner(
         .cloned()
         .map(|signature| ProgramStructSignature {
             signature,
-            interner: db
-                .query(SignatureTypeLoweringQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ))
-                .interner,
+            interner: signature_type_interner(
+                db,
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ),
         })
     };
     let union_signature = |def_id: GlobalDefId| {
@@ -4707,12 +4704,11 @@ fn executable_checked_module_set_inner(
         .cloned()
         .map(|signature| ProgramUnionSignature {
             signature,
-            interner: db
-                .query(SignatureTypeLoweringQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ))
-                .interner,
+            interner: signature_type_interner(
+                db,
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ),
         })
     };
     let trait_signature = |def_id: GlobalDefId| {
@@ -4725,12 +4721,11 @@ fn executable_checked_module_set_inner(
         .cloned()
         .map(|signature| ProgramTraitSignature {
             signature,
-            interner: db
-                .query(SignatureTypeLoweringQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Traits,
-                ))
-                .interner,
+            interner: signature_type_interner(
+                db,
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Traits,
+            ),
         })
     };
     let trait_default_method = |def_id: GlobalDefId| {
@@ -4754,12 +4749,11 @@ fn executable_checked_module_set_inner(
                             },
                             ProgramTraitSignature {
                                 signature: signature.clone(),
-                                interner: db
-                                    .query(SignatureTypeLoweringQuery(
-                                        def_id.module_id,
-                                        nia_item_tree::SignatureItemSet::Traits,
-                                    ))
-                                    .interner,
+                                interner: signature_type_interner(
+                                    db,
+                                    def_id.module_id,
+                                    nia_item_tree::SignatureItemSet::Traits,
+                                ),
                             },
                         )
                     })
@@ -5268,7 +5262,7 @@ fn executable_flow_check(
 ) -> nia_flow_check::FlowCheck {
     time_module_provider(db, "executable_flow_check", module_id, || {
         let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
-        let type_lowering = db.query(SignatureTypeLoweringQuery(
+        let type_lowering = db.query_shared(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Functions,
         ));
