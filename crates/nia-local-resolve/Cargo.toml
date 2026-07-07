@@ -14,6 +14,7 @@ nia-item-tree.workspace = true
 nia-node-id.workspace = true
 nia-source.workspace = true
 nia-span.workspace = true
+nia-symbol.workspace = true
 nia-value-resolve.workspace = true
 
 [dev-dependencies]

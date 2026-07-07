@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::DefId;
 use nia_ids::ModuleId;
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap, SymbolSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PublicNamespace {
@@ -32,34 +33,34 @@ pub struct PublicItem {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModulePublicSurface {
     pub module_id: ModuleId,
-    pub modules: HashMap<String, ModuleId>,
-    pub values: HashMap<String, PublicItem>,
-    pub types: HashMap<String, PublicItem>,
+    pub modules: SymbolMap<ModuleId>,
+    pub values: SymbolMap<PublicItem>,
+    pub types: SymbolMap<PublicItem>,
 }
 
 impl ModulePublicSurface {
     pub fn new(module_id: ModuleId) -> Self {
         Self {
             module_id,
-            modules: HashMap::new(),
-            values: HashMap::new(),
-            types: HashMap::new(),
+            modules: SymbolMap::default(),
+            values: SymbolMap::default(),
+            types: SymbolMap::default(),
         }
     }
 
-    pub fn lookup_module(&self, name: &str) -> Option<ModuleId> {
+    pub fn lookup_module(&self, name: &SymbolId) -> Option<ModuleId> {
         self.modules.get(name).copied()
     }
 
-    pub fn lookup_value(&self, name: &str) -> Option<&PublicItem> {
+    pub fn lookup_value(&self, name: &SymbolId) -> Option<&PublicItem> {
         self.values.get(name)
     }
 
-    pub fn lookup_type(&self, name: &str) -> Option<&PublicItem> {
+    pub fn lookup_type(&self, name: &SymbolId) -> Option<&PublicItem> {
         self.types.get(name)
     }
 
-    pub fn lookup(&self, namespace: PublicNamespace, name: &str) -> Option<&PublicItem> {
+    pub fn lookup(&self, namespace: PublicNamespace, name: &SymbolId) -> Option<&PublicItem> {
         match namespace {
             PublicNamespace::Value => self.lookup_value(name),
             PublicNamespace::Type => self.lookup_type(name),
@@ -103,33 +104,30 @@ pub struct UsingEntry {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ModuleUsingScope {
-    pub modules: HashMap<String, ModuleId>,
-    pub values: HashMap<String, UsingEntry>,
-    pub types: HashMap<String, UsingEntry>,
-    pub unresolved_names: HashSet<String>,
+    pub modules: SymbolMap<ModuleId>,
+    pub values: SymbolMap<UsingEntry>,
+    pub types: SymbolMap<UsingEntry>,
+    pub unresolved_names: SymbolSet,
 }
 
 impl ModuleUsingScope {
-    pub fn lookup_module(&self, name: &str) -> Option<ModuleId> {
+    pub fn lookup_module(&self, name: &SymbolId) -> Option<ModuleId> {
         self.modules.get(name).copied()
     }
 
-    pub fn lookup_value(&self, name: &str) -> Option<&UsingEntry> {
+    pub fn lookup_value(&self, name: &SymbolId) -> Option<&UsingEntry> {
         self.values.get(name)
     }
 
-    pub fn lookup_type(&self, name: &str) -> Option<&UsingEntry> {
+    pub fn lookup_type(&self, name: &SymbolId) -> Option<&UsingEntry> {
         self.types.get(name)
     }
 
-    pub fn has_unresolved_name(&self, name: &str) -> bool {
+    pub fn has_unresolved_name(&self, name: &SymbolId) -> bool {
         self.unresolved_names.contains(name)
     }
 
-    pub fn entries(&self) -> impl Iterator<Item = (&str, &UsingEntry)> {
-        self.values
-            .iter()
-            .chain(self.types.iter())
-            .map(|(name, entry)| (name.as_str(), entry))
+    pub fn entries(&self) -> impl Iterator<Item = (&SymbolId, &UsingEntry)> {
+        self.values.iter().chain(self.types.iter())
     }
 }

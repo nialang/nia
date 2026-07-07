@@ -2,17 +2,17 @@
 use std::collections::HashMap;
 
 use nia_defs::{
-    DefCollection, DefKind, ModulePublicSurface, ModuleUsing, ModuleUsingScope, PublicItem,
-    PublicNamespace, PublicSource, PublicSurfaces, UsingEntry, UsingGroupItem, UsingName,
-    UsingPathSegment, UsingSelector, Visibility,
+    DefCollection, DefKind, ModulePublicSurface, ModuleUsing, ModuleUsingScope, PathSegmentKind,
+    PublicItem, PublicNamespace, PublicSource, PublicSurfaces, UsingEntry, UsingGroupItem,
+    UsingName, UsingPathSegment, UsingSelector, Visibility,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::{
-    ENTRY_MODULE_MAP_NAME, ModuleGraph, PACKAGE_MODULE_MAP_NAME,
-    module_declaration_visibility_allows, visibility_allows,
+    ModuleGraph, ModuleRootSegment, module_declaration_visibility_allows, visibility_allows,
 };
 use nia_span::Span;
+use nia_symbol::{KnownSymbolText, SymbolId, SymbolMap, SymbolText, symbol_text_or_unresolved};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PublicSurfaceComputation {
@@ -35,7 +35,62 @@ pub struct PublicUsingScopes {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TypeExposureIndex {
-    names_by_target: HashMap<GlobalDefId, Vec<String>>,
+    names_by_target: HashMap<GlobalDefId, Vec<SymbolId>>,
+}
+
+fn symbol_text(symbols: &dyn SymbolText, symbol: SymbolId) -> String {
+    symbol_text_or_unresolved(symbols, symbol)
+}
+
+fn path_segment_text(symbols: &dyn SymbolText, segment: &UsingPathSegment) -> String {
+    match segment.kind {
+        PathSegmentKind::Name(name) => symbol_text(symbols, name),
+        PathSegmentKind::Package => "pkg".to_string(),
+        PathSegmentKind::Super => "super".to_string(),
+        PathSegmentKind::SelfValue => "self".to_string(),
+    }
+}
+
+fn first_path_segment_text(symbols: &dyn SymbolText, path: &[UsingPathSegment]) -> String {
+    path.first()
+        .map(|segment| path_segment_text(symbols, segment))
+        .unwrap_or_default()
+}
+
+fn non_initial_special_segment_diagnostic(
+    symbols: &dyn SymbolText,
+    segment: &UsingPathSegment,
+) -> Diagnostic {
+    Diagnostic::user_error_at(
+        codes::NAME_RESOLUTION,
+        segment.span,
+        format!(
+            "`{}` can only be used as the first path segment",
+            path_segment_text(symbols, segment)
+        ),
+    )
+}
+
+fn path_segment_name(segment: &UsingPathSegment) -> Option<SymbolId> {
+    match segment.kind {
+        PathSegmentKind::Name(name) => Some(name),
+        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+    }
+}
+
+fn path_segment_self_name(segment: &UsingPathSegment) -> Option<SymbolId> {
+    match segment.kind {
+        PathSegmentKind::Name(name) => Some(name),
+        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+    }
+}
+
+fn invalid_self_name_segment(segment: &UsingPathSegment) -> Diagnostic {
+    Diagnostic::user_error_at(
+        codes::NAME_RESOLUTION,
+        segment.span,
+        "using `self` requires the host path to end in a named module or type",
+    )
 }
 
 impl TypeExposureIndex {
@@ -44,7 +99,7 @@ impl TypeExposureIndex {
         surfaces: &PublicSurfaces,
         using_scopes: &HashMap<ModuleId, ModuleUsingScope>,
     ) -> Self {
-        let mut names_by_target: HashMap<GlobalDefId, Vec<String>> = HashMap::new();
+        let mut names_by_target: HashMap<GlobalDefId, Vec<SymbolId>> = HashMap::new();
         for defs in defs_by_module {
             for (def_id, def) in defs.defs.iter() {
                 if !matches!(
@@ -91,7 +146,7 @@ impl TypeExposureIndex {
         Self { names_by_target }
     }
 
-    pub fn names_for(&self, target: GlobalDefId) -> &[String] {
+    pub fn names_for(&self, target: GlobalDefId) -> &[SymbolId] {
         self.names_by_target
             .get(&target)
             .map(Vec::as_slice)
@@ -108,7 +163,8 @@ pub fn compute_public_surfaces(
     HashMap<ModuleId, ModuleUsingScope>,
     Vec<(ModuleId, Diagnostic)>,
 ) {
-    let computation = compute_public_surface_computation(defs_by_module, graph);
+    let computation =
+        compute_public_surface_computation_with_symbols(defs_by_module, graph, &KnownSymbolText);
     (
         computation.surfaces,
         computation.using_scopes,
@@ -120,8 +176,21 @@ pub fn compute_public_surface_computation(
     defs_by_module: &[DefCollection],
     graph: &ModuleGraph,
 ) -> PublicSurfaceComputation {
-    let exports = compute_exported_public_surfaces(defs_by_module, graph);
-    let scopes = compute_using_scopes_from_surfaces(defs_by_module, graph, &exports.surfaces);
+    compute_public_surface_computation_with_symbols(defs_by_module, graph, &KnownSymbolText)
+}
+
+pub fn compute_public_surface_computation_with_symbols(
+    defs_by_module: &[DefCollection],
+    graph: &ModuleGraph,
+    symbols: &dyn SymbolText,
+) -> PublicSurfaceComputation {
+    let exports = compute_exported_public_surfaces_with_symbols(defs_by_module, graph, symbols);
+    let scopes = compute_using_scopes_from_surfaces_with_symbols(
+        defs_by_module,
+        graph,
+        &exports.surfaces,
+        symbols,
+    );
     let mut diagnostics = exports.diagnostics;
     diagnostics.extend(scopes.diagnostics);
     PublicSurfaceComputation {
@@ -134,6 +203,14 @@ pub fn compute_public_surface_computation(
 pub fn compute_exported_public_surfaces(
     defs_by_module: &[DefCollection],
     graph: &ModuleGraph,
+) -> PublicSurfaceExports {
+    compute_exported_public_surfaces_with_symbols(defs_by_module, graph, &KnownSymbolText)
+}
+
+pub fn compute_exported_public_surfaces_with_symbols(
+    defs_by_module: &[DefCollection],
+    graph: &ModuleGraph,
+    symbols: &dyn SymbolText,
 ) -> PublicSurfaceExports {
     let mut diagnostics: Vec<(ModuleId, Diagnostic)> = Vec::new();
     let defs_by_id = defs_by_module
@@ -187,8 +264,14 @@ pub fn compute_exported_public_surfaces(
         let mut iteration_changed = false;
         let mut iteration_unresolved = 0usize;
         for defs in defs_by_module {
-            let local_modules =
-                collect_module_aliases(&defs_by_id, defs, graph, &HashMap::new(), &surfaces);
+            let local_modules = collect_module_aliases(
+                &defs_by_id,
+                defs,
+                graph,
+                &SymbolMap::default(),
+                &surfaces,
+                symbols,
+            );
             for using in &defs.module_usings {
                 if using.visibility != Visibility::Public {
                     continue;
@@ -198,6 +281,7 @@ pub fn compute_exported_public_surfaces(
                     graph,
                     accessing_module: defs.module_id,
                     surfaces: &surfaces,
+                    symbols,
                     mode: UsingLookupMode::PublicOnly,
                 };
                 match expand_using(&context, defs, using, &local_modules) {
@@ -251,8 +335,14 @@ pub fn compute_exported_public_surfaces(
         let process_used_paths = graph
             .get(defs.module_id)
             .is_some_and(|node| node.process_used_paths);
-        let local_modules =
-            collect_module_aliases(&defs_by_id, defs, graph, &HashMap::new(), &surfaces);
+        let local_modules = collect_module_aliases(
+            &defs_by_id,
+            defs,
+            graph,
+            &HashMap::new(),
+            &surfaces,
+            symbols,
+        );
         for using in &defs.module_usings {
             if using.visibility != Visibility::Public {
                 continue;
@@ -262,6 +352,7 @@ pub fn compute_exported_public_surfaces(
                 graph,
                 accessing_module: defs.module_id,
                 surfaces: &surfaces,
+                symbols,
                 mode: UsingLookupMode::PublicOnly,
             };
             match expand_using(&context, defs, using, &local_modules) {
@@ -271,10 +362,10 @@ pub fn compute_exported_public_surfaces(
                         defs.module_id,
                         Diagnostic::user_error_at(codes::NAME_RESOLUTION,
                             using.span,
-                            format!(
-                                "`pub using {}::...` could not be resolved; possible re-export cycle or unknown name",
-                                using.host.first().map(|seg| seg.name.as_str()).unwrap_or("")
-                            ),
+                                format!(
+                                    "`pub using {}::...` could not be resolved; possible re-export cycle or unknown name",
+                                    first_path_segment_text(symbols, &using.host)
+                                ),
                         ),
                     ));
                 }
@@ -293,6 +384,20 @@ pub fn compute_using_scopes_from_surfaces(
     defs_by_module: &[DefCollection],
     graph: &ModuleGraph,
     surfaces: &PublicSurfaces,
+) -> PublicUsingScopes {
+    compute_using_scopes_from_surfaces_with_symbols(
+        defs_by_module,
+        graph,
+        surfaces,
+        &KnownSymbolText,
+    )
+}
+
+pub fn compute_using_scopes_from_surfaces_with_symbols(
+    defs_by_module: &[DefCollection],
+    graph: &ModuleGraph,
+    surfaces: &PublicSurfaces,
+    symbols: &dyn SymbolText,
 ) -> PublicUsingScopes {
     let mut diagnostics: Vec<(ModuleId, Diagnostic)> = Vec::new();
     let defs_by_id = defs_by_module
@@ -316,6 +421,7 @@ pub fn compute_using_scopes_from_surfaces(
                 graph,
                 accessing_module: defs.module_id,
                 surfaces: &surfaces,
+                symbols,
                 mode,
             };
             let entries = match expand_using(&context, defs, using, &scope.modules) {
@@ -330,11 +436,7 @@ pub fn compute_using_scopes_from_surfaces(
                                 using.span,
                                 format!(
                                     "`using {}::...` could not be resolved",
-                                    using
-                                        .host
-                                        .first()
-                                        .map(|seg| seg.name.as_str())
-                                        .unwrap_or("")
+                                    first_path_segment_text(symbols, &using.host)
                                 ),
                             ),
                         ));
@@ -363,7 +465,7 @@ pub fn compute_using_scopes_from_surfaces(
                                     entry.name_span,
                                     format!(
                                         "duplicate using module `{}` in this module",
-                                        entry.name
+                                        symbol_text(symbols, entry.name)
                                     ),
                                 ),
                             ));
@@ -390,7 +492,10 @@ pub fn compute_using_scopes_from_surfaces(
                                 Diagnostic::user_error_at(
                                     codes::NAME_RESOLUTION,
                                     entry.name_span,
-                                    format!("duplicate using name `{}` in this module", entry.name),
+                                    format!(
+                                        "duplicate using name `{}` in this module",
+                                        symbol_text(symbols, entry.name)
+                                    ),
                                 ),
                             ));
                             let _ = previous;
@@ -428,42 +533,229 @@ fn collect_module_aliases(
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
     current: &DefCollection,
     graph: &ModuleGraph,
-    inherited: &HashMap<String, ModuleId>,
+    inherited: &SymbolMap<ModuleId>,
     surfaces: &PublicSurfaces,
-) -> HashMap<String, ModuleId> {
+    symbols: &dyn SymbolText,
+) -> SymbolMap<ModuleId> {
     let mut modules = inherited.clone();
     for using in &current.module_usings {
-        let context = UsingExpansionContext {
+        let visible_modules = modules.clone();
+        collect_module_aliases_from_using(
             defs_by_module,
+            current,
             graph,
+            &visible_modules,
             surfaces,
-            accessing_module: current.module_id,
-            mode: UsingLookupMode::Visible,
-        };
-        let UsingExpansion::Resolved(entries) = expand_using(&context, current, using, &modules)
-        else {
-            continue;
-        };
-        for entry in entries {
-            if let ResolvedEntryKind::Module(module_id) = entry.kind {
-                modules.entry(entry.name).or_insert(module_id);
-            }
-        }
+            symbols,
+            using,
+            &mut modules,
+        );
     }
     modules
 }
 
-fn insert_into_surface(surface: &mut ModulePublicSurface, name: &str, item: PublicItem) {
+fn collect_module_aliases_from_using(
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
+    current: &DefCollection,
+    graph: &ModuleGraph,
+    local_modules: &SymbolMap<ModuleId>,
+    surfaces: &PublicSurfaces,
+    symbols: &dyn SymbolText,
+    using: &ModuleUsing,
+    modules: &mut SymbolMap<ModuleId>,
+) {
+    let context = UsingExpansionContext {
+        defs_by_module,
+        graph,
+        accessing_module: current.module_id,
+        surfaces,
+        symbols,
+        mode: UsingLookupMode::Visible,
+    };
+    if using.host.is_empty() {
+        let UsingSelector::Group(items) = &using.selector else {
+            return;
+        };
+        for item in items {
+            collect_root_group_module_aliases(&context, current, local_modules, item, modules);
+        }
+        return;
+    }
+    let Some(namespace) =
+        resolve_module_alias_namespace(&context, current, local_modules, &using.host)
+    else {
+        return;
+    };
+    collect_module_aliases_from_selector(
+        &context,
+        namespace,
+        using.host.last(),
+        &using.selector,
+        modules,
+    );
+}
+
+fn resolve_module_alias_namespace(
+    context: &UsingExpansionContext<'_>,
+    current: &DefCollection,
+    local_modules: &SymbolMap<ModuleId>,
+    host: &[UsingPathSegment],
+) -> Option<ModuleId> {
+    let namespace = resolve_namespace_path(
+        context.defs_by_module,
+        current,
+        context.graph,
+        local_modules,
+        context.surfaces,
+        context.mode,
+        context.symbols,
+        host,
+    )
+    .ok()?;
+    match namespace {
+        ResolvedNamespace::Module(module_id) => Some(module_id),
+        ResolvedNamespace::Enum(_) => None,
+    }
+}
+
+fn collect_module_aliases_from_selector(
+    context: &UsingExpansionContext<'_>,
+    namespace: ModuleId,
+    self_name_segment: Option<&UsingPathSegment>,
+    selector: &UsingSelector,
+    modules: &mut SymbolMap<ModuleId>,
+) {
+    match selector {
+        UsingSelector::SelfName => {
+            if let Some(segment) = self_name_segment
+                && let Some(name) = path_segment_self_name(segment)
+            {
+                modules.entry(name).or_insert(namespace);
+            }
+        }
+        UsingSelector::Single(name) => {
+            if let Some(module_id) = module_alias_target_for_name(context, namespace, &name.name) {
+                modules
+                    .entry(name.alias.unwrap_or(name.name))
+                    .or_insert(module_id);
+            }
+        }
+        UsingSelector::Group(items) => {
+            for item in items {
+                collect_module_aliases_from_group_item(context, namespace, item, modules);
+            }
+        }
+        UsingSelector::Wildcard { .. } => {}
+    }
+}
+
+fn collect_module_aliases_from_group_item(
+    context: &UsingExpansionContext<'_>,
+    namespace: ModuleId,
+    item: &UsingGroupItem,
+    modules: &mut SymbolMap<ModuleId>,
+) {
+    match item {
+        UsingGroupItem::Name(name) => {
+            if let Some(module_id) = module_alias_target_for_name(context, namespace, &name.name) {
+                modules
+                    .entry(name.alias.unwrap_or(name.name))
+                    .or_insert(module_id);
+            }
+        }
+        UsingGroupItem::Nested { host, selector } => {
+            let Ok(namespace) = resolve_public_namespace_path(
+                context.defs_by_module,
+                context.graph,
+                context.accessing_module,
+                namespace,
+                context.surfaces,
+                host,
+                context.mode,
+                context.symbols,
+            ) else {
+                return;
+            };
+            let ResolvedNamespace::Module(module_id) = namespace else {
+                return;
+            };
+            collect_module_aliases_from_selector(
+                context,
+                module_id,
+                host.last(),
+                selector,
+                modules,
+            );
+        }
+    }
+}
+
+fn collect_root_group_module_aliases(
+    context: &UsingExpansionContext<'_>,
+    current: &DefCollection,
+    local_modules: &SymbolMap<ModuleId>,
+    item: &UsingGroupItem,
+    modules: &mut SymbolMap<ModuleId>,
+) {
+    match item {
+        UsingGroupItem::Name(name) => {
+            let target = root_module_for_segment(
+                context.graph,
+                current.module_id,
+                &UsingPathSegment {
+                    kind: PathSegmentKind::Name(name.name),
+                    span: name.name_span,
+                },
+            )
+            .or_else(|| visible_child_module_for_mode(context, current.module_id, &name.name))
+            .or_else(|| local_modules.get(&name.name).copied());
+            if let Some(module_id) = target {
+                modules
+                    .entry(name.alias.unwrap_or(name.name))
+                    .or_insert(module_id);
+            }
+        }
+        UsingGroupItem::Nested { host, selector } => {
+            let Some(namespace) =
+                resolve_module_alias_namespace(context, current, local_modules, host)
+            else {
+                return;
+            };
+            collect_module_aliases_from_selector(
+                context,
+                namespace,
+                host.last(),
+                selector,
+                modules,
+            );
+        }
+    }
+}
+
+fn module_alias_target_for_name(
+    context: &UsingExpansionContext<'_>,
+    namespace: ModuleId,
+    name: &SymbolId,
+) -> Option<ModuleId> {
+    visible_child_module(context.graph, context.accessing_module, namespace, name).or_else(|| {
+        context
+            .surfaces
+            .get(namespace)
+            .and_then(|surface| surface.lookup_module(name))
+    })
+}
+
+fn insert_into_surface(surface: &mut ModulePublicSurface, name: &SymbolId, item: PublicItem) {
     let table = match item.namespace {
         PublicNamespace::Value => &mut surface.values,
         PublicNamespace::Type => &mut surface.types,
     };
-    table.entry(name.to_string()).or_insert(item);
+    table.entry(name.clone()).or_insert(item);
 }
 
 fn entry_already_present(
     surface: &ModulePublicSurface,
-    name: &str,
+    name: &SymbolId,
     namespace: PublicNamespace,
 ) -> bool {
     let table = match namespace {
@@ -481,7 +773,7 @@ enum ResolvedEntryKind {
 
 #[derive(Clone)]
 struct ResolvedEntry {
-    name: String,
+    name: SymbolId,
     name_span: Span,
     kind: ResolvedEntryKind,
 }
@@ -497,6 +789,7 @@ struct UsingExpansionContext<'a> {
     graph: &'a ModuleGraph,
     accessing_module: ModuleId,
     surfaces: &'a PublicSurfaces,
+    symbols: &'a dyn SymbolText,
     mode: UsingLookupMode,
 }
 
@@ -515,17 +808,20 @@ enum ResolvedNamespace {
 fn root_module_for_segment(
     graph: &ModuleGraph,
     current_module: ModuleId,
-    name: &str,
+    segment: &UsingPathSegment,
 ) -> Option<ModuleId> {
-    match name {
-        "self" => Some(current_module),
-        "super" => graph.get(current_module)?.parent,
-        ENTRY_MODULE_MAP_NAME => Some(graph.entry()),
-        PACKAGE_MODULE_MAP_NAME => graph.current_package_root(current_module),
-        package => graph
-            .get(current_module)
-            .and_then(|node| node.children.get(package).copied())
-            .or_else(|| graph.package_root(package)),
+    graph.root_module_for_segment(
+        current_module,
+        module_root_segment_from_path_segment(segment.kind),
+    )
+}
+
+fn module_root_segment_from_path_segment(kind: PathSegmentKind) -> ModuleRootSegment {
+    match kind {
+        PathSegmentKind::SelfValue => ModuleRootSegment::Current,
+        PathSegmentKind::Super => ModuleRootSegment::Parent,
+        PathSegmentKind::Package => ModuleRootSegment::PackageRelative,
+        PathSegmentKind::Name(name) => ModuleRootSegment::Named(name),
     }
 }
 
@@ -533,9 +829,10 @@ fn resolve_namespace_path(
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
     current: &DefCollection,
     graph: &ModuleGraph,
-    local_modules: &HashMap<String, ModuleId>,
+    local_modules: &SymbolMap<ModuleId>,
     surfaces: &PublicSurfaces,
     mode: UsingLookupMode,
+    symbols: &dyn SymbolText,
     path: &[UsingPathSegment],
 ) -> Result<ResolvedNamespace, Diagnostic> {
     let Some(first) = path.first() else {
@@ -546,11 +843,14 @@ fn resolve_namespace_path(
         ));
     };
     let mut namespace =
-        if let Some(module_id) = root_module_for_segment(graph, current.module_id, &first.name) {
+        if let Some(module_id) = root_module_for_segment(graph, current.module_id, first) {
             ResolvedNamespace::Module(module_id)
-        } else if let Some(module_id) = local_modules.get(&first.name).copied() {
+        } else if let Some(name) = path_segment_name(first)
+            && let Some(module_id) = local_modules.get(&name).copied()
+        {
             ResolvedNamespace::Module(module_id)
-        } else if let Some(def_id) = current.module_scope.types.get(&first.name)
+        } else if let Some(name) = path_segment_name(first)
+            && let Some(def_id) = current.module_scope.types.get(&name)
             && let Some(def) = current.defs.get(def_id)
             && def.kind == DefKind::Enum
         {
@@ -564,19 +864,15 @@ fn resolve_namespace_path(
                 first.span,
                 format!(
                     "`using {}::...` requires `{0}` to be a module namespace or a local enum",
-                    first.name
+                    path_segment_text(symbols, first)
                 ),
             ));
         };
 
     for segment in &path[1..] {
-        if segment.name == "super" {
-            return Err(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                segment.span,
-                "`super` can only be used as the first path segment in a `using` path",
-            ));
-        }
+        let Some(segment_name) = path_segment_name(segment) else {
+            return Err(non_initial_special_segment_diagnostic(symbols, segment));
+        };
         namespace = match namespace {
             ResolvedNamespace::Module(module_id) => {
                 let Some(surface) = surfaces.get(module_id) else {
@@ -586,13 +882,13 @@ fn resolve_namespace_path(
                         "module namespace refers to an unresolved public surface",
                     ));
                 };
-                if let Some(target_module) = surface.lookup_module(&segment.name) {
+                if let Some(target_module) = surface.lookup_module(&segment_name) {
                     ResolvedNamespace::Module(target_module)
                 } else if let Some(target_module) =
-                    visible_child_module(graph, current.module_id, module_id, &segment.name)
+                    visible_child_module(graph, current.module_id, module_id, &segment_name)
                 {
                     ResolvedNamespace::Module(target_module)
-                } else if let Some(item) = surface.lookup_type(&segment.name) {
+                } else if let Some(item) = surface.lookup_type(&segment_name) {
                     let enum_id = GlobalDefId {
                         module_id: item.target_module,
                         def_id: item.target_def_id,
@@ -615,7 +911,10 @@ fn resolve_namespace_path(
                         return Err(Diagnostic::user_error_at(
                             codes::NAME_RESOLUTION,
                             segment.span,
-                            format!("`{}` is not an enum namespace", segment.name),
+                            format!(
+                                "`{}` is not an enum namespace",
+                                symbol_text(symbols, segment_name)
+                            ),
                         ));
                     }
                     ResolvedNamespace::Enum(enum_id)
@@ -624,7 +923,7 @@ fn resolve_namespace_path(
                     graph,
                     current.module_id,
                     module_id,
-                    &segment.name,
+                    &segment_name,
                     mode,
                 ) {
                     ResolvedNamespace::Enum(enum_id)
@@ -632,7 +931,7 @@ fn resolve_namespace_path(
                     return Err(Diagnostic::user_error_at(
                         codes::NAME_RESOLUTION,
                         segment.span,
-                        format!("unknown namespace `{}`", segment.name),
+                        format!("unknown namespace `{}`", symbol_text(symbols, segment_name)),
                     ));
                 }
             }
@@ -652,14 +951,14 @@ fn visible_child_module(
     graph: &ModuleGraph,
     accessing_module: ModuleId,
     parent_module: ModuleId,
-    name: &str,
+    name: &SymbolId,
 ) -> Option<ModuleId> {
     let parent = graph.get(parent_module)?;
     let target = parent.children.get(name).copied()?;
     let declaration = parent
         .declarations
         .iter()
-        .find(|declaration| declaration.name == name && declaration.target == target)?;
+        .find(|declaration| &declaration.name == name && declaration.target == target)?;
     module_declaration_visibility_allows(
         declaration.visibility,
         graph,
@@ -707,7 +1006,7 @@ fn direct_item_entry(
     defs: &DefCollection,
     context: &UsingExpansionContext<'_>,
     def_id: nia_defs::DefId,
-    local_name: String,
+    local_name: SymbolId,
     local_span: Span,
     source: PublicSource,
 ) -> Option<ResolvedEntry> {
@@ -741,7 +1040,7 @@ fn visible_direct_enum_namespace(
     graph: &ModuleGraph,
     accessing_module: ModuleId,
     module_id: ModuleId,
-    name: &str,
+    name: &SymbolId,
     mode: UsingLookupMode,
 ) -> Option<GlobalDefId> {
     let target_defs = defs_by_module.get(&module_id).copied()?;
@@ -770,6 +1069,7 @@ fn expand_namespace(
             context.defs_by_module,
             selector,
             false,
+            context.symbols,
             source.clone(),
         ),
     }
@@ -779,7 +1079,7 @@ fn expand_using(
     context: &UsingExpansionContext<'_>,
     current: &DefCollection,
     using: &ModuleUsing,
-    local_modules: &HashMap<String, ModuleId>,
+    local_modules: &SymbolMap<ModuleId>,
 ) -> UsingExpansion {
     let source = PublicSource::PubUsing {
         directive_span: using.span,
@@ -797,6 +1097,7 @@ fn expand_using(
         local_modules,
         context.surfaces,
         context.mode,
+        context.symbols,
         &using.host,
     ) {
         Ok(namespace) => namespace,
@@ -806,7 +1107,10 @@ fn expand_using(
         let Some(name) = using.host.last() else {
             return UsingExpansion::Unresolved;
         };
-        return expand_self_namespace(name.name.clone(), name.span, namespace, source.clone());
+        let Some(name_symbol) = path_segment_self_name(name) else {
+            return UsingExpansion::HardError(invalid_self_name_segment(name));
+        };
+        return expand_self_namespace(name_symbol, name.span, namespace, source.clone());
     }
     expand_namespace(namespace, &using.selector, context, source.clone())
 }
@@ -820,7 +1124,7 @@ fn record_unresolved_using_names(scope: &mut ModuleUsingScope, using: &ModuleUsi
 fn collect_explicit_using_names(
     host: &[UsingPathSegment],
     selector: &UsingSelector,
-    names: &mut Vec<String>,
+    names: &mut Vec<SymbolId>,
 ) {
     match selector {
         UsingSelector::Single(name) => {
@@ -828,7 +1132,9 @@ fn collect_explicit_using_names(
         }
         UsingSelector::SelfName => {
             if let Some(segment) = host.last() {
-                names.push(segment.name.clone());
+                if let Some(name) = path_segment_self_name(segment) {
+                    names.push(name);
+                }
             }
         }
         UsingSelector::Group(items) => {
@@ -850,7 +1156,7 @@ fn collect_explicit_using_names(
 fn expand_root_group(
     context: &UsingExpansionContext<'_>,
     current: &DefCollection,
-    local_modules: &HashMap<String, ModuleId>,
+    local_modules: &SymbolMap<ModuleId>,
     items: &[UsingGroupItem],
     source: PublicSource,
 ) -> UsingExpansion {
@@ -873,15 +1179,20 @@ fn expand_root_group(
 fn expand_root_group_item(
     context: &UsingExpansionContext<'_>,
     current: &DefCollection,
-    local_modules: &HashMap<String, ModuleId>,
+    local_modules: &SymbolMap<ModuleId>,
     item: &UsingGroupItem,
     source: PublicSource,
 ) -> UsingExpansion {
     match item {
         UsingGroupItem::Name(name) => {
-            if let Some(module_id) =
-                root_module_for_segment(context.graph, current.module_id, &name.name)
-            {
+            if let Some(module_id) = root_module_for_segment(
+                context.graph,
+                current.module_id,
+                &UsingPathSegment {
+                    kind: PathSegmentKind::Name(name.name),
+                    span: name.name_span,
+                },
+            ) {
                 return UsingExpansion::Resolved(vec![ResolvedEntry {
                     name: name.alias.clone().unwrap_or_else(|| name.name.clone()),
                     name_span: name.alias_span.unwrap_or(name.name_span),
@@ -914,6 +1225,7 @@ fn expand_root_group_item(
                 local_modules,
                 context.surfaces,
                 context.mode,
+                context.symbols,
                 host,
             ) {
                 Ok(namespace) => namespace,
@@ -923,12 +1235,10 @@ fn expand_root_group_item(
                 let Some(name) = host.last() else {
                     return UsingExpansion::Unresolved;
                 };
-                return expand_self_namespace(
-                    name.name.clone(),
-                    name.span,
-                    namespace,
-                    source.clone(),
-                );
+                let Some(name_symbol) = path_segment_self_name(name) else {
+                    return UsingExpansion::HardError(invalid_self_name_segment(name));
+                };
+                return expand_self_namespace(name_symbol, name.span, namespace, source.clone());
             }
             expand_namespace(namespace, selector, context, source.clone())
         }
@@ -938,14 +1248,14 @@ fn expand_root_group_item(
 fn visible_child_module_for_mode(
     context: &UsingExpansionContext<'_>,
     parent_module: ModuleId,
-    name: &str,
+    name: &SymbolId,
 ) -> Option<ModuleId> {
     let parent = context.graph.get(parent_module)?;
     let target = parent.children.get(name).copied()?;
     let declaration = parent
         .declarations
         .iter()
-        .find(|declaration| declaration.name == name && declaration.target == target)?;
+        .find(|declaration| &declaration.name == name && declaration.target == target)?;
     module_declaration_visible_for_wildcard(
         context.mode,
         declaration.visibility,
@@ -966,11 +1276,7 @@ fn expand_module_host(
         return UsingExpansion::Unresolved;
     };
     match selector {
-        UsingSelector::SelfName => UsingExpansion::Resolved(vec![ResolvedEntry {
-            name: "module".to_string(),
-            name_span: Span::default(),
-            kind: ResolvedEntryKind::Module(target_module),
-        }]),
+        UsingSelector::SelfName => UsingExpansion::Unresolved,
         UsingSelector::Wildcard { .. } => {
             let mut entries = Vec::new();
             if let Some(parent) = context.graph.get(target_module) {
@@ -1035,7 +1341,7 @@ fn expand_module_host(
                         continue;
                     };
                     if entries.iter().any(|entry| {
-                        entry.name == name
+                        &entry.name == name
                             && matches!(
                                 &entry.kind,
                                 ResolvedEntryKind::Item(item) if item.namespace == namespace
@@ -1047,7 +1353,7 @@ fn expand_module_host(
                         target_defs,
                         context,
                         def_id,
-                        name.to_string(),
+                        name.clone(),
                         def.span,
                         source.clone(),
                     ) {
@@ -1127,6 +1433,7 @@ fn expand_group_item(
                 context.surfaces,
                 host,
                 context.mode,
+                context.symbols,
             ) {
                 Ok(namespace) => namespace,
                 Err(diag) => return UsingExpansion::HardError(diag),
@@ -1135,12 +1442,10 @@ fn expand_group_item(
                 let Some(name) = host.last() else {
                     return UsingExpansion::Unresolved;
                 };
-                return expand_self_namespace(
-                    name.name.clone(),
-                    name.span,
-                    namespace,
-                    source.clone(),
-                );
+                let Some(name_symbol) = path_segment_self_name(name) else {
+                    return UsingExpansion::HardError(invalid_self_name_segment(name));
+                };
+                return expand_self_namespace(name_symbol, name.span, namespace, source.clone());
             }
             expand_namespace(namespace, selector, context, source.clone())
         }
@@ -1148,7 +1453,7 @@ fn expand_group_item(
 }
 
 fn expand_self_namespace(
-    name: String,
+    name: SymbolId,
     name_span: Span,
     namespace: ResolvedNamespace,
     source: PublicSource,
@@ -1182,6 +1487,7 @@ fn resolve_public_namespace_path(
     surfaces: &PublicSurfaces,
     host: &[UsingPathSegment],
     mode: UsingLookupMode,
+    symbols: &dyn SymbolText,
 ) -> Result<ResolvedNamespace, Diagnostic> {
     let Some(first) = host.first() else {
         return Err(Diagnostic::user_error_at(
@@ -1198,14 +1504,11 @@ fn resolve_public_namespace_path(
         surfaces,
         first,
         mode,
+        symbols,
     )?;
     for segment in &host[1..] {
-        if segment.name == "super" {
-            return Err(Diagnostic::user_error_at(
-                codes::NAME_RESOLUTION,
-                segment.span,
-                "`super` can only be used as the first path segment in a `using` path",
-            ));
+        if !matches!(segment.kind, PathSegmentKind::Name(_)) {
+            return Err(non_initial_special_segment_diagnostic(symbols, segment));
         }
         namespace = match namespace {
             ResolvedNamespace::Module(module_id) => resolve_public_namespace_segment(
@@ -1216,6 +1519,7 @@ fn resolve_public_namespace_path(
                 surfaces,
                 segment,
                 mode,
+                symbols,
             )?,
             ResolvedNamespace::Enum(_) => {
                 return Err(Diagnostic::user_error_at(
@@ -1237,7 +1541,35 @@ fn resolve_public_namespace_segment(
     surfaces: &PublicSurfaces,
     segment: &UsingPathSegment,
     mode: UsingLookupMode,
+    symbols: &dyn SymbolText,
 ) -> Result<ResolvedNamespace, Diagnostic> {
+    let Some(segment_name) = path_segment_name(segment) else {
+        return match segment.kind {
+            PathSegmentKind::SelfValue => Ok(ResolvedNamespace::Module(module_id)),
+            PathSegmentKind::Super => graph
+                .get(module_id)
+                .and_then(|node| node.parent)
+                .map(ResolvedNamespace::Module)
+                .ok_or_else(|| {
+                    Diagnostic::user_error_at(
+                        codes::NAME_RESOLUTION,
+                        segment.span,
+                        "`super` has no parent module",
+                    )
+                }),
+            PathSegmentKind::Package => graph
+                .current_package_root(module_id)
+                .map(ResolvedNamespace::Module)
+                .ok_or_else(|| {
+                    Diagnostic::user_error_at(
+                        codes::NAME_RESOLUTION,
+                        segment.span,
+                        "`pkg` has no package root",
+                    )
+                }),
+            PathSegmentKind::Name(_) => unreachable!(),
+        };
+    };
     let Some(surface) = surfaces.get(module_id) else {
         return Err(Diagnostic::user_error_at(
             codes::NAME_RESOLUTION,
@@ -1245,15 +1577,15 @@ fn resolve_public_namespace_segment(
             "module namespace refers to an unresolved public surface",
         ));
     };
-    if let Some(target_module) = surface.lookup_module(&segment.name) {
+    if let Some(target_module) = surface.lookup_module(&segment_name) {
         return Ok(ResolvedNamespace::Module(target_module));
     }
     if let Some(target_module) =
-        visible_child_module(graph, accessing_module, module_id, &segment.name)
+        visible_child_module(graph, accessing_module, module_id, &segment_name)
     {
         return Ok(ResolvedNamespace::Module(target_module));
     }
-    if let Some(item) = surface.lookup_type(&segment.name) {
+    if let Some(item) = surface.lookup_type(&segment_name) {
         let enum_id = GlobalDefId {
             module_id: item.target_module,
             def_id: item.target_def_id,
@@ -1276,7 +1608,10 @@ fn resolve_public_namespace_segment(
             return Err(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 segment.span,
-                format!("`{}` is not an enum namespace", segment.name),
+                format!(
+                    "`{}` is not an enum namespace",
+                    symbol_text(symbols, segment_name)
+                ),
             ));
         }
         return Ok(ResolvedNamespace::Enum(enum_id));
@@ -1286,7 +1621,7 @@ fn resolve_public_namespace_segment(
         graph,
         accessing_module,
         module_id,
-        &segment.name,
+        &segment_name,
         mode,
     ) {
         return Ok(ResolvedNamespace::Enum(enum_id));
@@ -1294,7 +1629,7 @@ fn resolve_public_namespace_segment(
     Err(Diagnostic::user_error_at(
         codes::NAME_RESOLUTION,
         segment.span,
-        format!("unknown namespace `{}`", segment.name),
+        format!("unknown namespace `{}`", symbol_text(symbols, segment_name)),
     ))
 }
 
@@ -1446,6 +1781,7 @@ fn expand_enum_host(
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
     selector: &UsingSelector,
     _visible: bool,
+    symbols: &dyn SymbolText,
     source: PublicSource,
 ) -> UsingExpansion {
     let Some(target_defs) = defs_by_module.get(&enum_id.module_id).copied() else {
@@ -1455,35 +1791,28 @@ fn expand_enum_host(
         return UsingExpansion::Unresolved;
     };
     match selector {
-        UsingSelector::SelfName => UsingExpansion::Resolved(vec![ResolvedEntry {
-            name: target_defs
-                .defs
-                .get(enum_id.def_id)
-                .map(|def| def.name.clone())
-                .unwrap_or_else(|| "Enum".to_string()),
-            name_span: target_defs
-                .defs
-                .get(enum_id.def_id)
-                .map(|def| def.span)
-                .unwrap_or_default(),
-            kind: ResolvedEntryKind::Item(PublicItem {
-                target_module: enum_id.module_id,
-                target_def_id: enum_id.def_id,
-                namespace: PublicNamespace::Type,
-                name_span: target_defs
-                    .defs
-                    .get(enum_id.def_id)
-                    .map(|def| def.span)
-                    .unwrap_or_default(),
-                source: source.clone(),
-                parent_enum: None,
-            }),
-        }]),
+        UsingSelector::SelfName => {
+            let Some(def) = target_defs.defs.get(enum_id.def_id) else {
+                return UsingExpansion::Unresolved;
+            };
+            UsingExpansion::Resolved(vec![ResolvedEntry {
+                name: def.name,
+                name_span: def.span,
+                kind: ResolvedEntryKind::Item(PublicItem {
+                    target_module: enum_id.module_id,
+                    target_def_id: enum_id.def_id,
+                    namespace: PublicNamespace::Type,
+                    name_span: def.span,
+                    source: source.clone(),
+                    parent_enum: None,
+                }),
+            }])
+        }
         UsingSelector::Wildcard { .. } => {
             let mut entries = Vec::new();
             for (name, def_id) in enum_scope.variants.entries() {
                 entries.push(ResolvedEntry {
-                    name: name.to_string(),
+                    name: name.clone(),
                     name_span: target_defs
                         .defs
                         .get(def_id)
@@ -1505,14 +1834,25 @@ fn expand_enum_host(
             }
             UsingExpansion::Resolved(entries)
         }
-        UsingSelector::Single(name) => {
-            resolve_enum_single(enum_id, target_defs, enum_scope, name, source.clone())
-        }
+        UsingSelector::Single(name) => resolve_enum_single(
+            symbols,
+            enum_id,
+            target_defs,
+            enum_scope,
+            name,
+            source.clone(),
+        ),
         UsingSelector::Group(items) => {
             let mut entries = Vec::new();
             for item in items {
-                match expand_enum_group_item(enum_id, target_defs, enum_scope, item, source.clone())
-                {
+                match expand_enum_group_item(
+                    symbols,
+                    enum_id,
+                    target_defs,
+                    enum_scope,
+                    item,
+                    source.clone(),
+                ) {
                     UsingExpansion::Resolved(sub) => entries.extend(sub),
                     UsingExpansion::Unresolved => return UsingExpansion::Unresolved,
                     UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
@@ -1524,6 +1864,7 @@ fn expand_enum_host(
 }
 
 fn expand_enum_group_item(
+    symbols: &dyn SymbolText,
     enum_id: GlobalDefId,
     target_defs: &DefCollection,
     enum_scope: &nia_defs::EnumScope,
@@ -1531,9 +1872,14 @@ fn expand_enum_group_item(
     source: PublicSource,
 ) -> UsingExpansion {
     match item {
-        UsingGroupItem::Name(name) => {
-            resolve_enum_single(enum_id, target_defs, enum_scope, name, source.clone())
-        }
+        UsingGroupItem::Name(name) => resolve_enum_single(
+            symbols,
+            enum_id,
+            target_defs,
+            enum_scope,
+            name,
+            source.clone(),
+        ),
         UsingGroupItem::Nested { host, .. } => {
             let span = host.first().map(|segment| segment.span).unwrap_or_default();
             UsingExpansion::HardError(Diagnostic::user_error_at(
@@ -1546,6 +1892,7 @@ fn expand_enum_group_item(
 }
 
 fn resolve_enum_single(
+    symbols: &dyn SymbolText,
     enum_id: GlobalDefId,
     target_defs: &DefCollection,
     enum_scope: &nia_defs::EnumScope,
@@ -1558,7 +1905,7 @@ fn resolve_enum_single(
         return UsingExpansion::HardError(Diagnostic::user_error_at(
             codes::NAME_RESOLUTION,
             name.name_span,
-            format!("unknown enum variant `{}`", name.name),
+            format!("unknown enum variant `{}`", symbol_text(symbols, name.name)),
         ));
     };
     let _ = target_defs;
@@ -1585,6 +1932,11 @@ mod tests {
     use super::*;
     use nia_defs::Visibility;
     use nia_imports::{ModuleGraph, SourcePath};
+    use nia_symbol::stable_hash;
+
+    fn name(text: &str) -> SymbolId {
+        SymbolId::from_stable_hash(stable_hash(text))
+    }
 
     fn defs(module_id: ModuleId, source: &str) -> DefCollection {
         let (module, errors) = nia_parser::parse_module(source);
@@ -1595,8 +1947,9 @@ mod tests {
     fn graph_with_public_children(children: &[&str]) -> ModuleGraph {
         let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
         for child in children {
+            let child = name(child);
             graph
-                .intern_declared_child(graph.entry(), child, Visibility::Public, Span::default())
+                .intern_declared_child(graph.entry(), &child, Visibility::Public, Span::default())
                 .expect("child declaration");
         }
         graph
@@ -1619,13 +1972,19 @@ using { left::*, right::* };
         let (_, _, diagnostics) = compute_public_surfaces(&[main, left, right], &graph);
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(
-            diagnostics[0]
-                .1
-                .summary
-                .contains("duplicate using name `value`")
-        );
+        assert!(diagnostics[0].1.summary.contains("duplicate using name"));
         assert_ne!(diagnostics[0].1.primary_span(), Some(Span::default()));
+    }
+
+    #[test]
+    fn self_selector_requires_named_host_segment() {
+        let main = defs(ModuleId(0), "using self;");
+        let graph = graph_with_public_children(&[]);
+
+        let (_, _, diagnostics) = compute_public_surfaces(&[main], &graph);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].1.summary.contains("using `self` requires"));
     }
 
     #[test]
@@ -1645,11 +2004,20 @@ pub using self::types::Used as FacadeUsed;
 "#,
         );
         let types = defs(ModuleId(2), "pub struct Used {}");
-        let used_def_id = types.module_scope.types.get("Used").expect("Used def");
+        let used_def_id = types
+            .module_scope
+            .types
+            .get(&name("Used"))
+            .expect("Used def");
         let defs_by_module = vec![main, facade, types];
         let mut graph = graph_with_public_children(&["facade"]);
         graph
-            .intern_declared_child(ModuleId(1), "types", Visibility::Public, Span::default())
+            .intern_declared_child(
+                ModuleId(1),
+                &name("types"),
+                Visibility::Public,
+                Span::default(),
+            )
             .expect("types child declaration");
 
         let exported = compute_exported_public_surfaces(&defs_by_module, &graph);
@@ -1666,13 +2034,9 @@ pub using self::types::Used as FacadeUsed;
             def_id: used_def_id,
         });
 
-        assert_eq!(
-            names,
-            &[
-                "FacadeUsed".to_string(),
-                "LocalUsed".to_string(),
-                "Used".to_string()
-            ]
-        );
+        let mut expected = vec![name("FacadeUsed"), name("LocalUsed"), name("Used")];
+        expected.sort();
+        expected.dedup();
+        assert_eq!(names, expected.as_slice());
     }
 }

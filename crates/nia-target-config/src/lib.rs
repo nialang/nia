@@ -8,6 +8,7 @@ use nia_ast::{
 use nia_diagnostic::{Diagnostic, codes};
 use nia_item_tree::{ActiveModuleItemTree, ConditionResolver, ItemTreeError, ModuleItemTree};
 use nia_span::Span;
+use nia_symbol::{SymbolMap, known, known_symbol_text_or_identity};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -605,20 +606,20 @@ enum ConditionValue {
 }
 
 struct ConditionEvaluator {
-    values: HashMap<&'static str, ConditionValue>,
+    values: SymbolMap<ConditionValue>,
 }
 
 impl ConditionEvaluator {
     fn new(config: &TargetConfig) -> Self {
         let mut values = HashMap::new();
-        values.insert("arch", ConditionValue::String(config.arch.clone()));
-        values.insert("vendor", ConditionValue::String(config.vendor.clone()));
-        values.insert("os", ConditionValue::String(config.os.clone()));
-        values.insert("env", ConditionValue::String(config.env.clone()));
-        values.insert("abi", ConditionValue::String(config.abi.clone()));
-        values.insert("endian", ConditionValue::String(config.endian.clone()));
+        values.insert(known::ARCH, ConditionValue::String(config.arch.clone()));
+        values.insert(known::VENDOR, ConditionValue::String(config.vendor.clone()));
+        values.insert(known::OS, ConditionValue::String(config.os.clone()));
+        values.insert(known::ENV, ConditionValue::String(config.env.clone()));
+        values.insert(known::ABI, ConditionValue::String(config.abi.clone()));
+        values.insert(known::ENDIAN, ConditionValue::String(config.endian.clone()));
         values.insert(
-            "pointer_width",
+            known::POINTER_WIDTH,
             ConditionValue::Int(i128::from(config.pointer_width)),
         );
         Self { values }
@@ -639,19 +640,15 @@ impl ConditionEvaluator {
         match &expr.kind {
             ConditionExprKind::Bool(value) => Ok(ConditionValue::Bool(*value)),
             ConditionExprKind::Integer(text) => {
-                let value = nia_comptime_engine::eval_int_literal(text).map_err(|message| {
-                    ConditionError {
+                let value =
+                    nia_literals::eval_int_literal(text).map_err(|message| ConditionError {
                         span: expr.span,
                         message,
-                    }
-                })?;
+                    })?;
                 Ok(ConditionValue::Int(value))
             }
             ConditionExprKind::String(text) => {
-                let literal = nia_comptime_ir::ComptimeStringLiteral {
-                    parts: vec![text.clone()],
-                };
-                let Some(value) = nia_comptime_engine::eval_string_literal(&literal) else {
+                let Some(value) = nia_literals::eval_string_literal_parts([text.as_str()]) else {
                     return Err(ConditionError {
                         span: expr.span,
                         message: "invalid condition string literal".to_string(),
@@ -661,11 +658,14 @@ impl ConditionEvaluator {
             }
             ConditionExprKind::Ident(name) => {
                 self.values
-                    .get(name.as_str())
+                    .get(name)
                     .cloned()
                     .ok_or_else(|| ConditionError {
                         span: expr.span,
-                        message: format!("unknown condition name `{name}`"),
+                        message: format!(
+                            "unknown condition name `{}`",
+                            known_symbol_text_or_identity(*name)
+                        ),
                     })
             }
             ConditionExprKind::Unary { op, expr: inner } => match op {

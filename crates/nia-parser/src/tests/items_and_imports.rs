@@ -90,7 +90,7 @@ struct Header {
     let AttributeKind::Meta(meta) = &attr.kind else {
         panic!("expected metadata attribute");
     };
-    assert_eq!(meta.path, vec!["link_name"]);
+    assert_eq!(meta.path, vec![sym("link_name")]);
     assert_eq!(meta.args.len(), 1);
     assert!(matches!(meta.args[0].kind, ExprKind::String(_)));
     assert!(matches!(module.items[0].vis, Visibility::Public));
@@ -100,7 +100,7 @@ struct Header {
     let AttributeKind::Meta(meta) = &attr.kind else {
         panic!("expected metadata attribute");
     };
-    assert_eq!(meta.path, vec!["layout", "version"]);
+    assert_eq!(meta.path, vec![sym("layout"), sym("version")]);
     assert_eq!(meta.args.len(), 2);
     assert!(matches!(meta.args[0].kind, ExprKind::Integer(_)));
     assert!(matches!(meta.args[1].kind, ExprKind::Bool(true)));
@@ -112,13 +112,13 @@ struct Header {
     assert_eq!(item_struct.fields[0].attributes.len(), 1);
     assert!(matches!(
         &item_struct.fields[0].attributes[0].kind,
-        AttributeKind::Meta(meta) if meta.path == ["offset"]
+        AttributeKind::Meta(meta) if meta.path == [sym("offset")]
     ));
     assert_eq!(item_struct.fields[1].attributes.len(), 1);
     assert!(matches!(
         &item_struct.fields[1].attributes[0].kind,
         AttributeKind::Meta(meta)
-            if meta.path == ["note"] && matches!(meta.args[0].kind, ExprKind::Field { .. })
+            if meta.path == [sym("note")] && matches!(meta.args[0].kind, ExprKind::Field { .. })
     ));
 }
 
@@ -228,7 +228,7 @@ using math::{add, sub as minus, Operator::*};
     assert!(
         matches!(&items[2], UsingGroupItem::Nested { host, selector }
             if host.len() == 1
-                && host[0].name == "Operator"
+                && host_name(&host[0]) == Some(sym("Operator"))
                 && matches!(selector.as_ref(), UsingSelector::Wildcard { .. }))
     );
 }
@@ -246,7 +246,7 @@ pub using math;
         panic!("expected using");
     };
     assert_eq!(using.host.len(), 1);
-    assert_eq!(using.host[0].name, "math");
+    assert_eq!(host_name(&using.host[0]), Some(sym("math")));
     assert!(matches!(using.selector, UsingSelector::SelfName));
 }
 
@@ -258,11 +258,11 @@ fn parses_package_root_using() {
         panic!("expected using");
     };
     assert_eq!(using.host.len(), 1);
-    assert_eq!(using.host[0].name, "pkg");
+    assert!(matches!(using.host[0].kind, PathSegmentKind::Package));
     let UsingSelector::Single(name) = &using.selector else {
         panic!("expected single using selector");
     };
-    assert_eq!(name.name, "math");
+    assert_eq!(name.name, sym("math"));
 }
 
 #[test]
@@ -285,15 +285,15 @@ using {A, A::foo, C::SomeEnum::DDD};
     assert!(
         matches!(&items[1], UsingGroupItem::Nested { host, selector }
         if host.len() == 1
-            && host[0].name == "A"
-            && matches!(selector.as_ref(), UsingSelector::Single(name) if name.name == "foo"))
+            && host_name(&host[0]) == Some(sym("A"))
+            && matches!(selector.as_ref(), UsingSelector::Single(name) if name.name == sym("foo")))
     );
     assert!(
         matches!(&items[2], UsingGroupItem::Nested { host, selector }
         if host.len() == 2
-            && host[0].name == "C"
-            && host[1].name == "SomeEnum"
-            && matches!(selector.as_ref(), UsingSelector::Single(name) if name.name == "DDD"))
+            && host_name(&host[0]) == Some(sym("C"))
+            && host_name(&host[1]) == Some(sym("SomeEnum"))
+            && matches!(selector.as_ref(), UsingSelector::Single(name) if name.name == sym("DDD")))
     );
 }
 
@@ -309,8 +309,8 @@ using A::B::{C::foo, D::E::{F::goo, G}, H::Color::*};
         panic!("expected using");
     };
     assert_eq!(using.host.len(), 2);
-    assert_eq!(using.host[0].name, "A");
-    assert_eq!(using.host[1].name, "B");
+    assert_eq!(host_name(&using.host[0]), Some(sym("A")));
+    assert_eq!(host_name(&using.host[1]), Some(sym("B")));
     let UsingSelector::Group(items) = &using.selector else {
         panic!("expected using group");
     };
@@ -318,21 +318,21 @@ using A::B::{C::foo, D::E::{F::goo, G}, H::Color::*};
     assert!(
         matches!(&items[0], UsingGroupItem::Nested { host, selector }
         if host.len() == 1
-            && host[0].name == "C"
-            && matches!(selector.as_ref(), UsingSelector::Single(name) if name.name == "foo"))
+            && host_name(&host[0]) == Some(sym("C"))
+            && matches!(selector.as_ref(), UsingSelector::Single(name) if name.name == sym("foo")))
     );
     assert!(
         matches!(&items[1], UsingGroupItem::Nested { host, selector }
         if host.len() == 2
-            && host[0].name == "D"
-            && host[1].name == "E"
+            && host_name(&host[0]) == Some(sym("D"))
+            && host_name(&host[1]) == Some(sym("E"))
             && matches!(selector.as_ref(), UsingSelector::Group(group) if group.len() == 2))
     );
     assert!(
         matches!(&items[2], UsingGroupItem::Nested { host, selector }
         if host.len() == 2
-            && host[0].name == "H"
-            && host[1].name == "Color"
+            && host_name(&host[0]) == Some(sym("H"))
+            && host_name(&host[1]) == Some(sym("Color"))
             && matches!(selector.as_ref(), UsingSelector::Wildcard { .. }))
     );
 }
@@ -365,12 +365,15 @@ extend[T] Box[T] {
     let ItemKind::Struct(item) = &module.items[0].kind else {
         panic!("expected struct");
     };
-    assert_eq!(nia_ast::generic_param_names(&item.generics), vec!["T"]);
+    assert_eq!(nia_ast::generic_param_names(&item.generics), vec![sym("T")]);
     assert_eq!(item.fields.len(), 1);
     let ItemKind::Extend(extend) = &module.items[1].kind else {
         panic!("expected extend");
     };
-    assert_eq!(nia_ast::generic_param_names(&extend.generics), vec!["T"]);
+    assert_eq!(
+        nia_ast::generic_param_names(&extend.generics),
+        vec![sym("T")]
+    );
     assert_eq!(extend.methods.len(), 1);
 }
 
@@ -387,7 +390,10 @@ struct Buffer[T, N: usize] {
     let ItemKind::Struct(item) = &module.items[0].kind else {
         panic!("expected struct");
     };
-    assert_eq!(nia_ast::generic_param_names(&item.generics), vec!["T", "N"]);
+    assert_eq!(
+        nia_ast::generic_param_names(&item.generics),
+        vec![sym("T"), sym("N")]
+    );
     assert!(item.generics[0].is_type());
     assert!(item.generics[1].is_comptime());
 }
@@ -407,10 +413,10 @@ extend usize {
         panic!("expected extend");
     };
     assert_eq!(extend.associated_values.len(), 2);
-    assert_eq!(extend.associated_values[0].binding.name, "MAX");
+    assert_eq!(extend.associated_values[0].binding.name, sym("MAX"));
     assert!(extend.associated_values[0].binding.is_comptime);
     assert!(!extend.associated_values[0].binding.is_mutable);
-    assert_eq!(extend.associated_values[1].binding.name, "shadow");
+    assert_eq!(extend.associated_values[1].binding.name, sym("shadow"));
     assert!(extend.associated_values[1].binding.is_comptime);
     assert!(extend.associated_values[1].binding.is_mutable);
 }
@@ -430,7 +436,7 @@ extend usize {
         panic!("expected extend");
     };
     assert_eq!(extend.associated_values.len(), 1);
-    assert_eq!(extend.associated_values[0].binding.name, "MAX");
+    assert_eq!(extend.associated_values[0].binding.name, sym("MAX"));
     assert!(extend.associated_values[0].binding.value.is_none());
 
     let (_, errors) = parse_module(
@@ -460,7 +466,7 @@ pub type AsmConfig;
     let ItemKind::TypeAlias(alias) = &module.items[0].kind else {
         panic!("expected type alias");
     };
-    assert_eq!(alias.name, "AsmConfig");
+    assert_eq!(alias.name, sym("AsmConfig"));
     assert!(alias.ty.is_none());
 
     let (_, errors) = parse_module(

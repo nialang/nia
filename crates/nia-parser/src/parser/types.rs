@@ -16,7 +16,12 @@ impl Parser {
         }
         while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
             if let Some(token) = self.eat(TokenKind::Ident) {
-                let name = self.token_text(&token).to_string();
+                let Some(name) = self.token_name(&token) else {
+                    if self.eat(TokenKind::Comma).is_none() {
+                        break;
+                    }
+                    continue;
+                };
                 if self.eat(TokenKind::Colon).is_some() {
                     if let Some(ty) = self.parse_type() {
                         generics.push(nia_ast::GenericParam::comptime_param(name, token.span, ty));
@@ -170,7 +175,7 @@ impl Parser {
             TypeKind::Void
         } else if self.eat(TokenKind::Never).is_some() {
             TypeKind::Never
-        } else if self.at(TokenKind::Ident) || self.at(TokenKind::Bool) {
+        } else if self.at_type_path_segment() {
             TypeKind::Path {
                 segments: self.parse_type_path_segments_with_mode(mode)?,
             }
@@ -246,7 +251,7 @@ impl Parser {
             self.errors.truncate(errors_len);
             return None;
         }
-        let Some(name) = self.expect_text(TokenKind::Ident, "expected associated type name") else {
+        let Some(name) = self.expect_name(TokenKind::Ident, "expected associated type name") else {
             self.tokens.rewind(checkpoint);
             self.errors.truncate(errors_len);
             return None;
@@ -351,16 +356,7 @@ impl Parser {
     ) -> Option<Vec<TypePathSegment>> {
         let mut segments = Vec::new();
         loop {
-            let name = match self.peek().kind {
-                TokenKind::Ident | TokenKind::Bool | TokenKind::Pkg => {
-                    let token = self.bump();
-                    self.token_text(&token).to_string()
-                }
-                _ => {
-                    self.error_here("expected type path segment");
-                    return None;
-                }
-            };
+            let (kind, _) = self.expect_type_path_segment_kind("expected type path segment")?;
             let args_checkpoint = self.tokens.checkpoint();
             let args_errors_len = self.errors.len();
             let args = self.parse_type_args();
@@ -372,11 +368,11 @@ impl Parser {
                 self.tokens.rewind(args_checkpoint);
                 self.errors.truncate(args_errors_len);
                 segments.push(TypePathSegment {
-                    name,
+                    kind,
                     args: Vec::new(),
                 });
             } else {
-                segments.push(TypePathSegment { name, args });
+                segments.push(TypePathSegment { kind, args });
             }
             if self.eat(TokenKind::ColonColon).is_none() {
                 break;
@@ -430,7 +426,16 @@ impl Parser {
                     };
                     let key = match &key_ty.kind {
                         TypeKind::Path { segments } if segments.len() == 1 => {
-                            AssocBindingKey::Name(segments[0].name.clone())
+                            match segments[0].kind {
+                                PathSegmentKind::Name(name) => AssocBindingKey::Name(name),
+                                _ => {
+                                    self.error_at(
+                                        key_ty.span,
+                                        "associated type binding key must be a name or projection",
+                                    );
+                                    AssocBindingKey::Projection(key_ty)
+                                }
+                            }
                         }
                         TypeKind::Projection { .. } => AssocBindingKey::Projection(key_ty),
                         _ => {
@@ -528,6 +533,7 @@ impl Parser {
                 | TokenKind::LBracket
                 | TokenKind::Ident
                 | TokenKind::Pkg
+                | TokenKind::Super
                 | TokenKind::DotDot
                 | TokenKind::DotDotEq
                 | TokenKind::LParen
@@ -588,6 +594,31 @@ impl Parser {
             }
         }
         WhereClause { predicates }
+    }
+}
+
+impl Parser {
+    fn at_type_path_segment(&self) -> bool {
+        matches!(
+            self.peek().kind,
+            TokenKind::Ident | TokenKind::Bool | TokenKind::Pkg | TokenKind::Super
+        )
+    }
+
+    fn expect_type_path_segment_kind(&mut self, message: &str) -> Option<(PathSegmentKind, Span)> {
+        let token = self.peek().clone();
+        let kind = match token.kind {
+            TokenKind::Ident => PathSegmentKind::Name(self.symbol_for_name_token(&token)?),
+            TokenKind::Bool => PathSegmentKind::Name(nia_symbol::known::BOOL),
+            TokenKind::Pkg => PathSegmentKind::Package,
+            TokenKind::Super => PathSegmentKind::Super,
+            _ => {
+                self.error_here(message);
+                return None;
+            }
+        };
+        self.bump();
+        Some((kind, token.span))
     }
 }
 

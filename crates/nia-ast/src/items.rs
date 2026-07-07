@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
+use nia_symbol::{SymbolId, symbol_identity_key};
 
-use crate::{Block, Expr, TypeRef, WhereClause};
+use crate::{Block, Expr, PathSegmentKind, TypeRef, WhereClause};
 
 pub use nia_ids::{ReceiverKind, Visibility};
 
@@ -34,7 +35,7 @@ pub enum AttributeKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AttributeMeta {
-    pub path: Vec<String>,
+    pub path: Vec<SymbolId>,
     pub args: Vec<Expr>,
 }
 
@@ -49,7 +50,7 @@ pub enum ConditionExprKind {
     Bool(bool),
     Integer(String),
     String(String),
-    Ident(String),
+    Ident(SymbolId),
     Unary {
         op: ConditionUnaryOp,
         expr: Box<ConditionExpr>,
@@ -90,7 +91,7 @@ pub enum ItemKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModuleItem {
-    pub name: String,
+    pub name: SymbolId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -101,7 +102,7 @@ pub struct UsingItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsingHostSegment {
-    pub name: String,
+    pub kind: PathSegmentKind,
     pub span: Span,
 }
 
@@ -124,15 +125,15 @@ pub enum UsingGroupItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsingName {
-    pub name: String,
+    pub name: SymbolId,
     pub name_span: Span,
-    pub alias: Option<String>,
+    pub alias: Option<SymbolId>,
     pub alias_span: Option<Span>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructItem {
-    pub name: String,
+    pub name: SymbolId,
     pub generics: Vec<GenericParam>,
     pub where_clause: WhereClause,
     pub fields: Vec<Field>,
@@ -141,7 +142,7 @@ pub struct StructItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnionItem {
-    pub name: String,
+    pub name: SymbolId,
     pub generics: Vec<GenericParam>,
     pub where_clause: WhereClause,
     pub fields: Vec<Field>,
@@ -150,7 +151,7 @@ pub struct UnionItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitItem {
-    pub name: String,
+    pub name: SymbolId,
     pub generics: Vec<GenericParam>,
     pub supertraits: Vec<TypeRef>,
     pub where_clause: WhereClause,
@@ -161,14 +162,14 @@ pub struct TraitItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitAssociatedType {
-    pub name: String,
+    pub name: SymbolId,
     pub span: Span,
     pub node_key: VersionedNodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitAssociatedValue {
-    pub name: String,
+    pub name: SymbolId,
     pub ty: TypeRef,
     pub span: Span,
     pub node_key: VersionedNodeKey,
@@ -192,7 +193,7 @@ pub struct ExtendItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtendAssociatedType {
-    pub name: String,
+    pub name: SymbolId,
     pub ty: TypeRef,
     pub span: Span,
     pub node_key: VersionedNodeKey,
@@ -213,7 +214,7 @@ pub struct ExtendMethod {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
-    pub name: String,
+    pub name: SymbolId,
     pub ty: TypeRef,
     pub attributes: Vec<Attribute>,
     pub span: Span,
@@ -222,7 +223,7 @@ pub struct Field {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumItem {
-    pub name: String,
+    pub name: SymbolId,
     pub backing_type: Option<TypeRef>,
     pub is_open: bool,
     pub variants: Vec<EnumVariant>,
@@ -230,7 +231,7 @@ pub struct EnumItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariant {
-    pub name: String,
+    pub name: SymbolId,
     pub value: Option<Expr>,
     pub span: Span,
     pub node_key: VersionedNodeKey,
@@ -238,7 +239,7 @@ pub struct EnumVariant {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAliasItem {
-    pub name: String,
+    pub name: SymbolId,
     pub generics: Vec<GenericParam>,
     pub where_clause: WhereClause,
     pub ty: Option<TypeRef>,
@@ -246,7 +247,7 @@ pub struct TypeAliasItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionItem {
-    pub name: String,
+    pub name: SymbolId,
     pub generics: Vec<GenericParam>,
     pub where_clause: WhereClause,
     pub params: Vec<Param>,
@@ -261,7 +262,7 @@ pub struct FunctionItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericParam {
-    pub name: String,
+    pub name: SymbolId,
     pub name_span: Span,
     pub kind: GenericParamKind,
 }
@@ -273,7 +274,7 @@ pub enum GenericParamKind {
 }
 
 impl GenericParam {
-    pub fn type_param(name: String, name_span: Span) -> Self {
+    pub fn type_param(name: SymbolId, name_span: Span) -> Self {
         Self {
             name,
             name_span,
@@ -281,7 +282,7 @@ impl GenericParam {
         }
     }
 
-    pub fn comptime_param(name: String, name_span: Span, ty: TypeRef) -> Self {
+    pub fn comptime_param(name: SymbolId, name_span: Span, ty: TypeRef) -> Self {
         Self {
             name,
             name_span,
@@ -298,11 +299,8 @@ impl GenericParam {
     }
 }
 
-pub fn generic_param_names(generics: &[GenericParam]) -> Vec<String> {
-    generics
-        .iter()
-        .map(|generic| generic.name.clone())
-        .collect()
+pub fn generic_param_names(generics: &[GenericParam]) -> Vec<SymbolId> {
+    generics.iter().map(|generic| generic.name).collect()
 }
 
 pub fn generic_param_identities(generics: &[GenericParam]) -> Vec<String> {
@@ -311,9 +309,13 @@ pub fn generic_param_identities(generics: &[GenericParam]) -> Vec<String> {
 
 pub fn generic_param_identity(generic: &GenericParam) -> String {
     match &generic.kind {
-        GenericParamKind::Type => generic.name.clone(),
+        GenericParamKind::Type => symbol_identity_key(generic.name),
         GenericParamKind::Comptime { ty } => {
-            format!("{}:{}", generic.name, crate::type_ref_identity(ty))
+            format!(
+                "{}:{}",
+                symbol_identity_key(generic.name),
+                crate::type_ref_identity(ty)
+            )
         }
     }
 }
@@ -321,7 +323,7 @@ pub fn generic_param_identity(generic: &GenericParam) -> String {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub receiver: Option<ReceiverKind>,
-    pub name: Option<String>,
+    pub name: Option<SymbolId>,
     pub ty: Option<TypeRef>,
     pub span: Span,
     pub node_key: VersionedNodeKey,
@@ -329,7 +331,7 @@ pub struct Param {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BindingItem {
-    pub name: String,
+    pub name: SymbolId,
     pub ty: Option<TypeRef>,
     pub value: Option<Expr>,
     pub is_mutable: bool,

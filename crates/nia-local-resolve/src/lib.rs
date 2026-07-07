@@ -12,6 +12,7 @@ pub use nia_ids::LocalId;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap, symbol_identity_key};
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,9 +57,32 @@ impl LocalMap {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Local {
-    pub name: String,
+    pub name: LocalBindingName,
     pub kind: LocalKind,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LocalBindingName {
+    Named(SymbolId),
+    SelfValue,
+}
+
+impl LocalBindingName {
+    pub fn named(name: SymbolId) -> Self {
+        Self::Named(name)
+    }
+
+    pub fn symbol(self) -> Option<SymbolId> {
+        match self {
+            Self::Named(name) => Some(name),
+            Self::SelfValue => None,
+        }
+    }
+
+    pub fn is_self_value(self) -> bool {
+        matches!(self, Self::SelfValue)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +192,7 @@ fn resolve_module_locals_from_filtered_items(
         node_uses: HashMap::new(),
         diagnostics: Vec::new(),
         scopes: Vec::new(),
+        self_locals: Vec::new(),
         definition_ids: Some(allocated.node_local_defs),
     };
     resolver.resolve_items(filtered_items);
@@ -192,6 +217,7 @@ fn resolve_module_locals_from_items(
         node_uses: HashMap::new(),
         diagnostics: Vec::new(),
         scopes: Vec::new(),
+        self_locals: Vec::new(),
         definition_ids: None,
     };
     resolver.resolve_items(items);
@@ -211,6 +237,7 @@ struct LocalResolver<'a> {
     node_uses: HashMap<VersionedNodeKey, LocalUse>,
     diagnostics: Vec<Diagnostic>,
     scopes: Vec<Scope>,
+    self_locals: Vec<Option<ScopedLocal>>,
     definition_ids: Option<HashMap<VersionedNodeKey, LocalId>>,
 }
 
@@ -228,8 +255,8 @@ struct ScopedStatic {
 
 #[derive(Debug, Clone, Default)]
 struct Scope {
-    locals: HashMap<String, ScopedLocal>,
-    statics: HashMap<String, ScopedStatic>,
+    locals: SymbolMap<ScopedLocal>,
+    statics: SymbolMap<ScopedStatic>,
 }
 
 #[derive(Default)]
@@ -287,7 +314,9 @@ impl LocalDefinitionAllocator {
 
     fn allocate_function(&mut self, function: &FunctionItem) {
         for param in &function.params {
-            if let Some(name) = &param.name {
+            if param.receiver.is_some() {
+                self.allocate_receiver(param.span, param.node_key.clone());
+            } else if let Some(name) = &param.name {
                 self.allocate_definition(
                     name,
                     LocalKind::Param,
@@ -360,6 +389,8 @@ impl LocalDefinitionAllocator {
     fn allocate_expr(&mut self, expr: &Expr) {
         match &expr.kind {
             ExprKind::Ident(_)
+            | ExprKind::SelfValue
+            | ExprKind::PathRoot(_)
             | ExprKind::TypeTarget { .. }
             | ExprKind::TraitTarget { .. }
             | ExprKind::Integer(_)
@@ -537,16 +568,31 @@ impl LocalDefinitionAllocator {
 
     fn allocate_definition(
         &mut self,
-        name: &str,
+        name: &SymbolId,
         kind: LocalKind,
         span: Span,
         node_key: VersionedNodeKey,
     ) {
-        let id = self.locals.push(Local {
-            name: name.to_string(),
-            kind,
+        self.allocate_local(LocalBindingName::named(*name), kind, span, node_key);
+    }
+
+    fn allocate_receiver(&mut self, span: Span, node_key: VersionedNodeKey) {
+        self.allocate_local(
+            LocalBindingName::SelfValue,
+            LocalKind::Param,
             span,
-        });
+            node_key,
+        );
+    }
+
+    fn allocate_local(
+        &mut self,
+        name: LocalBindingName,
+        kind: LocalKind,
+        span: Span,
+        node_key: VersionedNodeKey,
+    ) {
+        let id = self.locals.push(Local { name, kind, span });
         self.node_local_defs.insert(node_key, id);
     }
 }
@@ -611,11 +657,15 @@ impl<'a> LocalResolver<'a> {
     fn resolve_function(&mut self, function: &FunctionItem) {
         self.push_scope();
         self.resolve_where_clause(&function.where_clause);
+        let self_stack_len = self.self_locals.len();
         for param in &function.params {
             if let Some(ty) = &param.ty {
                 self.resolve_type(ty);
             }
-            if let Some(name) = &param.name {
+            if param.receiver.is_some() {
+                let local = self.define_receiver(param.span, param.node_key.clone());
+                self.self_locals.push(local);
+            } else if let Some(name) = &param.name {
                 self.define(
                     name,
                     LocalKind::Param,
@@ -631,6 +681,7 @@ impl<'a> LocalResolver<'a> {
         if let Some(body) = &function.body {
             self.resolve_block(body);
         }
+        self.self_locals.truncate(self_stack_len);
         self.pop_scope();
     }
 
@@ -843,8 +894,16 @@ impl<'a> LocalResolver<'a> {
             ExprKind::Ident(name) => {
                 self.resolve_ident(name, expr.node_key.clone());
             }
+            ExprKind::SelfValue => {
+                if let Some(Some(local)) = self.self_locals.last().copied() {
+                    self.record_use(expr.node_key.clone(), LocalUse::Local(local.id));
+                } else {
+                    self.record_use(expr.node_key.clone(), LocalUse::Unresolved);
+                }
+            }
             ExprKind::TypeTarget { .. }
             | ExprKind::TraitTarget { .. }
+            | ExprKind::PathRoot(_)
             | ExprKind::Integer(_)
             | ExprKind::Float(_)
             | ExprKind::String(_)
@@ -1182,7 +1241,7 @@ impl<'a> LocalResolver<'a> {
         )
     }
 
-    fn resolve_ident(&mut self, name: &str, node_key: VersionedNodeKey) {
+    fn resolve_ident(&mut self, name: &SymbolId, node_key: VersionedNodeKey) {
         if let Some(local) = self.lookup_local(name) {
             self.record_use(node_key, LocalUse::Local(local.id));
             return;
@@ -1209,37 +1268,16 @@ impl<'a> LocalResolver<'a> {
 
     fn define(
         &mut self,
-        name: &str,
+        name: &SymbolId,
         kind: LocalKind,
         span: Span,
         node_key: VersionedNodeKey,
         duplicate_message: &'static str,
-    ) {
-        let id = if let Some(definition_ids) = &self.definition_ids {
-            let Some(id) = definition_ids.get(&node_key).copied() else {
-                self.diagnostics.push(
-                    Diagnostic::internal_error(
-                        codes::LOCAL_RESOLVER_SCOPE,
-                        "local resolver filtered definition has no preallocated id",
-                    )
-                    .primary(
-                        span,
-                        "local definition was not present in preallocated local ids",
-                    )
-                    .debug("name", name)
-                    .debug("kind", kind)
-                    .debug("node_key", node_key.clone())
-                    .finish(),
-                );
-                return;
-            };
-            id
-        } else {
-            self.locals.push(Local {
-                name: name.to_string(),
-                kind,
-                span,
-            })
+    ) -> Option<ScopedLocal> {
+        let binding_name = LocalBindingName::named(*name);
+        let id = match self.local_definition_id(binding_name, kind, span, &node_key) {
+            Some(id) => id,
+            None => return None,
         };
         let debug_node_key = node_key.clone();
         self.node_local_defs.insert(node_key, id);
@@ -1258,34 +1296,72 @@ impl<'a> LocalResolver<'a> {
                 .debug("node_key", debug_node_key)
                 .finish(),
             );
-            return;
+            return None;
         };
         if let Some(existing) = scope.locals.get(name) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::LOCAL_RESOLUTION,
                 span,
-                format!("{duplicate_message}: `{name}`"),
+                format!("{duplicate_message}: `{}`", symbol_identity_key(*name)),
             ));
             let _ = existing.span;
-            return;
+            return None;
         }
         if let Some(existing) = scope.statics.get(name) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::LOCAL_RESOLUTION,
                 span,
-                format!("{duplicate_message}: `{name}`"),
+                format!("{duplicate_message}: `{}`", symbol_identity_key(*name)),
             ));
             let _ = existing.span;
-            return;
+            return None;
         }
-        scope
-            .locals
-            .insert(name.to_string(), ScopedLocal { id, span });
+        let local = ScopedLocal { id, span };
+        scope.locals.insert(name.clone(), local);
+        Some(local)
+    }
+
+    fn define_receiver(&mut self, span: Span, node_key: VersionedNodeKey) -> Option<ScopedLocal> {
+        let name = LocalBindingName::SelfValue;
+        let id = self.local_definition_id(name, LocalKind::Param, span, &node_key)?;
+        self.node_local_defs.insert(node_key, id);
+        Some(ScopedLocal { id, span })
+    }
+
+    fn local_definition_id(
+        &mut self,
+        name: LocalBindingName,
+        kind: LocalKind,
+        span: Span,
+        node_key: &VersionedNodeKey,
+    ) -> Option<LocalId> {
+        if let Some(definition_ids) = &self.definition_ids {
+            let Some(id) = definition_ids.get(node_key).copied() else {
+                self.diagnostics.push(
+                    Diagnostic::internal_error(
+                        codes::LOCAL_RESOLVER_SCOPE,
+                        "local resolver filtered definition has no preallocated id",
+                    )
+                    .primary(
+                        span,
+                        "local definition was not present in preallocated local ids",
+                    )
+                    .debug("name", name)
+                    .debug("kind", kind)
+                    .debug("node_key", node_key.clone())
+                    .finish(),
+                );
+                return None;
+            };
+            Some(id)
+        } else {
+            Some(self.locals.push(Local { name, kind, span }))
+        }
     }
 
     fn define_static(
         &mut self,
-        name: &str,
+        name: &SymbolId,
         id: nia_ids::GlobalDefId,
         span: Span,
         duplicate_message: &'static str,
@@ -1302,7 +1378,7 @@ impl<'a> LocalResolver<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::LOCAL_RESOLUTION,
                 span,
-                format!("{duplicate_message}: `{name}`"),
+                format!("{duplicate_message}: `{}`", symbol_identity_key(*name)),
             ));
             let _ = existing.span;
             return;
@@ -1311,35 +1387,35 @@ impl<'a> LocalResolver<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::LOCAL_RESOLUTION,
                 span,
-                format!("{duplicate_message}: `{name}`"),
+                format!("{duplicate_message}: `{}`", symbol_identity_key(*name)),
             ));
             let _ = existing.span;
             return;
         }
         scope
             .statics
-            .insert(name.to_string(), ScopedStatic { id, span });
+            .insert(name.clone(), ScopedStatic { id, span });
     }
 
     fn record_use(&mut self, node_key: VersionedNodeKey, use_kind: LocalUse) {
         self.node_uses.insert(node_key, use_kind);
     }
 
-    fn lookup_local(&self, name: &str) -> Option<ScopedLocal> {
+    fn lookup_local(&self, name: &SymbolId) -> Option<ScopedLocal> {
         self.scopes
             .iter()
             .rev()
             .find_map(|scope| scope.locals.get(name).copied())
     }
 
-    fn lookup_static(&self, name: &str) -> Option<ScopedStatic> {
+    fn lookup_static(&self, name: &SymbolId) -> Option<ScopedStatic> {
         self.scopes
             .iter()
             .rev()
             .find_map(|scope| scope.statics.get(name).copied())
     }
 
-    fn lookup_any(&self, name: &str) -> Option<()> {
+    fn lookup_any(&self, name: &SymbolId) -> Option<()> {
         (self.lookup_local(name).is_some() || self.lookup_static(name).is_some()).then_some(())
     }
 
@@ -1361,10 +1437,15 @@ mod tests {
     use nia_node_id::{NodePosition, SyntaxKind};
     use nia_parser::{parse_module, parse_module_syntax_with_origins};
     use nia_source::{SourceId, SourceRevision, SourceVersion};
+    use nia_symbol::stable_hash;
     use nia_value_resolve::{
         ProgramDefsContext as ValueProgramDefsContext, resolve_module_values,
         resolve_module_values_from_active_item_tree,
     };
+
+    fn sym(text: &str) -> SymbolId {
+        SymbolId::from_stable_hash(stable_hash(text))
+    }
 
     #[test]
     fn resolves_params_and_local_bindings() {
@@ -1441,7 +1522,7 @@ fn value(input: ?S) ?i32 {
         let mut values = resolve_module_values(&module, &defs);
         for item in &module.items {
             if let nia_ast::ItemKind::Function(function) = &item.kind
-                && function.name == "value"
+                && function.name == sym("value")
                 && let Some(body) = &function.body
                 && let Some(expr) = &body.tail
                 && let ExprKind::IfPattern(if_pattern) = &expr.kind
@@ -1450,7 +1531,7 @@ fn value(input: ?S) ?i32 {
                 && let ExprKind::OptionalSome { expr: some_expr } = &arm_expr.kind
                 && let ExprKind::Field { lhs, .. } = &some_expr.kind
                 && let ExprKind::Ident(name) = &lhs.kind
-                && name == "range"
+                && *name == sym("range")
             {
                 values.node_names.insert(
                     lhs.node_key.clone(),
@@ -1466,7 +1547,7 @@ fn value(input: ?S) ?i32 {
         let range_id = locals
             .locals
             .iter()
-            .find_map(|(id, local)| (local.name == "range").then_some(id))
+            .find_map(|(id, local)| (local.name.symbol() == Some(sym("range"))).then_some(id))
             .expect("expected if pattern payload local");
         assert!(
             locals
@@ -1662,7 +1743,7 @@ fn main() i32 {
         let i_id = locals
             .locals
             .iter()
-            .find_map(|(id, local)| (local.name == "i").then_some(id))
+            .find_map(|(id, local)| (local.name.symbol() == Some(sym("i"))).then_some(id))
             .expect("expected loop local");
         assert!(
             locals
@@ -1701,7 +1782,7 @@ fn main() i32 {
         let i32_id = locals
             .locals
             .iter()
-            .find_map(|(id, local)| (local.name == "i32").then_some(id))
+            .find_map(|(id, local)| (local.name.symbol() == Some(sym("i32"))).then_some(id))
             .expect("expected local named i32");
         assert!(
             locals
@@ -1749,7 +1830,12 @@ fn selected() i32 {
             &nia_node_id::NodeOriginTable::default(),
         );
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
-        assert!(locals.locals.iter().any(|(_, local)| local.name == "value"));
+        assert!(
+            locals
+                .locals
+                .iter()
+                .any(|(_, local)| local.name.symbol() == Some(sym("value")))
+        );
     }
 
     #[test]
@@ -1791,7 +1877,7 @@ fn used(b: i32) i32 {
         let mut filtered = full.clone();
         for item in &mut filtered.items {
             if let ItemTreeNodeKind::Function(function) = &mut item.kind
-                && function.name == "unused"
+                && function.name == sym("unused")
             {
                 function.body = None;
             }
@@ -1837,7 +1923,7 @@ fn used(b: i32) i32 {
         locals
             .locals
             .iter()
-            .find_map(|(id, local)| (local.name == name).then_some(id))
+            .find_map(|(id, local)| (local.name.symbol() == Some(sym(name))).then_some(id))
             .unwrap_or_else(|| panic!("expected local `{name}`"))
     }
 

@@ -152,6 +152,6 @@ enum Flag {
     };
     assert!(item_enum.is_open);
     assert_eq!(item_enum.variants.len(), 2);
-    assert_eq!(item_enum.variants[0].name, "A");
-    assert_eq!(item_enum.variants[1].name, "B");
+    assert_eq!(item_enum.variants[0].name, sym("A"));
+    assert_eq!(item_enum.variants[1].name, sym("B"));
 }

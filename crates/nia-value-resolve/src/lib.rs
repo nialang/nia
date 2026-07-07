@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::{Expr, ExprKind, Module, TypeArg, TypeKind, TypeRef, Visibility};
+use nia_ast::{Expr, ExprKind, Module, PathSegmentKind, TypeArg, TypeKind, TypeRef, Visibility};
 use nia_ast_walk::{Visitor, walk_expr, walk_where_clause};
 use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces};
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::{
-    ENTRY_MODULE_MAP_NAME, ModuleGraph, PACKAGE_MODULE_MAP_NAME,
-    module_declaration_visibility_allows, visibility_allows,
+    ModuleGraph, ModuleRootSegment, module_declaration_visibility_allows, visibility_allows,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{BuiltinAssociatedValue, PrimitiveIntLimit, supports_primitive_int_limit};
 use nia_span::Span;
+use nia_symbol::{
+    SymbolId, SymbolText, known, symbol_identity_key, symbol_text_from_optional_resolver,
+};
 use nia_ty::PrimitiveTy;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,14 +53,22 @@ pub enum AssociatedValueTarget {
 }
 
 pub trait AssociatedValueResolver {
-    fn associated_value(&self, target: AssociatedValueTarget, name: &str) -> Option<GlobalDefId>;
+    fn associated_value(
+        &self,
+        target: AssociatedValueTarget,
+        name: &SymbolId,
+    ) -> Option<GlobalDefId>;
 }
 
 impl<F> AssociatedValueResolver for F
 where
-    F: Fn(AssociatedValueTarget, &str) -> Option<GlobalDefId>,
+    F: Fn(AssociatedValueTarget, &SymbolId) -> Option<GlobalDefId>,
 {
-    fn associated_value(&self, target: AssociatedValueTarget, name: &str) -> Option<GlobalDefId> {
+    fn associated_value(
+        &self,
+        target: AssociatedValueTarget,
+        name: &SymbolId,
+    ) -> Option<GlobalDefId> {
         self(target, name)
     }
 }
@@ -122,6 +132,27 @@ pub fn resolve_module_values_with_graph(
             public_surfaces: None,
             using_scope: None,
             associated_values: None,
+            symbols: None,
+        },
+    )
+}
+
+pub fn resolve_module_values_with_symbols(
+    module: &Module,
+    defs: &DefCollection,
+    symbols: &dyn SymbolText,
+) -> ValueResolution {
+    let item_tree = ModuleItemTree::from_module(module);
+    resolve_module_values_from_item_tree_inner(
+        &item_tree,
+        ValueResolveInputs {
+            defs,
+            graph: None,
+            program_defs: ProgramDefsContext::empty(),
+            public_surfaces: None,
+            using_scope: None,
+            associated_values: None,
+            symbols: Some(symbols),
         },
     )
 }
@@ -144,6 +175,7 @@ pub fn resolve_module_values_with_context(
             public_surfaces: Some(public_surfaces),
             using_scope: Some(using_scope),
             associated_values: None,
+            symbols: None,
         },
     )
 }
@@ -161,6 +193,7 @@ pub fn resolve_module_values_from_item_tree(
             public_surfaces: None,
             using_scope: None,
             associated_values: None,
+            symbols: None,
         },
     )
 }
@@ -190,6 +223,26 @@ pub fn resolve_module_values_from_active_item_tree_with_associated_values(
     using_scope: &ModuleUsingScope,
     associated_values: Option<&dyn AssociatedValueResolver>,
 ) -> ValueResolution {
+    resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
+        item_tree,
+        defs,
+        program_defs,
+        public_surfaces,
+        using_scope,
+        associated_values,
+        None,
+    )
+}
+
+pub fn resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &PublicSurfaces,
+    using_scope: &ModuleUsingScope,
+    associated_values: Option<&dyn AssociatedValueResolver>,
+    symbols: Option<&dyn SymbolText>,
+) -> ValueResolution {
     resolve_module_values_from_items(
         &item_tree.items,
         ValueResolveInputs {
@@ -199,6 +252,7 @@ pub fn resolve_module_values_from_active_item_tree_with_associated_values(
             public_surfaces: Some(public_surfaces),
             using_scope: Some(using_scope),
             associated_values,
+            symbols,
         },
     )
 }
@@ -228,6 +282,26 @@ pub fn resolve_module_values_from_exprs_with_associated_values(
     using_scope: &ModuleUsingScope,
     associated_values: Option<&dyn AssociatedValueResolver>,
 ) -> ValueResolution {
+    resolve_module_values_from_exprs_with_associated_values_and_symbols(
+        exprs,
+        defs,
+        program_defs,
+        public_surfaces,
+        using_scope,
+        associated_values,
+        None,
+    )
+}
+
+pub fn resolve_module_values_from_exprs_with_associated_values_and_symbols(
+    exprs: impl IntoIterator<Item = Expr>,
+    defs: &DefCollection,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &PublicSurfaces,
+    using_scope: &ModuleUsingScope,
+    associated_values: Option<&dyn AssociatedValueResolver>,
+    symbols: Option<&dyn SymbolText>,
+) -> ValueResolution {
     resolve_module_values_from_exprs_inner(
         exprs,
         ValueResolveInputs {
@@ -237,6 +311,7 @@ pub fn resolve_module_values_from_exprs_with_associated_values(
             public_surfaces: Some(public_surfaces),
             using_scope: Some(using_scope),
             associated_values,
+            symbols,
         },
     )
 }
@@ -277,6 +352,7 @@ struct ValueResolveInputs<'a> {
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
     associated_values: Option<&'a dyn AssociatedValueResolver>,
+    symbols: Option<&'a dyn SymbolText>,
 }
 
 struct ValueResolver<'a> {
@@ -286,6 +362,7 @@ struct ValueResolver<'a> {
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
     associated_values: Option<&'a dyn AssociatedValueResolver>,
+    symbols: Option<&'a dyn SymbolText>,
     node_names: HashMap<VersionedNodeKey, ValueNameResolution>,
     node_qualified_values: HashMap<VersionedNodeKey, GlobalDefId>,
     node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
@@ -303,6 +380,7 @@ impl ValueResolver<'_> {
             public_surfaces: inputs.public_surfaces,
             using_scope: inputs.using_scope,
             associated_values: inputs.associated_values,
+            symbols: inputs.symbols,
             node_names: HashMap::new(),
             node_qualified_values: HashMap::new(),
             node_builtin_associated_values: HashMap::new(),
@@ -325,6 +403,27 @@ impl ValueResolver<'_> {
 
     fn graph(&self) -> Option<&ModuleGraph> {
         self.graph.or(self.program_defs.graph)
+    }
+
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_from_optional_resolver(self.symbols, symbol)
+    }
+
+    fn qualified_path_text(&self, segments: &[PathSegment<'_>]) -> String {
+        segments
+            .iter()
+            .map(|segment| self.path_segment_display(*segment))
+            .collect::<Vec<_>>()
+            .join("::")
+    }
+
+    fn path_segment_display(&self, segment: PathSegment<'_>) -> String {
+        match segment.kind {
+            PathSegmentKind::Name(name) => self.symbol_name(name),
+            PathSegmentKind::Package => "pkg".to_string(),
+            PathSegmentKind::Super => "super".to_string(),
+            PathSegmentKind::SelfValue => "self".to_string(),
+        }
     }
 
     fn visibility_allows(&self, module_id: ModuleId, visibility: Visibility) -> bool {
@@ -356,7 +455,7 @@ impl ValueResolver<'_> {
     fn child_module_declaration(
         &self,
         parent_module: ModuleId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<(ModuleId, Visibility)> {
         let graph = self.graph()?;
         let parent = graph.get(parent_module)?;
@@ -364,11 +463,11 @@ impl ValueResolver<'_> {
         let declaration = parent
             .declarations
             .iter()
-            .find(|declaration| declaration.name == name && declaration.target == target)?;
+            .find(|declaration| &declaration.name == name && declaration.target == target)?;
         Some((target, declaration.visibility))
     }
 
-    fn direct_type_member(&self, module_id: ModuleId, name: &str) -> DirectMember<DefId> {
+    fn direct_type_member(&self, module_id: ModuleId, name: &SymbolId) -> DirectMember<DefId> {
         let Some(target_defs) = self.defs_for_module(module_id) else {
             return DirectMember::Unloaded;
         };
@@ -385,7 +484,7 @@ impl ValueResolver<'_> {
         DirectMember::Visible(def_id)
     }
 
-    fn direct_value_member(&self, module_id: ModuleId, name: &str) -> DirectMember<DefId> {
+    fn direct_value_member(&self, module_id: ModuleId, name: &SymbolId) -> DirectMember<DefId> {
         let Some(target_defs) = self.defs_for_module(module_id) else {
             return DirectMember::Unloaded;
         };
@@ -420,9 +519,18 @@ enum DirectMember<T> {
 
 #[derive(Debug, Clone, Copy)]
 struct PathSegment<'a> {
-    name: &'a str,
+    kind: PathSegmentKind,
     span: Span,
     node_key: &'a VersionedNodeKey,
+}
+
+impl PathSegment<'_> {
+    fn name(self) -> Option<SymbolId> {
+        match self.kind {
+            PathSegmentKind::Name(name) => Some(name),
+            PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+        }
+    }
 }
 
 impl<'ast> Visitor<'ast> for ValueResolver<'_> {
@@ -571,7 +679,7 @@ impl<'a> ValueResolver<'a> {
         if segments.len() < 2 {
             return;
         };
-        let path_text = qualified_path_text(&segments);
+        let path_text = self.qualified_path_text(&segments);
         let prefix = &segments[..segments.len() - 1];
         let final_segment = segments[segments.len() - 1];
         let Some(namespace) = self.resolve_namespace_path(prefix) else {
@@ -613,24 +721,25 @@ impl<'a> ValueResolver<'a> {
     }
 
     fn resolve_root_namespace(&mut self, segment: PathSegment<'_>) -> Option<ResolvedNamespace> {
-        if let Some(module_id) = self.root_module_for_segment(segment.name) {
+        if let Some(module_id) = self.root_module_for_segment(segment) {
             self.insert_name(segment.node_key, ValueNameResolution::Module);
             return Some(ResolvedNamespace::Module(module_id));
         }
+        let name = segment.name()?;
         if let Some(scope) = self.using_scope
-            && let Some(module_id) = scope.lookup_module(segment.name)
+            && let Some(module_id) = scope.lookup_module(&name)
         {
             self.insert_name(segment.node_key, ValueNameResolution::Module);
             return Some(ResolvedNamespace::Module(module_id));
         }
-        if let Some(def_id) = self.defs.module_scope.types.get(segment.name) {
+        if let Some(def_id) = self.defs.module_scope.types.get(&name) {
             return Some(ResolvedNamespace::Type(GlobalDefId {
                 module_id: self.defs.module_id,
                 def_id,
             }));
         }
         if let Some(scope) = self.using_scope
-            && let Some(entry) = scope.lookup_type(segment.name)
+            && let Some(entry) = scope.lookup_type(&name)
         {
             let type_id = GlobalDefId {
                 module_id: entry.target_module,
@@ -640,24 +749,18 @@ impl<'a> ValueResolver<'a> {
             self.insert_qualified_type_prefix(segment.node_key, type_id);
             return Some(ResolvedNamespace::Type(type_id));
         }
-        if let Some(primitive) = PrimitiveTy::from_name(segment.name) {
+        if let Some(primitive) = primitive_for_symbol(name) {
             return Some(ResolvedNamespace::Primitive(primitive));
         }
         None
     }
 
-    fn root_module_for_segment(&self, name: &str) -> Option<ModuleId> {
+    fn root_module_for_segment(&self, segment: PathSegment<'_>) -> Option<ModuleId> {
         let graph = self.graph()?;
-        match name {
-            "self" => Some(self.defs.module_id),
-            "super" => graph.get(self.defs.module_id)?.parent,
-            ENTRY_MODULE_MAP_NAME => Some(graph.entry()),
-            PACKAGE_MODULE_MAP_NAME => graph.current_package_root(self.defs.module_id),
-            package => graph
-                .get(self.defs.module_id)
-                .and_then(|node| node.children.get(package).copied())
-                .or_else(|| graph.package_root(package)),
-        }
+        graph.root_module_for_segment(
+            self.defs.module_id,
+            module_root_segment_from_path_segment(segment.kind),
+        )
     }
 
     fn resolve_child_namespace(
@@ -667,13 +770,24 @@ impl<'a> ValueResolver<'a> {
     ) -> Option<ResolvedNamespace> {
         match namespace {
             ResolvedNamespace::Module(module_id) => {
+                let Some(name) = segment.name() else {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::NAME_RESOLUTION,
+                        segment.span,
+                        format!(
+                            "expected namespace name, found `{}`",
+                            path_segment_display(segment)
+                        ),
+                    ));
+                    return None;
+                };
                 if let Some(surfaces) = self.public_surfaces
                     && let Some(surface) = surfaces.get(module_id)
                 {
-                    if let Some(child_module) = surface.lookup_module(segment.name) {
+                    if let Some(child_module) = surface.lookup_module(&name) {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
-                    if let Some(item) = surface.lookup_type(segment.name) {
+                    if let Some(item) = surface.lookup_type(&name) {
                         return Some(ResolvedNamespace::Type(GlobalDefId {
                             module_id: item.target_module,
                             def_id: item.target_def_id,
@@ -681,35 +795,38 @@ impl<'a> ValueResolver<'a> {
                     }
                 }
                 if let Some((child_module, visibility)) =
-                    self.child_module_declaration(module_id, segment.name)
+                    self.child_module_declaration(module_id, &name)
                 {
                     if self.module_declaration_visible(module_id, visibility) {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
+                    let name = self.symbol_name(name);
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::NAME_RESOLUTION,
                         segment.span,
-                        format!("module namespace `{}` is private", segment.name),
+                        format!("module namespace `{}` is private", name),
                     ));
                     return None;
                 }
-                match self.direct_type_member(module_id, segment.name) {
+                match self.direct_type_member(module_id, &name) {
                     DirectMember::Visible(def_id) => {
                         Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
                     }
                     DirectMember::Private => {
+                        let name = self.symbol_name(name);
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::NAME_RESOLUTION,
                             segment.span,
-                            format!("type `{}` is private", segment.name),
+                            format!("type `{}` is private", name),
                         ));
                         None
                     }
                     DirectMember::Missing => {
+                        let name = self.symbol_name(name);
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::NAME_RESOLUTION,
                             segment.span,
-                            format!("unknown namespace `{}`", segment.name),
+                            format!("unknown namespace `{}`", name),
                         ));
                         None
                     }
@@ -735,10 +852,21 @@ impl<'a> ValueResolver<'a> {
         name: PathSegment<'_>,
         path_text: &str,
     ) {
+        let Some(symbol) = name.name() else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                span,
+                format!(
+                    "expected value name, found `{}`",
+                    path_segment_display(name)
+                ),
+            ));
+            return;
+        };
         if let Some(surfaces) = self.public_surfaces
             && let Some(surface) = surfaces.get(module_id)
         {
-            if let Some(item) = surface.lookup_value(name.name) {
+            if let Some(item) = surface.lookup_value(&symbol) {
                 self.insert_qualified_value(
                     node_key,
                     GlobalDefId {
@@ -751,7 +879,7 @@ impl<'a> ValueResolver<'a> {
                 }
                 return;
             }
-            if let Some(item) = surface.lookup_type(name.name) {
+            if let Some(item) = surface.lookup_type(&symbol) {
                 self.insert_qualified_type_prefix(
                     node_key,
                     GlobalDefId {
@@ -761,24 +889,24 @@ impl<'a> ValueResolver<'a> {
                 );
                 return;
             }
-            if surface.lookup_module(name.name).is_some() {
+            if surface.lookup_module(&symbol).is_some() {
                 return;
             }
         }
-        if let Some((_child_module, visibility)) =
-            self.child_module_declaration(module_id, name.name)
+        if let Some((_child_module, visibility)) = self.child_module_declaration(module_id, &symbol)
         {
             if self.module_declaration_visible(module_id, visibility) {
                 return;
             }
+            let symbol = self.symbol_name(symbol);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 span,
-                format!("module namespace `{}` is private", name.name),
+                format!("module namespace `{}` is private", symbol),
             ));
             return;
         }
-        match self.direct_type_member(module_id, name.name) {
+        match self.direct_type_member(module_id, &symbol) {
             DirectMember::Visible(def_id) => {
                 self.insert_qualified_type_prefix(node_key, GlobalDefId { module_id, def_id });
                 return;
@@ -801,7 +929,7 @@ impl<'a> ValueResolver<'a> {
                 return;
             }
         }
-        let def_id = match self.direct_value_member(module_id, name.name) {
+        let def_id = match self.direct_value_member(module_id, &symbol) {
             DirectMember::Visible(def_id) => def_id,
             DirectMember::Private => {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -812,10 +940,11 @@ impl<'a> ValueResolver<'a> {
                 return;
             }
             DirectMember::Missing => {
+                let symbol = self.symbol_name(symbol);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::NAME_RESOLUTION,
                     span,
-                    format!("unknown value `{}`", name.name),
+                    format!("unknown value `{}`", symbol),
                 ));
                 return;
             }
@@ -849,6 +978,9 @@ impl<'a> ValueResolver<'a> {
         type_id: GlobalDefId,
         name: PathSegment<'_>,
     ) {
+        let Some(symbol) = name.name() else {
+            return;
+        };
         let Some(target_defs) = self.defs_for_module(type_id.module_id) else {
             return;
         };
@@ -858,7 +990,7 @@ impl<'a> ValueResolver<'a> {
         };
         if def.kind == DefKind::Enum
             && let Some(enum_scope) = target_defs.scopes.enum_members.get(&type_id.def_id)
-            && let Some(variant_def_id) = enum_scope.variants.get(name.name)
+            && let Some(variant_def_id) = enum_scope.variants.get(&symbol)
         {
             let variant_id = GlobalDefId {
                 module_id: type_id.module_id,
@@ -868,7 +1000,7 @@ impl<'a> ValueResolver<'a> {
             self.insert_variant_enum(node_key, type_id);
             return;
         }
-        self.resolve_associated_value(node_key, AssociatedValueTarget::Nominal(type_id), name.name);
+        self.resolve_associated_value(node_key, AssociatedValueTarget::Nominal(type_id), &symbol);
     }
 
     fn resolve_primitive_qualified_value(
@@ -877,14 +1009,17 @@ impl<'a> ValueResolver<'a> {
         primitive: PrimitiveTy,
         name: PathSegment<'_>,
     ) {
-        if let Some(value) = primitive_associated_value(primitive, name.name) {
+        let Some(symbol) = name.name() else {
+            return;
+        };
+        if let Some(value) = primitive_associated_value(primitive, symbol) {
             self.insert_builtin_associated_value(node_key, value);
             return;
         }
         self.resolve_associated_value(
             node_key,
             AssociatedValueTarget::Primitive(primitive),
-            name.name,
+            &symbol,
         );
     }
 
@@ -892,7 +1027,7 @@ impl<'a> ValueResolver<'a> {
         &mut self,
         node_key: &VersionedNodeKey,
         target: AssociatedValueTarget,
-        name: &str,
+        name: &SymbolId,
     ) {
         if let Some(resolver) = self.associated_values
             && let Some(def_id) = resolver.associated_value(target, name)
@@ -901,7 +1036,11 @@ impl<'a> ValueResolver<'a> {
         }
     }
 
-    fn resolve_ident(&mut self, name: &str, node_key: &VersionedNodeKey) -> ValueNameResolution {
+    fn resolve_ident(
+        &mut self,
+        name: &SymbolId,
+        node_key: &VersionedNodeKey,
+    ) -> ValueNameResolution {
         if let Some(def_id) = self.defs.module_scope.values.get(name) {
             let Some(def) = self.defs.defs.get(def_id) else {
                 return ValueNameResolution::Error;
@@ -991,7 +1130,23 @@ fn qualified_path_segments(expr: &Expr) -> Option<Vec<PathSegment<'_>>> {
         match &expr.kind {
             ExprKind::Ident(name) => {
                 segments.push(PathSegment {
-                    name: name.as_str(),
+                    kind: PathSegmentKind::Name(*name),
+                    span: expr.span,
+                    node_key: &expr.node_key,
+                });
+                Some(())
+            }
+            ExprKind::SelfValue => {
+                segments.push(PathSegment {
+                    kind: PathSegmentKind::SelfValue,
+                    span: expr.span,
+                    node_key: &expr.node_key,
+                });
+                Some(())
+            }
+            ExprKind::PathRoot(kind) => {
+                segments.push(PathSegment {
+                    kind: *kind,
                     span: expr.span,
                     node_key: &expr.node_key,
                 });
@@ -1000,7 +1155,7 @@ fn qualified_path_segments(expr: &Expr) -> Option<Vec<PathSegment<'_>>> {
             ExprKind::Qualified { lhs, name } => {
                 collect(lhs, segments)?;
                 segments.push(PathSegment {
-                    name: name.as_str(),
+                    kind: PathSegmentKind::Name(*name),
                     span: expr.span,
                     node_key: &expr.node_key,
                 });
@@ -1015,25 +1170,59 @@ fn qualified_path_segments(expr: &Expr) -> Option<Vec<PathSegment<'_>>> {
     Some(segments)
 }
 
-fn qualified_path_text(segments: &[PathSegment<'_>]) -> String {
-    segments
-        .iter()
-        .map(|segment| segment.name)
-        .collect::<Vec<_>>()
-        .join("::")
-}
-
 fn primitive_associated_value(
     primitive: PrimitiveTy,
-    name: &str,
+    name: SymbolId,
 ) -> Option<BuiltinAssociatedValue> {
     let kind = match name {
-        "MIN" => PrimitiveIntLimit::Min,
-        "MAX" => PrimitiveIntLimit::Max,
+        known::MIN => PrimitiveIntLimit::Min,
+        known::MAX => PrimitiveIntLimit::Max,
         _ => return None,
     };
     supports_primitive_int_limit(primitive)
         .then_some(BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind })
+}
+
+fn module_root_segment_from_path_segment(kind: PathSegmentKind) -> ModuleRootSegment {
+    match kind {
+        PathSegmentKind::SelfValue => ModuleRootSegment::Current,
+        PathSegmentKind::Super => ModuleRootSegment::Parent,
+        PathSegmentKind::Package => ModuleRootSegment::PackageRelative,
+        PathSegmentKind::Name(name) => ModuleRootSegment::Named(name),
+    }
+}
+
+fn path_segment_display(segment: PathSegment<'_>) -> String {
+    match segment.kind {
+        PathSegmentKind::Name(name) => symbol_identity_key(name),
+        PathSegmentKind::Package => "pkg".to_string(),
+        PathSegmentKind::Super => "super".to_string(),
+        PathSegmentKind::SelfValue => "self".to_string(),
+    }
+}
+
+fn primitive_for_symbol(name: SymbolId) -> Option<PrimitiveTy> {
+    Some(match name {
+        known::I8 => PrimitiveTy::I8,
+        known::I16 => PrimitiveTy::I16,
+        known::I32 => PrimitiveTy::I32,
+        known::I64 => PrimitiveTy::I64,
+        known::I128 => PrimitiveTy::I128,
+        known::ISIZE => PrimitiveTy::Isize,
+        known::U8 => PrimitiveTy::U8,
+        known::U16 => PrimitiveTy::U16,
+        known::U32 => PrimitiveTy::U32,
+        known::U64 => PrimitiveTy::U64,
+        known::U128 => PrimitiveTy::U128,
+        known::USIZE => PrimitiveTy::Usize,
+        known::F32 => PrimitiveTy::F32,
+        known::F64 => PrimitiveTy::F64,
+        known::BOOL => PrimitiveTy::Bool,
+        known::CHAR => PrimitiveTy::Char,
+        known::VOID => PrimitiveTy::Void,
+        known::NEVER => PrimitiveTy::Never,
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

@@ -67,7 +67,7 @@ impl Parser {
         if self.eat(TokenKind::LParen).is_none() {
             return Some(Visibility::Public);
         }
-        let vis = if self.at(TokenKind::Ident) && self.token_text(self.peek()) == "super" {
+        let vis = if self.at(TokenKind::Super) {
             self.bump();
             Visibility::PublicSuper
         } else if self.at(TokenKind::Pkg) {
@@ -110,9 +110,9 @@ impl Parser {
             });
         }
         let mut path = Vec::new();
-        path.push(self.expect_text(TokenKind::Ident, "expected attribute name")?);
+        path.push(self.expect_name(TokenKind::Ident, "expected attribute name")?);
         while self.eat(TokenKind::Dot).is_some() {
-            path.push(self.expect_text(TokenKind::Ident, "expected attribute path segment")?);
+            path.push(self.expect_name(TokenKind::Ident, "expected attribute path segment")?);
         }
         let args = if self.eat(TokenKind::LParen).is_some() {
             let mut args = Vec::new();
@@ -138,7 +138,7 @@ impl Parser {
 
     fn parse_module_item(&mut self) -> Option<ModuleItem> {
         self.expect(TokenKind::Module, "expected `module`")?;
-        let name = self.expect_text(TokenKind::Ident, "expected module name")?;
+        let name = self.expect_name(TokenKind::Ident, "expected module name")?;
         self.expect(
             TokenKind::Semicolon,
             "expected `;` after module declaration",
@@ -192,8 +192,11 @@ impl Parser {
             let next_kind = self.tokens.nth_kind(1).cloned();
             if matches!(next_kind, Some(TokenKind::ColonColon)) {
                 let segment_token = self.bump();
+                let kind = self
+                    .path_segment_kind_from_token(&segment_token)
+                    .expect("namespace segment token should convert");
                 host.push(UsingHostSegment {
-                    name: self.token_text(&segment_token).to_string(),
+                    kind,
                     span: segment_token.span,
                 });
                 self.expect(TokenKind::ColonColon, "expected `::`")?;
@@ -220,14 +223,8 @@ impl Parser {
     }
 
     fn parse_using_host_segment(&mut self, message: &str) -> Option<UsingHostSegment> {
-        let token = self.eat_namespace_segment().or_else(|| {
-            self.error_here(message);
-            None
-        })?;
-        Some(UsingHostSegment {
-            name: self.token_text(&token).to_string(),
-            span: token.span,
-        })
+        let (kind, span) = self.expect_path_segment_kind(message)?;
+        Some(UsingHostSegment { kind, span })
     }
 
     fn parse_using_group_item(&mut self) -> Option<UsingGroupItem> {
@@ -238,8 +235,11 @@ impl Parser {
             && matches!(self.tokens.nth_kind(1), Some(TokenKind::ColonColon))
         {
             let segment_token = self.bump();
+            let kind = self
+                .path_segment_kind_from_token(&segment_token)
+                .expect("namespace segment token should convert");
             host.push(UsingHostSegment {
-                name: self.token_text(&segment_token).to_string(),
+                kind,
                 span: segment_token.span,
             });
             self.expect(TokenKind::ColonColon, "expected `::`")?;
@@ -277,14 +277,14 @@ impl Parser {
             self.error_here("expected name in `using`");
             None
         })?;
-        let name = self.token_text(&name_token).to_string();
+        let name = self.token_name(&name_token)?;
         let name_span = name_token.span;
         let (alias, alias_span) = if self.eat(TokenKind::As).is_some() {
             let alias_token = self.eat(TokenKind::Ident).or_else(|| {
                 self.error_here("expected alias after `as`");
                 None
             })?;
-            let alias_text = self.token_text(&alias_token).to_string();
+            let alias_text = self.token_name(&alias_token)?;
             (Some(alias_text), Some(alias_token.span))
         } else {
             (None, None)
@@ -299,7 +299,7 @@ impl Parser {
 
     fn parse_struct(&mut self, is_extern: bool) -> Option<StructItem> {
         self.expect(TokenKind::Struct, "expected `struct`")?;
-        let name = self.expect_text(TokenKind::Ident, "expected struct name")?;
+        let name = self.expect_name(TokenKind::Ident, "expected struct name")?;
         let generics = self.parse_generic_params();
         let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after struct name")?;
@@ -330,7 +330,7 @@ impl Parser {
 
     fn parse_union(&mut self, is_extern: bool) -> Option<UnionItem> {
         self.expect(TokenKind::Union, "expected `union`")?;
-        let name = self.expect_text(TokenKind::Ident, "expected union name")?;
+        let name = self.expect_name(TokenKind::Ident, "expected union name")?;
         let generics = self.parse_generic_params();
         let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after union name")?;
@@ -361,7 +361,7 @@ impl Parser {
 
     fn parse_trait(&mut self) -> Option<TraitItem> {
         self.expect(TokenKind::Trait, "expected `trait`")?;
-        let name = self.expect_text(TokenKind::Ident, "expected trait name")?;
+        let name = self.expect_name(TokenKind::Ident, "expected trait name")?;
         let generics = self.parse_generic_params();
         let supertraits = self.parse_supertraits();
         let where_clause = self.parse_where_clause();
@@ -423,7 +423,7 @@ impl Parser {
 
     fn parse_trait_associated_type(&mut self) -> Option<TraitAssociatedType> {
         let start = self.expect(TokenKind::Type, "expected `type`")?.start;
-        let name = self.expect_text(TokenKind::Ident, "expected associated type name")?;
+        let name = self.expect_name(TokenKind::Ident, "expected associated type name")?;
         if self.eat(TokenKind::LBracket).is_some() {
             self.error_here("associated type generics are not supported");
             self.collect_until(&[TokenKind::RBracket])?;
@@ -446,7 +446,7 @@ impl Parser {
         if self.eat(TokenKind::Mut).is_some() {
             self.error_here("trait associated comptime declarations cannot be mutable");
         }
-        let name = self.expect_text(TokenKind::Ident, "expected associated comptime name")?;
+        let name = self.expect_name(TokenKind::Ident, "expected associated comptime name")?;
         self.expect(
             TokenKind::Colon,
             "expected `:` after associated comptime name",
@@ -564,7 +564,7 @@ impl Parser {
 
     fn parse_extend_associated_type(&mut self) -> Option<nia_ast::ExtendAssociatedType> {
         let start = self.expect(TokenKind::Type, "expected `type`")?.start;
-        let name = self.expect_text(TokenKind::Ident, "expected associated type name")?;
+        let name = self.expect_name(TokenKind::Ident, "expected associated type name")?;
         if self.eat(TokenKind::LBracket).is_some() {
             self.error_here("associated type generics are not supported");
             self.collect_until(&[TokenKind::RBracket])?;
@@ -587,7 +587,7 @@ impl Parser {
         let start = attributes
             .first()
             .map_or_else(|| self.peek().span.start, |attr| attr.span.start);
-        let name = self.expect_text(TokenKind::Ident, "expected field name")?;
+        let name = self.expect_name(TokenKind::Ident, "expected field name")?;
         self.expect(TokenKind::Colon, "expected `:` after field name")?;
         let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RBrace])?;
         self.eat(TokenKind::Comma);
@@ -596,7 +596,7 @@ impl Parser {
 
     fn parse_enum(&mut self) -> Option<EnumItem> {
         self.expect(TokenKind::Enum, "expected `enum`")?;
-        let name = self.expect_text(TokenKind::Ident, "expected enum name")?;
+        let name = self.expect_name(TokenKind::Ident, "expected enum name")?;
         let backing_type = if self.eat(TokenKind::Colon).is_some() {
             Some(self.parse_type_until(&[TokenKind::LBrace])?)
         } else {
@@ -623,7 +623,7 @@ impl Parser {
                 continue;
             }
             let start = self.peek().span.start;
-            let name = self.expect_text(TokenKind::Ident, "expected enum variant")?;
+            let name = self.expect_name(TokenKind::Ident, "expected enum variant")?;
             let value = if self.eat(TokenKind::Eq).is_some() {
                 Some(self.parse_expr_until(&[TokenKind::Comma, TokenKind::RBrace])?)
             } else {
@@ -652,11 +652,11 @@ impl Parser {
                 self.peek().kind,
                 TokenKind::Bool | TokenKind::Char | TokenKind::Never | TokenKind::Void
             ) {
-            let name = self.token_text(self.peek()).to_string();
-            self.bump();
+            let token = self.bump();
+            let name = self.token_name(&token)?;
             name
         } else {
-            self.expect_text(TokenKind::Ident, "expected type alias name")?
+            self.expect_name(TokenKind::Ident, "expected type alias name")?
         };
         let generics = self.parse_generic_params();
         let where_clause = self.parse_where_clause();
@@ -689,7 +689,7 @@ impl Parser {
             }
         }
         self.expect(TokenKind::Fn, "expected `fn`")?;
-        let name = self.expect_text(TokenKind::Ident, "expected function name")?;
+        let name = self.expect_name(TokenKind::Ident, "expected function name")?;
         let generics = self.parse_generic_params();
         self.expect(TokenKind::LParen, "expected `(` after function name")?;
         let (params, is_variadic) = self.parse_params();
@@ -757,12 +757,12 @@ impl Parser {
             } else {
                 ReceiverKind::RefReadOnly
             };
-            if self.at(TokenKind::Ident) && self.token_text(self.peek()) == "self" {
+            if self.at(TokenKind::SelfValue) {
                 self.bump();
                 return Some(self.make_param(
                     Span::new(start, self.previous_end()),
                     Some(receiver),
-                    Some("self".to_string()),
+                    None,
                     None,
                 ));
             }
@@ -770,15 +770,16 @@ impl Parser {
             let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?;
             return Some(self.make_param(Span::new(start, ty.span.end), None, None, Some(ty)));
         }
-        let name = self.expect_text(TokenKind::Ident, "expected parameter name")?;
-        if name == "self" {
+        if self.at(TokenKind::SelfValue) {
+            self.bump();
             return Some(self.make_param(
                 Span::new(start, self.previous_end()),
                 Some(ReceiverKind::Value),
-                Some(name),
+                None,
                 None,
             ));
         }
+        let name = self.expect_name(TokenKind::Ident, "expected parameter name")?;
         self.expect(TokenKind::Colon, "expected `:` after parameter name")?;
         let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?;
         Some(self.make_param(Span::new(start, ty.span.end), None, Some(name), Some(ty)))
@@ -816,7 +817,7 @@ impl Parser {
             self.error_here("expected `static` binding");
             return None;
         };
-        let name = self.expect_text(TokenKind::Ident, "expected binding name")?;
+        let name = self.expect_name(TokenKind::Ident, "expected binding name")?;
         let ty = if self.eat(TokenKind::Colon).is_some() {
             Some(self.parse_type_until(&[TokenKind::Eq, TokenKind::Semicolon])?)
         } else {
@@ -862,10 +863,11 @@ impl Parser {
 }
 
 fn item_has_builtin_attribute(attributes: &[Attribute]) -> bool {
+    let builtin = nia_symbol::known::builtin();
     attributes.iter().any(|attribute| {
         let AttributeKind::Meta(meta) = &attribute.kind else {
             return false;
         };
-        meta.path == ["builtin"]
+        meta.path.len() == 1 && meta.path[0] == builtin
     })
 }

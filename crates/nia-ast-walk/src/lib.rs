@@ -281,6 +281,8 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
         | ExprKind::Bool(_)
         | ExprKind::Null
         | ExprKind::Ident(_)
+        | ExprKind::SelfValue
+        | ExprKind::PathRoot(_)
         | ExprKind::Underscore => {}
         ExprKind::TypeTarget { ty } => visitor.visit_type(ty),
         ExprKind::TraitTarget { ty, trait_ref } => {

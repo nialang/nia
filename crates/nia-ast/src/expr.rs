@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
+use nia_symbol::SymbolId;
 
-use crate::TypeRef;
+use crate::{PathSegmentKind, TypeRef};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block {
@@ -133,7 +134,7 @@ impl Pattern {
 pub enum PatternKind {
     Wildcard,
     Bind {
-        name: String,
+        name: SymbolId,
         node_key: VersionedNodeKey,
         is_mutable: bool,
     },
@@ -192,7 +193,9 @@ pub enum ExprKind {
     Raw(String),
     Bool(bool),
     Null,
-    Ident(String),
+    Ident(SymbolId),
+    SelfValue,
+    PathRoot(PathSegmentKind),
     Underscore,
     TypeTarget {
         ty: TypeRef,
@@ -255,11 +258,11 @@ pub enum ExprKind {
     },
     Qualified {
         lhs: Box<Expr>,
-        name: String,
+        name: SymbolId,
     },
     Field {
         lhs: Box<Expr>,
-        name: String,
+        name: SymbolId,
     },
     Index {
         lhs: Box<Expr>,
@@ -304,7 +307,7 @@ pub enum ArrayElements {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldInit {
-    pub name: String,
+    pub name: SymbolId,
     pub value: Expr,
     pub span: Span,
 }

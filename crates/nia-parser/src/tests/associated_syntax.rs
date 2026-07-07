@@ -109,7 +109,7 @@ fn lanes[T]() usize where T: Simd {
     let ExprKind::Qualified { lhs, name } = &tail.kind else {
         panic!("expected qualified projection");
     };
-    assert_eq!(name, "Lanes");
+    assert_eq!(*name, sym("Lanes"));
     assert!(matches!(lhs.kind, ExprKind::TraitTarget { .. }));
 }
 
@@ -260,11 +260,11 @@ trait Add[Rhs] {
     else {
         panic!("expected projection");
     };
-    assert_eq!(name, "Output");
+    assert_eq!(*name, sym("Output"));
     let TypeKind::Path { segments } = &trait_ref.kind else {
         panic!("expected trait path");
     };
-    assert_eq!(segments[0].name, "Add");
+    assert_eq!(type_path_name(&segments[0]), Some(sym("Add")));
     assert_eq!(segments[0].args.len(), 1);
 }
 
@@ -360,7 +360,7 @@ where T: Mapper[A, B, C = i32, D = bool] {
         TypeArg::AssocBinding {
             key: nia_ast::AssocBindingKey::Name(ref name),
             ..
-        } if name == "Output"
+        } if *name == sym("Output")
     ));
     let ItemKind::Function(mapped) = &module.items[3].kind else {
         panic!("expected function");
@@ -375,14 +375,14 @@ where T: Mapper[A, B, C = i32, D = bool] {
         TypeArg::AssocBinding {
             key: nia_ast::AssocBindingKey::Name(ref name),
             ..
-        } if name == "C"
+        } if *name == sym("C")
     ));
     assert!(matches!(
         segments[0].args[3],
         TypeArg::AssocBinding {
             key: nia_ast::AssocBindingKey::Name(ref name),
             ..
-        } if name == "D"
+        } if *name == sym("D")
     ));
 }
 
@@ -402,7 +402,7 @@ trait Simd {
     };
     assert_eq!(item_trait.associated_types.len(), 1);
     assert_eq!(item_trait.associated_values.len(), 1);
-    assert_eq!(item_trait.associated_values[0].name, "Lanes");
+    assert_eq!(item_trait.associated_values[0].name, sym("Lanes"));
     assert!(matches!(
         item_trait.associated_values[0].ty.kind,
         TypeKind::Path { .. }
