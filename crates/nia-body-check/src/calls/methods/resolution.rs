@@ -404,11 +404,7 @@ impl<'a> BodyChecker<'a> {
         receiver_ty: InternedTyId,
         name: &SymbolId,
     ) -> Vec<TraitMethodCandidate> {
-        let debug = std::env::var_os("NIA_DEBUG_FORMAT_METHOD").is_some() && *name == known::FORMAT;
         let mut candidates = self.assumed_trait_method_candidates_for_receiver(receiver_ty, name);
-        if debug {
-            eprintln!("  candidates from goals={}", candidates.len());
-        }
         if !candidates.is_empty() {
             return candidates;
         }
@@ -417,9 +413,6 @@ impl<'a> BodyChecker<'a> {
         };
         let self_ty = self.import_type_for_method_resolution(self_ty);
         self.push_visible_impl_trait_method_candidates(&mut candidates, self_ty, name);
-        if debug {
-            eprintln!("  candidates from visible impls={}", candidates.len());
-        }
         candidates
     }
 
@@ -428,33 +421,14 @@ impl<'a> BodyChecker<'a> {
         receiver_ty: InternedTyId,
         name: &SymbolId,
     ) -> Vec<TraitMethodCandidate> {
-        let debug = std::env::var_os("NIA_DEBUG_FORMAT_METHOD").is_some() && *name == known::FORMAT;
         let Some(self_ty) = self.trait_receiver_self_ty(receiver_ty) else {
             return Vec::new();
         };
         let mut candidates = Vec::new();
         let self_ty = self.import_type_for_method_resolution(self_ty);
-        if debug {
-            eprintln!(
-                "trait candidates for format receiver={} self={}",
-                self.ty_name(receiver_ty),
-                self.ty_name(self_ty)
-            );
-        }
         for goal in self.current_trait_goals() {
             let goal_self_ty = self.import_type_for_method_resolution(goal.self_ty);
-            if debug {
-                eprintln!(
-                    "  goal self={} trait={:?} args={}",
-                    self.ty_name(goal_self_ty),
-                    goal.trait_id,
-                    goal.trait_args.len()
-                );
-            }
             if !self.types_match(goal_self_ty, self_ty) {
-                if debug {
-                    eprintln!("    self mismatch");
-                }
                 continue;
             }
             let TraitId::Source(trait_id) = goal.trait_id else {
