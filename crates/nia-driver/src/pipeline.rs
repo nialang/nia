@@ -170,11 +170,12 @@ impl Driver {
 
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
         DriverOutput::catch_ice(|| {
+            let timings = request.check.timings;
             let program = match self.codegen(request.check).result {
                 Ok(program) => program,
                 Err(error) => return DriverOutput::from_error(error),
             };
-            self.emit_llvm_ir_from_codegen(&program)
+            self.emit_llvm_ir_from_codegen_with_timings(&program, timings)
         })
     }
 
@@ -182,10 +183,18 @@ impl Driver {
         &self,
         program: &CodegenProgram,
     ) -> DriverOutput<LlvmIrArtifact> {
+        self.emit_llvm_ir_from_codegen_with_timings(program, TimingMode::Off)
+    }
+
+    pub fn emit_llvm_ir_from_codegen_with_timings(
+        &self,
+        program: &CodegenProgram,
+        timings: TimingMode,
+    ) -> DriverOutput<LlvmIrArtifact> {
         DriverOutput::catch_ice(|| {
             let output = nia_codegen_llvm::emit_llvm_ir_with_options(
                 &program.backend_lowering.program,
-                codegen_options(program.optimization),
+                codegen_options(program.optimization, timings),
             );
             if !output.diagnostics.is_empty() {
                 return DriverOutput::from_error(DriverError::CodegenDiagnostics(
@@ -200,11 +209,12 @@ impl Driver {
 
     pub fn emit_native_objects(&self, request: EmitObjectRequest) -> DriverOutput<ObjectArtifact> {
         DriverOutput::catch_ice(|| {
+            let timings = request.check.timings;
             let program = match self.codegen(request.check).result {
                 Ok(program) => program,
                 Err(error) => return DriverOutput::from_error(error),
             };
-            self.emit_native_objects_from_codegen(&program)
+            self.emit_native_objects_from_codegen_with_timings(&program, timings)
         })
     }
 
@@ -212,11 +222,19 @@ impl Driver {
         &self,
         program: &CodegenProgram,
     ) -> DriverOutput<ObjectArtifact> {
+        self.emit_native_objects_from_codegen_with_timings(program, TimingMode::Off)
+    }
+
+    pub fn emit_native_objects_from_codegen_with_timings(
+        &self,
+        program: &CodegenProgram,
+        timings: TimingMode,
+    ) -> DriverOutput<ObjectArtifact> {
         DriverOutput::catch_ice(|| {
             let _permit = nia_compiler_query::compiler_work_permit();
             let output = nia_codegen_llvm::emit_native_objects(
                 &program.backend_lowering.program,
-                codegen_options(program.optimization),
+                codegen_options(program.optimization, timings),
             );
             if !output.diagnostics.is_empty() {
                 return DriverOutput::from_error(DriverError::CodegenDiagnostics(
@@ -608,8 +626,14 @@ pub enum DriverError {
     LinkerConfig(nia_linker::LinkerConfigError),
 }
 
-fn codegen_options(optimization: OptimizationPolicy) -> nia_codegen_llvm::LlvmCodegenOptions {
-    nia_codegen_llvm::LlvmCodegenOptions { optimization }
+fn codegen_options(
+    optimization: OptimizationPolicy,
+    timings: TimingMode,
+) -> nia_codegen_llvm::LlvmCodegenOptions {
+    nia_codegen_llvm::LlvmCodegenOptions {
+        optimization,
+        timings,
+    }
 }
 
 fn write_output_file(path: &Path, bytes: &[u8]) -> io::Result<()> {

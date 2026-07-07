@@ -33,8 +33,13 @@ fn emit_llvm_ir_with_options_inner(
     program: &BackendProgram,
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
-    let index = ProgramIndex::new(program);
-    let validation_diagnostics = validate_backend_program(program, &index);
+    let timings = options.timings;
+    let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
+        ProgramIndex::new(program)
+    });
+    let validation_diagnostics = time_codegen_stage(timings, "llvm_codegen.validate", || {
+        validate_backend_program(program, &index)
+    });
     if !validation_diagnostics.is_empty() {
         return LlvmCodegenOutput {
             modules: Vec::new(),
@@ -44,14 +49,17 @@ fn emit_llvm_ir_with_options_inner(
     let mut outputs = Vec::new();
     let mut diagnostics = Vec::new();
     for module in &program.modules {
-        let context = Context::create();
-        let mut codegen = match ModuleCodegen::new(&context, module, &index, options) {
-            Ok(codegen) => codegen,
-            Err(diagnostic) => {
-                diagnostics.push(diagnostic);
-                continue;
-            }
-        };
+        let context = time_codegen_module_stage(timings, "context", &module.name, Context::create);
+        let mut codegen =
+            match time_codegen_module_stage(timings, "new_module", &module.name, || {
+                ModuleCodegen::new(&context, module, &index, options)
+            }) {
+                Ok(codegen) => codegen,
+                Err(diagnostic) => {
+                    diagnostics.push(diagnostic);
+                    continue;
+                }
+            };
         match codegen.emit_ir() {
             Ok(ir) => outputs.push(LlvmModuleOutput {
                 name: module.name.clone(),
@@ -77,9 +85,10 @@ fn emit_native_objects_inner(
     program: &BackendProgram,
     options: LlvmCodegenOptions,
 ) -> LlvmObjectOutput {
-    let target = match TargetMachine::native_with_opt_level(llvm_optimization_level(
-        options.optimization.level,
-    )) {
+    let timings = options.timings;
+    let target = match time_codegen_stage(timings, "llvm_codegen.native_target", || {
+        TargetMachine::native_with_opt_level(llvm_optimization_level(options.optimization.level))
+    }) {
         Ok(target) => target,
         Err(error) => {
             return LlvmObjectOutput {
@@ -88,8 +97,12 @@ fn emit_native_objects_inner(
             };
         }
     };
-    let index = ProgramIndex::new(program);
-    let validation_diagnostics = validate_backend_program(program, &index);
+    let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
+        ProgramIndex::new(program)
+    });
+    let validation_diagnostics = time_codegen_stage(timings, "llvm_codegen.validate", || {
+        validate_backend_program(program, &index)
+    });
     if !validation_diagnostics.is_empty() {
         return LlvmObjectOutput {
             modules: Vec::new(),
@@ -103,14 +116,17 @@ fn emit_native_objects_inner(
         if !module_has_object_definitions(module) {
             continue;
         }
-        let context = Context::create();
-        let mut codegen = match ModuleCodegen::new(&context, module, &index, options) {
-            Ok(codegen) => codegen,
-            Err(diagnostic) => {
-                diagnostics.push(diagnostic);
-                continue;
-            }
-        };
+        let context = time_codegen_module_stage(timings, "context", &module.name, Context::create);
+        let mut codegen =
+            match time_codegen_module_stage(timings, "new_module", &module.name, || {
+                ModuleCodegen::new(&context, module, &index, options)
+            }) {
+                Ok(codegen) => codegen,
+                Err(diagnostic) => {
+                    diagnostics.push(diagnostic);
+                    continue;
+                }
+            };
         if let Err(error) = target.configure_module(&codegen.module) {
             diagnostics.push(error.diagnostic());
             continue;
@@ -136,6 +152,26 @@ fn emit_native_objects_inner(
         modules: outputs,
         diagnostics,
     }
+}
+
+pub(crate) fn time_codegen_stage<T>(
+    timings: nia_timing::TimingMode,
+    name: &'static str,
+    f: impl FnOnce() -> T,
+) -> T {
+    nia_timing::time_query(timings, name, f)
+}
+
+pub(crate) fn time_codegen_module_stage<T>(
+    timings: nia_timing::TimingMode,
+    stage: &'static str,
+    module_name: &str,
+    f: impl FnOnce() -> T,
+) -> T {
+    if !timings.detail() {
+        return f();
+    }
+    nia_timing::time_query(timings, &format!("llvm_codegen.{stage}[{module_name}]"), f)
 }
 
 fn module_has_object_definitions(module: &BackendModule) -> bool {

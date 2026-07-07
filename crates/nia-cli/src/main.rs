@@ -1006,7 +1006,7 @@ fn run_emit_llvm(
         print_optimization_report_to_stderr(&program);
     }
     let output = time_summary_stage(timings, "emit_llvm_ir", || {
-        nia_driver::Driver::new().emit_llvm_ir_from_codegen(&program)
+        nia_driver::Driver::new().emit_llvm_ir_from_codegen_with_timings(&program, timings)
     });
     match output.result {
         Ok(artifact) => {
@@ -1052,7 +1052,7 @@ fn run_emit_obj(
         print_optimization_report_to_stderr(&program);
     }
     let output = time_summary_stage(timings, "emit_native_objects", || {
-        nia_driver::Driver::new().emit_native_objects_from_codegen(&program)
+        nia_driver::Driver::new().emit_native_objects_from_codegen_with_timings(&program, timings)
     });
     let objects = match output.result {
         Ok(objects) => objects,
@@ -1139,7 +1139,7 @@ fn run_emit_exe(
         print_optimization_report_to_stderr(&program);
     }
     let output = time_summary_stage(timings, "emit_native_objects", || {
-        nia_driver::Driver::new().emit_native_objects_from_codegen(&program)
+        nia_driver::Driver::new().emit_native_objects_from_codegen_with_timings(&program, timings)
     });
     let objects = match output.result {
         Ok(objects) => objects,
