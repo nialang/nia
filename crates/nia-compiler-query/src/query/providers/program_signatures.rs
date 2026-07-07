@@ -261,7 +261,11 @@ pub(super) fn executable_program_trait_impls(
     time_provider(
         db.context().timings(),
         "executable_program_trait_impls",
-        || db.query(ExtensionMethodIndexQuery).trait_impls.clone(),
+        || {
+            db.query(ProgramTraitSolvingSignaturesQuery)
+                .trait_impls
+                .clone()
+        },
     )
 }
 

@@ -4629,13 +4629,6 @@ pub(super) fn provide_executable_checked_modules(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<CheckedModule> {
     time_provider(db.context().timings(), "executable_checked_modules", || {
-        time_provider(
-            db.context().timings(),
-            "executable_checked_modules.shared_inputs",
-            || {
-                let _ = db.query(ExtensionMethodIndexQuery);
-            },
-        );
         executable_checked_modules_inner(db)
     })
 }
@@ -4644,7 +4637,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
     let parse_ok = db.query(SemanticModuleIdsQuery);
     let graph = db.query(ModuleGraphQuery);
     let mut program_signatures = None::<ProgramExecutableSignatures>;
-    let extension_methods = db.query(ExtensionMethodIndexQuery);
+    let extension_methods = db.query(ExtensionMethodIndexQuery).methods.clone();
     let caches = ExecutableCheckCaches::default();
     let function_signature = |def_id: GlobalDefId| {
         if let Some(signature) = caches
@@ -4789,8 +4782,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
     let mut checked_by_id = HashMap::<ModuleId, ExecutableCheckedModuleState>::new();
     let mut reachability_state = IncrementalExecutableReachability::default();
     let program_trait_impls = executable_program_trait_impls(db);
-    let extension_index =
-        ExecutableExtensionIndex::new(&extension_methods.methods, &program_trait_impls);
+    let extension_index = ExecutableExtensionIndex::new(&extension_methods, &program_trait_impls);
     let reachability = loop {
         let reachable_inputs = time_provider(
             db.context().timings(),
@@ -5367,7 +5359,15 @@ fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModu
 }
 
 fn checked_modules_for_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
-    db.query(ExecutableCheckedModulesQuery)
+    if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
+        db.query(ExecutableCheckedModulesQuery)
+    } else {
+        db.query_many(
+            db.query(SemanticModuleIdsQuery)
+                .into_iter()
+                .map(CheckedModuleQuery),
+        )
+    }
 }
 
 fn function_bodies_from_checked_modules(
@@ -5555,7 +5555,7 @@ fn provide_backend_lowering_inner(
                 comptime_enum_values: &comptime_enum_values,
                 visible_extensions: &visible_extensions,
                 function_bodies: &function_bodies,
-                extension_methods: &extension_methods,
+                extension_methods: &extension_methods.methods,
                 program_defs: &program_defs,
                 program_signatures,
                 indexes: &indexes,

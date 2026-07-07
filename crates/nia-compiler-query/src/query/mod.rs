@@ -8,8 +8,7 @@ use crate::{
         VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTraitImplsForModule,
         VisibleTypeSignatures, collect_extension_associated_value_index_for_module,
         collect_extension_method_index_for_module, collect_extension_methods_for_module,
-        collect_nominal_extension_providers_for_module,
-        collect_valid_trait_impls_for_extension_index_module, visible_extensions_for_module,
+        collect_nominal_extension_providers_for_module, visible_extensions_for_module,
         visible_trait_impls_for_module,
     },
 };

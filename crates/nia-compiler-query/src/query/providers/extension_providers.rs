@@ -153,7 +153,6 @@ pub(super) fn provide_extension_provider_module_facts(
                 methods: nia_defs::ExtensionMethods::default(),
                 associated_values: nia_defs::ExtensionAssociatedValues::default(),
                 associated_value_diagnostics: Vec::new(),
-                trait_impls: Vec::new(),
                 nominal_providers: Vec::new(),
             });
         }
@@ -182,14 +181,12 @@ pub(super) fn provide_extension_provider_module_facts(
         let methods = collect_extension_method_index_for_module(&module, &module_defs);
         let (associated_values, associated_value_diagnostics) =
             collect_extension_associated_value_index_for_module(&module);
-        let trait_impls = collect_valid_trait_impls_for_extension_index_module(&module);
         let nominal_providers =
             collect_nominal_extension_providers_for_module(&module, &module_defs);
         Arc::new(ExtensionProviderModuleFactsQueryValue {
             methods,
             associated_values,
             associated_value_diagnostics,
-            trait_impls,
             nominal_providers,
         })
     })
@@ -395,15 +392,10 @@ pub(super) fn provide_extension_method_index(
 ) -> ExtensionMethodIndexValue {
     time_provider(db.context().timings(), "extension_method_index", || {
         let mut methods = nia_defs::ExtensionMethods::default();
-        let mut trait_impls = Vec::new();
         for facts in extension_provider_module_facts(db) {
             methods.extend(facts.methods.clone());
-            trait_impls.extend(facts.trait_impls.iter().cloned());
         }
-        Arc::new(ExtensionMethodIndexQueryValue {
-            methods,
-            trait_impls,
-        })
+        Arc::new(ExtensionMethodIndexQueryValue { methods })
     })
 }
 
@@ -618,7 +610,7 @@ pub(super) fn provide_visible_trait_impls(
     let mut trait_impls = Vec::new();
     for provider_module in visible_modules.iter().copied() {
         trait_impls.extend(
-            db.query(ExtensionProviderModuleFactsQuery(provider_module))
+            db.query(ExtensionTraitSolvingModuleFactsQuery(provider_module))
                 .trait_impls
                 .iter()
                 .cloned(),
