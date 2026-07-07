@@ -16,7 +16,9 @@ pub use nia_ids::{DefId, ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
-use nia_symbol::{SymbolId, SymbolMap, symbol_identity_key};
+use nia_symbol::{
+    SymbolId, SymbolMap, SymbolText, symbol_identity_key, symbol_text_from_optional_resolver,
+};
 
 pub use extensions::{
     AssociatedTypeBindingSignature, ExtensionAssociatedValue, ExtensionAssociatedValues,
@@ -135,11 +137,27 @@ pub fn collect_module_defs_from_item_tree(
     Collector::new(module_id).collect(&item_tree.items)
 }
 
+pub fn collect_module_defs_from_item_tree_with_symbols(
+    module_id: ModuleId,
+    item_tree: &ModuleItemTree,
+    symbols: &dyn SymbolText,
+) -> DefCollection {
+    Collector::new_with_symbols(module_id, Some(symbols)).collect(&item_tree.items)
+}
+
 pub fn collect_module_defs_from_active_item_tree(
     module_id: ModuleId,
     item_tree: &ActiveModuleItemTree,
 ) -> DefCollection {
     Collector::new(module_id).collect(&item_tree.items)
+}
+
+pub fn collect_module_defs_from_active_item_tree_with_symbols(
+    module_id: ModuleId,
+    item_tree: &ActiveModuleItemTree,
+    symbols: &dyn SymbolText,
+) -> DefCollection {
+    Collector::new_with_symbols(module_id, Some(symbols)).collect(&item_tree.items)
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -558,8 +576,9 @@ struct NameEntry {
     span: Span,
 }
 
-struct Collector {
+struct Collector<'a> {
     module_id: ModuleId,
+    symbols: Option<&'a dyn SymbolText>,
     defs: DefMap,
     module_scope: ModuleScope,
     struct_members: HashMap<DefId, MemberScope>,
@@ -571,10 +590,15 @@ struct Collector {
     duplicate_identities: HashMap<DefIdentity, u32>,
 }
 
-impl Collector {
+impl<'a> Collector<'a> {
     fn new(module_id: ModuleId) -> Self {
+        Self::new_with_symbols(module_id, None)
+    }
+
+    fn new_with_symbols(module_id: ModuleId, symbols: Option<&'a dyn SymbolText>) -> Self {
         Self {
             module_id,
+            symbols,
             defs: DefMap::default(),
             module_scope: ModuleScope::default(),
             struct_members: HashMap::new(),
@@ -585,6 +609,10 @@ impl Collector {
             diagnostics: Vec::new(),
             duplicate_identities: HashMap::new(),
         }
+    }
+
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_from_optional_resolver(self.symbols, symbol)
     }
 
     fn collect(mut self, items: &[ItemTreeNode]) -> DefCollection {
@@ -1108,14 +1136,7 @@ impl Collector {
             Vec::new(),
         );
         self.def_nodes.insert(node_key, def_id);
-        Self::insert_top(
-            &mut self.module_scope.modules,
-            &mut self.diagnostics,
-            name,
-            def_id,
-            span,
-            "duplicate module name",
-        );
+        self.insert_top_module(name, def_id, span, "duplicate module name");
         def_id
     }
 
@@ -1131,14 +1152,7 @@ impl Collector {
     ) -> DefId {
         let def_id = self.push_top_def(identity, name.clone(), kind, visibility, span, generics);
         self.def_nodes.insert(node_key, def_id);
-        Self::insert_top(
-            &mut self.module_scope.types,
-            &mut self.diagnostics,
-            name,
-            def_id,
-            span,
-            "duplicate type definition",
-        );
+        self.insert_top_type(name, def_id, span, "duplicate type definition");
         def_id
     }
 
@@ -1160,14 +1174,7 @@ impl Collector {
             generics,
         );
         self.def_nodes.insert(node_key, def_id);
-        Self::insert_top(
-            &mut self.module_scope.values,
-            &mut self.diagnostics,
-            name,
-            def_id,
-            span,
-            "duplicate value definition",
-        );
+        self.insert_top_value(name, def_id, span, "duplicate value definition");
         def_id
     }
 
@@ -1261,19 +1268,53 @@ impl Collector {
         resolved
     }
 
-    fn insert_top(
-        table: &mut NameTable,
-        diagnostics: &mut Vec<Diagnostic>,
+    fn insert_top_type(
+        &mut self,
         name: SymbolId,
         def_id: DefId,
         span: Span,
         message: &'static str,
     ) {
-        if let Err(duplicate) = table.insert(name, def_id, span) {
-            diagnostics.push(Diagnostic::user_error_at(
+        if let Err(duplicate) = self.module_scope.types.insert(name, def_id, span) {
+            let name = self.symbol_name(duplicate.name);
+            self.diagnostics.push(Diagnostic::user_error_at(
                 codes::PARSE,
                 duplicate.second_span,
-                format!("{message}: `{}`", symbol_identity_key(duplicate.name)),
+                format!("{message}: `{name}`"),
+            ));
+        }
+    }
+
+    fn insert_top_module(
+        &mut self,
+        name: SymbolId,
+        def_id: DefId,
+        span: Span,
+        message: &'static str,
+    ) {
+        if let Err(duplicate) = self.module_scope.modules.insert(name, def_id, span) {
+            let name = self.symbol_name(duplicate.name);
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::PARSE,
+                duplicate.second_span,
+                format!("{message}: `{name}`"),
+            ));
+        }
+    }
+
+    fn insert_top_value(
+        &mut self,
+        name: SymbolId,
+        def_id: DefId,
+        span: Span,
+        message: &'static str,
+    ) {
+        if let Err(duplicate) = self.module_scope.values.insert(name, def_id, span) {
+            let name = self.symbol_name(duplicate.name);
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::PARSE,
+                duplicate.second_span,
+                format!("{message}: `{name}`"),
             ));
         }
     }
@@ -1287,10 +1328,11 @@ impl Collector {
         message: &'static str,
     ) {
         if let Err(duplicate) = table.insert(name, def_id, span) {
+            let name = self.symbol_name(duplicate.name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::PARSE,
                 duplicate.second_span,
-                format!("{message}: `{}`", symbol_identity_key(duplicate.name)),
+                format!("{message}: `{name}`"),
             ));
         }
     }
@@ -1299,13 +1341,11 @@ impl Collector {
         let mut seen = HashSet::new();
         for generic in generics {
             if !seen.insert(&generic.name) {
+                let name = self.symbol_name(generic.name);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::PARSE,
                     span,
-                    format!(
-                        "duplicate generic parameter `{}`",
-                        symbol_identity_key(generic.name)
-                    ),
+                    format!("duplicate generic parameter `{name}`"),
                 ));
             }
         }
