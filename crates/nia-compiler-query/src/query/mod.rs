@@ -58,6 +58,7 @@ mod checks;
 mod diagnostics;
 mod executable;
 mod extension_provider_queries;
+#[cfg(test)]
 mod program;
 mod program_signature_queries;
 mod providers;
@@ -71,6 +72,7 @@ use checks::*;
 use diagnostics::*;
 use executable::*;
 use extension_provider_queries::*;
+#[cfg(test)]
 use program::*;
 use program_signature_queries::*;
 use providers::*;
