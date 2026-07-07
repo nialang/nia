@@ -268,6 +268,10 @@ pub(super) struct CompilerQueryProviders {
             ModuleId,
         ) -> ExtensionProviderNominalModulesForTargetsValue,
     pub(super) extension_method_index: fn(&QueryDb<CompilerContext>) -> ExtensionMethodIndexValue,
+    pub(super) extension_methods_named:
+        fn(&QueryDb<CompilerContext>, SymbolId) -> ExtensionMethodsNamedValue,
+    pub(super) extension_method_by_id:
+        fn(&QueryDb<CompilerContext>, GlobalDefId) -> ExtensionMethodByIdValue,
     pub(super) extension_trait_signature_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionTraitSignatureIndexValue,
     pub(super) visible_extensions:
@@ -365,6 +369,8 @@ impl Default for CompilerQueryProviders {
             extension_provider_nominal_modules_for_targets:
                 provide_extension_provider_nominal_modules_for_targets,
             extension_method_index: provide_extension_method_index,
+            extension_methods_named: provide_extension_methods_named,
+            extension_method_by_id: provide_extension_method_by_id,
             extension_trait_signature_index: provide_extension_trait_signature_index,
             visible_extensions: provide_visible_extensions,
             visible_trait_impls: provide_visible_trait_impls,
@@ -2821,19 +2827,10 @@ fn body_check_with_filter_and_layouts_with_inputs(
     let extensions = db.query(VisibleExtensionsQuery(module_id));
     let empty_program_extension_methods = nia_defs::ExtensionMethods::default();
     let program_extension_methods = &empty_program_extension_methods;
-    let program_extension_method_by_id = |def_id: GlobalDefId| {
-        db.query(ExtensionMethodIndexQuery)
-            .methods
-            .method_by_id(def_id)
-            .cloned()
-    };
-    let program_extension_methods_named = |name: &SymbolId| {
-        db.query(ExtensionMethodIndexQuery)
-            .methods
-            .methods_named(name)
-            .cloned()
-            .collect::<Vec<_>>()
-    };
+    let program_extension_method_by_id =
+        |def_id: GlobalDefId| db.query(ExtensionMethodByIdQuery(def_id)).method.clone();
+    let program_extension_methods_named =
+        |name: &SymbolId| db.query(ExtensionMethodsNamedQuery(*name)).methods.clone();
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             return Some(db.query(SignatureTypeNormalizationQuery(

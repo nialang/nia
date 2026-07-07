@@ -14,7 +14,8 @@ pub struct ProviderSummary {
 pub struct Provider {
     pub target: ProviderTarget,
     pub trait_ref: Option<ProviderTypeRef>,
-    pub associated_items: Vec<SymbolId>,
+    pub associated_methods: Vec<SymbolId>,
+    pub associated_values: Vec<SymbolId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,16 +94,15 @@ impl ProviderSummary {
                     return None;
                 };
                 let generic_names = generic_param_names(&extend.generics);
-                let associated_items = extend
+                let associated_methods = extend
                     .methods
                     .iter()
                     .map(|method| method.function.name.clone())
-                    .chain(
-                        extend
-                            .associated_values
-                            .iter()
-                            .map(|value| value.binding.name.clone()),
-                    )
+                    .collect();
+                let associated_values = extend
+                    .associated_values
+                    .iter()
+                    .map(|value| value.binding.name.clone())
                     .collect();
                 Some(Provider {
                     target: ProviderTarget {
@@ -119,7 +119,8 @@ impl ProviderSummary {
                             &local_trait_names,
                         )
                     }),
-                    associated_items,
+                    associated_methods,
+                    associated_values,
                 })
             })
             .collect();
@@ -164,6 +165,17 @@ impl ProviderSummary {
             .providers
             .iter()
             .filter_map(|provider| provider.target.ty.nominal_provider_index_name().cloned())
+            .collect::<Vec<_>>();
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    pub fn method_index_names(&self) -> Vec<SymbolId> {
+        let mut names = self
+            .providers
+            .iter()
+            .flat_map(|provider| provider.associated_methods.iter().cloned())
             .collect::<Vec<_>>();
         names.sort();
         names.dedup();
@@ -228,8 +240,9 @@ impl ProviderSummary {
 
 impl Provider {
     fn has_associated_item(&self, name: &SymbolId) -> bool {
-        self.associated_items
+        self.associated_methods
             .iter()
+            .chain(self.associated_values.iter())
             .any(|associated| associated == name)
     }
 }
@@ -440,6 +453,7 @@ extend Widget {
         assert!(summary.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
         assert!(summary.defines_inherent_associated_item(&sym("Widget"), &sym("Kind")));
         assert!(!summary.defines_inherent_associated_item(&sym("Widget"), &sym("missing")));
+        assert_eq!(summary.method_index_names(), vec![sym("score")]);
     }
 
     #[test]

@@ -89,6 +89,8 @@ type ExtensionProviderNominalModulesForTargetsValue =
     Arc<ExtensionProviderNominalModulesForTargetsQueryValue>;
 type TypeExposureIndexValue = Arc<TypeExposureIndex>;
 type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
+type ExtensionMethodsNamedValue = Arc<ExtensionMethodsNamedQueryValue>;
+type ExtensionMethodByIdValue = Arc<ExtensionMethodByIdQueryValue>;
 type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
 type VisibleTraitImplsValue = Arc<VisibleTraitImplsForModule>;
@@ -3611,6 +3613,34 @@ extend Used {
                 .iter()
                 .any(|query| { query.frame.name == "extension_method_index" })
         );
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "extension_method_index"
+        }));
+    }
+
+    #[test]
+    fn body_check_method_lookup_uses_named_extension_method_query() {
+        let loaded = loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "module module1; using self::module1::S; fn main() i32 { let s = S::make(); 1 }",
+            ),
+            loaded_module(
+                ModuleId(1),
+                "module1.nia",
+                "pub struct S {} extend S { pub fn make() S { {} } }",
+            ),
+        ]);
+        let db = query_db(loaded);
+
+        let checked = db.query(BodyCheckQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "extension_methods_named"
+        }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "body_check" && dependency.to.name == "extension_method_index"
         }));
