@@ -302,14 +302,18 @@ pub(super) fn provide_extension_provider_validation_facts(
         }
         let input = db.query(ExtensionSignatureModuleInputQuery(module_id));
         let trait_index = db.query(ExtensionTraitSignatureIndexQuery);
-        let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+        let trait_impls_for_trait = |trait_id| {
+            db.query(ExtensionTraitImplsForTraitQuery(trait_id))
+                .trait_impls
+                .clone()
+        };
         let symbols = db.context().symbols();
         let (methods, diagnostics) = collect_extension_methods_for_module(
             &input.module(),
             ExtensionMethodValidationInput {
                 trait_defs: &trait_index.trait_defs,
                 trait_signatures: &trait_index.trait_signatures,
-                trait_impls: &trait_solving.trait_impls,
+                trait_impls_for_trait: &trait_impls_for_trait,
                 symbols: &symbols,
             },
         );

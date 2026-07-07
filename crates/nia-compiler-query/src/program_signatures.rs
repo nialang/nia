@@ -78,7 +78,7 @@ pub(crate) struct ExtensionTraitSignatureIndex {
 pub(crate) struct ExtensionMethodValidationInput<'a> {
     pub(crate) trait_defs: &'a HashSet<GlobalDefId>,
     pub(crate) trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
-    pub(crate) trait_impls: &'a [ProgramTraitImplSignature],
+    pub(crate) trait_impls_for_trait: &'a dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
     pub(crate) symbols: &'a SymbolTable,
 }
 
@@ -557,7 +557,7 @@ pub(crate) fn collect_extension_methods_for_module(
                 target_ty,
                 trait_id,
                 input.trait_signatures,
-                input.trait_impls,
+                input.trait_impls_for_trait,
                 input.symbols,
                 &mut diagnostics,
             ),
@@ -566,7 +566,7 @@ pub(crate) fn collect_extension_methods_for_module(
                 impl_signature,
                 target_ty,
                 trait_id,
-                input.trait_impls,
+                input.trait_impls_for_trait,
                 input.symbols,
                 &mut diagnostics,
             ),
@@ -999,7 +999,7 @@ fn validate_trait_impl(
     target_ty: nia_ids::InternedTyId,
     trait_id: GlobalDefId,
     trait_signatures: &HashMap<GlobalDefId, ProgramTraitSignature>,
-    trait_impls: &[ProgramTraitImplSignature],
+    trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
     symbols: &SymbolTable,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> bool {
@@ -1126,7 +1126,7 @@ fn validate_trait_impl(
         target_ty,
         trait_signature,
         &trait_args,
-        trait_impls,
+        trait_impls_for_trait,
         symbols,
         diagnostics,
     );
@@ -1173,9 +1173,10 @@ fn validate_trait_impl(
             trait_id,
             impl_signature,
         });
+        let validation_trait_impls = trait_impls_for_trait(TraitId::Source(trait_id));
         if !trait_method_signature_matches(
             module,
-            trait_impls,
+            &validation_trait_impls,
             &mut comparison_interner,
             target_ty,
             TraitId::Source(trait_id),
@@ -1257,7 +1258,7 @@ fn validate_builtin_trait_impl(
     impl_signature: &TraitImplSignature,
     target_ty: nia_ids::InternedTyId,
     trait_id: BuiltinTrait,
-    trait_impls: &[ProgramTraitImplSignature],
+    trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
     symbols: &SymbolTable,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> bool {
@@ -1308,7 +1309,7 @@ fn validate_builtin_trait_impl(
         impl_signature,
         target_ty,
         trait_id,
-        trait_impls,
+        trait_impls_for_trait,
         diagnostics,
     );
     let expected_methods = trait_id.required_methods();
@@ -1378,7 +1379,7 @@ fn validate_builtin_supertrait_impls(
     impl_signature: &TraitImplSignature,
     target_ty: nia_ids::InternedTyId,
     trait_id: BuiltinTrait,
-    trait_impls: &[ProgramTraitImplSignature],
+    trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for supertrait in trait_id.supertraits() {
@@ -1387,12 +1388,14 @@ fn validate_builtin_supertrait_impls(
         } else {
             Vec::new()
         };
+        let supertrait_id = TraitId::Builtin(supertrait.trait_id);
+        let trait_impls = trait_impls_for_trait(supertrait_id);
         if !has_matching_trait_impl(
             &module.lowering.interner,
             target_ty,
-            TraitId::Builtin(supertrait.trait_id),
+            supertrait_id,
             &supertrait_args,
-            trait_impls,
+            &trait_impls,
         ) {
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
@@ -1658,7 +1661,7 @@ fn validate_supertrait_impls(
     target_ty: nia_ids::InternedTyId,
     trait_signature: TraitSignatureRef<'_>,
     trait_args: &[nia_ids::InternedTyId],
-    trait_impls: &[ProgramTraitImplSignature],
+    trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
     symbols: &SymbolTable,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -1673,26 +1676,28 @@ fn validate_supertrait_impls(
             trait_args,
         );
         let Some(TyKind::Nominal {
-            def_id: supertrait_id,
+            def_id: supertrait_def_id,
             args: supertrait_args,
             ..
         }) = comparison_interner.get(supertrait).cloned()
         else {
             continue;
         };
+        let supertrait_id = TraitId::Source(supertrait_def_id);
+        let trait_impls = trait_impls_for_trait(supertrait_id);
         if !has_matching_trait_impl(
             &comparison_interner,
             target_ty,
-            TraitId::Source(supertrait_id),
+            supertrait_id,
             &supertrait_args,
-            trait_impls,
+            &trait_impls,
         ) {
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
                 format!(
                     "implementation of trait requires explicit implementation of supertrait `{}`",
-                    trait_name(module, supertrait_id, symbols)
+                    trait_name(module, supertrait_def_id, symbols)
                 ),
             ));
         }
