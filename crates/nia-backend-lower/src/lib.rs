@@ -18,6 +18,7 @@ mod trait_object_vtables;
 mod type_context;
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use nia_ast::{BindingItem, Block, Expr, StmtKind, Visibility, generic_param_names};
 use nia_backend_ir::{
@@ -218,7 +219,7 @@ pub fn lower_backend_program_with_timings(
     let mut lowerers = time_backend_stage(timing, "backend_lower.new_lowerers", || {
         modules
             .iter()
-            .map(|input| ModuleLowerer::new(input, monomorphization, optimization, &shared))
+            .map(|input| ModuleLowerer::new(input, monomorphization, optimization, &shared, timing))
             .collect::<Vec<_>>()
     });
     let mut lowered_modules = Vec::new();
@@ -503,7 +504,7 @@ pub(crate) struct ExtensionTraitMethodCandidate {
     trait_args: Vec<InternedTyId>,
     where_predicates: Vec<WherePredicateSignature>,
     effective_generics: Vec<SymbolId>,
-    interner: nia_ty::TyInterner,
+    interner: Arc<nia_ty::TyInterner>,
 }
 
 #[derive(Debug, Clone)]
@@ -868,31 +869,54 @@ impl<'a> ModuleLowerer<'a> {
         monomorphization: &'a Monomorphization,
         optimization: OptimizationPolicy,
         shared: &'a BackendLowerShared,
+        timing: bool,
     ) -> Self {
+        let type_context =
+            time_backend_stage(timing, "backend_lower.new_lowerer.type_context", || {
+                type_context::BackendTypeContext::new(input, shared)
+            });
+        let extension_generics_by_method = time_backend_stage(
+            timing,
+            "backend_lower.new_lowerer.local_extension_generics",
+            || index_local_extension_generics_by_method(input.extensions),
+        );
+        let extension_method_sources_by_def = time_backend_stage(
+            timing,
+            "backend_lower.new_lowerer.local_extension_sources",
+            || index_local_extension_method_sources_by_def(input),
+        );
+        let trait_context =
+            time_backend_stage(timing, "backend_lower.new_lowerer.trait_context", || {
+                trait_context::BackendTraitContext::new(input)
+            });
+        let struct_layout_instances_by_def = time_backend_stage(
+            timing,
+            "backend_lower.new_lowerer.struct_layout_instances",
+            || index_layout_instances_by_def(input.layouts.struct_instances.keys()),
+        );
+        let union_layout_instances_by_def = time_backend_stage(
+            timing,
+            "backend_lower.new_lowerer.union_layout_instances",
+            || index_layout_instances_by_def(input.layouts.union_instances.keys()),
+        );
         Self {
             input,
             shared,
             monomorphization,
             optimization,
-            type_context: type_context::BackendTypeContext::new(input, shared),
+            type_context,
             diagnostics: Vec::new(),
             optimization_report: BackendOptimizationReport::default(),
             missing_array_len_diagnostics: HashSet::new(),
-            extension_generics_by_method: index_local_extension_generics_by_method(
-                input.extensions,
-            ),
-            extension_method_sources_by_def: index_local_extension_method_sources_by_def(input),
-            trait_context: trait_context::BackendTraitContext::new(input),
+            extension_generics_by_method,
+            extension_method_sources_by_def,
+            trait_context,
             instantiation: instantiation_context::BackendInstantiationContext::default(),
             foreign_function_refs: Vec::new(),
             foreign_function_instance_refs: Vec::new(),
             foreign_global_instance_refs: Vec::new(),
-            struct_layout_instances_by_def: index_layout_instances_by_def(
-                input.layouts.struct_instances.keys(),
-            ),
-            union_layout_instances_by_def: index_layout_instances_by_def(
-                input.layouts.union_instances.keys(),
-            ),
+            struct_layout_instances_by_def,
+            union_layout_instances_by_def,
             effective_generics: HashMap::new(),
             def_names: HashMap::new(),
             function_sources: HashMap::new(),
@@ -2477,6 +2501,7 @@ fn index_extension_trait_method_candidates(
 ) -> HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> {
     let mut candidates: HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> =
         HashMap::new();
+    let source_interner = Arc::new(source_interner.clone());
     for target in extensions.targets() {
         for method in &target.methods {
             if !method.is_trait_witness {
@@ -2523,6 +2548,7 @@ fn index_program_extension_trait_method_candidates(
         .collect::<HashMap<_, _>>();
     let mut candidates: HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> =
         HashMap::new();
+    let mut interner_cache = CandidateInternerCache::default();
     for method in input.program_extension_methods.all_methods() {
         let Some(trait_id) = method.trait_id else {
             continue;
@@ -2536,7 +2562,7 @@ fn index_program_extension_trait_method_candidates(
             trait_args: impl_signature.trait_args.clone(),
             where_predicates: impl_signature.where_predicates.clone(),
             effective_generics: impl_signature.generics.clone(),
-            interner: impl_signature.interner.clone(),
+            interner: interner_cache.intern(&impl_signature.interner),
         };
         candidates
             .entry(ExtensionTraitMethodKey {
@@ -2559,6 +2585,26 @@ fn index_program_extension_trait_method_candidates(
         });
     }
     candidates
+}
+
+#[derive(Default)]
+struct CandidateInternerCache {
+    interners: Vec<Arc<nia_ty::TyInterner>>,
+}
+
+impl CandidateInternerCache {
+    fn intern(&mut self, interner: &nia_ty::TyInterner) -> Arc<nia_ty::TyInterner> {
+        if let Some(existing) = self
+            .interners
+            .iter()
+            .find(|existing| existing.as_ref() == interner)
+        {
+            return existing.clone();
+        }
+        let interner = Arc::new(interner.clone());
+        self.interners.push(interner.clone());
+        interner
+    }
 }
 
 fn index_local_trait_methods_with_defaults(

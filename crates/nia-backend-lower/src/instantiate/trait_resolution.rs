@@ -107,7 +107,7 @@ impl<'a> ModuleLowerer<'a> {
                 trait_args: impl_signature.trait_args.clone(),
                 where_predicates: impl_signature.where_predicates.clone(),
                 effective_generics: impl_signature.generics.clone(),
-                interner: impl_signature.interner.clone(),
+                interner: std::sync::Arc::new(impl_signature.interner.clone()),
             };
             if let Some(resolved) =
                 self.trait_impl_method_for_candidate(&candidate, trait_args, self_ty)

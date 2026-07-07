@@ -683,7 +683,7 @@ impl<'a> ModuleLowerer<'a> {
         &self,
         candidate: &'b ExtensionTraitMethodCandidate,
     ) -> &'b nia_ty::TyInterner {
-        &candidate.interner
+        candidate.interner.as_ref()
     }
 
     pub(crate) fn trait_method_call_is_concrete(
