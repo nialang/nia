@@ -638,42 +638,6 @@ pub(crate) fn collect_extension_method_index_for_module(
     extensions
 }
 
-pub(crate) fn collect_valid_trait_impls_for_extension_index_module(
-    module: &ExtensionMethodIndexModuleInput<'_>,
-) -> Vec<ProgramTraitImplSignature> {
-    let extension_module = ExtensionModuleInput {
-        module_id: module.module_id,
-        defs: module.defs,
-        lowering: module.lowering,
-        signatures: module.signatures,
-        function_signatures: module.signatures,
-        type_signatures: module.signatures,
-        normalization: module.normalization,
-    };
-    collect_program_trait_impls(&[ModuleSignatureInput {
-        module_id: module.module_id,
-        defs: module.defs,
-        lowering: module.lowering,
-        signatures: module.signatures,
-    }])
-    .into_iter()
-    .filter(|impl_signature| {
-        let Some(module_impl_signature) =
-            trait_impl_signature_by_id(module.signatures, impl_signature.impl_id)
-        else {
-            return false;
-        };
-        !matches!(impl_signature.trait_id, TraitId::Builtin(trait_id)
-        if builtin_trait_impl_overlaps_intrinsic(
-            &extension_module,
-            impl_signature.target_ty,
-            trait_id,
-            module_impl_signature,
-        ))
-    })
-    .collect()
-}
-
 pub(crate) fn collect_nominal_extension_providers_for_module(
     module: &ExtensionMethodIndexModuleInput<'_>,
     defs: &dyn Fn(nia_ids::ModuleId) -> Option<DefCollection>,

@@ -163,7 +163,6 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleEligibilityQuery {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionMethodIndexQueryValue {
     pub(super) methods: nia_defs::ExtensionMethods,
-    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -171,7 +170,6 @@ pub(super) struct ExtensionProviderModuleFactsQueryValue {
     pub(super) methods: nia_defs::ExtensionMethods,
     pub(super) associated_values: nia_defs::ExtensionAssociatedValues,
     pub(super) associated_value_diagnostics: Vec<Diagnostic>,
-    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
     pub(super) nominal_providers: Vec<crate::program_signatures::NominalExtensionProviderEntry>,
 }
 
