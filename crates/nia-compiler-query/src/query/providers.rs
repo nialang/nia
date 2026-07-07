@@ -2,7 +2,7 @@
 use super::*;
 use nia_defs::{DefId, DefKind};
 use nia_executable_reachability::{
-    ExecutableRootDefs, IncrementalExecutableReachability,
+    ExecutableExtensionIndex, ExecutableRootDefs, IncrementalExecutableReachability,
     compute_executable_reachability_incremental_with_timings,
     extend_incremental_executable_reachability_from_checked_module_with_timings,
     filter_semantic_facts_for_reachable_items,
@@ -4789,6 +4789,8 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
     let mut checked_by_id = HashMap::<ModuleId, ExecutableCheckedModuleState>::new();
     let mut reachability_state = IncrementalExecutableReachability::default();
     let program_trait_impls = executable_program_trait_impls(db);
+    let extension_index =
+        ExecutableExtensionIndex::new(&extension_methods.methods, &program_trait_impls);
     let reachability = loop {
         let reachable_inputs = time_provider(
             db.context().timings(),
@@ -4814,8 +4816,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                         trait_: &trait_signature,
                         trait_default_method: &trait_default_method,
                     },
-                    &extension_methods.methods,
-                    &program_trait_impls,
+                    &extension_index,
                     &reachable_inputs,
                     db.context().timings(),
                 )
@@ -5019,8 +5020,7 @@ fn executable_checked_modules_inner(db: &QueryDb<CompilerContext>) -> Vec<Checke
                             trait_: &trait_signature,
                             trait_default_method: &trait_default_method,
                         },
-                        &extension_methods.methods,
-                        &program_trait_impls,
+                        &extension_index,
                         checked_inputs
                             .iter()
                             .copied()
