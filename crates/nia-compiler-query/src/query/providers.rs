@@ -527,7 +527,7 @@ pub(super) fn provide_parse_ok_module_ids(db: &QueryDb<CompilerContext>) -> Vec<
 }
 
 pub(super) fn provide_semantic_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
-    let graph = db.query(ModuleGraphQuery);
+    let graph = db.query_shared(ModuleGraphQuery);
     let entry = graph.entry();
     db.query(ParseOkModuleIdsQuery)
         .into_iter()
@@ -610,7 +610,7 @@ pub(super) fn provide_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<DefCo
 pub(super) fn provide_public_surfaces(db: &QueryDb<CompilerContext>) -> PublicSurfacesValue {
     time_provider(db.context().timings(), "public_surfaces", || {
         let defs = db.query(DefsByModuleQuery);
-        let graph = db.query(ModuleGraphQuery);
+        let graph = db.query_shared(ModuleGraphQuery);
         let symbols = db.context().symbols();
         let exports = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
         Arc::new(PublicSurfacesQueryValue {
@@ -623,7 +623,7 @@ pub(super) fn provide_public_surfaces(db: &QueryDb<CompilerContext>) -> PublicSu
 pub(super) fn provide_public_using_scopes(db: &QueryDb<CompilerContext>) -> PublicUsingScopesValue {
     time_provider(db.context().timings(), "public_using_scopes", || {
         let defs = db.query(DefsByModuleQuery);
-        let graph = db.query(ModuleGraphQuery);
+        let graph = db.query_shared(ModuleGraphQuery);
         let surfaces = db.query(PublicSurfacesQuery);
         let symbols = db.context().symbols();
         let scopes = compute_using_scopes_from_surfaces_with_symbols(
@@ -671,7 +671,7 @@ pub(super) fn provide_type_resolution(
         let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
         let defs = db.query_shared(FullModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
-        let graph = db.query(ModuleGraphQuery);
+        let graph = db.query_shared(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         let symbols = db.context().symbols();
@@ -697,7 +697,7 @@ pub(super) fn provide_declaration_type_resolution(
         let active_item_tree = db.query_shared(DeclarationActiveModuleItemTreeQuery(module_id));
         let defs = db.query_shared(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
-        let graph = db.query(ModuleGraphQuery);
+        let graph = db.query_shared(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         let symbols = db.context().symbols();
@@ -724,7 +724,7 @@ pub(super) fn provide_signature_type_resolution(
         let active_item_tree = db.query_shared(SignatureItemTreeQuery(module_id, set));
         let defs = db.query_shared(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
-        let graph = db.query(ModuleGraphQuery);
+        let graph = db.query_shared(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         let symbols = db.context().symbols();
@@ -750,7 +750,7 @@ pub(super) fn provide_signature_comptime_type_resolution(
         let active_item_tree = db.query(SignatureComptimeItemTreeQuery(module_id));
         let defs = db.query_shared(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
-        let graph = db.query(ModuleGraphQuery);
+        let graph = db.query_shared(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         let symbols = db.context().symbols();
@@ -947,7 +947,7 @@ pub(super) fn provide_value_resolution(
         let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
         let defs = db.query_shared(FullModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
-        let graph = db.query(ModuleGraphQuery);
+        let graph = db.query_shared(ModuleGraphQuery);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let using_scope = db.query(ModuleUsingScopeQuery(module_id));
         let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
@@ -1015,7 +1015,7 @@ pub(super) fn provide_semantic_use_table(
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
-                    graph: Some(&db.query(ModuleGraphQuery)),
+                    graph: Some(&db.query_shared(ModuleGraphQuery)),
                 },
                 &public_surfaces.surfaces,
                 &using_scope,
@@ -2095,7 +2095,7 @@ fn body_check_resolution_inputs_for_filter(
                         context.defs,
                         nia_value_resolve::ProgramDefsContext {
                             defs: Some(&program_defs),
-                            graph: Some(&db.query(ModuleGraphQuery)),
+                            graph: Some(&db.query_shared(ModuleGraphQuery)),
                         },
                         &public_surfaces.surfaces,
                         &using_scope,
@@ -2141,7 +2141,7 @@ fn body_check_resolution_inputs_for_filter(
                                 context.defs,
                                 nia_value_resolve::ProgramDefsContext {
                                     defs: Some(&program_defs),
-                                    graph: Some(&db.query(ModuleGraphQuery)),
+                                    graph: Some(&db.query_shared(ModuleGraphQuery)),
                                 },
                                 &public_surfaces.surfaces,
                                 &using_scope,
@@ -2340,7 +2340,7 @@ fn filtered_comptime_global_initializer_for_body_check(
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
-                    graph: Some(&db.query(ModuleGraphQuery)),
+                    graph: Some(&db.query_shared(ModuleGraphQuery)),
                 },
                 &public_surfaces.surfaces,
                 &using_scope,
@@ -2435,7 +2435,7 @@ fn filtered_comptime_global_initializer_for_body_check(
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
-                    graph: Some(&db.query(ModuleGraphQuery)),
+                    graph: Some(&db.query_shared(ModuleGraphQuery)),
                 },
                 &public_surfaces.surfaces,
                 &using_scope,
@@ -4635,7 +4635,7 @@ fn executable_checked_module_set_inner(
     db: &QueryDb<CompilerContext>,
 ) -> ExecutableCheckedModuleSet {
     let parse_ok = db.query(SemanticModuleIdsQuery);
-    let graph = db.query(ModuleGraphQuery);
+    let graph = db.query_shared(ModuleGraphQuery);
     let mut program_signatures = None::<ProgramExecutableSignatures>;
     let extension_methods = db.query(ExtensionMethodIndexQuery).methods.clone();
     let caches = ExecutableCheckCaches::default();

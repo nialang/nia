@@ -244,7 +244,7 @@ fn signature_comptime_value_resolution(
             &defs,
             nia_value_resolve::ProgramDefsContext {
                 defs: Some(&program_defs),
-                graph: Some(&db.query(ModuleGraphQuery)),
+                graph: Some(&db.query_shared(ModuleGraphQuery)),
             },
             &public_surfaces.surfaces,
             &using_scope,
@@ -260,7 +260,7 @@ fn signature_comptime_value_resolution(
             &defs,
             nia_value_resolve::ProgramDefsContext {
                 defs: Some(&program_defs),
-                graph: Some(&db.query(ModuleGraphQuery)),
+                graph: Some(&db.query_shared(ModuleGraphQuery)),
             },
             &public_surfaces.surfaces,
             &using_scope,

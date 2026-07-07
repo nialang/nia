@@ -321,7 +321,7 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
         db.context().timings(),
         "extension_provider_nominal_modules_for_targets",
         || {
-            let graph = db.query(ModuleGraphQuery);
+            let graph = db.query_shared(ModuleGraphQuery);
             let index_names = extension_provider_nominal_target_names_for_targets(db, &targets);
             let candidate_modules = db
                 .query(ExtensionProviderNominalCandidateModulesQuery(
@@ -443,7 +443,7 @@ fn visible_modules_for_module(
         crate::program_signatures::VisibleExtensionProviderModulesInput<'_>,
     ) -> Vec<ModuleId>,
 ) -> Vec<ModuleId> {
-    let graph = db.query(ModuleGraphQuery);
+    let graph = db.query_shared(ModuleGraphQuery);
     let defs = SharedProgramDefsResolver::new(db);
     let public_using_scopes = db.query(PublicUsingScopesQuery);
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
@@ -488,7 +488,7 @@ pub(super) fn provide_visible_extensions(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> VisibleExtensionsValue {
-    let graph = db.query(ModuleGraphQuery);
+    let graph = db.query_shared(ModuleGraphQuery);
     let defs = SharedProgramDefsResolver::new(db);
     let public_surfaces = db.query(PublicSurfacesQuery);
     let public_using_scopes = db.query(PublicUsingScopesQuery);
@@ -539,7 +539,7 @@ pub(super) fn provide_visible_trait_impls(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> VisibleTraitImplsValue {
-    let graph = db.query(ModuleGraphQuery);
+    let graph = db.query_shared(ModuleGraphQuery);
     let defs = SharedProgramDefsResolver::new(db);
     let public_surfaces = db.query(PublicSurfacesQuery);
     let public_using_scopes = db.query(PublicUsingScopesQuery);
