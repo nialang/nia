@@ -9,7 +9,7 @@ use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_provider_summary::ProviderSummary;
 use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceFile, SourcePath, SourceVersion};
-use nia_target_config::prune_module_for_target;
+use nia_target_config::prune_module_for_target_with_symbols;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -155,7 +155,11 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
                 db.context().symbols.clone(),
             );
         let item_tree = ModuleItemTree::from_module(&raw_module);
-        let prune_result = prune_module_for_target(raw_module, &db.context().target);
+        let prune_result = prune_module_for_target_with_symbols(
+            raw_module,
+            &db.context().target,
+            Some(&db.context().symbols),
+        );
         Arc::new(ParsedModule {
             source: source
                 .file

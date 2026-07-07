@@ -8,7 +8,7 @@ use nia_ast::{
 use nia_diagnostic::{Diagnostic, codes};
 use nia_item_tree::{ActiveModuleItemTree, ConditionResolver, ItemTreeError, ModuleItemTree};
 use nia_span::Span;
-use nia_symbol::{SymbolMap, known, known_symbol_text_or_identity};
+use nia_symbol::{SymbolMap, SymbolText, known, symbol_text_from_optional_resolver};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,8 +49,17 @@ pub struct PruneResult {
 }
 
 pub fn prune_module_for_target(module: Module, config: &TargetConfig) -> PruneResult {
+    prune_module_for_target_with_symbols(module, config, None)
+}
+
+pub fn prune_module_for_target_with_symbols(
+    module: Module,
+    config: &TargetConfig,
+    symbols: Option<&dyn SymbolText>,
+) -> PruneResult {
     let mut pruner = Pruner {
         config,
+        symbols,
         diagnostics: Vec::new(),
     };
     let pruned = pruner.prune_module(module);
@@ -65,7 +74,16 @@ pub fn eval_config_bool(
     config: &TargetConfig,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<bool> {
-    match ConditionEvaluator::new(config).eval_bool(expr) {
+    eval_config_bool_with_symbols(expr, config, diagnostics, None)
+}
+
+pub fn eval_config_bool_with_symbols(
+    expr: &ConditionExpr,
+    config: &TargetConfig,
+    diagnostics: &mut Vec<Diagnostic>,
+    symbols: Option<&dyn SymbolText>,
+) -> Option<bool> {
+    match ConditionEvaluator::new(config, symbols).eval_bool(expr) {
         Ok(value) => Some(value),
         Err(err) => {
             diagnostics.push(Diagnostic::user_error_at(
@@ -80,6 +98,7 @@ pub fn eval_config_bool(
 
 struct Pruner<'a> {
     config: &'a TargetConfig,
+    symbols: Option<&'a dyn SymbolText>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -466,7 +485,7 @@ impl Pruner<'_> {
             let AttributeKind::If(cond) = &attribute.kind else {
                 continue;
             };
-            match ConditionEvaluator::new(self.config).eval_bool(cond) {
+            match ConditionEvaluator::new(self.config, self.symbols).eval_bool(cond) {
                 Ok(true) => {}
                 Ok(false) => return false,
                 Err(err) => {
@@ -583,7 +602,7 @@ impl Pruner<'_> {
 
 impl ConditionResolver for Pruner<'_> {
     fn resolve_condition(&mut self, cond: &ConditionExpr) -> Result<bool, ItemTreeError> {
-        ConditionEvaluator::new(self.config)
+        ConditionEvaluator::new(self.config, self.symbols)
             .eval_bool(cond)
             .map_err(|err| ItemTreeError {
                 span: err.span,
@@ -605,12 +624,13 @@ enum ConditionValue {
     String(String),
 }
 
-struct ConditionEvaluator {
+struct ConditionEvaluator<'a> {
     values: SymbolMap<ConditionValue>,
+    symbols: Option<&'a dyn SymbolText>,
 }
 
-impl ConditionEvaluator {
-    fn new(config: &TargetConfig) -> Self {
+impl<'a> ConditionEvaluator<'a> {
+    fn new(config: &TargetConfig, symbols: Option<&'a dyn SymbolText>) -> Self {
         let mut values = HashMap::new();
         values.insert(known::ARCH, ConditionValue::String(config.arch.clone()));
         values.insert(known::VENDOR, ConditionValue::String(config.vendor.clone()));
@@ -622,7 +642,11 @@ impl ConditionEvaluator {
             known::POINTER_WIDTH,
             ConditionValue::Int(i128::from(config.pointer_width)),
         );
-        Self { values }
+        Self { values, symbols }
+    }
+
+    fn symbol_name(&self, symbol: nia_symbol::SymbolId) -> String {
+        symbol_text_from_optional_resolver(self.symbols, symbol)
     }
 
     fn eval_bool(&self, expr: &ConditionExpr) -> Result<bool, ConditionError> {
@@ -662,10 +686,7 @@ impl ConditionEvaluator {
                     .cloned()
                     .ok_or_else(|| ConditionError {
                         span: expr.span,
-                        message: format!(
-                            "unknown condition name `{}`",
-                            known_symbol_text_or_identity(*name)
-                        ),
+                        message: format!("unknown condition name `{}`", self.symbol_name(*name)),
                     })
             }
             ConditionExprKind::Unary { op, expr: inner } => match op {
