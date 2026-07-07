@@ -544,6 +544,8 @@ pub(super) fn provide_module_item_tree(
     module_id: ModuleId,
 ) -> ModuleItemTree {
     db.query(ModuleItemTreeInputQuery(module_id))
+        .as_ref()
+        .clone()
 }
 
 pub(super) fn provide_active_module_item_tree(
@@ -552,6 +554,8 @@ pub(super) fn provide_active_module_item_tree(
 ) -> ActiveModuleItemTree {
     let _raw_item_tree = db.query_shared(ModuleItemTreeQuery(module_id));
     db.query(ActiveModuleItemTreeInputQuery(module_id))
+        .as_ref()
+        .clone()
 }
 
 pub(super) fn provide_full_module_item_tree(
@@ -559,6 +563,8 @@ pub(super) fn provide_full_module_item_tree(
     module_id: ModuleId,
 ) -> ModuleItemTree {
     db.query(FullModuleItemTreeInputQuery(module_id))
+        .as_ref()
+        .clone()
 }
 
 pub(super) fn provide_full_active_module_item_tree(
@@ -567,6 +573,8 @@ pub(super) fn provide_full_active_module_item_tree(
 ) -> ActiveModuleItemTree {
     let _raw_item_tree = db.query_shared(FullModuleItemTreeQuery(module_id));
     db.query(FullActiveModuleItemTreeInputQuery(module_id))
+        .as_ref()
+        .clone()
 }
 
 pub(super) fn provide_module_defs(
