@@ -297,8 +297,10 @@ pub(super) struct CompilerQueryProviders {
     pub(super) body_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_body_check::BodyCheck,
     pub(super) checked_module: fn(&QueryDb<CompilerContext>, ModuleId) -> CheckedModule,
     pub(super) checked_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
+    #[cfg(test)]
     pub(super) monomorphization:
         fn(&QueryDb<CompilerContext>) -> nia_monomorphize::Monomorphization,
+    #[cfg(test)]
     pub(super) backend_lowering:
         fn(&QueryDb<CompilerContext>) -> nia_backend_lower::BackendLowering,
 }
@@ -383,7 +385,9 @@ impl Default for CompilerQueryProviders {
             body_check: provide_body_check,
             checked_module: provide_checked_module,
             checked_module_ids: provide_checked_module_ids,
+            #[cfg(test)]
             monomorphization: provide_monomorphization,
+            #[cfg(test)]
             backend_lowering: provide_backend_lowering,
         }
     }
@@ -438,7 +442,9 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
                 diagnostics,
             };
         }
-        let monomorphization = db.query(MonomorphizationQuery);
+        let monomorphization = time_provider(db.context().timings(), "monomorphization", || {
+            monomorphization_for_checked_modules(db, &modules)
+        });
         diagnostics.extend(monomorphization_diagnostics(&modules, &monomorphization));
         if !diagnostics.is_empty() {
             return CodegenProgram {
@@ -450,7 +456,9 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
                 diagnostics,
             };
         }
-        let backend_lowering = db.query(BackendLoweringQuery);
+        let backend_lowering = time_provider(db.context().timings(), "backend_lowering", || {
+            provide_backend_lowering_inner_for_modules(db, &monomorphization, &modules)
+        });
         diagnostics.extend(backend_lowering_diagnostics(&modules, &backend_lowering));
         CodegenProgram {
             graph,
@@ -5274,66 +5282,74 @@ fn executable_flow_check(
     })
 }
 
+#[cfg(test)]
 pub(super) fn provide_monomorphization(
     db: &QueryDb<CompilerContext>,
 ) -> nia_monomorphize::Monomorphization {
     time_provider(db.context().timings(), "monomorphization", || {
         let checked_modules = checked_modules_for_codegen(db);
-        let runtime = db.query(CompilerRuntimeQuery);
-        let executable_signatures;
-        let trait_solving_signatures;
-        let program_enums_storage;
-        let (program_enums, trait_impls) = if runtime == RuntimeModel::FreestandingExecutable {
-            executable_signatures = executable_program_signatures_without_functions(db);
-            (
-                &executable_signatures.enums,
-                executable_signatures.trait_impls.as_slice(),
-            )
-        } else {
-            trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-            let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
-            program_enums_storage = type_facts
-                .iter()
-                .flat_map(|facts| {
-                    facts
-                        .enums
-                        .iter()
-                        .map(|(def_id, signature)| (*def_id, signature.clone()))
-                })
-                .collect::<HashMap<_, _>>();
-            (
-                &program_enums_storage,
-                trait_solving_signatures.trait_impls.as_slice(),
-            )
-        };
-        let local_signatures = checked_modules
-            .iter()
-            .map(|module| (module.id, db.query(ItemSignaturesQuery(module.id))))
-            .collect::<HashMap<_, _>>();
-        let function_bodies = function_bodies_from_checked_modules(db, &checked_modules);
-        nia_monomorphize::collect_monomorphizations(
-            &checked_modules
-                .iter()
-                .zip(function_bodies.iter())
-                .map(|(module, function_bodies)| MonomorphizeModuleInput {
-                    module_id: module.id,
-                    defs: &module.defs,
-                    interner: &function_bodies.interner,
-                    normalization: &module.type_normalization,
-                    comptime: &module.comptime,
-                    const_expr_summaries: &module.type_lowering.const_expr_summaries,
-                    layouts: Some(&module.layouts),
-                    local_enums: &local_signatures
-                        .get(&module.id)
-                        .expect("monomorphization signatures must exist for checked module")
-                        .enums,
-                    program_enums,
-                    trait_impls,
-                    instantiations: &module.semantic_facts.generic_instantiations,
-                })
-                .collect::<Vec<_>>(),
-        )
+        monomorphization_for_checked_modules(db, &checked_modules)
     })
+}
+
+fn monomorphization_for_checked_modules(
+    db: &QueryDb<CompilerContext>,
+    checked_modules: &[CheckedModule],
+) -> nia_monomorphize::Monomorphization {
+    let runtime = db.query(CompilerRuntimeQuery);
+    let executable_signatures;
+    let trait_solving_signatures;
+    let program_enums_storage;
+    let (program_enums, trait_impls) = if runtime == RuntimeModel::FreestandingExecutable {
+        executable_signatures = executable_program_signatures_without_functions(db);
+        (
+            &executable_signatures.enums,
+            executable_signatures.trait_impls.as_slice(),
+        )
+    } else {
+        trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+        let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
+        program_enums_storage = type_facts
+            .iter()
+            .flat_map(|facts| {
+                facts
+                    .enums
+                    .iter()
+                    .map(|(def_id, signature)| (*def_id, signature.clone()))
+            })
+            .collect::<HashMap<_, _>>();
+        (
+            &program_enums_storage,
+            trait_solving_signatures.trait_impls.as_slice(),
+        )
+    };
+    let local_signatures = checked_modules
+        .iter()
+        .map(|module| (module.id, db.query(ItemSignaturesQuery(module.id))))
+        .collect::<HashMap<_, _>>();
+    let function_bodies = function_bodies_from_checked_modules(db, checked_modules);
+    nia_monomorphize::collect_monomorphizations(
+        &checked_modules
+            .iter()
+            .zip(function_bodies.iter())
+            .map(|(module, function_bodies)| MonomorphizeModuleInput {
+                module_id: module.id,
+                defs: &module.defs,
+                interner: &function_bodies.interner,
+                normalization: &module.type_normalization,
+                comptime: &module.comptime,
+                const_expr_summaries: &module.type_lowering.const_expr_summaries,
+                layouts: Some(&module.layouts),
+                local_enums: &local_signatures
+                    .get(&module.id)
+                    .expect("monomorphization signatures must exist for checked module")
+                    .enums,
+                program_enums,
+                trait_impls,
+                instantiations: &module.semantic_facts.generic_instantiations,
+            })
+            .collect::<Vec<_>>(),
+    )
 }
 
 fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
@@ -5400,6 +5416,7 @@ fn function_bodies_from_checked_modules(
     )
 }
 
+#[cfg(test)]
 pub(super) fn provide_backend_lowering(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
@@ -5408,12 +5425,20 @@ pub(super) fn provide_backend_lowering(
     })
 }
 
+#[cfg(test)]
 fn provide_backend_lowering_inner(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
-    let all_checked_modules = checked_modules_for_codegen(db);
+    let checked_modules = checked_modules_for_codegen(db);
     let monomorphization = db.query(MonomorphizationQuery);
-    let checked_modules = all_checked_modules;
+    provide_backend_lowering_inner_for_modules(db, &monomorphization, &checked_modules)
+}
+
+fn provide_backend_lowering_inner_for_modules(
+    db: &QueryDb<CompilerContext>,
+    monomorphization: &nia_monomorphize::Monomorphization,
+    checked_modules: &[CheckedModule],
+) -> nia_backend_lower::BackendLowering {
     let (
         all_visible_extensions,
         active_item_trees,
@@ -5488,7 +5513,7 @@ fn provide_backend_lowering_inner(
             time_provider(timings, "backend_lowering.inputs.extension_methods", || {
                 db.query(ExtensionMethodIndexQuery)
             });
-        let function_bodies = function_bodies_from_checked_modules(db, &checked_modules);
+        let function_bodies = function_bodies_from_checked_modules(db, checked_modules);
         (
             all_visible_extensions,
             active_item_trees,
@@ -5501,7 +5526,7 @@ fn provide_backend_lowering_inner(
         )
     });
     let function_lowering_diagnostics =
-        function_lowering_diagnostics(&checked_modules, &function_bodies);
+        function_lowering_diagnostics(checked_modules, &function_bodies);
     if !function_lowering_diagnostics.is_empty() {
         return nia_backend_lower::BackendLowering {
             diagnostics: function_lowering_diagnostics
@@ -5514,7 +5539,7 @@ fn provide_backend_lowering_inner(
     let indexes = time_provider(db.context().timings(), "backend_lowering.indexes", || {
         build_backend_lowering_indexes(
             &all_visible_extensions,
-            &checked_modules,
+            checked_modules,
             &comptime_array_lengths,
             &function_bodies,
         )
@@ -5543,7 +5568,7 @@ fn provide_backend_lowering_inner(
         || {
             build_backend_lowering_module_inputs(BackendLoweringModuleInputsInput {
                 symbols: &symbols,
-                checked_modules: &checked_modules,
+                checked_modules,
                 runtime: db.query(CompilerRuntimeQuery),
                 active_item_trees: &active_item_trees,
                 item_signatures: &item_signatures,
@@ -5564,7 +5589,7 @@ fn provide_backend_lowering_inner(
         || {
             nia_backend_lower::lower_backend_program_with_timings(
                 &inputs,
-                &monomorphization,
+                monomorphization,
                 db.query(CompilerOptimizationQuery),
                 db.context().timings(),
             )
