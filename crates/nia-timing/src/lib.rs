@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    cell::RefCell,
     collections::HashMap,
+    sync::{Arc, Condvar, Mutex, OnceLock},
+    thread::ThreadId,
     time::{Duration, Instant},
 };
 
@@ -174,15 +175,66 @@ impl TimingAccumulator {
 }
 
 pub fn collect_to_stderr<T>(f: impl FnOnce() -> T) -> T {
-    let already_collecting = TIMING_EVENTS.with(|events| events.borrow().is_some());
-    if already_collecting {
-        return f();
+    let collector = {
+        let current_thread = std::thread::current().id();
+        let (state, finished) = timing_collector_state();
+        let mut state = state.lock().expect("timing collector state poisoned");
+        let nested_on_owner = state
+            .active
+            .as_ref()
+            .is_some_and(|active| active.owner == current_thread);
+        if nested_on_owner {
+            drop(state);
+            return f();
+        }
+        while state.active.is_some() {
+            state = finished
+                .wait(state)
+                .expect("timing collector state poisoned");
+        }
+        let collector = Arc::new(Mutex::new(TimingCollector::new(
+            timing_trace_events_enabled(),
+        )));
+        state.active = Some(ActiveTimingCollector {
+            owner: current_thread,
+            collector: Arc::clone(&collector),
+        });
+        collector
+    };
+
+    struct TimingCollectionGuard {
+        collector: Arc<Mutex<TimingCollector>>,
     }
 
-    TIMING_EVENTS.with(|events| {
-        *events.borrow_mut() = Some(Vec::new());
-    });
-    let _guard = TimingCollectionGuard;
+    impl Drop for TimingCollectionGuard {
+        fn drop(&mut self) {
+            let (state, finished) = timing_collector_state();
+            let mut state = state.lock().expect("timing collector state poisoned");
+            let Some(current) = state.active.as_ref() else {
+                return;
+            };
+            if !Arc::ptr_eq(&current.collector, &self.collector) {
+                return;
+            }
+            state.active = None;
+            finished.notify_all();
+            drop(state);
+
+            let (report, trace_events) = self
+                .collector
+                .lock()
+                .expect("timing collector poisoned")
+                .drain();
+            if let Some(events) = trace_events {
+                for event in events {
+                    print_event(&event);
+                }
+            }
+            print_report(&report);
+        }
+    }
+
+    let _guard = TimingCollectionGuard { collector };
     f()
 }
 
@@ -205,24 +257,48 @@ enum TimingEventKind {
     Query,
 }
 
-thread_local! {
-    static TIMING_EVENTS: RefCell<Option<Vec<TimingEvent>>> = const { RefCell::new(None) };
+#[derive(Debug, Default)]
+struct TimingCollectorState {
+    active: Option<ActiveTimingCollector>,
 }
 
-struct TimingCollectionGuard;
+#[derive(Debug)]
+struct ActiveTimingCollector {
+    owner: ThreadId,
+    collector: Arc<Mutex<TimingCollector>>,
+}
 
-impl Drop for TimingCollectionGuard {
-    fn drop(&mut self) {
-        let events = TIMING_EVENTS.with(|events| events.borrow_mut().take().unwrap_or_default());
-        for event in &events {
-            print_event(&event);
-        }
-        print_report(&TimingReport::from_events(&events));
-    }
+fn timing_collector_state() -> &'static (Mutex<TimingCollectorState>, Condvar) {
+    static COLLECTOR: OnceLock<(Mutex<TimingCollectorState>, Condvar)> = OnceLock::new();
+    COLLECTOR.get_or_init(|| (Mutex::new(TimingCollectorState::default()), Condvar::new()))
+}
+
+fn active_timing_collector() -> Option<Arc<Mutex<TimingCollector>>> {
+    timing_collector_state()
+        .0
+        .lock()
+        .expect("timing collector state poisoned")
+        .active
+        .as_ref()
+        .map(|active| Arc::clone(&active.collector))
+}
+
+fn timing_trace_events_enabled() -> bool {
+    matches!(
+        std::env::var("NIA_TIMING_TRACE_EVENTS").as_deref(),
+        Ok("1" | "true" | "yes" | "on")
+    )
 }
 
 fn emit(kind: TimingEventKind, name: String, measurement: TimingMeasurement) {
-    emit_event(TimingEvent {
+    if let Some(collector) = active_timing_collector() {
+        collector
+            .lock()
+            .expect("timing collector poisoned")
+            .emit_measurement(kind, name, measurement);
+        return;
+    }
+    print_event(&TimingEvent {
         kind,
         name,
         data: TimingEventData::Measurement(measurement),
@@ -230,25 +306,18 @@ fn emit(kind: TimingEventKind, name: String, measurement: TimingMeasurement) {
 }
 
 fn emit_note(kind: TimingEventKind, name: String, detail: String) {
-    emit_event(TimingEvent {
+    if let Some(collector) = active_timing_collector() {
+        collector
+            .lock()
+            .expect("timing collector poisoned")
+            .emit_note(kind, name, detail);
+        return;
+    }
+    print_event(&TimingEvent {
         kind,
         name,
         data: TimingEventData::Note(detail),
     });
-}
-
-fn emit_event(event: TimingEvent) {
-    let captured = TIMING_EVENTS.with(|events| {
-        let mut events = events.borrow_mut();
-        let Some(events) = events.as_mut() else {
-            return false;
-        };
-        events.push(event.clone());
-        true
-    });
-    if !captured {
-        print_event(&event);
-    }
 }
 
 fn print_event(event: &TimingEvent) {
@@ -298,35 +367,99 @@ struct TimingReportEntry {
     max: Duration,
 }
 
-impl TimingReport {
-    fn from_events(events: &[TimingEvent]) -> Self {
-        let mut entries_by_key = HashMap::<(TimingEventKind, &str), TimingReportEntry>::new();
-        for event in events {
-            let TimingEventData::Measurement(measurement) = &event.data else {
-                continue;
-            };
-            let entry = entries_by_key
-                .entry((event.kind, event.name.as_str()))
-                .or_insert_with(|| TimingReportEntry {
-                    kind: event.kind,
-                    name: event.name.clone(),
-                    count: 0,
-                    total: Duration::ZERO,
-                    max: Duration::ZERO,
-                });
-            entry.count += measurement.count;
-            entry.total += measurement.total;
-            entry.max = entry.max.max(measurement.max);
-        }
+#[derive(Debug)]
+struct TimingCollector {
+    report: TimingReportBuilder,
+    trace_events: Option<Vec<TimingEvent>>,
+}
 
-        let mut entries = entries_by_key.into_values().collect::<Vec<_>>();
+impl TimingCollector {
+    fn new(trace_events: bool) -> Self {
+        Self {
+            report: TimingReportBuilder::default(),
+            trace_events: trace_events.then(Vec::new),
+        }
+    }
+
+    fn emit_measurement(
+        &mut self,
+        kind: TimingEventKind,
+        name: String,
+        measurement: TimingMeasurement,
+    ) {
+        if let Some(events) = &mut self.trace_events {
+            events.push(TimingEvent {
+                kind,
+                name: name.clone(),
+                data: TimingEventData::Measurement(measurement),
+            });
+        }
+        self.report.record(kind, name, measurement);
+    }
+
+    fn emit_note(&mut self, kind: TimingEventKind, name: String, detail: String) {
+        if let Some(events) = &mut self.trace_events {
+            events.push(TimingEvent {
+                kind,
+                name,
+                data: TimingEventData::Note(detail),
+            });
+        }
+    }
+
+    fn drain(&mut self) -> (TimingReport, Option<Vec<TimingEvent>>) {
+        (
+            std::mem::take(&mut self.report).finish(),
+            self.trace_events.take(),
+        )
+    }
+}
+
+#[derive(Debug, Default)]
+struct TimingReportBuilder {
+    entries_by_key: HashMap<(TimingEventKind, String), TimingReportEntry>,
+}
+
+impl TimingReportBuilder {
+    fn record(&mut self, kind: TimingEventKind, name: String, measurement: TimingMeasurement) {
+        let entry = self
+            .entries_by_key
+            .entry((kind, name.clone()))
+            .or_insert_with(|| TimingReportEntry {
+                kind,
+                name,
+                count: 0,
+                total: Duration::ZERO,
+                max: Duration::ZERO,
+            });
+        entry.count += measurement.count;
+        entry.total += measurement.total;
+        entry.max = entry.max.max(measurement.max);
+    }
+
+    fn finish(self) -> TimingReport {
+        let mut entries = self.entries_by_key.into_values().collect::<Vec<_>>();
         entries.sort_by(|left, right| {
             right
                 .total
                 .cmp(&left.total)
                 .then_with(|| left.name.cmp(&right.name))
         });
-        Self { entries }
+        TimingReport { entries }
+    }
+}
+
+impl TimingReport {
+    #[cfg(test)]
+    fn from_events(events: &[TimingEvent]) -> Self {
+        let mut builder = TimingReportBuilder::default();
+        for event in events {
+            let TimingEventData::Measurement(measurement) = &event.data else {
+                continue;
+            };
+            builder.record(event.kind, event.name.clone(), *measurement);
+        }
+        builder.finish()
     }
 
     fn is_empty(&self) -> bool {
@@ -419,7 +552,72 @@ mod tests {
                 emit_query_timing("inner", Duration::from_millis(2));
             });
         });
-        TIMING_EVENTS.with(|events| assert!(events.borrow().is_none()));
+        assert!(active_timing_collector().is_none());
+    }
+
+    #[test]
+    fn collector_aggregates_without_trace_events_by_default() {
+        let mut collector = TimingCollector::new(false);
+        collector.emit_measurement(
+            TimingEventKind::Query,
+            "checked_module".to_string(),
+            TimingMeasurement::single(Duration::from_millis(2)),
+        );
+        collector.emit_measurement(
+            TimingEventKind::Query,
+            "checked_module".to_string(),
+            TimingMeasurement::single(Duration::from_millis(5)),
+        );
+        collector.emit_note(
+            TimingEventKind::Query,
+            "checked_module".to_string(),
+            "items=4".to_string(),
+        );
+
+        let (report, trace_events) = collector.drain();
+        assert!(trace_events.is_none());
+        assert_eq!(
+            report.entries,
+            vec![TimingReportEntry {
+                kind: TimingEventKind::Query,
+                name: "checked_module".to_string(),
+                count: 2,
+                total: Duration::from_millis(7),
+                max: Duration::from_millis(5),
+            }]
+        );
+    }
+
+    #[test]
+    fn collector_can_keep_trace_events_when_requested() {
+        let mut collector = TimingCollector::new(true);
+        collector.emit_measurement(
+            TimingEventKind::Stage,
+            "check".to_string(),
+            TimingMeasurement::single(Duration::from_millis(3)),
+        );
+        collector.emit_note(
+            TimingEventKind::Query,
+            "body_check".to_string(),
+            "items=4".to_string(),
+        );
+
+        let (report, trace_events) = collector.drain();
+        assert_eq!(report.entries.len(), 1);
+        let trace_events = trace_events.expect("trace events should be retained");
+        assert_eq!(trace_events.len(), 2);
+    }
+
+    #[test]
+    fn collector_captures_events_from_worker_threads() {
+        collect_to_stderr(|| {
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    emit_query_timing("worker_query", Duration::from_millis(2));
+                });
+            });
+        });
+        assert!(active_timing_collector().is_none());
     }
 
     #[test]
