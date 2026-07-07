@@ -77,11 +77,8 @@ use providers::*;
 use resolve::*;
 use types::*;
 
-type ExtensionMethodsValue = Arc<ExtensionMethodsQueryValue>;
 type ExtensionProviderModuleFactsValue = Arc<ExtensionProviderModuleFactsQueryValue>;
 type ExtensionProviderValidationFactsValue = Arc<ExtensionProviderValidationFactsQueryValue>;
-type ExtensionProviderValidationProgramFactsValue =
-    Arc<ExtensionProviderValidationProgramFactsQueryValue>;
 type ExtensionProviderNominalModuleFactsValue = Arc<ExtensionProviderNominalModuleFactsQueryValue>;
 type ExtensionProviderDiscoveryIndexValue = Arc<ExtensionProviderDiscoveryIndexQueryValue>;
 type ExtensionProviderNominalCandidateModulesValue =
@@ -91,8 +88,6 @@ type ExtensionProviderNominalModulesForTargetsValue =
 type TypeExposureIndexValue = Arc<TypeExposureIndex>;
 type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
-type ExtensionMethodSetValue = Arc<ExtensionMethodSetQueryValue>;
-type ExtensionAssociatedValuesValue = Arc<ExtensionAssociatedValuesQueryValue>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
 type VisibleTraitImplsValue = Arc<VisibleTraitImplsForModule>;
 type ExtensionSignatureModuleInputValue = Arc<ExtensionSignatureModuleInputQueryValue>;
@@ -1586,7 +1581,7 @@ fn main() i32 {
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "checked_program" && dependency.to.name == "checked_modules"
+            dependency.from.name == "checked_program" && dependency.to.name == "checked_module_ids"
         }));
     }
 
@@ -1622,11 +1617,7 @@ pub fn expensive_or_invalid() i32 {
         );
         assert_eq!(db.query(SemanticModuleIdsQuery), vec![ModuleId(0)]);
 
-        let checked = db.query(CheckedModulesQuery);
-        assert_eq!(
-            checked.iter().map(|module| module.id).collect::<Vec<_>>(),
-            vec![ModuleId(0)]
-        );
+        assert_eq!(db.query(CheckedModuleIdsQuery), vec![ModuleId(0)]);
     }
 
     #[test]
@@ -1855,7 +1846,11 @@ pub fn expensive_or_invalid() i32 {
         let after_second_check = database.query_trace();
 
         assert_query_executions_unchanged(&before_update, &after_second_check, "checked_program");
-        assert_query_executions_unchanged(&before_update, &after_second_check, "checked_modules");
+        assert_query_executions_unchanged(
+            &before_update,
+            &after_second_check,
+            "checked_module_ids",
+        );
         assert_query_executions_unchanged(&before_update, &after_second_check, "checked_module");
     }
 
@@ -2750,7 +2745,8 @@ extend Value : Ops {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(ExtensionMethodsQuery);
+        let _ = db.query(ExtensionProviderValidationFactsQuery(ModuleId(0)));
+        let _ = db.query(ExtensionProviderModuleFactsQuery(ModuleId(0)));
         let _ = db.query(ExtensionMethodIndexQuery);
         let trace = db.query_trace();
 
@@ -2760,29 +2756,6 @@ extend Value : Ops {
                 .iter()
                 .any(|query| query.frame.name == "extension_provider_program_facts")
         );
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods"
-                && dependency.to.name == "extension_method_set"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_methods"
-                && dependency.to.name == "extension_associated_values"
-        }));
-        assert!(trace_has_dependency(
-            &trace,
-            "extension_method_set",
-            "extension_provider_validation_program_facts"
-        ));
-        assert!(trace_has_dependency(
-            &trace,
-            "extension_provider_validation_program_facts",
-            "extension_provider_validation_facts"
-        ));
-        assert!(trace_has_dependency(
-            &trace,
-            "extension_provider_validation_program_facts",
-            "extension_provider_module_ids"
-        ));
         assert!(trace_has_dependency(
             &trace,
             "extension_provider_validation_facts",
@@ -2869,8 +2842,6 @@ extend Value : Ops {
             "module_program_signature_facts"
         ));
         for query in [
-            "extension_method_set",
-            "extension_provider_validation_program_facts",
             "extension_provider_validation_facts",
             "extension_trait_signature_index",
             "extension_provider_module_eligibility",
@@ -2895,7 +2866,7 @@ extend Value : Ops {
                 dependency.from.name == query && dependency.to.name == "program_type_normalizations"
             }));
         }
-        for query in ["extension_method_index", "extension_associated_values"] {
+        for query in ["extension_method_index"] {
             assert!(trace.dependencies.iter().any(|dependency| {
                 dependency.from.name == query
                     && dependency.to.name == "extension_provider_module_facts"
@@ -2930,19 +2901,8 @@ extend Value : Ops {
             dependency.from.name == "extension_method_index"
                 && dependency.to.name == "extension_provider_module_facts"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_associated_values"
-                && dependency.to.name == "extension_provider_module_facts"
-        }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_method_index"
-                && matches!(
-                    dependency.to.name,
-                    "item_signatures" | "declaration_type_lowering"
-                )
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "extension_associated_values"
                 && matches!(
                     dependency.to.name,
                     "item_signatures" | "declaration_type_lowering"
@@ -2952,10 +2912,7 @@ extend Value : Ops {
             dependency.from.name == "extension_method_index"
                 && matches!(
                     dependency.to.name,
-                    "extension_method_set"
-                        | "extension_provider_validation_facts"
-                        | "extension_provider_validation_program_facts"
-                        | "program_trait_solving_signatures"
+                    "extension_provider_validation_facts" | "program_trait_solving_signatures"
                 )
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -3375,10 +3332,7 @@ extend Used {
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
-                && matches!(
-                    dependency.to.name,
-                    "extension_method_index" | "extension_associated_values"
-                )
+                && dependency.to.name == "extension_method_index"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
@@ -3556,11 +3510,7 @@ extend Used {
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "checked_program"
-                && dependency.to.name == "extension_method_set"
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "codegen_program"
-                && dependency.to.name == "extension_provider_validation_program_facts"
+                && dependency.to.name == "extension_provider_validation_facts"
         }));
     }
 
@@ -3598,11 +3548,7 @@ extend Used {
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "entry_checked_program"
-                && dependency.to.name == "extension_provider_validation_program_facts"
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "entry_checked_program"
-                && dependency.to.name == "extension_method_set"
+                && dependency.to.name == "extension_method_index"
         }));
     }
 
@@ -3637,11 +3583,7 @@ extend Used {
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "entry_checked_program"
-                && dependency.to.name == "extension_provider_validation_program_facts"
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "entry_checked_program"
-                && dependency.to.name == "extension_method_set"
+                && dependency.to.name == "extension_method_index"
         }));
     }
 
@@ -4075,7 +4017,7 @@ extend i32 : ParseFrom[Input] {
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "backend_lowering" && dependency.to.name == "checked_modules"
+            dependency.from.name == "backend_lowering" && dependency.to.name == "checked_module_ids"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"

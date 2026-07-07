@@ -254,8 +254,6 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderModuleFactsValue,
     pub(super) extension_provider_validation_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderValidationFactsValue,
-    pub(super) extension_provider_validation_program_facts:
-        fn(&QueryDb<CompilerContext>) -> ExtensionProviderValidationProgramFactsValue,
     pub(super) extension_provider_nominal_module_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderNominalModuleFactsValue,
     pub(super) extension_provider_nominal_candidate_modules:
@@ -272,10 +270,6 @@ pub(super) struct CompilerQueryProviders {
     pub(super) extension_method_index: fn(&QueryDb<CompilerContext>) -> ExtensionMethodIndexValue,
     pub(super) extension_trait_signature_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionTraitSignatureIndexValue,
-    pub(super) extension_method_set: fn(&QueryDb<CompilerContext>) -> ExtensionMethodSetValue,
-    pub(super) extension_associated_values:
-        fn(&QueryDb<CompilerContext>) -> ExtensionAssociatedValuesValue,
-    pub(super) extension_methods: fn(&QueryDb<CompilerContext>) -> ExtensionMethodsValue,
     pub(super) visible_extensions:
         fn(&QueryDb<CompilerContext>, ModuleId) -> VisibleExtensionsValue,
     pub(super) visible_trait_impls:
@@ -302,7 +296,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) flow_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_flow_check::FlowCheck,
     pub(super) body_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_body_check::BodyCheck,
     pub(super) checked_module: fn(&QueryDb<CompilerContext>, ModuleId) -> CheckedModule,
-    pub(super) checked_modules: fn(&QueryDb<CompilerContext>) -> Vec<CheckedModule>,
+    pub(super) checked_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
     pub(super) monomorphization:
         fn(&QueryDb<CompilerContext>) -> nia_monomorphize::Monomorphization,
     pub(super) backend_lowering:
@@ -362,8 +356,6 @@ impl Default for CompilerQueryProviders {
             program_abi_signatures: provide_program_abi_signatures,
             extension_provider_module_facts: provide_extension_provider_module_facts,
             extension_provider_validation_facts: provide_extension_provider_validation_facts,
-            extension_provider_validation_program_facts:
-                provide_extension_provider_validation_program_facts,
             extension_provider_nominal_module_facts:
                 provide_extension_provider_nominal_module_facts,
             extension_provider_nominal_candidate_modules:
@@ -372,9 +364,6 @@ impl Default for CompilerQueryProviders {
                 provide_extension_provider_nominal_modules_for_targets,
             extension_method_index: provide_extension_method_index,
             extension_trait_signature_index: provide_extension_trait_signature_index,
-            extension_method_set: provide_extension_method_set,
-            extension_associated_values: provide_extension_associated_values,
-            extension_methods: provide_extension_methods,
             visible_extensions: provide_visible_extensions,
             visible_trait_impls: provide_visible_trait_impls,
             value_resolution: provide_value_resolution,
@@ -393,7 +382,7 @@ impl Default for CompilerQueryProviders {
             flow_check: provide_flow_check,
             body_check: provide_body_check,
             checked_module: provide_checked_module,
-            checked_modules: provide_checked_modules,
+            checked_module_ids: provide_checked_module_ids,
             monomorphization: provide_monomorphization,
             backend_lowering: provide_backend_lowering,
         }
@@ -405,7 +394,7 @@ pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedP
         let graph = db.query(ModuleGraphQuery);
         let optimization = db.query(CompilerOptimizationQuery);
         let mut diagnostics = early_program_diagnostics(db);
-        let diagnostic_modules = db.query(CheckedModulesQuery);
+        let diagnostic_modules = materialize_checked_modules(db, db.query(CheckedModuleIdsQuery));
         diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
         CheckedProgram {
             graph,
@@ -4608,20 +4597,9 @@ fn collect_active_item_tree_node_keys(
     }
 }
 
-pub(super) fn provide_checked_modules(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
-    time_provider(db.context().timings(), "checked_modules", || {
-        time_provider(
-            db.context().timings(),
-            "checked_modules.shared_inputs",
-            || {
-                let _ = db.query(ExtensionMethodsQuery);
-            },
-        );
-        db.query_many(
-            db.query(SemanticModuleIdsQuery)
-                .into_iter()
-                .map(CheckedModuleQuery),
-        )
+pub(super) fn provide_checked_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
+    time_provider(db.context().timings(), "checked_module_ids", || {
+        db.query(SemanticModuleIdsQuery)
     })
 }
 
@@ -5354,7 +5332,7 @@ fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModu
     if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
         db.query(ExecutableCheckedModulesQuery)
     } else {
-        db.query(CheckedModulesQuery)
+        materialize_checked_modules(db, db.query(CheckedModuleIdsQuery))
     }
 }
 
@@ -5362,12 +5340,15 @@ fn checked_modules_for_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<Checked
     if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
         db.query(ExecutableCheckedModulesQuery)
     } else {
-        db.query_many(
-            db.query(SemanticModuleIdsQuery)
-                .into_iter()
-                .map(CheckedModuleQuery),
-        )
+        materialize_checked_modules(db, db.query(CheckedModuleIdsQuery))
     }
+}
+
+fn materialize_checked_modules(
+    db: &QueryDb<CompilerContext>,
+    module_ids: Vec<ModuleId>,
+) -> Vec<CheckedModule> {
+    db.query_many(module_ids.into_iter().map(CheckedModuleQuery))
 }
 
 fn function_bodies_from_checked_modules(
