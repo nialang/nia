@@ -35,7 +35,7 @@ pub struct ExecutableReachabilityStats {
     pub reachable_bodies: usize,
 }
 
-struct ExtensionReachabilityIndex<'a> {
+pub struct ExecutableExtensionIndex<'a> {
     methods: Vec<&'a nia_defs::ExtensionMethod>,
     by_trait: HashMap<TraitId, Vec<&'a nia_defs::ExtensionMethod>>,
     by_trait_method: HashMap<(TraitId, SymbolId), Vec<&'a nia_defs::ExtensionMethod>>,
@@ -43,8 +43,8 @@ struct ExtensionReachabilityIndex<'a> {
     trait_impls_by_key: HashMap<(ModuleId, TraitImplId, TraitId), &'a ProgramTraitImplSignature>,
 }
 
-impl<'a> ExtensionReachabilityIndex<'a> {
-    fn new(
+impl<'a> ExecutableExtensionIndex<'a> {
+    pub fn new(
         extension_methods: &'a ExtensionMethods,
         trait_impls: &'a [ProgramTraitImplSignature],
     ) -> Self {
@@ -203,7 +203,27 @@ pub fn compute_executable_reachability_with_seed(
     trait_impls: &[ProgramTraitImplSignature],
     modules: &[ReachableModuleInput<'_>],
 ) -> ExecutableReachability {
-    let extension_index = ExtensionReachabilityIndex::new(extension_methods, trait_impls);
+    let extension_index = ExecutableExtensionIndex::new(extension_methods, trait_impls);
+    compute_executable_reachability_with_seed_and_extension_index(
+        seed,
+        parse_ok,
+        graph,
+        root_defs,
+        program_signatures,
+        &extension_index,
+        modules,
+    )
+}
+
+pub fn compute_executable_reachability_with_seed_and_extension_index(
+    seed: Option<&ExecutableReachability>,
+    parse_ok: &[ModuleId],
+    graph: &ModuleGraph,
+    root_defs: ExecutableRootDefs<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    extension_index: &ExecutableExtensionIndex<'_>,
+    modules: &[ReachableModuleInput<'_>],
+) -> ExecutableReachability {
     let modules_by_id = modules
         .iter()
         .map(|module| (module.module_id, *module))
@@ -250,7 +270,7 @@ pub fn compute_executable_reachability_with_seed(
             &modules_by_id,
             &current_reachable_modules,
             program_signatures,
-            &extension_index,
+            extension_index,
             &reachable_functions,
             &mut reachable_traits,
         );
@@ -279,8 +299,7 @@ pub fn compute_executable_reachability_with_seed(
         let mut pending_modules = VecDeque::new();
         extend_reachable_functions_from_traits(
             program_signatures,
-            &extension_index,
-            trait_impls,
+            extension_index,
             &modules_by_id,
             &mut reachable_traits,
             &reachable_modules,
@@ -326,14 +345,34 @@ pub fn compute_executable_reachability_incremental(
     trait_impls: &[ProgramTraitImplSignature],
     modules: &[ReachableModuleInput<'_>],
 ) -> ExecutableReachability {
+    let extension_index = ExecutableExtensionIndex::new(extension_methods, trait_impls);
+    compute_executable_reachability_incremental_with_extension_index(
+        state,
+        parse_ok,
+        graph,
+        root_defs,
+        program_signatures,
+        &extension_index,
+        modules,
+    )
+}
+
+pub fn compute_executable_reachability_incremental_with_extension_index(
+    state: &mut IncrementalExecutableReachability,
+    parse_ok: &[ModuleId],
+    graph: &ModuleGraph,
+    root_defs: ExecutableRootDefs<'_>,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    extension_index: &ExecutableExtensionIndex<'_>,
+    modules: &[ReachableModuleInput<'_>],
+) -> ExecutableReachability {
     compute_executable_reachability_incremental_with_timings(
         state,
         parse_ok,
         graph,
         root_defs,
         program_signatures,
-        extension_methods,
-        trait_impls,
+        extension_index,
         modules,
         nia_timing::TimingMode::Off,
     )
@@ -346,14 +385,10 @@ pub fn compute_executable_reachability_incremental_with_timings(
     graph: &ModuleGraph,
     root_defs: ExecutableRootDefs<'_>,
     program_signatures: ExecutableSignatureIndex<'_>,
-    extension_methods: &ExtensionMethods,
-    trait_impls: &[ProgramTraitImplSignature],
+    extension_index: &ExecutableExtensionIndex<'_>,
     modules: &[ReachableModuleInput<'_>],
     timings: nia_timing::TimingMode,
 ) -> ExecutableReachability {
-    let extension_index = time_reachability_stage(timings, "incremental.index", None, || {
-        ExtensionReachabilityIndex::new(extension_methods, trait_impls)
-    });
     let modules_by_id = time_reachability_stage(timings, "incremental.modules_by_id", None, || {
         modules
             .iter()
@@ -429,7 +464,7 @@ pub fn compute_executable_reachability_incremental_with_timings(
                 &modules_by_id,
                 &current_reachable_modules,
                 program_signatures,
-                &extension_index,
+                extension_index,
             );
         });
         let mut pending_modules = VecDeque::new();
@@ -437,8 +472,7 @@ pub fn compute_executable_reachability_incremental_with_timings(
             extend_reachable_functions_from_traits_incremental(
                 state,
                 program_signatures,
-                &extension_index,
-                trait_impls,
+                extension_index,
                 &modules_by_id,
                 &mut pending_modules,
             );
@@ -467,12 +501,32 @@ pub fn extend_incremental_executable_reachability_from_checked_module(
     checked_functions: &HashSet<GlobalDefId>,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
 ) -> ExecutableReachability {
+    let extension_index = ExecutableExtensionIndex::new(extension_methods, trait_impls);
+    extend_incremental_executable_reachability_from_checked_module_with_extension_index(
+        state,
+        parse_ok,
+        program_signatures,
+        &extension_index,
+        module,
+        checked_functions,
+        modules_by_id,
+    )
+}
+
+pub fn extend_incremental_executable_reachability_from_checked_module_with_extension_index(
+    state: &mut IncrementalExecutableReachability,
+    parse_ok: &[ModuleId],
+    program_signatures: ExecutableSignatureIndex<'_>,
+    extension_index: &ExecutableExtensionIndex<'_>,
+    module: ReachableModuleInput<'_>,
+    checked_functions: &HashSet<GlobalDefId>,
+    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
+) -> ExecutableReachability {
     extend_incremental_executable_reachability_from_checked_module_with_timings(
         state,
         parse_ok,
         program_signatures,
-        extension_methods,
-        trait_impls,
+        extension_index,
         module,
         checked_functions,
         modules_by_id,
@@ -485,17 +539,12 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
     state: &mut IncrementalExecutableReachability,
     parse_ok: &[ModuleId],
     program_signatures: ExecutableSignatureIndex<'_>,
-    extension_methods: &ExtensionMethods,
-    trait_impls: &[ProgramTraitImplSignature],
+    extension_index: &ExecutableExtensionIndex<'_>,
     module: ReachableModuleInput<'_>,
     checked_functions: &HashSet<GlobalDefId>,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
     timings: nia_timing::TimingMode,
 ) -> ExecutableReachability {
-    let extension_index =
-        time_reachability_stage(timings, "incremental.index", Some(module.module_id), || {
-            ExtensionReachabilityIndex::new(extension_methods, trait_impls)
-        });
     let parse_ok_set = time_reachability_stage(
         timings,
         "incremental.parse_ok",
@@ -549,7 +598,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
                     &modules_by_id,
                     &current_reachable_modules,
                     program_signatures,
-                    &extension_index,
+                    extension_index,
                 );
             },
         );
@@ -562,8 +611,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
                 extend_reachable_functions_from_traits_incremental(
                     state,
                     program_signatures,
-                    &extension_index,
-                    trait_impls,
+                    extension_index,
                     &modules_by_id,
                     &mut pending_modules,
                 );
@@ -707,7 +755,23 @@ pub fn extend_executable_reachability_from_checked_module(
     module: ReachableModuleInput<'_>,
     checked_modules: &[ReachableModuleInput<'_>],
 ) -> bool {
-    let extension_index = ExtensionReachabilityIndex::new(extension_methods, trait_impls);
+    let extension_index = ExecutableExtensionIndex::new(extension_methods, trait_impls);
+    extend_executable_reachability_from_checked_module_with_extension_index(
+        reachability,
+        program_signatures,
+        &extension_index,
+        module,
+        checked_modules,
+    )
+}
+
+pub fn extend_executable_reachability_from_checked_module_with_extension_index(
+    reachability: &mut ExecutableReachability,
+    program_signatures: ExecutableSignatureIndex<'_>,
+    extension_index: &ExecutableExtensionIndex<'_>,
+    module: ReachableModuleInput<'_>,
+    checked_modules: &[ReachableModuleInput<'_>],
+) -> bool {
     let before = (
         reachability.functions.len(),
         reachability.globals.len(),
@@ -744,7 +808,7 @@ pub fn extend_executable_reachability_from_checked_module(
         &modules_by_id,
         &current_reachable_modules,
         program_signatures,
-        &extension_index,
+        extension_index,
         &reachability.functions,
         &mut reachable_traits,
     );
@@ -758,8 +822,7 @@ pub fn extend_executable_reachability_from_checked_module(
     );
     extend_reachable_functions_from_traits(
         program_signatures,
-        &extension_index,
-        trait_impls,
+        extension_index,
         &modules_by_id,
         &mut reachable_traits,
         &reachability.modules,
@@ -863,7 +926,7 @@ fn extend_reachable_traits_from_generic_instances(
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
     current_reachable_modules: &HashSet<ModuleId>,
     program_signatures: ExecutableSignatureIndex<'_>,
-    extension_index: &ExtensionReachabilityIndex<'_>,
+    extension_index: &ExecutableExtensionIndex<'_>,
     reachable_functions: &HashSet<GlobalDefId>,
     traits: &mut ReachableTraitRefs,
 ) {
@@ -913,7 +976,7 @@ fn extend_reachable_traits_from_generic_instances_incremental(
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
     current_reachable_modules: &HashSet<ModuleId>,
     program_signatures: ExecutableSignatureIndex<'_>,
-    extension_index: &ExtensionReachabilityIndex<'_>,
+    extension_index: &ExecutableExtensionIndex<'_>,
 ) {
     let pending_functions = state
         .reachability
@@ -967,7 +1030,7 @@ fn extend_reachable_traits_from_generic_instantiation(
     arg_interner: &TyInterner,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
     program_signatures: ExecutableSignatureIndex<'_>,
-    extension_index: &ExtensionReachabilityIndex<'_>,
+    extension_index: &ExecutableExtensionIndex<'_>,
     traits: &mut ReachableTraitRefs,
     instantiation: &nia_sema_ir::GenericInstantiation,
     visited: &mut HashSet<ReachableGenericInstantiationKey>,
@@ -1484,8 +1547,7 @@ impl ReachableTraitRefs {
 
 fn extend_reachable_functions_from_traits(
     program_signatures: ExecutableSignatureIndex<'_>,
-    extension_index: &ExtensionReachabilityIndex<'_>,
-    _trait_impls: &[ProgramTraitImplSignature],
+    extension_index: &ExecutableExtensionIndex<'_>,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
     reachable_traits: &mut ReachableTraitRefs,
     reachable_modules: &HashSet<ModuleId>,
@@ -1582,8 +1644,7 @@ fn extend_reachable_functions_from_traits(
 fn extend_reachable_functions_from_traits_incremental(
     state: &mut IncrementalExecutableReachability,
     program_signatures: ExecutableSignatureIndex<'_>,
-    extension_index: &ExtensionReachabilityIndex<'_>,
-    _trait_impls: &[ProgramTraitImplSignature],
+    extension_index: &ExecutableExtensionIndex<'_>,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
@@ -1747,7 +1808,7 @@ fn add_reachable_default_trait_methods_for_vtable(
 
 fn reachable_extension_method_needs_body(
     method: &nia_defs::ExtensionMethod,
-    extension_index: &ExtensionReachabilityIndex<'_>,
+    extension_index: &ExecutableExtensionIndex<'_>,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
     reachable_traits: &ReachableTraitRefs,
 ) -> bool {
@@ -1800,7 +1861,7 @@ fn reachable_extension_method_match<'a>(
     trait_args: &[InternedTyId],
     use_module_id: ModuleId,
     use_interner_override: Option<&TyInterner>,
-    extension_index: &'a ExtensionReachabilityIndex<'_>,
+    extension_index: &'a ExecutableExtensionIndex<'_>,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
 ) -> Option<ReachableExtensionMethodMatch<'a>> {
     if method.trait_args.len() != trait_args.len() {

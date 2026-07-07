@@ -5578,11 +5578,12 @@ fn main() i32 {
             .iter()
             .find(|module| module.id == ModuleId(0))
             .expect("entry module should be backend-lowered");
+        let recursive = sym("Recursive");
         assert!(
             backend_module
                 .structs
                 .iter()
-                .all(|item| item.name != "Recursive"),
+                .all(|item| item.name != recursive),
             "unreachable recursive aggregate should not be lowered for codegen"
         );
     }
