@@ -40,9 +40,10 @@ use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind, Visibi
 use nia_item_signatures::{
     ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
     ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
-    ProgramGlobalSignature, ProgramStructSignature, ProgramTraitImplSignature,
-    ProgramTraitSignature, ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature,
-    TraitImplSignature, TraitSignature, TypeAliasSignature, UnionSignature,
+    ProgramGlobalSignature, ProgramStructSignature, ProgramTraitImplIndex,
+    ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
+    ProgramUnionSignature, StructSignature, TraitImplSignature, TraitSignature, TypeAliasSignature,
+    UnionSignature,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_layout::Layouts;
@@ -716,6 +717,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
             }
         },
         program_trait_impls: input.program_signatures.trait_impls,
+        program_trait_impl_index: input.program_signatures.trait_impl_index,
         program_comptime_values: input.program_comptime.values,
         program_comptime_array_lengths: input.program_comptime.array_lengths,
         program_comptime_module: input.program_comptime.module,
@@ -853,6 +855,7 @@ struct BodyChecker<'a> {
     program_extension_methods: &'a ExtensionMethods,
     program_signature_scope: ProgramSignatureScope<'a>,
     program_trait_impls: &'a [ProgramTraitImplSignature],
+    program_trait_impl_index: Option<&'a ProgramTraitImplIndex>,
     program_comptime_values: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
     program_comptime_array_lengths: &'a dyn Fn(ModuleId) -> Option<ComptimeArrayLengths>,
     program_comptime_module: &'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>,

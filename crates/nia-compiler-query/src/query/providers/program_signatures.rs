@@ -241,6 +241,8 @@ pub(super) fn executable_program_signatures_without_functions(
     let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
     let traits = collect_traits(&trait_facts);
     let trait_method_index = ProgramTraitMethodIndex::from_traits(&traits);
+    let trait_impls = collect_trait_impls(&trait_facts);
+    let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
     ProgramExecutableSignatures {
         functions: HashMap::new(),
         globals: collect_globals(&value_facts),
@@ -250,23 +252,10 @@ pub(super) fn executable_program_signatures_without_functions(
         enums: collect_enums(&type_facts),
         type_aliases: collect_type_aliases(&type_facts),
         traits,
-        trait_impls: collect_trait_impls(&trait_facts),
+        trait_impls,
+        trait_impl_index,
         trait_method_index,
     }
-}
-
-pub(super) fn executable_program_trait_impls(
-    db: &QueryDb<CompilerContext>,
-) -> Vec<nia_item_signatures::ProgramTraitImplSignature> {
-    time_provider(
-        db.context().timings(),
-        "executable_program_trait_impls",
-        || {
-            db.query(ProgramTraitSolvingSignaturesQuery)
-                .trait_impls
-                .clone()
-        },
-    )
 }
 
 pub(super) fn executable_program_functions_for_modules(
@@ -324,6 +313,7 @@ pub(super) fn provide_program_backend_signatures(
             traits,
             type_aliases: collect_type_aliases(&type_facts),
             trait_impls: trait_solving.trait_impls.clone(),
+            trait_impl_index: trait_solving.trait_impl_index.clone(),
         })
     })
 }

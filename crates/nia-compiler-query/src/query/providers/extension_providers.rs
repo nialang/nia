@@ -149,8 +149,10 @@ pub(super) fn provide_program_trait_solving_signatures(
                 invalid_trait_impl_method_ids
                     .extend(facts.invalid_trait_impl_method_ids.iter().copied());
             }
+            let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
             Arc::new(ProgramTraitSolvingSignatures {
                 trait_impls,
+                trait_impl_index,
                 invalid_trait_impl_method_ids,
             })
         },

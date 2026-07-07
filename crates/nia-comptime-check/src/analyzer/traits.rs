@@ -148,9 +148,11 @@ impl Analyzer<'_> {
         let Some(interner) = self.working_interners.get_mut(&module_id) else {
             return false;
         };
+        let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             normalization: &normalization,
             trait_impls: &trait_impls,
+            trait_impl_index: Some(&trait_impl_index),
             layouts: None,
             local_module_id: module_id,
             local_enums: &local_enums,
@@ -212,9 +214,11 @@ impl Analyzer<'_> {
                     })
         };
         let interner = self.working_interners.get_mut(&module_id)?;
+        let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             normalization: &normalization,
             trait_impls: &trait_impls,
+            trait_impl_index: Some(&trait_impl_index),
             layouts: None,
             local_module_id: module_id,
             local_enums: &local_enums,
@@ -286,9 +290,11 @@ impl Analyzer<'_> {
                     })
         };
         let interner = self.working_interners.get_mut(&module_id)?;
+        let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             normalization: &normalization,
             trait_impls: &trait_impls,
+            trait_impl_index: Some(&trait_impl_index),
             layouts: None,
             local_module_id: module_id,
             local_enums: &local_enums,

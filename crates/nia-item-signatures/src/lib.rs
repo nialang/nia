@@ -19,7 +19,7 @@ use nia_span::Span;
 use nia_symbol::{
     SymbolId, SymbolText, known, symbol_identity_key, symbol_text_from_optional_resolver,
 };
-use nia_ty::PrimitiveTy;
+use nia_ty::{PrimitiveTy, TraitId};
 use nia_type_lower::TypeLowering;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,6 +99,35 @@ pub struct ProgramTraitImplSignature {
     pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
     pub associated_values: Vec<TraitImplAssociatedValueSignature>,
     pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProgramTraitImplIndex {
+    by_trait: HashMap<TraitId, Vec<usize>>,
+}
+
+impl ProgramTraitImplIndex {
+    pub fn new(trait_impls: &[ProgramTraitImplSignature]) -> Self {
+        let mut by_trait = HashMap::<TraitId, Vec<usize>>::new();
+        for (index, impl_signature) in trait_impls.iter().enumerate() {
+            by_trait
+                .entry(impl_signature.trait_id)
+                .or_default()
+                .push(index);
+        }
+        Self { by_trait }
+    }
+
+    pub fn indexes_for_trait(&self, trait_id: TraitId) -> &[usize] {
+        self.by_trait
+            .get(&trait_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_trait.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

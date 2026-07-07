@@ -55,6 +55,7 @@ impl EmptyBodyProgramSignatures {
         ProgramSignatureContext {
             lookup: self,
             trait_impls: &self.trait_impls,
+            trait_impl_index: None,
         }
     }
 }

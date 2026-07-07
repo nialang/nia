@@ -369,6 +369,7 @@ impl<'a> BodyChecker<'a> {
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
+            trait_impl_index: self.program_trait_impl_index,
             layouts: Some(self.layouts),
             local_module_id: self.defs.module_id,
             local_enums: &self.signatures.enums,
@@ -403,6 +404,7 @@ impl<'a> BodyChecker<'a> {
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
+            trait_impl_index: self.program_trait_impl_index,
             layouts: Some(self.layouts),
             local_module_id: self.defs.module_id,
             local_enums: &self.signatures.enums,
@@ -1097,6 +1099,7 @@ impl<'a> BodyChecker<'a> {
             program_extension_methods: self.program_extension_methods,
             program_signature_scope: self.program_signature_scope,
             program_trait_impls: self.program_trait_impls,
+            program_trait_impl_index: self.program_trait_impl_index,
             program_comptime_values: self.program_comptime_values,
             program_comptime_array_lengths: self.program_comptime_array_lengths,
             program_comptime_module: self.program_comptime_module,

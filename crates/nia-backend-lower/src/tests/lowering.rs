@@ -202,6 +202,7 @@ fn main() i32 {
     let comptime_enum_values = comptime_enum_values_from_check(&comptime);
     let program_function_body_interners = ProgramFunctionBodyInterners::default();
     let no_program_defs = |_| None;
+    let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::default();
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -241,6 +242,7 @@ fn main() i32 {
         program_traits: &HashMap::new(),
         program_type_aliases: &HashMap::new(),
         trait_impls: &[],
+        trait_impl_index: &trait_impl_index,
     };
     let lowering = lower_backend_program(
         &[input],

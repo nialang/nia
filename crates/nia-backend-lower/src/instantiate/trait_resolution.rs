@@ -133,6 +133,7 @@ impl<'a> ModuleLowerer<'a> {
         let context = TraitSolverContext {
             normalization: self.input.type_normalization,
             trait_impls: self.input.trait_impls,
+            trait_impl_index: Some(self.input.trait_impl_index),
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
@@ -231,6 +232,7 @@ impl<'a> ModuleLowerer<'a> {
         let context = TraitSolverContext {
             normalization: self.input.type_normalization,
             trait_impls: self.input.trait_impls,
+            trait_impl_index: Some(self.input.trait_impl_index),
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
@@ -720,6 +722,7 @@ impl<'a> ModuleLowerer<'a> {
         let context = TraitSolverContext {
             normalization: self.input.type_normalization,
             trait_impls: self.input.trait_impls,
+            trait_impl_index: Some(self.input.trait_impl_index),
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
@@ -760,6 +763,7 @@ impl<'a> ModuleLowerer<'a> {
         let context = TraitSolverContext {
             normalization: self.input.type_normalization,
             trait_impls: self.input.trait_impls,
+            trait_impl_index: Some(self.input.trait_impl_index),
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
