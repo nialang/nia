@@ -14,9 +14,7 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, Module
 use nia_node_id::VersionedNodeKey;
 use nia_sema_ir::{BuiltinAssociatedValue, PrimitiveIntLimit, supports_primitive_int_limit};
 use nia_span::Span;
-use nia_symbol::{
-    SymbolId, SymbolText, known, symbol_identity_key, symbol_text_from_optional_resolver,
-};
+use nia_symbol::{SymbolId, SymbolText, known, symbol_text_from_optional_resolver};
 use nia_ty::PrimitiveTy;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -776,7 +774,7 @@ impl<'a> ValueResolver<'a> {
                         segment.span,
                         format!(
                             "expected namespace name, found `{}`",
-                            path_segment_display(segment)
+                            self.path_segment_display(segment)
                         ),
                     ));
                     return None;
@@ -858,7 +856,7 @@ impl<'a> ValueResolver<'a> {
                 span,
                 format!(
                     "expected value name, found `{}`",
-                    path_segment_display(name)
+                    self.path_segment_display(name)
                 ),
             ));
             return;
@@ -1189,15 +1187,6 @@ fn module_root_segment_from_path_segment(kind: PathSegmentKind) -> ModuleRootSeg
         PathSegmentKind::Super => ModuleRootSegment::Parent,
         PathSegmentKind::Package => ModuleRootSegment::PackageRelative,
         PathSegmentKind::Name(name) => ModuleRootSegment::Named(name),
-    }
-}
-
-fn path_segment_display(segment: PathSegment<'_>) -> String {
-    match segment.kind {
-        PathSegmentKind::Name(name) => symbol_identity_key(name),
-        PathSegmentKind::Package => "pkg".to_string(),
-        PathSegmentKind::Super => "super".to_string(),
-        PathSegmentKind::SelfValue => "self".to_string(),
     }
 }
 
