@@ -319,7 +319,7 @@ pub struct BackendGenericInstantiation {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendParam {
     pub local_id: Option<LocalId>,
-    pub name: Option<String>,
+    pub name: Option<SymbolId>,
     pub receiver: Option<ReceiverKind>,
     pub passing_ty: InternedTyId,
     pub local_ty: InternedTyId,

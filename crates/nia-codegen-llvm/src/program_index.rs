@@ -413,7 +413,7 @@ mod tests {
             symbol: "id_i32".to_string(),
             params: vec![BackendParam {
                 local_id: None,
-                name: Some("value".to_string()),
+                name: Some(crate::tests::common::sym("value")),
                 receiver: None,
                 passing_ty: i32_ty,
                 local_ty: i32_ty,

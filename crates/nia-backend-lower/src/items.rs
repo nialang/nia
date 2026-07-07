@@ -307,7 +307,7 @@ impl<'a> ModuleLowerer<'a> {
                     let substitutions = SymbolMap::new();
                     BackendParam {
                         local_id,
-                        name: self.optional_symbol_name(param.name),
+                        name: param.name,
                         receiver: signature.receiver,
                         passing_ty: self.instantiate_ty(passing_ty, &substitutions),
                         local_ty: self.instantiate_ty(local_ty, &substitutions),

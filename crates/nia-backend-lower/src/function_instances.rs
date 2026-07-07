@@ -538,7 +538,7 @@ impl<'a> ModuleLowerer<'a> {
                         .unwrap_or(local_ty);
                     BackendParam {
                         local_id: param_local.map(|(local_id, _)| local_id),
-                        name: self.optional_symbol_name(param.name),
+                        name: param.name,
                         receiver: param.receiver,
                         passing_ty,
                         local_ty,

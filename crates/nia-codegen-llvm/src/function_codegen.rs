@@ -145,7 +145,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .local_names
             .get(&local.id)
             .cloned()
-            .unwrap_or_else(|| local.name.display_name())
+            .unwrap_or_else(|| format!("local.{}", local.id.0))
     }
 
     fn store_params(&mut self) -> Result<(), Diagnostic> {
