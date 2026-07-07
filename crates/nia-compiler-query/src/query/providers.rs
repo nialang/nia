@@ -2031,7 +2031,7 @@ fn body_check_resolution_inputs_for_filter(
             semantic_uses: db.query(SemanticUseTableQuery(module_id)),
         },
         _ => {
-            let filtered_active_item_tree = time_module_provider(
+            let filtered_active_item_tree = Arc::new(time_module_provider(
                 db,
                 "executable_body_check.filter_item_tree",
                 module_id,
@@ -2043,7 +2043,7 @@ fn body_check_resolution_inputs_for_filter(
                         filter,
                     )
                 },
-            );
+            ));
             let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
             let public_surfaces = time_module_provider(
                 db,
@@ -2156,7 +2156,7 @@ fn body_check_resolution_inputs_for_filter(
 
 #[derive(Clone)]
 struct BodyCheckResolutionInputs {
-    active_item_tree: ActiveModuleItemTree,
+    active_item_tree: Arc<ActiveModuleItemTree>,
     values: ValueResolution,
     locals: LocalResolution,
     semantic_uses: nia_sema_ir::SemanticUseTable,
@@ -2171,7 +2171,7 @@ struct BodyCheckWithResolutionInputs {
 struct BodyCheckResolutionContext<'a> {
     source_version: nia_source::SourceVersion,
     origins: &'a nia_node_id::NodeOriginTable,
-    active_item_tree: ActiveModuleItemTree,
+    active_item_tree: Arc<ActiveModuleItemTree>,
     defs: &'a DefCollection,
     type_resolution: &'a TypeResolution,
     lowered: &'a TypeLowering,
@@ -2682,7 +2682,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
 ) -> BodyCheckWithResolutionInputs {
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
-    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query(FullModuleDefsQuery(module_id));
     let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
@@ -3199,7 +3199,7 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 BodyCheckResolutionContext {
                     source_version,
                     origins: &origins,
-                    active_item_tree: db.query(FullActiveModuleItemTreeQuery(module_id)),
+                    active_item_tree: db.query_shared(FullActiveModuleItemTreeQuery(module_id)),
                     defs: &defs,
                     type_resolution: &type_resolution,
                     lowered: &lowered,
@@ -5465,7 +5465,7 @@ fn provide_backend_lowering_inner_for_modules(
                 checked_modules
                     .iter()
                     .map(|checked_module| {
-                        db.query(FullActiveModuleItemTreeQuery(checked_module.id))
+                        db.query_shared(FullActiveModuleItemTreeQuery(checked_module.id))
                     })
                     .collect::<Vec<_>>()
             });
