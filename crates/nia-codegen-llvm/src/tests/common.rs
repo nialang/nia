@@ -26,6 +26,7 @@ pub(super) use nia_opt::NiaOptimizationLevel;
 pub(super) use nia_span::Span;
 pub(super) use nia_static_ir::{StaticFieldInit, StaticInit};
 pub(super) use nia_symbol::{SymbolId, known, stable_hash};
+use nia_symbol_table::SymbolTable;
 pub(super) use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyKind};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -42,9 +43,18 @@ pub(super) fn local_name(text: &str) -> LocalName {
 pub(super) fn function_local_names(
     body: &FunctionBody,
 ) -> std::collections::HashMap<LocalId, String> {
+    let symbols = SymbolTable::new();
     body.locals
         .iter()
-        .map(|local| (local.id, local.name.display_name()))
+        .map(|local| {
+            (
+                local.id,
+                match local.name {
+                    LocalName::Named(symbol) => symbols.text(symbol),
+                    name => name.internal_storage_name(),
+                },
+            )
+        })
         .collect()
 }
 

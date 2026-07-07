@@ -2256,10 +2256,6 @@ impl<'a> ModuleLowerer<'a> {
         symbol_text_or_unresolved(self.input.symbols, symbol)
     }
 
-    pub(crate) fn optional_symbol_name(&self, symbol: Option<SymbolId>) -> Option<String> {
-        symbol.map(|symbol| self.symbol_name(symbol))
-    }
-
     pub(crate) fn local_name(&self, name: nia_function_ir::LocalName) -> String {
         match name {
             nia_function_ir::LocalName::SelfValue => "self".to_string(),

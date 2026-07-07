@@ -41,7 +41,7 @@ impl LocalName {
         }
     }
 
-    pub fn display_name(self) -> String {
+    pub fn internal_storage_name(self) -> String {
         match self {
             Self::SelfValue => "self".to_string(),
             Self::Named(name) => unresolved_symbol_text(name),

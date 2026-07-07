@@ -565,7 +565,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
                 generics: Vec::new(),
                 params: vec![BackendParam {
                     local_id: None,
-                    name: Some("value".to_string()),
+                    name: Some(sym("value")),
                     receiver: None,
                     passing_ty: box_ty,
                     local_ty: box_ty,
@@ -634,7 +634,7 @@ fn validates_backend_ir_error_type_before_llvm() {
                 generics: Vec::new(),
                 params: vec![BackendParam {
                     local_id: None,
-                    name: Some("value".to_string()),
+                    name: Some(sym("value")),
                     receiver: None,
                     passing_ty: error_ty,
                     local_ty: error_ty,
