@@ -22,10 +22,11 @@ fn main() i32 {
     p.x
 }
 "#;
-    let (module, errors) = parse_module(source);
+    let symbols = SymbolTable::new();
+    let (module, errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
-    let type_resolved = resolve_module_types(&module, &defs);
+    let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let type_lowering = lower_module_types_with_id(ModuleId(0), &module, &type_resolved);
     let signatures = collect_item_signatures(&module, &defs, &type_lowering);
     let values = resolve_module_values(&module, &defs);
@@ -49,6 +50,7 @@ fn main() i32 {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            symbols: &symbols,
             const_exprs: &type_lowering.const_exprs,
             source_path: &source_path,
         });
@@ -63,6 +65,7 @@ fn main() i32 {
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        symbols: &symbols,
         lowered: &type_lowering,
         signatures: &signatures,
         interner: &normalization.interner,
@@ -81,12 +84,16 @@ fn main() i32 {
     );
     let _abi = check_module_abi(&defs, &type_lowering.interner, &signatures);
     let _flow = check_module_flow(&module, &type_lowering.interner, &signatures);
-    let point_id = defs.module_scope.types.get("Point").expect("Point def");
+    let point_id = defs
+        .module_scope
+        .types
+        .get(&sym("Point"))
+        .expect("Point def");
     let make_id = defs
         .defs
         .iter()
         .find_map(|(def_id, def)| {
-            (def.kind == DefKind::Method && def.name == "make").then_some(def_id)
+            (def.kind == DefKind::Method && def.name == sym("make")).then_some(def_id)
         })
         .expect("make def");
     let mut extensions = VisibleExtensionMethods::default();
@@ -110,7 +117,7 @@ fn main() i32 {
         impl_id,
         point_ty,
         VisibleExtensionMethod {
-            name: "make".to_string(),
+            name: sym("make"),
             def_id: GlobalDefId {
                 module_id: ModuleId(0),
                 def_id: make_id,
@@ -150,6 +157,7 @@ fn main() i32 {
     let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
         source_path: &source_path,
+        symbols: &symbols,
         origins: &origins,
         active_item_tree: &active_item_tree,
         defs: &defs,
@@ -198,6 +206,7 @@ fn main() i32 {
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
         module_name: "main".to_string(),
+        symbols: &symbols,
         active_item_tree: &active_item_tree,
         defs: &defs,
         values: &values,
@@ -287,7 +296,7 @@ fn main() i32 {
             .expect("main function body")
             .locals
             .iter()
-            .all(|local| local.name != "local")
+            .all(|local| local.name != local_name("local"))
     );
 }
 

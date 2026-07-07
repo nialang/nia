@@ -5,6 +5,7 @@ use nia_function_ir::{
     FunctionExprKind, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
     FunctionTerminator, validate_function_body,
 };
+use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, ConstGenericValue, TyKind};
 
@@ -165,12 +166,14 @@ impl BackendValidator<'_> {
             FunctionExprKind::FunctionInstance {
                 def_id,
                 arg_module_id,
+                self_arg,
                 args,
                 const_args,
             } => {
                 self.validate_function_instance_ref(
                     *def_id,
                     *arg_module_id,
+                    *self_arg,
                     args,
                     const_args,
                     expr.span,
@@ -356,11 +359,13 @@ impl BackendValidator<'_> {
             FunctionCallee::FunctionInstance {
                 def_id,
                 arg_module_id,
+                self_arg,
                 args,
                 const_args,
             } => self.validate_function_instance_ref(
                 *def_id,
                 *arg_module_id,
+                *self_arg,
                 args,
                 const_args,
                 span,
@@ -369,12 +374,13 @@ impl BackendValidator<'_> {
             FunctionCallee::Method {
                 def_id,
                 arg_module_id,
+                self_arg,
                 args,
                 receiver,
                 ..
             } => {
                 self.validate_expr(receiver);
-                if args.is_empty() {
+                if self_arg.is_none() && args.is_empty() {
                     self.validate_function_ref(
                         *def_id,
                         span,
@@ -384,6 +390,7 @@ impl BackendValidator<'_> {
                     self.validate_function_instance_ref(
                         *def_id,
                         *arg_module_id,
+                        *self_arg,
                         args,
                         &[],
                         span,
@@ -452,7 +459,8 @@ impl BackendValidator<'_> {
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
                     span,
                     format!(
-                        "backend IR call contains unresolved trait method `{method_name}` {method_id:?} on trait {trait_id:?}"
+                        "backend IR call contains unresolved trait method `{}` {method_id:?} on trait {trait_id:?}",
+                        mangle_symbol_id(*method_name)
                     ),
                 ));
             }
@@ -471,7 +479,8 @@ impl BackendValidator<'_> {
                 self.diagnostics.push(Diagnostic::internal_error_at(nia_diagnostic::codes::INVALID_BACKEND_IR,
                     span,
                     format!(
-                        "backend IR call contains unresolved trait associated function `{method_name}` {method_id:?} on trait {trait_id:?}"
+                        "backend IR call contains unresolved trait associated function `{}` {method_id:?} on trait {trait_id:?}",
+                        mangle_symbol_id(*method_name)
                     ),
                 ));
             }
@@ -580,7 +589,7 @@ impl BackendValidator<'_> {
 
     fn const_generic_value_name(&self, value: &ConstGenericValue) -> String {
         match value {
-            ConstGenericValue::GenericParam(name) => name.clone(),
+            ConstGenericValue::GenericParam(name) => mangle_symbol_id(*name),
             ConstGenericValue::ConstExpr(id) => format!("{id:?}"),
             ConstGenericValue::Int(value) => value.bits().to_string(),
             ConstGenericValue::Bool(value) => value.to_string(),

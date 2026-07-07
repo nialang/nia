@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 
 use nia_ids::{InternedTyId, ModuleId, TyInternerId};
+use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{ConstGenericArg, TyKind};
 
 use crate::{
@@ -14,8 +15,9 @@ pub(crate) struct BackendTypeContext<'input, 'shared> {
     shared: &'shared BackendLowerShared,
     pub(crate) interner: nia_ty::TyInterner,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
-    type_substitutions: Vec<HashMap<String, InternedTyId>>,
-    const_substitutions: Vec<HashMap<String, ConstGenericArg>>,
+    self_substitutions: Vec<Option<InternedTyId>>,
+    type_substitutions: Vec<SymbolMap<InternedTyId>>,
+    const_substitutions: Vec<SymbolMap<ConstGenericArg>>,
     type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
 }
 
@@ -29,6 +31,7 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
             shared,
             interner: merged_current_interner(input),
             type_instantiations: HashMap::new(),
+            self_substitutions: Vec::new(),
             type_substitutions: Vec::new(),
             const_substitutions: Vec::new(),
             type_substitution_ids: HashMap::new(),
@@ -150,10 +153,12 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
 
     pub(crate) fn intern_type_substitutions(
         &mut self,
-        substitutions: Vec<(String, InternedTyId)>,
-        const_substitutions: Vec<(String, ConstGenericArg)>,
+        self_arg: Option<InternedTyId>,
+        substitutions: Vec<(SymbolId, InternedTyId)>,
+        const_substitutions: Vec<(SymbolId, ConstGenericArg)>,
     ) -> TypeSubstitutionId {
         let key = TypeSubstitutionKey {
+            self_arg,
             substitutions,
             const_substitutions,
         };
@@ -161,6 +166,7 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
             return *id;
         }
         let id = TypeSubstitutionId(self.type_substitutions.len());
+        self.self_substitutions.push(key.self_arg);
         self.type_substitutions
             .push(key.substitutions.iter().cloned().collect());
         self.const_substitutions
@@ -172,7 +178,7 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
     pub(crate) fn type_substitution(
         &self,
         substitutions: TypeSubstitutionId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         self.type_substitutions
             .get(substitutions.0)?
@@ -180,17 +186,27 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
             .copied()
     }
 
+    pub(crate) fn self_substitution(
+        &self,
+        substitutions: TypeSubstitutionId,
+    ) -> Option<InternedTyId> {
+        self.self_substitutions
+            .get(substitutions.0)
+            .copied()
+            .flatten()
+    }
+
     pub(crate) fn type_substitutions(
         &self,
         substitutions: TypeSubstitutionId,
-    ) -> Option<&HashMap<String, InternedTyId>> {
+    ) -> Option<&SymbolMap<InternedTyId>> {
         self.type_substitutions.get(substitutions.0)
     }
 
     pub(crate) fn const_substitution(
         &self,
         substitutions: TypeSubstitutionId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<ConstGenericArg> {
         self.const_substitutions
             .get(substitutions.0)?

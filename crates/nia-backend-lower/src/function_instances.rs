@@ -17,6 +17,7 @@ use nia_ty::{ConstGenericArg, TyKind};
 pub(crate) type InstanceKey = (
     GlobalDefId,
     ModuleId,
+    Option<InternedTyId>,
     Vec<InternedTyId>,
     Vec<ConstGenericArg>,
 );
@@ -24,6 +25,7 @@ pub(crate) type InstanceKey = (
 struct PlannedFunctionInstance {
     def_id: GlobalDefId,
     arg_module_id: ModuleId,
+    self_arg: Option<InternedTyId>,
     args: Vec<InternedTyId>,
     const_args: Vec<ConstGenericArg>,
     symbol: String,
@@ -45,6 +47,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionInstanceRef {
                     def_id: instance.def_id,
                     arg_module_id: instance.arg_module_id,
+                    self_arg: instance.self_arg,
                     args,
                     const_args: instance.const_args.clone(),
                     arg_interner: Some(self.type_context.interner.clone()),
@@ -78,10 +81,12 @@ impl<'a> ModuleLowerer<'a> {
             .collect::<HashMap<_, _>>();
         let mut pending = VecDeque::new();
         for instance in existing {
+            let self_arg = self.canonicalize_instance_self_arg(instance.self_arg);
             let args = self.canonicalize_instance_args(&instance.args);
             seen.insert((
                 instance.def_id,
                 instance.arg_module_id,
+                self_arg,
                 args,
                 instance.const_args.clone(),
             ));
@@ -96,11 +101,13 @@ impl<'a> ModuleLowerer<'a> {
                     .push(self.with_current_arg_interner(instance));
                 continue;
             }
+            let self_arg = self.canonicalize_instance_ref_self_arg(&instance);
             let args = self.canonicalize_instance_ref_args(&instance);
             let const_args = instance.const_args.clone();
             let key = (
                 instance.def_id,
                 instance.arg_module_id,
+                self_arg,
                 args.clone(),
                 const_args.clone(),
             );
@@ -129,23 +136,11 @@ impl<'a> ModuleLowerer<'a> {
                 );
                 continue;
             }
-            let symbol = if let Some(symbol) = self.planned_function_instance_symbols().get(&(
-                instance.def_id,
-                instance.arg_module_id,
-                args.clone(),
-                const_args.clone(),
-            )) {
-                symbol.clone()
-            } else {
-                let Some(name) =
-                    self.function_instance_name(&mut functions_by_def, instance.def_id)
-                else {
-                    continue;
-                };
-                let symbol =
-                    self.mangle_instance_symbol(instance.def_id, &name, &args, &const_args);
-                symbol
+            let Some(name) = self.def_symbol_name(instance.def_id) else {
+                continue;
             };
+            let symbol =
+                self.mangle_instance_symbol(instance.def_id, name, self_arg, &args, &const_args);
             let Some(body) = self.lower_planned_function_instance(
                 &mut functions_by_def,
                 &mut seen,
@@ -153,6 +148,7 @@ impl<'a> ModuleLowerer<'a> {
                 PlannedFunctionInstance {
                     def_id: instance.def_id,
                     arg_module_id: instance.arg_module_id,
+                    self_arg,
                     args,
                     const_args,
                     symbol,
@@ -168,10 +164,12 @@ impl<'a> ModuleLowerer<'a> {
             );
             for discovered in refs.instances {
                 let discovered_args = self.canonicalize_instance_args(&discovered.args);
+                let discovered_self_arg = self.canonicalize_instance_ref_self_arg(&discovered);
                 let discovered_const_args = discovered.const_args.clone();
                 if !seen.contains(&(
                     discovered.def_id,
                     discovered.arg_module_id,
+                    discovered_self_arg,
                     discovered_args.clone(),
                     discovered_const_args.clone(),
                 )) {
@@ -181,6 +179,7 @@ impl<'a> ModuleLowerer<'a> {
                         FunctionInstanceRef {
                             def_id: discovered.def_id,
                             arg_module_id: discovered.arg_module_id,
+                            self_arg: discovered_self_arg,
                             args: discovered_args,
                             const_args: discovered_const_args,
                             arg_interner: Some(self.type_context.interner.clone()),
@@ -191,27 +190,6 @@ impl<'a> ModuleLowerer<'a> {
             }
         }
         instances
-    }
-
-    fn planned_function_instance_symbols(&mut self) -> &HashMap<InstanceKey, String> {
-        if self.planned_function_instance_symbols.is_none() {
-            let mut symbols = HashMap::new();
-            for instance in self.monomorphization.instances.clone() {
-                symbols.insert(
-                    (
-                        instance.def_id,
-                        instance.arg_module_id,
-                        self.canonicalize_instance_args(&instance.args),
-                        instance.const_args,
-                    ),
-                    instance.symbol,
-                );
-            }
-            self.planned_function_instance_symbols = Some(symbols);
-        }
-        self.planned_function_instance_symbols
-            .as_ref()
-            .expect("planned function instance symbols should be initialized")
     }
 
     fn report_backend_instance_limit(
@@ -364,6 +342,7 @@ impl<'a> ModuleLowerer<'a> {
                         .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next))
             }
             TyKind::GenericParam(_)
+            | TyKind::SelfParam
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
@@ -397,11 +376,18 @@ impl<'a> ModuleLowerer<'a> {
         let PlannedFunctionInstance {
             def_id,
             arg_module_id,
+            self_arg,
             args,
             const_args,
             symbol,
         } = plan;
-        if !seen.insert((def_id, arg_module_id, args.clone(), const_args.clone())) {
+        if !seen.insert((
+            def_id,
+            arg_module_id,
+            self_arg,
+            args.clone(),
+            const_args.clone(),
+        )) {
             return None;
         }
         if !functions_by_def.contains_key(&def_id)
@@ -416,15 +402,19 @@ impl<'a> ModuleLowerer<'a> {
             .collect::<Vec<_>>();
         let substitutions = ModuleLowerer::generic_substitutions(&base.generics, &imported_args);
         let const_substitutions = self.const_generic_substitutions_for_def(def_id, &const_args);
-        let substitution_id =
-            self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
+        let substitution_id = self.intern_type_and_const_substitutions_with_self(
+            self_arg,
+            &substitutions,
+            &const_substitutions,
+        );
         let function_body = base.function_body.clone().map(|body| {
-            self.instantiate_function_body_with_const_substitutions(
+            self.instantiate_function_body_with_self_and_const_substitutions(
                 def_id,
                 arg_module_id,
                 true,
                 args.len(),
                 body,
+                self_arg,
                 &substitutions,
                 &const_substitutions,
             )
@@ -434,6 +424,7 @@ impl<'a> ModuleLowerer<'a> {
             def_id,
             name: base.name.clone(),
             arg_module_id,
+            self_arg,
             args,
             const_args,
             symbol,
@@ -442,6 +433,10 @@ impl<'a> ModuleLowerer<'a> {
             is_extern: base.is_extern,
             is_variadic: base.is_variadic,
             attributes: base.attributes.clone(),
+            local_names: function_body
+                .as_ref()
+                .map(|body| self.function_local_names(body))
+                .unwrap_or_default(),
             function_body,
             span: base.span,
         });
@@ -510,7 +505,7 @@ impl<'a> ModuleLowerer<'a> {
         });
         Some(BackendFunction {
             def_id,
-            name: signature.name.clone(),
+            name: self.symbol_name(signature.name),
             generics: effective_generics,
             params: signature
                 .signature
@@ -543,7 +538,7 @@ impl<'a> ModuleLowerer<'a> {
                         .unwrap_or(local_ty);
                     BackendParam {
                         local_id: param_local.map(|(local_id, _)| local_id),
-                        name: param.name.clone(),
+                        name: self.optional_symbol_name(param.name),
                         receiver: param.receiver,
                         passing_ty,
                         local_ty,
@@ -567,6 +562,10 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionAttribute::Builtin(_) => None,
                 })
                 .collect(),
+            local_names: function_body
+                .as_ref()
+                .map(|body| self.function_local_names(body))
+                .unwrap_or_default(),
             function_body,
             span: signature.signature.span,
         })
@@ -594,9 +593,9 @@ impl<'a> ModuleLowerer<'a> {
         }
         for (index, (param, local)) in params.iter().zip(locals.iter()).enumerate() {
             if let Some(name) = &param.name
-                && local.name != *name
+                && local.name.symbol() != Some(*name)
             {
-                self.report_backend_template_param_name_mismatch(def_id, index, name, local);
+                self.report_backend_template_param_name_mismatch(def_id, index, *name, local);
             }
         }
         locals
@@ -632,9 +631,10 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         def_id: GlobalDefId,
         index: usize,
-        signature_name: &str,
+        signature_name: nia_symbol::SymbolId,
         local: &FunctionLocal,
     ) {
+        let local_name = self.local_name(local.name);
         self.diagnostics.push(
             nia_diagnostic::Diagnostic::internal_error(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -647,7 +647,7 @@ impl<'a> ModuleLowerer<'a> {
             .debug("def_id", def_id)
             .debug("param_index", index)
             .debug("signature_name", signature_name)
-            .debug("local_name", local.name.as_str())
+            .debug("local_name", local_name.as_str())
             .finish(),
         );
     }
@@ -699,6 +699,31 @@ impl<'a> ModuleLowerer<'a> {
                 self.canonicalize_instance_arg(arg)
             })
             .collect()
+    }
+
+    pub(crate) fn canonicalize_instance_self_arg(
+        &mut self,
+        self_arg: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        self_arg.map(|self_arg| self.canonicalize_instance_arg(self_arg))
+    }
+
+    pub(crate) fn canonicalize_instance_ref_self_arg(
+        &mut self,
+        instance: &FunctionInstanceRef,
+    ) -> Option<InternedTyId> {
+        instance.self_arg.map(|self_arg| {
+            if let Some(interner) = &instance.arg_interner
+                && self_arg.interner_id == interner.interner_id()
+                && interner.get(self_arg).is_some()
+                && (self_arg.interner_id != self.type_context.interner.interner_id()
+                    || self.type_context.interner.get(self_arg).is_none())
+            {
+                let local = self.import_type_from_known_interner(interner, self_arg);
+                return self.instantiate_ty(local, &HashMap::new());
+            }
+            self.canonicalize_instance_arg(self_arg)
+        })
     }
 
     pub(crate) fn canonicalize_global_instance_ref_args(
@@ -829,6 +854,7 @@ pub(crate) fn contains_generic_param(
     }
     let contains = match ty_kind(ty) {
         Some(TyKind::GenericParam(_)) => true,
+        Some(TyKind::SelfParam) => true,
         Some(
             TyKind::Pointer { elem, .. }
             | TyKind::VolatilePointer { elem, .. }
@@ -963,6 +989,7 @@ pub(crate) fn contains_unresolved_projection(
                 })
         }
         Some(TyKind::GenericParam(_))
+        | Some(TyKind::SelfParam)
         | Some(
             TyKind::Error
             | TyKind::ComptimeOnly
@@ -1045,6 +1072,7 @@ pub(crate) fn contains_error(
                     .any(|arg| contains_error(arg, ty_kind, None))
         }
         Some(TyKind::GenericParam(_))
+        | Some(TyKind::SelfParam)
         | Some(
             TyKind::ComptimeOnly
             | TyKind::Primitive(_)
@@ -1077,7 +1105,9 @@ mod tests {
             &mut |ty| {
                 calls += 1;
                 match ty.index.index() {
-                    0 => Some(TyKind::GenericParam("T".to_string())),
+                    0 => Some(TyKind::GenericParam(
+                        nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash("T")),
+                    )),
                     1 => Some(TyKind::Pointer {
                         is_readonly: true,
                         elem: generic,

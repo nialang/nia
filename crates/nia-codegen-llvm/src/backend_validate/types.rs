@@ -5,6 +5,7 @@ use nia_backend_ir::BackendField;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{InternedTyId, TypeOwner};
 use nia_layout::TypeLayout;
+use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyKind, TypeEquivalence};
 
@@ -172,6 +173,13 @@ impl BackendValidator<'_> {
                     builtin.name()
                 ),
             )),
+            TyKind::SelfParam => self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                format!(
+                    "backend IR type {ty:?} still contains unresolved Self before LLVM codegen"
+                ),
+            )),
             TyKind::Vector { elem, lanes } => self.validate_vector_type(ty, span, elem, lanes),
             TyKind::Error => {
                 let subject = self
@@ -251,7 +259,10 @@ impl BackendValidator<'_> {
                 self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
                     span,
-                    format!("backend IR array length const generic `{name}` reached LLVM codegen"),
+                    format!(
+                        "backend IR array length const generic `{}` reached LLVM codegen",
+                        mangle_symbol_id(*name)
+                    ),
                 ));
             }
             ArrayLenTy::Infer => {
@@ -450,6 +461,7 @@ impl BackendValidator<'_> {
             | TyKind::BuiltinType(_)
             | TyKind::Projection { .. }
             | TyKind::GenericParam(_)
+            | TyKind::SelfParam
             | TyKind::Error => None,
         }
     }
@@ -500,6 +512,18 @@ impl BackendValidator<'_> {
 
     pub(super) fn same_type_args(&self, left: &[InternedTyId], right: &[InternedTyId]) -> bool {
         self.same_type_args_for_equiv(left, right)
+    }
+
+    pub(super) fn same_optional_type(
+        &self,
+        left: Option<InternedTyId>,
+        right: Option<InternedTyId>,
+    ) -> bool {
+        match (left, right) {
+            (Some(left), Some(right)) => self.same_type(left, right),
+            (None, None) => true,
+            _ => false,
+        }
     }
 
     pub(super) fn same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {

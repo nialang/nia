@@ -14,16 +14,26 @@ use nia_item_signatures::{ProgramFunctionSignature, collect_item_signatures};
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::resolve_module_locals;
 use nia_node_id::NodeOriginTable;
-use nia_parser::parse_module;
+use nia_parser::parse_module_with_symbols;
 use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
 use nia_sema_ir::SemanticUseTable;
 use nia_source::SourcePath;
 use nia_static_ir::StaticInit;
+use nia_symbol::SymbolId;
+use nia_symbol_table::SymbolTable;
 use nia_type_lower::{TypeLowering, lower_module_types_with_id};
 use nia_type_normalize::normalize_module_types;
-use nia_type_resolve::resolve_module_types;
+use nia_type_resolve::resolve_module_types_with_symbols;
 use nia_value_resolve::resolve_module_values;
 use std::collections::HashMap;
+
+fn local_name(text: &str) -> nia_function_ir::LocalName {
+    nia_function_ir::LocalName::named(sym(text))
+}
+
+fn sym(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(nia_symbol::stable_hash(text))
+}
 
 struct EmptyBodyProgramSignatures {
     functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
@@ -99,7 +109,7 @@ impl ProgramSignatureLookup for EmptyBodyProgramSignatures {
         self.type_aliases.get(&def_id).cloned()
     }
 
-    fn trait_ids_with_method_named(&self, name: &str) -> Vec<GlobalDefId> {
+    fn trait_ids_with_method_named(&self, name: &nia_symbol::SymbolId) -> Vec<GlobalDefId> {
         self.traits
             .iter()
             .filter_map(|(trait_id, signature)| {
@@ -107,7 +117,7 @@ impl ProgramSignatureLookup for EmptyBodyProgramSignatures {
                     .signature
                     .methods
                     .iter()
-                    .any(|method| method.name == name)
+                    .any(|method| &method.name == name)
                     .then_some(*trait_id)
             })
             .collect()
@@ -282,10 +292,11 @@ fn lower_source_with_body_check_mutation_and_optimization(
     ),
     optimization: nia_opt::OptimizationPolicy,
 ) -> BackendLowering {
-    let (module, errors) = parse_module(source);
+    let symbols = SymbolTable::new();
+    let (module, errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
-    let type_resolved = resolve_module_types(&module, &defs);
+    let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let type_lowering = lower_module_types_with_id(ModuleId(0), &module, &type_resolved);
     let signatures = collect_item_signatures(&module, &defs, &type_lowering);
     let values = resolve_module_values(&module, &defs);
@@ -309,6 +320,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            symbols: &symbols,
             const_exprs: &type_lowering.const_exprs,
             source_path: &source_path,
         });
@@ -323,6 +335,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        symbols: &symbols,
         lowered: &type_lowering,
         signatures: &signatures,
         interner: &normalization.interner,
@@ -367,6 +380,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let mut body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
         source_path: &source_path,
+        symbols: &symbols,
         origins: &origins,
         active_item_tree: &active_item_tree,
         defs: &defs,
@@ -441,6 +455,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
         module_name: "main".to_string(),
+        symbols: &symbols,
         active_item_tree: &active_item_tree,
         defs: &defs,
         values: &values,
@@ -499,10 +514,11 @@ fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {
 }
 
 fn global_def_id_by_name(defs: &nia_defs::DefCollection, name: &str) -> GlobalDefId {
+    let name_symbol = sym(name);
     defs.defs
         .iter()
         .find_map(|(def_id, def)| {
-            (def.name == name).then_some(GlobalDefId {
+            (def.name == name_symbol).then_some(GlobalDefId {
                 module_id: defs.module_id,
                 def_id,
             })

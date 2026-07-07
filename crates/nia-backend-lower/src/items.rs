@@ -12,6 +12,7 @@ use nia_item_signatures::FunctionAttribute;
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 use nia_static_ir::StaticInit;
+use nia_symbol::SymbolMap;
 use nia_ty::TyKind;
 
 pub(crate) const SIMPLIFY_STATIC_INIT_PASS: &str = "simplify-static-init";
@@ -25,17 +26,17 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendStruct> {
         let def_id = self.def_id_for_node(node_key, DefKind::Struct)?;
         let signature = self.input.signatures.structs.get(&def_id)?;
-        let substitutions = std::collections::HashMap::new();
+        let substitutions = SymbolMap::new();
         Some(BackendStruct {
             def_id: self.global_def_id(def_id),
-            name: item.name.clone(),
+            name: self.symbol_name(item.name),
             generics: signature.generics.clone(),
             fields: signature
                 .fields
                 .iter()
                 .map(|field| BackendField {
                     def_id: self.global_def_id(field.def_id),
-                    name: field.name.clone(),
+                    name: self.symbol_name(field.name),
                     ty: self.instantiate_ty(field.ty, &substitutions),
                     span: field.span,
                 })
@@ -53,17 +54,17 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendUnion> {
         let def_id = self.def_id_for_node(node_key, DefKind::Union)?;
         let signature = self.input.signatures.unions.get(&def_id)?;
-        let substitutions = std::collections::HashMap::new();
+        let substitutions = SymbolMap::new();
         Some(BackendUnion {
             def_id: self.global_def_id(def_id),
-            name: item.name.clone(),
+            name: self.symbol_name(item.name),
             generics: signature.generics.clone(),
             fields: signature
                 .fields
                 .iter()
                 .map(|field| BackendField {
                     def_id: self.global_def_id(field.def_id),
-                    name: field.name.clone(),
+                    name: self.symbol_name(field.name),
                     ty: self.instantiate_ty(field.ty, &substitutions),
                     span: field.span,
                 })
@@ -81,17 +82,17 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendEnum> {
         let def_id = self.def_id_for_node(node_key, DefKind::Enum)?;
         let signature = self.input.signatures.enums.get(&def_id)?;
-        let substitutions = std::collections::HashMap::new();
+        let substitutions = SymbolMap::new();
         Some(BackendEnum {
             def_id: self.global_def_id(def_id),
-            name: item.name.clone(),
+            name: self.symbol_name(item.name),
             backing_type: self.instantiate_ty(signature.backing_type, &substitutions),
             variants: signature
                 .variants
                 .iter()
                 .map(|variant| BackendEnumVariant {
                     def_id: self.global_def_id(variant.def_id),
-                    name: variant.name.clone(),
+                    name: self.symbol_name(variant.name),
                     value: self
                         .input
                         .comptime_enum_values
@@ -127,7 +128,7 @@ impl<'a> ModuleLowerer<'a> {
                 .explicit_type
                 .or_else(|| binding.value.as_ref().and_then(|value| self.expr_ty(value))))
             .unwrap_or_else(|| self.error_ty());
-        let ty = self.instantiate_ty(ty, &std::collections::HashMap::new());
+        let ty = self.instantiate_ty(ty, &SymbolMap::new());
         let init = self
             .input
             .body_ir
@@ -137,7 +138,7 @@ impl<'a> ModuleLowerer<'a> {
             .map(|init| self.optimize_static_init(global_def_id, init));
         Some(BackendGlobal {
             def_id: global_def_id,
-            name: binding.name.clone(),
+            name: self.symbol_name(binding.name),
             ty,
             is_let: !signature.is_mutable,
             is_extern: signature.is_extern,
@@ -160,7 +161,7 @@ impl<'a> ModuleLowerer<'a> {
             .copied()
             .or_else(|| signature.and_then(|signature| signature.explicit_type))
             .unwrap_or_else(|| self.error_ty());
-        let ty = self.instantiate_ty(ty, &std::collections::HashMap::new());
+        let ty = self.instantiate_ty(ty, &SymbolMap::new());
         let init = self
             .input
             .body_ir
@@ -170,7 +171,7 @@ impl<'a> ModuleLowerer<'a> {
             .map(|init| self.optimize_static_init(global_def_id, init));
         Some(BackendGlobal {
             def_id: global_def_id,
-            name: def.name.clone(),
+            name: self.symbol_name(def.name),
             ty,
             is_let: signature.is_none_or(|signature| !signature.is_mutable),
             is_extern: signature.is_some_and(|signature| signature.is_extern),
@@ -260,7 +261,7 @@ impl<'a> ModuleLowerer<'a> {
             .unwrap_or_default();
         let backend_function = Some(BackendFunction {
             def_id: global_def_id,
-            name: function.name.clone(),
+            name: self.symbol_name(function.name),
             generics: effective_generics,
             params: function
                 .params
@@ -303,10 +304,10 @@ impl<'a> ModuleLowerer<'a> {
                         .receiver
                         .map(|receiver| self.receiver_passing_ty(receiver, local_ty))
                         .unwrap_or(signature.ty);
-                    let substitutions = std::collections::HashMap::new();
+                    let substitutions = SymbolMap::new();
                     BackendParam {
                         local_id,
-                        name: param.name.clone(),
+                        name: self.optional_symbol_name(param.name),
                         receiver: signature.receiver,
                         passing_ty: self.instantiate_ty(passing_ty, &substitutions),
                         local_ty: self.instantiate_ty(local_ty, &substitutions),
@@ -326,6 +327,10 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionAttribute::Builtin(_) => None,
                 })
                 .collect(),
+            local_names: function_body
+                .as_ref()
+                .map(|body| self.function_local_names(body))
+                .unwrap_or_default(),
             function_body,
             span,
         });

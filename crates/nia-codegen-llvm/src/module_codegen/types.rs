@@ -10,6 +10,7 @@ use nia_llvm::{
     types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType},
     values::FunctionValue,
 };
+use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyInterner, TyKind, TypeEquivalence};
 
@@ -282,6 +283,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             Some(
                 TyKind::GenericParam(_)
+                | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::SlicePointee { .. }
@@ -326,6 +328,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             Some(TyKind::Optional { .. } | TyKind::ErrorUnion { .. }) => AbiReturn::IndirectOut(ty),
             Some(
                 TyKind::GenericParam(_)
+                | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::SlicePointee { .. }
@@ -458,6 +461,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             Some(
                 TyKind::GenericParam(_)
+                | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::SlicePointee { .. }
@@ -621,7 +625,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             ArrayLenTy::GenericParam(name) => Err(self.error(
                 span,
-                format!("array length const generic `{name}` reached LLVM lowering"),
+                format!(
+                    "array length const generic `{}` reached LLVM lowering",
+                    mangle_symbol_id(*name)
+                ),
             )),
             ArrayLenTy::Infer => {
                 Err(self.error(span, "array length inference reached LLVM lowering"))
@@ -1052,19 +1059,20 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<&'a BackendFunctionInstance> {
-        self.function_instance_item_with_arg_module(def_id, self.source.id, args, &[])
+        self.function_instance_item_with_arg_module(def_id, self.source.id, None, args, &[])
     }
 
     pub(crate) fn function_instance_item_with_arg_module(
         &self,
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
+        self_arg: Option<InternedTyId>,
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
     ) -> Option<&'a BackendFunctionInstance> {
-        if let Some(item) = self
-            .program
-            .function_instance(def_id, arg_module_id, args, const_args)
+        if let Some(item) =
+            self.program
+                .function_instance(def_id, arg_module_id, self_arg, args, const_args)
         {
             return Some(item);
         }
@@ -1076,6 +1084,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .flatten()
             .filter(|item| {
                 item.arg_module_id == arg_module_id
+                    && self.same_optional_type(self_arg, item.self_arg)
                     && self.same_type_args(args, &item.args)
                     && const_args == item.const_args.as_slice()
             });
@@ -1090,17 +1099,24 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
+        self_arg: Option<InternedTyId>,
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
     ) -> Option<FunctionValue<'ctx>> {
-        let key = (def_id, arg_module_id, args.to_vec(), const_args.to_vec());
+        let key = (
+            def_id,
+            arg_module_id,
+            self_arg,
+            args.to_vec(),
+            const_args.to_vec(),
+        );
         if let Some(cached) = self.function_instance_value_lookups.borrow().get(&key) {
             return *cached;
         }
         if let Some(value) = self
             .function_instances
             .get(&(def_id, arg_module_id))
-            .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
+            .and_then(|instances| instances.get(&(self_arg, args.to_vec(), const_args.to_vec())))
             .copied()
         {
             self.function_instance_value_lookups
@@ -1114,8 +1130,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .into_iter()
             .flatten()
             .find_map(
-                |(candidate_arg_module_id, candidate_args, candidate_const_args, value)| {
+                |(
+                    candidate_arg_module_id,
+                    candidate_self_arg,
+                    candidate_args,
+                    candidate_const_args,
+                    value,
+                )| {
                     (*candidate_arg_module_id == arg_module_id
+                        && self.same_optional_type(self_arg, *candidate_self_arg)
                         && self.same_type_args(args, candidate_args)
                         && candidate_const_args.as_slice() == const_args)
                         .then_some(*value)
@@ -1129,6 +1152,18 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn same_type_args(&self, left: &[InternedTyId], right: &[InternedTyId]) -> bool {
         self.same_type_args_for_equiv(left, right)
+    }
+
+    pub(super) fn same_optional_type(
+        &self,
+        left: Option<InternedTyId>,
+        right: Option<InternedTyId>,
+    ) -> bool {
+        match (left, right) {
+            (Some(left), Some(right)) => self.same_type(left, right),
+            (None, None) => true,
+            _ => false,
+        }
     }
 
     pub(super) fn same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {

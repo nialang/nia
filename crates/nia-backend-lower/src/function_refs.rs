@@ -15,6 +15,7 @@ use nia_ty::{ConstGenericArg, TyInterner};
 pub(crate) struct FunctionInstanceRef {
     pub(crate) def_id: GlobalDefId,
     pub(crate) arg_module_id: ModuleId,
+    pub(crate) self_arg: Option<InternedTyId>,
     pub(crate) args: Vec<InternedTyId>,
     pub(crate) const_args: Vec<ConstGenericArg>,
     pub(crate) arg_interner: Option<TyInterner>,
@@ -25,6 +26,7 @@ pub(crate) struct FunctionInstanceRef {
 pub(crate) struct FunctionInstanceKey {
     pub(crate) def_id: GlobalDefId,
     pub(crate) arg_module_id: ModuleId,
+    pub(crate) self_arg: Option<InternedTyId>,
     pub(crate) args: Vec<InternedTyId>,
     pub(crate) const_args: Vec<ConstGenericArg>,
 }
@@ -63,6 +65,7 @@ impl FunctionInstanceRef {
         FunctionInstanceKey {
             def_id: self.def_id,
             arg_module_id: self.arg_module_id,
+            self_arg: self.self_arg,
             args: self.args.clone(),
             const_args: self.const_args.clone(),
         }
@@ -187,12 +190,14 @@ fn collect_function_refs_from_expr(
         FunctionExprKind::FunctionInstance {
             def_id,
             arg_module_id,
+            self_arg,
             args,
             const_args,
         } => {
             refs.instances.push(FunctionInstanceRef {
                 def_id: *def_id,
                 arg_module_id: *arg_module_id,
+                self_arg: *self_arg,
                 args: args.clone(),
                 const_args: const_args.clone(),
                 arg_interner: None,
@@ -369,12 +374,14 @@ fn collect_function_refs_from_callee(
         FunctionCallee::FunctionInstance {
             def_id,
             arg_module_id,
+            self_arg,
             args,
             const_args,
         } => {
             refs.instances.push(FunctionInstanceRef {
                 def_id: *def_id,
                 arg_module_id: *arg_module_id,
+                self_arg: *self_arg,
                 args: args.clone(),
                 const_args: const_args.clone(),
                 arg_interner: None,
@@ -384,16 +391,18 @@ fn collect_function_refs_from_callee(
         FunctionCallee::Method {
             def_id,
             arg_module_id,
+            self_arg,
             args,
             receiver,
             ..
         } => {
-            if args.is_empty() {
+            if self_arg.is_none() && args.is_empty() {
                 refs.functions.insert(*def_id);
             } else {
                 refs.instances.push(FunctionInstanceRef {
                     def_id: *def_id,
                     arg_module_id: *arg_module_id,
+                    self_arg: *self_arg,
                     args: args.clone(),
                     const_args: Vec::new(),
                     arg_interner: None,
@@ -499,6 +508,7 @@ pub(crate) fn collect_function_refs_from_static_init(
                 refs.instances.push(FunctionInstanceRef {
                     def_id: *function,
                     arg_module_id: module_id,
+                    self_arg: None,
                     args: args.clone(),
                     const_args: Vec::new(),
                     arg_interner: None,

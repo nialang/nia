@@ -14,6 +14,7 @@ nia-ids.workspace = true
 nia-layout.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
+nia-symbol.workspace = true
 nia-ty.workspace = true
 
 [lib]

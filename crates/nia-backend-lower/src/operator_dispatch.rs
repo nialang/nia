@@ -8,6 +8,7 @@ use nia_function_ir::{
     FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
+use nia_symbol::ToSymbolId;
 use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{PrimitiveTy, TyKind};
 
@@ -248,11 +249,13 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::FunctionInstance {
                     def_id,
                     arg_module_id,
+                    self_arg,
                     args,
                     const_args,
                 } => FunctionExprKind::FunctionInstance {
                     def_id,
                     arg_module_id,
+                    self_arg,
                     args,
                     const_args,
                 },
@@ -537,23 +540,27 @@ impl<'a> ModuleLowerer<'a> {
             FunctionCallee::FunctionInstance {
                 def_id,
                 arg_module_id,
+                self_arg,
                 args,
                 const_args,
             } => FunctionCallee::FunctionInstance {
                 def_id,
                 arg_module_id,
+                self_arg,
                 args,
                 const_args,
             },
             FunctionCallee::Method {
                 def_id,
                 arg_module_id,
+                self_arg,
                 args,
                 receiver_kind,
                 receiver,
             } => FunctionCallee::Method {
                 def_id,
                 arg_module_id,
+                self_arg,
                 args,
                 receiver_kind,
                 receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
@@ -582,6 +589,7 @@ impl<'a> ModuleLowerer<'a> {
                         FunctionCallee::Method {
                             def_id,
                             arg_module_id: self.current_arg_module_id(),
+                            self_arg: None,
                             args: instance_args,
                             receiver_kind,
                             receiver,
@@ -589,12 +597,12 @@ impl<'a> ModuleLowerer<'a> {
                     } else if self.trait_method_has_default(method_id) {
                         let default_self_ty =
                             self.default_trait_method_self_arg(trait_id, &trait_args, self_ty);
-                        let mut instance_args = vec![default_self_ty];
-                        instance_args.extend(trait_args.iter().copied());
+                        let mut instance_args = trait_args.clone();
                         instance_args.extend(args);
                         FunctionCallee::Method {
                             def_id: method_id,
                             arg_module_id: self.current_arg_module_id(),
+                            self_arg: Some(default_self_ty),
                             args: instance_args,
                             receiver_kind,
                             receiver,
@@ -606,6 +614,7 @@ impl<'a> ModuleLowerer<'a> {
                             &trait_args,
                             &args,
                         ) {
+                            let method_name = self.symbol_name(method_name);
                             self.diagnostics
                                 .push(nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
                                     format!(
@@ -661,18 +670,19 @@ impl<'a> ModuleLowerer<'a> {
                         FunctionCallee::FunctionInstance {
                             def_id,
                             arg_module_id: self.current_arg_module_id(),
+                            self_arg: None,
                             args: instance_args,
                             const_args: Vec::new(),
                         }
                     } else if self.trait_method_has_default(method_id) {
                         let default_self_ty =
                             self.default_trait_method_self_arg(trait_id, &trait_args, self_ty);
-                        let mut instance_args = vec![default_self_ty];
-                        instance_args.extend(trait_args.iter().copied());
+                        let mut instance_args = trait_args.clone();
                         instance_args.extend(args);
                         FunctionCallee::FunctionInstance {
                             def_id: method_id,
                             arg_module_id: self.current_arg_module_id(),
+                            self_arg: Some(default_self_ty),
                             args: instance_args,
                             const_args: Vec::new(),
                         }
@@ -683,6 +693,7 @@ impl<'a> ModuleLowerer<'a> {
                             &trait_args,
                             &args,
                         ) {
+                            let method_name = self.symbol_name(method_name);
                             self.diagnostics.push(
                                 nia_diagnostic::Diagnostic::user_error(
                                     nia_diagnostic::codes::LLVM_CODEGEN,
@@ -893,6 +904,7 @@ impl<'a> ModuleLowerer<'a> {
                 callee: FunctionCallee::Method {
                     def_id,
                     arg_module_id: self.current_arg_module_id(),
+                    self_arg: None,
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
@@ -935,6 +947,7 @@ impl<'a> ModuleLowerer<'a> {
                 callee: FunctionCallee::Method {
                     def_id,
                     arg_module_id: self.current_arg_module_id(),
+                    self_arg: None,
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
@@ -966,6 +979,7 @@ impl<'a> ModuleLowerer<'a> {
                 callee: FunctionCallee::Method {
                     def_id,
                     arg_module_id: self.current_arg_module_id(),
+                    self_arg: None,
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
@@ -1007,7 +1021,7 @@ impl<'a> ModuleLowerer<'a> {
             && let Some((def_id, method_args)) = self.resolve_builtin_extension_impl_method(
                 trait_id,
                 &[],
-                trait_method.name(),
+                trait_method.symbol_id(),
                 self_ty,
             )
         {
@@ -1015,6 +1029,7 @@ impl<'a> ModuleLowerer<'a> {
                 callee: FunctionCallee::Method {
                     def_id,
                     arg_module_id: self.current_arg_module_id(),
+                    self_arg: None,
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
@@ -1057,7 +1072,7 @@ impl<'a> ModuleLowerer<'a> {
         self.resolve_builtin_extension_impl_method(
             operator.trait_id,
             trait_args,
-            method.name(),
+            method.symbol_id(),
             lhs_ty,
         )
     }
@@ -1066,12 +1081,12 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         trait_id: BuiltinTrait,
         trait_args: &[InternedTyId],
-        method_name: &str,
+        method_name: nia_symbol::SymbolId,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let key = ExtensionTraitMethodKey {
             trait_id: TraitId::Builtin(trait_id),
-            method_name: method_name.to_string(),
+            method_name,
             trait_arg_count: trait_args.len(),
         };
         let candidates = self.program_extension_trait_method_candidates(&key);
@@ -1097,7 +1112,12 @@ impl<'a> ModuleLowerer<'a> {
         method: BuiltinTraitMethod,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        self.resolve_builtin_extension_impl_method(trait_id, trait_args, method.name(), self_ty)
+        self.resolve_builtin_extension_impl_method(
+            trait_id,
+            trait_args,
+            method.symbol_id(),
+            self_ty,
+        )
     }
 
     fn builtin_impl_method_for_candidate(

@@ -29,6 +29,7 @@ type InstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>);
 type FunctionInstanceKey = (
     GlobalDefId,
     ModuleId,
+    Option<InternedTyId>,
     Vec<InternedTyId>,
     Vec<ConstGenericArg>,
 );
@@ -46,6 +47,7 @@ type TraitObjectAdapterKey = (
     InternedTyId,
     GlobalDefId,
     ModuleId,
+    Option<InternedTyId>,
     Vec<InternedTyId>,
     Vec<ConstGenericArg>,
 );
@@ -80,12 +82,20 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) functions: HashMap<GlobalDefId, FunctionValue<'ctx>>,
     pub(super) function_instances: HashMap<
         (GlobalDefId, ModuleId),
-        HashMap<(Vec<InternedTyId>, Vec<ConstGenericArg>), FunctionValue<'ctx>>,
+        HashMap<
+            (
+                Option<InternedTyId>,
+                Vec<InternedTyId>,
+                Vec<ConstGenericArg>,
+            ),
+            FunctionValue<'ctx>,
+        >,
     >,
     pub(super) function_instances_by_def: HashMap<
         GlobalDefId,
         Vec<(
             ModuleId,
+            Option<InternedTyId>,
             Vec<InternedTyId>,
             Vec<ConstGenericArg>,
             FunctionValue<'ctx>,
@@ -318,6 +328,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 }),
             Some(
                 TyKind::GenericParam(_)
+                | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. }
@@ -425,6 +436,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let Some(llvm_function) = self.function_instance_value(
                 instance.def_id,
                 instance.arg_module_id,
+                instance.self_arg,
                 &instance.args,
                 &instance.const_args,
             ) else {
@@ -435,6 +447,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 FunctionCodegenInput {
                     params: &instance.params,
                     return_type: instance.return_type,
+                    local_names: &instance.local_names,
                     span: instance.span,
                 },
                 llvm_function,

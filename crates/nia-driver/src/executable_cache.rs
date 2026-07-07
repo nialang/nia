@@ -11,6 +11,7 @@ use nia_linker::LinkOptions;
 use nia_loader_query::{EntryRuntime, LoadRequest};
 use nia_opt::NiaOptimizationLevel;
 use nia_source::{SourceDatabase, SourcePath};
+use nia_symbol::symbol_identity_key;
 use nia_target_config::TargetConfig;
 
 use crate::Runtime;
@@ -236,7 +237,7 @@ fn executable_artifact_request_hash(request: &ExecutableArtifactCacheRequest) ->
     let mut module_entries = request
         .module_map
         .entries()
-        .map(|(name, path)| (name.to_string(), path.as_str().to_string()))
+        .map(|(name, path)| (symbol_identity_key(name), path.as_str().to_string()))
         .collect::<Vec<_>>();
     module_entries.sort();
     for (name, path) in module_entries {

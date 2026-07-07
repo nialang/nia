@@ -189,6 +189,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     self.function_instance_value(
                         instance.def_id,
                         instance.arg_module_id,
+                        instance.self_arg,
                         &instance.args,
                         &instance.const_args,
                     )

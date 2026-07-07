@@ -39,11 +39,12 @@ use nia_item_signatures::{
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
-use nia_mangle::{mangle_instance_symbol, sanitize_symbol_part};
+use nia_mangle::{mangle_instance_symbol, mangle_symbol_id};
 use nia_monomorphize::Monomorphization;
 use nia_node_id::VersionedNodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;
+use nia_symbol::{SymbolId, SymbolText, known, symbol_text_or_unresolved};
 use nia_ty::TyKind;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
@@ -89,6 +90,7 @@ pub enum BackendOptimizationChange {
 pub struct BackendLowerModuleInput<'a> {
     pub module_id: ModuleId,
     pub module_name: String,
+    pub symbols: &'a dyn SymbolText,
     pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
@@ -465,7 +467,7 @@ pub(crate) struct ModuleLowerer<'a> {
     pub(crate) diagnostics: Vec<Diagnostic>,
     optimization_report: BackendOptimizationReport,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
-    extension_generics_by_method: HashMap<GlobalDefId, Vec<String>>,
+    extension_generics_by_method: HashMap<GlobalDefId, Vec<SymbolId>>,
     extension_method_sources_by_def: HashMap<GlobalDefId, ExtensionMethodSource>,
     trait_context: trait_context::BackendTraitContext,
     instantiation: instantiation_context::BackendInstantiationContext<'a>,
@@ -474,11 +476,10 @@ pub(crate) struct ModuleLowerer<'a> {
     foreign_global_instance_refs: Vec<function_refs::GlobalInstanceRef>,
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
-    effective_generics: HashMap<GlobalDefId, Vec<String>>,
+    effective_generics: HashMap<GlobalDefId, Vec<SymbolId>>,
     def_names: HashMap<GlobalDefId, String>,
     function_sources: HashMap<GlobalDefId, BackendFunctionSource<'a>>,
     aggregate_sources: HashMap<GlobalDefId, BackendAggregateSource<'a>>,
-    planned_function_instance_symbols: Option<HashMap<function_instances::InstanceKey, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -491,7 +492,7 @@ pub(crate) struct BuiltinTraitGoalKey {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ExtensionTraitMethodKey {
     trait_id: TraitId,
-    method_name: String,
+    method_name: SymbolId,
     trait_arg_count: usize,
 }
 
@@ -501,7 +502,7 @@ pub(crate) struct ExtensionTraitMethodCandidate {
     method_def_id: GlobalDefId,
     trait_args: Vec<InternedTyId>,
     where_predicates: Vec<WherePredicateSignature>,
-    effective_generics: Vec<String>,
+    effective_generics: Vec<SymbolId>,
     interner: nia_ty::TyInterner,
 }
 
@@ -513,13 +514,13 @@ pub(crate) struct ExtensionMethodSource {
 }
 
 pub(crate) struct BackendLowerShared {
-    program_extension_generics_by_method: HashMap<GlobalDefId, Vec<String>>,
+    program_extension_generics_by_method: HashMap<GlobalDefId, Vec<SymbolId>>,
     program_extension_method_sources_by_def: HashMap<GlobalDefId, ExtensionMethodSource>,
     program_trait_impls_by_method: HashMap<GlobalDefId, usize>,
     program_extension_trait_method_candidates:
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
     program_trait_methods_with_defaults: HashSet<GlobalDefId>,
-    program_method_names_by_def: HashMap<GlobalDefId, String>,
+    program_method_symbols_by_def: HashMap<GlobalDefId, SymbolId>,
     input_type_interners: HashMap<TyInternerId, nia_ty::TyInterner>,
 }
 
@@ -541,8 +542,8 @@ impl BackendLowerShared {
             program_trait_methods_with_defaults: first
                 .map(index_program_trait_methods_with_defaults)
                 .unwrap_or_default(),
-            program_method_names_by_def: first
-                .map(index_program_method_names_by_def)
+            program_method_symbols_by_def: first
+                .map(index_program_method_symbols_by_def)
                 .unwrap_or_default(),
             input_type_interners: index_input_type_interner_snapshots(modules, monomorphization),
         }
@@ -755,6 +756,7 @@ impl ReachableAggregateRoots {
                 TyKind::Error
                 | TyKind::ComptimeOnly
                 | TyKind::GenericParam(_)
+                | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. },
@@ -816,11 +818,13 @@ impl ReachabilityWorklist {
                 BackendTraitObjectVtableFunction::FunctionInstance {
                     def_id,
                     arg_module_id,
+                    self_arg,
                     args,
                     const_args,
                 } => self.enqueue_instances([FunctionInstanceRef {
                     def_id: *def_id,
                     arg_module_id: *arg_module_id,
+                    self_arg: *self_arg,
                     args: args.clone(),
                     const_args: const_args.clone(),
                     arg_interner: None,
@@ -853,8 +857,9 @@ pub(crate) struct TypeSubstitutionId(pub(crate) usize);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct TypeSubstitutionKey {
-    substitutions: Vec<(String, InternedTyId)>,
-    const_substitutions: Vec<(String, nia_ty::ConstGenericArg)>,
+    self_arg: Option<InternedTyId>,
+    substitutions: Vec<(SymbolId, InternedTyId)>,
+    const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -892,7 +897,6 @@ impl<'a> ModuleLowerer<'a> {
             def_names: HashMap::new(),
             function_sources: HashMap::new(),
             aggregate_sources: HashMap::new(),
-            planned_function_instance_symbols: None,
         }
     }
 
@@ -922,12 +926,12 @@ impl<'a> ModuleLowerer<'a> {
             })
     }
 
-    pub(crate) fn method_name_for_def(&self, def_id: GlobalDefId) -> Option<&str> {
+    pub(crate) fn method_symbol_for_def(&self, def_id: GlobalDefId) -> Option<SymbolId> {
         self.trait_context
-            .method_names_by_def
+            .method_symbols_by_def
             .get(&def_id)
-            .or_else(|| self.shared.program_method_names_by_def.get(&def_id))
-            .map(String::as_str)
+            .or_else(|| self.shared.program_method_symbols_by_def.get(&def_id))
+            .copied()
     }
 
     fn lower_module(&mut self) -> BackendModule {
@@ -1126,6 +1130,7 @@ impl<'a> ModuleLowerer<'a> {
                 .map(|inst| nia_backend_ir::BackendGenericInstantiation {
                     def_id: inst.def_id,
                     arg_module_id: self.input.module_id,
+                    self_arg: inst.self_arg,
                     args: inst.args.clone(),
                     const_args: inst.const_args.clone(),
                     span: inst.span,
@@ -1360,16 +1365,22 @@ impl<'a> ModuleLowerer<'a> {
         if self.input.roots == BackendFunctionRoots::NoFunctions {
             return false;
         }
+        let Some(def) = self.input.defs.defs.get(def_id.def_id) else {
+            return false;
+        };
+        if def.kind == DefKind::TraitMethod {
+            return false;
+        }
         if self.input.roots == BackendFunctionRoots::FunctionBodies {
             return function.is_extern
                 || (self.input.function_bodies.contains_key(&def_id)
                     && !self
                         .has_effective_generics(def_id, &generic_param_names(&function.generics)));
         }
-        let Some(def) = self.input.defs.defs.get(def_id.def_id) else {
-            return false;
-        };
-        if function.is_comptime || function.is_extern || def.name == "main" || def.name == "_start"
+        if function.is_comptime
+            || function.is_extern
+            || def.name == known::MAIN
+            || def.name == known::START_ENTRY
         {
             return true;
         }
@@ -1547,7 +1558,7 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn has_effective_generics(&mut self, def_id: GlobalDefId, own_generics: &[String]) -> bool {
+    fn has_effective_generics(&mut self, def_id: GlobalDefId, own_generics: &[SymbolId]) -> bool {
         !self.effective_generics(def_id, own_generics).is_empty()
     }
 
@@ -1568,6 +1579,15 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             }
             if lowered.contains(&def_id) {
+                continue;
+            }
+            if self
+                .input
+                .defs
+                .defs
+                .get(def_id.def_id)
+                .is_some_and(|def| def.kind == DefKind::TraitMethod)
+            {
                 continue;
             }
             let Some(source) = self.function_sources.get(&def_id).copied() else {
@@ -1882,11 +1902,11 @@ impl<'a> ModuleLowerer<'a> {
             .map(|init| self.optimize_static_init(def_id, init));
         Some(BackendGlobalInstance {
             def_id,
-            name: def.name.clone(),
+            name: self.symbol_name(def.name),
             arg_module_id,
             args: args.clone(),
             const_args: const_args.clone(),
-            symbol: self.mangle_instance_symbol(def_id, &def.name, &args, &const_args),
+            symbol: self.mangle_instance_symbol(def_id, def.name, None, &args, &const_args),
             ty,
             is_let: !signature.is_mutable,
             init,
@@ -2018,11 +2038,13 @@ impl<'a> ModuleLowerer<'a> {
                         BackendTraitObjectVtableFunction::FunctionInstance {
                             def_id,
                             arg_module_id,
+                            self_arg,
                             args,
                             const_args,
                         } => refs.instances.push(FunctionInstanceRef {
                             def_id: *def_id,
                             arg_module_id: *arg_module_id,
+                            self_arg: *self_arg,
                             args: args.clone(),
                             const_args: const_args.clone(),
                             arg_interner: None,
@@ -2171,21 +2193,28 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn mangle_instance_symbol(
         &mut self,
         def_id: GlobalDefId,
-        name: &str,
+        name: SymbolId,
+        self_arg: Option<InternedTyId>,
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
     ) -> String {
+        let name = self.symbol_name(name);
         let defs = &self.input.defs.defs;
         let input = self.input;
         let const_expr_summaries = &self.input.type_lowering.const_expr_summaries;
         let comptime_array_lengths = self.input.comptime_array_lengths;
+        let self_arg = self_arg.map(|ty| self.import_instance_arg_type(ty));
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
         let diagnostics = &mut self.diagnostics;
         let def_names = &mut self.def_names;
-        mangle_instance_symbol(
+        let mut args = args.to_vec();
+        if let Some(self_arg) = self_arg {
+            args.insert(0, self_arg);
+        }
+        let mut symbol = mangle_instance_symbol(
             def_id,
-            name,
-            args,
+            &name,
+            &args,
             const_args,
             &self.type_context.interner,
             |def_id| {
@@ -2194,7 +2223,7 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 let name = program_def(input, def_id)
                     .or_else(|| defs.get(def_id.def_id).cloned())
-                    .map(|def| sanitize_symbol_part(&def.name))
+                    .map(|def| mangle_symbol_id(def.name))
                     .unwrap_or_else(|| format!("def{}", def_id.def_id.0));
                 def_names.insert(def_id, name.clone());
                 name
@@ -2216,13 +2245,59 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 value
             },
-        )
+        );
+        if self_arg.is_some() {
+            symbol = symbol.replacen("__inst__t_", "__inst__t_self_", 1);
+        }
+        symbol
+    }
+
+    pub(crate) fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_or_unresolved(self.input.symbols, symbol)
+    }
+
+    pub(crate) fn optional_symbol_name(&self, symbol: Option<SymbolId>) -> Option<String> {
+        symbol.map(|symbol| self.symbol_name(symbol))
+    }
+
+    pub(crate) fn local_name(&self, name: nia_function_ir::LocalName) -> String {
+        match name {
+            nia_function_ir::LocalName::SelfValue => "self".to_string(),
+            nia_function_ir::LocalName::Named(symbol) => self.symbol_name(symbol),
+            nia_function_ir::LocalName::Generated(
+                nia_function_ir::GeneratedLocalName::ForIterable,
+            ) => "__for_iterable".to_string(),
+            nia_function_ir::LocalName::Generated(
+                nia_function_ir::GeneratedLocalName::ForIterator,
+            ) => "__for_iter".to_string(),
+            nia_function_ir::LocalName::Generated(nia_function_ir::GeneratedLocalName::ForNext) => {
+                "__for_next".to_string()
+            }
+            nia_function_ir::LocalName::Temporary(id) => format!("fir.tmp.{id}"),
+            nia_function_ir::LocalName::Anonymous => "_".to_string(),
+        }
+    }
+
+    pub(crate) fn function_local_names(
+        &self,
+        body: &nia_function_ir::FunctionBody,
+    ) -> HashMap<nia_ids::LocalId, String> {
+        body.locals
+            .iter()
+            .map(|local| (local.id, self.local_name(local.name)))
+            .collect()
     }
 
     pub(crate) fn def_name(&self, def_id: GlobalDefId) -> String {
         program_def(self.input, def_id)
-            .map(|def| def.name.clone())
+            .map(|def| self.symbol_name(def.name))
             .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
+    }
+
+    pub(crate) fn def_symbol_name(&self, def_id: GlobalDefId) -> Option<SymbolId> {
+        program_def(self.input, def_id)
+            .or_else(|| self.input.defs.defs.get(def_id.def_id).cloned())
+            .map(|def| def.name)
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
@@ -2252,7 +2327,7 @@ impl<'a> ModuleLowerer<'a> {
 
 fn index_extension_generics_by_method(
     extensions: &ExtensionMethods,
-) -> HashMap<GlobalDefId, Vec<String>> {
+) -> HashMap<GlobalDefId, Vec<SymbolId>> {
     let mut generics_by_method = HashMap::new();
     for method in extensions.all_methods() {
         generics_by_method.insert(method.def_id, method.effective_generics.clone());
@@ -2262,7 +2337,7 @@ fn index_extension_generics_by_method(
 
 fn index_local_extension_generics_by_method(
     extensions: &VisibleExtensionMethods,
-) -> HashMap<GlobalDefId, Vec<String>> {
+) -> HashMap<GlobalDefId, Vec<SymbolId>> {
     let mut generics_by_method = HashMap::new();
     for target in extensions.targets() {
         for method in &target.methods {
@@ -2533,9 +2608,9 @@ fn index_program_trait_methods_with_defaults(
         .collect()
 }
 
-fn index_local_method_names_by_def(
+fn index_local_method_symbols_by_def(
     input: &BackendLowerModuleInput<'_>,
-) -> HashMap<GlobalDefId, String> {
+) -> HashMap<GlobalDefId, SymbolId> {
     let mut names = input
         .defs
         .defs
@@ -2546,23 +2621,21 @@ fn index_local_method_names_by_def(
                     module_id: input.module_id,
                     def_id,
                 },
-                def.name.clone(),
+                def.name,
             )
         })
         .collect::<HashMap<_, _>>();
     for target in input.extensions.targets() {
         for method in &target.methods {
-            names
-                .entry(method.def_id)
-                .or_insert_with(|| method.name.clone());
+            names.entry(method.def_id).or_insert(method.name);
         }
     }
     names
 }
 
-fn index_program_method_names_by_def(
+fn index_program_method_symbols_by_def(
     input: &BackendLowerModuleInput<'_>,
-) -> HashMap<GlobalDefId, String> {
+) -> HashMap<GlobalDefId, SymbolId> {
     let mut names = HashMap::new();
     for (trait_id, signature) in input.program_traits {
         for method in &signature.signature.methods {
@@ -2571,12 +2644,12 @@ fn index_program_method_names_by_def(
                     module_id: trait_id.module_id,
                     def_id: method.def_id,
                 },
-                method.name.clone(),
+                method.name,
             );
         }
     }
     for method in input.program_extension_methods.all_methods() {
-        names.insert(method.def_id, method.name.clone());
+        names.insert(method.def_id, method.name);
     }
     names
 }

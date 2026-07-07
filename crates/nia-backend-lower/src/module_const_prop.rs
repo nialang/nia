@@ -19,6 +19,7 @@ pub(crate) const PROPAGATE_CROSS_FUNCTION_CONSTANTS_PASS: &str =
 struct FunctionInstanceKey {
     def_id: GlobalDefId,
     arg_module_id: ModuleId,
+    self_arg: Option<InternedTyId>,
     args: Vec<InternedTyId>,
     const_args: Vec<ConstGenericArg>,
 }
@@ -48,6 +49,7 @@ impl<'a> ModuleLowerer<'a> {
                         FunctionInstanceKey {
                             def_id: instance.def_id,
                             arg_module_id: instance.arg_module_id,
+                            self_arg: instance.self_arg,
                             args: instance.args.clone(),
                             const_args: instance.const_args.clone(),
                         },
@@ -682,11 +684,13 @@ fn cross_function_constant_for_callee<'a>(
         FunctionCallee::FunctionInstance {
             def_id,
             arg_module_id,
+            self_arg,
             args,
             const_args,
         } => instance_constants.get(&FunctionInstanceKey {
             def_id: *def_id,
             arg_module_id: *arg_module_id,
+            self_arg: *self_arg,
             args: args.clone(),
             const_args: const_args.clone(),
         }),

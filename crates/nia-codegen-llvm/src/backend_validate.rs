@@ -23,6 +23,7 @@ use nia_ty::{ConstGenericArg, PrimitiveTy};
 type FunctionInstanceKey = (
     GlobalDefId,
     ModuleId,
+    Option<InternedTyId>,
     Vec<InternedTyId>,
     Vec<ConstGenericArg>,
 );
@@ -169,12 +170,14 @@ impl BackendValidator<'_> {
                     BackendTraitObjectVtableFunction::FunctionInstance {
                         def_id,
                         arg_module_id,
+                        self_arg,
                         args,
                         const_args,
                     } => {
                         self.validate_function_instance_ref(
                             *def_id,
                             *arg_module_id,
+                            *self_arg,
                             args,
                             const_args,
                             vtable.span,

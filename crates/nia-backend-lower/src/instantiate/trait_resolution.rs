@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use crate::{BuiltinTraitGoalKey, ExtensionTraitMethodCandidate, ExtensionTraitMethodKey};
+use nia_ids::BuiltinAssociatedType;
+use nia_symbol::ToSymbolId;
 use nia_trait_solve::TraitSelection;
 
 impl<'a> ModuleLowerer<'a> {
@@ -22,7 +24,7 @@ impl<'a> ModuleLowerer<'a> {
         let impl_interner = impl_signature.interner.clone();
         let target_ty =
             self.import_type_from_known_interner(&impl_interner, impl_signature.target_ty);
-        let mut substitutions = std::collections::HashMap::new();
+        let mut substitutions = SymbolMap::new();
         if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
             return None;
         }
@@ -189,7 +191,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn candidate_where_predicates_hold(
         &mut self,
         candidate: &ExtensionTraitMethodCandidate,
-        substitutions: &std::collections::HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> bool {
         let candidate_interner = self.candidate_type_interner(candidate).clone();
         let predicates =
@@ -355,10 +357,7 @@ impl<'a> ModuleLowerer<'a> {
             })
             .collect();
         Some(TraitGoal {
-            self_ty: self
-                .type_context
-                .interner
-                .intern(TyKind::GenericParam("Self".to_string())),
+            self_ty: self.type_context.interner.intern(TyKind::SelfParam),
             trait_id: TraitId::Source(trait_def_id),
             trait_args,
             trait_const_args: Vec::new(),
@@ -563,7 +562,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let key = ExtensionTraitMethodKey {
             trait_id: TraitId::Builtin(trait_id),
-            method_name: method.name().to_string(),
+            method_name: method.symbol_id(),
             trait_arg_count: trait_args.len(),
         };
         let candidates = self.program_extension_trait_method_candidates(&key);
@@ -696,7 +695,7 @@ impl<'a> ModuleLowerer<'a> {
                         TraitId::Builtin(trait_id),
                         trait_args,
                         &[],
-                        BuiltinTrait::OUTPUT_ASSOC_TYPE,
+                        &BuiltinAssociatedType::Output.symbol_id(),
                         substitutions,
                         &mut active_projections,
                     )?,
