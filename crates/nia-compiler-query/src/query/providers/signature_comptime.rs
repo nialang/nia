@@ -17,7 +17,7 @@ fn with_signature_comptime_input<T>(
 ) -> T {
     let module = db.query(SignatureComptimeModuleQuery(module_id));
     let active_item_tree = db.query(SignatureComptimeItemTreeQuery(module_id));
-    let defs = db.query(ModuleDefsQuery(module_id));
+    let defs = db.query_shared(ModuleDefsQuery(module_id));
     let type_lowering = db.query(SignatureComptimeTypeLoweringQuery(module_id));
     let values = signature_comptime_value_resolution(db, module_id, &active_item_tree);
     let locals = empty_local_resolution();
@@ -121,7 +121,7 @@ pub(super) fn provide_signature_comptime_module(
     module_id: ModuleId,
 ) -> ComptimeModuleLowering {
     let active_item_tree = db.query(SignatureComptimeItemTreeQuery(module_id));
-    let defs = db.query(ModuleDefsQuery(module_id));
+    let defs = db.query_shared(ModuleDefsQuery(module_id));
     let type_lowering = db.query(SignatureComptimeTypeLoweringQuery(module_id));
     let values = signature_comptime_value_resolution(db, module_id, &active_item_tree);
     let locals = empty_local_resolution();
@@ -231,7 +231,7 @@ fn signature_comptime_value_resolution(
     if exprs.is_empty() && !has_comptime_provider_values {
         return empty_value_resolution();
     }
-    let defs = db.query(ModuleDefsQuery(module_id));
+    let defs = db.query_shared(ModuleDefsQuery(module_id));
     let public_surfaces = db.query(PublicSurfacesQuery);
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
     let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
@@ -366,7 +366,7 @@ pub(super) fn signature_layouts_for_types(
     program_signatures_override: Option<&ProgramExecutableSignatures>,
 ) -> nia_layout::Layouts {
     time_module_provider(db, "signature_layouts", module_id, || {
-        let defs = db.query(ModuleDefsQuery(module_id));
+        let defs = db.query_shared(ModuleDefsQuery(module_id));
         let active_item_tree = db.query_shared(SignatureItemTreeQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,

@@ -331,7 +331,7 @@ pub(super) fn executable_module_has_pending_body_items(
         || reachability.globals.iter().any(|def_id| {
             def_id.module_id == module_id
                 && db
-                    .query(ModuleDefsQuery(def_id.module_id))
+                    .query_shared(ModuleDefsQuery(def_id.module_id))
                     .defs
                     .get(def_id.def_id)
                     .is_some_and(|def| def.kind == DefKind::Global)

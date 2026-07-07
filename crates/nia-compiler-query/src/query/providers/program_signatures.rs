@@ -25,7 +25,7 @@ pub(super) fn provide_module_program_signature_facts(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> ModuleProgramSignatureFactsValue {
-    let defs = db.query(ModuleDefsQuery(module_id));
+    let defs = db.query_shared(ModuleDefsQuery(module_id));
     let lowering = db.query(SignatureTypeLoweringQuery(module_id, set));
     let signatures = db.query(SignatureItemSignaturesQuery(module_id, set));
     Arc::new(
@@ -278,7 +278,7 @@ pub(super) fn executable_program_functions_for_modules(
         .flat_map(|module_id| {
             let lowered = db.query(TypeLoweringQuery(module_id));
             let signatures = body_local_item_signatures(db, module_id, &lowered);
-            let defs = db.query(ModuleDefsQuery(module_id));
+            let defs = db.query_shared(ModuleDefsQuery(module_id));
             let interner = lowered.interner;
             signatures
                 .functions
