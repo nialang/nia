@@ -240,6 +240,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionSignatureModuleInputValue,
     pub(super) extension_trait_solving_module_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionTraitSolvingModuleFactsValue,
+    pub(super) extension_trait_impls_for_trait:
+        fn(&QueryDb<CompilerContext>, nia_ty::TraitId) -> ExtensionTraitImplsForTraitValue,
     pub(super) program_trait_solving_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramTraitSolvingSignatures>,
     pub(super) program_trait_method_index:
@@ -355,6 +357,7 @@ impl Default for CompilerQueryProviders {
             extension_provider_module_eligibility: provide_extension_provider_module_eligibility,
             extension_signature_module_input: provide_extension_signature_module_input,
             extension_trait_solving_module_facts: provide_extension_trait_solving_module_facts,
+            extension_trait_impls_for_trait: provide_extension_trait_impls_for_trait,
             program_trait_solving_signatures: provide_program_trait_solving_signatures,
             program_trait_method_index: provide_program_trait_method_index,
             program_visible_type_signatures: provide_program_visible_type_signatures,
@@ -4657,17 +4660,15 @@ pub(super) fn provide_executable_checked_modules(
 
 struct QueryExecutableExtensionLookup<'a> {
     db: &'a QueryDb<CompilerContext>,
-    trait_impls: &'a [nia_item_signatures::ProgramTraitImplSignature],
-    trait_impl_index: &'a nia_item_signatures::ProgramTraitImplIndex,
 }
 
 impl QueryExecutableExtensionLookup<'_> {
     fn module_ids_for_trait(&self, trait_id: nia_ty::TraitId) -> Vec<ModuleId> {
         let mut modules = self
-            .trait_impl_index
-            .indexes_for_trait(trait_id)
+            .db
+            .query(ExtensionTraitImplsForTraitQuery(trait_id))
+            .trait_impls
             .iter()
-            .filter_map(|index| self.trait_impls.get(*index))
             .map(|impl_signature| impl_signature.module_id)
             .collect::<Vec<_>>();
         modules.sort();
@@ -4676,7 +4677,7 @@ impl QueryExecutableExtensionLookup<'_> {
     }
 }
 
-impl<'a> ExecutableExtensionLookup<'a> for QueryExecutableExtensionLookup<'a> {
+impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
     fn methods_for_trait(&self, trait_id: nia_ty::TraitId) -> Vec<nia_defs::ExtensionMethod> {
         let mut seen = HashSet::new();
         let mut methods = Vec::new();
@@ -4737,15 +4738,16 @@ impl<'a> ExecutableExtensionLookup<'a> for QueryExecutableExtensionLookup<'a> {
         &self,
         method: &nia_defs::ExtensionMethod,
         trait_id: nia_ty::TraitId,
-    ) -> Option<&'a nia_item_signatures::ProgramTraitImplSignature> {
-        self.trait_impl_index
-            .indexes_for_trait(trait_id)
+    ) -> Option<nia_item_signatures::ProgramTraitImplSignature> {
+        self.db
+            .query(ExtensionTraitImplsForTraitQuery(trait_id))
+            .trait_impls
             .iter()
-            .filter_map(|index| self.trait_impls.get(*index))
             .find(|impl_signature| {
                 impl_signature.module_id == method.def_id.module_id
                     && impl_signature.impl_id == method.impl_id
             })
+            .cloned()
     }
 }
 
@@ -4895,12 +4897,7 @@ fn executable_checked_module_set_inner(
     let mut checked_by_id = HashMap::<ModuleId, ExecutableCheckedModuleState>::new();
     let comptime_module_cache = RefCell::new(HashMap::<ModuleId, ComptimeModuleLowering>::new());
     let mut reachability_state = IncrementalExecutableReachability::default();
-    let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-    let extension_lookup = QueryExecutableExtensionLookup {
-        db,
-        trait_impls: &trait_solving_signatures.trait_impls,
-        trait_impl_index: &trait_solving_signatures.trait_impl_index,
-    };
+    let extension_lookup = QueryExecutableExtensionLookup { db };
     let reachability = loop {
         let reachable_inputs = time_provider(
             db.context().timings(),

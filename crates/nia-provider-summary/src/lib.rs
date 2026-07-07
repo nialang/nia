@@ -182,6 +182,22 @@ impl ProviderSummary {
         names
     }
 
+    pub fn trait_impl_index_names(&self) -> Vec<SymbolId> {
+        let mut names = self
+            .providers
+            .iter()
+            .filter_map(|provider| {
+                provider
+                    .trait_ref
+                    .as_ref()
+                    .and_then(|trait_ref| trait_ref.last_name)
+            })
+            .collect::<Vec<_>>();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     pub fn defines_inherent_associated_item(
         &self,
         target_type_name: &SymbolId,
@@ -474,6 +490,7 @@ extend Widget : Hash {
         assert!(summary.defines_trait_impl(&sym("Hash"), None));
         assert!(summary.defines_trait_impl(&sym("Hash"), Some(&sym("hash"))));
         assert!(!summary.defines_trait_impl(&sym("Hash"), Some(&sym("finish"))));
+        assert_eq!(summary.trait_impl_index_names(), vec![sym("Hash")]);
     }
 
     #[test]

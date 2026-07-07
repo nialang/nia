@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::program_signatures::program_signature_facts;
 use super::*;
+use nia_symbol::ToSymbolId;
 use std::cell::RefCell;
 
 struct SharedProgramDefsResolver<'a> {
@@ -46,6 +47,7 @@ pub(super) fn provide_extension_provider_discovery_index(
         let mut provider_modules = Vec::new();
         let mut nominal_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         let mut method_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
+        let mut trait_impl_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         for module_id in trait_modules {
             let summary = db.query(ExtensionProviderSummaryQuery(module_id));
             if !summary.has_providers() {
@@ -64,6 +66,12 @@ pub(super) fn provide_extension_provider_discovery_index(
                     .or_default()
                     .push(module_id);
             }
+            for name in summary.trait_impl_index_names() {
+                trait_impl_candidates_by_name
+                    .entry(name)
+                    .or_default()
+                    .push(module_id);
+            }
         }
         provider_modules.sort();
         provider_modules.dedup();
@@ -75,10 +83,15 @@ pub(super) fn provide_extension_provider_discovery_index(
             modules.sort();
             modules.dedup();
         }
+        for modules in trait_impl_candidates_by_name.values_mut() {
+            modules.sort();
+            modules.dedup();
+        }
         Arc::new(ExtensionProviderDiscoveryIndexQueryValue {
             provider_modules,
             nominal_candidates_by_name,
             method_candidates_by_name,
+            trait_impl_candidates_by_name,
         })
     })
 }
@@ -140,6 +153,62 @@ pub(super) fn provide_extension_trait_solving_module_facts(
         invalid_trait_impl_method_ids:
             crate::program_signatures::collect_invalid_trait_impl_method_ids(&modules),
     })
+}
+
+pub(super) fn provide_extension_trait_impls_for_trait(
+    db: &QueryDb<CompilerContext>,
+    trait_id: nia_ty::TraitId,
+) -> ExtensionTraitImplsForTraitValue {
+    time_provider(
+        db.context().timings(),
+        "extension_trait_impls_for_trait",
+        || {
+            let candidate_modules = extension_trait_impl_candidate_modules(db, trait_id);
+            let mut trait_impls = Vec::new();
+            for facts in db.query_many(
+                candidate_modules
+                    .into_iter()
+                    .map(ExtensionTraitSolvingModuleFactsQuery),
+            ) {
+                trait_impls.extend(
+                    facts
+                        .trait_impls
+                        .iter()
+                        .filter(|impl_signature| impl_signature.trait_id == trait_id)
+                        .cloned(),
+                );
+            }
+            Arc::new(ExtensionTraitImplsForTraitQueryValue { trait_impls })
+        },
+    )
+}
+
+fn extension_trait_impl_candidate_modules(
+    db: &QueryDb<CompilerContext>,
+    trait_id: nia_ty::TraitId,
+) -> Vec<ModuleId> {
+    let Some(name) = trait_id_index_name(db, trait_id) else {
+        return Vec::new();
+    };
+    db.query(ExtensionProviderDiscoveryIndexQuery)
+        .trait_impl_candidates_by_name
+        .get(&name)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn trait_id_index_name(
+    db: &QueryDb<CompilerContext>,
+    trait_id: nia_ty::TraitId,
+) -> Option<SymbolId> {
+    match trait_id {
+        nia_ty::TraitId::Builtin(trait_id) => Some(trait_id.symbol_id()),
+        nia_ty::TraitId::Source(def_id) => db
+            .query_shared(ModuleDefsQuery(def_id.module_id))
+            .defs
+            .get(def_id.def_id)
+            .map(|def| def.name),
+    }
 }
 
 pub(super) fn provide_program_trait_solving_signatures(
