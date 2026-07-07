@@ -353,9 +353,10 @@ impl<C> QueryDb<C> {
                     nia_timing::time_detail(detail_timing, "query.record_cache_hit", || {
                         self.record_cache_hit(identity.clone())
                     });
-                    return Ok(nia_timing::time_detail(
+                    return Ok(time_query_name_detail(
                         detail_timing,
                         "query.clone.cache_hit",
+                        identity.name,
                         || value.clone(),
                     ));
                 }
@@ -414,10 +415,12 @@ impl<C> QueryDb<C> {
                         // entry and its edges so the next request recomputes against fresh inputs.
                         self.clear_dependencies_from(&identity);
                     } else {
-                        let cached =
-                            nia_timing::time_detail(detail_timing, "query.clone.store", || {
-                                value.clone()
-                            });
+                        let cached = time_query_name_detail(
+                            detail_timing,
+                            "query.clone.store",
+                            identity.name,
+                            || value.clone(),
+                        );
                         *state = QueryState::Ready(cached);
                     }
                     slot.ready.notify_all();
@@ -761,6 +764,22 @@ impl QueryDependencyGraph {
         self.dependencies
             .retain(|dependency| &dependency.from != from);
     }
+}
+
+fn time_query_name_detail<T>(
+    enabled: bool,
+    base: &'static str,
+    query_name: &'static str,
+    f: impl FnOnce() -> T,
+) -> T {
+    if !enabled {
+        return f();
+    }
+    nia_timing::time_query(
+        nia_timing::TimingMode::Detail,
+        &format!("{base}[{query_name}]"),
+        f,
+    )
 }
 
 fn query_frame<C, K>(key: &K) -> QueryFrame
