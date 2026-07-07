@@ -16,7 +16,9 @@ use nia_ids::{
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
-use nia_symbol::{SymbolId, known, known_symbol_text_or_identity, symbol_identity_key};
+use nia_symbol::{
+    SymbolId, SymbolText, known, symbol_identity_key, symbol_text_from_optional_resolver,
+};
 use nia_ty::PrimitiveTy;
 use nia_type_lower::TypeLowering;
 
@@ -278,9 +280,16 @@ fn symbol_debug_text(symbol: SymbolId) -> String {
     symbol_identity_key(symbol)
 }
 
-fn attribute_path_text(path: &[SymbolId]) -> String {
+fn symbol_debug_text_with_symbols(symbols: Option<&dyn SymbolText>, symbol: SymbolId) -> String {
+    match symbols {
+        Some(symbols) => symbol_text_from_optional_resolver(Some(symbols), symbol),
+        None => symbol_debug_text(symbol),
+    }
+}
+
+fn attribute_path_text_with_symbols(path: &[SymbolId], symbols: Option<&dyn SymbolText>) -> String {
     path.iter()
-        .map(|name| symbol_debug_text(*name))
+        .map(|name| symbol_debug_text_with_symbols(symbols, *name))
         .collect::<Vec<_>>()
         .join(".")
 }
@@ -475,12 +484,31 @@ pub fn collect_item_signatures(
     collect_item_signatures_from_item_tree(&item_tree, defs, lowered)
 }
 
+pub fn collect_item_signatures_with_symbols(
+    module: &Module,
+    defs: &DefCollection,
+    lowered: &TypeLowering,
+    symbols: &dyn SymbolText,
+) -> ItemSignatures {
+    let item_tree = ModuleItemTree::from_module(module);
+    collect_item_signatures_from_item_tree_with_symbols(&item_tree, defs, lowered, symbols)
+}
+
 pub fn collect_item_signatures_from_item_tree(
     item_tree: &ModuleItemTree,
     defs: &DefCollection,
     lowered: &TypeLowering,
 ) -> ItemSignatures {
-    collect_item_signatures_from_items(&item_tree.items, defs, lowered)
+    collect_item_signatures_from_items(&item_tree.items, defs, lowered, None)
+}
+
+pub fn collect_item_signatures_from_item_tree_with_symbols(
+    item_tree: &ModuleItemTree,
+    defs: &DefCollection,
+    lowered: &TypeLowering,
+    symbols: &dyn SymbolText,
+) -> ItemSignatures {
+    collect_item_signatures_from_items(&item_tree.items, defs, lowered, Some(symbols))
 }
 
 pub fn collect_item_signatures_from_active_item_tree(
@@ -488,17 +516,28 @@ pub fn collect_item_signatures_from_active_item_tree(
     defs: &DefCollection,
     lowered: &TypeLowering,
 ) -> ItemSignatures {
-    collect_item_signatures_from_items(&item_tree.items, defs, lowered)
+    collect_item_signatures_from_items(&item_tree.items, defs, lowered, None)
+}
+
+pub fn collect_item_signatures_from_active_item_tree_with_symbols(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    lowered: &TypeLowering,
+    symbols: &dyn SymbolText,
+) -> ItemSignatures {
+    collect_item_signatures_from_items(&item_tree.items, defs, lowered, Some(symbols))
 }
 
 fn collect_item_signatures_from_items(
     items: &[ItemTreeNode],
     defs: &DefCollection,
     lowered: &TypeLowering,
+    symbols: Option<&dyn SymbolText>,
 ) -> ItemSignatures {
     let mut collector = SignatureCollector {
         defs,
         lowered,
+        symbols,
         diagnostics: Vec::new(),
         duplicate_impl_identities: HashMap::new(),
     };
@@ -524,11 +563,20 @@ fn collect_item_signatures_from_items(
 struct SignatureCollector<'a> {
     defs: &'a DefCollection,
     lowered: &'a TypeLowering,
+    symbols: Option<&'a dyn SymbolText>,
     diagnostics: Vec<Diagnostic>,
     duplicate_impl_identities: HashMap<TraitImplIdentity, u32>,
 }
 
 impl<'a> SignatureCollector<'a> {
+    fn symbol_debug_text(&self, symbol: SymbolId) -> String {
+        symbol_debug_text_with_symbols(self.symbols, symbol)
+    }
+
+    fn attribute_path_text(&self, path: &[SymbolId]) -> String {
+        attribute_path_text_with_symbols(path, self.symbols)
+    }
+
     fn collect_item_into(&mut self, signatures: &mut ItemSignatures, item: &ItemTreeNode) {
         match &item.kind {
             ItemTreeNodeKind::Module(_) | ItemTreeNodeKind::Using(_) => {}
@@ -1042,7 +1090,7 @@ impl<'a> SignatureCollector<'a> {
                                     attribute.span,
                                     format!(
                                         "builtin comptime source item `{}` must match descriptor item `{}`",
-                                        known_symbol_text_or_identity(binding.name),
+                                        self.symbol_debug_text(binding.name),
                                         builtin.item_name()
                                     ),
                                 ));
@@ -1069,7 +1117,7 @@ impl<'a> SignatureCollector<'a> {
                         attribute.span,
                         format!(
                             "unknown comptime attribute `@[{}]`",
-                            attribute_path_text(&meta.path)
+                            self.attribute_path_text(&meta.path)
                         ),
                     ));
                 }
@@ -1187,7 +1235,7 @@ impl<'a> SignatureCollector<'a> {
                         attribute.span,
                         format!(
                             "unknown function attribute `@[{}]`",
-                            attribute_path_text(&meta.path)
+                            self.attribute_path_text(&meta.path)
                         ),
                     ));
                 }
@@ -1242,7 +1290,7 @@ impl<'a> SignatureCollector<'a> {
                         attribute.span,
                         format!(
                             "unknown trait attribute `@[{}]`",
-                            attribute_path_text(&meta.path)
+                            self.attribute_path_text(&meta.path)
                         ),
                     ));
                 }
@@ -1290,7 +1338,7 @@ impl<'a> SignatureCollector<'a> {
                         attribute.span,
                         format!(
                             "unknown type attribute `@[{}]`",
-                            attribute_path_text(&meta.path)
+                            self.attribute_path_text(&meta.path)
                         ),
                     ));
                 }

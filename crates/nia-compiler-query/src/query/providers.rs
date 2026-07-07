@@ -861,10 +861,12 @@ pub(super) fn provide_item_signatures(
     let active_item_tree = db.query(DeclarationActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let type_lowering = db.query(DeclarationTypeLoweringQuery(module_id));
-    nia_item_signatures::collect_item_signatures_from_active_item_tree(
+    let symbols = db.context().symbols();
+    nia_item_signatures::collect_item_signatures_from_active_item_tree_with_symbols(
         &active_item_tree,
         &defs,
         &type_lowering,
+        &symbols,
     )
 }
 
@@ -876,10 +878,12 @@ pub(super) fn provide_signature_item_signatures(
     let active_item_tree = db.query(SignatureItemTreeQuery(module_id, set));
     let defs = db.query(ModuleDefsQuery(module_id));
     let type_lowering = db.query(SignatureTypeLoweringQuery(module_id, set));
-    nia_item_signatures::collect_item_signatures_from_active_item_tree(
+    let symbols = db.context().symbols();
+    nia_item_signatures::collect_item_signatures_from_active_item_tree_with_symbols(
         &active_item_tree,
         &defs,
         &type_lowering,
+        &symbols,
     )
 }
 
@@ -890,10 +894,12 @@ pub(super) fn provide_signature_comptime_item_signatures(
     let active_item_tree = db.query(SignatureComptimeItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let type_lowering = db.query(SignatureComptimeTypeLoweringQuery(module_id));
-    nia_item_signatures::collect_item_signatures_from_active_item_tree(
+    let symbols = db.context().symbols();
+    nia_item_signatures::collect_item_signatures_from_active_item_tree_with_symbols(
         &active_item_tree,
         &defs,
         &type_lowering,
+        &symbols,
     )
 }
 
@@ -3298,10 +3304,12 @@ fn collect_body_signature_subset(
     lowered: &TypeLowering,
 ) -> ItemSignatures {
     let active_item_tree = db.query(SignatureItemTreeQuery(module_id, set));
-    nia_item_signatures::collect_item_signatures_from_active_item_tree(
+    let symbols = db.context().symbols();
+    nia_item_signatures::collect_item_signatures_from_active_item_tree_with_symbols(
         &active_item_tree,
         defs,
         lowered,
+        &symbols,
     )
 }
 
