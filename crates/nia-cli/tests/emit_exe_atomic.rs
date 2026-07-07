@@ -48,9 +48,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let check = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("check")
-        .arg("--exe")
         .arg(&main)
-        .output_timeout("run nia check --exe atomic");
+        .arg("--runtime")
+        .arg("freestanding")
+        .output_timeout("run nia check --runtime freestanding atomic");
     assert!(
         check.status.success(),
         "stderr:\n{}",

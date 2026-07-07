@@ -28,9 +28,10 @@ fn readme_nia_examples_check_as_freestanding_programs() {
 
         let output = Command::new(env!("CARGO_BIN_EXE_nia"))
             .arg("check")
-            .arg("--exe")
+            .arg("--runtime")
+            .arg("freestanding")
             .arg(&main)
-            .output_timeout("run nia check --exe on README nia example");
+            .output_timeout("run nia check --runtime freestanding on README nia example");
 
         assert!(
             output.status.success(),
@@ -81,9 +82,12 @@ fn repository_examples_parse_and_representative_examples_check() {
         let path = examples_dir.join(example);
         let output = Command::new(env!("CARGO_BIN_EXE_nia"))
             .arg("check")
-            .arg("--exe")
+            .arg("--runtime")
+            .arg("freestanding")
             .arg(&path)
-            .output_timeout(&format!("run nia check --exe on {example}"));
+            .output_timeout(&format!(
+                "run nia check --runtime freestanding on {example}"
+            ));
 
         assert!(
             output.status.success(),
@@ -152,7 +156,7 @@ fn help_and_version_use_nia_command_name() {
         String::from_utf8_lossy(&check_help.stderr)
     );
     let check_stdout = String::from_utf8_lossy(&check_help.stdout);
-    assert!(check_stdout.contains("--exe"), "{check_stdout}");
+    assert!(!check_stdout.contains("--exe"), "{check_stdout}");
     assert!(
         check_stdout.contains("--runtime <bare|freestanding>"),
         "{check_stdout}"
@@ -1029,7 +1033,7 @@ fn main() i32 {
     let stdout = String::from_utf8_lossy(&check.stdout);
     let stderr = String::from_utf8_lossy(&check.stderr);
     assert!(stdout.is_empty(), "{stdout}");
-    assert!(stderr.contains("timing check:"), "{stderr}");
+    assert!(stderr.contains("timing summary stage check:"), "{stderr}");
     assert!(!stderr.contains("query timing"), "{stderr}");
 
     let tokens = Command::new(env!("CARGO_BIN_EXE_nia"))
@@ -1047,7 +1051,7 @@ fn main() i32 {
     let stderr = String::from_utf8_lossy(&tokens.stderr);
     assert!(stdout.contains("Fn"), "{stdout}");
     assert!(!stdout.contains("timing "), "{stdout}");
-    assert!(stderr.contains("timing lex:"), "{stderr}");
+    assert!(stderr.contains("timing summary stage lex:"), "{stderr}");
 
     let llvm = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("--timings=detail")
@@ -1064,12 +1068,30 @@ fn main() i32 {
     let stderr = String::from_utf8_lossy(&llvm.stderr);
     assert!(stdout.contains("define i32 @"), "{stdout}");
     assert!(!stdout.contains("timing "), "{stdout}");
-    assert!(stderr.contains("timing codegen:"), "{stderr}");
-    assert!(stderr.contains("timing emit_llvm_ir:"), "{stderr}");
+    assert!(stderr.contains("timing summary stage codegen:"), "{stderr}");
     assert!(
-        stderr.contains("query timing backend_lowering:"),
+        stderr.contains("timing summary stage emit_llvm_ir:"),
         "{stderr}"
     );
+    assert!(
+        stderr.contains("timing summary query backend_lowering:"),
+        "{stderr}"
+    );
+
+    let traced = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .env("NIA_TIMING_TRACE_EVENTS", "1")
+        .arg("--timings")
+        .arg("check")
+        .arg(&main)
+        .output_timeout("run nia check --timings with trace events");
+    assert!(
+        traced.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&traced.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&traced.stderr);
+    assert!(stderr.contains("timing check:"), "{stderr}");
+    assert!(stderr.contains("timing summary stage check:"), "{stderr}");
 }
 
 #[test]
@@ -1413,8 +1435,8 @@ fn main() i32 {
 }
 
 #[test]
-fn check_exe_uses_freestanding_startup_contract() {
-    let root = temp_dir("check_exe_uses_freestanding_startup_contract");
+fn check_runtime_freestanding_uses_startup_contract() {
+    let root = temp_dir("check_runtime_freestanding_uses_startup_contract");
     let private_main = root.join("private_main.nia");
     std::fs::write(
         &private_main,
@@ -1442,9 +1464,10 @@ fn main(init: process::Init) process::ExitCode!void {
 
     let exe_check = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("check")
-        .arg("--exe")
         .arg(&private_main)
-        .output_timeout("run nia check --exe");
+        .arg("--runtime")
+        .arg("freestanding")
+        .output_timeout("run nia check --runtime freestanding");
 
     assert!(!exe_check.status.success());
     let stderr = String::from_utf8_lossy(&exe_check.stderr);
@@ -1467,9 +1490,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let exe_check = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("check")
-        .arg("--exe")
         .arg(&public_main)
-        .output_timeout("run nia check --exe with public entry");
+        .arg("--runtime")
+        .arg("freestanding")
+        .output_timeout("run nia check --runtime freestanding with public entry");
 
     assert!(
         exe_check.status.success(),
@@ -1504,17 +1528,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
         String::from_utf8_lossy(&repeated_runtime_check.stderr)
     );
 
-    let conflict = Command::new(env!("CARGO_BIN_EXE_nia"))
+    let removed_alias = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("check")
         .arg("--exe")
-        .arg("--runtime=bare")
         .arg(&public_main)
-        .output_timeout("run nia check --exe --runtime=bare");
+        .output_timeout("run removed nia check --exe alias");
 
-    assert!(!conflict.status.success());
-    let stderr = String::from_utf8_lossy(&conflict.stderr);
+    assert!(!removed_alias.status.success());
+    let stderr = String::from_utf8_lossy(&removed_alias.stderr);
     assert!(
-        stderr.contains("`--runtime bare` cannot be combined with `--exe`"),
+        stderr.contains("unknown `nia check` option `--exe`"),
         "{stderr}"
     );
 }

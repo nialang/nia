@@ -79,9 +79,9 @@ enum CliCommand {
 enum EmitTarget {
     Tokens,
     Ast,
-    Checked,
-    Backend,
-    Llvm,
+    Checked { runtime: Runtime },
+    Backend { runtime: Runtime },
+    Llvm { runtime: Runtime },
     Obj { args: Vec<String> },
     Exe { args: Vec<String> },
 }
@@ -429,35 +429,16 @@ fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     let mut path = None;
     let mut opt_report = false;
     let mut runtime = Runtime::Bare;
-    let mut explicit_runtime = None::<Runtime>;
-    let mut saw_exe = false;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         if let Some(value) = arg.strip_prefix("--runtime=") {
-            explicit_runtime = Some(parse_runtime(value).map_err(|message| {
+            runtime = parse_runtime(value).map_err(|message| {
                 CliError::new(format!("{message} for `nia check`"), HelpTopic::Check)
-            })?);
-            if matches!(explicit_runtime, Some(Runtime::Bare)) && saw_exe {
-                return Err(CliError::new(
-                    "`--runtime bare` cannot be combined with `--exe`",
-                    HelpTopic::Check,
-                ));
-            }
-            runtime = explicit_runtime.expect("runtime just set");
+            })?;
             continue;
         }
         match arg.as_str() {
             "--opt-report" => opt_report = true,
-            "--exe" => {
-                if matches!(explicit_runtime, Some(Runtime::Bare)) {
-                    return Err(CliError::new(
-                        "`--exe` cannot be combined with `--runtime bare`",
-                        HelpTopic::Check,
-                    ));
-                }
-                saw_exe = true;
-                runtime = Runtime::Freestanding;
-            }
             "--runtime" => {
                 let Some(value) = iter.next() else {
                     return Err(CliError::new(
@@ -465,16 +446,15 @@ fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                         HelpTopic::Check,
                     ));
                 };
-                explicit_runtime = Some(parse_runtime(&value).map_err(|message| {
+                runtime = parse_runtime(&value).map_err(|message| {
                     CliError::new(format!("{message} for `nia check`"), HelpTopic::Check)
-                })?);
-                if matches!(explicit_runtime, Some(Runtime::Bare)) && saw_exe {
-                    return Err(CliError::new(
-                        "`--runtime bare` cannot be combined with `--exe`",
-                        HelpTopic::Check,
-                    ));
-                }
-                runtime = explicit_runtime.expect("runtime just set");
+                })?;
+            }
+            _ if arg.starts_with('-') => {
+                return Err(CliError::new(
+                    format!("unknown `nia check` option `{arg}`"),
+                    HelpTopic::Check,
+                ));
             }
             _ if path.is_none() => path = Some(arg),
             _ => {
@@ -573,6 +553,11 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
             HelpTopic::Emit,
         ));
     };
+    let (runtime, target_args) = if target.accepts_runtime() {
+        parse_emit_runtime_args(target_args)?
+    } else {
+        (Runtime::Bare, target_args)
+    };
     let Some(path) = path else {
         return Err(CliError::new(
             "missing source file for `nia emit`",
@@ -602,9 +587,9 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     let target = match target {
         ParsedEmitTarget::Tokens => EmitTarget::Tokens,
         ParsedEmitTarget::Ast => EmitTarget::Ast,
-        ParsedEmitTarget::Checked => EmitTarget::Checked,
-        ParsedEmitTarget::Backend => EmitTarget::Backend,
-        ParsedEmitTarget::Llvm => EmitTarget::Llvm,
+        ParsedEmitTarget::Checked => EmitTarget::Checked { runtime },
+        ParsedEmitTarget::Backend => EmitTarget::Backend { runtime },
+        ParsedEmitTarget::Llvm => EmitTarget::Llvm { runtime },
         ParsedEmitTarget::Obj => EmitTarget::Obj { args: target_args },
         ParsedEmitTarget::Exe => EmitTarget::Exe { args: target_args },
     };
@@ -646,6 +631,39 @@ impl ParsedEmitTarget {
     fn accepts_opt_report(self) -> bool {
         matches!(self, Self::Backend | Self::Llvm | Self::Obj | Self::Exe)
     }
+
+    fn accepts_runtime(self) -> bool {
+        matches!(self, Self::Checked | Self::Backend | Self::Llvm)
+    }
+}
+
+fn parse_emit_runtime_args(args: Vec<String>) -> Result<(Runtime, Vec<String>), CliError> {
+    let mut runtime = Runtime::Bare;
+    let mut remaining = Vec::new();
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        if let Some(value) = arg.strip_prefix("--runtime=") {
+            runtime = parse_runtime(value).map_err(|message| {
+                CliError::new(format!("{message} for `nia emit`"), HelpTopic::Emit)
+            })?;
+            continue;
+        }
+        match arg.as_str() {
+            "--runtime" => {
+                let Some(value) = iter.next() else {
+                    return Err(CliError::new(
+                        "missing runtime after `--runtime`",
+                        HelpTopic::Emit,
+                    ));
+                };
+                runtime = parse_runtime(&value).map_err(|message| {
+                    CliError::new(format!("{message} for `nia emit`"), HelpTopic::Emit)
+                })?;
+            }
+            _ => remaining.push(arg),
+        }
+    }
+    Ok((runtime, remaining))
 }
 
 fn emit_target_flag(arg: &str) -> Option<ParsedEmitTarget> {
@@ -812,13 +830,27 @@ fn run_emit(
     match target {
         EmitTarget::Tokens => time_summary_stage(timings, "lex", || run_lex(source)),
         EmitTarget::Ast => time_summary_stage(timings, "parse", || run_parse(path, source)),
-        EmitTarget::Checked => run_emit_checked(path, source, module_map, optimization, timings),
-        EmitTarget::Backend => {
-            run_emit_backend(path, source, module_map, optimization, timings, opt_report)
+        EmitTarget::Checked { runtime } => {
+            run_emit_checked(path, source, module_map, optimization, timings, runtime)
         }
-        EmitTarget::Llvm => {
-            run_emit_llvm(path, source, module_map, optimization, timings, opt_report)
-        }
+        EmitTarget::Backend { runtime } => run_emit_backend(
+            path,
+            source,
+            module_map,
+            optimization,
+            timings,
+            opt_report,
+            runtime,
+        ),
+        EmitTarget::Llvm { runtime } => run_emit_llvm(
+            path,
+            source,
+            module_map,
+            optimization,
+            timings,
+            opt_report,
+            runtime,
+        ),
         EmitTarget::Obj { args } => run_emit_obj(
             path,
             source,
@@ -872,9 +904,10 @@ fn run_emit_checked(
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
+    runtime: Runtime,
 ) -> ExitCode {
     let output = time_summary_stage(timings, "check", || {
-        check_with_driver(path, module_map, optimization, timings, Runtime::Bare)
+        check_with_driver(path, module_map, optimization, timings, runtime)
     });
     let program = match checked_program_from_output(output, path, source) {
         Ok(program) => program,
@@ -891,9 +924,10 @@ fn run_emit_backend(
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     opt_report: bool,
+    runtime: Runtime,
 ) -> ExitCode {
     let output = time_summary_stage(timings, "codegen", || {
-        codegen_with_driver(path, module_map, optimization, timings, Runtime::Bare)
+        codegen_with_driver(path, module_map, optimization, timings, runtime)
     });
     let program = match codegen_program_from_output(output, path, source) {
         Ok(program) => program,
@@ -913,9 +947,10 @@ fn run_emit_llvm(
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     opt_report: bool,
+    runtime: Runtime,
 ) -> ExitCode {
     let output = time_summary_stage(timings, "codegen", || {
-        codegen_with_driver(path, module_map, optimization, timings, Runtime::Bare)
+        codegen_with_driver(path, module_map, optimization, timings, runtime)
     });
     let program = match codegen_program_from_output(output, path, source) {
         Ok(program) => program,

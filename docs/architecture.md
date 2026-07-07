@@ -200,9 +200,8 @@ Current Nia-owned optimization consumers:
   stable observability hook for reviewing pass behavior without embedding full
   before/after IR snapshots in normal compiler output.
   `nia check <file.nia> --opt-report` prints this report for direct CLI
-  inspection. `nia check --exe <file.nia>` is an alias for
-  `nia check <file.nia> --runtime freestanding`, which checks with the same
-  startup runtime that `emit --exe` injects.
+  inspection. `nia check <file.nia> --runtime freestanding` checks with the
+  same startup runtime that `emit --exe` injects.
   `nia emit --checked <file.nia> --opt-report`,
   `nia emit --backend <file.nia> --opt-report`,
   `nia emit --llvm <file.nia> --opt-report`,
@@ -1096,12 +1095,12 @@ The CLI supports:
 
 ```text
 nia build [step] [--root dir]
-nia check <file.nia> [--exe | --runtime bare|freestanding] [--opt-report]
+nia check <file.nia> [--runtime bare|freestanding] [--opt-report]
 nia emit --tokens <file.nia>
 nia emit --ast <file.nia>
-nia emit --checked <file.nia> [--opt-report]
-nia emit --backend <file.nia> [--opt-report]
-nia emit --llvm <file.nia> [--opt-report]
+nia emit --checked <file.nia> [--runtime bare|freestanding] [--opt-report]
+nia emit --backend <file.nia> [--runtime bare|freestanding] [--opt-report]
+nia emit --llvm <file.nia> [--runtime bare|freestanding] [--opt-report]
 nia emit --obj <file.nia> [-o file.o | --out-dir dir] [--runtime bare|freestanding] [--opt-report]
 nia emit --exe <file.nia> [-o executable] [--runtime freestanding] [--link-arg arg] [--opt-report]
 ```
@@ -1178,9 +1177,9 @@ Global timing options are also accepted before or after the command:
 `nia check <file.nia> --opt-report` prints the active optimization
 policy, LLVM codegen optimization level, enabled backend module/function/global
 pass inventories, the backend optimization change count, and backend
-optimization changes to stdout. `nia check --exe <file.nia>` injects the
-freestanding startup runtime through the `--runtime freestanding` model and
-checks the same entry contract used by `emit --exe`.
+optimization changes to stdout. `nia check <file.nia> --runtime freestanding`
+injects the freestanding startup runtime and checks the same entry contract used
+by `emit --exe`.
 `nia emit --backend` prints the optimized backend IR to stdout for pass review.
 `nia emit --checked <file.nia> --opt-report`,
 `nia emit --backend <file.nia> --opt-report`,
@@ -1190,7 +1189,8 @@ checks the same entry contract used by `emit --exe`.
 leaving stdout as backend IR or LLVM IR, and while keeping native
 object/executable output file-only. This is useful when reviewing pass behavior
 next to emitted code or native codegen artifacts.
-Timing reports are written to stderr; detail mode also includes query timings.
+Timing reports are written to stderr; detail mode also includes aggregated query
+timings.
 The CLI does not yet expose separate before/after backend optimization snapshots;
 `emit --backend` is the post-lowering optimized backend IR, and
 `--opt-report` is the stable pass-observability interface.
