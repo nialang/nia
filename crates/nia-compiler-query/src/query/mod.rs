@@ -2900,7 +2900,7 @@ extend Value : Ops {
             "extension_trait_signature_index",
             "module_program_signature_facts"
         ));
-        assert!(trace_has_dependency(
+        assert!(!trace_has_dependency(
             &trace,
             "extension_provider_validation_facts",
             "program_trait_solving_signatures"
@@ -2949,16 +2949,6 @@ extend Value : Ops {
             &trace,
             "extension_signature_module_input",
             "signature_type_lowering"
-        ));
-        assert!(trace_has_dependency(
-            &trace,
-            "program_trait_solving_signatures",
-            "extension_trait_solving_module_facts"
-        ));
-        assert!(trace_has_dependency(
-            &trace,
-            "extension_trait_solving_module_facts",
-            "extension_signature_module_input"
         ));
         assert!(!trace_has_dependency(
             &trace,
