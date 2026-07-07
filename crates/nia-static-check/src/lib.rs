@@ -553,7 +553,11 @@ struct StaticComptimeEnv<'a> {
     target: &'a TargetConfig,
 }
 
-impl ComptimeCommonEnv for StaticComptimeEnv<'_> {}
+impl ComptimeCommonEnv for StaticComptimeEnv<'_> {
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        StaticComptimeEnv::symbol_name(self, symbol)
+    }
+}
 
 impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
     fn resolve_resolved_name(

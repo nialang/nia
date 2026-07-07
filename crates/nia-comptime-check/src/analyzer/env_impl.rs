@@ -28,6 +28,10 @@ use nia_ty::{IntConst, TyKind};
 use std::path::{Path, PathBuf};
 
 impl ComptimeCommonEnv for Analyzer<'_> {
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        Analyzer::symbol_name(self, symbol)
+    }
+
     fn resolve_builtin_comptime(
         &mut self,
         span: Span,
