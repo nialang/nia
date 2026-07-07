@@ -7,7 +7,7 @@ use nia_comptime_ir::{
 };
 use nia_ids::{BuiltinComptime, GlobalDefId, InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
 use nia_span::Span;
-use nia_symbol::{SymbolId, symbol_identity_key};
+use nia_symbol::{SymbolId, symbol_text_from_optional_resolver};
 use nia_ty::ConstGenericArg;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,6 +17,10 @@ pub struct ComptimeError {
 }
 
 pub trait ComptimeCommonEnv {
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_from_optional_resolver(None, symbol)
+    }
+
     fn resolve_builtin_comptime(
         &mut self,
         span: Span,
@@ -200,7 +204,7 @@ pub trait EarlyComptimeEnv: ComptimeCommonEnv {
                 span,
                 message: format!(
                     "failed to resolve comptime pattern local `{}`",
-                    symbol_identity_key(*name)
+                    self.symbol_name(*name)
                 ),
             });
         }
@@ -333,13 +337,13 @@ impl EarlyComptimeEnv for EmptyEnv {
         match name {
             EarlyComptimeName::Unresolved(display) => Err(ComptimeError {
                 span,
-                message: format!("unknown comptime value `{}`", symbol_identity_key(*display)),
+                message: format!("unknown comptime value `{}`", self.symbol_name(*display)),
             }),
             EarlyComptimeName::Resolved { display, .. } => Err(ComptimeError {
                 span,
                 message: format!(
                     "resolved comptime value `{}` is not available in this context",
-                    symbol_identity_key(*display)
+                    self.symbol_name(*display)
                 ),
             }),
         }

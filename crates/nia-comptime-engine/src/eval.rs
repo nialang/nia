@@ -27,7 +27,7 @@ use nia_comptime_ir::{
 use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId};
 use nia_sema::{ArityCheck, NamedField, check_exact_arity, check_unique_field_set};
 use nia_span::Span;
-use nia_symbol::{SymbolId, symbol_identity_key};
+use nia_symbol::SymbolId;
 use nia_ty::IntConst;
 use std::collections::BTreeMap;
 
@@ -210,7 +210,7 @@ fn eval_resolved_comptime_expr_flow(
                 ComptimeValue::Struct(fields) => {
                     fields.get(name).cloned().ok_or_else(|| ComptimeError {
                         span,
-                        message: format!("unknown comptime field `{}`", symbol_identity_key(*name)),
+                        message: format!("unknown comptime field `{}`", env.symbol_name(*name)),
                     })?
                 }
                 _ => {
@@ -460,7 +460,7 @@ fn eval_comptime_expr_flow(
             ComptimeValue::Struct(fields) => {
                 fields.get(name).cloned().ok_or_else(|| ComptimeError {
                     span: expr.span,
-                    message: format!("unknown comptime field `{}`", symbol_identity_key(*name)),
+                    message: format!("unknown comptime field `{}`", env.symbol_name(*name)),
                 })?
             }
             _ => {
@@ -1536,7 +1536,7 @@ fn eval_struct_literal_flow(
             span: field.span,
             message: format!(
                 "duplicate comptime struct field `{}`",
-                symbol_identity_key(field.name)
+                env.symbol_name(field.name)
             ),
         });
     }
@@ -1566,7 +1566,7 @@ fn eval_resolved_struct_literal_flow(
             span: field.span,
             message: format!(
                 "duplicate comptime struct field `{}`",
-                symbol_identity_key(field.name)
+                env.symbol_name(field.name)
             ),
         });
     }
@@ -2166,7 +2166,7 @@ fn eval_assign_target_root_value(
                     span,
                     message: format!(
                         "failed to resolve comptime assignment target `{}`",
-                        symbol_identity_key(*name)
+                        env.symbol_name(*name)
                     ),
                 });
             };
@@ -2232,7 +2232,7 @@ fn eval_assign_path_value(
                         span: *span,
                         message: format!(
                             "unknown comptime assignment field `{}`",
-                            symbol_identity_key(*name)
+                            env.symbol_name(*name)
                         ),
                     })?
                 }
@@ -2282,7 +2282,7 @@ fn eval_resolved_assign_path_value(
                         span: *span,
                         message: format!(
                             "unknown comptime assignment field `{}`",
-                            symbol_identity_key(*name)
+                            env.symbol_name(*name)
                         ),
                     })?
                 }
@@ -2377,7 +2377,7 @@ fn write_assign_path_value(
                 span: *field_span,
                 message: format!(
                     "unknown comptime assignment field `{}`",
-                    symbol_identity_key(*name)
+                    env.symbol_name(*name)
                 ),
             })?;
             let updated = write_assign_path_value(span, current, tail, value, env)?;
@@ -2434,7 +2434,7 @@ fn write_resolved_assign_path_value(
                 span: *field_span,
                 message: format!(
                     "unknown comptime assignment field `{}`",
-                    symbol_identity_key(*name)
+                    env.symbol_name(*name)
                 ),
             })?;
             let updated = write_resolved_assign_path_value(span, current, tail, value, env)?;
