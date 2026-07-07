@@ -371,7 +371,7 @@ pub(super) fn signature_layouts_for_types(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ));
-        let type_lowering = db.query(SignatureTypeLoweringQuery(
+        let type_lowering = db.query_shared(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ));
@@ -393,12 +393,11 @@ pub(super) fn signature_layouts_for_types(
             .cloned()
             .map(|signature| ProgramStructSignature {
                 signature,
-                interner: db
-                    .query(SignatureTypeLoweringQuery(
-                        def_id.module_id,
-                        nia_item_tree::SignatureItemSet::Types,
-                    ))
-                    .interner,
+                interner: signature_type_interner(
+                    db,
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ),
             })
         };
         let program_union = |def_id: GlobalDefId| {
@@ -411,12 +410,11 @@ pub(super) fn signature_layouts_for_types(
             .cloned()
             .map(|signature| ProgramUnionSignature {
                 signature,
-                interner: db
-                    .query(SignatureTypeLoweringQuery(
-                        def_id.module_id,
-                        nia_item_tree::SignatureItemSet::Types,
-                    ))
-                    .interner,
+                interner: signature_type_interner(
+                    db,
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ),
             })
         };
         let program_enum = |def_id: GlobalDefId| {
@@ -429,12 +427,11 @@ pub(super) fn signature_layouts_for_types(
             .cloned()
             .map(|signature| ProgramEnumSignature {
                 signature,
-                interner: db
-                    .query(SignatureTypeLoweringQuery(
-                        def_id.module_id,
-                        nia_item_tree::SignatureItemSet::Types,
-                    ))
-                    .interner,
+                interner: signature_type_interner(
+                    db,
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ),
             })
         };
         let program_type_alias = |def_id: GlobalDefId| {
@@ -447,12 +444,11 @@ pub(super) fn signature_layouts_for_types(
             .cloned()
             .map(|signature| ProgramTypeAliasSignature {
                 signature,
-                interner: db
-                    .query(SignatureTypeLoweringQuery(
-                        def_id.module_id,
-                        nia_item_tree::SignatureItemSet::Types,
-                    ))
-                    .interner,
+                interner: signature_type_interner(
+                    db,
+                    def_id.module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                ),
             })
         };
         let array_lengths = with_type_signature_comptime_input(
