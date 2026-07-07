@@ -36,7 +36,6 @@ pub struct ExecutableReachabilityStats {
 }
 
 pub struct ExecutableExtensionIndex<'a> {
-    methods: Vec<&'a nia_defs::ExtensionMethod>,
     by_trait: HashMap<TraitId, Vec<&'a nia_defs::ExtensionMethod>>,
     by_trait_method: HashMap<(TraitId, SymbolId), Vec<&'a nia_defs::ExtensionMethod>>,
     where_predicates_by_def: HashMap<GlobalDefId, &'a [nia_defs::WherePredicateSignature]>,
@@ -48,7 +47,6 @@ impl<'a> ExecutableExtensionIndex<'a> {
         extension_methods: &'a ExtensionMethods,
         trait_impls: &'a [ProgramTraitImplSignature],
     ) -> Self {
-        let mut methods = Vec::new();
         let mut by_trait = HashMap::<TraitId, Vec<&'a nia_defs::ExtensionMethod>>::new();
         let mut by_trait_method =
             HashMap::<(TraitId, SymbolId), Vec<&'a nia_defs::ExtensionMethod>>::new();
@@ -68,7 +66,6 @@ impl<'a> ExecutableExtensionIndex<'a> {
             })
             .collect::<HashMap<_, _>>();
         for method in extension_methods.all_methods() {
-            methods.push(method);
             where_predicates_by_def.insert(method.def_id, method.where_predicates.as_slice());
             if let Some(trait_id) = method.trait_id {
                 by_trait.entry(trait_id).or_default().push(method);
@@ -79,16 +76,11 @@ impl<'a> ExecutableExtensionIndex<'a> {
             }
         }
         Self {
-            methods,
             by_trait,
             by_trait_method,
             where_predicates_by_def,
             trait_impls_by_key,
         }
-    }
-
-    fn all_methods(&self) -> impl Iterator<Item = &'a nia_defs::ExtensionMethod> + '_ {
-        self.methods.iter().copied()
     }
 
     fn methods_for_trait(
@@ -1580,29 +1572,30 @@ fn extend_reachable_functions_from_traits(
             }
         }
     }
-    for method in extension_index.all_methods() {
-        let Some(trait_id) = method.trait_id else {
-            continue;
-        };
-        if !reachable_traits.needs_method(trait_id, &method.name) {
-            continue;
+    for vtable in &reachable_traits.vtables {
+        for method in extension_index.methods_for_trait(vtable.trait_id) {
+            if reachable_extension_method_match(
+                method,
+                vtable.trait_id,
+                vtable.self_ty,
+                &vtable.trait_args,
+                vtable.module_id,
+                None,
+                extension_index,
+                modules_by_id,
+            )
+            .is_none()
+            {
+                continue;
+            }
+            add_reachable_function(
+                method.def_id,
+                program_signatures,
+                reachable_functions,
+                &mut modules,
+                pending_modules,
+            );
         }
-        let needs_body = reachable_extension_method_needs_body(
-            method,
-            extension_index,
-            modules_by_id,
-            reachable_traits,
-        );
-        if !needs_body {
-            continue;
-        }
-        add_reachable_function(
-            method.def_id,
-            program_signatures,
-            reachable_functions,
-            &mut modules,
-            pending_modules,
-        );
     }
     let mut method_index = 0;
     while method_index < reachable_traits.methods.len() {
@@ -1804,47 +1797,6 @@ fn add_reachable_default_trait_methods_for_vtable(
             );
         }
     }
-}
-
-fn reachable_extension_method_needs_body(
-    method: &nia_defs::ExtensionMethod,
-    extension_index: &ExecutableExtensionIndex<'_>,
-    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
-    reachable_traits: &ReachableTraitRefs,
-) -> bool {
-    let Some(method_trait_id) = method.trait_id else {
-        return false;
-    };
-    if reachable_traits.vtables.iter().any(|vtable| {
-        reachable_extension_method_match(
-            method,
-            method_trait_id,
-            vtable.self_ty,
-            &vtable.trait_args,
-            vtable.module_id,
-            None,
-            extension_index,
-            modules_by_id,
-        )
-        .is_some()
-    }) {
-        return true;
-    }
-    reachable_traits.methods.iter().any(|reachable| {
-        reachable.trait_id == method_trait_id
-            && reachable.method_name == method.name
-            && reachable_extension_method_match(
-                method,
-                method_trait_id,
-                reachable.self_ty,
-                &reachable.trait_args,
-                reachable.module_id,
-                reachable.interner.as_ref(),
-                extension_index,
-                modules_by_id,
-            )
-            .is_some()
-    })
 }
 
 #[derive(Debug)]
