@@ -583,7 +583,10 @@ pub(super) fn provide_module_defs(
     module_id: ModuleId,
 ) -> DefCollection {
     let item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
-    nia_defs::collect_module_defs_from_active_item_tree(module_id, &item_tree)
+    let symbols = db.context().symbols();
+    nia_defs::collect_module_defs_from_active_item_tree_with_symbols(
+        module_id, &item_tree, &symbols,
+    )
 }
 
 pub(super) fn provide_full_module_defs(
@@ -591,7 +594,10 @@ pub(super) fn provide_full_module_defs(
     module_id: ModuleId,
 ) -> DefCollection {
     let item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    nia_defs::collect_module_defs_from_active_item_tree(module_id, &item_tree)
+    let symbols = db.context().symbols();
+    nia_defs::collect_module_defs_from_active_item_tree_with_symbols(
+        module_id, &item_tree, &symbols,
+    )
 }
 
 pub(super) fn provide_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<DefCollection> {
