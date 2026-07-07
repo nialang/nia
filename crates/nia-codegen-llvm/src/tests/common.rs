@@ -9,7 +9,9 @@ pub(super) use nia_backend_ir::{
     BackendProgram, BackendStruct, BackendTraitObjectVtable, BackendTraitObjectVtableEntry,
     BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey, BackendUnion,
 };
-pub(super) use nia_body_ir::{TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind};
+pub(super) use nia_body_ir::{
+    LocalName, TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind,
+};
 pub(super) use nia_diagnostic::{Diagnostic, DiagnosticCategory, codes};
 pub(super) use nia_function_ir::{
     FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee, FunctionExpr, FunctionExprKind,
@@ -23,10 +25,28 @@ pub(super) use nia_layout::{FieldLayout, StructLayout, TypeLayout};
 pub(super) use nia_opt::NiaOptimizationLevel;
 pub(super) use nia_span::Span;
 pub(super) use nia_static_ir::{StaticFieldInit, StaticInit};
+pub(super) use nia_symbol::{SymbolId, known, stable_hash};
 pub(super) use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyKind};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+pub(super) fn sym(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(stable_hash(text))
+}
+
+pub(super) fn local_name(text: &str) -> LocalName {
+    LocalName::named(sym(text))
+}
+
+pub(super) fn function_local_names(
+    body: &FunctionBody,
+) -> std::collections::HashMap<LocalId, String> {
+    body.locals
+        .iter()
+        .map(|local| (local.id, local.name.display_name()))
+        .collect()
+}
 
 pub(super) fn has_internal_diagnostic(
     diagnostics: &[Diagnostic],

@@ -213,12 +213,20 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.function_instances
                 .entry((instance.def_id, instance.arg_module_id))
                 .or_default()
-                .insert((instance.args.clone(), instance.const_args.clone()), value);
+                .insert(
+                    (
+                        instance.self_arg,
+                        instance.args.clone(),
+                        instance.const_args.clone(),
+                    ),
+                    value,
+                );
             self.function_instances_by_def
                 .entry(instance.def_id)
                 .or_default()
                 .push((
                     instance.arg_module_id,
+                    instance.self_arg,
                     instance.args.clone(),
                     instance.const_args.clone(),
                     value,
@@ -429,25 +437,34 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         entry: &BackendTraitObjectVtableEntry,
         span: Span,
     ) -> Result<FunctionValue<'ctx>, Diagnostic> {
-        let (def_id, arg_module_id, args, const_args, function) = match &entry.function {
+        let (def_id, arg_module_id, self_arg, args, const_args, function) = match &entry.function {
             BackendTraitObjectVtableFunction::Function(def_id) => {
                 let function = self
                     .function(*def_id)
                     .ok_or_else(|| self.error(span, "missing vtable method function"))?;
-                (*def_id, self.source.id, Vec::new(), Vec::new(), function)
+                (
+                    *def_id,
+                    self.source.id,
+                    None,
+                    Vec::new(),
+                    Vec::new(),
+                    function,
+                )
             }
             BackendTraitObjectVtableFunction::FunctionInstance {
                 def_id,
                 arg_module_id,
+                self_arg,
                 args,
                 const_args,
             } => {
                 let function = self
-                    .function_instance_value(*def_id, *arg_module_id, args, const_args)
+                    .function_instance_value(*def_id, *arg_module_id, *self_arg, args, const_args)
                     .ok_or_else(|| self.error(span, "missing vtable method function instance"))?;
                 (
                     *def_id,
                     *arg_module_id,
+                    *self_arg,
                     args.clone(),
                     const_args.clone(),
                     function,
@@ -461,6 +478,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self_ty,
             def_id,
             arg_module_id,
+            self_arg,
             &args,
             &const_args,
             function,
@@ -473,6 +491,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         self_ty: InternedTyId,
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
+        self_arg: Option<InternedTyId>,
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
         target: FunctionValue<'ctx>,
@@ -482,17 +501,24 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self_ty,
             def_id,
             arg_module_id,
+            self_arg,
             args.to_vec(),
             const_args.to_vec(),
         );
         if let Some(function) = self.trait_object_adapters.borrow().get(&key).copied() {
             return Ok(function);
         }
-        let Some(item) = (if args.is_empty() && const_args.is_empty() {
+        let Some(item) = (if self_arg.is_none() && args.is_empty() && const_args.is_empty() {
             self.function_item(def_id).map(AdapterFunction::Function)
         } else {
-            self.function_instance_item_with_arg_module(def_id, arg_module_id, args, const_args)
-                .map(AdapterFunction::Instance)
+            self.function_instance_item_with_arg_module(
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+            )
+            .map(AdapterFunction::Instance)
         }) else {
             return Err(self.error(span, "missing vtable adapter target"));
         };

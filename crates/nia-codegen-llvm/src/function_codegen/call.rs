@@ -41,12 +41,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::FunctionInstance {
                 def_id,
                 arg_module_id,
+                self_arg,
                 args,
                 const_args,
             } => {
                 let Some(instance) = self.module.function_instance_item_with_arg_module(
                     *def_id,
                     *arg_module_id,
+                    *self_arg,
                     args,
                     const_args,
                 ) else {
@@ -55,6 +57,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let Some(function) = self.module.function_instance_value(
                     instance.def_id,
                     instance.arg_module_id,
+                    instance.self_arg,
                     &instance.args,
                     &instance.const_args,
                 ) else {
@@ -282,12 +285,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionCallee::FunctionInstance {
                 def_id,
                 arg_module_id,
+                self_arg,
                 args: type_args,
                 const_args,
             } => {
                 let Some(instance) = self.module.function_instance_item_with_arg_module(
                     *def_id,
                     *arg_module_id,
+                    *self_arg,
                     type_args,
                     const_args,
                 ) else {
@@ -305,6 +310,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             .function_instance_value(
                                 instance.def_id,
                                 instance.arg_module_id,
+                                instance.self_arg,
                                 &instance.args,
                                 &instance.const_args,
                             )
@@ -319,11 +325,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionCallee::Method {
                 def_id,
                 arg_module_id,
+                self_arg,
                 args: type_args,
                 receiver_kind,
                 receiver,
             } => {
-                let (function, is_extern, param_tys) = if type_args.is_empty() {
+                let (function, is_extern, param_tys) = if self_arg.is_none() && type_args.is_empty()
+                {
                     let item = self.module.function_item(*def_id);
                     (
                         self.module.function(*def_id),
@@ -339,6 +347,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let instance = self.module.function_instance_item_with_arg_module(
                         *def_id,
                         *arg_module_id,
+                        *self_arg,
                         type_args,
                         &[],
                     );
@@ -347,6 +356,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             self.module.function_instance_value(
                                 instance.def_id,
                                 instance.arg_module_id,
+                                instance.self_arg,
                                 &instance.args,
                                 &instance.const_args,
                             )

@@ -50,6 +50,7 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
 pub(super) struct FunctionCodegenInput<'a> {
     pub(super) params: &'a [BackendParam],
     pub(super) return_type: InternedTyId,
+    pub(super) local_names: &'a HashMap<LocalId, String>,
     pub(super) span: Span,
 }
 
@@ -58,6 +59,7 @@ impl<'a> From<&'a BackendFunction> for FunctionCodegenInput<'a> {
         Self {
             params: &function.params,
             return_type: function.return_type,
+            local_names: &function.local_names,
             span: function.span,
         }
     }
@@ -126,15 +128,24 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     continue;
                 }
                 let ty = self.module.llvm_basic_type(local.ty, local.span)?;
+                let name = self.local_storage_name(local);
                 let ptr = self
                     .builder
-                    .build_alloca(ty, &local.name)
+                    .build_alloca(ty, &name)
                     .map_err(|_| self.error(local.span, "failed to build local alloca"))?;
                 self.locals.insert(local.id, ptr);
                 self.local_tys.insert(local.id, local.ty);
             }
         }
         Ok(())
+    }
+
+    fn local_storage_name(&self, local: &FunctionLocal) -> String {
+        self.function
+            .local_names
+            .get(&local.id)
+            .cloned()
+            .unwrap_or_else(|| local.name.display_name())
     }
 
     fn store_params(&mut self) -> Result<(), Diagnostic> {
@@ -1214,19 +1225,27 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
         FunctionCallee::FunctionInstance {
             def_id,
             arg_module_id,
+            self_arg,
             args,
             const_args,
         } => codegen
             .module
-            .function_instance_item_with_arg_module(*def_id, *arg_module_id, args, const_args)
+            .function_instance_item_with_arg_module(
+                *def_id,
+                *arg_module_id,
+                *self_arg,
+                args,
+                const_args,
+            )
             .is_some_and(|function| function.is_extern),
         FunctionCallee::Method {
             def_id,
             arg_module_id,
+            self_arg,
             args,
             ..
         } => {
-            if args.is_empty() {
+            if self_arg.is_none() && args.is_empty() {
                 codegen
                     .module
                     .function_item(*def_id)
@@ -1234,7 +1253,13 @@ fn callee_is_extern(codegen: &FunctionCodegen<'_, '_, '_>, callee: &FunctionCall
             } else {
                 codegen
                     .module
-                    .function_instance_item_with_arg_module(*def_id, *arg_module_id, args, &[])
+                    .function_instance_item_with_arg_module(
+                        *def_id,
+                        *arg_module_id,
+                        *self_arg,
+                        args,
+                        &[],
+                    )
                     .is_some_and(|function| function.is_extern)
             }
         }

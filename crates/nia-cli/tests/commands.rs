@@ -1159,7 +1159,7 @@ fn main() i32 {
     );
     let stdout = String::from_utf8_lossy(&ast.stdout);
     assert!(stdout.contains("FunctionItem"), "{stdout}");
-    assert!(stdout.contains("main"), "{stdout}");
+    assert!(stdout.contains("name: SymbolId"), "{stdout}");
 
     let checked = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")

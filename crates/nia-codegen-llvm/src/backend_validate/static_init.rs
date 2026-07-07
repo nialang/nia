@@ -74,6 +74,7 @@ impl BackendValidator<'_> {
                     self.validate_function_instance_ref(
                         *function,
                         function.module_id,
+                        None,
                         args,
                         &[],
                         span,

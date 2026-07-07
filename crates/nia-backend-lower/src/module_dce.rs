@@ -13,6 +13,7 @@ use nia_backend_ir::{
 use nia_defs::DefKind;
 use nia_ids::{GlobalDefId, Visibility};
 use nia_opt::OptimizationDepth;
+use nia_symbol::known;
 
 pub(crate) const REMOVE_UNUSED_FUNCTIONS_PASS: &str = "remove-unused-functions";
 pub(crate) const REMOVE_UNUSED_FUNCTION_INSTANCES_PASS: &str = "remove-unused-function-instances";
@@ -80,12 +81,14 @@ impl<'a> ModuleLowerer<'a> {
                     BackendTraitObjectVtableFunction::FunctionInstance {
                         def_id,
                         arg_module_id,
+                        self_arg,
                         args,
                         const_args,
                     } => {
                         refs.instances.push(FunctionInstanceRef {
                             def_id: *def_id,
                             arg_module_id: *arg_module_id,
+                            self_arg: *self_arg,
                             args: args.clone(),
                             const_args: const_args.clone(),
                             arg_interner: None,
@@ -146,15 +149,15 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn is_removable_private_function(&self, function: &BackendFunction) -> bool {
-        if function.is_extern
-            || function.name == "main"
-            || function.def_id.module_id != self.input.module_id
-        {
+        if function.is_extern || function.def_id.module_id != self.input.module_id {
             return false;
         }
         let Some(def) = self.input.defs.defs.get(function.def_id.def_id) else {
             return false;
         };
+        if def.name == known::MAIN {
+            return false;
+        }
         matches!(def.kind, DefKind::Function) && def.visibility != Visibility::Public
     }
 
@@ -174,6 +177,7 @@ impl From<&BackendFunctionInstance> for FunctionInstanceRef {
         Self {
             def_id: instance.def_id,
             arg_module_id: instance.arg_module_id,
+            self_arg: instance.self_arg,
             args: instance.args.clone(),
             const_args: instance.const_args.clone(),
             arg_interner: None,
@@ -187,6 +191,7 @@ impl From<&BackendFunctionInstance> for FunctionInstanceKey {
         Self {
             def_id: instance.def_id,
             arg_module_id: instance.arg_module_id,
+            self_arg: instance.self_arg,
             args: instance.args.clone(),
             const_args: instance.const_args.clone(),
         }

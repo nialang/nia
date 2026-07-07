@@ -43,7 +43,14 @@ pub(super) struct ProgramIndex<'a> {
     pub(super) functions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendFunction>,
     pub(super) function_instances: HashMap<
         (GlobalDefId, ModuleId),
-        HashMap<(Vec<InternedTyId>, Vec<ConstGenericArg>), &'a BackendFunctionInstance>,
+        HashMap<
+            (
+                Option<InternedTyId>,
+                Vec<InternedTyId>,
+                Vec<ConstGenericArg>,
+            ),
+            &'a BackendFunctionInstance,
+        >,
     >,
     pub(super) function_instances_by_def: HashMap<GlobalDefId, Vec<&'a BackendFunctionInstance>>,
     trait_object_vtables_by_object_ty: HashMap<InternedTyId, Vec<&'a BackendTraitObjectVtable>>,
@@ -205,7 +212,10 @@ impl<'a> ProgramIndex<'a> {
                     .function_instances
                     .entry((item.def_id, item.arg_module_id))
                     .or_default()
-                    .insert((item.args.clone(), item.const_args.clone()), item);
+                    .insert(
+                        (item.self_arg, item.args.clone(), item.const_args.clone()),
+                        item,
+                    );
                 index
                     .function_instances_by_def
                     .entry(item.def_id)
@@ -300,12 +310,13 @@ impl<'a> ProgramIndex<'a> {
         &self,
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
+        self_arg: Option<InternedTyId>,
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<&'a BackendFunctionInstance> {
         self.function_instances
             .get(&(def_id, arg_module_id))
-            .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
+            .and_then(|instances| instances.get(&(self_arg, args.to_vec(), const_args.to_vec())))
             .copied()
     }
 
@@ -396,6 +407,7 @@ mod tests {
             def_id: function_def,
             name: "id".to_string(),
             arg_module_id: module_id,
+            self_arg: None,
             args: vec![i32_ty],
             const_args: Vec::new(),
             symbol: "id_i32".to_string(),
@@ -411,6 +423,7 @@ mod tests {
             is_extern: false,
             is_variadic: false,
             attributes: Vec::new(),
+            local_names: Default::default(),
             function_body: None,
             span: Span::default(),
         };
@@ -497,7 +510,7 @@ mod tests {
         assert!(index.struct_instance(struct_def, &[i32_ty], &[]).is_some());
         assert!(
             index
-                .function_instance(function_def, module_id, &[i32_ty], &[])
+                .function_instance(function_def, module_id, None, &[i32_ty], &[])
                 .is_some()
         );
         let variant_info = index

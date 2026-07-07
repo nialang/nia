@@ -7,6 +7,7 @@ use nia_function_ir::{
 };
 use nia_imports::ModuleMap;
 use nia_opt::NiaOptimizationLevel;
+use nia_symbol::{SymbolId, stable_hash};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -14,6 +15,10 @@ use std::{
 };
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+pub(super) fn sym(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(stable_hash(text))
+}
 
 pub(super) fn temp_dir(name: &str) -> PathBuf {
     let id = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);

@@ -66,7 +66,7 @@ fn loads_entry_and_imported_modules_once() {
     let math = program
         .graph
         .get(program.graph.entry())
-        .and_then(|root| root.children.get("math").copied())
+        .and_then(|root| root.children.get(&sym("math")).copied())
         .expect("math child module");
     let math_path = SourcePath::new(root.join("math.nia").to_string_lossy());
     let math_module = program

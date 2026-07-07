@@ -13,6 +13,7 @@ use nia_function_ir::{
     FunctionPlaceBase, FunctionPlaceElem, FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId};
+use nia_symbol::{SymbolId, SymbolMap};
 use nia_trait_solve::{AssociatedTypeProjectionEq, TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{LayoutBuiltin, PrimitiveTy, TyKind};
 
@@ -25,7 +26,7 @@ struct ProjectionInstantiationKey {
     trait_id: nia_ty::TraitId,
     trait_args: Vec<InternedTyId>,
     trait_const_args: Vec<nia_ty::ConstGenericArg>,
-    name: String,
+    name: SymbolId,
 }
 
 fn array_len_from_const_arg(arg: &nia_ty::ConstGenericArg) -> Option<nia_ty::ArrayLenTy> {
@@ -162,9 +163,9 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn generic_substitutions(
-        generics: &[String],
+        generics: &[SymbolId],
         args: &[InternedTyId],
-    ) -> HashMap<String, InternedTyId> {
+    ) -> SymbolMap<InternedTyId> {
         generics.iter().cloned().zip(args.iter().copied()).collect()
     }
 
@@ -173,17 +174,14 @@ impl<'a> ModuleLowerer<'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
-    ) -> (
-        HashMap<String, InternedTyId>,
-        HashMap<String, nia_ty::ConstGenericArg>,
-    ) {
+    ) -> (SymbolMap<InternedTyId>, SymbolMap<nia_ty::ConstGenericArg>) {
         let Some(def) = crate::program_def(self.input, def_id) else {
-            return (HashMap::new(), HashMap::new());
+            return (SymbolMap::new(), SymbolMap::new());
         };
         let mut type_index = 0;
         let mut const_index = 0;
-        let mut substitutions = HashMap::new();
-        let mut const_substitutions = HashMap::new();
+        let mut substitutions = SymbolMap::new();
+        let mut const_substitutions = SymbolMap::new();
         for generic in &def.generic_params {
             match generic.kind {
                 nia_ast::GenericParamKind::Type => {
@@ -207,12 +205,12 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         def_id: GlobalDefId,
         const_args: &[nia_ty::ConstGenericArg],
-    ) -> HashMap<String, nia_ty::ConstGenericArg> {
+    ) -> SymbolMap<nia_ty::ConstGenericArg> {
         let Some(def) = crate::program_def(self.input, def_id) else {
-            return HashMap::new();
+            return SymbolMap::new();
         };
         let mut const_index = 0;
-        let mut const_substitutions = HashMap::new();
+        let mut const_substitutions = SymbolMap::new();
         for generic in &def.generic_params {
             match generic.kind {
                 nia_ast::GenericParamKind::Type => {}
@@ -230,8 +228,8 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn effective_generics(
         &mut self,
         def_id: GlobalDefId,
-        own_generics: &[String],
-    ) -> &[String] {
+        own_generics: &[SymbolId],
+    ) -> &[SymbolId] {
         if !self.effective_generics.contains_key(&def_id) {
             let generics = self.compute_effective_generics(def_id, own_generics);
             self.effective_generics.insert(def_id, generics);
@@ -245,8 +243,8 @@ impl<'a> ModuleLowerer<'a> {
     fn compute_effective_generics(
         &self,
         def_id: GlobalDefId,
-        own_generics: &[String],
-    ) -> Vec<String> {
+        own_generics: &[SymbolId],
+    ) -> Vec<SymbolId> {
         if let Some(generics) = self.program_trait_method_generics(def_id, own_generics) {
             return generics;
         }
@@ -257,17 +255,15 @@ impl<'a> ModuleLowerer<'a> {
             .get(def_id.def_id)
             .is_some_and(|def| def.kind == nia_defs::DefKind::TraitMethod)
         {
-            let mut generics = vec!["Self".to_string()];
-            generics.extend(
-                self.input
-                    .defs
-                    .defs
-                    .get(def_id.def_id)
-                    .and_then(|def| def.parent)
-                    .and_then(|parent| self.input.defs.defs.get(parent))
-                    .map(|parent| parent.generics.clone())
-                    .unwrap_or_default(),
-            );
+            let mut generics = self
+                .input
+                .defs
+                .defs
+                .get(def_id.def_id)
+                .and_then(|def| def.parent)
+                .and_then(|parent| self.input.defs.defs.get(parent))
+                .map(|parent| parent.generics.clone())
+                .unwrap_or_default();
             generics.extend(own_generics.iter().cloned());
             return generics;
         }
@@ -287,7 +283,7 @@ impl<'a> ModuleLowerer<'a> {
         generics
     }
 
-    fn extension_method_impl_generics(&self, def_id: GlobalDefId) -> Option<Vec<String>> {
+    fn extension_method_impl_generics(&self, def_id: GlobalDefId) -> Option<Vec<SymbolId>> {
         self.extension_generics_by_method
             .get(&def_id)
             .or_else(|| {
@@ -301,8 +297,8 @@ impl<'a> ModuleLowerer<'a> {
     fn program_trait_method_generics(
         &self,
         def_id: GlobalDefId,
-        own_generics: &[String],
-    ) -> Option<Vec<String>> {
+        own_generics: &[SymbolId],
+    ) -> Option<Vec<SymbolId>> {
         self.input
             .program_traits
             .iter()
@@ -318,8 +314,7 @@ impl<'a> ModuleLowerer<'a> {
                         } == def_id
                     })
                     .then(|| {
-                        let mut generics = vec!["Self".to_string()];
-                        generics.extend(signature.signature.generics.iter().cloned());
+                        let mut generics = signature.signature.generics.clone();
                         generics.extend(own_generics.iter().cloned());
                         generics
                     })
@@ -460,7 +455,7 @@ impl<'a> ModuleLowerer<'a> {
         is_instance: bool,
         type_arg_count: usize,
         body: FunctionBody,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> FunctionBody {
         self.instantiate_function_body_with_const_substitutions(
             function,
@@ -480,13 +475,39 @@ impl<'a> ModuleLowerer<'a> {
         is_instance: bool,
         type_arg_count: usize,
         body: FunctionBody,
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, nia_ty::ConstGenericArg>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
+    ) -> FunctionBody {
+        self.instantiate_function_body_with_self_and_const_substitutions(
+            function,
+            instantiation_module_id,
+            is_instance,
+            type_arg_count,
+            body,
+            None,
+            substitutions,
+            const_substitutions,
+        )
+    }
+
+    pub(crate) fn instantiate_function_body_with_self_and_const_substitutions(
+        &mut self,
+        function: nia_ids::GlobalDefId,
+        instantiation_module_id: ModuleId,
+        is_instance: bool,
+        type_arg_count: usize,
+        body: FunctionBody,
+        self_arg: Option<InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     ) -> FunctionBody {
         let instantiation_snapshot = self.instantiation.take_snapshot();
         let body_interner = self.type_context.function_body_interner(function.module_id);
-        let substitutions =
-            self.intern_type_and_const_substitutions(substitutions, const_substitutions);
+        let substitutions = self.intern_type_and_const_substitutions_with_self(
+            self_arg,
+            substitutions,
+            const_substitutions,
+        );
         self.instantiation.set_instance_scope(
             function,
             instantiation_module_id,
@@ -553,7 +574,7 @@ impl<'a> ModuleLowerer<'a> {
         candidate: &ExtensionTraitMethodCandidate,
         trait_args: &[InternedTyId],
         self_ty: InternedTyId,
-    ) -> Option<HashMap<String, InternedTyId>> {
+    ) -> Option<SymbolMap<InternedTyId>> {
         let mut substitutions = HashMap::new();
         let candidate_interner = self.candidate_type_interner(candidate).clone();
         let target_ty =
@@ -624,7 +645,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn substitute_where_predicate(
         &mut self,
         predicate: &nia_item_signatures::WherePredicateSignature,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> nia_item_signatures::WherePredicateSignature {
         nia_item_signatures::WherePredicateSignature {
             ty: self.instantiate_ty(predicate.ty, substitutions),
@@ -654,7 +675,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn candidate_impl_generics<'b>(
         &self,
         candidate: &'b ExtensionTraitMethodCandidate,
-    ) -> &'b [String] {
+    ) -> &'b [SymbolId] {
         &candidate.effective_generics
     }
 
@@ -814,7 +835,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn instantiate_ty(
         &mut self,
         ty: InternedTyId,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> InternedTyId {
         let substitutions = self.intern_type_substitutions(substitutions);
         self.instantiate_ty_with_id(ty, substitutions)
@@ -847,6 +868,10 @@ impl<'a> ModuleLowerer<'a> {
         match self.type_context.interner.get(ty).cloned() {
             Some(TyKind::GenericParam(name)) => {
                 let instantiated = self.type_substitution(substitutions, &name).unwrap_or(ty);
+                self.finish_type_instantiation(key, instantiated, can_use_cache)
+            }
+            Some(TyKind::SelfParam) => {
+                let instantiated = self.self_substitution(substitutions).unwrap_or(ty);
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Pointer { is_readonly, elem }) => {
@@ -1238,16 +1263,18 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn intern_type_substitutions(
         &mut self,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> TypeSubstitutionId {
         self.intern_type_and_const_substitutions(substitutions, &HashMap::new())
     }
 
-    pub(crate) fn intern_type_and_const_substitutions(
+    pub(crate) fn intern_type_and_const_substitutions_with_self(
         &mut self,
-        substitutions: &HashMap<String, InternedTyId>,
-        const_substitutions: &HashMap<String, nia_ty::ConstGenericArg>,
+        self_arg: Option<InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     ) -> TypeSubstitutionId {
+        let self_arg = self_arg.map(|ty| self.import_instance_arg_type(ty));
         let mut substitutions = substitutions
             .iter()
             .map(|(name, ty)| (name.clone(), self.import_instance_arg_type(*ty)))
@@ -1259,7 +1286,15 @@ impl<'a> ModuleLowerer<'a> {
             .collect::<Vec<_>>();
         const_substitutions.sort_by(|left, right| left.0.cmp(&right.0));
         self.type_context
-            .intern_type_substitutions(substitutions, const_substitutions)
+            .intern_type_substitutions(self_arg, substitutions, const_substitutions)
+    }
+
+    pub(crate) fn intern_type_and_const_substitutions(
+        &mut self,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
+    ) -> TypeSubstitutionId {
+        self.intern_type_and_const_substitutions_with_self(None, substitutions, const_substitutions)
     }
 
     pub(super) fn empty_type_substitution_id(&mut self) -> TypeSubstitutionId {
@@ -1274,15 +1309,19 @@ impl<'a> ModuleLowerer<'a> {
     fn type_substitution(
         &self,
         substitutions: TypeSubstitutionId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         self.type_context.type_substitution(substitutions, name)
+    }
+
+    fn self_substitution(&self, substitutions: TypeSubstitutionId) -> Option<InternedTyId> {
+        self.type_context.self_substitution(substitutions)
     }
 
     fn const_substitution(
         &self,
         substitutions: TypeSubstitutionId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<nia_ty::ConstGenericArg> {
         self.type_context.const_substitution(substitutions, name)
     }
@@ -1395,7 +1434,7 @@ impl<'a> ModuleLowerer<'a> {
         trait_id: nia_ty::TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[nia_ty::ConstGenericArg],
-        name: &str,
+        name: &SymbolId,
         substitutions: TypeSubstitutionId,
         active_projections: &mut HashSet<ProjectionInstantiationKey>,
     ) -> Option<InternedTyId> {
@@ -1497,7 +1536,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         pattern: InternedTyId,
         actual: InternedTyId,
-        substitutions: &mut HashMap<String, InternedTyId>,
+        substitutions: &mut SymbolMap<InternedTyId>,
     ) -> bool {
         let pattern = self.import_instance_arg_type(pattern);
         let actual = self.canonicalize_instance_arg(actual);
@@ -1522,6 +1561,7 @@ impl<'a> ModuleLowerer<'a> {
                     true
                 }
             }
+            Some(TyKind::SelfParam) => self.types_match(pattern, actual),
             Some(TyKind::BuiltinType(pattern_builtin)) => {
                 matches!(self.ty_kind(actual), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == *actual_builtin)
             }
@@ -1778,10 +1818,11 @@ impl<'a> ModuleLowerer<'a> {
     fn extension_pattern_generics_are_bound(
         &self,
         pattern: InternedTyId,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: &SymbolMap<InternedTyId>,
     ) -> bool {
         match self.ty_kind(pattern) {
             Some(TyKind::GenericParam(name)) => substitutions.contains_key(name),
+            Some(TyKind::SelfParam) => true,
             Some(
                 TyKind::Pointer { elem, .. }
                 | TyKind::VolatilePointer { elem, .. }
@@ -1867,7 +1908,7 @@ impl<'a> ModuleLowerer<'a> {
 
     fn extension_pattern_contains_generic(&self, pattern: InternedTyId) -> bool {
         match self.ty_kind(pattern) {
-            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::GenericParam(_) | TyKind::SelfParam) => true,
             Some(
                 TyKind::Pointer { elem, .. }
                 | TyKind::VolatilePointer { elem, .. }

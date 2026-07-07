@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId};
+use nia_symbol::SymbolId;
 use nia_ty::{
     ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy, RangeTyKind, TraitId, TyInterner,
     TyKind,
@@ -22,12 +23,49 @@ pub fn sanitize_symbol_part(text: &str) -> String {
     out
 }
 
+pub fn mangle_symbol_id(symbol: SymbolId) -> String {
+    format!("sym_{:016x}", symbol.raw())
+}
+
 pub fn mangle_base_symbol(def_id: GlobalDefId, name: &str) -> String {
     format!(
         "nia__m{}__d{}__{}",
         def_id.module_id.0,
         def_id.def_id.0,
         sanitize_symbol_part(name)
+    )
+}
+
+pub fn mangle_base_symbol_id(def_id: GlobalDefId, name: SymbolId) -> String {
+    format!(
+        "nia__m{}__d{}__{}",
+        def_id.module_id.0,
+        def_id.def_id.0,
+        mangle_symbol_id(name)
+    )
+}
+
+pub fn mangle_instance_symbol_id<F, G>(
+    def_id: GlobalDefId,
+    name: SymbolId,
+    args: &[InternedTyId],
+    const_args: &[ConstGenericArg],
+    interner: &TyInterner,
+    nominal_name: F,
+    array_len: G,
+) -> String
+where
+    F: FnMut(GlobalDefId) -> String,
+    G: FnMut(GlobalConstExprId) -> Option<u64>,
+{
+    mangle_instance_symbol(
+        def_id,
+        &mangle_symbol_id(name),
+        args,
+        const_args,
+        interner,
+        nominal_name,
+        array_len,
     )
 }
 
@@ -284,7 +322,7 @@ where
                         trait_args,
                         trait_const_arg_parts.len(),
                         trait_const_args,
-                        sanitize_symbol_part(&binding.name),
+                        mangle_symbol_id(binding.name),
                         mangle_type_inner(interner, binding.ty, nominal_name, array_len)
                     )
                 })
@@ -350,7 +388,7 @@ where
                         trait_args,
                         trait_const_arg_parts.len(),
                         trait_const_args,
-                        sanitize_symbol_part(&binding.name),
+                        mangle_symbol_id(binding.name),
                         mangle_type_inner(interner, binding.ty, nominal_name, array_len)
                     )
                 })
@@ -397,10 +435,11 @@ where
                 trait_args,
                 trait_const_arg_parts.len(),
                 trait_const_args,
-                sanitize_symbol_part(name)
+                mangle_symbol_id(*name)
             )
         }
-        Some(TyKind::GenericParam(name)) => format!("gen__{}", sanitize_symbol_part(name)),
+        Some(TyKind::GenericParam(name)) => format!("gen__{}", mangle_symbol_id(*name)),
+        Some(TyKind::SelfParam) => "self_param".to_string(),
         Some(TyKind::ComptimeOnly) => "comptime_only".to_string(),
         Some(TyKind::Error) => "ty_error".to_string(),
         None => panic!(
@@ -423,7 +462,7 @@ where
 {
     match len {
         ArrayLenTy::Infer => "infer".to_string(),
-        ArrayLenTy::GenericParam(name) => format!("gen_len__{}", sanitize_symbol_part(name)),
+        ArrayLenTy::GenericParam(name) => format!("gen_len__{}", mangle_symbol_id(*name)),
         ArrayLenTy::ConstValue(value) => format!("len__{value}"),
         ArrayLenTy::ConstExpr(id) => array_len(*id)
             .map(|value| format!("len__{value}"))
@@ -456,7 +495,7 @@ where
 {
     let ty = mangle_type_inner(interner, arg.ty, nominal_name, array_len);
     let value = match &arg.value {
-        ConstGenericValue::GenericParam(name) => format!("g{}", sanitize_symbol_part(name)),
+        ConstGenericValue::GenericParam(name) => format!("g{}", mangle_symbol_id(*name)),
         ConstGenericValue::ConstExpr(id) => array_len(*id)
             .map(|value| format!("expr_len__{value}"))
             .unwrap_or_else(|| {

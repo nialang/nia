@@ -9,9 +9,10 @@ use nia_ids::{
 };
 use nia_item_signatures::{EnumSignature, ProgramEnumSignature, ProgramTraitImplSignature};
 use nia_layout::Layouts;
-use nia_mangle::{mangle_base_symbol, mangle_type_with, sanitize_symbol_part};
+use nia_mangle::{mangle_base_symbol_id, mangle_symbol_id, mangle_type_with};
 use nia_sema_ir::GenericInstantiation;
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap};
 use nia_trait_solve::TraitSolverContext;
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, ConstExprSummary, ConstGenericArg, ConstGenericValue,
@@ -30,6 +31,7 @@ pub struct Monomorphization {
 pub struct MonoInstance {
     pub def_id: GlobalDefId,
     pub arg_module_id: ModuleId,
+    pub self_arg: Option<InternedTyId>,
     pub args: Vec<InternedTyId>,
     pub const_args: Vec<ConstGenericArg>,
     pub symbol: String,
@@ -133,16 +135,16 @@ struct MonoCollector<'a> {
     trait_impls: &'a [ProgramTraitImplSignature],
     instantiations_by_source: HashMap<GlobalDefId, Vec<usize>>,
     source_instantiation_edges: Vec<SourceInstantiationEdge>,
-    recorded_generics_by_def: HashMap<GlobalDefId, Vec<String>>,
+    recorded_generics_by_def: HashMap<GlobalDefId, Vec<SymbolId>>,
     instances: Vec<MonoInstance>,
     seen: HashSet<MonoInstanceKey>,
     type_symbols: HashMap<(ModuleId, InternedTyId), String>,
-    def_names: HashMap<GlobalDefId, String>,
+    def_names: HashMap<GlobalDefId, SymbolId>,
     base_symbols: HashMap<GlobalDefId, String>,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
-    type_substitutions: Vec<HashMap<String, InternedTyId>>,
+    type_substitutions: Vec<TypeSubstitution>,
     type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
-    effective_generics: HashMap<GlobalDefId, Vec<String>>,
+    effective_generics: HashMap<GlobalDefId, Vec<SymbolId>>,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -156,6 +158,7 @@ static EMPTY_LOCAL_ENUMS: std::sync::LazyLock<HashMap<DefId, EnumSignature>> =
 struct MonoInstanceKey {
     def_id: GlobalDefId,
     arg_module_id: ModuleId,
+    self_arg: Option<InternedTyId>,
     args: Vec<InternedTyId>,
     const_args: Vec<ConstGenericArg>,
 }
@@ -173,7 +176,7 @@ struct ProjectionInstantiationKey {
     trait_id: nia_ty::TraitId,
     trait_args: Vec<InternedTyId>,
     trait_const_args: Vec<ConstGenericArg>,
-    name: String,
+    name: SymbolId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -181,13 +184,21 @@ struct TypeSubstitutionId(usize);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct TypeSubstitutionKey {
-    substitutions: Vec<(String, InternedTyId)>,
+    self_arg: Option<InternedTyId>,
+    substitutions: Vec<(SymbolId, InternedTyId)>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct TypeSubstitution {
+    self_arg: Option<InternedTyId>,
+    substitutions: SymbolMap<InternedTyId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SourceInstantiationEdge {
     source_module_id: ModuleId,
     def_id: GlobalDefId,
+    self_arg: Option<InternedTyId>,
     args: Vec<InternedTyId>,
     const_args: Vec<ConstGenericArg>,
     span: Span,
@@ -223,6 +234,7 @@ impl MonoCollector<'_> {
             let key = MonoInstanceKey {
                 def_id: instantiation.def_id,
                 arg_module_id: input.module_id,
+                self_arg: instantiation.self_arg,
                 args: instantiation.args.clone(),
                 const_args: instantiation.const_args.clone(),
             };
@@ -250,7 +262,7 @@ impl MonoCollector<'_> {
         !self.effective_generics_for(def_id).is_empty()
     }
 
-    fn compute_effective_generics(&self, def_id: GlobalDefId) -> Vec<String> {
+    fn compute_effective_generics(&self, def_id: GlobalDefId) -> Vec<SymbolId> {
         if let Some(generics) = self.recorded_generics(def_id) {
             return generics.to_vec();
         }
@@ -261,13 +273,11 @@ impl MonoCollector<'_> {
             return Vec::new();
         };
         if def.kind == DefKind::TraitMethod {
-            let mut generics = vec!["Self".to_string()];
-            generics.extend(
-                def.parent
-                    .and_then(|parent| defs.defs.get(parent))
-                    .map(|parent| parent.generics.clone())
-                    .unwrap_or_default(),
-            );
+            let mut generics = def
+                .parent
+                .and_then(|parent| defs.defs.get(parent))
+                .map(|parent| parent.generics.clone())
+                .unwrap_or_default();
             generics.extend(def.generics.clone());
             return generics;
         }
@@ -280,7 +290,7 @@ impl MonoCollector<'_> {
         generics
     }
 
-    fn effective_generics_for(&mut self, def_id: GlobalDefId) -> &[String] {
+    fn effective_generics_for(&mut self, def_id: GlobalDefId) -> &[SymbolId] {
         if !self.effective_generics.contains_key(&def_id) {
             let generics = self.compute_effective_generics(def_id);
             self.effective_generics.insert(def_id, generics);
@@ -310,7 +320,7 @@ impl MonoCollector<'_> {
             return false;
         };
         match kind {
-            TyKind::GenericParam(_) => true,
+            TyKind::GenericParam(_) | TyKind::SelfParam => true,
             TyKind::Pointer { elem, .. }
             | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
@@ -376,7 +386,7 @@ impl MonoCollector<'_> {
         }
     }
 
-    fn recorded_generics(&self, def_id: GlobalDefId) -> Option<&[String]> {
+    fn recorded_generics(&self, def_id: GlobalDefId) -> Option<&[SymbolId]> {
         self.recorded_generics_by_def
             .get(&def_id)
             .map(Vec::as_slice)
@@ -397,7 +407,10 @@ impl MonoCollector<'_> {
                 continue;
             };
             let substitutions = self.generic_substitutions_for_instance(&pending_instance.key);
-            let substitution_id = self.intern_ordered_type_substitutions(substitutions);
+            let self_arg = pending_instance.key.self_arg.map(|self_arg| {
+                self.import_ty_to_module(pending_instance.key.def_id.module_id, self_arg)
+            });
+            let substitution_id = self.intern_ordered_type_substitutions(self_arg, substitutions);
             for edge_index in edge_indices {
                 let Some(edge) = self.source_instantiation_edges.get(edge_index) else {
                     continue;
@@ -405,15 +418,20 @@ impl MonoCollector<'_> {
                 let source_module_id = edge.source_module_id;
                 let edge_def_id = edge.def_id;
                 let edge_span = edge.span;
+                let edge_self_arg = edge.self_arg;
                 let edge_args = edge.args.clone();
                 let edge_const_args = edge.const_args.clone();
                 if !self.is_generic_def(edge_def_id) {
                     continue;
                 }
+                let self_arg = edge_self_arg.map(|self_arg| {
+                    self.instantiate_ty(source_module_id, self_arg, substitution_id)
+                });
                 let args = self.instantiate_args(source_module_id, &edge_args, substitution_id);
                 let edge_key = MonoInstanceKey {
                     def_id: edge_def_id,
                     arg_module_id: source_module_id,
+                    self_arg,
                     args,
                     const_args: edge_const_args,
                 };
@@ -431,14 +449,24 @@ impl MonoCollector<'_> {
         if !self.seen.insert(key.clone()) {
             return;
         }
-        if self.args_contain_generic_param(key.arg_module_id, &key.args) {
+        if key
+            .self_arg
+            .is_some_and(|self_arg| self.ty_contains_generic_param(key.arg_module_id, self_arg))
+            || self.args_contain_generic_param(key.arg_module_id, &key.args)
+        {
             return;
         }
         if self.instances.len() >= MAX_MONOMORPHIZED_INSTANCES {
             self.report_instance_limit(span, &key);
             return;
         }
-        if key.args.iter().any(|arg| {
+        if key.self_arg.is_some_and(|self_arg| {
+            self.ty_exceeds_instance_depth(
+                key.arg_module_id,
+                self_arg,
+                MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH,
+            )
+        }) || key.args.iter().any(|arg| {
             self.ty_exceeds_instance_depth(
                 key.arg_module_id,
                 *arg,
@@ -452,6 +480,7 @@ impl MonoCollector<'_> {
         self.instances.push(MonoInstance {
             def_id: key.def_id,
             arg_module_id: key.arg_module_id,
+            self_arg: key.self_arg,
             args: key.args.clone(),
             const_args: key.const_args.clone(),
             symbol,
@@ -461,7 +490,7 @@ impl MonoCollector<'_> {
     }
 
     fn report_instance_limit(&mut self, span: Span, key: &MonoInstanceKey) {
-        let name = self.def_name(key.def_id);
+        let name = mangle_symbol_id(self.def_name(key.def_id));
         self.diagnostics.push(
             Diagnostic::user_error(codes::LLVM_CODEGEN,
                 "generic instantiation did not converge before the instance limit",
@@ -488,7 +517,7 @@ impl MonoCollector<'_> {
     }
 
     fn report_instance_type_depth_limit(&mut self, span: Span, key: &MonoInstanceKey) {
-        let name = self.def_name(key.def_id);
+        let name = mangle_symbol_id(self.def_name(key.def_id));
         self.diagnostics.push(
             Diagnostic::user_error(codes::LLVM_CODEGEN,
                 "generic instantiation did not converge before the type depth limit",
@@ -593,6 +622,7 @@ impl MonoCollector<'_> {
                         .any(|arg| self.ty_exceeds_instance_depth(module_id, *arg, next))
             }
             TyKind::GenericParam(_)
+            | TyKind::SelfParam
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
@@ -604,7 +634,7 @@ impl MonoCollector<'_> {
     fn generic_substitutions_for_instance(
         &mut self,
         key: &MonoInstanceKey,
-    ) -> Vec<(String, InternedTyId)> {
+    ) -> Vec<(SymbolId, InternedTyId)> {
         let def_module_id = key.def_id.module_id;
         let generics = self.effective_generics_for(key.def_id).to_vec();
         generics
@@ -662,8 +692,13 @@ impl MonoCollector<'_> {
             TyKind::GenericParam(name) => self
                 .type_substitutions
                 .get(substitutions.0)
-                .and_then(|substitutions| substitutions.get(&name))
+                .and_then(|substitutions| substitutions.substitutions.get(&name))
                 .copied()
+                .unwrap_or(ty),
+            TyKind::SelfParam => self
+                .type_substitutions
+                .get(substitutions.0)
+                .and_then(|substitutions| substitutions.self_arg)
                 .unwrap_or(ty),
             TyKind::BuiltinType(_) => ty,
             TyKind::Pointer { is_readonly, elem } => {
@@ -1046,7 +1081,7 @@ impl MonoCollector<'_> {
         trait_id: nia_ty::TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
-        name: &str,
+        name: &SymbolId,
     ) -> Option<InternedTyId> {
         let normalization = *self.normalizations_by_module.get(&module_id)?;
         let local_enums = self
@@ -1098,6 +1133,7 @@ impl MonoCollector<'_> {
             TyKind::BuiltinType(builtin) => TyKind::BuiltinType(builtin),
             TyKind::Vector { elem, lanes } => TyKind::Vector { elem, lanes },
             TyKind::GenericParam(name) => TyKind::GenericParam(name),
+            TyKind::SelfParam => TyKind::SelfParam,
             TyKind::Pointer { is_readonly, elem } => TyKind::Pointer {
                 is_readonly,
                 elem: self.import_ty_to_module(target_module_id, elem),
@@ -1305,9 +1341,13 @@ impl MonoCollector<'_> {
 
     fn intern_ordered_type_substitutions(
         &mut self,
-        substitutions: Vec<(String, InternedTyId)>,
+        self_arg: Option<InternedTyId>,
+        substitutions: Vec<(SymbolId, InternedTyId)>,
     ) -> TypeSubstitutionId {
-        self.intern_type_substitution_key(TypeSubstitutionKey { substitutions })
+        self.intern_type_substitution_key(TypeSubstitutionKey {
+            self_arg,
+            substitutions,
+        })
     }
 
     fn intern_type_substitution_key(&mut self, key: TypeSubstitutionKey) -> TypeSubstitutionId {
@@ -1315,8 +1355,10 @@ impl MonoCollector<'_> {
             return *id;
         }
         let id = TypeSubstitutionId(self.type_substitutions.len());
-        self.type_substitutions
-            .push(key.substitutions.iter().cloned().collect());
+        self.type_substitutions.push(TypeSubstitution {
+            self_arg: key.self_arg,
+            substitutions: key.substitutions.iter().cloned().collect(),
+        });
         self.type_substitution_ids.insert(key, id);
         id
     }
@@ -1328,6 +1370,9 @@ impl MonoCollector<'_> {
             .map(|arg| self.type_symbol(key.arg_module_id, *arg))
             .collect::<Vec<_>>()
             .join("_");
+        let self_arg = key
+            .self_arg
+            .map(|self_arg| format!("self_{}", self.type_symbol(key.arg_module_id, self_arg)));
         let const_args = key
             .const_args
             .iter()
@@ -1335,21 +1380,29 @@ impl MonoCollector<'_> {
             .collect::<Vec<_>>()
             .join("_");
         let base_symbol = self.base_symbol(key.def_id);
-        if args.is_empty() && const_args.is_empty() {
+        let mut parts = Vec::new();
+        if let Some(self_arg) = self_arg {
+            parts.push(self_arg);
+        }
+        if !args.is_empty() {
+            parts.push(args);
+        }
+        if !const_args.is_empty() {
+            parts.push(const_args);
+        }
+        if parts.is_empty() {
             base_symbol
-        } else if const_args.is_empty() {
-            format!("{base_symbol}__inst__{args}")
-        } else if args.is_empty() {
-            format!("{base_symbol}__inst__{const_args}")
         } else {
-            format!("{base_symbol}__inst__{args}_{const_args}")
+            format!("{base_symbol}__inst__{}", parts.join("_"))
         }
     }
 
     fn const_arg_symbol(&mut self, module_id: ModuleId, arg: &ConstGenericArg) -> String {
         let ty = self.type_symbol(module_id, arg.ty);
         let value = match &arg.value {
-            ConstGenericValue::GenericParam(name) => format!("g{}", sanitize_symbol_part(name)),
+            ConstGenericValue::GenericParam(name) => {
+                format!("g{}", mangle_symbol_id(*name))
+            }
             ConstGenericValue::ConstExpr(id) => {
                 format!("expr__m{}__c{}", id.module_id.0, id.const_expr_id.0)
             }
@@ -1368,17 +1421,17 @@ impl MonoCollector<'_> {
             return symbol.clone();
         }
         let name = self.def_name(def_id);
-        let symbol = mangle_base_symbol(def_id, &name);
+        let symbol = mangle_base_symbol_id(def_id, name);
         self.base_symbols.insert(def_id, symbol.clone());
         symbol
     }
 
-    fn def_name(&mut self, def_id: GlobalDefId) -> String {
+    fn def_name(&mut self, def_id: GlobalDefId) -> SymbolId {
         if let Some(name) = self.def_names.get(&def_id) {
-            return name.clone();
+            return *name;
         }
         let name = def_name(&self.defs_by_module, def_id);
-        self.def_names.insert(def_id, name.clone());
+        self.def_names.insert(def_id, name);
         name
     }
 
@@ -1451,25 +1504,25 @@ fn array_len(
     value
 }
 
-fn def_name(defs_by_module: &HashMap<ModuleId, &DefCollection>, def_id: GlobalDefId) -> String {
+fn def_name(defs_by_module: &HashMap<ModuleId, &DefCollection>, def_id: GlobalDefId) -> SymbolId {
     defs_by_module
         .get(&def_id.module_id)
         .and_then(|defs| defs.defs.get(def_id.def_id))
-        .map(|def| sanitize_symbol_part(&def.name))
-        .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
+        .map(|def| def.name)
+        .unwrap_or_else(|| SymbolId::from_stable_hash(def_id.def_id.0))
 }
 
 fn cached_def_name(
     defs_by_module: &HashMap<ModuleId, &DefCollection>,
-    def_names: &mut HashMap<GlobalDefId, String>,
+    def_names: &mut HashMap<GlobalDefId, SymbolId>,
     def_id: GlobalDefId,
 ) -> String {
     if let Some(name) = def_names.get(&def_id) {
-        return name.clone();
+        return mangle_symbol_id(*name);
     }
     let name = def_name(defs_by_module, def_id);
-    def_names.insert(def_id, name.clone());
-    name
+    def_names.insert(def_id, name);
+    mangle_symbol_id(name)
 }
 
 fn collect_instantiations_by_source(
@@ -1504,6 +1557,7 @@ fn collect_source_instantiation_edges(
             edges.push(SourceInstantiationEdge {
                 source_module_id: source_def_id.module_id,
                 def_id: instantiation.def_id,
+                self_arg: instantiation.self_arg,
                 args: instantiation.args.clone(),
                 const_args: instantiation.const_args.clone(),
                 span: instantiation.span,
@@ -1515,8 +1569,8 @@ fn collect_source_instantiation_edges(
 
 fn collect_recorded_generics_by_def(
     inputs: &[MonomorphizeModuleInput<'_>],
-) -> HashMap<GlobalDefId, Vec<String>> {
-    let mut generics = HashMap::<GlobalDefId, Vec<String>>::new();
+) -> HashMap<GlobalDefId, Vec<SymbolId>> {
+    let mut generics = HashMap::<GlobalDefId, Vec<SymbolId>>::new();
     for input in inputs {
         for instantiation in input.instantiations {
             if !instantiation.generics.is_empty() {
@@ -1537,7 +1591,37 @@ mod tests {
     use nia_parser::parse_module;
     use nia_sema_ir::GenericInstantiation;
     use nia_span::Span;
+    use nia_symbol::stable_hash;
     use nia_ty::{ArrayLenTy, PrimitiveTy};
+
+    fn sym(text: &str) -> SymbolId {
+        SymbolId::from_stable_hash(stable_hash(text))
+    }
+
+    fn value_def(defs: &DefCollection, name: &str) -> DefId {
+        defs.module_scope.values.get(&sym(name)).expect("value def")
+    }
+
+    fn generic_param(interner: &mut TyInterner, name: &str) -> InternedTyId {
+        interner.intern(TyKind::GenericParam(sym(name)))
+    }
+
+    fn inst(
+        def_id: GlobalDefId,
+        args: Vec<InternedTyId>,
+        span: Span,
+        source_def_id: Option<GlobalDefId>,
+    ) -> GenericInstantiation {
+        GenericInstantiation {
+            def_id,
+            self_arg: None,
+            args,
+            const_args: Vec::new(),
+            generics: vec![sym("T")],
+            span,
+            source_def_id,
+        }
+    }
 
     fn normalization_for(interner: &TyInterner) -> TypeNormalization {
         TypeNormalization {
@@ -1575,32 +1659,28 @@ mod tests {
         let (module, errors) = parse_module("fn id[T](value: T) T { value }");
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
-        let def_id = defs.module_scope.values.get("id").expect("id def");
+        let def_id = value_def(&defs, "id");
         let interner = TyInterner::new(ModuleId(0));
         let i32_ty = interner.primitive(PrimitiveTy::I32);
         let instantiations = vec![
-            GenericInstantiation {
-                def_id: GlobalDefId {
+            inst(
+                GlobalDefId {
                     module_id: ModuleId(0),
                     def_id,
                 },
-                args: vec![i32_ty],
-                const_args: Vec::new(),
-                generics: vec!["T".to_string()],
-                span: Span::new(1, 2),
-                source_def_id: None,
-            },
-            GenericInstantiation {
-                def_id: GlobalDefId {
+                vec![i32_ty],
+                Span::new(1, 2),
+                None,
+            ),
+            inst(
+                GlobalDefId {
                     module_id: ModuleId(0),
                     def_id,
                 },
-                args: vec![i32_ty],
-                const_args: Vec::new(),
-                generics: vec!["T".to_string()],
-                span: Span::new(3, 4),
-                source_def_id: None,
-            },
+                vec![i32_ty],
+                Span::new(3, 4),
+                None,
+            ),
         ];
 
         let normalization = normalization_for(&interner);
@@ -1632,32 +1712,18 @@ fn main() i32 { outer(1) }
         let defs = collect_module_defs(ModuleId(0), &module);
         let inner_id = GlobalDefId {
             module_id: ModuleId(0),
-            def_id: defs.module_scope.values.get("inner").expect("inner def"),
+            def_id: value_def(&defs, "inner"),
         };
         let outer_id = GlobalDefId {
             module_id: ModuleId(0),
-            def_id: defs.module_scope.values.get("outer").expect("outer def"),
+            def_id: value_def(&defs, "outer"),
         };
         let mut interner = TyInterner::new(ModuleId(0));
         let i32_ty = interner.primitive(PrimitiveTy::I32);
-        let generic_t = interner.intern(TyKind::GenericParam("T".to_string()));
+        let generic_t = generic_param(&mut interner, "T");
         let instantiations = vec![
-            GenericInstantiation {
-                def_id: inner_id,
-                args: vec![generic_t],
-                const_args: Vec::new(),
-                generics: vec!["T".to_string()],
-                span: Span::new(1, 2),
-                source_def_id: Some(outer_id),
-            },
-            GenericInstantiation {
-                def_id: outer_id,
-                args: vec![i32_ty],
-                const_args: Vec::new(),
-                generics: vec!["T".to_string()],
-                span: Span::new(3, 4),
-                source_def_id: None,
-            },
+            inst(inner_id, vec![generic_t], Span::new(1, 2), Some(outer_id)),
+            inst(outer_id, vec![i32_ty], Span::new(3, 4), None),
         ];
 
         let normalization = normalization_for(&interner);
@@ -1705,15 +1771,15 @@ fn main() i32 { 0 }
         let defs = collect_module_defs(ModuleId(0), &module);
         let inner_id = GlobalDefId {
             module_id: ModuleId(0),
-            def_id: defs.module_scope.values.get("inner").expect("inner def"),
+            def_id: value_def(&defs, "inner"),
         };
         let outer_id = GlobalDefId {
             module_id: ModuleId(0),
-            def_id: defs.module_scope.values.get("outer").expect("outer def"),
+            def_id: value_def(&defs, "outer"),
         };
         let mut interner = TyInterner::new(ModuleId(0));
         let i32_ty = interner.primitive(PrimitiveTy::I32);
-        let generic_t = interner.intern(TyKind::GenericParam("T".to_string()));
+        let generic_t = generic_param(&mut interner, "T");
         let generic_ptr = interner.intern(TyKind::Pointer {
             is_readonly: true,
             elem: generic_t,
@@ -1723,22 +1789,8 @@ fn main() i32 { 0 }
             elem: i32_ty,
         });
         let instantiations = vec![
-            GenericInstantiation {
-                def_id: inner_id,
-                args: vec![generic_ptr],
-                const_args: Vec::new(),
-                generics: vec!["T".to_string()],
-                span: Span::new(1, 2),
-                source_def_id: Some(outer_id),
-            },
-            GenericInstantiation {
-                def_id: outer_id,
-                args: vec![i32_ty],
-                const_args: Vec::new(),
-                generics: vec!["T".to_string()],
-                span: Span::new(3, 4),
-                source_def_id: None,
-            },
+            inst(inner_id, vec![generic_ptr], Span::new(1, 2), Some(outer_id)),
+            inst(outer_id, vec![i32_ty], Span::new(3, 4), None),
         ];
 
         let normalization = normalization_for(&interner);
@@ -1774,32 +1826,19 @@ fn main() i32 { 0 }
         let defs = collect_module_defs(ModuleId(0), &module);
         let recurse_id = GlobalDefId {
             module_id: ModuleId(0),
-            def_id: defs
-                .module_scope
-                .values
-                .get("recurse")
-                .expect("recurse def"),
+            def_id: value_def(&defs, "recurse"),
         };
         let mut interner = TyInterner::new(ModuleId(0));
         let i32_ty = interner.primitive(PrimitiveTy::I32);
-        let generic_t = interner.intern(TyKind::GenericParam("T".to_string()));
+        let generic_t = generic_param(&mut interner, "T");
         let instantiations = vec![
-            GenericInstantiation {
-                def_id: recurse_id,
-                args: vec![generic_t],
-                const_args: Vec::new(),
-                generics: vec!["T".to_string()],
-                span: Span::new(1, 2),
-                source_def_id: Some(recurse_id),
-            },
-            GenericInstantiation {
-                def_id: recurse_id,
-                args: vec![i32_ty],
-                const_args: Vec::new(),
-                generics: vec!["T".to_string()],
-                span: Span::new(3, 4),
-                source_def_id: None,
-            },
+            inst(
+                recurse_id,
+                vec![generic_t],
+                Span::new(1, 2),
+                Some(recurse_id),
+            ),
+            inst(recurse_id, vec![i32_ty], Span::new(3, 4), None),
         ];
 
         let normalization = normalization_for(&interner);
@@ -1827,7 +1866,7 @@ fn main() i32 { 0 }
         let defs = collect_module_defs(ModuleId(0), &module);
         let grow_id = GlobalDefId {
             module_id: ModuleId(0),
-            def_id: defs.module_scope.values.get("grow").expect("grow def"),
+            def_id: value_def(&defs, "grow"),
         };
         let mut interner = TyInterner::new(ModuleId(0));
         let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -1835,28 +1874,14 @@ fn main() i32 { 0 }
             is_readonly: true,
             elem: i32_ty,
         });
-        let generic_t = interner.intern(TyKind::GenericParam("T".to_string()));
+        let generic_t = generic_param(&mut interner, "T");
         let generic_ptr = interner.intern(TyKind::Pointer {
             is_readonly: true,
             elem: generic_t,
         });
         let instantiations = vec![
-            GenericInstantiation {
-                def_id: grow_id,
-                args: vec![generic_ptr],
-                const_args: Vec::new(),
-                generics: vec!["T".to_string()],
-                span: Span::new(10, 20),
-                source_def_id: Some(grow_id),
-            },
-            GenericInstantiation {
-                def_id: grow_id,
-                args: vec![i32_ty],
-                const_args: Vec::new(),
-                generics: vec!["T".to_string()],
-                span: Span::new(1, 2),
-                source_def_id: None,
-            },
+            inst(grow_id, vec![generic_ptr], Span::new(10, 20), Some(grow_id)),
+            inst(grow_id, vec![i32_ty], Span::new(1, 2), None),
         ];
 
         let normalization = normalization_for(&interner);
@@ -1904,7 +1929,7 @@ fn main() i32 { 0 }
         let defs = collect_module_defs(ModuleId(0), &module);
         let take_id = GlobalDefId {
             module_id: ModuleId(0),
-            def_id: defs.module_scope.values.get("take").expect("take def"),
+            def_id: value_def(&defs, "take"),
         };
         let mut interner = TyInterner::new(ModuleId(0));
         let len_id = GlobalConstExprId {
@@ -1916,14 +1941,7 @@ fn main() i32 { 0 }
             len: ArrayLenTy::ConstExpr(len_id),
             elem,
         });
-        let instantiations = vec![GenericInstantiation {
-            def_id: take_id,
-            args: vec![array_ty],
-            const_args: Vec::new(),
-            generics: vec!["T".to_string()],
-            span: Span::new(1, 2),
-            source_def_id: None,
-        }];
+        let instantiations = vec![inst(take_id, vec![array_ty], Span::new(1, 2), None)];
         let mut const_expr_summaries = HashMap::new();
         const_expr_summaries.insert(
             len_id,
@@ -1971,11 +1989,11 @@ fn wrap[T](value: T) T { value }
         let defs = collect_module_defs(ModuleId(0), &module);
         let take_id = GlobalDefId {
             module_id: ModuleId(0),
-            def_id: defs.module_scope.values.get("take").expect("take def"),
+            def_id: value_def(&defs, "take"),
         };
         let wrap_id = GlobalDefId {
             module_id: ModuleId(0),
-            def_id: defs.module_scope.values.get("wrap").expect("wrap def"),
+            def_id: value_def(&defs, "wrap"),
         };
         let mut interner = TyInterner::new(ModuleId(0));
         let len_id = GlobalConstExprId {
@@ -1988,22 +2006,8 @@ fn wrap[T](value: T) T { value }
             elem,
         });
         let instantiations = vec![
-            GenericInstantiation {
-                def_id: take_id,
-                args: vec![array_ty],
-                const_args: Vec::new(),
-                generics: vec!["T".to_string()],
-                span: Span::new(1, 2),
-                source_def_id: None,
-            },
-            GenericInstantiation {
-                def_id: wrap_id,
-                args: vec![array_ty],
-                const_args: Vec::new(),
-                generics: vec!["T".to_string()],
-                span: Span::new(3, 4),
-                source_def_id: None,
-            },
+            inst(take_id, vec![array_ty], Span::new(1, 2), None),
+            inst(wrap_id, vec![array_ty], Span::new(3, 4), None),
         ];
 
         let normalization = normalization_for(&interner);
@@ -2031,16 +2035,16 @@ fn wrap[T](value: T) T { value }
         let mut collector = empty_collector();
         collector
             .recorded_generics_by_def
-            .insert(def_id, vec!["T".to_string(), "U".to_string()]);
+            .insert(def_id, vec![sym("T"), sym("U")]);
 
         assert_eq!(
             collector.effective_generics_for(def_id),
-            &["T".to_string(), "U".to_string()]
+            &[sym("T"), sym("U")]
         );
         collector.recorded_generics_by_def.clear();
         assert_eq!(
             collector.effective_generics_for(def_id),
-            &["T".to_string(), "U".to_string()]
+            &[sym("T"), sym("U")]
         );
     }
 
@@ -2056,20 +2060,17 @@ fn wrap[T](value: T) T { value }
             nia_ids::TyInternerIndex::from_interner_index(2),
         );
 
-        let first = collector.intern_ordered_type_substitutions(vec![
-            ("T".to_string(), i32_ty),
-            ("U".to_string(), bool_ty),
-        ]);
-        let second = collector.intern_ordered_type_substitutions(vec![
-            ("T".to_string(), i32_ty),
-            ("U".to_string(), bool_ty),
-        ]);
+        let first = collector
+            .intern_ordered_type_substitutions(None, vec![(sym("T"), i32_ty), (sym("U"), bool_ty)]);
+        let second = collector
+            .intern_ordered_type_substitutions(None, vec![(sym("T"), i32_ty), (sym("U"), bool_ty)]);
 
         assert_eq!(first, second);
         assert_eq!(collector.type_substitutions.len(), 1);
+        assert_eq!(collector.type_substitutions[first.0].self_arg, None);
         assert_eq!(
-            collector.type_substitutions[first.0],
-            HashMap::from([("T".to_string(), i32_ty), ("U".to_string(), bool_ty)])
+            collector.type_substitutions[first.0].substitutions,
+            SymbolMap::from([(sym("T"), i32_ty), (sym("U"), bool_ty)])
         );
     }
 

@@ -69,6 +69,7 @@ fn emits_function_body_from_function_ir_when_available() {
                 is_extern: false,
                 is_variadic: false,
                 attributes: Vec::new(),
+                local_names: Default::default(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -309,7 +310,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
         span: Span::default(),
         locals: vec![TypedLocal {
             id: LocalId(0),
-            name: "point".to_string(),
+            name: local_name("point"),
             kind: TypedLocalKind::Binding,
             ty: point_ty,
             span: Span::default(),
@@ -413,6 +414,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
                 is_extern: false,
                 is_variadic: false,
                 attributes: Vec::new(),
+                local_names: Default::default(),
                 function_body: Some(function_body),
                 span: Span::default(),
             }],
@@ -573,6 +575,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
                 is_extern: true,
                 is_variadic: false,
                 attributes: Vec::new(),
+                local_names: Default::default(),
                 function_body: None,
                 span,
             }],
@@ -641,6 +644,7 @@ fn validates_backend_ir_error_type_before_llvm() {
                 is_extern: true,
                 is_variadic: false,
                 attributes: Vec::new(),
+                local_names: Default::default(),
                 function_body: None,
                 span,
             }],
@@ -705,6 +709,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
                 is_extern: false,
                 is_variadic: false,
                 attributes: Vec::new(),
+                local_names: Default::default(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -726,6 +731,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
                                     callee: FunctionCallee::FunctionInstance {
                                         def_id: callee_id,
                                         arg_module_id: ModuleId(0),
+                                        self_arg: None,
                                         args: vec![i32_ty],
                                         const_args: Vec::new(),
                                     },
@@ -833,6 +839,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
                 is_extern: false,
                 is_variadic: false,
                 attributes: Vec::new(),
+                local_names: Default::default(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -854,6 +861,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
                                     callee: FunctionCallee::FunctionInstance {
                                         def_id: callee_id,
                                         arg_module_id: ModuleId(0),
+                                        self_arg: None,
                                         args: vec![equivalent_struct_ty],
                                         const_args: Vec::new(),
                                     },
@@ -872,6 +880,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
                 def_id: callee_id,
                 name: "make".to_string(),
                 arg_module_id: ModuleId(0),
+                self_arg: None,
                 args: vec![canonical_struct_ty],
                 const_args: Vec::new(),
                 symbol: "make_marker".to_string(),
@@ -880,6 +889,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
                 is_extern: false,
                 is_variadic: false,
                 attributes: Vec::new(),
+                local_names: Default::default(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -976,7 +986,7 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
                         def_id: DefId(0),
                     }),
                     method_id: missing_fn,
-                    method_name: "show".to_string(),
+                    method_name: known::SHOW,
                     slot: 0,
                     function: BackendTraitObjectVtableFunction::Function(missing_fn),
                 }],
@@ -1228,6 +1238,7 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
                 is_extern: false,
                 is_variadic: false,
                 attributes: Vec::new(),
+                local_names: Default::default(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -1311,6 +1322,7 @@ fn validates_function_ir_missing_entry_before_llvm() {
                 is_extern: false,
                 is_variadic: false,
                 attributes: Vec::new(),
+                local_names: Default::default(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -1392,6 +1404,7 @@ fn validates_function_ir_missing_successor_before_llvm() {
                 is_extern: false,
                 is_variadic: false,
                 attributes: Vec::new(),
+                local_names: Default::default(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -1596,6 +1609,7 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
         is_extern: false,
         is_variadic: false,
         attributes: Vec::new(),
+        local_names: Default::default(),
         function_body: Some(FunctionBody {
             span,
             locals: Vec::new(),
@@ -1705,6 +1719,7 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
         is_extern: false,
         is_variadic: false,
         attributes: Vec::new(),
+        local_names: Default::default(),
         function_body: Some(FunctionBody {
             span,
             locals: Vec::new(),
@@ -1794,6 +1809,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
         is_extern: false,
         is_variadic: false,
         attributes: Vec::new(),
+        local_names: Default::default(),
         function_body: Some(FunctionBody {
             span,
             locals: Vec::new(),
@@ -1815,7 +1831,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
                             callee: FunctionCallee::TraitMethod {
                                 trait_id,
                                 method_id,
-                                method_name: "value".to_string(),
+                                method_name: known::VALUE,
                                 self_ty: i32_ty,
                                 trait_args: Vec::new(),
                                 args: Vec::new(),
@@ -1883,6 +1899,7 @@ fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
         is_extern: false,
         is_variadic: false,
         attributes: Vec::new(),
+        local_names: Default::default(),
         function_body: Some(FunctionBody {
             span,
             locals: Vec::new(),

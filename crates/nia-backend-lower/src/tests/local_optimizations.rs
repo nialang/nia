@@ -314,12 +314,16 @@ fn main() i32 {
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
-    assert!(body.locals.iter().all(|local| local.name != "unused"));
+    assert!(
+        body.locals
+            .iter()
+            .all(|local| local.name != local_name("unused"))
+    );
     assert!(body.blocks.iter().all(|block| {
         block.ops.iter().all(|op| {
             !matches!(
                 op,
-                FunctionOp::Binding(binding) if binding.name == "unused"
+                FunctionOp::Binding(binding) if binding.name == local_name("unused")
             )
         })
     }));
@@ -345,12 +349,16 @@ fn main() i32 {
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
-    assert!(body.locals.iter().any(|local| local.name == "unused"));
+    assert!(
+        body.locals
+            .iter()
+            .any(|local| local.name == local_name("unused"))
+    );
     assert!(body.blocks.iter().any(|block| {
         block.ops.iter().any(|op| {
             matches!(
                 op,
-                FunctionOp::Binding(binding) if binding.name == "unused"
+                FunctionOp::Binding(binding) if binding.name == local_name("unused")
             )
         })
     }));
@@ -371,7 +379,7 @@ fn main() i32 {
             let temp = LocalId(999);
             body.locals.push(nia_function_ir::FunctionLocal {
                 id: temp,
-                name: "fir.tmp.999".to_string(),
+                name: nia_function_ir::LocalName::temporary(999),
                 kind: nia_function_ir::FunctionLocalKind::Binding,
                 ty,
                 span,
@@ -380,7 +388,7 @@ fn main() i32 {
                 .ops
                 .push(FunctionOp::Binding(nia_function_ir::FunctionBinding {
                     local_id: temp,
-                    name: "fir.tmp.999".to_string(),
+                    name: nia_function_ir::LocalName::temporary(999),
                     ty,
                     value: Some(FunctionExpr {
                         span,
@@ -399,12 +407,16 @@ fn main() i32 {
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
-    assert!(body.locals.iter().all(|local| local.name != "fir.tmp.999"));
+    assert!(
+        body.locals
+            .iter()
+            .all(|local| local.name != nia_function_ir::LocalName::temporary(999))
+    );
     assert!(body.blocks.iter().all(|block| {
         block.ops.iter().all(|op| {
             !matches!(
                 op,
-                FunctionOp::Binding(binding) if binding.name == "fir.tmp.999"
+                FunctionOp::Binding(binding) if binding.name == nia_function_ir::LocalName::temporary(999)
             )
         })
     }));
@@ -452,7 +464,7 @@ fn main() i32 {
         block.ops.iter().all(|op| {
             !matches!(
                 op,
-                FunctionOp::Binding(binding) if binding.name == "local"
+                FunctionOp::Binding(binding) if binding.name == local_name("local")
             )
         })
     }));
@@ -506,7 +518,7 @@ fn main() i32 {
         block.ops.iter().any(|op| {
             matches!(
                 op,
-                FunctionOp::Binding(binding) if binding.name == "local"
+                FunctionOp::Binding(binding) if binding.name == local_name("local")
             )
         })
     }));
@@ -566,7 +578,7 @@ fn main() i32 {
         block.ops.iter().all(|op| {
             !matches!(
                 op,
-                FunctionOp::Binding(binding) if binding.name == "local"
+                FunctionOp::Binding(binding) if binding.name == local_name("local")
             )
         })
     }));
@@ -619,7 +631,7 @@ fn main() i32 {
         block.ops.iter().any(|op| {
             matches!(
                 op,
-                FunctionOp::Binding(binding) if binding.name == "local"
+                FunctionOp::Binding(binding) if binding.name == local_name("local")
             )
         })
     }));
@@ -659,12 +671,16 @@ fn main() i32 {
     let source_id = body
         .locals
         .iter()
-        .find(|local| local.name == "source")
+        .find(|local| local.name == local_name("source"))
         .expect("source local")
         .id;
     let value = first_terminal_value(body);
     assert!(matches!(value.kind, FunctionExprKind::Local(id) if id == source_id));
-    assert!(body.locals.iter().all(|local| local.name != "copy"));
+    assert!(
+        body.locals
+            .iter()
+            .all(|local| local.name != local_name("copy"))
+    );
 }
 
 #[test]
@@ -690,13 +706,17 @@ fn main() i32 {
     let copy_id = body
         .locals
         .iter()
-        .find(|local| local.name == "copy")
+        .find(|local| local.name == local_name("copy"))
         .expect("copy local")
         .id;
     let value = first_terminal_value(body);
 
     assert!(matches!(value.kind, FunctionExprKind::Local(id) if id == copy_id));
-    assert!(body.locals.iter().any(|local| local.name == "copy"));
+    assert!(
+        body.locals
+            .iter()
+            .any(|local| local.name == local_name("copy"))
+    );
 }
 
 #[test]
@@ -724,7 +744,11 @@ fn main() i32 {
         &value.kind,
         FunctionExprKind::Integer(value) if value == "42"
     ));
-    assert!(body.locals.iter().all(|local| local.name != "value"));
+    assert!(
+        body.locals
+            .iter()
+            .all(|local| local.name != local_name("value"))
+    );
     assert!(
         lowering
             .optimization_report
@@ -762,7 +786,7 @@ fn main() i32 {
     let value_id = body
         .locals
         .iter()
-        .find(|local| local.name == "value")
+        .find(|local| local.name == local_name("value"))
         .expect("value local")
         .id;
     let value = first_terminal_value(body);
@@ -883,7 +907,7 @@ fn main() i32 {
             let target_id = body
                 .locals
                 .iter()
-                .find(|local| local.name == "target")
+                .find(|local| local.name == local_name("target"))
                 .expect("target local")
                 .id;
             let span = body.blocks[0].span;
@@ -940,7 +964,7 @@ fn main() i32 {
             let target_id = body
                 .locals
                 .iter()
-                .find(|local| local.name == "target")
+                .find(|local| local.name == local_name("target"))
                 .expect("target local")
                 .id;
             let span = body.blocks[0].span;
@@ -997,7 +1021,7 @@ fn main() i32 {
             let target_id = body
                 .locals
                 .iter()
-                .find(|local| local.name == "target")
+                .find(|local| local.name == local_name("target"))
                 .expect("target local")
                 .id;
             let span = body.blocks[0].span;
@@ -1043,7 +1067,7 @@ fn main() i32 {
             let target_id = body
                 .locals
                 .iter()
-                .find(|local| local.name == "target")
+                .find(|local| local.name == local_name("target"))
                 .expect("target local")
                 .id;
             let span = body.blocks[0].span;

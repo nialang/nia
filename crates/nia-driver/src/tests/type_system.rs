@@ -1288,7 +1288,12 @@ fn main(p: Pair) {}
         .iter()
         .find(|module| module.id == ModuleId(0))
         .expect("main module");
-    let pair_id = main.defs.module_scope.types.get("Pair").expect("Pair def");
+    let pair_id = main
+        .defs
+        .module_scope
+        .types
+        .get(&sym("Pair"))
+        .expect("Pair def");
     let pair_layout = main.layouts.structs.get(&pair_id).expect("Pair layout");
     assert_eq!(
         pair_layout.layout,
@@ -1323,7 +1328,7 @@ fn main() usize {
         .defs
         .module_scope
         .types
-        .get("Statx")
+        .get(&sym("Statx"))
         .expect("Statx def");
     let statx_layout = types_module
         .layouts

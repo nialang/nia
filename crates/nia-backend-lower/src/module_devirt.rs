@@ -129,6 +129,7 @@ impl<'a> ModuleLowerer<'a> {
                     *callee = FunctionCallee::Method {
                         def_id,
                         arg_module_id: self.input.module_id,
+                        self_arg: None,
                         args: Vec::new(),
                         receiver_kind: nia_ids::ReceiverKind::Ref,
                         receiver,

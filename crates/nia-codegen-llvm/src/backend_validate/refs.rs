@@ -27,21 +27,31 @@ impl BackendValidator<'_> {
         &mut self,
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
+        self_arg: Option<InternedTyId>,
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
         span: Span,
         message: &str,
     ) {
+        if let Some(self_arg) = self_arg {
+            self.validate_type(self_arg, span);
+        }
         for arg in args {
             self.validate_type(*arg, span);
         }
-        let key = (def_id, arg_module_id, args.to_vec(), const_args.to_vec());
+        let key = (
+            def_id,
+            arg_module_id,
+            self_arg,
+            args.to_vec(),
+            const_args.to_vec(),
+        );
         let exists = if let Some(exists) = self.function_instance_ref_cache.borrow().get(&key) {
             *exists
         } else {
             let exists = self
                 .index
-                .function_instance(def_id, arg_module_id, args, const_args)
+                .function_instance(def_id, arg_module_id, self_arg, args, const_args)
                 .is_some()
                 || self
                     .index
@@ -50,7 +60,8 @@ impl BackendValidator<'_> {
                     .into_iter()
                     .flatten()
                     .any(|item| {
-                        self.same_type_args(&item.args, args)
+                        self.same_optional_type(item.self_arg, self_arg)
+                            && self.same_type_args(&item.args, args)
                             && item.const_args.as_slice() == const_args
                     });
             self.function_instance_ref_cache

@@ -33,7 +33,7 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     let box_ty = mangled_symbol(ir, '%', 0, "Box__inst__t_i32");
-    let make = mangled_symbol(ir, '@', 0, "make__inst__i32");
+    let make = mangled_symbol(ir, '@', 0, "make__inst__t_i32");
     assert!(ir.contains(&box_ty), "{ir}");
     assert!(ir.contains(&make), "{ir}");
     assert!(
@@ -106,9 +106,9 @@ fn main(ptr: &i32, xs: & [i32], triple: [3]i32) i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     let is_zero = mangled_symbol(ir, '@', 0, "is_zero");
-    let is_null = mangled_symbol(ir, '@', 0, "is_null__inst__i32");
-    let size = mangled_symbol(ir, '@', 0, "size__inst__i32");
-    let first = mangled_symbol(ir, '@', 0, "first__inst__i32");
+    let is_null = mangled_symbol(ir, '@', 0, "is_null__inst__t_i32");
+    let size = mangled_symbol(ir, '@', 0, "size__inst__t_i32");
+    let first = mangled_symbol(ir, '@', 0, "first__inst__t_i32");
     let apply = mangled_symbol(ir, '@', 0, "apply");
     assert!(ir.contains(&format!("call i1 {is_zero}")), "{ir}");
     assert!(ir.contains(&format!("call i1 {is_null}")), "{ir}");
@@ -173,7 +173,7 @@ extend[T] &T {
         .map(|module| module.ir.as_str())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(ir.contains("__is_null__inst__u8"), "{ir}");
+    assert!(ir.contains("__is_null__inst__t_u8"), "{ir}");
     assert!(ir.contains("call i1 @"), "{ir}");
     assert!(ir.contains("define i1 @"), "{ir}");
 }
@@ -217,7 +217,7 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     let specialized_make = mangled_symbol(ir, '@', 0, "make");
-    let generic_make = mangled_symbol(ir, '@', 0, "make__inst__bool");
+    let generic_make = mangled_symbol(ir, '@', 0, "make__inst__t_bool");
     assert!(
         ir.contains(&format!("call void {specialized_make}(ptr %a, i32 41")),
         "{ir}"
@@ -302,7 +302,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert_contains_mangled_symbol(ir, '@', 0, "get__inst__i32");
+    assert_contains_mangled_symbol(ir, '@', 0, "get__inst__t_i32");
     assert!(ir.contains("call i32 %"), "{ir}");
 }
 
@@ -420,9 +420,9 @@ fn main(ptr: &u8, triple: [3]i32) i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("__is_null__inst__u8"), "{ir}");
-    assert!(ir.contains("__zero__inst__u8"), "{ir}");
-    assert!(ir.contains("__first__inst__i32"), "{ir}");
+    assert!(ir.contains("__is_null__inst__t_u8"), "{ir}");
+    assert!(ir.contains("__zero__inst__t_u8"), "{ir}");
+    assert!(ir.contains("__first__inst__t_i32"), "{ir}");
     assert!(ir.contains("call i1 %"), "{ir}");
     assert!(ir.contains("call i1 @"), "{ir}");
     assert!(ir.contains("call i64 %"), "{ir}");

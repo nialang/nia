@@ -246,6 +246,7 @@ impl<'a> ModuleLowerer<'a> {
                         FunctionExprKind::FunctionInstance {
                             def_id,
                             arg_module_id: self.current_arg_module_id(),
+                            self_arg: None,
                             args,
                             const_args: Vec::new(),
                         }
@@ -256,9 +257,12 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::FunctionInstance {
                     def_id,
                     arg_module_id: _,
+                    self_arg,
                     args,
                     const_args,
                 } => {
+                    let self_arg = self_arg
+                        .map(|self_arg| self.instantiate_ty_with_id(self_arg, substitutions));
                     let args = args
                         .into_iter()
                         .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
@@ -266,6 +270,7 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionExprKind::FunctionInstance {
                         def_id,
                         arg_module_id: self.current_arg_module_id(),
+                        self_arg: self.canonicalize_instance_self_arg(self_arg),
                         args: self.canonicalize_instance_args(&args),
                         const_args,
                     }
@@ -490,6 +495,7 @@ impl<'a> ModuleLowerer<'a> {
                                             callee: FunctionCallee::Method {
                                                 def_id,
                                                 arg_module_id: self.current_arg_module_id(),
+                                                self_arg: None,
                                                 args: target_args,
                                                 receiver_kind: self
                                                     .receiver_kind_for_method(def_id)
@@ -659,6 +665,7 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionCallee::FunctionInstance {
                         def_id,
                         arg_module_id: self.current_arg_module_id(),
+                        self_arg: None,
                         args,
                         const_args: Vec::new(),
                     }
@@ -669,9 +676,12 @@ impl<'a> ModuleLowerer<'a> {
             FunctionCallee::FunctionInstance {
                 def_id,
                 arg_module_id: _,
+                self_arg,
                 args,
                 const_args,
             } => {
+                let self_arg =
+                    self_arg.map(|self_arg| self.instantiate_ty_with_id(self_arg, substitutions));
                 let args = args
                     .into_iter()
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
@@ -679,6 +689,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionCallee::FunctionInstance {
                     def_id,
                     arg_module_id: self.current_arg_module_id(),
+                    self_arg: self.canonicalize_instance_self_arg(self_arg),
                     args: self.canonicalize_instance_args(&args),
                     const_args,
                 }
@@ -686,10 +697,13 @@ impl<'a> ModuleLowerer<'a> {
             FunctionCallee::Method {
                 def_id,
                 arg_module_id: _,
+                self_arg,
                 args,
                 receiver_kind,
                 receiver,
             } => {
+                let self_arg =
+                    self_arg.map(|self_arg| self.instantiate_ty_with_id(self_arg, substitutions));
                 let args = args
                     .into_iter()
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
@@ -703,6 +717,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionCallee::Method {
                     def_id,
                     arg_module_id: self.current_arg_module_id(),
+                    self_arg: self.canonicalize_instance_self_arg(self_arg),
                     args,
                     receiver_kind,
                     receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
@@ -740,6 +755,7 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionCallee::Method {
                         def_id,
                         arg_module_id: self.current_arg_module_id(),
+                        self_arg: None,
                         args: instance_args,
                         receiver_kind,
                         receiver,
@@ -749,12 +765,12 @@ impl<'a> ModuleLowerer<'a> {
                 {
                     let default_self_ty =
                         self.default_trait_method_self_arg(trait_id, &trait_args, self_ty);
-                    let mut instance_args = vec![default_self_ty];
-                    instance_args.extend(trait_args.iter().copied());
+                    let mut instance_args = trait_args.clone();
                     instance_args.extend(args);
                     FunctionCallee::Method {
                         def_id: method_id,
                         arg_module_id: self.current_arg_module_id(),
+                        self_arg: Some(default_self_ty),
                         args: instance_args,
                         receiver_kind,
                         receiver,
@@ -766,6 +782,7 @@ impl<'a> ModuleLowerer<'a> {
                         &trait_args,
                         &args,
                     ) {
+                        let method_name = self.symbol_name(method_name);
                         self.diagnostics
                             .push(nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
                                 format!(
@@ -820,6 +837,7 @@ impl<'a> ModuleLowerer<'a> {
                         FunctionCallee::FunctionInstance {
                             def_id,
                             arg_module_id: self.current_arg_module_id(),
+                            self_arg: None,
                             args: instance_args,
                             const_args: Vec::new(),
                         }
@@ -829,12 +847,12 @@ impl<'a> ModuleLowerer<'a> {
                 {
                     let default_self_ty =
                         self.default_trait_method_self_arg(trait_id, &trait_args, self_ty);
-                    let mut instance_args = vec![default_self_ty];
-                    instance_args.extend(trait_args.iter().copied());
+                    let mut instance_args = trait_args.clone();
                     instance_args.extend(args);
                     FunctionCallee::FunctionInstance {
                         def_id: method_id,
                         arg_module_id: self.current_arg_module_id(),
+                        self_arg: Some(default_self_ty),
                         args: instance_args,
                         const_args: Vec::new(),
                     }
@@ -845,6 +863,7 @@ impl<'a> ModuleLowerer<'a> {
                         &trait_args,
                         &args,
                     ) {
+                        let method_name = self.symbol_name(method_name);
                         self.diagnostics
                             .push(nia_diagnostic::Diagnostic::user_error(nia_diagnostic::codes::LLVM_CODEGEN,
                                 format!(
@@ -979,16 +998,15 @@ impl<'a> ModuleLowerer<'a> {
         trait_id: GlobalDefId,
         trait_args: &[InternedTyId],
         trait_method_id: GlobalDefId,
-        trait_method_name: &str,
+        trait_method_name: &SymbolId,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let trait_method_name = self
-            .method_name_for_def(trait_method_id)
-            .map(str::to_string)
-            .unwrap_or_else(|| trait_method_name.to_string());
+            .method_symbol_for_def(trait_method_id)
+            .unwrap_or(*trait_method_name);
         let key = crate::ExtensionTraitMethodKey {
             trait_id: TraitId::Source(trait_id),
-            method_name: trait_method_name.clone(),
+            method_name: trait_method_name,
             trait_arg_count: trait_args.len(),
         };
         if let Some(candidate) = self.current_impl_trait_method(&key, trait_args, self_ty) {
