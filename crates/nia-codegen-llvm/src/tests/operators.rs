@@ -38,7 +38,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("__add"), "{ir}");
+    assert_contains_mangled_symbol(ir, '@', 0, "add");
     assert!(ir.contains("call"), "{ir}");
     assert!(ir.contains("ret i32"), "{ir}");
 }
@@ -82,7 +82,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("__add"), "{ir}");
+    assert_contains_mangled_symbol(ir, '@', 0, "add__inst__t_i32");
     assert!(ir.contains("call"), "{ir}");
     assert!(ir.contains("ret i32"), "{ir}");
 }
@@ -141,8 +141,8 @@ fn main() bool {
     let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("__ne"), "{ir}");
-    assert!(ir.contains("__lt"), "{ir}");
+    assert_contains_mangled_symbol(ir, '@', 0, "ne");
+    assert_contains_mangled_symbol(ir, '@', 0, "lt");
     assert!(ir.contains("call i1 @"), "{ir}");
     assert!(ir.contains("ret i1"), "{ir}");
 }
@@ -190,8 +190,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("__neg"), "{ir}");
-    assert!(ir.contains("__bit_not"), "{ir}");
+    assert_contains_mangled_symbol(ir, '@', 0, "neg");
+    assert_contains_mangled_symbol(ir, '@', 0, "bit_not");
     assert!(ir.contains("call void @"), "{ir}");
     assert!(ir.contains("ret i32"), "{ir}");
 }

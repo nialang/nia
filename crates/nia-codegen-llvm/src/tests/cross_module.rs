@@ -37,8 +37,9 @@ fn main() i32 {
     assert!(ir.contains("i32 65"));
     assert!(ir.contains("[3 x i32] [i32 1, i32 2, i32 3]"));
     assert!(ir.contains("[4 x i8] c\"zzzz\"") || ir.contains("[4 x i8] [i8 122"));
+    let zeroes = mangled_symbol(ir, '@', 0, "zeroes");
     assert!(
-        ir.contains("__zeroes = constant [8 x i32] zeroinitializer"),
+        ir.contains(&format!("{zeroes} = constant [8 x i32] zeroinitializer")),
         "{ir}"
     );
     let pair = mangled_symbol(ir, '%', 0, "Pair");

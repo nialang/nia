@@ -34,7 +34,7 @@ impl<'a> AdapterFunction<'a> {
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn declare_structs(&mut self) -> Result<(), Diagnostic> {
         for item in self.program.structs.values() {
-            let name = self.struct_symbol_name(item.def_id, &item.name);
+            let name = self.struct_symbol_name(item.def_id, item.name);
             let ty = self
                 .context
                 .opaque_struct_type(&name)
@@ -57,7 +57,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.struct_instance_type_lookups.borrow_mut().clear();
         }
         for item in self.program.unions.values() {
-            let name = self.struct_symbol_name(item.def_id, &item.name);
+            let name = self.struct_symbol_name(item.def_id, item.name);
             let ty = self
                 .context
                 .opaque_struct_type(&name)
@@ -90,7 +90,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let Some(struct_ty) = self.structs.get(&item.def_id).copied() else {
                 return Err(self.error(
                     item.span,
-                    format!("missing LLVM struct for `{}`", item.name),
+                    format!(
+                        "missing LLVM struct for `{}`",
+                        self.symbol_debug_name(item.name)
+                    ),
                 ));
             };
             let mut fields = Vec::new();
@@ -131,9 +134,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         for item in self.program.unions.values() {
             let Some(union_ty) = self.unions.get(&item.def_id).copied() else {
-                return Err(
-                    self.error(item.span, format!("missing LLVM union for `{}`", item.name))
-                );
+                return Err(self.error(
+                    item.span,
+                    format!(
+                        "missing LLVM union for `{}`",
+                        self.symbol_debug_name(item.name)
+                    ),
+                ));
             };
             union_ty.set_body(
                 &self.union_storage_fields(item.def_id, &[], &[], item.span)?,
@@ -330,7 +337,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     global.span,
                     format!(
                         "global `{}` initializer type does not match declaration: expected {ty:?}, got {init_ty:?}",
-                        global.name
+                        self.symbol_debug_name(global.name)
                     ),
                 ));
             }
@@ -373,7 +380,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     global.span,
                     format!(
                         "global instance `{}` initializer type does not match declaration: expected {ty:?}, got {init_ty:?}",
-                        global.name
+                        self.symbol_debug_name(global.name)
                     ),
                 ));
             }

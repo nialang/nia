@@ -4,6 +4,15 @@ use crate::{
     CheckRequest, Driver, DriverError, DriverOutput, EmitLlvmRequest, NiaOptimizationLevel,
 };
 use nia_ids::ModuleId;
+use nia_symbol::{SymbolId, known, stable_hash};
+
+fn test_symbol(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(stable_hash(text))
+}
+
+fn test_backend_symbol_suffix(symbol: SymbolId) -> String {
+    format!("sym_{:016x}", symbol.raw())
+}
 
 #[test]
 fn error_union_structural_extend_supports_conversion_methods() {
@@ -1149,8 +1158,8 @@ fn driver_invalidates_reused_loader_sources() {
 }
 
 #[test]
-fn lowers_monomorphized_function_instances_with_readable_symbols() {
-    let root = temp_dir("lowers_monomorphized_function_instances_with_readable_symbols");
+fn lowers_monomorphized_function_instances_with_symbolic_names() {
+    let root = temp_dir("lowers_monomorphized_function_instances_with_symbolic_names");
     write(
         &root.join("main.nia"),
         r#"
@@ -1170,8 +1179,21 @@ fn main() i32 {
     assert_eq!(module.function_instances.len(), 1);
     let symbol = &module.function_instances[0].symbol;
     assert!(symbol.starts_with("nia__m0__d"), "{symbol}");
-    assert!(symbol.contains("__id__inst__"), "{symbol}");
+    assert!(
+        symbol.contains(&format!(
+            "{}__inst__",
+            test_backend_symbol_suffix(test_symbol("id"))
+        )),
+        "{symbol}"
+    );
     assert!(symbol.contains("i32"), "{symbol}");
+    assert_eq!(module.function_instances[0].name, test_symbol("id"));
+    assert_eq!(module.function_instances[0].args.len(), 1);
+    assert_eq!(
+        module.function_instances[0].args[0],
+        module.interner.primitive(nia_ty::PrimitiveTy::I32)
+    );
+    assert_eq!(known::I32, test_symbol("i32"));
 }
 
 #[test]

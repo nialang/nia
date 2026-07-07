@@ -208,8 +208,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(ir.contains("syscall"), "{ir}");
-    assert!(ir.contains("write_some"), "{ir}");
-    assert!(ir.contains("FileWriter"), "{ir}");
+    assert!(ir.contains(&backend_symbol_suffix("write_some")), "{ir}");
+    assert!(ir.contains(&backend_symbol_suffix("FileWriter")), "{ir}");
 }
 
 #[test]
@@ -257,9 +257,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
         .map(|module| module.ir.as_str())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(ir.contains("BufferedWriter"), "{ir}");
-    assert!(ir.contains("flush"), "{ir}");
-    assert!(ir.contains("write_some"), "{ir}");
+    assert!(
+        ir.contains(&backend_symbol_suffix("BufferedWriter")),
+        "{ir}"
+    );
+    assert!(ir.contains(&backend_symbol_suffix("flush")), "{ir}");
+    assert!(ir.contains(&backend_symbol_suffix("write_some")), "{ir}");
 }
 
 #[test]

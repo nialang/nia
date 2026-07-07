@@ -65,7 +65,7 @@ static mut value: i32 = base + 2;
     let value = main_module
         .globals
         .iter()
-        .find(|global| global.name == "value")
+        .find(|global| global.name == sym("value"))
         .expect("value global");
     assert_eq!(value.init, Some(static_int(22)));
 }
@@ -123,7 +123,7 @@ fn main() i32 {
         main_module
             .functions
             .iter()
-            .all(|function| function.name != "width"),
+            .all(|function| function.name != sym("width")),
         "{:?}",
         main_module.functions
     );

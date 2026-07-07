@@ -32,25 +32,25 @@ fn main() i32 {
         module
             .functions
             .iter()
-            .any(|function| function.name == "used")
+            .any(|function| function.name == sym("used"))
     );
     assert!(
         module
             .functions
             .iter()
-            .any(|function| function.name == "main")
+            .any(|function| function.name == sym("main"))
     );
     assert!(
         module
             .functions
             .iter()
-            .any(|function| function.name == "exported")
+            .any(|function| function.name == sym("exported"))
     );
     assert!(
         !module
             .functions
             .iter()
-            .any(|function| function.name == "unused")
+            .any(|function| function.name == sym("unused"))
     );
     assert!(
         lowering
@@ -118,12 +118,12 @@ fn main() i32 {
         !module
             .functions
             .iter()
-            .any(|function| function.name == "unused")
+            .any(|function| function.name == sym("unused"))
     );
     let values = module
         .globals
         .iter()
-        .find(|global| global.name == "values")
+        .find(|global| global.name == sym("values"))
         .expect("values global");
     assert!(matches!(
         values.init,
@@ -208,19 +208,19 @@ fn main() i32 {
         module
             .functions
             .iter()
-            .any(|function| function.name == "kept")
+            .any(|function| function.name == sym("kept"))
     );
     assert!(
         !module
             .functions
             .iter()
-            .any(|function| function.name == "seed")
+            .any(|function| function.name == sym("seed"))
     );
     assert!(
         module
             .function_instances
             .iter()
-            .any(|instance| instance.name == "kept_id")
+            .any(|instance| instance.name == sym("kept_id"))
     );
     assert!(
         lowering
@@ -269,19 +269,19 @@ fn main() i32 {
         module
             .functions
             .iter()
-            .any(|function| function.name == "leaf")
+            .any(|function| function.name == sym("leaf"))
     );
     assert!(
         module
             .functions
             .iter()
-            .any(|function| function.name == "middle")
+            .any(|function| function.name == sym("middle"))
     );
     assert!(
         !module
             .functions
             .iter()
-            .any(|function| function.name == "unused")
+            .any(|function| function.name == sym("unused"))
     );
 }
 
@@ -307,7 +307,7 @@ fn main() i32 {
         !module
             .functions
             .iter()
-            .any(|function| function.name == "unused")
+            .any(|function| function.name == sym("unused"))
     );
     assert!(
         lowering
@@ -350,7 +350,7 @@ fn main() i32 {
         !module
             .function_instances
             .iter()
-            .any(|instance| instance.name == "unused_id")
+            .any(|instance| instance.name == sym("unused_id"))
     );
     assert!(
         lowering
@@ -391,7 +391,7 @@ fn main() i32 {
         module
             .function_instances
             .iter()
-            .any(|instance| instance.name == "id")
+            .any(|instance| instance.name == sym("id"))
     );
 }
 
@@ -416,7 +416,7 @@ fn main() i32 {
     let instances = module
         .function_instances
         .iter()
-        .filter(|instance| instance.name == "id")
+        .filter(|instance| instance.name == sym("id"))
         .collect::<Vec<_>>();
 
     assert_eq!(instances.len(), 1);
@@ -451,13 +451,13 @@ fn main() i32 {
         module
             .function_instances
             .iter()
-            .any(|instance| instance.name == "id")
+            .any(|instance| instance.name == sym("id"))
     );
     assert!(
         module
             .function_instances
             .iter()
-            .any(|instance| instance.name == "wrapper")
+            .any(|instance| instance.name == sym("wrapper"))
     );
 }
 
@@ -487,6 +487,6 @@ fn main() i32 {
         module
             .function_instances
             .iter()
-            .any(|instance| instance.name == "id")
+            .any(|instance| instance.name == sym("id"))
     );
 }

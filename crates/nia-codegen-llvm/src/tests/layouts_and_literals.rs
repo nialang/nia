@@ -238,8 +238,13 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(!ir.contains("call.out"), "{ir}");
-    assert_substrings_in_order(ir, &["%pair = alloca", "make_pair(ptr %pair"]);
-    assert_substrings_in_order(ir, &["%values = alloca", "make_array(ptr %values"]);
+    let make_pair = mangled_symbol(ir, '@', 0, "make_pair");
+    let make_array = mangled_symbol(ir, '@', 0, "make_array");
+    assert_substrings_in_order(ir, &["%pair = alloca", &format!("{make_pair}(ptr %pair")]);
+    assert_substrings_in_order(
+        ir,
+        &["%values = alloca", &format!("{make_array}(ptr %values")],
+    );
 }
 
 #[test]
@@ -285,8 +290,19 @@ fn main() i32 {
     let ir = &output.modules[0].ir;
     assert!(ir.contains("return.copy"), "{ir}");
     assert!(!ir.contains("call.out"), "{ir}");
-    assert_substrings_in_order(ir, &["%arg.copy = alloca", "make_pair(ptr %arg.copy)"]);
-    assert_substrings_in_order(ir, &["%arg.copy1 = alloca", "make_array(ptr %arg.copy1)"]);
+    let make_pair = mangled_symbol(ir, '@', 0, "make_pair");
+    let make_array = mangled_symbol(ir, '@', 0, "make_array");
+    assert_substrings_in_order(
+        ir,
+        &["%arg.copy = alloca", &format!("{make_pair}(ptr %arg.copy)")],
+    );
+    assert_substrings_in_order(
+        ir,
+        &[
+            "%arg.copy1 = alloca",
+            &format!("{make_array}(ptr %arg.copy1)"),
+        ],
+    );
     assert!(!ir.contains("structtmp"), "{ir}");
     assert!(!ir.contains("arraytmp"), "{ir}");
 }
@@ -332,11 +348,12 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     let pair = mangled_symbol(ir, '%', 0, "Pair");
+    let cleanup = mangled_symbol(ir, '@', 0, "cleanup");
     assert_substrings_in_order(
         ir,
         &[
             "call i32 @log(i32 1)",
-            "cleanup(i32 2)",
+            &format!("{cleanup}(i32 2)"),
             &format!("store {pair} %return.value"),
         ],
     );
@@ -440,12 +457,13 @@ fn main() i32 {
     let forward_pair = mangled_symbol(ir, '@', 0, "forward_pair");
     let make_pair = mangled_symbol(ir, '@', 0, "make_pair");
     let pair = mangled_symbol(ir, '%', 0, "Pair");
+    let cleanup = mangled_symbol(ir, '@', 0, "cleanup");
     assert_substrings_in_order(
         ir,
         &[
             &format!("define void {forward_pair}(ptr %0)"),
             &format!("call void {make_pair}(ptr %call.out, i32 10, i32 20)"),
-            "cleanup(i32 1)",
+            &format!("{cleanup}(i32 1)"),
             &format!("store {pair} %call.result, ptr %0"),
         ],
     );

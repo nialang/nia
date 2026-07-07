@@ -39,7 +39,7 @@ use nia_item_signatures::{
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
-use nia_mangle::{mangle_instance_symbol, mangle_symbol_id};
+use nia_mangle::{mangle_instance_symbol_id, mangle_symbol_id};
 use nia_monomorphize::Monomorphization;
 use nia_node_id::VersionedNodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
@@ -1902,7 +1902,7 @@ impl<'a> ModuleLowerer<'a> {
             .map(|init| self.optimize_static_init(def_id, init));
         Some(BackendGlobalInstance {
             def_id,
-            name: self.symbol_name(def.name),
+            name: def.name,
             arg_module_id,
             args: args.clone(),
             const_args: const_args.clone(),
@@ -2198,7 +2198,6 @@ impl<'a> ModuleLowerer<'a> {
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
     ) -> String {
-        let name = self.symbol_name(name);
         let defs = &self.input.defs.defs;
         let input = self.input;
         let const_expr_summaries = &self.input.type_lowering.const_expr_summaries;
@@ -2211,9 +2210,9 @@ impl<'a> ModuleLowerer<'a> {
         if let Some(self_arg) = self_arg {
             args.insert(0, self_arg);
         }
-        let mut symbol = mangle_instance_symbol(
+        let mut symbol = mangle_instance_symbol_id(
             def_id,
-            &name,
+            name,
             &args,
             const_args,
             &self.type_context.interner,
@@ -2282,12 +2281,6 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .map(|local| (local.id, self.local_name(local.name)))
             .collect()
-    }
-
-    pub(crate) fn def_name(&self, def_id: GlobalDefId) -> String {
-        program_def(self.input, def_id)
-            .map(|def| self.symbol_name(def.name))
-            .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
     }
 
     pub(crate) fn def_symbol_name(&self, def_id: GlobalDefId) -> Option<SymbolId> {

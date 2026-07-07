@@ -131,7 +131,7 @@ impl BackendStructInstanceKey {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendStruct {
     pub def_id: GlobalDefId,
-    pub name: String,
+    pub name: SymbolId,
     pub generics: Vec<SymbolId>,
     pub fields: Vec<BackendField>,
     pub is_extern: bool,
@@ -141,7 +141,7 @@ pub struct BackendStruct {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendUnion {
     pub def_id: GlobalDefId,
-    pub name: String,
+    pub name: SymbolId,
     pub generics: Vec<SymbolId>,
     pub fields: Vec<BackendField>,
     pub is_extern: bool,
@@ -151,7 +151,7 @@ pub struct BackendUnion {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendStructInstance {
     pub def_id: GlobalDefId,
-    pub name: String,
+    pub name: SymbolId,
     pub args: Vec<InternedTyId>,
     pub const_args: Vec<ConstGenericArg>,
     pub symbol: String,
@@ -163,7 +163,7 @@ pub struct BackendStructInstance {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendUnionInstance {
     pub def_id: GlobalDefId,
-    pub name: String,
+    pub name: SymbolId,
     pub args: Vec<InternedTyId>,
     pub const_args: Vec<ConstGenericArg>,
     pub symbol: String,
@@ -175,7 +175,7 @@ pub struct BackendUnionInstance {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendField {
     pub def_id: GlobalDefId,
-    pub name: String,
+    pub name: SymbolId,
     pub ty: InternedTyId,
     pub span: Span,
 }
@@ -183,7 +183,7 @@ pub struct BackendField {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendEnum {
     pub def_id: GlobalDefId,
-    pub name: String,
+    pub name: SymbolId,
     pub backing_type: InternedTyId,
     pub variants: Vec<BackendEnumVariant>,
     pub span: Span,
@@ -192,7 +192,7 @@ pub struct BackendEnum {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendEnumVariant {
     pub def_id: GlobalDefId,
-    pub name: String,
+    pub name: SymbolId,
     pub value: Option<i128>,
     pub span: Span,
 }
@@ -200,7 +200,8 @@ pub struct BackendEnumVariant {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendGlobal {
     pub def_id: GlobalDefId,
-    pub name: String,
+    pub name: SymbolId,
+    pub link_name: Option<String>,
     pub ty: InternedTyId,
     pub is_let: bool,
     pub is_extern: bool,
@@ -219,7 +220,7 @@ pub struct BackendGlobalInstanceKey {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendGlobalInstance {
     pub def_id: GlobalDefId,
-    pub name: String,
+    pub name: SymbolId,
     pub arg_module_id: ModuleId,
     pub args: Vec<InternedTyId>,
     pub const_args: Vec<ConstGenericArg>,
@@ -233,7 +234,8 @@ pub struct BackendGlobalInstance {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendFunction {
     pub def_id: GlobalDefId,
-    pub name: String,
+    pub name: SymbolId,
+    pub link_name: Option<String>,
     pub generics: Vec<SymbolId>,
     pub params: Vec<BackendParam>,
     pub return_type: InternedTyId,
@@ -253,7 +255,7 @@ pub enum BackendFunctionAttribute {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendFunctionInstance {
     pub def_id: GlobalDefId,
-    pub name: String,
+    pub name: SymbolId,
     pub arg_module_id: ModuleId,
     pub self_arg: Option<InternedTyId>,
     pub args: Vec<InternedTyId>,

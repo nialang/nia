@@ -61,7 +61,7 @@ fn main(value: Box[[N]u8]) void {}
     let instance = module
         .struct_instances
         .iter()
-        .find(|instance| instance.name == "Box")
+        .find(|instance| instance.name == sym("Box"))
         .expect("Box instance");
 
     assert!(

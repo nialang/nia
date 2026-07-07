@@ -58,7 +58,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
             instances.push(BackendStructInstance {
                 def_id: global_def_id,
-                name: self.symbol_name(item.name),
+                name: item.name,
                 args: key.args.clone(),
                 const_args: key.const_args.clone(),
                 symbol: self.mangle_instance_symbol(
@@ -73,7 +73,7 @@ impl<'a> ModuleLowerer<'a> {
                     .iter()
                     .map(|field| BackendField {
                         def_id: self.global_def_id(field.def_id),
-                        name: self.symbol_name(field.name),
+                        name: field.name,
                         ty: self.instantiate_ty_with_id(field.ty, substitution_id),
                         span: field.span,
                     })
@@ -123,7 +123,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
             instances.push(BackendUnionInstance {
                 def_id: global_def_id,
-                name: self.symbol_name(item.name),
+                name: item.name,
                 args: key.args.clone(),
                 const_args: key.const_args.clone(),
                 symbol: self.mangle_instance_symbol(
@@ -138,7 +138,7 @@ impl<'a> ModuleLowerer<'a> {
                     .iter()
                     .map(|field| BackendField {
                         def_id: self.global_def_id(field.def_id),
-                        name: self.symbol_name(field.name),
+                        name: field.name,
                         ty: self.instantiate_ty_with_id(field.ty, substitution_id),
                         span: field.span,
                     })
@@ -752,7 +752,7 @@ impl<'a> ModuleLowerer<'a> {
             self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
         Some(BackendStructInstance {
             def_id,
-            name: self.symbol_name(def.name),
+            name: def.name,
             args: args.clone(),
             const_args: const_args.clone(),
             symbol: self.mangle_instance_symbol(def_id, def.name, None, &args, &const_args),
@@ -764,7 +764,7 @@ impl<'a> ModuleLowerer<'a> {
                         module_id: self.input.module_id,
                         def_id: field.def_id,
                     },
-                    name: self.symbol_name(field.name),
+                    name: field.name,
                     ty: self.instantiate_ty_with_id(field.ty, substitution_id),
                     span: field.span,
                 })
@@ -814,7 +814,6 @@ impl<'a> ModuleLowerer<'a> {
         {
             return None;
         }
-        let name = self.def_name(def_id);
         let symbol_name = self.def_symbol_name(def_id)?;
         let (substitutions, const_substitutions) =
             self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
@@ -822,7 +821,7 @@ impl<'a> ModuleLowerer<'a> {
             self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
         Some(BackendStructInstance {
             def_id,
-            name: name.clone(),
+            name: symbol_name,
             args: args.clone(),
             const_args: const_args.clone(),
             symbol: self.mangle_instance_symbol(def_id, symbol_name, None, &args, &const_args),
@@ -840,7 +839,7 @@ impl<'a> ModuleLowerer<'a> {
                             module_id: def_id.module_id,
                             def_id: field.def_id,
                         },
-                        name: self.symbol_name(field.name),
+                        name: field.name,
                         ty: self.instantiate_ty_with_id(ty, substitution_id),
                         span: field.span,
                     }
@@ -1388,7 +1387,7 @@ impl<'a> ModuleLowerer<'a> {
             self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
         Some(BackendUnionInstance {
             def_id,
-            name: self.symbol_name(def.name),
+            name: def.name,
             args: args.clone(),
             const_args: const_args.clone(),
             symbol: self.mangle_instance_symbol(def_id, def.name, None, &args, &const_args),
@@ -1400,7 +1399,7 @@ impl<'a> ModuleLowerer<'a> {
                         module_id: self.input.module_id,
                         def_id: field.def_id,
                     },
-                    name: self.symbol_name(field.name),
+                    name: field.name,
                     ty: self.instantiate_ty_with_id(field.ty, substitution_id),
                     span: field.span,
                 })
@@ -1450,7 +1449,6 @@ impl<'a> ModuleLowerer<'a> {
         {
             return None;
         }
-        let name = self.def_name(def_id);
         let symbol_name = self.def_symbol_name(def_id)?;
         let (substitutions, const_substitutions) =
             self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
@@ -1458,7 +1456,7 @@ impl<'a> ModuleLowerer<'a> {
             self.intern_type_and_const_substitutions(&substitutions, &const_substitutions);
         Some(BackendUnionInstance {
             def_id,
-            name: name.clone(),
+            name: symbol_name,
             args: args.clone(),
             const_args: const_args.clone(),
             symbol: self.mangle_instance_symbol(def_id, symbol_name, None, &args, &const_args),
@@ -1476,7 +1474,7 @@ impl<'a> ModuleLowerer<'a> {
                             module_id: def_id.module_id,
                             def_id: field.def_id,
                         },
-                        name: self.symbol_name(field.name),
+                        name: field.name,
                         ty: self.instantiate_ty_with_id(ty, substitution_id),
                         span: field.span,
                     }

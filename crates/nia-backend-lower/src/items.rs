@@ -29,14 +29,14 @@ impl<'a> ModuleLowerer<'a> {
         let substitutions = SymbolMap::new();
         Some(BackendStruct {
             def_id: self.global_def_id(def_id),
-            name: self.symbol_name(item.name),
+            name: item.name,
             generics: signature.generics.clone(),
             fields: signature
                 .fields
                 .iter()
                 .map(|field| BackendField {
                     def_id: self.global_def_id(field.def_id),
-                    name: self.symbol_name(field.name),
+                    name: field.name,
                     ty: self.instantiate_ty(field.ty, &substitutions),
                     span: field.span,
                 })
@@ -57,14 +57,14 @@ impl<'a> ModuleLowerer<'a> {
         let substitutions = SymbolMap::new();
         Some(BackendUnion {
             def_id: self.global_def_id(def_id),
-            name: self.symbol_name(item.name),
+            name: item.name,
             generics: signature.generics.clone(),
             fields: signature
                 .fields
                 .iter()
                 .map(|field| BackendField {
                     def_id: self.global_def_id(field.def_id),
-                    name: self.symbol_name(field.name),
+                    name: field.name,
                     ty: self.instantiate_ty(field.ty, &substitutions),
                     span: field.span,
                 })
@@ -85,14 +85,14 @@ impl<'a> ModuleLowerer<'a> {
         let substitutions = SymbolMap::new();
         Some(BackendEnum {
             def_id: self.global_def_id(def_id),
-            name: self.symbol_name(item.name),
+            name: item.name,
             backing_type: self.instantiate_ty(signature.backing_type, &substitutions),
             variants: signature
                 .variants
                 .iter()
                 .map(|variant| BackendEnumVariant {
                     def_id: self.global_def_id(variant.def_id),
-                    name: self.symbol_name(variant.name),
+                    name: variant.name,
                     value: self
                         .input
                         .comptime_enum_values
@@ -138,7 +138,8 @@ impl<'a> ModuleLowerer<'a> {
             .map(|init| self.optimize_static_init(global_def_id, init));
         Some(BackendGlobal {
             def_id: global_def_id,
-            name: self.symbol_name(binding.name),
+            name: binding.name,
+            link_name: signature.is_extern.then(|| self.symbol_name(binding.name)),
             ty,
             is_let: !signature.is_mutable,
             is_extern: signature.is_extern,
@@ -171,7 +172,10 @@ impl<'a> ModuleLowerer<'a> {
             .map(|init| self.optimize_static_init(global_def_id, init));
         Some(BackendGlobal {
             def_id: global_def_id,
-            name: self.symbol_name(def.name),
+            name: def.name,
+            link_name: signature
+                .is_some_and(|signature| signature.is_extern)
+                .then(|| self.symbol_name(def.name)),
             ty,
             is_let: signature.is_none_or(|signature| !signature.is_mutable),
             is_extern: signature.is_some_and(|signature| signature.is_extern),
@@ -261,7 +265,8 @@ impl<'a> ModuleLowerer<'a> {
             .unwrap_or_default();
         let backend_function = Some(BackendFunction {
             def_id: global_def_id,
-            name: self.symbol_name(function.name),
+            name: function.name,
+            link_name: signature.is_extern.then(|| self.symbol_name(function.name)),
             generics: effective_generics,
             params: function
                 .params
