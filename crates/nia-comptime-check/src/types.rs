@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt};
+use std::{collections::HashMap, fmt, sync::Arc};
 
 use nia_ast::Expr;
 use nia_comptime_ir::{
@@ -212,7 +212,7 @@ pub struct ComptimeModuleInput<'a> {
 pub struct ComptimeProgramContext<'a> {
     pub module: Option<&'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>>,
     pub source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
-    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<DefCollection>>,
+    pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
     pub type_normalizations:
         Option<&'a dyn Fn(ModuleId) -> Option<nia_type_normalize::TypeNormalization>>,
     pub value_type_normalizations:

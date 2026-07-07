@@ -107,7 +107,7 @@ struct QuerySlot<V> {
 enum QueryState<V> {
     Empty,
     Computing { invalidated: bool },
-    Ready(V),
+    Ready(Arc<V>),
 }
 
 trait ErasedQuerySlot: Send + Sync {
@@ -130,6 +130,54 @@ where
                 self.ready.notify_all();
             }
         }
+    }
+}
+
+trait QueryOutput<V> {
+    type Output;
+
+    fn cache_hit(value: &Arc<V>, detail_timing: bool, query_name: &'static str) -> Self::Output;
+    fn computed(value: V, detail_timing: bool, query_name: &'static str) -> (Arc<V>, Self::Output);
+}
+
+struct OwnedQueryOutput;
+
+impl<V> QueryOutput<V> for OwnedQueryOutput
+where
+    V: Clone,
+{
+    type Output = V;
+
+    fn cache_hit(value: &Arc<V>, detail_timing: bool, query_name: &'static str) -> Self::Output {
+        time_query_name_detail(detail_timing, "query.clone.cache_hit", query_name, || {
+            value.as_ref().clone()
+        })
+    }
+
+    fn computed(value: V, detail_timing: bool, query_name: &'static str) -> (Arc<V>, Self::Output) {
+        let cached = time_query_name_detail(detail_timing, "query.clone.store", query_name, || {
+            Arc::new(value.clone())
+        });
+        (cached, value)
+    }
+}
+
+struct SharedQueryOutput;
+
+impl<V> QueryOutput<V> for SharedQueryOutput {
+    type Output = Arc<V>;
+
+    fn cache_hit(value: &Arc<V>, _detail_timing: bool, _query_name: &'static str) -> Self::Output {
+        Arc::clone(value)
+    }
+
+    fn computed(
+        value: V,
+        _detail_timing: bool,
+        _query_name: &'static str,
+    ) -> (Arc<V>, Self::Output) {
+        let value = Arc::new(value);
+        (Arc::clone(&value), value)
     }
 }
 
@@ -324,6 +372,14 @@ impl<C> QueryDb<C> {
             .unwrap_or_else(|err| std::panic::panic_any(err))
     }
 
+    pub fn query_shared<K>(&self, key: K) -> Arc<K::Value>
+    where
+        K: QueryKey<C>,
+    {
+        self.try_query_shared(key)
+            .unwrap_or_else(|err| std::panic::panic_any(err))
+    }
+
     pub fn invalid_input<K>(&self, key: &K, message: impl Into<String>) -> !
     where
         K: QueryKey<C>,
@@ -337,6 +393,21 @@ impl<C> QueryDb<C> {
     pub fn try_query<K>(&self, key: K) -> QueryResult<K::Value>
     where
         K: QueryKey<C>,
+    {
+        self.try_query_cached::<K, OwnedQueryOutput>(key)
+    }
+
+    pub fn try_query_shared<K>(&self, key: K) -> QueryResult<Arc<K::Value>>
+    where
+        K: QueryKey<C>,
+    {
+        self.try_query_cached::<K, SharedQueryOutput>(key)
+    }
+
+    fn try_query_cached<K, O>(&self, key: K) -> QueryResult<O::Output>
+    where
+        K: QueryKey<C>,
+        O: QueryOutput<K::Value>,
     {
         let identity = query_frame_identity::<C, K>(&key);
         let detail_timing = self.inner.timings.detail();
@@ -353,12 +424,7 @@ impl<C> QueryDb<C> {
                     nia_timing::time_detail(detail_timing, "query.record_cache_hit", || {
                         self.record_cache_hit(identity.clone())
                     });
-                    return Ok(time_query_name_detail(
-                        detail_timing,
-                        "query.clone.cache_hit",
-                        identity.name,
-                        || value.clone(),
-                    ));
+                    return Ok(O::cache_hit(value, detail_timing, identity.name));
                 }
                 QueryState::Computing { .. } => {
                     self.check_not_recursive_identity(&identity)?;
@@ -405,6 +471,7 @@ impl<C> QueryDb<C> {
                         }
                     };
 
+                    let (cached, output) = O::computed(value, detail_timing, identity.name);
                     let mut state = slot.state.lock().expect("query cache lock poisoned");
                     let was_invalidated =
                         matches!(&*state, QueryState::Computing { invalidated: true });
@@ -415,16 +482,10 @@ impl<C> QueryDb<C> {
                         // entry and its edges so the next request recomputes against fresh inputs.
                         self.clear_dependencies_from(&identity);
                     } else {
-                        let cached = time_query_name_detail(
-                            detail_timing,
-                            "query.clone.store",
-                            identity.name,
-                            || value.clone(),
-                        );
                         *state = QueryState::Ready(cached);
                     }
                     slot.ready.notify_all();
-                    return Ok(value);
+                    return Ok(output);
                 }
             }
         }
@@ -909,6 +970,21 @@ mod tests {
         });
 
         assert_eq!(db.query(Double(21)), 42);
+        assert_eq!(db.query(Double(21)), 42);
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn shared_queries_reuse_cached_value_handles() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        let first = db.query_shared(Double(21));
+        let second = db.query_shared(Double(21));
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(*first, 42);
         assert_eq!(db.query(Double(21)), 42);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
     }

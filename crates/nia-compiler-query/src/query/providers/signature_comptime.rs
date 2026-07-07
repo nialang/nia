@@ -34,7 +34,7 @@ fn with_signature_comptime_input<T>(
     let source_path = db.query(ModulePathQuery(module_id));
     let program_module = |module_id| Some(db.query(SignatureComptimeModuleQuery(module_id)).module);
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
-    let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {
         Some(db.query(SignatureTypeNormalizationQuery(
             module_id,
@@ -236,7 +236,7 @@ fn signature_comptime_value_resolution(
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
     let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
     let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
-    let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
     let mut values =
         nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
@@ -367,7 +367,7 @@ pub(super) fn signature_layouts_for_types(
 ) -> nia_layout::Layouts {
     time_module_provider(db, "signature_layouts", module_id, || {
         let defs = db.query(ModuleDefsQuery(module_id));
-        let active_item_tree = db.query(SignatureItemTreeQuery(
+        let active_item_tree = db.query_shared(SignatureItemTreeQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ));

@@ -16,7 +16,7 @@ pub(super) fn provide_program_signature_module_eligibility(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> bool {
-    let tree = db.query(SignatureItemTreeQuery(module_id, set));
+    let tree = db.query_shared(SignatureItemTreeQuery(module_id, set));
     crate::program_signatures::signature_tree_has_program_signature_facts(&tree, set)
 }
 

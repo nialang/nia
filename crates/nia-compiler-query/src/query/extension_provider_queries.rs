@@ -7,7 +7,7 @@ pub(super) struct ExtensionSignatureModuleInputQueryValue {
     pub(super) module_id: ModuleId,
     pub(super) lowering: TypeLowering,
     pub(super) signatures: ItemSignatures,
-    pub(super) defs: DefCollection,
+    pub(super) defs: Arc<DefCollection>,
     pub(super) function_signatures: ItemSignatures,
     pub(super) type_signatures: ItemSignatures,
     pub(super) normalization: TypeNormalization,

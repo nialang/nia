@@ -78,7 +78,7 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) visible_extensions: &'a [VisibleExtensionsValue],
     pub(super) function_bodies: &'a [LoweredFunctionBodies],
     pub(super) extension_methods: &'a nia_defs::ExtensionMethods,
-    pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<DefCollection>,
+    pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     pub(super) program_signatures: ProgramCodegenSignatures<'a>,
     pub(super) indexes: &'a BackendLoweringIndexes<'a>,
 }
