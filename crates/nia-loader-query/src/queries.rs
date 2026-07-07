@@ -4,7 +4,7 @@ use crate::used_paths::{ModuleDeclarations, collect_used_modules};
 use crate::{EntryRuntime, LoaderContext};
 use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_imports::resolve_module_declarations_from_active_item_tree;
+use nia_imports::resolve_module_declarations_from_active_item_tree_with_symbols;
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_provider_summary::ProviderSummary;
 use nia_query::{QueryDb, QueryKey};
@@ -31,6 +31,7 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
         let diagnostics = db.query(LoadDiagnosticsQuery);
         LoadedProgram {
             graph,
+            symbols: db.context().symbols.clone(),
             target: db.context().target.clone(),
             runtime: runtime_model(db.context().entry_runtime),
             modules,
@@ -149,7 +150,10 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             version: self.version,
         });
         let (raw_module, parse_errors, origins) =
-            nia_parser::parse_module_syntax_with_origins(&syntax);
+            nia_parser::parse_module_syntax_with_origins_and_symbols(
+                &syntax,
+                db.context().symbols.clone(),
+            );
         let item_tree = ModuleItemTree::from_module(&raw_module);
         let prune_result = prune_module_for_target(raw_module, &db.context().target);
         Arc::new(ParsedModule {
@@ -283,9 +287,10 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
             && parsed.parse_errors.is_empty()
             && parsed.prune_diagnostics.is_empty()
         {
-            let declarations = resolve_module_declarations_from_active_item_tree(
+            let declarations = resolve_module_declarations_from_active_item_tree_with_symbols(
                 &mut diagnostics,
                 &parsed.active_item_tree,
+                &db.context().symbols,
             );
             let (package_roots, used_module_paths) =
                 collect_used_modules(&parsed.active_item_tree, &db.context().module_map);

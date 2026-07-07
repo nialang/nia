@@ -16,6 +16,7 @@ use nia_item_signatures::{
     ProgramTraitSignature, ProgramUnionSignature,
 };
 use nia_sema_ir::FunctionSemanticFacts;
+use nia_symbol::{SymbolId, SymbolMap, known};
 use nia_ty::{AssociatedTypeBindingTy, TyInterner, TyKind};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -37,7 +38,7 @@ pub struct ExecutableReachabilityStats {
 struct ExtensionReachabilityIndex<'a> {
     methods: Vec<&'a nia_defs::ExtensionMethod>,
     by_trait: HashMap<TraitId, Vec<&'a nia_defs::ExtensionMethod>>,
-    by_trait_method: HashMap<(TraitId, String), Vec<&'a nia_defs::ExtensionMethod>>,
+    by_trait_method: HashMap<(TraitId, SymbolId), Vec<&'a nia_defs::ExtensionMethod>>,
     where_predicates_by_def: HashMap<GlobalDefId, &'a [nia_defs::WherePredicateSignature]>,
     trait_impls_by_key: HashMap<(ModuleId, TraitImplId, TraitId), &'a ProgramTraitImplSignature>,
 }
@@ -50,7 +51,7 @@ impl<'a> ExtensionReachabilityIndex<'a> {
         let mut methods = Vec::new();
         let mut by_trait = HashMap::<TraitId, Vec<&'a nia_defs::ExtensionMethod>>::new();
         let mut by_trait_method =
-            HashMap::<(TraitId, String), Vec<&'a nia_defs::ExtensionMethod>>::new();
+            HashMap::<(TraitId, SymbolId), Vec<&'a nia_defs::ExtensionMethod>>::new();
         let mut where_predicates_by_def =
             HashMap::<GlobalDefId, &'a [nia_defs::WherePredicateSignature]>::new();
         let trait_impls_by_key = trait_impls
@@ -103,10 +104,10 @@ impl<'a> ExtensionReachabilityIndex<'a> {
     fn methods_for_trait_method(
         &self,
         trait_id: TraitId,
-        method_name: &str,
+        method_name: &SymbolId,
     ) -> impl Iterator<Item = &'a nia_defs::ExtensionMethod> + '_ {
         self.by_trait_method
-            .get(&(trait_id, method_name.to_string()))
+            .get(&(trait_id, method_name.clone()))
             .into_iter()
             .flat_map(|methods| methods.iter().copied())
     }
@@ -158,7 +159,7 @@ impl IncrementalExecutableReachability {
 
 #[derive(Clone, Copy)]
 pub struct ExecutableRootDefs<'a> {
-    pub named_function: &'a dyn Fn(ModuleId, &str) -> Option<GlobalDefId>,
+    pub named_function: &'a dyn Fn(ModuleId, SymbolId) -> Option<GlobalDefId>,
     pub module_functions: &'a dyn Fn(ModuleId) -> Vec<GlobalDefId>,
 }
 
@@ -800,11 +801,11 @@ fn executable_root_functions(
     root_defs: ExecutableRootDefs<'_>,
 ) -> HashSet<GlobalDefId> {
     let mut roots = HashSet::new();
-    if let Some(main) = (root_defs.named_function)(graph.entry(), "main") {
+    if let Some(main) = (root_defs.named_function)(graph.entry(), known::MAIN) {
         roots.insert(main);
     }
     if let Some(start_module) = freestanding_start_module(graph)
-        && let Some(start) = (root_defs.named_function)(start_module, "_start")
+        && let Some(start) = (root_defs.named_function)(start_module, known::START_ENTRY)
     {
         roots.insert(start);
         roots.extend((root_defs.module_functions)(start_module));
@@ -993,7 +994,7 @@ fn extend_reachable_traits_from_generic_instantiation(
     } else {
         &instantiation.generics
     };
-    let substitutions = generics
+    let generic_substitutions = generics
         .iter()
         .cloned()
         .zip(instantiation.args.iter().copied())
@@ -1003,6 +1004,13 @@ fn extend_reachable_traits_from_generic_instantiation(
                 .map(|arg| (generic, arg))
         })
         .collect::<HashMap<_, _>>();
+    let self_ty = instantiation.self_arg.and_then(|self_arg| {
+        nia_ty::try_import_type_into(&mut signature_interner, arg_interner, self_arg).ok()
+    });
+    let substitutions = TypeSubstitutions {
+        self_ty,
+        generics: &generic_substitutions,
+    };
     let extension_where_predicates = extension_index.where_predicates_for_def(instantiation.def_id);
     for predicate in signature
         .signature
@@ -1042,14 +1050,16 @@ fn extend_reachable_traits_from_generic_instantiation(
                 }
                 TraitId::Builtin(builtin_trait) => {
                     for method in builtin_trait.required_methods() {
-                        traits.insert_method_with_interner(
-                            use_module_id,
-                            trait_id,
-                            method.name(),
-                            self_ty,
-                            trait_args.clone(),
-                            Some(substituted_interner.clone()),
-                        );
+                        if let Some(method_name) = builtin_trait_method_symbol(*method) {
+                            traits.insert_method_with_interner(
+                                use_module_id,
+                                trait_id,
+                                method_name,
+                                self_ty,
+                                trait_args.clone(),
+                                Some(substituted_interner.clone()),
+                            );
+                        }
                     }
                 }
             }
@@ -1115,7 +1125,7 @@ fn extend_reachable_traits_from_trait_default_instantiation(
         return;
     };
     let trait_id = TraitId::Source(trait_def);
-    let Some(self_ty) = instantiation.args.first().copied() else {
+    let Some(self_ty) = instantiation.self_arg else {
         return;
     };
     let mut method_interner = trait_signature.interner.clone();
@@ -1126,7 +1136,6 @@ fn extend_reachable_traits_from_trait_default_instantiation(
     let trait_args = instantiation
         .args
         .iter()
-        .skip(1)
         .take(trait_signature.signature.generics.len())
         .map(|arg| nia_ty::try_import_type_into(&mut method_interner, arg_interner, *arg))
         .collect::<Result<Vec<_>, _>>();
@@ -1171,8 +1180,16 @@ fn instantiate_nested_generic_instantiation(
     target_interner: &mut TyInterner,
     source_interner: &TyInterner,
     instantiation: &nia_sema_ir::GenericInstantiation,
-    substitutions: &HashMap<String, InternedTyId>,
+    substitutions: &TypeSubstitutions<'_>,
 ) -> Option<nia_sema_ir::GenericInstantiation> {
+    let self_arg = match instantiation.self_arg {
+        Some(self_arg) => {
+            let imported =
+                nia_ty::try_import_type_into(target_interner, source_interner, self_arg).ok()?;
+            Some(substitute_ty(target_interner, imported, substitutions)?)
+        }
+        None => None,
+    };
     let args = instantiation
         .args
         .iter()
@@ -1194,6 +1211,7 @@ fn instantiate_nested_generic_instantiation(
         .collect::<Option<Vec<_>>>()?;
     Some(nia_sema_ir::GenericInstantiation {
         def_id: instantiation.def_id,
+        self_arg,
         args,
         const_args,
         generics: instantiation.generics.clone(),
@@ -1284,7 +1302,7 @@ struct ReachableTraitRefs {
 struct ReachableTraitMethod {
     module_id: ModuleId,
     trait_id: TraitId,
-    method_name: String,
+    method_name: SymbolId,
     self_ty: InternedTyId,
     trait_args: Vec<InternedTyId>,
     interner: Option<TyInterner>,
@@ -1294,7 +1312,7 @@ struct ReachableTraitMethod {
 struct ReachableTraitRawMethodKey {
     module_id: ModuleId,
     trait_id: TraitId,
-    method_name: String,
+    method_name: SymbolId,
     self_ty: InternedTyId,
     trait_args: Vec<InternedTyId>,
 }
@@ -1302,7 +1320,7 @@ struct ReachableTraitRawMethodKey {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ReachableTraitMethodKey {
     trait_id: TraitId,
-    method_name: String,
+    method_name: SymbolId,
     self_ty: TyKind,
     trait_args: Vec<TyKind>,
 }
@@ -1354,7 +1372,7 @@ impl ReachableTraitRefs {
         &mut self,
         module_id: ModuleId,
         trait_id: TraitId,
-        method_name: impl Into<String>,
+        method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
     ) {
@@ -1372,7 +1390,7 @@ impl ReachableTraitRefs {
         &mut self,
         module_id: ModuleId,
         trait_id: TraitId,
-        method_name: impl Into<String>,
+        method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         interner: Option<TyInterner>,
@@ -1382,7 +1400,6 @@ impl ReachableTraitRefs {
         let key_interner = match key_interner {
             Some(interner) => interner,
             None => {
-                let method_name = method_name.into();
                 if !self.raw_method_keys.insert(ReachableTraitRawMethodKey {
                     module_id,
                     trait_id,
@@ -1412,7 +1429,6 @@ impl ReachableTraitRefs {
         else {
             return;
         };
-        let method_name = method_name.into();
         if !self.method_keys.insert(ReachableTraitMethodKey {
             trait_id,
             method_name: method_name.clone(),
@@ -1455,10 +1471,10 @@ impl ReachableTraitRefs {
         });
     }
 
-    fn needs_method(&self, trait_id: TraitId, method_name: &str) -> bool {
+    fn needs_method(&self, trait_id: TraitId, method_name: &SymbolId) -> bool {
         self.methods
             .iter()
-            .any(|method| method.trait_id == trait_id && method.method_name == method_name)
+            .any(|method| method.trait_id == trait_id && &method.method_name == method_name)
             || self
                 .vtables
                 .iter()
@@ -1774,7 +1790,7 @@ fn reachable_extension_method_needs_body(
 struct ReachableExtensionMethodMatch<'a> {
     impl_signature: &'a ProgramTraitImplSignature,
     interner: TyInterner,
-    substitutions: HashMap<String, InternedTyId>,
+    substitutions: SymbolMap<InternedTyId>,
 }
 
 fn reachable_extension_method_match<'a>(
@@ -1841,7 +1857,7 @@ fn reachable_extension_method_match<'a>(
 fn extend_reachable_trait_methods_from_impl_where_predicates(
     program_signatures: ExecutableSignatureIndex<'_>,
     matched: &ReachableExtensionMethodMatch<'_>,
-    fallback_method_name: &str,
+    fallback_method_name: &SymbolId,
     module_id: ModuleId,
     traits: &mut ReachableTraitRefs,
 ) {
@@ -1854,8 +1870,8 @@ fn extend_reachable_trait_methods_from_impl_where_predicates(
         ) else {
             continue;
         };
-        let Some(self_ty) = substitute_ty(&mut interner, predicate_ty, &matched.substitutions)
-        else {
+        let substitutions = TypeSubstitutions::generics(&matched.substitutions);
+        let Some(self_ty) = substitute_ty(&mut interner, predicate_ty, &substitutions) else {
             continue;
         };
         for bound in &predicate.bounds {
@@ -1866,8 +1882,7 @@ fn extend_reachable_trait_methods_from_impl_where_predicates(
             ) else {
                 continue;
             };
-            let Some(trait_ty) = substitute_ty(&mut interner, trait_ty, &matched.substitutions)
-            else {
+            let Some(trait_ty) = substitute_ty(&mut interner, trait_ty, &substitutions) else {
                 continue;
             };
             let Some((trait_id, trait_args)) = trait_id_and_args(&interner, trait_ty) else {
@@ -1891,7 +1906,7 @@ fn extend_reachable_trait_methods_from_impl_where_predicates(
             traits.insert_method_with_interner(
                 module_id,
                 trait_id,
-                fallback_method_name.to_string(),
+                fallback_method_name.clone(),
                 self_ty,
                 trait_args,
                 Some(interner.clone()),
@@ -1931,7 +1946,7 @@ fn match_type_pattern(
     interner: &TyInterner,
     pattern: InternedTyId,
     actual: InternedTyId,
-    substitutions: &mut HashMap<String, InternedTyId>,
+    substitutions: &mut SymbolMap<InternedTyId>,
 ) -> bool {
     let Some(pattern_ty) = interner.get(pattern) else {
         return false;
@@ -1945,6 +1960,7 @@ fn match_type_pattern(
                 true
             }
         }
+        TyKind::SelfParam => matches!(interner.get(actual), Some(TyKind::SelfParam)),
         TyKind::Primitive(pattern_primitive) => {
             matches!(interner.get(actual), Some(TyKind::Primitive(actual_primitive)) if pattern_primitive == actual_primitive)
         }
@@ -2102,14 +2118,30 @@ fn trait_id_and_args(
     }
 }
 
+#[derive(Clone, Copy)]
+struct TypeSubstitutions<'a> {
+    self_ty: Option<InternedTyId>,
+    generics: &'a SymbolMap<InternedTyId>,
+}
+
+impl<'a> TypeSubstitutions<'a> {
+    fn generics(generics: &'a SymbolMap<InternedTyId>) -> Self {
+        Self {
+            self_ty: None,
+            generics,
+        }
+    }
+}
+
 fn substitute_ty(
     interner: &mut TyInterner,
     ty: InternedTyId,
-    substitutions: &HashMap<String, InternedTyId>,
+    substitutions: &TypeSubstitutions<'_>,
 ) -> Option<InternedTyId> {
     let kind = interner.get(ty)?.clone();
     match kind {
-        TyKind::GenericParam(name) => substitutions.get(&name).copied().or(Some(ty)),
+        TyKind::GenericParam(name) => substitutions.generics.get(&name).copied().or(Some(ty)),
+        TyKind::SelfParam => substitutions.self_ty.or(Some(ty)),
         TyKind::Pointer { is_readonly, elem } => {
             let elem = substitute_ty(interner, elem, substitutions)?;
             Some(interner.intern(TyKind::Pointer { is_readonly, elem }))
@@ -2289,7 +2321,7 @@ fn substitute_ty(
 fn substitute_associated_type_bindings(
     interner: &mut TyInterner,
     bindings: Vec<AssociatedTypeBindingTy>,
-    substitutions: &HashMap<String, InternedTyId>,
+    substitutions: &TypeSubstitutions<'_>,
 ) -> Option<Vec<AssociatedTypeBindingTy>> {
     bindings
         .into_iter()
@@ -2335,12 +2367,12 @@ fn add_reachable_type_module(module_id: ModuleId, type_modules: &mut HashSet<Mod
 
 fn freestanding_start_module(graph: &ModuleGraph) -> Option<ModuleId> {
     graph.module_id_for_module_path(&nia_imports::ModulePath {
-        package: nia_imports::STD_MODULE_MAP_NAME.to_string(),
+        package: known::std(),
         segments: vec![
-            "start".to_string(),
-            "freestanding".to_string(),
-            "linux".to_string(),
-            "x86_64".to_string(),
+            known::START,
+            known::FREESTANDING,
+            known::LINUX,
+            known::X86_64,
         ],
     })
 }
@@ -2525,13 +2557,15 @@ fn collect_resolved_call_owner_modules(
         }
         nia_sema_ir::ResolvedCall::BuiltinMethod { method, self_ty } => {
             if let Some((trait_id, trait_method)) = semantic_builtin_method_trait(*method) {
-                traits.insert_method(
-                    module_id,
-                    TraitId::Builtin(trait_id),
-                    trait_method.name(),
-                    *self_ty,
-                    Vec::new(),
-                );
+                if let Some(method_name) = builtin_trait_method_symbol(trait_method) {
+                    traits.insert_method(
+                        module_id,
+                        TraitId::Builtin(trait_id),
+                        method_name,
+                        *self_ty,
+                        Vec::new(),
+                    );
+                }
             }
             type_ids.push(*self_ty);
         }
@@ -2706,7 +2740,46 @@ fn collect_ty_owner_modules<'a>(
         | TyKind::Primitive(_)
         | TyKind::BuiltinType(_)
         | TyKind::Vector { .. }
+        | TyKind::SelfParam
         | TyKind::GenericParam(_) => {}
+    }
+}
+
+fn builtin_trait_method_symbol(method: BuiltinTraitMethod) -> Option<SymbolId> {
+    match method {
+        BuiltinTraitMethod::Add => Some(known::ADD),
+        BuiltinTraitMethod::Sub => Some(known::SUB),
+        BuiltinTraitMethod::Mul => Some(known::MUL),
+        BuiltinTraitMethod::Div => Some(known::DIV),
+        BuiltinTraitMethod::Rem => Some(known::REM),
+        BuiltinTraitMethod::Neg => Some(known::NEG),
+        BuiltinTraitMethod::Not => Some(known::LOGICAL_NOT),
+        BuiltinTraitMethod::BitNot => Some(known::BIT_NOT),
+        BuiltinTraitMethod::BitAnd => Some(known::BIT_AND),
+        BuiltinTraitMethod::BitOr => Some(known::BIT_OR),
+        BuiltinTraitMethod::BitXor => Some(known::BIT_XOR),
+        BuiltinTraitMethod::Shl => Some(known::SHL),
+        BuiltinTraitMethod::Shr => Some(known::SHR),
+        BuiltinTraitMethod::Eq => Some(known::EQ),
+        BuiltinTraitMethod::Ne => Some(known::NE),
+        BuiltinTraitMethod::Lt => Some(known::LT),
+        BuiltinTraitMethod::Le => Some(known::LE),
+        BuiltinTraitMethod::Gt => Some(known::GT),
+        BuiltinTraitMethod::Ge => Some(known::GE),
+        BuiltinTraitMethod::Deref => Some(known::DEREF),
+        BuiltinTraitMethod::DerefMut => Some(known::DEREF_MUT),
+        BuiltinTraitMethod::Index => Some(known::INDEX),
+        BuiltinTraitMethod::IndexMut => Some(known::INDEX_MUT),
+        BuiltinTraitMethod::Slice => Some(known::SLICE),
+        BuiltinTraitMethod::SliceMut => Some(known::SLICE_MUT),
+        BuiltinTraitMethod::Ptr => Some(known::PTR),
+        BuiltinTraitMethod::PtrMut => Some(known::PTR_MUT),
+        BuiltinTraitMethod::Len => Some(known::LEN),
+        BuiltinTraitMethod::Start => Some(known::START),
+        BuiltinTraitMethod::End => Some(known::END),
+        BuiltinTraitMethod::Char => Some(known::CHAR),
+        BuiltinTraitMethod::IteratorNext => Some(known::NEXT),
+        BuiltinTraitMethod::IterableIter => Some(known::ITER_METHOD),
     }
 }
 

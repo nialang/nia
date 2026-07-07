@@ -82,6 +82,7 @@ fn with_signature_comptime_input<T>(
     let visible_extensions_for_module =
         |module_id| Some(db.query(VisibleExtensionsQuery(module_id)).methods.clone());
     let target = db.query(CompilerTargetQuery);
+    let symbols = db.context().symbols();
     f(
         nia_comptime_check::ComptimeInput {
             module: &module.module,
@@ -89,6 +90,7 @@ fn with_signature_comptime_input<T>(
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
+            symbols: &symbols,
             lowered: &type_lowering,
             signatures: &signatures,
             interner: &type_normalization.interner,
@@ -133,6 +135,7 @@ pub(super) fn provide_signature_comptime_module(
     );
     let signatures = db.query(SignatureComptimeItemSignaturesQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
+    let symbols = db.context().symbols();
     nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
         active_item_tree: &active_item_tree,
         defs: &defs,
@@ -140,6 +143,7 @@ pub(super) fn provide_signature_comptime_module(
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
+        symbols: &symbols,
         const_exprs: &type_lowering.const_exprs,
         source_path: &source_path,
     })
@@ -233,8 +237,9 @@ fn signature_comptime_value_resolution(
     let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
     let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
     let program_defs = |module_id| Some(db.query(ModuleDefsQuery(module_id)));
+    let symbols = db.context().symbols();
     let mut values =
-        nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values(
+        nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
             active_item_tree,
             &defs,
             nia_value_resolve::ProgramDefsContext {
@@ -244,12 +249,13 @@ fn signature_comptime_value_resolution(
             &public_surfaces.surfaces,
             &using_scope,
             Some(&associated_values),
+            Some(&symbols),
         );
     if exprs.is_empty() {
         return values;
     }
     let const_expr_values =
-        nia_value_resolve::resolve_module_values_from_exprs_with_associated_values(
+        nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
             exprs,
             &defs,
             nia_value_resolve::ProgramDefsContext {
@@ -259,6 +265,7 @@ fn signature_comptime_value_resolution(
             &public_surfaces.surfaces,
             &using_scope,
             Some(&associated_values),
+            Some(&symbols),
         );
     values.node_names.extend(const_expr_values.node_names);
     values

@@ -18,7 +18,7 @@ pub(super) fn provide_extension_provider_discovery_index(
     ));
     time_provider(timings, "extension_provider_discovery_index", || {
         let mut provider_modules = Vec::new();
-        let mut nominal_candidates_by_name: HashMap<String, Vec<ModuleId>> = HashMap::new();
+        let mut nominal_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         for module_id in trait_modules {
             let summary = db.query(ExtensionProviderSummaryQuery(module_id));
             if !summary.has_providers() {
@@ -209,12 +209,14 @@ pub(super) fn provide_extension_provider_validation_facts(
         let input = db.query(ExtensionSignatureModuleInputQuery(module_id));
         let trait_index = db.query(ExtensionTraitSignatureIndexQuery);
         let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
+        let symbols = db.context().symbols();
         let (methods, diagnostics) = collect_extension_methods_for_module(
             &input.module(),
             ExtensionMethodValidationInput {
                 trait_defs: &trait_index.trait_defs,
                 trait_signatures: &trait_index.trait_signatures,
                 trait_impls: &trait_solving.trait_impls,
+                symbols: &symbols,
             },
         );
         Arc::new(ExtensionProviderValidationFactsQueryValue {
@@ -375,7 +377,7 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
 fn extension_provider_nominal_target_names_for_targets(
     db: &QueryDb<CompilerContext>,
     targets: &ExtensionProviderNominalTargets,
-) -> Vec<String> {
+) -> Vec<SymbolId> {
     let type_exposures = db.query(TypeExposureIndexQuery);
     let mut names = Vec::new();
 

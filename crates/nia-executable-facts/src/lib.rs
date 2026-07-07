@@ -9,6 +9,7 @@ use nia_defs::{DefCollection, DefKind};
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_sema_ir::{GenericInstantiation, SemanticFacts};
 use nia_static_ir::StaticInit;
+use nia_symbol::{SymbolId, known};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy)]
@@ -87,7 +88,7 @@ pub struct ExecutableTraitRefs {
 pub struct ExecutableTraitMethodRef {
     pub module_id: ModuleId,
     pub trait_id: TraitId,
-    pub method_name: String,
+    pub method_name: SymbolId,
     pub self_ty: InternedTyId,
     pub trait_args: Vec<InternedTyId>,
 }
@@ -115,7 +116,7 @@ impl ExecutableTraitRefs {
         &mut self,
         module_id: ModuleId,
         trait_id: TraitId,
-        method_name: impl Into<String>,
+        method_name: SymbolId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
     ) {
@@ -123,7 +124,7 @@ impl ExecutableTraitRefs {
         self.methods.push(ExecutableTraitMethodRef {
             module_id,
             trait_id,
-            method_name: method_name.into(),
+            method_name,
             self_ty,
             trait_args,
         });
@@ -143,6 +144,44 @@ impl ExecutableTraitRefs {
             self_ty,
             trait_args,
         });
+    }
+}
+
+fn builtin_trait_method_symbol(method: BuiltinTraitMethod) -> SymbolId {
+    match method {
+        BuiltinTraitMethod::Add => known::ADD,
+        BuiltinTraitMethod::Sub => known::SUB,
+        BuiltinTraitMethod::Mul => known::MUL,
+        BuiltinTraitMethod::Div => known::DIV,
+        BuiltinTraitMethod::Rem => known::REM,
+        BuiltinTraitMethod::Neg => known::NEG,
+        BuiltinTraitMethod::Not => known::LOGICAL_NOT,
+        BuiltinTraitMethod::BitNot => known::BIT_NOT,
+        BuiltinTraitMethod::BitAnd => known::BIT_AND,
+        BuiltinTraitMethod::BitOr => known::BIT_OR,
+        BuiltinTraitMethod::BitXor => known::BIT_XOR,
+        BuiltinTraitMethod::Shl => known::SHL,
+        BuiltinTraitMethod::Shr => known::SHR,
+        BuiltinTraitMethod::Eq => known::EQ,
+        BuiltinTraitMethod::Ne => known::NE,
+        BuiltinTraitMethod::Lt => known::LT,
+        BuiltinTraitMethod::Le => known::LE,
+        BuiltinTraitMethod::Gt => known::GT,
+        BuiltinTraitMethod::Ge => known::GE,
+        BuiltinTraitMethod::Deref => known::DEREF,
+        BuiltinTraitMethod::DerefMut => known::DEREF_MUT,
+        BuiltinTraitMethod::Index => known::INDEX,
+        BuiltinTraitMethod::IndexMut => known::INDEX_MUT,
+        BuiltinTraitMethod::Slice => known::SLICE,
+        BuiltinTraitMethod::SliceMut => known::SLICE_MUT,
+        BuiltinTraitMethod::Ptr => known::PTR,
+        BuiltinTraitMethod::PtrMut => known::PTR_MUT,
+        BuiltinTraitMethod::Len => known::LEN,
+        BuiltinTraitMethod::Start => known::START,
+        BuiltinTraitMethod::End => known::END,
+        BuiltinTraitMethod::Char => known::CHAR,
+        BuiltinTraitMethod::IterableIter => known::ITER_METHOD,
+        BuiltinTraitMethod::IteratorNext => known::NEXT,
     }
 }
 
@@ -252,14 +291,14 @@ fn collect_typed_stmt_refs(
             refs.trait_refs.insert_method(
                 module.module_id,
                 TraitId::Builtin(BuiltinTrait::Iterable),
-                BuiltinTraitMethod::IterableIter.name(),
+                builtin_trait_method_symbol(BuiltinTraitMethod::IterableIter),
                 for_in.iterable_self_ty,
                 Vec::new(),
             );
             refs.trait_refs.insert_method(
                 module.module_id,
                 TraitId::Builtin(BuiltinTrait::Iterator),
-                BuiltinTraitMethod::IteratorNext.name(),
+                builtin_trait_method_symbol(BuiltinTraitMethod::IteratorNext),
                 for_in.iterator_ty,
                 Vec::new(),
             );
@@ -461,6 +500,7 @@ fn collect_typed_callee_refs(
             refs.functions.insert(*def_id);
             refs.generic_instantiations.push(GenericInstantiation {
                 def_id: *def_id,
+                self_arg: None,
                 args: args.clone(),
                 const_args: const_args.clone(),
                 generics: Vec::new(),
@@ -478,6 +518,7 @@ fn collect_typed_callee_refs(
             if !method_args.is_empty() {
                 refs.generic_instantiations.push(GenericInstantiation {
                     def_id: *def_id,
+                    self_arg: None,
                     args: method_args.clone(),
                     const_args: Vec::new(),
                     generics: Vec::new(),
@@ -500,7 +541,7 @@ fn collect_typed_callee_refs(
             refs.trait_refs.insert_method(
                 module.module_id,
                 TraitId::Source(*trait_id),
-                method_name.clone(),
+                *method_name,
                 *self_ty,
                 trait_args.clone(),
             );
@@ -518,7 +559,7 @@ fn collect_typed_callee_refs(
             refs.trait_refs.insert_method(
                 module.module_id,
                 TraitId::Source(*trait_id),
-                method_name.clone(),
+                *method_name,
                 *self_ty,
                 trait_args.clone(),
             );
@@ -542,7 +583,7 @@ fn collect_typed_callee_refs(
                 refs.trait_refs.insert_method(
                     module.module_id,
                     TraitId::Builtin(trait_id),
-                    trait_method.name(),
+                    builtin_trait_method_symbol(trait_method),
                     *self_ty,
                     Vec::new(),
                 );
@@ -558,7 +599,7 @@ fn collect_typed_callee_refs(
                     refs.trait_refs.insert_method(
                         module.module_id,
                         TraitId::Builtin(operator.trait_id),
-                        method.name(),
+                        builtin_trait_method_symbol(method),
                         receiver.ty,
                         Vec::new(),
                     );
@@ -575,7 +616,7 @@ fn collect_typed_callee_refs(
             refs.trait_refs.insert_method(
                 module.module_id,
                 TraitId::Builtin(method.trait_id),
-                method.method.name(),
+                builtin_trait_method_symbol(method.method),
                 method.self_ty,
                 method.trait_args.clone(),
             );

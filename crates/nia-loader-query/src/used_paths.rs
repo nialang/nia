@@ -1,24 +1,25 @@
 use nia_ast::{
-    Expr, ExprKind, Item, ItemKind, Stmt, StmtKind, TypeKind, TypeRef, UsingGroupItem, UsingItem,
-    UsingSelector,
+    Expr, ExprKind, Item, ItemKind, PathSegmentKind, Stmt, StmtKind, TypeKind, TypePathSegment,
+    TypeRef, UsingGroupItem, UsingHostSegment, UsingItem, UsingSelector,
 };
 use nia_ast_walk::{Visitor, walk_expr, walk_item, walk_module, walk_stmt, walk_type};
 use nia_diagnostic::Diagnostic;
-use nia_imports::{ModuleMap, ResolvedModuleDeclaration};
+use nia_imports::{ModuleMap, ModuleRootSegment, ResolvedModuleDeclaration};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
+use nia_symbol::{SymbolId, SymbolMap, ToSymbolId};
 use std::collections::HashMap;
 
 pub(crate) fn collect_used_modules(
     item_tree: &ActiveModuleItemTree,
     module_map: &ModuleMap,
-) -> (Vec<String>, Vec<UsedModulePath>) {
+) -> (Vec<SymbolId>, Vec<UsedModulePath>) {
     let mut packages = Vec::new();
     let mut paths = Vec::new();
     let local_module_names = item_tree
         .items
         .iter()
         .filter_map(|item| match &item.kind {
-            ItemTreeNodeKind::Module(module) => Some(module.name.clone()),
+            ItemTreeNodeKind::Module(module) => Some(module.name),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -53,7 +54,7 @@ pub(crate) fn collect_used_modules(
     paths.dedup();
     for path in &paths {
         if let UsedModulePath::Package { package, .. } = path {
-            packages.push(package.clone());
+            packages.push(*package);
         }
     }
     packages.sort();
@@ -63,11 +64,11 @@ pub(crate) fn collect_used_modules(
 
 struct QualifiedPathModuleCollector<'a> {
     module_map: &'a ModuleMap,
-    local_module_names: &'a [String],
-    using_aliases: &'a HashMap<String, UsedModulePath>,
-    packages: &'a mut Vec<String>,
+    local_module_names: &'a [SymbolId],
+    using_aliases: &'a SymbolMap<UsedModulePath>,
+    packages: &'a mut Vec<SymbolId>,
     paths: &'a mut Vec<UsedModulePath>,
-    locals: Vec<HashMap<String, String>>,
+    locals: Vec<SymbolMap<SymbolId>>,
 }
 
 impl QualifiedPathModuleCollector<'_> {
@@ -83,7 +84,7 @@ impl QualifiedPathModuleCollector<'_> {
         );
     }
 
-    fn collect_path_segments(&mut self, segments: Vec<String>) {
+    fn collect_path_segments(&mut self, segments: Vec<SymbolId>) {
         self.collect_path_segments_with_processing(
             segments,
             UsedModulePathProcessing::IfSelectedItem,
@@ -92,7 +93,7 @@ impl QualifiedPathModuleCollector<'_> {
 
     fn collect_path_segments_with_processing(
         &mut self,
-        segments: Vec<String>,
+        segments: Vec<SymbolId>,
         processing: UsedModulePathProcessing,
     ) {
         let Some((first, rest)) = segments.split_first() else {
@@ -103,25 +104,13 @@ impl QualifiedPathModuleCollector<'_> {
                 .push(alias.with_appended_segments_with_processing_mode(rest, false, processing));
             return;
         }
-        if first == nia_imports::PACKAGE_MODULE_MAP_NAME {
-            self.paths.push(UsedModulePath::PackageRelative {
-                segments: rest.to_vec(),
-                include_declared_children: false,
-                processing: if processing == UsedModulePathProcessing::IfSelectedItem {
-                    UsedModulePathProcessing::Always
-                } else {
-                    processing
-                },
-            });
+        if nia_imports::is_entry_module_root(*first) {
             return;
         }
-        if first == nia_imports::ENTRY_MODULE_MAP_NAME {
-            return;
-        }
-        if !self.local_module_names.contains(first) && self.module_map.get(first).is_some() {
-            self.packages.push(first.clone());
+        if !self.local_module_names.contains(first) && self.module_map.contains_root(*first) {
+            self.packages.push(*first);
             self.paths.push(UsedModulePath::Package {
-                package: first.clone(),
+                package: *first,
                 segments: rest.to_vec(),
                 include_declared_children: false,
                 processing: if processing == UsedModulePathProcessing::IfSelectedItem {
@@ -140,46 +129,65 @@ impl QualifiedPathModuleCollector<'_> {
         let Some(last) = segments.last() else {
             return;
         };
+        let Some(segments) = type_path_names(segments) else {
+            return;
+        };
+        let Some(trait_name) = type_path_segment_name(last) else {
+            return;
+        };
         self.collect_path_segments_with_processing(
-            segments
-                .iter()
-                .map(|segment| segment.name.clone())
-                .collect(),
-            UsedModulePathProcessing::IfProvidesTraitImpl {
-                trait_name: last.name.clone(),
-            },
+            segments,
+            UsedModulePathProcessing::IfProvidesTraitImpl { trait_name },
         );
     }
 
-    fn collect_trait_method_provider(&mut self, target_type_name: Option<&str>, name: &str) {
+    fn collect_trait_method_provider(
+        &mut self,
+        target_type_name: Option<SymbolId>,
+        name: &SymbolId,
+    ) {
         for alias in self.using_aliases.values() {
             self.paths
                 .push(alias.with_appended_segments_with_processing_mode(
                     &[],
                     false,
                     UsedModulePathProcessing::IfProvidesTraitMethod {
-                        target_type_name: target_type_name.map(ToString::to_string),
-                        associated_name: name.to_string(),
+                        target_type_name,
+                        associated_name: *name,
                     },
                 ));
         }
     }
 
-    fn collect_inherent_provider_for_type(&mut self, target: &TypeRef, associated_name: &str) {
+    fn collect_implicit_trait_provider(&mut self, trait_name: SymbolId) {
+        for alias in self.using_aliases.values() {
+            self.paths
+                .push(alias.with_appended_segments_with_processing_mode(
+                    &[],
+                    false,
+                    UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name },
+                ));
+        }
+    }
+
+    fn collect_inherent_provider_for_type(&mut self, target: &TypeRef, associated_name: &SymbolId) {
         let TypeKind::Path { segments } = &target.kind else {
             return;
         };
         let Some(last) = segments.last() else {
             return;
         };
+        let Some(segments) = type_path_names(segments) else {
+            return;
+        };
+        let Some(target_type_name) = type_path_segment_name(last) else {
+            return;
+        };
         self.collect_path_segments_with_processing(
-            segments
-                .iter()
-                .map(|segment| segment.name.clone())
-                .collect(),
+            segments,
             UsedModulePathProcessing::IfProvidesInherentAssociated {
-                target_type_name: last.name.clone(),
-                associated_name: associated_name.to_string(),
+                target_type_name,
+                associated_name: *associated_name,
             },
         );
     }
@@ -188,9 +196,9 @@ impl QualifiedPathModuleCollector<'_> {
 pub(crate) fn module_using_aliases(
     item_tree: &ActiveModuleItemTree,
     module_map: &ModuleMap,
-    local_module_names: &[String],
-) -> HashMap<String, UsedModulePath> {
-    let mut aliases: HashMap<String, UsedModulePath> = HashMap::new();
+    local_module_names: &[SymbolId],
+) -> SymbolMap<UsedModulePath> {
+    let mut aliases: SymbolMap<UsedModulePath> = SymbolMap::default();
     let mut packages = Vec::new();
     for item in &item_tree.items {
         let ItemTreeNodeKind::Using(using) = &item.kind else {
@@ -198,7 +206,8 @@ pub(crate) fn module_using_aliases(
         };
         if !using.host.is_empty()
             && let Some((first, rest)) = using.host.split_first()
-            && let Some(alias) = aliases.get(&first.name).cloned()
+            && let Some(first_name) = using_host_segment_name(first)
+            && let Some(alias) = aliases.get(&first_name).cloned()
         {
             let root =
                 alias.with_appended_segments_with_processing(&host_segments(rest), false, false);
@@ -268,15 +277,22 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
             }
             return;
         }
+        if let StmtKind::ForIn(_) = &stmt.kind {
+            self.collect_implicit_trait_provider(nia_ids::BuiltinTrait::Iterable.symbol_id());
+            walk_stmt(self, stmt);
+            return;
+        }
         walk_stmt(self, stmt);
     }
 
     fn visit_expr(&mut self, expr: &'ast Expr) {
         if let ExprKind::Call { callee, args } = &expr.kind {
             if let ExprKind::Field { name, .. } = &callee.kind {
-                let target_type_name = method_receiver_local_type_name(callee)
-                    .and_then(|local_name| self.local_type_name(local_name));
-                self.collect_trait_method_provider(target_type_name.as_deref(), name);
+                let target_type_name = match method_receiver_local_type_name(callee) {
+                    Some(MethodReceiverName::Local(local_name)) => self.local_type_name(local_name),
+                    Some(MethodReceiverName::SelfValue) | None => None,
+                };
+                self.collect_trait_method_provider(target_type_name, name);
             }
             if let Some(segments) = expr_qualified_segments(callee) {
                 self.collect_path_segments(segments);
@@ -298,7 +314,7 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
             self.collect_path_segments(
                 segments
                     .iter()
-                    .map(|segment| segment.name.clone())
+                    .filter_map(type_path_segment_name)
                     .collect::<Vec<_>>(),
             );
             for segment in segments {
@@ -370,16 +386,16 @@ impl QualifiedPathModuleCollector<'_> {
         }
     }
 
-    fn record_local_type(&mut self, name: &str, ty: &TypeRef) {
+    fn record_local_type(&mut self, name: &SymbolId, ty: &TypeRef) {
         let Some(type_name) = type_ref_last_name(ty) else {
             return;
         };
         if let Some(scope) = self.locals.last_mut() {
-            scope.insert(name.to_string(), type_name.to_string());
+            scope.insert(*name, type_name);
         }
     }
 
-    fn local_type_name(&self, name: &str) -> Option<String> {
+    fn local_type_name(&self, name: &SymbolId) -> Option<SymbolId> {
         self.locals
             .iter()
             .rev()
@@ -387,12 +403,19 @@ impl QualifiedPathModuleCollector<'_> {
     }
 }
 
-fn method_receiver_local_type_name(callee: &Expr) -> Option<&str> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MethodReceiverName<'a> {
+    Local(&'a SymbolId),
+    SelfValue,
+}
+
+fn method_receiver_local_type_name(callee: &Expr) -> Option<MethodReceiverName<'_>> {
     let ExprKind::Field { lhs, .. } = &callee.kind else {
         return None;
     };
     match &lhs.kind {
-        ExprKind::Ident(name) => Some(name.as_str()),
+        ExprKind::Ident(name) => Some(MethodReceiverName::Local(name)),
+        ExprKind::SelfValue => Some(MethodReceiverName::SelfValue),
         _ => None,
     }
 }
@@ -411,7 +434,7 @@ impl<'ast> Visitor<'ast> for ExtendSelfMethodCollector<'_, '_> {
 
     fn visit_expr(&mut self, expr: &'ast Expr) {
         if let ExprKind::Field { lhs, name } = &expr.kind
-            && matches!(&lhs.kind, ExprKind::Ident(lhs_name) if lhs_name == "self")
+            && matches!(&lhs.kind, ExprKind::SelfValue)
         {
             self.module_collector
                 .collect_inherent_provider_for_type(self.target, name);
@@ -420,15 +443,19 @@ impl<'ast> Visitor<'ast> for ExtendSelfMethodCollector<'_, '_> {
             if let ExprKind::Field { name, .. } = &callee.kind {
                 let target_type_name = if matches!(
                     method_receiver_local_type_name(callee),
-                    Some(local_name) if local_name == "self"
+                    Some(MethodReceiverName::SelfValue)
                 ) {
-                    type_ref_last_name(self.target).map(ToString::to_string)
+                    type_ref_last_name(self.target)
                 } else {
-                    method_receiver_local_type_name(callee)
-                        .and_then(|local_name| self.module_collector.local_type_name(local_name))
+                    match method_receiver_local_type_name(callee) {
+                        Some(MethodReceiverName::Local(local_name)) => {
+                            self.module_collector.local_type_name(local_name)
+                        }
+                        Some(MethodReceiverName::SelfValue) | None => None,
+                    }
                 };
                 self.module_collector
-                    .collect_trait_method_provider(target_type_name.as_deref(), name);
+                    .collect_trait_method_provider(target_type_name, name);
             }
             if let Some(segments) = expr_qualified_segments(callee) {
                 self.module_collector.collect_path_segments(segments);
@@ -464,12 +491,18 @@ impl<'ast> Visitor<'ast> for ExtendSelfMethodCollector<'_, '_> {
             }
             return;
         }
+        if let StmtKind::ForIn(_) = &stmt.kind {
+            self.module_collector
+                .collect_implicit_trait_provider(nia_ids::BuiltinTrait::Iterable.symbol_id());
+            walk_stmt(self, stmt);
+            return;
+        }
         walk_stmt(self, stmt);
     }
 }
 
-fn expr_qualified_segments(expr: &Expr) -> Option<Vec<String>> {
-    fn collect(expr: &Expr, segments: &mut Vec<String>) -> Option<()> {
+fn expr_qualified_segments(expr: &Expr) -> Option<Vec<SymbolId>> {
+    fn collect(expr: &Expr, segments: &mut Vec<SymbolId>) -> Option<()> {
         match &expr.kind {
             ExprKind::Ident(name) => {
                 segments.push(name.clone());
@@ -493,9 +526,9 @@ fn collect_using_modules(
     host: &[nia_ast::UsingHostSegment],
     selector: &UsingSelector,
     module_map: &ModuleMap,
-    local_module_names: &[String],
-    aliases: &HashMap<String, UsedModulePath>,
-    packages: &mut Vec<String>,
+    local_module_names: &[SymbolId],
+    aliases: &SymbolMap<UsedModulePath>,
+    packages: &mut Vec<SymbolId>,
     paths: &mut Vec<UsedModulePath>,
 ) {
     if host.is_empty() {
@@ -503,7 +536,8 @@ fn collect_using_modules(
         return;
     }
     if let Some((first, rest)) = host.split_first()
-        && let Some(alias) = aliases.get(&first.name)
+        && let Some(first_name) = using_host_segment_name(first)
+        && let Some(alias) = aliases.get(&first_name)
     {
         let host_path =
             alias.with_appended_segments_with_processing(&host_segments(rest), false, false);
@@ -521,9 +555,9 @@ fn collect_using_aliases(
     host: &[nia_ast::UsingHostSegment],
     selector: &UsingSelector,
     module_map: &ModuleMap,
-    local_module_names: &[String],
-    packages: &mut Vec<String>,
-    aliases: &mut HashMap<String, UsedModulePath>,
+    local_module_names: &[SymbolId],
+    packages: &mut Vec<SymbolId>,
+    aliases: &mut SymbolMap<UsedModulePath>,
 ) {
     if host.is_empty() {
         return;
@@ -538,7 +572,7 @@ fn collect_using_aliases(
 fn collect_selector_aliases(
     used_root: UsedModuleRoot,
     selector: &UsingSelector,
-    aliases: &mut HashMap<String, UsedModulePath>,
+    aliases: &mut SymbolMap<UsedModulePath>,
 ) {
     match selector {
         UsingSelector::SelfName => {
@@ -550,7 +584,7 @@ fn collect_selector_aliases(
         UsingSelector::Single(name) => {
             insert_using_alias(
                 aliases,
-                name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                name.alias.unwrap_or(name.name),
                 used_root.path(std::slice::from_ref(&name.name), false, false),
             );
         }
@@ -565,19 +599,19 @@ fn collect_selector_aliases(
 fn collect_selector_aliases_from_path(
     host_path: UsedModulePath,
     selector: &UsingSelector,
-    aliases: &mut HashMap<String, UsedModulePath>,
+    aliases: &mut SymbolMap<UsedModulePath>,
 ) {
     match selector {
         UsingSelector::SelfName => {
             if let Some(name) = host_path.last_segment_name() {
-                insert_using_alias(aliases, name.to_string(), host_path);
+                insert_using_alias(aliases, name, host_path);
             }
         }
         UsingSelector::Wildcard { .. } => {}
         UsingSelector::Single(name) => {
             insert_using_alias(
                 aliases,
-                name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                name.alias.unwrap_or(name.name),
                 host_path.with_appended_segments_with_processing(
                     std::slice::from_ref(&name.name),
                     false,
@@ -596,13 +630,13 @@ fn collect_selector_aliases_from_path(
 fn collect_group_item_aliases(
     root: &UsedModuleRoot,
     item: &UsingGroupItem,
-    aliases: &mut HashMap<String, UsedModulePath>,
+    aliases: &mut SymbolMap<UsedModulePath>,
 ) {
     match item {
         UsingGroupItem::Name(name) => {
             insert_using_alias(
                 aliases,
-                name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                name.alias.unwrap_or(name.name),
                 root.path(std::slice::from_ref(&name.name), false, false),
             );
         }
@@ -616,13 +650,13 @@ fn collect_group_item_aliases(
 fn collect_group_item_aliases_from_path(
     root: &UsedModulePath,
     item: &UsingGroupItem,
-    aliases: &mut HashMap<String, UsedModulePath>,
+    aliases: &mut SymbolMap<UsedModulePath>,
 ) {
     match item {
         UsingGroupItem::Name(name) => {
             insert_using_alias(
                 aliases,
-                name.alias.clone().unwrap_or_else(|| name.name.clone()),
+                name.alias.unwrap_or(name.name),
                 root.with_appended_segments_with_processing(
                     std::slice::from_ref(&name.name),
                     false,
@@ -639,8 +673,8 @@ fn collect_group_item_aliases_from_path(
 }
 
 fn insert_using_alias(
-    aliases: &mut HashMap<String, UsedModulePath>,
-    name: String,
+    aliases: &mut SymbolMap<UsedModulePath>,
+    name: SymbolId,
     path: UsedModulePath,
 ) {
     aliases.entry(name).or_insert(path);
@@ -649,11 +683,13 @@ fn insert_using_alias(
 pub(crate) fn using_host_path(
     host: &[nia_ast::UsingHostSegment],
     module_map: &ModuleMap,
-    local_module_names: &[String],
-    aliases: &HashMap<String, UsedModulePath>,
+    local_module_names: &[SymbolId],
+    aliases: &SymbolMap<UsedModulePath>,
 ) -> Option<UsedModulePath> {
     let first = host.first()?;
-    if let Some(alias) = aliases.get(&first.name) {
+    if let Some(first_name) = using_host_segment_name(first)
+        && let Some(alias) = aliases.get(&first_name)
+    {
         return Some(alias.with_appended_segments_with_processing_mode(
             &host_segments(&host[1..]),
             false,
@@ -668,8 +704,8 @@ pub(crate) fn using_host_path(
 fn collect_root_group_modules(
     selector: &UsingSelector,
     module_map: &ModuleMap,
-    local_module_names: &[String],
-    packages: &mut Vec<String>,
+    local_module_names: &[SymbolId],
+    packages: &mut Vec<SymbolId>,
     paths: &mut Vec<UsedModulePath>,
 ) {
     let UsingSelector::Group(items) = selector else {
@@ -678,14 +714,13 @@ fn collect_root_group_modules(
     for item in items {
         match item {
             UsingGroupItem::Name(name) => {
-                if name.name != nia_imports::ENTRY_MODULE_MAP_NAME
-                    && name.name != nia_imports::PACKAGE_MODULE_MAP_NAME
+                if !nia_imports::is_entry_module_root(name.name)
                     && !local_module_names.contains(&name.name)
-                    && module_map.get(&name.name).is_some()
+                    && module_map.contains_root(name.name)
                 {
-                    packages.push(name.name.clone());
+                    packages.push(name.name);
                     paths.push(UsedModulePath::Package {
-                        package: name.name.clone(),
+                        package: name.name,
                         segments: Vec::new(),
                         include_declared_children: false,
                         processing: UsedModulePathProcessing::Never,
@@ -710,7 +745,7 @@ fn collect_root_group_modules(
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ModuleDeclarations {
     pub(crate) declarations: Vec<ResolvedModuleDeclaration>,
-    pub(crate) package_roots: Vec<String>,
+    pub(crate) package_roots: Vec<SymbolId>,
     pub(crate) used_module_paths: Vec<UsedModulePath>,
     pub(crate) diagnostics: Vec<Diagnostic>,
 }
@@ -718,18 +753,23 @@ pub(crate) struct ModuleDeclarations {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum UsedModulePath {
     Package {
-        package: String,
-        segments: Vec<String>,
+        package: SymbolId,
+        segments: Vec<SymbolId>,
         include_declared_children: bool,
         processing: UsedModulePathProcessing,
     },
     PackageRelative {
-        segments: Vec<String>,
+        segments: Vec<SymbolId>,
+        include_declared_children: bool,
+        processing: UsedModulePathProcessing,
+    },
+    ParentRelative {
+        segments: Vec<SymbolId>,
         include_declared_children: bool,
         processing: UsedModulePathProcessing,
     },
     Local {
-        segments: Vec<String>,
+        segments: Vec<SymbolId>,
         include_declared_children: bool,
         processing: UsedModulePathProcessing,
     },
@@ -738,7 +778,7 @@ pub(crate) enum UsedModulePath {
 impl UsedModulePath {
     pub(crate) fn with_appended_segments(
         &self,
-        extra: &[String],
+        extra: &[SymbolId],
         include_declared_children: bool,
     ) -> Self {
         self.with_appended_segments_with_processing(extra, include_declared_children, true)
@@ -746,7 +786,7 @@ impl UsedModulePath {
 
     pub(crate) fn with_appended_segments_with_processing(
         &self,
-        extra: &[String],
+        extra: &[SymbolId],
         include_declared_children: bool,
         process_used_paths: bool,
     ) -> Self {
@@ -759,7 +799,7 @@ impl UsedModulePath {
 
     pub(crate) fn with_appended_segments_with_processing_mode(
         &self,
-        extra: &[String],
+        extra: &[SymbolId],
         include_declared_children: bool,
         processing: UsedModulePathProcessing,
     ) -> Self {
@@ -767,12 +807,17 @@ impl UsedModulePath {
             UsedModulePath::Package {
                 package, segments, ..
             } => UsedModulePath::Package {
-                package: package.clone(),
+                package: *package,
                 segments: joined_segments(segments, extra),
                 include_declared_children,
                 processing,
             },
             UsedModulePath::PackageRelative { segments, .. } => UsedModulePath::PackageRelative {
+                segments: joined_segments(segments, extra),
+                include_declared_children,
+                processing,
+            },
+            UsedModulePath::ParentRelative { segments, .. } => UsedModulePath::ParentRelative {
                 segments: joined_segments(segments, extra),
                 include_declared_children,
                 processing,
@@ -797,10 +842,11 @@ impl UsedModulePath {
         )
     }
 
-    pub(crate) fn segments(&self) -> &[String] {
+    pub(crate) fn segments(&self) -> &[SymbolId] {
         match self {
             UsedModulePath::Package { segments, .. }
             | UsedModulePath::PackageRelative { segments, .. }
+            | UsedModulePath::ParentRelative { segments, .. }
             | UsedModulePath::Local { segments, .. } => segments,
         }
     }
@@ -815,6 +861,10 @@ impl UsedModulePath {
                 include_declared_children,
                 ..
             }
+            | UsedModulePath::ParentRelative {
+                include_declared_children,
+                ..
+            }
             | UsedModulePath::Local {
                 include_declared_children,
                 ..
@@ -826,30 +876,30 @@ impl UsedModulePath {
         match self {
             UsedModulePath::Package { processing, .. }
             | UsedModulePath::PackageRelative { processing, .. }
+            | UsedModulePath::ParentRelative { processing, .. }
             | UsedModulePath::Local { processing, .. } => processing.clone(),
         }
     }
 
-    pub(crate) fn last_segment_name(&self) -> Option<&str> {
+    pub(crate) fn last_segment_name(&self) -> Option<SymbolId> {
         match self {
             UsedModulePath::Package {
                 package, segments, ..
-            } => segments
-                .last()
-                .map_or(Some(package.as_str()), |segment| Some(segment.as_str())),
+            } => segments.last().cloned().or_else(|| Some(*package)),
             UsedModulePath::PackageRelative { segments, .. }
-            | UsedModulePath::Local { segments, .. } => segments.last().map(String::as_str),
+            | UsedModulePath::ParentRelative { segments, .. }
+            | UsedModulePath::Local { segments, .. } => segments.last().cloned(),
         }
     }
 
-    pub(crate) fn activates_package_facade(&self) -> Option<&str> {
+    pub(crate) fn activates_package_facade(&self) -> Option<SymbolId> {
         match self {
             UsedModulePath::Package {
                 package,
                 segments,
                 include_declared_children,
                 ..
-            } if segments.is_empty() && *include_declared_children => Some(package),
+            } if segments.is_empty() && *include_declared_children => Some(*package),
             _ => None,
         }
     }
@@ -862,15 +912,18 @@ pub(crate) enum UsedModulePathProcessing {
     IfSelectedItem,
     IfProvidesExtensions,
     IfProvidesTraitImpl {
-        trait_name: String,
+        trait_name: SymbolId,
+    },
+    IfProvidesImplicitTraitImpl {
+        trait_name: SymbolId,
     },
     IfProvidesTraitMethod {
-        target_type_name: Option<String>,
-        associated_name: String,
+        target_type_name: Option<SymbolId>,
+        associated_name: SymbolId,
     },
     IfProvidesInherentAssociated {
-        target_type_name: String,
-        associated_name: String,
+        target_type_name: SymbolId,
+        associated_name: SymbolId,
     },
 }
 
@@ -886,10 +939,11 @@ impl UsedModulePathProcessing {
     pub(crate) fn is_replayable_provider_request(&self) -> bool {
         matches!(
             self,
-            Self::IfProvidesTraitMethod {
-                target_type_name: None,
-                ..
-            }
+            Self::IfProvidesImplicitTraitImpl { .. }
+                | Self::IfProvidesTraitMethod {
+                    target_type_name: None,
+                    ..
+                }
         )
     }
 
@@ -900,41 +954,65 @@ impl UsedModulePathProcessing {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum UsedModuleRoot {
-    Package { package: String, base: Vec<String> },
-    PackageRelative { base: Vec<String> },
-    Local { base: Vec<String> },
+    Package {
+        package: SymbolId,
+        base: Vec<SymbolId>,
+    },
+    PackageRelative {
+        base: Vec<SymbolId>,
+    },
+    ParentRelative {
+        base: Vec<SymbolId>,
+    },
+    Local {
+        base: Vec<SymbolId>,
+    },
 }
 
 impl UsedModuleRoot {
     fn from_host(
-        host: &[nia_ast::UsingHostSegment],
+        host: &[UsingHostSegment],
         module_map: &ModuleMap,
-        local_module_names: &[String],
-        packages: &mut Vec<String>,
+        local_module_names: &[SymbolId],
+        packages: &mut Vec<SymbolId>,
     ) -> Option<Self> {
         let first = host.first()?;
-        if first.name == nia_imports::ENTRY_MODULE_MAP_NAME {
-            return Some(Self::Package {
-                package: nia_imports::ENTRY_MODULE_MAP_NAME.to_string(),
-                base: host_segments(&host[1..]),
-            });
-        }
-        if first.name == nia_imports::PACKAGE_MODULE_MAP_NAME {
-            return Some(Self::PackageRelative {
-                base: host_segments(&host[1..]),
-            });
-        }
-        if local_module_names.contains(&first.name) {
-            return Some(Self::Local {
-                base: host_segments(host),
-            });
-        }
-        if module_map.get(&first.name).is_some() {
-            packages.push(first.name.clone());
-            return Some(Self::Package {
-                package: first.name.clone(),
-                base: host_segments(&host[1..]),
-            });
+        match module_root_segment_from_path_segment(first.kind) {
+            ModuleRootSegment::Current => {
+                return Some(Self::Local {
+                    base: host_segments(&host[1..]),
+                });
+            }
+            ModuleRootSegment::Parent => {
+                return Some(Self::ParentRelative {
+                    base: host_segments(&host[1..]),
+                });
+            }
+            ModuleRootSegment::PackageRelative => {
+                return Some(Self::PackageRelative {
+                    base: host_segments(&host[1..]),
+                });
+            }
+            ModuleRootSegment::Named(name) if nia_imports::is_entry_module_root(name) => {
+                return Some(Self::Package {
+                    package: name,
+                    base: host_segments(&host[1..]),
+                });
+            }
+            ModuleRootSegment::Named(name) => {
+                if local_module_names.contains(&name) {
+                    return Some(Self::Local {
+                        base: host_segments(host),
+                    });
+                }
+                if module_map.contains_root(name) {
+                    packages.push(name);
+                    return Some(Self::Package {
+                        package: name,
+                        base: host_segments(&host[1..]),
+                    });
+                }
+            }
         }
         Some(Self::Local {
             base: host_segments(host),
@@ -943,7 +1021,7 @@ impl UsedModuleRoot {
 
     fn path(
         &self,
-        extra: &[String],
+        extra: &[SymbolId],
         include_declared_children: bool,
         process_used_paths: bool,
     ) -> UsedModulePath {
@@ -956,18 +1034,23 @@ impl UsedModuleRoot {
 
     fn path_with_processing_mode(
         &self,
-        extra: &[String],
+        extra: &[SymbolId],
         include_declared_children: bool,
         processing: UsedModulePathProcessing,
     ) -> UsedModulePath {
         match self {
             UsedModuleRoot::Package { package, base } => UsedModulePath::Package {
-                package: package.clone(),
+                package: *package,
                 segments: joined_segments(base, extra),
                 include_declared_children,
                 processing,
             },
             UsedModuleRoot::PackageRelative { base } => UsedModulePath::PackageRelative {
+                segments: joined_segments(base, extra),
+                include_declared_children,
+                processing,
+            },
+            UsedModuleRoot::ParentRelative { base } => UsedModulePath::ParentRelative {
                 segments: joined_segments(base, extra),
                 include_declared_children,
                 processing,
@@ -980,15 +1063,24 @@ impl UsedModuleRoot {
         }
     }
 
-    fn last_segment_name(&self) -> Option<String> {
+    fn last_segment_name(&self) -> Option<SymbolId> {
         match self {
             UsedModuleRoot::Package { package, base } => {
-                Some(base.last().cloned().unwrap_or_else(|| package.clone()))
+                Some(base.last().copied().unwrap_or(*package))
             }
-            UsedModuleRoot::PackageRelative { base } | UsedModuleRoot::Local { base } => {
-                base.last().cloned()
-            }
+            UsedModuleRoot::PackageRelative { base }
+            | UsedModuleRoot::ParentRelative { base }
+            | UsedModuleRoot::Local { base } => base.last().cloned(),
         }
+    }
+}
+
+fn module_root_segment_from_path_segment(kind: PathSegmentKind) -> ModuleRootSegment {
+    match kind {
+        PathSegmentKind::SelfValue => ModuleRootSegment::Current,
+        PathSegmentKind::Super => ModuleRootSegment::Parent,
+        PathSegmentKind::Package => ModuleRootSegment::PackageRelative,
+        PathSegmentKind::Name(name) => ModuleRootSegment::Named(name),
     }
 }
 
@@ -1095,13 +1187,16 @@ fn collect_group_item_modules_from_path(
     }
 }
 
-fn root_with_extra(root: &UsedModuleRoot, extra: &[String]) -> UsedModuleRoot {
+fn root_with_extra(root: &UsedModuleRoot, extra: &[SymbolId]) -> UsedModuleRoot {
     match root {
         UsedModuleRoot::Package { package, base } => UsedModuleRoot::Package {
-            package: package.clone(),
+            package: *package,
             base: joined_segments(base, extra),
         },
         UsedModuleRoot::PackageRelative { base } => UsedModuleRoot::PackageRelative {
+            base: joined_segments(base, extra),
+        },
+        UsedModuleRoot::ParentRelative { base } => UsedModuleRoot::ParentRelative {
             base: joined_segments(base, extra),
         },
         UsedModuleRoot::Local { base } => UsedModuleRoot::Local {
@@ -1110,18 +1205,36 @@ fn root_with_extra(root: &UsedModuleRoot, extra: &[String]) -> UsedModuleRoot {
     }
 }
 
-pub(crate) fn host_segments(host: &[nia_ast::UsingHostSegment]) -> Vec<String> {
-    host.iter().map(|segment| segment.name.clone()).collect()
+pub(crate) fn host_segments(host: &[UsingHostSegment]) -> Vec<SymbolId> {
+    host.iter().filter_map(using_host_segment_name).collect()
 }
 
-pub(crate) fn type_ref_last_name(ty: &TypeRef) -> Option<&str> {
+pub(crate) fn type_ref_last_name(ty: &TypeRef) -> Option<SymbolId> {
     match &ty.kind {
-        TypeKind::Path { segments } => segments.last().map(|segment| segment.name.as_str()),
+        TypeKind::Path { segments } => segments.last().and_then(type_path_segment_name),
         _ => None,
     }
 }
 
-pub(crate) fn joined_segments(base: &[String], extra: &[String]) -> Vec<String> {
+fn using_host_segment_name(segment: &UsingHostSegment) -> Option<SymbolId> {
+    match segment.kind {
+        PathSegmentKind::Name(name) => Some(name),
+        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+    }
+}
+
+fn type_path_segment_name(segment: &TypePathSegment) -> Option<SymbolId> {
+    match segment.kind {
+        PathSegmentKind::Name(name) => Some(name),
+        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+    }
+}
+
+fn type_path_names(segments: &[TypePathSegment]) -> Option<Vec<SymbolId>> {
+    segments.iter().map(type_path_segment_name).collect()
+}
+
+pub(crate) fn joined_segments(base: &[SymbolId], extra: &[SymbolId]) -> Vec<SymbolId> {
     let mut segments = Vec::with_capacity(base.len() + extra.len());
     segments.extend_from_slice(base);
     segments.extend_from_slice(extra);

@@ -31,7 +31,8 @@ use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_parser::ParseError;
 use nia_public_surface::{
-    TypeExposureIndex, compute_exported_public_surfaces, compute_using_scopes_from_surfaces,
+    TypeExposureIndex, compute_exported_public_surfaces_with_symbols,
+    compute_using_scopes_from_surfaces_with_symbols,
 };
 use nia_query::{QueryDb, QueryError, QueryFrame, QueryKey, QueryTrace};
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
@@ -904,6 +905,15 @@ impl CompilerContext {
             .clone()
     }
 
+    fn symbols(&self) -> nia_symbol_table::SymbolTable {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .loaded
+            .symbols
+            .clone()
+    }
+
     fn runtime(&self) -> crate::RuntimeModel {
         self.inputs
             .read()
@@ -1228,11 +1238,112 @@ mod tests {
     use crate::RuntimeModel;
     use nia_sema_ir::SemanticValueUse;
     use nia_source::{SourceId, SourceRevision};
+    use nia_symbol::{SymbolId, stable_hash};
+
+    thread_local! {
+        static TEST_SYMBOLS: nia_symbol_table::SymbolTable = nia_symbol_table::SymbolTable::new();
+    }
+
+    fn test_symbols() -> nia_symbol_table::SymbolTable {
+        TEST_SYMBOLS.with(Clone::clone)
+    }
+
+    fn sym(text: &str) -> SymbolId {
+        test_symbols()
+            .intern(text)
+            .unwrap_or_else(|err| panic!("test symbol collision: {err}"));
+        SymbolId::from_stable_hash(stable_hash(text))
+    }
+
+    fn backend_function_instance_matches_vtable_ref(
+        vtable_module: &nia_backend_ir::BackendModule,
+        instance_module: &nia_backend_ir::BackendModule,
+        instance: &nia_backend_ir::BackendFunctionInstance,
+        def_id: GlobalDefId,
+        arg_module_id: ModuleId,
+        self_arg: Option<InternedTyId>,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+    ) -> bool {
+        if instance.def_id != def_id || instance.arg_module_id != arg_module_id {
+            return false;
+        }
+        let mut target_interner = instance_module.interner.clone();
+        let self_arg = match self_arg {
+            Some(ty) => {
+                let Ok(ty) =
+                    nia_ty::try_import_type_into(&mut target_interner, &vtable_module.interner, ty)
+                else {
+                    return false;
+                };
+                Some(ty)
+            }
+            None => None,
+        };
+        let Ok(args) = args
+            .iter()
+            .map(|ty| {
+                nia_ty::try_import_type_into(&mut target_interner, &vtable_module.interner, *ty)
+            })
+            .collect::<Result<Vec<_>, _>>()
+        else {
+            return false;
+        };
+        let Ok(const_args) = const_args
+            .iter()
+            .map(|arg| {
+                Ok(nia_ty::ConstGenericArg {
+                    ty: nia_ty::try_import_type_into(
+                        &mut target_interner,
+                        &vtable_module.interner,
+                        arg.ty,
+                    )?,
+                    value: arg.value.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, nia_ty::TypeImportError>>()
+        else {
+            return false;
+        };
+        self_arg == instance.self_arg && args == instance.args && const_args == instance.const_args
+    }
+
+    fn intern_child(
+        graph: &mut ModuleGraph,
+        parent: ModuleId,
+        child_name: &str,
+        visibility: nia_ids::Visibility,
+    ) {
+        let child = sym(child_name);
+        graph
+            .intern_declared_child(parent, &child, visibility, Span::default())
+            .expect("intern child module");
+    }
+
+    fn intern_shallow_child(
+        graph: &mut ModuleGraph,
+        parent: ModuleId,
+        child_name: &str,
+        visibility: nia_ids::Visibility,
+    ) {
+        let child = sym(child_name);
+        graph
+            .intern_declared_child_with_processing(
+                parent,
+                &child,
+                visibility,
+                Span::default(),
+                false,
+                false,
+            )
+            .expect("intern shallow child module");
+    }
 
     fn loaded_program_with_modules(modules: Vec<LoadedModule>) -> LoadedProgram {
         let graph = module_graph_for_loaded_modules(&modules);
         LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::Bare,
             modules,
@@ -1245,21 +1356,20 @@ mod tests {
             .first()
             .map(|module| module.path.clone())
             .unwrap_or_else(|| SourcePath::new("main.nia"));
-        let mut graph = ModuleGraph::new(entry);
+        let mut graph = ModuleGraph::with_symbol_text(entry, Arc::new(test_symbols()));
         let max_id = modules
             .iter()
             .map(|module| module.id.0)
             .max()
             .unwrap_or(graph.entry().0);
         for id in 1..=max_id {
-            graph
-                .intern_declared_child(
-                    graph.entry(),
-                    &format!("module{id}"),
-                    nia_ids::Visibility::Public,
-                    Span::default(),
-                )
-                .expect("intern fixture module");
+            let entry = graph.entry();
+            intern_child(
+                &mut graph,
+                entry,
+                &format!("module{id}"),
+                nia_ids::Visibility::Public,
+            );
         }
         graph
     }
@@ -1269,17 +1379,16 @@ mod tests {
         child_name: &str,
         child: LoadedModule,
     ) -> LoadedProgram {
-        let mut graph = ModuleGraph::new(entry.path.clone());
-        graph
-            .intern_declared_child(
-                entry.id,
-                child_name,
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern child module");
+        let mut graph = ModuleGraph::with_symbol_text(entry.path.clone(), Arc::new(test_symbols()));
+        intern_child(
+            &mut graph,
+            entry.id,
+            child_name,
+            nia_ids::Visibility::Public,
+        );
         LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::Bare,
             modules: vec![entry, child],
@@ -1292,19 +1401,16 @@ mod tests {
         child_name: &str,
         child: LoadedModule,
     ) -> LoadedProgram {
-        let mut graph = ModuleGraph::new(entry.path.clone());
-        graph
-            .intern_declared_child_with_processing(
-                entry.id,
-                child_name,
-                nia_ids::Visibility::Public,
-                Span::default(),
-                false,
-                false,
-            )
-            .expect("intern shallow child module");
+        let mut graph = ModuleGraph::with_symbol_text(entry.path.clone(), Arc::new(test_symbols()));
+        intern_shallow_child(
+            &mut graph,
+            entry.id,
+            child_name,
+            nia_ids::Visibility::Public,
+        );
         LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::Bare,
             modules: vec![entry, child],
@@ -1327,7 +1433,8 @@ mod tests {
             revision,
         };
         let syntax = nia_syntax::parse_source(source, Some(source_version));
-        let (module, parse_errors, origins) = nia_parser::parse_module_syntax_with_origins(&syntax);
+        let (module, parse_errors, origins) =
+            nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, test_symbols());
         assert!(parse_errors.is_empty(), "{parse_errors:?}");
         let item_tree = ModuleItemTree::from_module(&module);
         let active_item_tree =
@@ -3201,33 +3308,13 @@ extend Used {
 "#,
         );
         let types = loaded_module(ModuleId(3), "facade/types.nia", "pub struct Used {}");
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "facade",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern facade module");
-        graph
-            .intern_declared_child(
-                facade.id,
-                "impls",
-                nia_ids::Visibility::Private,
-                Span::default(),
-            )
-            .expect("intern impls module");
-        graph
-            .intern_declared_child(
-                facade.id,
-                "types",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern types module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "facade", nia_ids::Visibility::Public);
+        intern_child(&mut graph, facade.id, "impls", nia_ids::Visibility::Private);
+        intern_child(&mut graph, facade.id, "types", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, facade, impls, types],
@@ -3636,41 +3723,24 @@ pub struct Args {}
 pub struct ArgsIter {}
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "facade",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern facade module");
-        graph
-            .intern_declared_child(
-                facade.id,
-                "args_impl",
-                nia_ids::Visibility::Private,
-                Span::default(),
-            )
-            .expect("intern args_impl module");
-        graph
-            .intern_declared_child(
-                facade.id,
-                "init_impl",
-                nia_ids::Visibility::Private,
-                Span::default(),
-            )
-            .expect("intern init_impl module");
-        graph
-            .intern_declared_child(
-                facade.id,
-                "types",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern types module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "facade", nia_ids::Visibility::Public);
+        intern_child(
+            &mut graph,
+            facade.id,
+            "args_impl",
+            nia_ids::Visibility::Private,
+        );
+        intern_child(
+            &mut graph,
+            facade.id,
+            "init_impl",
+            nia_ids::Visibility::Private,
+        );
+        intern_child(&mut graph, facade.id, "types", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, facade, init_impl, args_impl, types],
@@ -3728,33 +3798,13 @@ pub struct Unused {}
 pub struct Used {}
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "facade",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern facade module");
-        graph
-            .intern_declared_child(
-                facade.id,
-                "impls",
-                nia_ids::Visibility::Private,
-                Span::default(),
-            )
-            .expect("intern impls module");
-        graph
-            .intern_declared_child(
-                facade.id,
-                "types",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern types module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "facade", nia_ids::Visibility::Public);
+        intern_child(&mut graph, facade.id, "impls", nia_ids::Visibility::Private);
+        intern_child(&mut graph, facade.id, "types", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, facade, impls, types],
@@ -3826,20 +3876,17 @@ extend i32 : ParseFrom[&[u8]] {
 }
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(main.id, "fmt", nia_ids::Visibility::Public, Span::default())
-            .expect("intern fmt module");
-        graph
-            .intern_declared_child(
-                fmt.id,
-                "parse_impl",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern parse impl module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "fmt", nia_ids::Visibility::Public);
+        intern_child(
+            &mut graph,
+            fmt.id,
+            "parse_impl",
+            nia_ids::Visibility::Public,
+        );
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::Bare,
             modules: vec![main, fmt, parse_impl],
@@ -3898,17 +3945,11 @@ extend i32 : ParseFrom[Input] {
 }
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "parse",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern parse module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "parse", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, parse],
@@ -3926,7 +3967,7 @@ extend i32 : ParseFrom[Input] {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.name == "parse_from" && def.kind == nia_defs::DefKind::Method).then_some(
+                (def.name == sym("parse_from") && def.kind == nia_defs::DefKind::Method).then_some(
                     GlobalDefId {
                         module_id: ModuleId(1),
                         def_id,
@@ -4205,25 +4246,12 @@ pub comptime LEN: usize = raw::LEN;
 pub comptime LEN: usize = 4usize;
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "facade",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern facade module");
-        graph
-            .intern_declared_child(
-                facade.id,
-                "raw",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern raw module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "facade", nia_ids::Visibility::Public);
+        intern_child(&mut graph, facade.id, "raw", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, facade, raw],
@@ -4285,12 +4313,11 @@ fn main() usize {
 pub comptime LEN: usize = 4usize;
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(main.id, "raw", nia_ids::Visibility::Public, Span::default())
-            .expect("intern raw module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "raw", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, raw],
@@ -4379,17 +4406,11 @@ extend Sink : Writer {
 }
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "writer",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern writer module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "writer", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, writer],
@@ -4407,7 +4428,8 @@ extend Sink : Writer {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.name == "write" && def.kind == nia_defs::DefKind::Method).then_some(def_id)
+                (def.name == sym("write") && def.kind == nia_defs::DefKind::Method)
+                    .then_some(def_id)
             })
             .expect("write method should be defined");
         let write_id = GlobalDefId {
@@ -4422,7 +4444,9 @@ extend Sink : Writer {
         let self_ty = write_body
             .locals
             .iter()
-            .find(|local| local.name == "self" && local.kind == nia_body_ir::TypedLocalKind::Param)
+            .find(|local| {
+                local.name.is_self_value() && local.kind == nia_body_ir::TypedLocalKind::Param
+            })
             .map(|local| local.ty)
             .expect("write method should have a self param");
 
@@ -4519,17 +4543,11 @@ pub enum Errno: i32 {
 }
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "platform",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern platform module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "platform", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, platform],
@@ -4605,25 +4623,17 @@ pub enum Errno: i32 {
 }
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "platform",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern platform module");
-        graph
-            .intern_declared_child(
-                platform.id,
-                "types",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern platform types module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "platform", nia_ids::Visibility::Public);
+        intern_child(
+            &mut graph,
+            platform.id,
+            "types",
+            nia_ids::Visibility::Public,
+        );
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, platform, types],
@@ -4719,25 +4729,17 @@ pub enum Errno: i32 {
 }
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "platform",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern platform module");
-        graph
-            .intern_declared_child(
-                platform.id,
-                "types",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern platform types module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "platform", nia_ids::Visibility::Public);
+        intern_child(
+            &mut graph,
+            platform.id,
+            "types",
+            nia_ids::Visibility::Public,
+        );
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, platform, types],
@@ -4760,7 +4762,7 @@ pub enum Errno: i32 {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.name == "into_error" && def.kind == nia_defs::DefKind::Method).then_some(
+                (def.name == sym("into_error") && def.kind == nia_defs::DefKind::Method).then_some(
                     GlobalDefId {
                         module_id: ModuleId(0),
                         def_id,
@@ -4776,7 +4778,9 @@ pub enum Errno: i32 {
         let self_ty = body
             .locals
             .iter()
-            .find(|local| local.name == "self" && local.kind == nia_body_ir::TypedLocalKind::Param)
+            .find(|local| {
+                local.name.is_self_value() && local.kind == nia_body_ir::TypedLocalKind::Param
+            })
             .map(|local| local.ty)
             .expect("into_error should have a self param");
 
@@ -4854,25 +4858,12 @@ where Source: IntoError[Target]
 using entry::error;
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "error",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern error module");
-        graph
-            .intern_declared_child(
-                main.id,
-                "facade",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern facade module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "error", nia_ids::Visibility::Public);
+        intern_child(&mut graph, main.id, "facade", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, error, facade],
@@ -4890,7 +4881,7 @@ using entry::error;
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.name == "into_error" && def.kind == nia_defs::DefKind::Method).then_some(
+                (def.name == sym("into_error") && def.kind == nia_defs::DefKind::Method).then_some(
                     GlobalDefId {
                         module_id: ModuleId(0),
                         def_id,
@@ -4968,25 +4959,12 @@ extend Source : error::IntoError[Target] {
 }
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "error",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern error module");
-        graph
-            .intern_declared_child(
-                main.id,
-                "impls",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern impls module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "error", nia_ids::Visibility::Public);
+        intern_child(&mut graph, main.id, "impls", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, error, impls],
@@ -5004,7 +4982,7 @@ extend Source : error::IntoError[Target] {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.name == "into_error" && def.kind == nia_defs::DefKind::Method).then_some(
+                (def.name == sym("into_error") && def.kind == nia_defs::DefKind::Method).then_some(
                     GlobalDefId {
                         module_id: ModuleId(2),
                         def_id,
@@ -5088,25 +5066,12 @@ extend[T] Source!T {
 }
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "error",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern error module");
-        graph
-            .intern_declared_child(
-                main.id,
-                "impls",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern impls module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "error", nia_ids::Visibility::Public);
+        intern_child(&mut graph, main.id, "impls", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, error, impls],
@@ -5124,7 +5089,7 @@ extend[T] Source!T {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.name == "into_error" && def.kind == nia_defs::DefKind::Method).then_some(
+                (def.name == sym("into_error") && def.kind == nia_defs::DefKind::Method).then_some(
                     GlobalDefId {
                         module_id: ModuleId(2),
                         def_id,
@@ -5187,7 +5152,7 @@ fn main() i32 {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Method && def.name == "next").then_some(
+                (def.kind == nia_defs::DefKind::Method && def.name == sym("next")).then_some(
                     GlobalDefId {
                         module_id: ModuleId(0),
                         def_id,
@@ -5260,7 +5225,7 @@ fn main() i32 {
             .defs
             .iter()
             .filter_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Method && def.name == "next").then_some(
+                (def.kind == nia_defs::DefKind::Method && def.name == sym("next")).then_some(
                     GlobalDefId {
                         module_id: ModuleId(0),
                         def_id,
@@ -5324,7 +5289,7 @@ fn main() i32 {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Method && def.name == "unused").then_some(
+                (def.kind == nia_defs::DefKind::Method && def.name == sym("unused")).then_some(
                     GlobalDefId {
                         module_id: ModuleId(0),
                         def_id,
@@ -5406,7 +5371,7 @@ fn main() i32 {
             .defs
             .iter()
             .filter_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Method && def.name == "into_error").then_some(
+                (def.kind == nia_defs::DefKind::Method && def.name == sym("into_error")).then_some(
                     GlobalDefId {
                         module_id: ModuleId(0),
                         def_id,
@@ -5508,16 +5473,16 @@ fn main() i32!i32 {
                         module_id: ModuleId(0),
                         def_id,
                     }))
-                .then_some(def.name.as_str())
+                .then_some(def.name)
             })
             .collect::<Vec<_>>();
 
         assert!(
-            checked_witness_names.contains(&"write"),
+            checked_witness_names.contains(&sym("write")),
             "default method reachability should include concrete write witness: {checked_witness_names:?}"
         );
         assert!(
-            checked_witness_names.contains(&"short_write"),
+            checked_witness_names.contains(&sym("short_write")),
             "default method reachability should include concrete short_write witness: {checked_witness_names:?}"
         );
         assert!(
@@ -5553,7 +5518,7 @@ fn main() i32 {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Global && def.name == "unused").then_some(
+                (def.kind == nia_defs::DefKind::Global && def.name == sym("unused")).then_some(
                     GlobalDefId {
                         module_id: ModuleId(0),
                         def_id,
@@ -5675,20 +5640,12 @@ pub struct Token {}
 extend Token : Marker {}
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(main.id, "ext", nia_ids::Visibility::Public, Span::default())
-            .expect("intern ext module");
-        graph
-            .intern_declared_child(
-                main.id,
-                "bounds",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern bounds module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "ext", nia_ids::Visibility::Public);
+        intern_child(&mut graph, main.id, "bounds", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, ext, bounds],
@@ -5759,25 +5716,12 @@ extend Page : Allocator {
 }
 "#,
         );
-        let mut graph = ModuleGraph::new(main.path.clone());
-        graph
-            .intern_declared_child(
-                main.id,
-                "module1",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern trait module");
-        graph
-            .intern_declared_child(
-                main.id,
-                "module2",
-                nia_ids::Visibility::Public,
-                Span::default(),
-            )
-            .expect("intern impl module");
+        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
+        intern_child(&mut graph, main.id, "module1", nia_ids::Visibility::Public);
+        intern_child(&mut graph, main.id, "module2", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
             graph,
+            symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
             modules: vec![main, traits, impls],
@@ -5796,15 +5740,27 @@ extend Page : Allocator {
             .program
             .modules
             .iter()
-            .flat_map(|module| module.trait_object_vtables.iter())
-            .flat_map(|vtable| vtable.entries.iter())
-            .filter_map(|entry| match &entry.function {
+            .flat_map(|module| {
+                module
+                    .trait_object_vtables
+                    .iter()
+                    .flat_map(move |vtable| vtable.entries.iter().map(move |entry| (module, entry)))
+            })
+            .filter_map(|(module, entry)| match &entry.function {
                 nia_backend_ir::BackendTraitObjectVtableFunction::FunctionInstance {
                     def_id,
                     arg_module_id,
+                    self_arg,
                     args,
                     const_args,
-                } => Some((*def_id, *arg_module_id, args.clone(), const_args.clone())),
+                } => Some((
+                    module,
+                    *def_id,
+                    *arg_module_id,
+                    *self_arg,
+                    args.clone(),
+                    const_args.clone(),
+                )),
                 nia_backend_ir::BackendTraitObjectVtableFunction::Function(_) => None,
             })
             .collect::<Vec<_>>();
@@ -5812,17 +5768,30 @@ extend Page : Allocator {
             !vtable_instance_refs.is_empty(),
             "trait object vtable should reference a default method instance"
         );
-        for (def_id, arg_module_id, args, const_args) in vtable_instance_refs {
+        for (vtable_module, def_id, arg_module_id, self_arg, args, const_args) in
+            vtable_instance_refs
+        {
             let matches = backend_lowering
                 .program
                 .modules
                 .iter()
-                .flat_map(|module| module.function_instances.iter())
-                .filter(|instance| {
-                    instance.def_id == def_id
-                        && instance.arg_module_id == arg_module_id
-                        && instance.args.len() == args.len()
-                        && instance.const_args == const_args
+                .flat_map(|module| {
+                    module
+                        .function_instances
+                        .iter()
+                        .map(move |instance| (module, instance))
+                })
+                .filter(|(instance_module, instance)| {
+                    backend_function_instance_matches_vtable_ref(
+                        vtable_module,
+                        *instance_module,
+                        instance,
+                        def_id,
+                        arg_module_id,
+                        self_arg,
+                        &args,
+                        &const_args,
+                    )
                 })
                 .count();
             assert_eq!(
@@ -5968,7 +5937,8 @@ pub fn unused_bad() i32 {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::EnumVariant && def.name == "B").then_some(def_id)
+                (def.kind == nia_defs::DefKind::EnumVariant && def.name == sym("B"))
+                    .then_some(def_id)
             })
             .expect("enum variant B");
         assert!(
@@ -6109,12 +6079,11 @@ fn unused_bad() i32 {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Function && def.name == "unused_bad").then_some(
-                    GlobalDefId {
+                (def.kind == nia_defs::DefKind::Function && def.name == sym("unused_bad"))
+                    .then_some(GlobalDefId {
                         module_id: ModuleId(1),
                         def_id,
-                    },
-                )
+                    })
             })
             .expect("unused function");
 
@@ -6158,7 +6127,7 @@ fn main() i32 {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Global && def.name == "used").then_some(
+                (def.kind == nia_defs::DefKind::Global && def.name == sym("used")).then_some(
                     GlobalDefId {
                         module_id: ModuleId(0),
                         def_id,
@@ -6203,7 +6172,7 @@ fn main() i32 {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Global && def.name == "text").then_some(
+                (def.kind == nia_defs::DefKind::Global && def.name == sym("text")).then_some(
                     GlobalDefId {
                         module_id: ModuleId(0),
                         def_id,
@@ -6257,10 +6226,12 @@ fn main() i32 {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Global && def.name == "o2").then_some(GlobalDefId {
-                    module_id: ModuleId(0),
-                    def_id,
-                })
+                (def.kind == nia_defs::DefKind::Global && def.name == sym("o2")).then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id,
+                    },
+                )
             })
             .expect("local static global");
 
@@ -6318,10 +6289,12 @@ extend Mode {
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Global && def.name == "o2").then_some(GlobalDefId {
-                    module_id: ModuleId(1),
-                    def_id,
-                })
+                (def.kind == nia_defs::DefKind::Global && def.name == sym("o2")).then_some(
+                    GlobalDefId {
+                        module_id: ModuleId(1),
+                        def_id,
+                    },
+                )
             })
             .expect("local static global");
 
