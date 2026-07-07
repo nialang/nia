@@ -2,7 +2,7 @@
 use super::*;
 use nia_defs::{DefId, DefKind};
 use nia_executable_reachability::{
-    ExecutableExtensionIndex, ExecutableRootDefs, IncrementalExecutableReachability,
+    ExecutableExtensionLookup, ExecutableRootDefs, IncrementalExecutableReachability,
     compute_executable_reachability_incremental_with_timings,
     extend_incremental_executable_reachability_from_checked_module_with_timings,
     filter_semantic_facts_for_reachable_items,
@@ -4655,13 +4655,106 @@ pub(super) fn provide_executable_checked_modules(
     })
 }
 
+struct QueryExecutableExtensionLookup<'a> {
+    db: &'a QueryDb<CompilerContext>,
+    trait_impls: &'a [nia_item_signatures::ProgramTraitImplSignature],
+    trait_impl_index: &'a nia_item_signatures::ProgramTraitImplIndex,
+}
+
+impl QueryExecutableExtensionLookup<'_> {
+    fn module_ids_for_trait(&self, trait_id: nia_ty::TraitId) -> Vec<ModuleId> {
+        let mut modules = self
+            .trait_impl_index
+            .indexes_for_trait(trait_id)
+            .iter()
+            .filter_map(|index| self.trait_impls.get(*index))
+            .map(|impl_signature| impl_signature.module_id)
+            .collect::<Vec<_>>();
+        modules.sort();
+        modules.dedup();
+        modules
+    }
+}
+
+impl<'a> ExecutableExtensionLookup<'a> for QueryExecutableExtensionLookup<'a> {
+    fn methods_for_trait(&self, trait_id: nia_ty::TraitId) -> Vec<nia_defs::ExtensionMethod> {
+        let mut seen = HashSet::new();
+        let mut methods = Vec::new();
+        for facts in self.db.query_many(
+            self.module_ids_for_trait(trait_id)
+                .into_iter()
+                .map(ExtensionProviderModuleFactsQuery),
+        ) {
+            methods.extend(
+                facts
+                    .methods
+                    .all_methods()
+                    .filter(|method| method.trait_id == Some(trait_id))
+                    .filter(|method| seen.insert(method.def_id))
+                    .cloned(),
+            );
+        }
+        methods
+    }
+
+    fn methods_for_trait_method(
+        &self,
+        trait_id: nia_ty::TraitId,
+        method_name: &SymbolId,
+    ) -> Vec<nia_defs::ExtensionMethod> {
+        let mut seen = HashSet::new();
+        let mut methods = Vec::new();
+        for facts in self.db.query_many(
+            self.module_ids_for_trait(trait_id)
+                .into_iter()
+                .map(ExtensionProviderModuleFactsQuery),
+        ) {
+            methods.extend(
+                facts
+                    .methods
+                    .methods_named(method_name)
+                    .filter(|method| method.trait_id == Some(trait_id))
+                    .filter(|method| seen.insert(method.def_id))
+                    .cloned(),
+            );
+        }
+        methods
+    }
+
+    fn where_predicates_for_def(
+        &self,
+        def_id: GlobalDefId,
+    ) -> Vec<nia_defs::WherePredicateSignature> {
+        self.db
+            .query(ExtensionMethodByIdQuery(def_id))
+            .method
+            .as_ref()
+            .map(|method| method.where_predicates.clone())
+            .unwrap_or_default()
+    }
+
+    fn trait_impl_for_method(
+        &self,
+        method: &nia_defs::ExtensionMethod,
+        trait_id: nia_ty::TraitId,
+    ) -> Option<&'a nia_item_signatures::ProgramTraitImplSignature> {
+        self.trait_impl_index
+            .indexes_for_trait(trait_id)
+            .iter()
+            .filter_map(|index| self.trait_impls.get(*index))
+            .find(|impl_signature| {
+                impl_signature.module_id == method.def_id.module_id
+                    && impl_signature.impl_id == method.impl_id
+            })
+    }
+}
+
 fn executable_checked_module_set_inner(
     db: &QueryDb<CompilerContext>,
 ) -> ExecutableCheckedModuleSet {
     let parse_ok = db.query(SemanticModuleIdsQuery);
     let graph = db.query_shared(ModuleGraphQuery);
     let mut program_signatures = None::<ProgramExecutableSignatures>;
-    let extension_methods = db.query(ExtensionMethodIndexQuery).methods.clone();
     let caches = ExecutableCheckCaches::default();
     let function_signature = |def_id: GlobalDefId| {
         if let Some(signature) = caches
@@ -4803,8 +4896,11 @@ fn executable_checked_module_set_inner(
     let comptime_module_cache = RefCell::new(HashMap::<ModuleId, ComptimeModuleLowering>::new());
     let mut reachability_state = IncrementalExecutableReachability::default();
     let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-    let extension_index =
-        ExecutableExtensionIndex::new(&extension_methods, &trait_solving_signatures.trait_impls);
+    let extension_lookup = QueryExecutableExtensionLookup {
+        db,
+        trait_impls: &trait_solving_signatures.trait_impls,
+        trait_impl_index: &trait_solving_signatures.trait_impl_index,
+    };
     let reachability = loop {
         let reachable_inputs = time_provider(
             db.context().timings(),
@@ -4830,7 +4926,7 @@ fn executable_checked_module_set_inner(
                         trait_: &trait_signature,
                         trait_default_method: &trait_default_method,
                     },
-                    &extension_index,
+                    &extension_lookup,
                     &reachable_inputs,
                     db.context().timings(),
                 )
@@ -5035,7 +5131,7 @@ fn executable_checked_module_set_inner(
                             trait_: &trait_signature,
                             trait_default_method: &trait_default_method,
                         },
-                        &extension_index,
+                        &extension_lookup,
                         checked_inputs
                             .iter()
                             .copied()

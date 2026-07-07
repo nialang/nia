@@ -3647,11 +3647,11 @@ extend Used {
     }
 
     #[test]
-    fn executable_checked_program_uses_lazy_extension_method_index() {
+    fn executable_checked_program_uses_query_backed_extension_method_lookup() {
         let mut loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } } pub fn main() i32 { 1 }",
+            "trait Show { fn show(self) i32; } extend i32 : Show { fn show(self) i32 { self } } pub fn main() i32 { 1.show() }",
         )]);
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
@@ -3661,6 +3661,14 @@ extend Used {
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "executable_checked_module_set"
+                && dependency.to.name == "program_trait_solving_signatures"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "executable_checked_module_set"
+                && dependency.to.name == "extension_provider_module_facts"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "executable_checked_module_set"
                 && dependency.to.name == "extension_method_index"
         }));
