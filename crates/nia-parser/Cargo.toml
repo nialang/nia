@@ -12,6 +12,8 @@ nia-node-id.workspace = true
 nia-source.workspace = true
 nia-syntax.workspace = true
 nia-span.workspace = true
+nia-symbol.workspace = true
+nia-symbol-table.workspace = true
 
 [lib]
 path = "src/lib.rs"

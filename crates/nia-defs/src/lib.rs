@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 mod extensions;
 mod public_surface;
 
+pub use nia_ast::PathSegmentKind;
 use nia_ast::{
     BindingItem, Block, EnumItem, ExtendAssociatedType, ExtendAssociatedValue, ExtendItem,
     FunctionItem, GenericParam, Module, StmtKind, StructItem, TraitAssociatedType,
@@ -15,6 +16,7 @@ pub use nia_ids::{DefId, ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap, symbol_identity_key};
 
 pub use extensions::{
     AssociatedTypeBindingSignature, ExtensionAssociatedValue, ExtensionAssociatedValues,
@@ -47,7 +49,7 @@ pub struct ModuleUsing {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsingPathSegment {
-    pub name: String,
+    pub kind: PathSegmentKind,
     pub span: Span,
 }
 
@@ -70,16 +72,16 @@ pub enum UsingGroupItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsingName {
-    pub name: String,
+    pub name: SymbolId,
     pub name_span: Span,
-    pub alias: Option<String>,
+    pub alias: Option<SymbolId>,
     pub alias_span: Option<Span>,
 }
 
 impl UsingPathSegment {
     fn from_ast(segment: &nia_ast::UsingHostSegment) -> Self {
         Self {
-            name: segment.name.clone(),
+            kind: segment.kind,
             span: segment.span,
         }
     }
@@ -113,9 +115,9 @@ impl UsingGroupItem {
 impl UsingName {
     fn from_ast(name: &nia_ast::UsingName) -> Self {
         Self {
-            name: name.name.clone(),
+            name: name.name,
             name_span: name.name_span,
-            alias: name.alias.clone(),
+            alias: name.alias,
             alias_span: name.alias_span,
         }
     }
@@ -235,12 +237,12 @@ impl StableDefHasher {
                 self.bytes(b"top");
                 self.namespace(*namespace);
                 self.kind(*kind);
-                self.string(name);
+                self.symbol(*name);
             }
             DefIdentitySegment::Member { kind, name } => {
                 self.bytes(b"member");
                 self.kind(*kind);
-                self.string(name);
+                self.symbol(*name);
             }
             DefIdentitySegment::Extension {
                 target,
@@ -320,6 +322,10 @@ impl StableDefHasher {
         self.bytes(&value.to_le_bytes());
     }
 
+    fn symbol(&mut self, value: SymbolId) {
+        self.u64(value.raw());
+    }
+
     fn bytes(&mut self, bytes: &[u8]) {
         for byte in bytes {
             self.value ^= u64::from(*byte);
@@ -345,11 +351,11 @@ enum DefIdentitySegment {
     Top {
         namespace: DefNamespace,
         kind: DefKind,
-        name: String,
+        name: SymbolId,
     },
     Member {
         kind: DefKind,
-        name: String,
+        name: SymbolId,
     },
     Extension {
         target: String,
@@ -370,22 +376,19 @@ enum DefNamespace {
 }
 
 impl DefIdentity {
-    fn top(namespace: DefNamespace, kind: DefKind, name: &str) -> Self {
+    fn top(namespace: DefNamespace, kind: DefKind, name: &SymbolId) -> Self {
         Self {
             segments: vec![DefIdentitySegment::Top {
                 namespace,
                 kind,
-                name: name.to_string(),
+                name: *name,
             }],
         }
     }
 
-    fn child(&self, kind: DefKind, name: &str) -> Self {
+    fn child(&self, kind: DefKind, name: &SymbolId) -> Self {
         let mut segments = self.segments.clone();
-        segments.push(DefIdentitySegment::Member {
-            kind,
-            name: name.to_string(),
-        });
+        segments.push(DefIdentitySegment::Member { kind, name: *name });
         Self { segments }
     }
 
@@ -415,10 +418,10 @@ impl DefIdentity {
                     kind,
                     name,
                 } => {
-                    format!("{namespace:?}:{kind:?}:{name}")
+                    format!("{namespace:?}:{kind:?}:{}", symbol_identity_key(*name))
                 }
                 DefIdentitySegment::Member { kind, name } => {
-                    format!("{kind:?}:{name}")
+                    format!("{kind:?}:{}", symbol_identity_key(*name))
                 }
                 DefIdentitySegment::Extension {
                     target,
@@ -437,11 +440,11 @@ impl DefIdentity {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Def {
-    pub name: String,
+    pub name: SymbolId,
     pub kind: DefKind,
     pub module_id: ModuleId,
     pub parent: Option<DefId>,
-    pub generics: Vec<String>,
+    pub generics: Vec<SymbolId>,
     pub generic_params: Vec<GenericParam>,
     pub visibility: Visibility,
     pub span: Span,
@@ -487,21 +490,21 @@ pub struct EnumScope {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct NameTable {
-    entries: HashMap<String, NameEntry>,
+    entries: SymbolMap<NameEntry>,
 }
 
 impl NameTable {
-    pub fn get(&self, name: &str) -> Option<DefId> {
+    pub fn get(&self, name: &SymbolId) -> Option<DefId> {
         self.entries.get(name).map(|entry| entry.def_id)
     }
 
-    pub fn entries(&self) -> impl Iterator<Item = (&str, DefId)> {
+    pub fn entries(&self) -> impl Iterator<Item = (&SymbolId, DefId)> {
         self.entries
             .iter()
-            .map(|(name, entry)| (name.as_str(), entry.def_id))
+            .map(|(name, entry)| (name, entry.def_id))
     }
 
-    fn insert(&mut self, name: String, def_id: DefId, span: Span) -> Result<(), DuplicateName> {
+    fn insert(&mut self, name: SymbolId, def_id: DefId, span: Span) -> Result<(), DuplicateName> {
         if let Some(existing) = self.entries.get(&name) {
             return Err(DuplicateName {
                 name,
@@ -516,7 +519,7 @@ impl NameTable {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DuplicateName {
-    pub name: String,
+    pub name: SymbolId,
     pub first_span: Span,
     pub second_span: Span,
 }
@@ -1090,7 +1093,7 @@ impl Collector {
 
     fn add_module_def(
         &mut self,
-        name: String,
+        name: SymbolId,
         kind: DefKind,
         visibility: Visibility,
         span: Span,
@@ -1119,7 +1122,7 @@ impl Collector {
     fn add_type_def(
         &mut self,
         identity: DefIdentity,
-        name: String,
+        name: SymbolId,
         kind: DefKind,
         visibility: Visibility,
         span: Span,
@@ -1141,7 +1144,7 @@ impl Collector {
 
     fn add_value_def(
         &mut self,
-        name: String,
+        name: SymbolId,
         kind: DefKind,
         visibility: Visibility,
         span: Span,
@@ -1171,7 +1174,7 @@ impl Collector {
     fn push_top_def(
         &mut self,
         identity: DefIdentity,
-        name: String,
+        name: SymbolId,
         kind: DefKind,
         visibility: Visibility,
         span: Span,
@@ -1197,7 +1200,7 @@ impl Collector {
         &mut self,
         identity: DefIdentity,
         parent: Option<DefId>,
-        name: String,
+        name: SymbolId,
         kind: DefKind,
         visibility: Visibility,
         span: Span,
@@ -1217,7 +1220,7 @@ impl Collector {
         &mut self,
         identity: DefIdentity,
         parent: Option<DefId>,
-        name: String,
+        name: SymbolId,
         kind: DefKind,
         visibility: Visibility,
         span: Span,
@@ -1261,7 +1264,7 @@ impl Collector {
     fn insert_top(
         table: &mut NameTable,
         diagnostics: &mut Vec<Diagnostic>,
-        name: String,
+        name: SymbolId,
         def_id: DefId,
         span: Span,
         message: &'static str,
@@ -1270,7 +1273,7 @@ impl Collector {
             diagnostics.push(Diagnostic::user_error_at(
                 codes::PARSE,
                 duplicate.second_span,
-                format!("{message}: `{}`", duplicate.name),
+                format!("{message}: `{}`", symbol_identity_key(duplicate.name)),
             ));
         }
     }
@@ -1278,7 +1281,7 @@ impl Collector {
     fn insert_member(
         &mut self,
         table: &mut NameTable,
-        name: String,
+        name: SymbolId,
         def_id: DefId,
         span: Span,
         message: &'static str,
@@ -1287,7 +1290,7 @@ impl Collector {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::PARSE,
                 duplicate.second_span,
-                format!("{message}: `{}`", duplicate.name),
+                format!("{message}: `{}`", symbol_identity_key(duplicate.name)),
             ));
         }
     }
@@ -1299,7 +1302,10 @@ impl Collector {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::PARSE,
                     span,
-                    format!("duplicate generic parameter `{}`", generic.name),
+                    format!(
+                        "duplicate generic parameter `{}`",
+                        symbol_identity_key(generic.name)
+                    ),
                 ));
             }
         }
@@ -1311,6 +1317,11 @@ mod tests {
     use super::*;
     use nia_diagnostic::DiagnosticCategory;
     use nia_parser::parse_module;
+    use nia_symbol::stable_hash;
+
+    fn sym(text: &str) -> SymbolId {
+        SymbolId::from_stable_hash(stable_hash(text))
+    }
 
     #[test]
     fn collects_top_level_defs_into_separate_namespaces() {
@@ -1332,12 +1343,18 @@ static mut counter = 0;
             "{:?}",
             collection.diagnostics
         );
-        assert!(collection.module_scope.modules.get("math").is_some());
-        assert!(collection.module_scope.types.get("Point").is_some());
-        assert!(collection.module_scope.types.get("Color").is_some());
-        assert!(collection.module_scope.types.get("Byte").is_some());
-        assert!(collection.module_scope.values.get("Point").is_some());
-        assert!(collection.module_scope.values.get("counter").is_some());
+        assert!(collection.module_scope.modules.get(&sym("math")).is_some());
+        assert!(collection.module_scope.types.get(&sym("Point")).is_some());
+        assert!(collection.module_scope.types.get(&sym("Color")).is_some());
+        assert!(collection.module_scope.types.get(&sym("Byte")).is_some());
+        assert!(collection.module_scope.values.get(&sym("Point")).is_some());
+        assert!(
+            collection
+                .module_scope
+                .values
+                .get(&sym("counter"))
+                .is_some()
+        );
         assert!(collection.def_nodes.entries().count() >= collection.defs.len());
     }
 
@@ -1545,40 +1562,43 @@ extend[T] & Box[ T ] {
     fn top_type_id(defs: &DefCollection, name: &str) -> DefId {
         defs.module_scope
             .types
-            .get(name)
+            .get(&sym(name))
             .unwrap_or_else(|| panic!("missing top-level type `{name}`"))
     }
 
     fn top_value_id(defs: &DefCollection, name: &str) -> DefId {
         defs.module_scope
             .values
-            .get(name)
+            .get(&sym(name))
             .unwrap_or_else(|| panic!("missing top-level value `{name}`"))
     }
 
     fn member_id(defs: &DefCollection, owner: DefId, name: &str) -> DefId {
+        let name = sym(name);
         defs.scopes
             .struct_members
             .get(&owner)
             .and_then(|members| {
                 members
                     .fields
-                    .get(name)
-                    .or_else(|| members.methods.get(name))
-                    .or_else(|| members.values.get(name))
+                    .get(&name)
+                    .or_else(|| members.methods.get(&name))
+                    .or_else(|| members.values.get(&name))
             })
             .unwrap_or_else(|| panic!("missing member `{name}`"))
     }
 
     fn enum_variant_id(defs: &DefCollection, owner: DefId, name: &str) -> DefId {
+        let name = sym(name);
         defs.scopes
             .enum_members
             .get(&owner)
-            .and_then(|members| members.variants.get(name))
+            .and_then(|members| members.variants.get(&name))
             .unwrap_or_else(|| panic!("missing enum variant `{name}`"))
     }
 
     fn extension_method_id(defs: &DefCollection, name: &str) -> DefId {
+        let name = sym(name);
         defs.defs
             .iter()
             .find_map(|(def_id, def)| {

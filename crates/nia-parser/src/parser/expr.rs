@@ -7,6 +7,11 @@ enum BracketSuffix {
 }
 
 impl Parser {
+    fn bool_expr(&mut self, token: nia_syntax::SyntaxToken, value: bool) -> Expr {
+        self.bump();
+        self.make_expr(token.span, ExprKind::Bool(value))
+    }
+
     pub(super) fn parse_expr(&mut self) -> Option<Expr> {
         self.parse_assignment_until(&[])
     }
@@ -149,7 +154,7 @@ impl Parser {
                 self.bump();
                 Some(ConditionExpr {
                     span: token.span,
-                    kind: ConditionExprKind::Ident(self.token_text(&token).to_string()),
+                    kind: ConditionExprKind::Ident(self.token_name(&token)?),
                 })
             }
             TokenKind::LParen => {
@@ -438,7 +443,7 @@ impl Parser {
                     );
                     continue;
                 }
-                let name = self.expect_text(TokenKind::Ident, "expected field name")?;
+                let name = self.expect_name(TokenKind::Ident, "expected field name")?;
                 let end = self.previous_end();
                 expr = self.make_expr(
                     Span::new(expr.span.start, end),
@@ -460,7 +465,7 @@ impl Parser {
                 continue;
             }
             if self.eat(TokenKind::ColonColon).is_some() {
-                let name = self.expect_namespace_segment_text("expected name after `::`")?;
+                let name = self.expect_name(TokenKind::Ident, "expected name after `::`")?;
                 let end = self.previous_end();
                 expr = self.make_expr(
                     Span::new(expr.span.start, end),
@@ -582,20 +587,7 @@ impl Parser {
             let start = self.peek().span.start;
             let type_checkpoint = self.tokens.checkpoint();
             let type_errors_len = self.errors.len();
-            let ty = if self.at(TokenKind::Bool) {
-                let token = self.bump();
-                Some(self.make_type_ref(
-                    token.span,
-                    TypeKind::Path {
-                        segments: vec![TypePathSegment {
-                            name: self.token_text(&token).to_string(),
-                            args: Vec::new(),
-                        }],
-                    },
-                ))
-            } else {
-                self.parse_type()
-            };
+            let ty = self.parse_type();
             let type_end = ty.as_ref().map(|ty| ty.span.end);
             self.tokens.rewind(type_checkpoint);
             self.errors.truncate(type_errors_len);
@@ -683,24 +675,28 @@ impl Parser {
             }
             TokenKind::Char => Some(self.literal_expr(token, ExprKind::Char)),
             TokenKind::ByteChar => Some(self.literal_expr(token, ExprKind::ByteChar)),
-            TokenKind::True => {
-                self.bump();
-                Some(self.make_expr(token.span, ExprKind::Bool(true)))
-            }
-            TokenKind::False => {
-                self.bump();
-                Some(self.make_expr(token.span, ExprKind::Bool(false)))
-            }
+            TokenKind::True => Some(self.bool_expr(token, true)),
+            TokenKind::False => Some(self.bool_expr(token, false)),
             TokenKind::Null => {
                 self.bump();
                 Some(self.make_expr(token.span, ExprKind::Null))
             }
-            TokenKind::Ident | TokenKind::Pkg => {
+            TokenKind::Ident => {
                 self.bump();
-                Some(self.make_expr(
-                    token.span,
-                    ExprKind::Ident(self.token_text(&token).to_string()),
-                ))
+                let name = self.token_name(&token)?;
+                Some(self.make_expr(token.span, ExprKind::Ident(name)))
+            }
+            TokenKind::SelfValue => {
+                self.bump();
+                Some(self.make_expr(token.span, ExprKind::SelfValue))
+            }
+            TokenKind::Pkg => {
+                self.bump();
+                Some(self.make_expr(token.span, ExprKind::PathRoot(PathSegmentKind::Package)))
+            }
+            TokenKind::Super => {
+                self.bump();
+                Some(self.make_expr(token.span, ExprKind::PathRoot(PathSegmentKind::Super)))
             }
             TokenKind::Underscore => {
                 self.bump();
@@ -970,7 +966,7 @@ impl Parser {
         let mut fields = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             let field_start = self.peek().span.start;
-            let name = self.expect_text(TokenKind::Ident, "expected field name")?;
+            let name = self.expect_name(TokenKind::Ident, "expected field name")?;
             self.expect(TokenKind::Colon, "expected `:` after field name")?;
             let value = self.parse_expr()?;
             fields.push(FieldInit {

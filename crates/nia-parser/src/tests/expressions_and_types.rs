@@ -654,7 +654,7 @@ fn error_union(value: i32!i32) i32 {
     assert!(matches!(
         &if_pattern.arms[0].pattern.kind,
         PatternKind::OptionalSome(inner)
-            if matches!(&inner.kind, PatternKind::Bind { name, .. } if name == "x")
+            if matches!(&inner.kind, PatternKind::Bind { name, .. } if *name == sym("x"))
     ));
     assert!(matches!(
         &if_pattern.arms[1].pattern.kind,

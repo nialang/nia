@@ -11,6 +11,7 @@ nia-diagnostic.workspace = true
 nia-ids.workspace = true
 nia-imports.workspace = true
 nia-span.workspace = true
+nia-symbol.workspace = true
 
 [dev-dependencies]
 nia-parser.workspace = true

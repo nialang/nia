@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use nia_ast::{
     ArrayLen, AssocBindingKey, FunctionItem, GenericParam, GenericParamKind, Item, ItemKind,
-    Module, TypeArg, TypeKind, TypePathSegment, TypeRef,
+    Module, PathSegmentKind, TypeArg, TypeKind, TypePathSegment, TypeRef,
 };
 use nia_ast_walk::{Visitor, walk_function, walk_item};
 use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces};
@@ -11,19 +11,19 @@ use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId, Visibility};
 use nia_imports::{
-    ENTRY_MODULE_MAP_NAME, ModuleGraph, PACKAGE_MODULE_MAP_NAME, STD_MODULE_MAP_NAME,
-    module_declaration_visibility_allows, visibility_allows,
+    ModuleGraph, ModuleRootSegment, module_declaration_visibility_allows, visibility_allows,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::{NodeSite, VersionedNodeKey};
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, PrimitiveTypeSpelling};
+use nia_symbol::{SymbolId, SymbolText, known, symbol_text_from_optional_resolver};
+use nia_ty::{BuiltinTrait, PrimitiveTy, PrimitiveTypeSpelling};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeResolution {
     pub node_type_names: HashMap<NodeSite, TypeNameResolution>,
     pub node_qualified_type_names: HashMap<NodeSite, GlobalDefId>,
-    pub node_const_generic_names: HashMap<VersionedNodeKey, String>,
+    pub node_const_generic_names: HashMap<VersionedNodeKey, SymbolId>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -81,6 +81,23 @@ pub fn resolve_module_types(module: &Module, defs: &DefCollection) -> TypeResolu
     resolve_module_types_from_item_tree(&item_tree, defs)
 }
 
+pub fn resolve_module_types_with_symbols(
+    module: &Module,
+    defs: &DefCollection,
+    symbols: &dyn SymbolText,
+) -> TypeResolution {
+    let item_tree = ModuleItemTree::from_module(module);
+    resolve_module_types_from_item_tree_inner(
+        &item_tree,
+        defs,
+        None,
+        ProgramDefsContext::empty(),
+        None,
+        None,
+        Some(symbols),
+    )
+}
+
 pub fn resolve_module_types_with_graph(
     module: &Module,
     defs: &DefCollection,
@@ -93,6 +110,7 @@ pub fn resolve_module_types_with_graph(
         defs,
         Some(graph),
         program_defs,
+        None,
         None,
         None,
     )
@@ -114,6 +132,7 @@ pub fn resolve_module_types_with_context(
         program_defs,
         Some(public_surfaces),
         Some(using_scope),
+        None,
     )
 }
 
@@ -126,6 +145,7 @@ pub fn resolve_module_types_from_item_tree(
         defs,
         None,
         ProgramDefsContext::empty(),
+        None,
         None,
         None,
     )
@@ -145,6 +165,7 @@ pub fn resolve_module_types_from_active_item_tree(
         program_defs,
         Some(public_surfaces),
         Some(using_scope),
+        None,
     )
 }
 
@@ -162,6 +183,46 @@ pub fn resolve_module_declaration_types_from_active_item_tree(
         program_defs,
         Some(public_surfaces),
         Some(using_scope),
+        None,
+        TypeResolveMode::Declarations,
+    )
+}
+
+pub fn resolve_module_types_from_active_item_tree_with_symbols(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &PublicSurfaces,
+    using_scope: &ModuleUsingScope,
+    symbols: &dyn SymbolText,
+) -> TypeResolution {
+    resolve_module_types_from_items(
+        &item_tree.items,
+        defs,
+        program_defs.graph,
+        program_defs,
+        Some(public_surfaces),
+        Some(using_scope),
+        Some(symbols),
+    )
+}
+
+pub fn resolve_module_declaration_types_from_active_item_tree_with_symbols(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &PublicSurfaces,
+    using_scope: &ModuleUsingScope,
+    symbols: &dyn SymbolText,
+) -> TypeResolution {
+    resolve_module_types_from_items_with_mode(
+        &item_tree.items,
+        defs,
+        program_defs.graph,
+        program_defs,
+        Some(public_surfaces),
+        Some(using_scope),
+        Some(symbols),
         TypeResolveMode::Declarations,
     )
 }
@@ -173,6 +234,7 @@ fn resolve_module_types_from_item_tree_inner(
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
+    symbols: Option<&dyn SymbolText>,
 ) -> TypeResolution {
     resolve_module_types_from_items_with_mode(
         &item_tree.items,
@@ -181,6 +243,7 @@ fn resolve_module_types_from_item_tree_inner(
         program_defs,
         public_surfaces,
         using_scope,
+        symbols,
         TypeResolveMode::All,
     )
 }
@@ -192,6 +255,7 @@ fn resolve_module_types_from_items(
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
+    symbols: Option<&dyn SymbolText>,
 ) -> TypeResolution {
     resolve_module_types_from_items_with_mode(
         items,
@@ -200,6 +264,7 @@ fn resolve_module_types_from_items(
         program_defs,
         public_surfaces,
         using_scope,
+        symbols,
         TypeResolveMode::All,
     )
 }
@@ -211,6 +276,7 @@ fn resolve_module_types_from_items_with_mode(
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
+    symbols: Option<&dyn SymbolText>,
     mode: TypeResolveMode,
 ) -> TypeResolution {
     let mut resolver = TypeResolver {
@@ -219,6 +285,7 @@ fn resolve_module_types_from_items_with_mode(
         program_defs,
         public_surfaces,
         using_scope,
+        symbols,
         node_type_names: HashMap::new(),
         node_qualified_type_names: HashMap::new(),
         node_const_generic_names: HashMap::new(),
@@ -251,17 +318,46 @@ struct TypeResolver<'a> {
     program_defs: ProgramDefsContext<'a>,
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
+    symbols: Option<&'a dyn SymbolText>,
     node_type_names: HashMap<NodeSite, TypeNameResolution>,
     node_qualified_type_names: HashMap<NodeSite, GlobalDefId>,
-    node_const_generic_names: HashMap<VersionedNodeKey, String>,
+    node_const_generic_names: HashMap<VersionedNodeKey, SymbolId>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<GenericParam>>,
     self_type_stack: Vec<Span>,
-    associated_type_stack: Vec<Vec<String>>,
+    associated_type_stack: Vec<Vec<SymbolId>>,
     mode: TypeResolveMode,
 }
 
 impl TypeResolver<'_> {
+    fn primitive_type_spelling_for_symbol(&self, name: &SymbolId) -> Option<PrimitiveTypeSpelling> {
+        primitive_type_spelling_for_known_symbol(name).or_else(|| {
+            let text = self.symbols?.symbol_text(*name)?;
+            PrimitiveTypeSpelling::from_name(&text)
+        })
+    }
+
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_from_optional_resolver(self.symbols, symbol)
+    }
+
+    fn type_segment_display(&self, segment: &TypePathSegment) -> String {
+        match segment.kind {
+            PathSegmentKind::Name(name) => self.symbol_name(name),
+            PathSegmentKind::Package => "pkg".to_string(),
+            PathSegmentKind::Super => "super".to_string(),
+            PathSegmentKind::SelfValue => "self".to_string(),
+        }
+    }
+
+    fn type_path_text(&self, segments: &[TypePathSegment]) -> String {
+        segments
+            .iter()
+            .map(|segment| self.type_segment_display(segment))
+            .collect::<Vec<_>>()
+            .join("::")
+    }
+
     fn graph(&self) -> Option<&ModuleGraph> {
         self.graph.or(self.program_defs.graph)
     }
@@ -295,7 +391,7 @@ impl TypeResolver<'_> {
     fn child_module_declaration(
         &self,
         parent_module: ModuleId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<(ModuleId, Visibility)> {
         let graph = self.graph()?;
         let parent = graph.get(parent_module)?;
@@ -303,11 +399,11 @@ impl TypeResolver<'_> {
         let declaration = parent
             .declarations
             .iter()
-            .find(|declaration| declaration.name == name && declaration.target == target)?;
+            .find(|declaration| &declaration.name == name && declaration.target == target)?;
         Some((target, declaration.visibility))
     }
 
-    fn direct_type_member(&self, module_id: ModuleId, name: &str) -> DirectMember<DefId> {
+    fn direct_type_member(&self, module_id: ModuleId, name: &SymbolId) -> DirectMember<DefId> {
         let Some(target_defs) = self.defs_for_module(module_id) else {
             return DirectMember::Unloaded;
         };
@@ -759,22 +855,27 @@ impl<'a> TypeResolver<'a> {
     }
 
     fn try_resolve_root_namespace(&self, segment: &TypePathSegment) -> Option<ResolvedNamespace> {
-        if let Some(module_id) = self.root_module_for_segment(&segment.name) {
+        if let Some(module_id) = self.root_module_for_segment(segment) {
             return Some(ResolvedNamespace::Module(module_id));
         }
         if let Some(scope) = self.using_scope
-            && let Some(module_id) = scope.lookup_module(&segment.name)
+            && let Some(module_id) = scope.lookup_module(type_segment_name(segment)?)
         {
             return Some(ResolvedNamespace::Module(module_id));
         }
-        if let Some(def_id) = self.defs.module_scope.types.get(&segment.name) {
+        if let Some(def_id) = self
+            .defs
+            .module_scope
+            .types
+            .get(type_segment_name(segment)?)
+        {
             return Some(ResolvedNamespace::Type(GlobalDefId {
                 module_id: self.defs.module_id,
                 def_id,
             }));
         }
         if let Some(scope) = self.using_scope
-            && let Some(entry) = scope.lookup_type(&segment.name)
+            && let Some(entry) = scope.lookup_type(type_segment_name(segment)?)
         {
             return Some(ResolvedNamespace::Type(GlobalDefId {
                 module_id: entry.target_module,
@@ -794,10 +895,10 @@ impl<'a> TypeResolver<'a> {
                 if let Some(surfaces) = self.public_surfaces
                     && let Some(surface) = surfaces.get(module_id)
                 {
-                    if let Some(child_module) = surface.lookup_module(&segment.name) {
+                    if let Some(child_module) = surface.lookup_module(type_segment_name(segment)?) {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
-                    if let Some(item) = surface.lookup_type(&segment.name) {
+                    if let Some(item) = surface.lookup_type(type_segment_name(segment)?) {
                         return Some(ResolvedNamespace::Type(GlobalDefId {
                             module_id: item.target_module,
                             def_id: item.target_def_id,
@@ -805,12 +906,12 @@ impl<'a> TypeResolver<'a> {
                     }
                 }
                 if let Some((child_module, visibility)) =
-                    self.child_module_declaration(module_id, &segment.name)
+                    self.child_module_declaration(module_id, type_segment_name(segment)?)
                     && self.module_declaration_visible(module_id, visibility)
                 {
                     return Some(ResolvedNamespace::Module(child_module));
                 }
-                match self.direct_type_member(module_id, &segment.name) {
+                match self.direct_type_member(module_id, type_segment_name(segment)?) {
                     DirectMember::Visible(def_id) => {
                         Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
                     }
@@ -829,20 +930,23 @@ impl<'a> TypeResolver<'a> {
     ) -> Option<TypeNameResolution> {
         if let Some(surfaces) = self.public_surfaces
             && let Some(surface) = surfaces.get(module_id)
-            && let Some(item) = surface.lookup_type(&segment.name)
+            && let Some(item) = surface.lookup_type(type_segment_name(segment)?)
         {
             let global = GlobalDefId {
                 module_id: item.target_module,
                 def_id: item.target_def_id,
             };
-            if let Some(trait_id) = self.canonical_builtin_trait(global, &segment.name) {
+            if let Some(trait_id) =
+                self.canonical_builtin_trait(global, type_segment_name(segment)?)
+            {
                 return Some(TypeNameResolution::BuiltinTrait(trait_id));
             }
             self.node_qualified_type_names
                 .insert(ty.node_key.site().clone(), global);
             return Some(TypeNameResolution::External(global));
         }
-        let DirectMember::Visible(def_id) = self.direct_type_member(module_id, &segment.name)
+        let DirectMember::Visible(def_id) =
+            self.direct_type_member(module_id, type_segment_name(segment)?)
         else {
             return None;
         };
@@ -879,16 +983,23 @@ impl<'a> TypeResolver<'a> {
         segment: &TypePathSegment,
         ty: &TypeRef,
     ) -> Option<TypeNameResolution> {
-        if self.is_generic_param(&segment.name) {
+        if self.is_generic_param(type_segment_name(segment)?) {
             return Some(TypeNameResolution::GenericParam);
         }
-        if self.is_associated_type(&segment.name) {
+        if self.is_associated_type(type_segment_name(segment)?) {
             return Some(TypeNameResolution::AssociatedType);
         }
-        if let Some(primitive) = PrimitiveTypeSpelling::from_name(&segment.name) {
+        if let Some(primitive) =
+            self.primitive_type_spelling_for_symbol(type_segment_name(segment)?)
+        {
             return Some(TypeNameResolution::Primitive(primitive));
         }
-        if let Some(def_id) = self.defs.module_scope.types.get(&segment.name) {
+        if let Some(def_id) = self
+            .defs
+            .module_scope
+            .types
+            .get(type_segment_name(segment)?)
+        {
             let def = self.defs.defs.get(def_id)?;
             if matches!(
                 def.kind,
@@ -911,21 +1022,23 @@ impl<'a> TypeResolver<'a> {
             }
         }
         if let Some(scope) = self.using_scope
-            && let Some(entry) = scope.lookup_type(&segment.name)
+            && let Some(entry) = scope.lookup_type(type_segment_name(segment)?)
             && entry.namespace == PublicNamespace::Type
         {
             let global = GlobalDefId {
                 module_id: entry.target_module,
                 def_id: entry.target_def_id,
             };
-            if let Some(trait_id) = self.canonical_builtin_trait(global, &segment.name) {
+            if let Some(trait_id) =
+                self.canonical_builtin_trait(global, type_segment_name(segment)?)
+            {
                 return Some(TypeNameResolution::BuiltinTrait(trait_id));
             }
             self.node_qualified_type_names
                 .insert(ty.node_key.site().clone(), global);
             return Some(TypeNameResolution::External(global));
         }
-        BuiltinTrait::from_name(&segment.name).map(TypeNameResolution::BuiltinTrait)
+        builtin_trait_for_symbol(type_segment_name(segment)?).map(TypeNameResolution::BuiltinTrait)
     }
 
     fn visit_assoc_binding_key(&mut self, key: &AssocBindingKey) {
@@ -951,7 +1064,7 @@ impl<'a> TypeResolver<'a> {
         };
         match namespace {
             ResolvedNamespace::Module(module_id) => {
-                let path_text = type_path_text(segments);
+                let path_text = self.type_path_text(segments);
                 self.resolve_module_type(span, node_key, module_id, last, &path_text)
             }
             ResolvedNamespace::Type(_) => {
@@ -983,22 +1096,27 @@ impl<'a> TypeResolver<'a> {
         path_span: Span,
         segment: &TypePathSegment,
     ) -> Option<ResolvedNamespace> {
-        if let Some(module_id) = self.root_module_for_segment(&segment.name) {
+        if let Some(module_id) = self.root_module_for_segment(segment) {
             return Some(ResolvedNamespace::Module(module_id));
         }
         if let Some(scope) = self.using_scope
-            && let Some(module_id) = scope.lookup_module(&segment.name)
+            && let Some(module_id) = scope.lookup_module(type_segment_name(segment)?)
         {
             return Some(ResolvedNamespace::Module(module_id));
         }
-        if let Some(def_id) = self.defs.module_scope.types.get(&segment.name) {
+        if let Some(def_id) = self
+            .defs
+            .module_scope
+            .types
+            .get(type_segment_name(segment)?)
+        {
             return Some(ResolvedNamespace::Type(GlobalDefId {
                 module_id: self.defs.module_id,
                 def_id,
             }));
         }
         if let Some(scope) = self.using_scope
-            && let Some(entry) = scope.lookup_type(&segment.name)
+            && let Some(entry) = scope.lookup_type(type_segment_name(segment)?)
         {
             return Some(ResolvedNamespace::Type(GlobalDefId {
                 module_id: entry.target_module,
@@ -1008,23 +1126,20 @@ impl<'a> TypeResolver<'a> {
         self.diagnostics.push(Diagnostic::user_error_at(
             codes::NAME_RESOLUTION,
             path_span,
-            format!("unknown namespace `{}`", segment.name),
+            format!(
+                "unknown namespace `{}`",
+                self.symbol_name(*type_segment_name(segment)?)
+            ),
         ));
         None
     }
 
-    fn root_module_for_segment(&self, name: &str) -> Option<ModuleId> {
+    fn root_module_for_segment(&self, segment: &TypePathSegment) -> Option<ModuleId> {
         let graph = self.graph()?;
-        match name {
-            "self" => Some(self.defs.module_id),
-            "super" => graph.get(self.defs.module_id)?.parent,
-            ENTRY_MODULE_MAP_NAME => Some(graph.entry()),
-            PACKAGE_MODULE_MAP_NAME => graph.current_package_root(self.defs.module_id),
-            package => graph
-                .get(self.defs.module_id)
-                .and_then(|node| node.children.get(package).copied())
-                .or_else(|| graph.package_root(package)),
-        }
+        graph.root_module_for_segment(
+            self.defs.module_id,
+            module_root_segment_from_path_segment(segment.kind),
+        )
     }
 
     fn resolve_child_namespace(
@@ -1038,10 +1153,10 @@ impl<'a> TypeResolver<'a> {
                 if let Some(surfaces) = self.public_surfaces
                     && let Some(surface) = surfaces.get(module_id)
                 {
-                    if let Some(child_module) = surface.lookup_module(&segment.name) {
+                    if let Some(child_module) = surface.lookup_module(type_segment_name(segment)?) {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
-                    if let Some(item) = surface.lookup_type(&segment.name) {
+                    if let Some(item) = surface.lookup_type(type_segment_name(segment)?) {
                         return Some(ResolvedNamespace::Type(GlobalDefId {
                             module_id: item.target_module,
                             def_id: item.target_def_id,
@@ -1049,7 +1164,7 @@ impl<'a> TypeResolver<'a> {
                     }
                 }
                 if let Some((child_module, visibility)) =
-                    self.child_module_declaration(module_id, &segment.name)
+                    self.child_module_declaration(module_id, type_segment_name(segment)?)
                 {
                     if self.module_declaration_visible(module_id, visibility) {
                         return Some(ResolvedNamespace::Module(child_module));
@@ -1057,11 +1172,14 @@ impl<'a> TypeResolver<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::NAME_RESOLUTION,
                         path_span,
-                        format!("module namespace `{}` is private", segment.name),
+                        format!(
+                            "module namespace `{}` is private",
+                            self.symbol_name(*type_segment_name(segment)?)
+                        ),
                     ));
                     return None;
                 }
-                match self.direct_type_member(module_id, &segment.name) {
+                match self.direct_type_member(module_id, type_segment_name(segment)?) {
                     DirectMember::Visible(def_id) => {
                         Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
                     }
@@ -1069,7 +1187,10 @@ impl<'a> TypeResolver<'a> {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::NAME_RESOLUTION,
                             path_span,
-                            format!("type `{}` is private", segment.name),
+                            format!(
+                                "type `{}` is private",
+                                self.symbol_name(*type_segment_name(segment)?)
+                            ),
                         ));
                         None
                     }
@@ -1077,7 +1198,10 @@ impl<'a> TypeResolver<'a> {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::NAME_RESOLUTION,
                             path_span,
-                            format!("unknown namespace `{}`", segment.name),
+                            format!(
+                                "unknown namespace `{}`",
+                                self.symbol_name(*type_segment_name(segment)?)
+                            ),
                         ));
                         None
                     }
@@ -1103,22 +1227,33 @@ impl<'a> TypeResolver<'a> {
         segment: &TypePathSegment,
         path_text: &str,
     ) -> TypeNameResolution {
+        let Some(name) = type_segment_name(segment).copied() else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                span,
+                format!(
+                    "expected type name, found `{}`",
+                    self.type_segment_display(segment)
+                ),
+            ));
+            return TypeNameResolution::Error;
+        };
         if let Some(surfaces) = self.public_surfaces
             && let Some(surface) = surfaces.get(module_id)
-            && let Some(item) = surface.lookup_type(&segment.name)
+            && let Some(item) = surface.lookup_type(&name)
         {
             let global = GlobalDefId {
                 module_id: item.target_module,
                 def_id: item.target_def_id,
             };
-            if let Some(trait_id) = self.canonical_builtin_trait(global, &segment.name) {
+            if let Some(trait_id) = self.canonical_builtin_trait(global, &name) {
                 return TypeNameResolution::BuiltinTrait(trait_id);
             }
             self.node_qualified_type_names
                 .insert(node_key.site().clone(), global);
             return TypeNameResolution::External(global);
         }
-        let def_id = match self.direct_type_member(module_id, &segment.name) {
+        let def_id = match self.direct_type_member(module_id, &name) {
             DirectMember::Visible(def_id) => def_id,
             DirectMember::Private => {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -1132,7 +1267,7 @@ impl<'a> TypeResolver<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::NAME_RESOLUTION,
                     span,
-                    format!("unknown type `{}`", segment.name),
+                    format!("unknown type `{}`", self.symbol_name(name)),
                 ));
                 return TypeNameResolution::Error;
             }
@@ -1178,16 +1313,27 @@ impl<'a> TypeResolver<'a> {
         span: Span,
         node_key: &VersionedNodeKey,
     ) -> TypeNameResolution {
-        if self.is_generic_param(&segment.name) {
+        let Some(name) = type_segment_name(segment).copied() else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::NAME_RESOLUTION,
+                span,
+                format!(
+                    "expected type name, found `{}`",
+                    self.type_segment_display(segment)
+                ),
+            ));
+            return TypeNameResolution::Error;
+        };
+        if self.is_generic_param(&name) {
             return TypeNameResolution::GenericParam;
         }
-        if self.is_associated_type(&segment.name) {
+        if self.is_associated_type(&name) {
             return TypeNameResolution::AssociatedType;
         }
-        if let Some(primitive) = PrimitiveTypeSpelling::from_name(&segment.name) {
+        if let Some(primitive) = self.primitive_type_spelling_for_symbol(&name) {
             return TypeNameResolution::Primitive(primitive);
         }
-        if let Some(def_id) = self.defs.module_scope.types.get(&segment.name) {
+        if let Some(def_id) = self.defs.module_scope.types.get(&name) {
             let Some(def) = self.defs.defs.get(def_id) else {
                 return TypeNameResolution::Error;
             };
@@ -1212,14 +1358,14 @@ impl<'a> TypeResolver<'a> {
             }
         }
         if let Some(scope) = self.using_scope
-            && let Some(entry) = scope.lookup_type(&segment.name)
+            && let Some(entry) = scope.lookup_type(&name)
             && entry.namespace == PublicNamespace::Type
         {
             let global = GlobalDefId {
                 module_id: entry.target_module,
                 def_id: entry.target_def_id,
             };
-            if let Some(trait_id) = self.canonical_builtin_trait(global, &segment.name) {
+            if let Some(trait_id) = self.canonical_builtin_trait(global, &name) {
                 return TypeNameResolution::BuiltinTrait(trait_id);
             }
             self.node_qualified_type_names
@@ -1228,17 +1374,17 @@ impl<'a> TypeResolver<'a> {
         }
         if self
             .using_scope
-            .is_some_and(|scope| scope.has_unresolved_name(&segment.name))
+            .is_some_and(|scope| scope.has_unresolved_name(&name))
         {
             return TypeNameResolution::Error;
         }
-        if let Some(trait_id) = BuiltinTrait::from_name(&segment.name) {
+        if let Some(trait_id) = builtin_trait_for_symbol(&name) {
             return TypeNameResolution::BuiltinTrait(trait_id);
         }
         self.diagnostics.push(Diagnostic::user_error_at(
             codes::NAME_RESOLUTION,
             span,
-            format!("unknown type `{}`", segment.name),
+            format!("unknown type `{}`", self.symbol_name(name)),
         ));
         TypeNameResolution::Error
     }
@@ -1260,28 +1406,32 @@ impl<'a> TypeResolver<'a> {
         self.self_type_stack.pop();
     }
 
-    fn with_associated_types(&mut self, associated_types: Vec<String>, f: impl FnOnce(&mut Self)) {
+    fn with_associated_types(
+        &mut self,
+        associated_types: Vec<SymbolId>,
+        f: impl FnOnce(&mut Self),
+    ) {
         self.associated_type_stack.push(associated_types);
         f(self);
         self.associated_type_stack.pop();
     }
 
-    fn is_generic_param(&self, name: &str) -> bool {
+    fn is_generic_param(&self, name: &SymbolId) -> bool {
         self.generic_stack
             .iter()
             .rev()
-            .any(|generics| generics.iter().any(|generic| generic.name == name))
+            .any(|generics| generics.iter().any(|generic| &generic.name == name))
     }
 
-    fn is_comptime_generic_param(&self, name: &str) -> bool {
+    fn is_comptime_generic_param(&self, name: &SymbolId) -> bool {
         self.generic_stack.iter().rev().any(|generics| {
             generics.iter().any(|generic| {
-                generic.name == name && matches!(generic.kind, GenericParamKind::Comptime { .. })
+                &generic.name == name && matches!(generic.kind, GenericParamKind::Comptime { .. })
             })
         })
     }
 
-    fn is_associated_type(&self, name: &str) -> bool {
+    fn is_associated_type(&self, name: &SymbolId) -> bool {
         self.associated_type_stack
             .iter()
             .rev()
@@ -1299,34 +1449,106 @@ impl<'a> TypeResolver<'a> {
     fn canonical_builtin_trait(
         &self,
         global: GlobalDefId,
-        expected_name: &str,
+        expected_name: &SymbolId,
     ) -> Option<BuiltinTrait> {
         let graph = self.graph()?;
         let module = graph.get(global.module_id)?;
-        if module.module_path.package != STD_MODULE_MAP_NAME
+        if module.module_path.package != known::std()
             || module
                 .module_path
                 .segments
                 .first()
-                .is_none_or(|segment| segment != "builtin")
+                .is_none_or(|segment| *segment != known::builtin())
         {
             return None;
         }
         let target_defs = self.defs_for_module(global.module_id)?;
         let def = target_defs.as_ref().defs.get(global.def_id)?;
-        if def.kind != DefKind::Trait || def.name != expected_name {
+        if def.kind != DefKind::Trait || &def.name != expected_name {
             return None;
         }
-        BuiltinTrait::from_name(&def.name)
+        builtin_trait_for_symbol(&def.name)
     }
 }
 
-fn type_path_text(segments: &[TypePathSegment]) -> String {
-    segments
-        .iter()
-        .map(|segment| segment.name.as_str())
-        .collect::<Vec<_>>()
-        .join("::")
+fn module_root_segment_from_path_segment(kind: PathSegmentKind) -> ModuleRootSegment {
+    match kind {
+        PathSegmentKind::SelfValue => ModuleRootSegment::Current,
+        PathSegmentKind::Super => ModuleRootSegment::Parent,
+        PathSegmentKind::Package => ModuleRootSegment::PackageRelative,
+        PathSegmentKind::Name(name) => ModuleRootSegment::Named(name),
+    }
+}
+
+fn type_segment_name(segment: &TypePathSegment) -> Option<&SymbolId> {
+    match &segment.kind {
+        PathSegmentKind::Name(name) => Some(name),
+        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+    }
+}
+
+fn primitive_type_spelling_for_known_symbol(name: &SymbolId) -> Option<PrimitiveTypeSpelling> {
+    let scalar = match *name {
+        known::I8 => PrimitiveTy::I8,
+        known::I16 => PrimitiveTy::I16,
+        known::I32 => PrimitiveTy::I32,
+        known::I64 => PrimitiveTy::I64,
+        known::I128 => PrimitiveTy::I128,
+        known::ISIZE => PrimitiveTy::Isize,
+        known::U8 => PrimitiveTy::U8,
+        known::U16 => PrimitiveTy::U16,
+        known::U32 => PrimitiveTy::U32,
+        known::U64 => PrimitiveTy::U64,
+        known::U128 => PrimitiveTy::U128,
+        known::USIZE => PrimitiveTy::Usize,
+        known::F32 => PrimitiveTy::F32,
+        known::F64 => PrimitiveTy::F64,
+        known::BOOL => PrimitiveTy::Bool,
+        known::CHAR => PrimitiveTy::Char,
+        known::VOID => PrimitiveTy::Void,
+        known::NEVER => PrimitiveTy::Never,
+        _ => return None,
+    };
+    Some(PrimitiveTypeSpelling::Scalar(scalar))
+}
+
+fn builtin_trait_for_symbol(name: &SymbolId) -> Option<BuiltinTrait> {
+    Some(match *name {
+        known::ADD_TRAIT => BuiltinTrait::Add,
+        known::SUB_TRAIT => BuiltinTrait::Sub,
+        known::MUL_TRAIT => BuiltinTrait::Mul,
+        known::DIV_TRAIT => BuiltinTrait::Div,
+        known::REM_TRAIT => BuiltinTrait::Rem,
+        known::NEG_TRAIT => BuiltinTrait::Neg,
+        known::NOT_TRAIT => BuiltinTrait::Not,
+        known::BIT_NOT_TRAIT => BuiltinTrait::BitNot,
+        known::BIT_AND_TRAIT => BuiltinTrait::BitAnd,
+        known::BIT_OR_TRAIT => BuiltinTrait::BitOr,
+        known::BIT_XOR_TRAIT => BuiltinTrait::BitXor,
+        known::SHL_TRAIT => BuiltinTrait::Shl,
+        known::SHR_TRAIT => BuiltinTrait::Shr,
+        known::EQ_TRAIT => BuiltinTrait::Eq,
+        known::ORD_TRAIT => BuiltinTrait::Ord,
+        known::SIZED_TRAIT => BuiltinTrait::Sized,
+        known::UNSIZED_TRAIT => BuiltinTrait::Unsized,
+        known::DEREF_TRAIT => BuiltinTrait::Deref,
+        known::DEREF_MUT_TRAIT => BuiltinTrait::DerefMut,
+        known::INDEX_TRAIT => BuiltinTrait::Index,
+        known::INDEX_MUT_TRAIT => BuiltinTrait::IndexMut,
+        known::SLICE_TRAIT => BuiltinTrait::Slice,
+        known::SLICE_MUT_TRAIT => BuiltinTrait::SliceMut,
+        known::PTR_TRAIT => BuiltinTrait::Ptr,
+        known::PTR_MUT_TRAIT => BuiltinTrait::PtrMut,
+        known::LEN_TRAIT => BuiltinTrait::Len,
+        known::START_TRAIT => BuiltinTrait::Start,
+        known::END_TRAIT => BuiltinTrait::End,
+        known::CHAR_TRAIT => BuiltinTrait::Char,
+        known::ITERABLE_TRAIT => BuiltinTrait::Iterable,
+        known::ITERATOR_TRAIT => BuiltinTrait::Iterator,
+        known::SIMD_TRAIT => BuiltinTrait::Simd,
+        known::SIMD_MASK_TRAIT => BuiltinTrait::SimdMask,
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -1334,11 +1556,21 @@ mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
     use nia_item_tree::ModuleItemTree;
-    use nia_parser::parse_module;
+    use nia_parser::parse_module_with_symbols;
+    use nia_symbol_table::SymbolTable;
+
+    fn resolve_source(source: &str) -> TypeResolution {
+        let symbols = SymbolTable::new();
+        let (module, errors) = parse_module_with_symbols(source, symbols.clone());
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
+        resolve_module_types_with_symbols(&module, &defs, &symbols)
+    }
 
     #[test]
     fn resolves_primitive_nominal_and_generic_types() {
-        let (module, errors) = parse_module(
+        let resolved = resolve_source(
             r#"
 struct Box[T] {
     value: T,
@@ -1352,10 +1584,6 @@ fn make(value: i32) Box[i32] {
 }
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
-        assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
-        let resolved = resolve_module_types(&module, &defs);
         assert!(
             resolved.diagnostics.is_empty(),
             "{:?}",
@@ -1383,7 +1611,7 @@ fn make(value: i32) Box[i32] {
 
     #[test]
     fn resolves_trait_associated_type_shorthand_in_trait_scope() {
-        let (module, errors) = parse_module(
+        let resolved = resolve_source(
             r#"
 trait Writer {
     type Error;
@@ -1392,9 +1620,6 @@ trait Writer {
 }
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
         assert!(
             resolved.diagnostics.is_empty(),
             "{:?}",
@@ -1410,7 +1635,7 @@ trait Writer {
 
     #[test]
     fn resolves_trait_impl_associated_type_shorthand_before_builtin_error() {
-        let (module, errors) = parse_module(
+        let resolved = resolve_source(
             r#"
 trait Reader {
     type Error;
@@ -1429,9 +1654,6 @@ extend Buffer : Reader {
 }
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
         assert!(
             resolved.diagnostics.is_empty(),
             "{:?}",
@@ -1447,7 +1669,7 @@ extend Buffer : Reader {
 
     #[test]
     fn local_types_shadow_builtin_trait_fallback_names() {
-        let (module, errors) = parse_module(
+        let resolved = resolve_source(
             r#"
 type Ptr[T] = &T;
 
@@ -1456,9 +1678,6 @@ fn id(value: Ptr[u8]) Ptr[u8] {
 }
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
         assert!(
             resolved.diagnostics.is_empty(),
             "{:?}",
@@ -1480,7 +1699,7 @@ fn id(value: Ptr[u8]) Ptr[u8] {
 
     #[test]
     fn reports_unknown_types_without_resolving_values() {
-        let (module, errors) = parse_module(
+        let resolved = resolve_source(
             r#"
 fn main() Missing {
     let mut value = MissingValue;
@@ -1488,9 +1707,6 @@ fn main() Missing {
 }
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
         assert_eq!(resolved.diagnostics.len(), 1);
         assert!(
             resolved.diagnostics[0]
@@ -1501,16 +1717,13 @@ fn main() Missing {
 
     #[test]
     fn reports_qualified_namespace_errors_on_type_path_span() {
-        let (module, errors) = parse_module(
+        let resolved = resolve_source(
             r#"
 fn main() Missing::Type {
     0
 }
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
-        let resolved = resolve_module_types(&module, &defs);
         assert_eq!(resolved.diagnostics.len(), 1);
         assert!(
             resolved.diagnostics[0]
@@ -1525,25 +1738,28 @@ fn main() Missing::Type {
 
     #[test]
     fn resolves_types_from_active_item_tree_only() {
-        let (module, errors) = parse_module(
+        let symbols = SymbolTable::new();
+        let (module, errors) = parse_module_with_symbols(
             r#"
 @[if false]
 fn skipped(value: MissingType) void {}
 @[if true]
 fn selected(value: i32) void {}
 "#,
+            symbols.clone(),
         );
         assert!(errors.is_empty(), "{errors:?}");
         let tree = ModuleItemTree::from_module(&module);
         let active = tree.active_items(&mut BoolResolver(false)).unwrap();
         let defs = collect_module_defs_from_active_item_tree(ModuleId(0), &active);
         assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
-        let resolved = resolve_module_types_from_active_item_tree(
+        let resolved = resolve_module_types_from_active_item_tree_with_symbols(
             &active,
             &defs,
             ProgramDefsContext::empty(),
             &nia_defs::PublicSurfaces::default(),
             &nia_defs::ModuleUsingScope::default(),
+            &symbols,
         );
         assert!(
             resolved.diagnostics.is_empty(),

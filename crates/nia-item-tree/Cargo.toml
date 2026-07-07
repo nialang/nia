@@ -13,6 +13,7 @@ nia-span.workspace = true
 [dev-dependencies]
 nia-parser.workspace = true
 nia-source.workspace = true
+nia-symbol.workspace = true
 nia-syntax.workspace = true
 
 [lib]

@@ -1,11 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
+use nia_symbol::{SymbolId, symbol_identity_key};
 
 use crate::{
     ArrayElements, AssignOp, BinaryOp, BracketArg, Expr, ExprKind, FieldInit, IndexArg, SliceRange,
     StringLiteral, UnaryOp,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PathSegmentKind {
+    Name(SymbolId),
+    Package,
+    Super,
+    SelfValue,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeRef {
@@ -24,7 +33,7 @@ pub enum TypeKind {
     Projection {
         ty: Box<TypeRef>,
         trait_ref: Box<TypeRef>,
-        name: String,
+        name: SymbolId,
     },
     Pointer {
         is_readonly: bool,
@@ -70,7 +79,7 @@ pub enum TypeKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypePathSegment {
-    pub name: String,
+    pub kind: PathSegmentKind,
     pub args: Vec<TypeArg>,
 }
 
@@ -91,7 +100,7 @@ pub enum TypeArg {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AssocBindingKey {
-    Name(String),
+    Name(SymbolId),
     Projection(TypeRef),
 }
 
@@ -286,7 +295,7 @@ fn type_kind_decl_eq(lhs: &TypeKind, rhs: &TypeKind) -> bool {
 fn type_path_segments_decl_eq(lhs: &[TypePathSegment], rhs: &[TypePathSegment]) -> bool {
     lhs.len() == rhs.len()
         && lhs.iter().zip(rhs.iter()).all(|(lhs, rhs)| {
-            lhs.name == rhs.name
+            lhs.kind == rhs.kind
                 && lhs.args.len() == rhs.args.len()
                 && lhs
                     .args
@@ -358,7 +367,7 @@ fn write_type_ref_identity(out: &mut String, ty: &TypeRef) {
         TypeKind::Path { segments } => {
             out.push_str("path(");
             write_joined(out, segments, |out, segment| {
-                out.push_str(&segment.name);
+                write_path_segment_identity(out, segment.kind);
                 if !segment.args.is_empty() {
                     out.push('[');
                     write_joined(out, &segment.args, write_type_arg_identity);
@@ -377,7 +386,7 @@ fn write_type_ref_identity(out: &mut String, ty: &TypeRef) {
             out.push('|');
             write_type_ref_identity(out, trait_ref);
             out.push('|');
-            out.push_str(name);
+            write_symbol_identity(out, *name);
             out.push(')');
         }
         TypeKind::Pointer { is_readonly, elem } => {
@@ -483,7 +492,7 @@ fn write_type_arg_identity(out: &mut String, arg: &TypeArg) {
 
 fn write_assoc_binding_key_identity(out: &mut String, key: &AssocBindingKey) {
     match key {
-        AssocBindingKey::Name(name) => out.push_str(name),
+        AssocBindingKey::Name(name) => write_symbol_identity(out, *name),
         AssocBindingKey::Projection(ty) => write_type_ref_identity(out, ty),
     }
 }
@@ -513,7 +522,13 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
         ExprKind::Raw(value) => write_tagged_text(out, "raw", value),
         ExprKind::Bool(value) => out.push_str(if *value { "true" } else { "false" }),
         ExprKind::Null => out.push_str("null"),
-        ExprKind::Ident(name) => write_tagged_text(out, "ident", name),
+        ExprKind::Ident(name) => write_tagged_symbol(out, "ident", *name),
+        ExprKind::SelfValue => out.push_str("self_value"),
+        ExprKind::PathRoot(kind) => {
+            out.push_str("path_root(");
+            write_path_segment_identity(out, *kind);
+            out.push(')');
+        }
         ExprKind::Underscore => out.push('_'),
         ExprKind::TypeTarget { ty } => {
             out.push_str("type_target(");
@@ -593,8 +608,8 @@ fn write_expr_identity(out: &mut String, expr: &Expr) {
             write_joined(out, args, write_expr_identity);
             out.push(')');
         }
-        ExprKind::Qualified { lhs, name } => write_named_lhs_identity(out, "qualified", lhs, name),
-        ExprKind::Field { lhs, name } => write_named_lhs_identity(out, "field", lhs, name),
+        ExprKind::Qualified { lhs, name } => write_named_lhs_identity(out, "qualified", lhs, *name),
+        ExprKind::Field { lhs, name } => write_named_lhs_identity(out, "field", lhs, *name),
         ExprKind::Index { lhs, index } => {
             out.push_str("index(");
             write_expr_identity(out, lhs);
@@ -614,6 +629,26 @@ fn write_tagged_text(out: &mut String, tag: &str, text: &str) {
     out.push('(');
     out.push_str(text);
     out.push(')');
+}
+
+fn write_tagged_symbol(out: &mut String, tag: &str, symbol: SymbolId) {
+    out.push_str(tag);
+    out.push('(');
+    write_symbol_identity(out, symbol);
+    out.push(')');
+}
+
+fn write_symbol_identity(out: &mut String, symbol: SymbolId) {
+    out.push_str(&symbol_identity_key(symbol));
+}
+
+fn write_path_segment_identity(out: &mut String, segment: PathSegmentKind) {
+    match segment {
+        PathSegmentKind::Name(name) => write_symbol_identity(out, name),
+        PathSegmentKind::Package => out.push_str("pkg"),
+        PathSegmentKind::Super => out.push_str("super"),
+        PathSegmentKind::SelfValue => out.push_str("self"),
+    }
 }
 
 fn write_string_literal_identity(out: &mut String, tag: &str, literal: &StringLiteral) {
@@ -657,7 +692,7 @@ fn write_fields_identity(out: &mut String, tag: &str, fields: &[FieldInit]) {
     out.push_str(tag);
     out.push('(');
     write_joined(out, fields, |out, field| {
-        out.push_str(&field.name);
+        write_symbol_identity(out, field.name);
         out.push('=');
         write_expr_identity(out, &field.value);
     });
@@ -671,12 +706,12 @@ fn write_unary_expr_identity(out: &mut String, tag: &str, expr: &Expr) {
     out.push(')');
 }
 
-fn write_named_lhs_identity(out: &mut String, tag: &str, lhs: &Expr, name: &str) {
+fn write_named_lhs_identity(out: &mut String, tag: &str, lhs: &Expr, name: SymbolId) {
     out.push_str(tag);
     out.push('(');
     write_expr_identity(out, lhs);
     out.push('|');
-    out.push_str(name);
+    write_symbol_identity(out, name);
     out.push(')');
 }
 

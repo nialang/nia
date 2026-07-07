@@ -360,7 +360,7 @@ impl Parser {
                 .is_some_and(|kind| stops.contains(kind))
         {
             let span = self.peek().span;
-            let name = self.expect_text(TokenKind::Ident, "expected pattern binding")?;
+            let name = self.expect_name(TokenKind::Ident, "expected pattern binding")?;
             return Some(Pattern {
                 span,
                 kind: PatternKind::Bind {
@@ -479,7 +479,7 @@ impl Parser {
         }
         if self.at_bare_pattern_binding(stops) {
             let span = self.peek().span;
-            let name = self.expect_text(TokenKind::Ident, "expected pattern binding")?;
+            let name = self.expect_name(TokenKind::Ident, "expected pattern binding")?;
             return Some(Pattern {
                 span,
                 kind: PatternKind::Bind {

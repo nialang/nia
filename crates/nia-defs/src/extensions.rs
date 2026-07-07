@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use crate::DefId;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId, TraitImplId, Visibility};
 use nia_span::Span;
+use nia_symbol::{SymbolId, SymbolMap};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WherePredicateSignature {
@@ -21,7 +22,7 @@ pub struct WhereBoundSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssociatedTypeBindingSignature {
-    pub name: String,
+    pub name: SymbolId,
     pub ty: InternedTyId,
     pub span: Span,
 }
@@ -30,13 +31,13 @@ pub struct AssociatedTypeBindingSignature {
 pub struct ExtensionMethods {
     by_module: HashMap<ModuleId, Vec<ExtensionMethod>>,
     by_nominal_target: HashMap<GlobalDefId, Vec<ExtensionMethod>>,
-    by_name: HashMap<String, Vec<ExtensionMethod>>,
+    by_name: SymbolMap<Vec<ExtensionMethod>>,
     by_id: HashMap<GlobalDefId, ExtensionMethod>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtensionAssociatedValue {
-    pub name: String,
+    pub name: SymbolId,
     pub def_id: GlobalDefId,
     pub impl_id: TraitImplId,
     pub target_ty: InternedTyId,
@@ -51,16 +52,16 @@ pub struct ExtensionAssociatedValues {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisibleExtensionAssociatedValue {
-    pub name: String,
+    pub name: SymbolId,
     pub def_id: GlobalDefId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtensionMethod {
-    pub name: String,
+    pub name: SymbolId,
     pub def_id: GlobalDefId,
     pub impl_id: TraitImplId,
-    pub effective_generics: Vec<String>,
+    pub effective_generics: Vec<SymbolId>,
     pub target_ty: InternedTyId,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
@@ -71,18 +72,18 @@ pub struct ExtensionMethod {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VisibleExtensionMethods {
     targets: Vec<VisibleExtensionTarget>,
-    callable_by_name: HashMap<String, Vec<(usize, usize)>>,
-    trait_witnesses_by_name: HashMap<String, Vec<(usize, usize)>>,
+    callable_by_name: SymbolMap<Vec<(usize, usize)>>,
+    trait_witnesses_by_name: SymbolMap<Vec<(usize, usize)>>,
     trait_witness_impls: HashSet<(ModuleId, TraitImplId)>,
-    associated_values_by_target_name: HashMap<(InternedTyId, String), Vec<(usize, usize)>>,
+    associated_values_by_target_name: HashMap<(InternedTyId, SymbolId), Vec<(usize, usize)>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisibleExtensionMethod {
-    pub name: String,
+    pub name: SymbolId,
     pub def_id: GlobalDefId,
     pub impl_id: TraitImplId,
-    pub effective_generics: Vec<String>,
+    pub effective_generics: Vec<SymbolId>,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
     pub where_predicates: Vec<WherePredicateSignature>,
@@ -193,7 +194,7 @@ impl ExtensionMethods {
         self.by_module.values().flat_map(|methods| methods.iter())
     }
 
-    pub fn methods_named(&self, name: &str) -> impl Iterator<Item = &ExtensionMethod> {
+    pub fn methods_named(&self, name: &SymbolId) -> impl Iterator<Item = &ExtensionMethod> {
         self.by_name
             .get(name)
             .into_iter()
@@ -346,7 +347,7 @@ impl VisibleExtensionMethods {
         self.targets[target_index].associated_values.push(value);
     }
 
-    pub fn methods(&self, target_ty: InternedTyId, name: &str) -> Vec<GlobalDefId> {
+    pub fn methods(&self, target_ty: InternedTyId, name: &SymbolId) -> Vec<GlobalDefId> {
         self.callable_by_name
             .get(name)
             .into_iter()
@@ -364,7 +365,10 @@ impl VisibleExtensionMethods {
             .collect()
     }
 
-    pub fn all_methods_named(&self, name: &str) -> Vec<(InternedTyId, VisibleExtensionMethod)> {
+    pub fn all_methods_named(
+        &self,
+        name: &SymbolId,
+    ) -> Vec<(InternedTyId, VisibleExtensionMethod)> {
         self.callable_by_name
             .get(name)
             .into_iter()
@@ -379,7 +383,7 @@ impl VisibleExtensionMethods {
 
     pub fn all_trait_witnesses_named(
         &self,
-        name: &str,
+        name: &SymbolId,
     ) -> Vec<(InternedTyId, VisibleExtensionMethod)> {
         self.trait_witnesses_by_name
             .get(name)
@@ -408,11 +412,11 @@ impl VisibleExtensionMethods {
     pub fn associated_value(
         &self,
         target_ty: InternedTyId,
-        name: &str,
+        name: &SymbolId,
     ) -> Option<VisibleExtensionAssociatedValue> {
         let mut matches = self
             .associated_values_by_target_name
-            .get(&(target_ty, name.to_string()))?
+            .get(&(target_ty, name.clone()))?
             .iter()
             .filter_map(|(target_index, value_index)| {
                 self.targets

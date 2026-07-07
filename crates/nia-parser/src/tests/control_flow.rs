@@ -15,8 +15,8 @@ pub extern union Bits[T] {
     let ItemKind::Union(item) = &module.items[0].kind else {
         panic!("expected union item");
     };
-    assert_eq!(item.name, "Bits");
-    assert_eq!(nia_ast::generic_param_names(&item.generics), ["T"]);
+    assert_eq!(item.name, sym("Bits"));
+    assert_eq!(nia_ast::generic_param_names(&item.generics), [sym("T")]);
     assert_eq!(item.fields.len(), 2);
     assert!(item.is_extern);
 }
@@ -40,7 +40,7 @@ fn main() {
     let StmtKind::ForIn(for_stmt) = &body.stmts[0].kind else {
         panic!("expected for-in statement");
     };
-    assert_eq!(bind_pattern_name(&for_stmt.pattern), Some("i"));
+    assert_eq!(bind_pattern_name(&for_stmt.pattern), Some(sym("i")));
     assert!(matches!(
         for_stmt.pattern.kind,
         PatternKind::Bind {
@@ -70,12 +70,12 @@ fn main(xs: &[&i32], ys: &[&mut i32]) {
     let StmtKind::ForIn(first) = &body.stmts[0].kind else {
         panic!("expected for-in statement");
     };
-    assert_eq!(bind_pattern_name(&first.pattern), Some("x"));
+    assert_eq!(bind_pattern_name(&first.pattern), Some(sym("x")));
     assert!(matches!(first.pattern.kind, PatternKind::Pointer(_)));
     let StmtKind::ForIn(second) = &body.stmts[1].kind else {
         panic!("expected for-in statement");
     };
-    assert_eq!(bind_pattern_name(&second.pattern), Some("y"));
+    assert_eq!(bind_pattern_name(&second.pattern), Some(sym("y")));
     assert!(matches!(second.pattern.kind, PatternKind::MutPointer(_)));
     let StmtKind::ForIn(third) = &body.stmts[2].kind else {
         panic!("expected for-in statement");
@@ -102,12 +102,12 @@ fn main(ptr: &i32, mut_ptr: &mut i32) {
     let StmtKind::Binding(first) = &body.stmts[0].kind else {
         panic!("expected binding");
     };
-    assert_eq!(bind_pattern_name(&first.pattern), Some("x"));
+    assert_eq!(bind_pattern_name(&first.pattern), Some(sym("x")));
     assert!(matches!(first.pattern.kind, PatternKind::Pointer(_)));
     let StmtKind::Binding(second) = &body.stmts[1].kind else {
         panic!("expected binding");
     };
-    assert_eq!(bind_pattern_name(&second.pattern), Some("y"));
+    assert_eq!(bind_pattern_name(&second.pattern), Some(sym("y")));
     assert!(matches!(second.pattern.kind, PatternKind::MutPointer(_)));
 }
 
@@ -131,7 +131,7 @@ comptime fn width() usize {
     };
     assert!(binding.is_comptime);
     assert!(binding.is_mutable);
-    assert_eq!(bind_pattern_name(&binding.pattern), Some("value"));
+    assert_eq!(bind_pattern_name(&binding.pattern), Some(sym("value")));
 }
 
 #[test]
@@ -398,12 +398,12 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
     assert!(matches!(
         &if_pattern.arms[0].pattern.kind,
         PatternKind::ErrorOk(inner)
-            if matches!(&inner.kind, PatternKind::Bind { name, .. } if name == "ok")
+            if matches!(&inner.kind, PatternKind::Bind { name, .. } if *name == sym("ok"))
     ));
     assert!(matches!(
         &if_pattern.arms[1].pattern.kind,
         PatternKind::ErrorErr(inner)
-            if matches!(&inner.kind, PatternKind::Bind { name, .. } if name == "err")
+            if matches!(&inner.kind, PatternKind::Bind { name, .. } if *name == sym("err"))
     ));
 
     let StmtKind::Binding(second) = &body.stmts[1].kind else {
@@ -419,7 +419,7 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
             name,
             is_mutable: true,
             ..
-        } if name == "x"
+        } if *name == sym("x")
     ));
     assert!(if_pattern.else_branch.is_some());
 
@@ -441,7 +441,7 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
             if matches!(
                 &inner.kind,
                 PatternKind::ErrorErr(payload)
-                    if matches!(&payload.kind, PatternKind::Bind { name, .. } if name == "err")
+                    if matches!(&payload.kind, PatternKind::Bind { name, .. } if *name == sym("err"))
             )
     ));
     assert!(matches!(
@@ -450,7 +450,7 @@ fn main(result: i32!i32, nested: ?(i32!i32), value: i32) i32 {
             if matches!(
                 &inner.kind,
                 PatternKind::ErrorOk(payload)
-                    if matches!(&payload.kind, PatternKind::Bind { name, .. } if name == "ok")
+                    if matches!(&payload.kind, PatternKind::Bind { name, .. } if *name == sym("ok"))
             )
     ));
 }

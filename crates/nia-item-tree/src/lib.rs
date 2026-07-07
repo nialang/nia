@@ -714,6 +714,11 @@ mod tests {
     use super::*;
     use nia_parser::parse_module;
     use nia_source::{SourceId, SourceRevision, SourceVersion};
+    use nia_symbol::{SymbolId, stable_hash};
+
+    fn sym(text: &str) -> SymbolId {
+        SymbolId::from_stable_hash(stable_hash(text))
+    }
 
     #[test]
     fn keeps_conditional_attributes_as_item_attributes() {
@@ -747,14 +752,14 @@ pub extern fn start(argc: i32) i32;
         assert_eq!(tree.items[0].attributes.len(), 1);
         assert!(matches!(
             &tree.items[0].attributes[0].kind,
-            AttributeKind::Meta(meta) if meta.path == ["link_name"]
+            AttributeKind::Meta(meta) if meta.path == [sym("link_name")]
         ));
 
         let projected = ActiveModuleItemTree::new(tree.items.clone(), HashSet::new()).to_module();
         assert_eq!(projected.items[0].attributes.len(), 1);
         assert!(matches!(
             &projected.items[0].attributes[0].kind,
-            AttributeKind::Meta(meta) if meta.path == ["link_name"]
+            AttributeKind::Meta(meta) if meta.path == [sym("link_name")]
         ));
     }
 
@@ -776,11 +781,11 @@ fn selected() i32 { 2 }
             .items
             .iter()
             .filter_map(|item| match &item.kind {
-                ItemTreeNodeKind::Function(function) => Some(function.name.as_str()),
+                ItemTreeNodeKind::Function(function) => Some(function.name),
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(names, ["always", "selected"]);
+        assert_eq!(names, [sym("always"), sym("selected")]);
         assert!(!active.inactive_spans.is_empty());
     }
 

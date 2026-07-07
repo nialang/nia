@@ -4,8 +4,8 @@ use nia_ast::{
     BindingItem, BindingStmt, Block, BracketArg, ConditionBinaryOp, ConditionExpr,
     ConditionExprKind, ConditionUnaryOp, EnumItem, EnumVariant, Expr, ExprKind, ExtendItem,
     ExtendMethod, Field, FieldInit, ForInStmt, FunctionItem, GenericParam, IfPatternArm,
-    IfPatternExpr, Item, ItemKind, LoopStmt, Module, ModuleItem, Param, Pattern, PatternKind,
-    ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm, SwitchArmBody,
+    IfPatternExpr, Item, ItemKind, LoopStmt, Module, ModuleItem, Param, PathSegmentKind, Pattern,
+    PatternKind, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm, SwitchArmBody,
     SwitchPattern, SwitchPatternKind, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
     TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem,
     UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate,
@@ -15,6 +15,8 @@ use nia_lexer::TokenKind;
 use nia_node_id::{NodeOriginTable, SyntaxKind as NodeSyntaxKind, VersionedNodeKey};
 use nia_source::{SourceId, SourceRevision, SourceVersion};
 use nia_span::Span;
+use nia_symbol::{SymbolId, symbol_identity_key};
+use nia_symbol_table::{SymbolCollision, SymbolTable};
 use nia_syntax::{SyntaxToken, SyntaxTokenCursor, SyntaxTree};
 
 mod expr;
@@ -34,6 +36,12 @@ pub fn parse_module(source: &str) -> (Module, Vec<ParseError>) {
     parse_module_syntax(&syntax)
 }
 
+pub fn parse_module_with_symbols(source: &str, symbols: SymbolTable) -> (Module, Vec<ParseError>) {
+    let syntax = nia_syntax::parse_source(source, Some(synthetic_source_version()));
+    let (module, errors, _) = parse_module_syntax_with_origins_and_symbols(&syntax, symbols);
+    (module, errors)
+}
+
 pub fn parse_module_syntax(syntax: &SyntaxTree) -> (Module, Vec<ParseError>) {
     let (module, errors, _) = parse_module_syntax_with_origins(syntax);
     (module, errors)
@@ -42,7 +50,15 @@ pub fn parse_module_syntax(syntax: &SyntaxTree) -> (Module, Vec<ParseError>) {
 pub fn parse_module_syntax_with_origins(
     syntax: &SyntaxTree,
 ) -> (Module, Vec<ParseError>, NodeOriginTable) {
-    Parser::from_syntax(syntax).parse_module()
+    let symbols = SymbolTable::new();
+    parse_module_syntax_with_origins_and_symbols(syntax, symbols)
+}
+
+pub fn parse_module_syntax_with_origins_and_symbols(
+    syntax: &SyntaxTree,
+    symbols: SymbolTable,
+) -> (Module, Vec<ParseError>, NodeOriginTable) {
+    Parser::from_syntax(syntax, symbols).parse_module()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,12 +71,13 @@ pub struct ParseError {
 pub struct Parser {
     source: String,
     tokens: SyntaxTokenCursor,
+    symbols: SymbolTable,
     errors: Vec<ParseError>,
     origins: NodeOriginTable,
 }
 
 struct FunctionParts {
-    name: String,
+    name: SymbolId,
     generics: Vec<GenericParam>,
     where_clause: WhereClause,
     params: Vec<Param>,
@@ -73,7 +90,7 @@ struct FunctionParts {
 }
 
 struct BindingParts {
-    name: String,
+    name: SymbolId,
     ty: Option<TypeRef>,
     value: Option<Expr>,
     is_mutable: bool,
@@ -85,10 +102,10 @@ struct BindingParts {
 impl Parser {
     pub fn new(source: &str) -> Self {
         let syntax = nia_syntax::parse_source(source, Some(synthetic_source_version()));
-        Self::from_syntax(&syntax)
+        Self::from_syntax(&syntax, SymbolTable::new())
     }
 
-    fn from_syntax(syntax: &SyntaxTree) -> Self {
+    fn from_syntax(syntax: &SyntaxTree, symbols: SymbolTable) -> Self {
         let tokens = SyntaxTokenCursor::new(syntax);
         let errors = tokens
             .tokens()
@@ -105,6 +122,7 @@ impl Parser {
         Self {
             source: syntax.source().to_string(),
             tokens,
+            symbols,
             errors,
             origins: NodeOriginTable::default(),
         }
@@ -169,7 +187,7 @@ impl Parser {
         &mut self,
         span: Span,
         receiver: Option<ReceiverKind>,
-        name: Option<String>,
+        name: Option<SymbolId>,
         ty: Option<TypeRef>,
     ) -> Param {
         let node_key = self.node_key(NodeSyntaxKind::Param, span);
@@ -201,7 +219,7 @@ impl Parser {
 
     fn make_field(
         &mut self,
-        name: String,
+        name: SymbolId,
         ty: TypeRef,
         attributes: Vec<Attribute>,
         span: Span,
@@ -216,7 +234,7 @@ impl Parser {
         }
     }
 
-    fn make_trait_associated_type(&mut self, name: String, span: Span) -> TraitAssociatedType {
+    fn make_trait_associated_type(&mut self, name: SymbolId, span: Span) -> TraitAssociatedType {
         let node_key = self.node_key(NodeSyntaxKind::Item, span);
         TraitAssociatedType {
             name,
@@ -227,7 +245,7 @@ impl Parser {
 
     fn make_trait_associated_value(
         &mut self,
-        name: String,
+        name: SymbolId,
         ty: TypeRef,
         span: Span,
     ) -> nia_ast::TraitAssociatedValue {
@@ -242,7 +260,7 @@ impl Parser {
 
     fn make_extend_associated_type(
         &mut self,
-        name: String,
+        name: SymbolId,
         ty: TypeRef,
         span: Span,
     ) -> nia_ast::ExtendAssociatedType {
@@ -255,7 +273,12 @@ impl Parser {
         }
     }
 
-    fn make_enum_variant(&mut self, name: String, value: Option<Expr>, span: Span) -> EnumVariant {
+    fn make_enum_variant(
+        &mut self,
+        name: SymbolId,
+        value: Option<Expr>,
+        span: Span,
+    ) -> EnumVariant {
         let node_key = self.node_key(NodeSyntaxKind::Item, span);
         EnumVariant {
             name,
@@ -359,27 +382,10 @@ impl Parser {
         }
     }
 
-    fn expect_text(&mut self, kind: TokenKind, message: &str) -> Option<String> {
-        if self.at(kind) {
+    fn expect_name(&mut self, kind: TokenKind, message: &str) -> Option<SymbolId> {
+        if self.at(kind.clone()) {
             let token = self.bump();
-            Some(self.token_text(&token).to_string())
-        } else {
-            self.error_here(message);
-            None
-        }
-    }
-
-    fn eat_namespace_segment(&mut self) -> Option<SyntaxToken> {
-        if self.at(TokenKind::Ident) || self.at(TokenKind::Pkg) {
-            Some(self.bump())
-        } else {
-            None
-        }
-    }
-
-    fn expect_namespace_segment_text(&mut self, message: &str) -> Option<String> {
-        if let Some(token) = self.eat_namespace_segment() {
-            Some(self.token_text(&token).to_string())
+            self.symbol_for_name_token(&token)
         } else {
             self.error_here(message);
             None
@@ -387,7 +393,34 @@ impl Parser {
     }
 
     fn at_namespace_segment(&self) -> bool {
-        self.at(TokenKind::Ident) || self.at(TokenKind::Pkg)
+        matches!(
+            self.peek().kind,
+            TokenKind::Ident | TokenKind::Pkg | TokenKind::Super | TokenKind::SelfValue
+        )
+    }
+
+    fn eat_path_segment_kind(&mut self) -> Option<(PathSegmentKind, Span)> {
+        let token = self.peek().clone();
+        let kind = self.path_segment_kind_from_token(&token)?;
+        self.bump();
+        Some((kind, token.span))
+    }
+
+    fn expect_path_segment_kind(&mut self, message: &str) -> Option<(PathSegmentKind, Span)> {
+        self.eat_path_segment_kind().or_else(|| {
+            self.error_here(message);
+            None
+        })
+    }
+
+    fn path_segment_kind_from_token(&mut self, token: &SyntaxToken) -> Option<PathSegmentKind> {
+        match token.kind {
+            TokenKind::Ident => Some(PathSegmentKind::Name(self.symbol_for_name_token(token)?)),
+            TokenKind::Pkg => Some(PathSegmentKind::Package),
+            TokenKind::Super => Some(PathSegmentKind::Super),
+            TokenKind::SelfValue => Some(PathSegmentKind::SelfValue),
+            _ => None,
+        }
     }
 
     fn eat(&mut self, kind: TokenKind) -> Option<SyntaxToken> {
@@ -440,6 +473,45 @@ impl Parser {
 
     fn token_text<'token>(&self, token: &'token SyntaxToken) -> &'token str {
         &token.text
+    }
+
+    fn token_name(&mut self, token: &SyntaxToken) -> Option<SymbolId> {
+        self.symbol_for_name_token(token)
+    }
+
+    fn symbol_for_name_token(&mut self, token: &SyntaxToken) -> Option<SymbolId> {
+        let known = match token.kind {
+            TokenKind::Bool => Some(nia_symbol::known::BOOL),
+            TokenKind::Char => Some(nia_symbol::known::CHAR),
+            TokenKind::Void => Some(nia_symbol::known::VOID),
+            TokenKind::Never => Some(nia_symbol::known::NEVER),
+            _ => None,
+        };
+        if let Some(symbol) = known {
+            return Some(symbol);
+        }
+        if !matches!(token.kind, TokenKind::Ident) {
+            self.error_at(token.span, "expected identifier");
+            return None;
+        }
+        let text = self.token_text(token);
+        match self.symbols.intern(text) {
+            Ok(symbol) => Some(symbol),
+            Err(SymbolCollision {
+                symbol,
+                existing,
+                incoming,
+            }) => {
+                self.error_at(
+                    token.span,
+                    format!(
+                        "symbol collision for {}: `{existing}` and `{incoming}`",
+                        symbol_identity_key(symbol)
+                    ),
+                );
+                None
+            }
+        }
     }
 
     fn source_text(&self, span: Span) -> String {
