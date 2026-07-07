@@ -109,6 +109,7 @@ pub(super) struct ProgramExecutableSignatures {
     pub(super) type_aliases: HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>,
     pub(super) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
+    pub(super) trait_impl_index: nia_item_signatures::ProgramTraitImplIndex,
     pub(super) trait_method_index: nia_program_signatures::ProgramTraitMethodIndex,
 }
 
@@ -121,6 +122,7 @@ pub(super) struct ProgramBackendSignatures {
     pub(super) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
     pub(super) type_aliases: HashMap<GlobalDefId, ProgramTypeAliasSignature>,
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
+    pub(super) trait_impl_index: nia_item_signatures::ProgramTraitImplIndex,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -132,6 +134,7 @@ pub(super) struct ProgramCodegenSignatures<'a> {
     pub(super) traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
     pub(super) type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
     pub(super) trait_impls: &'a [nia_item_signatures::ProgramTraitImplSignature],
+    pub(super) trait_impl_index: &'a nia_item_signatures::ProgramTraitImplIndex,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -158,6 +161,7 @@ impl ProgramExecutableSignatures {
             traits: &self.traits,
             type_aliases: &self.type_aliases,
             trait_impls: &self.trait_impls,
+            trait_impl_index: &self.trait_impl_index,
         }
     }
 }
@@ -172,6 +176,7 @@ impl ProgramBackendSignatures {
             traits: &self.traits,
             type_aliases: &self.type_aliases,
             trait_impls: &self.trait_impls,
+            trait_impl_index: &self.trait_impl_index,
         }
     }
 }

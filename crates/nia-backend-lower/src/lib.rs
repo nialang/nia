@@ -34,7 +34,7 @@ use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TraitId, TyInternerId};
 use nia_item_signatures::{
     ItemSignatures, ProgramEnumSignature, ProgramFunctionSignature, ProgramStructSignature,
-    ProgramTraitImplSignature, ProgramTraitSignature, ProgramUnionSignature,
+    ProgramTraitImplIndex, ProgramTraitImplSignature, ProgramTraitSignature, ProgramUnionSignature,
     WherePredicateSignature,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
@@ -132,6 +132,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub program_type_aliases:
         &'a std::collections::HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
+    pub trait_impl_index: &'a ProgramTraitImplIndex,
 }
 
 impl std::fmt::Debug for BackendLowerModuleInput<'_> {

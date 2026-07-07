@@ -193,6 +193,7 @@ pub(crate) struct VisibleExtensionsForModule {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct VisibleTraitImplsForModule {
     pub(crate) trait_impls: Vec<ProgramTraitImplSignature>,
+    pub(crate) trait_impl_index: nia_item_signatures::ProgramTraitImplIndex,
 }
 
 pub(crate) fn collect_program_functions_excluding(
@@ -2604,6 +2605,7 @@ fn trait_method_signature_matches(
     let context = TraitSolverContext {
         normalization: module.normalization,
         trait_impls,
+        trait_impl_index: None,
         layouts: None,
         local_module_id: module.module_id,
         local_enums: &module.signatures.enums,
@@ -3095,8 +3097,12 @@ pub(crate) fn visible_trait_impls_for_module(
                 )
         })
         .cloned()
-        .collect();
-    VisibleTraitImplsForModule { trait_impls }
+        .collect::<Vec<_>>();
+    let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
+    VisibleTraitImplsForModule {
+        trait_impls,
+        trait_impl_index,
+    }
 }
 
 pub(crate) struct VisibleExtensionProviderModulesInput<'a> {

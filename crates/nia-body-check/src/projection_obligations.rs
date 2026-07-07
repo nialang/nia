@@ -1448,6 +1448,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn trait_impl_indexes_for_trait(&mut self, trait_id: TraitId) -> Vec<usize> {
+        if let Some(index) = self.program_trait_impl_index {
+            return index.indexes_for_trait(trait_id).to_vec();
+        }
         if let Some(indexes) = self.trait_impls_by_trait.get(&trait_id) {
             return indexes.clone();
         }
@@ -1874,6 +1877,7 @@ impl<'a> BodyChecker<'a> {
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
+            trait_impl_index: self.program_trait_impl_index,
             layouts: Some(self.layouts),
             local_module_id: self.defs.module_id,
             local_enums: &self.signatures.enums,

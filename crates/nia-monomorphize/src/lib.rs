@@ -7,7 +7,9 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{
     DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerId, TypeOwner,
 };
-use nia_item_signatures::{EnumSignature, ProgramEnumSignature, ProgramTraitImplSignature};
+use nia_item_signatures::{
+    EnumSignature, ProgramEnumSignature, ProgramTraitImplIndex, ProgramTraitImplSignature,
+};
 use nia_layout::Layouts;
 use nia_mangle::{mangle_base_symbol_id, mangle_symbol_id, mangle_type_with};
 use nia_sema_ir::GenericInstantiation;
@@ -50,10 +52,12 @@ pub struct MonomorphizeModuleInput<'a> {
     pub local_enums: &'a HashMap<nia_ids::DefId, EnumSignature>,
     pub program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
+    pub trait_impl_index: &'a ProgramTraitImplIndex,
     pub instantiations: &'a [GenericInstantiation],
 }
 
 pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Monomorphization {
+    let empty_trait_impl_index = ProgramTraitImplIndex::default();
     let mut collector = MonoCollector {
         defs_by_module: inputs
             .iter()
@@ -92,6 +96,10 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
             .map(|input| input.program_enums)
             .unwrap_or(&EMPTY_PROGRAM_ENUMS),
         trait_impls: inputs.first().map(|input| input.trait_impls).unwrap_or(&[]),
+        trait_impl_index: inputs
+            .first()
+            .map(|input| input.trait_impl_index)
+            .unwrap_or(&empty_trait_impl_index),
         instantiations_by_source: collect_instantiations_by_source(inputs),
         source_instantiation_edges: collect_source_instantiation_edges(inputs),
         recorded_generics_by_def: collect_recorded_generics_by_def(inputs),
@@ -133,6 +141,7 @@ struct MonoCollector<'a> {
     local_enums_by_module: HashMap<ModuleId, &'a HashMap<nia_ids::DefId, EnumSignature>>,
     program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     trait_impls: &'a [ProgramTraitImplSignature],
+    trait_impl_index: &'a ProgramTraitImplIndex,
     instantiations_by_source: HashMap<GlobalDefId, Vec<usize>>,
     source_instantiation_edges: Vec<SourceInstantiationEdge>,
     recorded_generics_by_def: HashMap<GlobalDefId, Vec<SymbolId>>,
@@ -153,6 +162,9 @@ static EMPTY_PROGRAM_ENUMS: std::sync::LazyLock<HashMap<GlobalDefId, ProgramEnum
     std::sync::LazyLock::new(HashMap::new);
 static EMPTY_LOCAL_ENUMS: std::sync::LazyLock<HashMap<DefId, EnumSignature>> =
     std::sync::LazyLock::new(HashMap::new);
+#[cfg(test)]
+static EMPTY_PROGRAM_TRAIT_IMPL_INDEX: std::sync::LazyLock<ProgramTraitImplIndex> =
+    std::sync::LazyLock::new(ProgramTraitImplIndex::default);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct MonoInstanceKey {
@@ -1095,6 +1107,7 @@ impl MonoCollector<'_> {
         let context = TraitSolverContext {
             normalization,
             trait_impls: self.trait_impls,
+            trait_impl_index: Some(self.trait_impl_index),
             layouts,
             local_module_id: module_id,
             local_enums,
@@ -1650,6 +1663,7 @@ mod tests {
             local_enums: &EMPTY_LOCAL_ENUMS,
             program_enums: &EMPTY_PROGRAM_ENUMS,
             trait_impls: &[],
+            trait_impl_index: &EMPTY_PROGRAM_TRAIT_IMPL_INDEX,
             instantiations,
         }
     }
@@ -2086,6 +2100,7 @@ fn wrap[T](value: T) T { value }
             local_enums_by_module: HashMap::new(),
             program_enums: &EMPTY_PROGRAM_ENUMS,
             trait_impls: &[],
+            trait_impl_index: &EMPTY_PROGRAM_TRAIT_IMPL_INDEX,
             instantiations_by_source: HashMap::new(),
             source_instantiation_edges: Vec::new(),
             recorded_generics_by_def: HashMap::new(),

@@ -3049,10 +3049,18 @@ fn body_check_with_filter_and_layouts_with_inputs(
     };
     let visible_trait_impls;
     let program_signatures = if let Some(signatures) = fact_mode.program_signatures {
-        ProgramSignatureContext::new(&program_signature_lookup, &signatures.trait_impls)
+        ProgramSignatureContext::new_indexed(
+            &program_signature_lookup,
+            &signatures.trait_impls,
+            &signatures.trait_impl_index,
+        )
     } else {
         visible_trait_impls = db.query(VisibleTraitImplsQuery(module_id));
-        ProgramSignatureContext::new(&program_signature_lookup, &visible_trait_impls.trait_impls)
+        ProgramSignatureContext::new_indexed(
+            &program_signature_lookup,
+            &visible_trait_impls.trait_impls,
+            &visible_trait_impls.trait_impl_index,
+        )
     };
     let item_signatures_for_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
@@ -4797,8 +4805,9 @@ fn executable_checked_module_set_inner(
     let mut checked_by_id = HashMap::<ModuleId, ExecutableCheckedModuleState>::new();
     let comptime_module_cache = RefCell::new(HashMap::<ModuleId, ComptimeModuleLowering>::new());
     let mut reachability_state = IncrementalExecutableReachability::default();
-    let program_trait_impls = executable_program_trait_impls(db);
-    let extension_index = ExecutableExtensionIndex::new(&extension_methods, &program_trait_impls);
+    let trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+    let extension_index =
+        ExecutableExtensionIndex::new(&extension_methods, &trait_solving_signatures.trait_impls);
     let reachability = loop {
         let reachable_inputs = time_provider(
             db.context().timings(),
@@ -5323,29 +5332,32 @@ fn monomorphization_for_checked_modules(
     let executable_signatures;
     let trait_solving_signatures;
     let program_enums_storage;
-    let (program_enums, trait_impls) = if runtime == RuntimeModel::FreestandingExecutable {
-        executable_signatures = executable_program_signatures_without_functions(db);
-        (
-            &executable_signatures.enums,
-            executable_signatures.trait_impls.as_slice(),
-        )
-    } else {
-        trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-        let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
-        program_enums_storage = type_facts
-            .iter()
-            .flat_map(|facts| {
-                facts
-                    .enums
-                    .iter()
-                    .map(|(def_id, signature)| (*def_id, signature.clone()))
-            })
-            .collect::<HashMap<_, _>>();
-        (
-            &program_enums_storage,
-            trait_solving_signatures.trait_impls.as_slice(),
-        )
-    };
+    let (program_enums, trait_impls, trait_impl_index) =
+        if runtime == RuntimeModel::FreestandingExecutable {
+            executable_signatures = executable_program_signatures_without_functions(db);
+            (
+                &executable_signatures.enums,
+                executable_signatures.trait_impls.as_slice(),
+                &executable_signatures.trait_impl_index,
+            )
+        } else {
+            trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
+            let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
+            program_enums_storage = type_facts
+                .iter()
+                .flat_map(|facts| {
+                    facts
+                        .enums
+                        .iter()
+                        .map(|(def_id, signature)| (*def_id, signature.clone()))
+                })
+                .collect::<HashMap<_, _>>();
+            (
+                &program_enums_storage,
+                trait_solving_signatures.trait_impls.as_slice(),
+                &trait_solving_signatures.trait_impl_index,
+            )
+        };
     let local_signatures = checked_modules
         .iter()
         .map(|module| (module.id, db.query(ItemSignaturesQuery(module.id))))
@@ -5369,6 +5381,7 @@ fn monomorphization_for_checked_modules(
                     .enums,
                 program_enums,
                 trait_impls,
+                trait_impl_index,
                 instantiations: &module.semantic_facts.generic_instantiations,
             })
             .collect::<Vec<_>>(),

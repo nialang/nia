@@ -5,7 +5,7 @@ use nia_ids::{
     BuiltinAssociatedType, BuiltinTrait, DefId, GlobalConstExprId, GlobalDefId, InternedTyId,
     ModuleId, TraitId, TraitImplId,
 };
-use nia_item_signatures::{EnumSignature, ProgramTraitImplSignature};
+use nia_item_signatures::{EnumSignature, ProgramTraitImplIndex, ProgramTraitImplSignature};
 use nia_layout::Layouts;
 use nia_symbol::{SymbolId, SymbolMap, known};
 use nia_ty::{
@@ -86,6 +86,7 @@ where
     pub interner: &'a mut TyInterner,
     pub normalization: &'a TypeNormalization,
     pub trait_impls: &'a [ProgramTraitImplSignature],
+    pub trait_impl_index: Option<&'a ProgramTraitImplIndex>,
     pub assumptions: &'a [TraitGoal],
     pub associated_type_assumptions: &'a [AssociatedTypeProjectionEq],
     pub layouts: Option<&'a Layouts>,
@@ -98,6 +99,7 @@ where
 pub struct TraitSolverContext<'a> {
     pub normalization: &'a TypeNormalization,
     pub trait_impls: &'a [ProgramTraitImplSignature],
+    pub trait_impl_index: Option<&'a ProgramTraitImplIndex>,
     pub layouts: Option<&'a Layouts>,
     pub local_module_id: ModuleId,
     pub local_enums: &'a HashMap<DefId, EnumSignature>,
@@ -153,6 +155,7 @@ impl<'a> TraitSolverContext<'a> {
             interner,
             normalization: self.normalization,
             trait_impls: self.trait_impls,
+            trait_impl_index: self.trait_impl_index,
             assumptions,
             associated_type_assumptions: &[],
             layouts: self.layouts,
@@ -175,6 +178,7 @@ impl<'a> TraitSolverContext<'a> {
             interner,
             normalization: self.normalization,
             trait_impls: self.trait_impls,
+            trait_impl_index: self.trait_impl_index,
             assumptions,
             associated_type_assumptions,
             layouts: self.layouts,
@@ -1726,78 +1730,90 @@ where
 
     fn matching_user_impls(&mut self, goal: &TraitGoal) -> Vec<UserImpl> {
         let mut matches = Vec::new();
-        for (impl_index, impl_signature) in self.trait_impls.iter().enumerate() {
-            if impl_signature.builtin.is_some() {
-                continue;
+        if let Some(index) = self.trait_impl_index {
+            for impl_index in index.indexes_for_trait(goal.trait_id).iter().copied() {
+                if let Some(user_impl) = self.match_user_impl_at(goal, impl_index) {
+                    matches.push(user_impl);
+                }
             }
-            if !(self.impl_is_visible)(impl_signature.module_id, impl_signature.impl_id) {
-                continue;
-            }
-            if impl_signature.trait_id != goal.trait_id {
-                continue;
-            }
-            let target_ty = import_type_into(
-                self.interner,
-                &impl_signature.interner,
-                impl_signature.target_ty,
-            );
-            let trait_args = impl_signature
-                .trait_args
-                .iter()
-                .map(|arg| import_type_into(self.interner, &impl_signature.interner, *arg))
-                .collect::<Vec<_>>();
-            let trait_const_args = impl_signature
-                .trait_const_args
-                .iter()
-                .map(|arg| {
-                    import_const_generic_arg_into(self.interner, &impl_signature.interner, arg)
-                })
-                .collect::<Vec<_>>();
-            if trait_args.len() != goal.trait_args.len() {
-                continue;
-            }
-            if trait_const_args.len() != goal.trait_const_args.len() {
-                continue;
-            }
-            let mut substitutions = HashMap::new();
-            let mut const_substitutions = HashMap::new();
-            let target_matches = self.match_impl_pattern_with_consts(
-                target_ty,
-                goal.self_ty,
-                &mut substitutions,
-                &mut const_substitutions,
-            );
-            let trait_args_match = target_matches
-                && trait_args
-                    .iter()
-                    .zip(&goal.trait_args)
-                    .all(|(actual, expected)| {
-                        self.match_impl_pattern_with_consts(
-                            *actual,
-                            *expected,
-                            &mut substitutions,
-                            &mut const_substitutions,
-                        )
-                    });
-            let trait_const_args_match = trait_args_match
-                && trait_const_args
-                    .iter()
-                    .zip(&goal.trait_const_args)
-                    .all(|(actual, expected)| {
-                        self.match_const_impl_pattern(actual, expected, &mut const_substitutions)
-                    });
-            let where_holds = trait_const_args_match
-                && self.impl_where_predicates_hold(impl_signature, &substitutions);
-            if target_matches && trait_args_match && trait_const_args_match && where_holds {
-                matches.push(UserImpl {
-                    goal: goal.clone(),
-                    impl_index,
-                    substitutions,
-                    const_substitutions,
-                });
+        } else {
+            for impl_index in 0..self.trait_impls.len() {
+                if let Some(user_impl) = self.match_user_impl_at(goal, impl_index) {
+                    matches.push(user_impl);
+                }
             }
         }
         self.filter_more_specific_user_impls(matches)
+    }
+
+    fn match_user_impl_at(&mut self, goal: &TraitGoal, impl_index: usize) -> Option<UserImpl> {
+        let impl_signature = self.trait_impls.get(impl_index)?;
+        if impl_signature.builtin.is_some() {
+            return None;
+        }
+        if !(self.impl_is_visible)(impl_signature.module_id, impl_signature.impl_id) {
+            return None;
+        }
+        if impl_signature.trait_id != goal.trait_id {
+            return None;
+        }
+        let target_ty = import_type_into(
+            self.interner,
+            &impl_signature.interner,
+            impl_signature.target_ty,
+        );
+        let trait_args = impl_signature
+            .trait_args
+            .iter()
+            .map(|arg| import_type_into(self.interner, &impl_signature.interner, *arg))
+            .collect::<Vec<_>>();
+        let trait_const_args = impl_signature
+            .trait_const_args
+            .iter()
+            .map(|arg| import_const_generic_arg_into(self.interner, &impl_signature.interner, arg))
+            .collect::<Vec<_>>();
+        if trait_args.len() != goal.trait_args.len()
+            || trait_const_args.len() != goal.trait_const_args.len()
+        {
+            return None;
+        }
+        let mut substitutions = HashMap::new();
+        let mut const_substitutions = HashMap::new();
+        let target_matches = self.match_impl_pattern_with_consts(
+            target_ty,
+            goal.self_ty,
+            &mut substitutions,
+            &mut const_substitutions,
+        );
+        let trait_args_match = target_matches
+            && trait_args
+                .iter()
+                .zip(&goal.trait_args)
+                .all(|(actual, expected)| {
+                    self.match_impl_pattern_with_consts(
+                        *actual,
+                        *expected,
+                        &mut substitutions,
+                        &mut const_substitutions,
+                    )
+                });
+        let trait_const_args_match = trait_args_match
+            && trait_const_args
+                .iter()
+                .zip(&goal.trait_const_args)
+                .all(|(actual, expected)| {
+                    self.match_const_impl_pattern(actual, expected, &mut const_substitutions)
+                });
+        let where_holds = trait_const_args_match
+            && self.impl_where_predicates_hold(impl_signature, &substitutions);
+        (target_matches && trait_args_match && trait_const_args_match && where_holds).then(|| {
+            UserImpl {
+                goal: goal.clone(),
+                impl_index,
+                substitutions,
+                const_substitutions,
+            }
+        })
     }
 
     fn filter_more_specific_user_impls(&mut self, matches: Vec<UserImpl>) -> Vec<UserImpl> {

@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use nia_ids::GlobalDefId;
 use nia_item_signatures::{
     ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
-    ProgramGlobalSignature, ProgramStructSignature, ProgramTraitImplSignature,
-    ProgramTraitSignature, ProgramTypeAliasSignature, ProgramUnionSignature,
+    ProgramGlobalSignature, ProgramStructSignature, ProgramTraitImplIndex,
+    ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
+    ProgramUnionSignature,
 };
 use nia_symbol::{SymbolId, SymbolMap};
 
@@ -61,6 +62,7 @@ pub trait ProgramSignatureLookup {
 pub struct ProgramSignatureContext<'a> {
     pub lookup: &'a dyn ProgramSignatureLookup,
     pub trait_impls: &'a [ProgramTraitImplSignature],
+    pub trait_impl_index: Option<&'a ProgramTraitImplIndex>,
 }
 
 impl<'a> ProgramSignatureContext<'a> {
@@ -71,6 +73,19 @@ impl<'a> ProgramSignatureContext<'a> {
         Self {
             lookup,
             trait_impls,
+            trait_impl_index: None,
+        }
+    }
+
+    pub fn new_indexed(
+        lookup: &'a dyn ProgramSignatureLookup,
+        trait_impls: &'a [ProgramTraitImplSignature],
+        trait_impl_index: &'a ProgramTraitImplIndex,
+    ) -> Self {
+        Self {
+            lookup,
+            trait_impls,
+            trait_impl_index: Some(trait_impl_index),
         }
     }
 }
@@ -131,6 +146,7 @@ impl ProgramSignatureContext<'static> {
         Self {
             lookup: &EMPTY_PROGRAM_SIGNATURE_LOOKUP,
             trait_impls: &[],
+            trait_impl_index: None,
         }
     }
 }

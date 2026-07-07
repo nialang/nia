@@ -328,6 +328,7 @@ impl<'a> BodyChecker<'a> {
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
+            trait_impl_index: self.program_trait_impl_index,
             layouts: Some(self.layouts),
             local_module_id: self.defs.module_id,
             local_enums: &self.signatures.enums,

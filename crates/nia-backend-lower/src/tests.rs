@@ -66,6 +66,7 @@ impl EmptyBodyProgramSignatures {
         ProgramSignatureContext {
             lookup: self,
             trait_impls: &self.trait_impls,
+            trait_impl_index: None,
         }
     }
 }
@@ -421,6 +422,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
             (*def_id, body)
         })
         .collect::<HashMap<_, _>>();
+    let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::default();
     let monomorphization =
         nia_monomorphize::collect_monomorphizations(&[nia_monomorphize::MonomorphizeModuleInput {
             module_id: ModuleId(0),
@@ -433,6 +435,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
             local_enums: &signatures.enums,
             program_enums: &HashMap::new(),
             trait_impls: &[],
+            trait_impl_index: &trait_impl_index,
             instantiations: &body_check.facts.generic_instantiations,
         }]);
     assert!(
@@ -490,6 +493,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         program_traits: &HashMap::new(),
         program_type_aliases: &HashMap::new(),
         trait_impls: &[],
+        trait_impl_index: &trait_impl_index,
     };
     lower_backend_program(&[input], &monomorphization, optimization)
 }
