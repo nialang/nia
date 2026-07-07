@@ -10,7 +10,7 @@ use nia_item_signatures::{
     UnionSignature,
 };
 use nia_span::Span;
-use nia_symbol::{SymbolId, SymbolMap, symbol_identity_key};
+use nia_symbol::{SymbolId, SymbolMap, SymbolText, symbol_text_from_optional_resolver};
 use nia_ty::{
     ArrayLenTy, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy, RangeTyKind,
     TyInterner, TyKind,
@@ -242,6 +242,7 @@ pub fn compute_layouts_with_normalized_types(
 
 #[derive(Clone, Copy, Default)]
 pub struct ProgramLayoutContext<'a> {
+    pub symbols: Option<&'a dyn SymbolText>,
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
     pub array_lengths: Option<&'a dyn Fn(GlobalConstExprId) -> Option<u64>>,
     pub structs: Option<&'a HashMap<GlobalDefId, ProgramStructSignature>>,
@@ -485,6 +486,10 @@ impl<'a> LayoutComputer<'a> {
             self.union_layout(signature.span, def_id, &signature, &[], &[]);
         }
         self.finish()
+    }
+
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_from_optional_resolver(self.program.symbols, symbol)
     }
 
     fn compute_roots(mut self, roots: LayoutRoots<'_>) -> Layouts {
@@ -771,13 +776,11 @@ impl<'a> LayoutComputer<'a> {
                 return None;
             }
             ArrayLenTy::GenericParam(name) => {
+                let name = self.symbol_name(name);
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::STATIC_CHECK,
                     span,
-                    format!(
-                        "array layout requires concrete value for const generic `{}`",
-                        symbol_identity_key(name)
-                    ),
+                    format!("array layout requires concrete value for const generic `{name}`"),
                 ));
                 return None;
             }

@@ -594,6 +594,7 @@ impl Analyzer<'_> {
             &array_lengths,
             nia_layout::TargetDataLayout::LP64,
             nia_layout::ProgramLayoutContext {
+                symbols: Some(self.input.symbols),
                 layouts: Some(&layout_query),
                 array_lengths: Some(&array_lengths),
                 ..Default::default()
@@ -687,6 +688,7 @@ impl Analyzer<'_> {
             &array_lengths,
             nia_layout::TargetDataLayout::LP64,
             nia_layout::ProgramLayoutContext {
+                symbols: Some(self.input.symbols),
                 layouts: Some(&layout_query),
                 array_lengths: Some(&array_lengths),
                 ..Default::default()
@@ -947,6 +949,7 @@ impl Analyzer<'_> {
             &array_lengths_for_layout,
             nia_layout::TargetDataLayout::LP64,
             nia_layout::ProgramLayoutContext {
+                symbols: Some(self.input.symbols),
                 layouts: Some(&layout_query),
                 array_lengths: Some(&array_lengths_for_layout),
                 ..Default::default()

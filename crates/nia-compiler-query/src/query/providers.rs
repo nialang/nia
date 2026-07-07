@@ -1864,6 +1864,7 @@ pub(super) fn provide_layouts(
         let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
         let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
+        let symbols = db.context().symbols();
         let layout_query = |module_id| Some(db.query(SignatureLayoutsQuery(module_id)));
         let local_array_lengths = |id| array_lengths.values.get(&id).copied();
         let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
@@ -1878,6 +1879,7 @@ pub(super) fn provide_layouts(
             &local_array_lengths,
             nia_layout::TargetDataLayout::LP64,
             nia_layout::ProgramLayoutContext {
+                symbols: Some(&symbols),
                 layouts: Some(&layout_query),
                 array_lengths: Some(&program_array_lengths),
                 ..Default::default()
@@ -3460,6 +3462,7 @@ fn executable_layouts_for_reachable_items(
                 (layout_interner, roots)
             });
         let layouts = time_module_provider(db, "executable_layouts.compute", module_id, || {
+            let symbols = db.context().symbols();
             nia_layout::compute_layouts_for_roots_with_program_context(
                 nia_layout::LayoutComputationInput {
                     defs: &defs,
@@ -3469,6 +3472,7 @@ fn executable_layouts_for_reachable_items(
                     array_lengths: &executable_array_lengths,
                     target: nia_layout::TargetDataLayout::LP64,
                     program: nia_layout::ProgramLayoutContext {
+                        symbols: Some(&symbols),
                         array_lengths: Some(&executable_array_lengths),
                         struct_: Some(&program_struct),
                         union: Some(&program_union),
@@ -3575,6 +3579,7 @@ fn rooted_layouts_for_checked_module(
     let item_signatures = db.query(ItemSignaturesQuery(module.id));
     let roots = checked_module_layout_roots(module);
     let array_lengths = &module.comptime.array_lengths;
+    let symbols = db.context().symbols();
     let local_array_lengths = |id| array_lengths.get(&id).copied();
     let layout_query = |module_id| {
         program_layouts_override
@@ -3598,6 +3603,7 @@ fn rooted_layouts_for_checked_module(
             array_lengths: &local_array_lengths,
             target: nia_layout::TargetDataLayout::LP64,
             program: nia_layout::ProgramLayoutContext {
+                symbols: Some(&symbols),
                 layouts: Some(&layout_query),
                 array_lengths: Some(&program_array_lengths),
                 ..Default::default()

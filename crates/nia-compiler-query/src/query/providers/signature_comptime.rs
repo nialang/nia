@@ -498,6 +498,7 @@ pub(super) fn signature_layouts_for_types(
                 );
                 (layout_interner, roots)
             });
+        let symbols = db.context().symbols();
         nia_layout::compute_layouts_for_roots_with_program_context(
             nia_layout::LayoutComputationInput {
                 defs: &defs,
@@ -507,6 +508,7 @@ pub(super) fn signature_layouts_for_types(
                 array_lengths: &local_array_lengths,
                 target: nia_layout::TargetDataLayout::LP64,
                 program: nia_layout::ProgramLayoutContext {
+                    symbols: Some(&symbols),
                     array_lengths: Some(&program_array_lengths),
                     struct_: Some(&program_struct),
                     union: Some(&program_union),
