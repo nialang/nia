@@ -12,7 +12,7 @@ pub use nia_ids::LocalId;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
-use nia_symbol::{SymbolId, SymbolMap, symbol_identity_key};
+use nia_symbol::{SymbolId, SymbolMap, SymbolText, symbol_text_from_optional_resolver};
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -151,6 +151,17 @@ pub fn resolve_module_locals_from_active_item_tree_with_origins(
     resolve_module_locals_from_items(&item_tree.items, defs, values)
 }
 
+pub fn resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    values: &ValueResolution,
+    _source_version: Option<nia_source::SourceVersion>,
+    _origins: &nia_node_id::NodeOriginTable,
+    symbols: &dyn SymbolText,
+) -> LocalResolution {
+    resolve_module_locals_from_items_with_symbols(&item_tree.items, defs, values, Some(symbols))
+}
+
 pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins(
     filtered_item_tree: &ActiveModuleItemTree,
     full_item_tree: &ActiveModuleItemTree,
@@ -164,6 +175,25 @@ pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins(
         &full_item_tree.items,
         defs,
         values,
+        None,
+    )
+}
+
+pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
+    filtered_item_tree: &ActiveModuleItemTree,
+    full_item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    values: &ValueResolution,
+    _source_version: Option<nia_source::SourceVersion>,
+    _origins: &nia_node_id::NodeOriginTable,
+    symbols: &dyn SymbolText,
+) -> LocalResolution {
+    resolve_module_locals_from_filtered_items(
+        &filtered_item_tree.items,
+        &full_item_tree.items,
+        defs,
+        values,
+        Some(symbols),
     )
 }
 
@@ -182,6 +212,7 @@ fn resolve_module_locals_from_filtered_items(
     full_items: &[ItemTreeNode],
     defs: &DefCollection,
     values: &ValueResolution,
+    symbols: Option<&dyn SymbolText>,
 ) -> LocalResolution {
     let allocated = LocalDefinitionAllocator::allocate_items(full_items);
     let mut resolver = LocalResolver {
@@ -191,6 +222,7 @@ fn resolve_module_locals_from_filtered_items(
         node_local_defs: allocated.node_local_defs.clone(),
         node_uses: HashMap::new(),
         diagnostics: Vec::new(),
+        symbols,
         scopes: Vec::new(),
         self_locals: Vec::new(),
         definition_ids: Some(allocated.node_local_defs),
@@ -209,6 +241,15 @@ fn resolve_module_locals_from_items(
     defs: &DefCollection,
     values: &ValueResolution,
 ) -> LocalResolution {
+    resolve_module_locals_from_items_with_symbols(items, defs, values, None)
+}
+
+fn resolve_module_locals_from_items_with_symbols(
+    items: &[ItemTreeNode],
+    defs: &DefCollection,
+    values: &ValueResolution,
+    symbols: Option<&dyn SymbolText>,
+) -> LocalResolution {
     let mut resolver = LocalResolver {
         defs,
         values,
@@ -216,6 +257,7 @@ fn resolve_module_locals_from_items(
         node_local_defs: HashMap::new(),
         node_uses: HashMap::new(),
         diagnostics: Vec::new(),
+        symbols,
         scopes: Vec::new(),
         self_locals: Vec::new(),
         definition_ids: None,
@@ -236,6 +278,7 @@ struct LocalResolver<'a> {
     node_local_defs: HashMap<VersionedNodeKey, LocalId>,
     node_uses: HashMap<VersionedNodeKey, LocalUse>,
     diagnostics: Vec<Diagnostic>,
+    symbols: Option<&'a dyn SymbolText>,
     scopes: Vec<Scope>,
     self_locals: Vec<Option<ScopedLocal>>,
     definition_ids: Option<HashMap<VersionedNodeKey, LocalId>>,
@@ -598,6 +641,10 @@ impl LocalDefinitionAllocator {
 }
 
 impl<'a> LocalResolver<'a> {
+    fn symbol_name(&self, symbol: SymbolId) -> String {
+        symbol_text_from_optional_resolver(self.symbols, symbol)
+    }
+
     fn resolve_items(&mut self, items: &[ItemTreeNode]) {
         for item in items {
             self.resolve_item_tree_node(item);
@@ -1281,6 +1328,7 @@ impl<'a> LocalResolver<'a> {
         };
         let debug_node_key = node_key.clone();
         self.node_local_defs.insert(node_key, id);
+        let display_name = self.symbol_name(*name);
         let Some(scope) = self.scopes.last_mut() else {
             self.diagnostics.push(
                 Diagnostic::internal_error(
@@ -1302,7 +1350,7 @@ impl<'a> LocalResolver<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::LOCAL_RESOLUTION,
                 span,
-                format!("{duplicate_message}: `{}`", symbol_identity_key(*name)),
+                format!("{duplicate_message}: `{display_name}`"),
             ));
             let _ = existing.span;
             return None;
@@ -1311,7 +1359,7 @@ impl<'a> LocalResolver<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::LOCAL_RESOLUTION,
                 span,
-                format!("{duplicate_message}: `{}`", symbol_identity_key(*name)),
+                format!("{duplicate_message}: `{display_name}`"),
             ));
             let _ = existing.span;
             return None;
@@ -1366,6 +1414,7 @@ impl<'a> LocalResolver<'a> {
         span: Span,
         duplicate_message: &'static str,
     ) {
+        let display_name = self.symbol_name(*name);
         let Some(scope) = self.scopes.last_mut() else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 codes::LOCAL_RESOLVER_SCOPE,
@@ -1378,7 +1427,7 @@ impl<'a> LocalResolver<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::LOCAL_RESOLUTION,
                 span,
-                format!("{duplicate_message}: `{}`", symbol_identity_key(*name)),
+                format!("{duplicate_message}: `{display_name}`"),
             ));
             let _ = existing.span;
             return;
@@ -1387,7 +1436,7 @@ impl<'a> LocalResolver<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::LOCAL_RESOLUTION,
                 span,
-                format!("{duplicate_message}: `{}`", symbol_identity_key(*name)),
+                format!("{duplicate_message}: `{display_name}`"),
             ));
             let _ = existing.span;
             return;
