@@ -1,0 +1,155 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use super::*;
+use nia_defs::{ModuleUsingScope, PublicNamespace, UsingEntry};
+use nia_imports::ModuleGraph;
+use nia_item_signatures::ProgramTypeAliasSignature;
+use nia_source::{SourceId, SourcePath, SourceRevision, SourceVersion};
+use nia_span::Span;
+use nia_symbol::stable_hash;
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
+
+fn sym(text: &str) -> SymbolId {
+    SymbolId::from_stable_hash(stable_hash(text))
+}
+
+fn intern_child(
+    graph: &mut ModuleGraph,
+    parent: nia_ids::ModuleId,
+    child_name: &str,
+    visibility: nia_ids::Visibility,
+) {
+    let child = sym(child_name);
+    graph
+        .intern_declared_child(parent, &child, visibility, Span::default())
+        .expect("intern child module");
+}
+
+fn defs_from_source(module_id: nia_ids::ModuleId, source: &str) -> DefCollection {
+    let syntax = nia_syntax::parse_source(
+        source,
+        Some(SourceVersion {
+            id: SourceId(module_id.0),
+            revision: SourceRevision::INITIAL,
+        }),
+    );
+    let (module, parse_errors, _) = nia_parser::parse_module_syntax_with_origins(&syntax);
+    assert!(parse_errors.is_empty(), "{parse_errors:?}");
+    nia_defs::collect_module_defs(module_id, &module)
+}
+
+fn global_type_def_id(defs: &DefCollection, name: &str) -> GlobalDefId {
+    let def_id = defs
+        .module_scope
+        .types
+        .get(&sym(name))
+        .unwrap_or_else(|| panic!("missing type definition `{name}`"));
+    GlobalDefId {
+        module_id: defs.module_id,
+        def_id,
+    }
+}
+
+struct SingleModuleDefs {
+    module_id: nia_ids::ModuleId,
+    defs: Arc<DefCollection>,
+}
+
+impl ProgramDefsResolver for SingleModuleDefs {
+    fn defs(&self, module_id: nia_ids::ModuleId) -> Option<Arc<DefCollection>> {
+        (module_id == self.module_id).then(|| Arc::clone(&self.defs))
+    }
+}
+
+fn using_type_entry(def_id: GlobalDefId) -> UsingEntry {
+    UsingEntry {
+        target_module: def_id.module_id,
+        target_def_id: def_id.def_id,
+        namespace: PublicNamespace::Type,
+        directive_span: Span::default(),
+        name_span: Span::default(),
+        parent_enum: None,
+    }
+}
+
+#[test]
+fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave() {
+    let entry = nia_ids::ModuleId(0);
+    let types_module = nia_ids::ModuleId(1);
+    let used_provider = nia_ids::ModuleId(2);
+    let other_provider = nia_ids::ModuleId(3);
+    let type_defs = defs_from_source(types_module, "pub struct Other {} pub struct Used {}");
+    let used = global_type_def_id(&type_defs, "Used");
+    let other = global_type_def_id(&type_defs, "Other");
+    let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
+    intern_child(&mut graph, entry, "types", nia_ids::Visibility::Public);
+    intern_child(
+        &mut graph,
+        entry,
+        "used_provider",
+        nia_ids::Visibility::Public,
+    );
+    intern_child(
+        &mut graph,
+        entry,
+        "other_provider",
+        nia_ids::Visibility::Public,
+    );
+    let mut using_scope = ModuleUsingScope::default();
+    using_scope
+        .types
+        .insert(sym("Used"), using_type_entry(used));
+    using_scope
+        .types
+        .insert(sym("Other"), using_type_entry(other));
+    let using_scopes = HashMap::new();
+    let empty_aliases = HashMap::<GlobalDefId, ProgramTypeAliasSignature>::new();
+    let empty_normalization = TypeNormalization {
+        interner: TyInterner::new(entry),
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let defs = SingleModuleDefs {
+        module_id: type_defs.module_id,
+        defs: Arc::new(type_defs.clone()),
+    };
+    let normalizations = |_module_id| Some(empty_normalization.clone());
+    let calls = RefCell::new(Vec::<Vec<GlobalDefId>>::new());
+    let nominal_extension_providers = |targets: &[GlobalDefId]| {
+        calls.borrow_mut().push(targets.to_vec());
+        targets
+            .iter()
+            .filter_map(|target| {
+                if *target == used {
+                    Some(used_provider)
+                } else if *target == other {
+                    Some(other_provider)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let modules = visible_extension_provider_modules(VisibleExtensionProviderModulesInput {
+        module_id: entry,
+        graph: &graph,
+        using_scope: &using_scope,
+        using_scopes: &using_scopes,
+        defs: &defs,
+        normalizations: &normalizations,
+        visible_type_signatures: VisibleTypeSignatures {
+            type_aliases: &empty_aliases,
+        },
+        nominal_extension_providers: &nominal_extension_providers,
+    });
+
+    assert_eq!(modules, vec![used_provider, other_provider]);
+    let calls = calls.borrow();
+    assert_eq!(
+        calls.len(),
+        1,
+        "provider targets in one visibility-closure wave should be batched"
+    );
+    assert_eq!(calls[0], vec![other, used]);
+    assert!(using_scopes.is_empty());
+}
