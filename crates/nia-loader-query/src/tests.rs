@@ -242,6 +242,48 @@ fn query_loader_loads_std_builtin_target_module() {
 }
 
 #[test]
+fn query_loader_keeps_unused_explicit_std_imports_shallow() {
+    let root = temp_dir("query_loader_keeps_unused_explicit_std_imports_shallow");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::collections;
+using std::fs;
+using std::io;
+using std::mem;
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let collections = module_by_suffix(&program, "lib/std/collections.nia");
+    let fs = module_by_suffix(&program, "lib/std/fs.nia");
+    let io = module_by_suffix(&program, "lib/std/io.nia");
+    let mem = module_by_suffix(&program, "lib/std/mem.nia");
+    let process = module_by_suffix(&program, "lib/std/process.nia");
+    assert!(!collections.process_used_paths, "{collections:?}");
+    assert!(!fs.process_used_paths, "{fs:?}");
+    assert!(!io.process_used_paths, "{io:?}");
+    assert!(!mem.process_used_paths, "{mem:?}");
+    assert!(!process.process_used_paths, "{process:?}");
+    assert_module_loaded(&program, "lib/std/process/types.nia");
+    assert_module_not_loaded(&program, "lib/std/collections/hash_map.nia");
+    assert_module_not_loaded(&program, "lib/std/collections/array_list.nia");
+    assert_module_not_loaded(&program, "lib/std/fs/file.nia");
+    assert_module_not_loaded(&program, "lib/std/io/file_adapter.nia");
+    assert_module_not_loaded(&program, "lib/std/mem/general_purpose_allocator.nia");
+    assert_module_not_loaded(&program, "lib/std/process/command.nia");
+}
+
+#[test]
 fn query_loader_loads_facade_reexport_sources_by_used_name() {
     let root = temp_dir("query_loader_loads_facade_reexport_sources_by_used_name");
     let main_path = root.join("main.nia");

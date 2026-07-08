@@ -60,6 +60,9 @@ pub(crate) fn process_provider_request(
     module_id: nia_imports::ModuleId,
     processing: &UsedModulePathProcessing,
 ) -> Result<(), Diagnostic> {
+    if direct_provider_module_matches_request(db, graph, module_id, processing) {
+        mark_process_used_paths_and_process(db, graph, module_id)?;
+    }
     match processing {
         UsedModulePathProcessing::IfProvidesTraitImpl { trait_name } => {
             add_public_reexport_trait_impl_provider_modules(db, graph, module_id, trait_name)
@@ -92,6 +95,49 @@ pub(crate) fn process_provider_request(
         | UsedModulePathProcessing::Always
         | UsedModulePathProcessing::IfSelectedItem
         | UsedModulePathProcessing::IfProvidesExtensions => Ok(()),
+    }
+}
+
+fn direct_provider_module_matches_request(
+    db: &QueryDb<LoaderContext>,
+    graph: &ModuleGraph,
+    module_id: nia_imports::ModuleId,
+    processing: &UsedModulePathProcessing,
+) -> bool {
+    let Some(node) = graph.get(module_id) else {
+        return false;
+    };
+    match processing {
+        UsedModulePathProcessing::IfProvidesTraitImpl { trait_name } => {
+            provider_candidate_has_trait_impl(db, node.path.clone(), trait_name, None)
+        }
+        UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name } => {
+            provider_candidate_has_trait_impl(db, node.path.clone(), trait_name, None)
+        }
+        UsedModulePathProcessing::IfProvidesTraitMethod {
+            target_type_name,
+            associated_name,
+        } => {
+            let summary = db.query(provider_summary_query(db, node.path.clone()));
+            summary.defines_public_extension_method_for_facade(
+                |_| true,
+                target_type_name.as_ref(),
+                associated_name,
+            )
+        }
+        UsedModulePathProcessing::IfProvidesInherentAssociated {
+            target_type_name,
+            associated_name,
+        } => provider_candidate_has_inherent_associated_item(
+            db,
+            node.path.clone(),
+            target_type_name,
+            associated_name,
+        ),
+        UsedModulePathProcessing::Never
+        | UsedModulePathProcessing::Always
+        | UsedModulePathProcessing::IfSelectedItem
+        | UsedModulePathProcessing::IfProvidesExtensions => false,
     }
 }
 

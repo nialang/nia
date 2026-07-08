@@ -1101,11 +1101,7 @@ fn collect_selector_modules(
             paths.push(used_root.path(&[], true, true));
         }
         UsingSelector::Single(name) => {
-            paths.push(used_root.path_with_processing_mode(
-                std::slice::from_ref(&name.name),
-                false,
-                UsedModulePathProcessing::IfSelectedItem,
-            ));
+            paths.push(used_root.path(std::slice::from_ref(&name.name), false, false));
         }
         UsingSelector::Group(items) => {
             for item in items {
@@ -1135,7 +1131,7 @@ fn collect_selector_modules_from_path(
             paths.push(host_path.with_appended_segments_with_processing_mode(
                 std::slice::from_ref(&name.name),
                 false,
-                UsedModulePathProcessing::IfSelectedItem,
+                UsedModulePathProcessing::Never,
             ));
         }
         UsingSelector::Group(items) => {
@@ -1153,11 +1149,7 @@ fn collect_group_item_modules(
 ) {
     match item {
         UsingGroupItem::Name(name) => {
-            paths.push(root.path_with_processing_mode(
-                std::slice::from_ref(&name.name),
-                false,
-                UsedModulePathProcessing::IfSelectedItem,
-            ));
+            paths.push(root.path(std::slice::from_ref(&name.name), false, false));
         }
         UsingGroupItem::Nested { host, selector } => {
             let nested_root = root_with_extra(root, &host_segments(host));
@@ -1176,7 +1168,7 @@ fn collect_group_item_modules_from_path(
             paths.push(root.with_appended_segments_with_processing_mode(
                 std::slice::from_ref(&name.name),
                 false,
-                UsedModulePathProcessing::IfSelectedItem,
+                UsedModulePathProcessing::Never,
             ));
         }
         UsingGroupItem::Nested { host, selector } => {
