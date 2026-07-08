@@ -2443,7 +2443,7 @@ pub fn expensive_or_invalid() i32 {
             "body_check",
             "signature_type_lowering"
         ));
-        assert!(trace_has_dependency(
+        assert!(!trace_has_dependency(
             &trace,
             "body_check",
             "visible_extensions"
