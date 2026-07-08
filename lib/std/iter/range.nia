@@ -65,7 +65,7 @@ where T: Step + Ord[T]
 extend[T] Range[T] : DoubleEndedIterator
 where T: Step + StepBack + Ord[T]
 {
-    pub fn next_back(&mut self) ?T {
+    pub fn next_back(&mut self) ?[Range[T] as Iterator]::Item {
         if self.start >= self.end {
             null
         } else {
@@ -145,7 +145,7 @@ where T: Step + Ord[T] + Eq[T]
 extend[T] RangeInclusive[T] : DoubleEndedIterator
 where T: Step + StepBack + Ord[T] + Eq[T]
 {
-    pub fn next_back(&mut self) ?T {
+    pub fn next_back(&mut self) ?[RangeInclusive[T] as Iterator]::Item {
         if self.done {
             return null;
         }

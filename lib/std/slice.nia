@@ -75,7 +75,7 @@ where T: Sized
 extend[T] SliceIter[T] : iter::DoubleEndedIterator
 where T: Sized
 {
-    pub fn next_back(&mut self) ?&T {
+    pub fn next_back(&mut self) ?[SliceIter[T] as Iterator]::Item {
         if self.index >= self.len {
             null
         } else {
@@ -112,7 +112,7 @@ where T: Sized
 extend[T] SliceIterMut[T] : iter::DoubleEndedIterator
 where T: Sized
 {
-    pub fn next_back(&mut self) ?&mut T {
+    pub fn next_back(&mut self) ?[SliceIterMut[T] as Iterator]::Item {
         if self.index >= self.len {
             null
         } else {

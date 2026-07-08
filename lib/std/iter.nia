@@ -48,7 +48,7 @@ where I: Iterator
 extend[I] Take[I] : DoubleEndedIterator
 where I: DoubleEndedIterator
 {
-    pub fn next_back(&mut self) ?[I as Iterator]::Item {
+    pub fn next_back(&mut self) ?[Take[I] as Iterator]::Item {
         if self.remaining == 0usize {
             return null;
         }
@@ -82,7 +82,7 @@ where I: DoubleEndedIterator
 extend[I] Rev[I] : DoubleEndedIterator
 where I: DoubleEndedIterator
 {
-    pub fn next_back(&mut self) ?[I as Iterator]::Item {
+    pub fn next_back(&mut self) ?[Rev[I] as Iterator]::Item {
         self.iter.next()
     }
 }
