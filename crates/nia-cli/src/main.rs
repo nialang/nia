@@ -820,7 +820,10 @@ fn checked_program_from_output(
     source: &str,
 ) -> Result<nia_driver::CheckedProgram, ExitCode> {
     match output.result {
-        Ok(program) => Ok(program),
+        Ok(program) => {
+            print_check_warnings(&program, path, source);
+            Ok(program)
+        }
         Err(error) => {
             eprint!(
                 "{}",
@@ -853,7 +856,10 @@ fn codegen_program_from_output(
     source: &str,
 ) -> Result<nia_driver::CodegenProgram, ExitCode> {
     match output.result {
-        Ok(program) => Ok(program),
+        Ok(program) => {
+            print_codegen_warnings(&program, path, source);
+            Ok(program)
+        }
         Err(error) => {
             eprint!(
                 "{}",
@@ -861,6 +867,32 @@ fn codegen_program_from_output(
             );
             Err(ExitCode::FAILURE)
         }
+    }
+}
+
+fn print_check_warnings(program: &nia_driver::CheckedProgram, path: &str, source: &str) {
+    if program
+        .diagnostics
+        .iter()
+        .any(nia_driver::ProgramDiagnostic::is_warning)
+    {
+        eprint!(
+            "{}",
+            nia_driver::render_program_warnings(program, Some(path), Some(source))
+        );
+    }
+}
+
+fn print_codegen_warnings(program: &nia_driver::CodegenProgram, path: &str, source: &str) {
+    if program
+        .diagnostics
+        .iter()
+        .any(nia_driver::ProgramDiagnostic::is_warning)
+    {
+        eprint!(
+            "{}",
+            nia_driver::render_codegen_program_warnings(program, Some(path), Some(source))
+        );
     }
 }
 

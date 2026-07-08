@@ -87,6 +87,20 @@ pub fn render_program_diagnostics(
     render_program_diagnostic_items(&program.diagnostics, primary_path, primary_source)
 }
 
+pub fn render_program_warnings(
+    program: &CheckedProgram,
+    primary_path: Option<&str>,
+    primary_source: Option<&str>,
+) -> String {
+    let diagnostics = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.is_warning())
+        .cloned()
+        .collect::<Vec<_>>();
+    render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
+}
+
 fn render_program_diagnostic_items(
     diagnostics: &[crate::ProgramDiagnostic],
     primary_path: Option<&str>,
@@ -121,6 +135,20 @@ pub fn render_codegen_program_diagnostics(
     primary_source: Option<&str>,
 ) -> String {
     render_program_diagnostic_items(&program.diagnostics, primary_path, primary_source)
+}
+
+pub fn render_codegen_program_warnings(
+    program: &CodegenProgram,
+    primary_path: Option<&str>,
+    primary_source: Option<&str>,
+) -> String {
+    let diagnostics = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.is_warning())
+        .cloned()
+        .collect::<Vec<_>>();
+    render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
 }
 
 pub fn render_driver_error(

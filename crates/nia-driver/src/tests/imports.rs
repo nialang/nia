@@ -46,7 +46,7 @@ fn loads_entry_and_imported_modules_once() {
     );
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
     assert_eq!(modules_under(&program.modules, &root), 2);
     assert!(
         program
@@ -131,7 +131,7 @@ pub fn answer() i32 {
         module_map,
     );
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -170,7 +170,7 @@ pub fn answer() i32 {
         module_map,
     );
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -219,7 +219,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         root.join("main.nia").to_string_lossy().into_owned(),
         crate::NiaOptimizationLevel::default(),
     );
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -255,7 +255,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         root.join("main.nia").to_string_lossy().into_owned(),
         crate::NiaOptimizationLevel::default(),
     );
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -324,7 +324,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         root.join("main.nia").to_string_lossy().into_owned(),
         crate::NiaOptimizationLevel::default(),
     );
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -347,7 +347,7 @@ fn main(argc: usize, argv: &&u8, envp: &&u8) void {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -363,7 +363,7 @@ using entry::a; fn main() {}"#,
     write(&root.join("b.nia"), r#"using entry::a;"#);
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -385,7 +385,7 @@ fn main() usize {
     );
 
     let checked = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_no_error_diagnostics(&checked.diagnostics);
     assert!(
         checked
             .modules
@@ -424,7 +424,7 @@ pub fn call_app_main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -447,7 +447,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         nia_imports::ModuleMap::default(),
         nia_opt::NiaOptimizationLevel::default(),
     );
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -485,7 +485,7 @@ extend Point {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -574,7 +574,7 @@ pub fn from_cycle() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -595,7 +595,7 @@ fn main() {}
     );
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
     assert_eq!(modules_under(&program.modules, &root), 2);
 }
 
@@ -613,7 +613,7 @@ fn origin(p: math::Point) math::Point { p }
     write(&root.join("math.nia"), r#"pub struct Point { x: i32 }"#);
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
     let main = program
         .modules
         .iter()
@@ -641,7 +641,7 @@ fn main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
     let main = program
         .modules
         .iter()
@@ -676,7 +676,7 @@ fn main(p: math::Point) i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -713,7 +713,7 @@ extend math::Point {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -742,7 +742,7 @@ extend Marker {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -776,7 +776,7 @@ extend Marker {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -795,7 +795,7 @@ fn main() usize {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -813,7 +813,7 @@ fn main() bool {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -836,7 +836,7 @@ fn main() usize {
     );
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -875,7 +875,7 @@ fn main() usize {
     );
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -901,7 +901,7 @@ fn main() usize {
     );
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -924,7 +924,7 @@ fn main() i64 {
     );
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -947,7 +947,7 @@ fn main() i32 {
     );
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -978,7 +978,7 @@ fn main() usize {
     );
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1002,7 +1002,7 @@ fn main() usize {
     );
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1047,7 +1047,7 @@ fn main() usize {
     );
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1067,7 +1067,7 @@ fn main() void {
     );
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1085,7 +1085,7 @@ fn main() void {
     );
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1104,7 +1104,7 @@ fn main() usize {
     );
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1276,7 +1276,7 @@ fn main() u64 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1302,7 +1302,7 @@ fn main() mem::Error!usize {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1414,7 +1414,7 @@ extend types::Box : api::Show {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1439,7 +1439,7 @@ fn main() mem::Error!usize {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1579,7 +1579,7 @@ extend usize : Step {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1601,7 +1601,7 @@ fn main() bool {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1640,7 +1640,7 @@ fn main() u128 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1679,7 +1679,7 @@ extend math::Point {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1720,7 +1720,7 @@ extend types::Point {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1773,7 +1773,7 @@ extend types::Unused {
     );
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
     assert!(
         program
             .modules
@@ -1836,7 +1836,7 @@ extend[T] types::RawBag[T] {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1880,7 +1880,7 @@ extend[T] &T {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -1915,7 +1915,7 @@ extend Error {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -2008,7 +2008,7 @@ extend i32 : containers::Marker {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -2054,7 +2054,7 @@ extend[T] &T {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -2100,7 +2100,7 @@ extend[T] &T {
     );
 
     let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 
     let instances = program
         .backend_lowering
@@ -2155,7 +2155,7 @@ extend[T] RawPtr[T] {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -2274,7 +2274,7 @@ pub(super) fn value() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -2324,7 +2324,7 @@ pub(super) fn value() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -2419,7 +2419,7 @@ pub(super) fn score() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -2472,7 +2472,7 @@ pub fn inside() i32 {
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,
     );
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -2606,7 +2606,7 @@ pub fn inside() i32 {
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,
     );
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 
     write(
         &root.join("main.nia"),
@@ -2677,7 +2677,7 @@ pub fn inside() usize {
         root.join("main.nia").to_string_lossy().into_owned(),
         module_map,
     );
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 
     write(
         &root.join("main.nia"),

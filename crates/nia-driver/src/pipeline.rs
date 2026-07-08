@@ -6,7 +6,7 @@ use std::{
     sync::Mutex,
 };
 
-use nia_compiler_query::{CompileRequest, CompilerDatabase, TimingMode};
+use nia_compiler_query::{CompileRequest, CompilerDatabase, TimingMode, has_error_diagnostics};
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
 use nia_linker::{LinkOptions, LinkTarget};
@@ -101,7 +101,7 @@ impl Driver {
     pub fn check_all_modules(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
         DriverOutput::catch_ice(|| {
             let program = self.check_all_modules_inner(request);
-            if !program.diagnostics.is_empty() {
+            if has_error_diagnostics(&program.diagnostics) {
                 return DriverOutput::from_check_diagnostics(program);
             }
             DriverOutput::success(program)
@@ -115,7 +115,7 @@ impl Driver {
     pub fn check_entry(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
         DriverOutput::catch_ice(|| {
             let program = self.check_entry_inner(request);
-            if !program.diagnostics.is_empty() {
+            if has_error_diagnostics(&program.diagnostics) {
                 return DriverOutput::from_check_diagnostics(program);
             }
             DriverOutput::success(program)
@@ -129,7 +129,7 @@ impl Driver {
     pub fn codegen(&self, request: CheckRequest) -> DriverOutput<CodegenProgram> {
         DriverOutput::catch_ice(|| {
             let program = self.codegen_inner(request);
-            if !program.diagnostics.is_empty() {
+            if has_error_diagnostics(&program.diagnostics) {
                 return DriverOutput::from_codegen_diagnostics(program);
             }
             DriverOutput::success(program)

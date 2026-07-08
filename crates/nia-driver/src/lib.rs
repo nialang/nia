@@ -25,7 +25,8 @@ pub use pipeline::{
 };
 pub use report::{
     optimization_report, optimization_report_lines, render_codegen_diagnostics,
-    render_driver_error, render_parse_errors, render_program_diagnostics,
+    render_codegen_program_warnings, render_driver_error, render_parse_errors,
+    render_program_diagnostics, render_program_warnings,
 };
 
 #[cfg(test)]

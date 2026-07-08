@@ -97,6 +97,35 @@ fn repository_examples_parse_and_representative_examples_check() {
     }
 }
 
+#[test]
+fn check_reports_unused_import_warning_without_failing() {
+    let root = temp_dir("check_reports_unused_import_warning_without_failing");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::collections;
+
+fn main() void {}
+"#,
+    )
+    .expect("write source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("check")
+        .arg(&main)
+        .output_timeout("run nia check with unused import warning");
+
+    assert!(
+        output.status.success(),
+        "check should succeed with warnings\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("warning[W0201]"), "{stderr}");
+    assert!(stderr.contains("unused import `collections`"), "{stderr}");
+}
+
 fn nia_code_blocks(markdown: &str) -> Vec<(usize, String)> {
     let mut blocks = Vec::new();
     let mut current = None::<String>;

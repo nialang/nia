@@ -1,6 +1,6 @@
 use crate::facade_facts::ModuleFacadeFacts;
 use crate::graph::ModuleGraphQuery;
-use crate::used_paths::{ModuleDeclarations, collect_used_modules};
+use crate::used_paths::{ModuleDeclarations, UsedModulePath, collect_used_modules};
 use crate::{EntryRuntime, LoaderContext};
 use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel};
 use nia_diagnostic::{Diagnostic, codes};
@@ -84,9 +84,71 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
                 &db.query(module_declarations_query(db, node.path.clone()))
                     .diagnostics,
             ));
+            if node.module_path.is_entry_package() {
+                diagnostics.extend(unused_import_diagnostics(
+                    &graph,
+                    node.id,
+                    &node.path,
+                    &db.query(module_declarations_query(db, node.path.clone())),
+                    &db.context().symbols,
+                ));
+            }
         }
         diagnostics
     }
+}
+
+fn unused_import_diagnostics(
+    graph: &nia_imports::ModuleGraph,
+    module_id: nia_imports::ModuleId,
+    path: &SourcePath,
+    declarations: &ModuleDeclarations,
+    symbols: &nia_symbol_table::SymbolTable,
+) -> Vec<ProgramDiagnostic> {
+    declarations
+        .explicit_imports
+        .iter()
+        .filter(|import| {
+            !declarations.used_import_aliases.contains(&import.alias)
+                && !import_target_is_semantic(graph, module_id, &import.path)
+        })
+        .map(|import| ProgramDiagnostic {
+            path: path.clone(),
+            diagnostic: import.warning(symbols),
+        })
+        .collect()
+}
+
+fn import_target_is_semantic(
+    graph: &nia_imports::ModuleGraph,
+    current_module: nia_imports::ModuleId,
+    path: &UsedModulePath,
+) -> bool {
+    let Some(module_id) = import_target_module(graph, current_module, path) else {
+        return false;
+    };
+    graph
+        .get(module_id)
+        .is_some_and(|node| node.process_used_paths)
+}
+
+fn import_target_module(
+    graph: &nia_imports::ModuleGraph,
+    current_module: nia_imports::ModuleId,
+    path: &UsedModulePath,
+) -> Option<nia_imports::ModuleId> {
+    let mut current = match path {
+        UsedModulePath::Package { package, .. } => graph.package_root(package),
+        UsedModulePath::PackageRelative { .. } => graph.current_package_root(current_module),
+        UsedModulePath::ParentRelative { .. } => {
+            graph.get(current_module).and_then(|node| node.parent)
+        }
+        UsedModulePath::Local { .. } => Some(current_module),
+    }?;
+    for segment in path.segments() {
+        current = graph.get(current)?.children.get(segment).copied()?;
+    }
+    Some(current)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -287,7 +349,7 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
             .clone()
             .into_iter()
             .collect::<Vec<_>>();
-        let (declarations, package_roots, used_module_paths) = if diagnostics.is_empty()
+        let (declarations, used_modules) = if diagnostics.is_empty()
             && parsed.parse_errors.is_empty()
             && parsed.prune_diagnostics.is_empty()
         {
@@ -296,16 +358,26 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
                 &parsed.active_item_tree,
                 &db.context().symbols,
             );
-            let (package_roots, used_module_paths) =
+            let used_modules =
                 collect_used_modules(&parsed.active_item_tree, &db.context().module_map);
-            (declarations, package_roots, used_module_paths)
+            (declarations, used_modules)
         } else {
-            (Vec::new(), Vec::new(), Vec::new())
+            (
+                Vec::new(),
+                crate::used_paths::UsedModuleCollection {
+                    package_roots: Vec::new(),
+                    used_module_paths: Vec::new(),
+                    explicit_imports: Vec::new(),
+                    used_aliases: Vec::new(),
+                },
+            )
         };
         ModuleDeclarations {
             declarations,
-            package_roots,
-            used_module_paths,
+            package_roots: used_modules.package_roots,
+            used_module_paths: used_modules.used_module_paths,
+            explicit_imports: used_modules.explicit_imports,
+            used_import_aliases: used_modules.used_aliases,
             diagnostics,
         }
     }

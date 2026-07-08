@@ -1,6 +1,6 @@
 use super::*;
 use crate::queries::{LoadedModuleQuery, provider_summary_query};
-use nia_compiler_query::RuntimeModel;
+use nia_compiler_query::{RuntimeModel, has_error_diagnostics};
 use nia_imports::ModuleNode;
 use nia_item_tree::ItemTreeNodeKind;
 use nia_symbol::{SymbolId, stable_hash};
@@ -33,6 +33,14 @@ fn test_loader_context(
     }
 }
 
+fn assert_no_error_diagnostics(program: &nia_compiler_query::LoadedProgram) {
+    assert!(
+        !has_error_diagnostics(&program.diagnostics),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
 #[test]
 fn query_loader_loads_declared_modules_once() {
     let root = temp_dir("query_loader_loads_declared_modules_once");
@@ -44,7 +52,7 @@ fn query_loader_loads_declared_modules_once() {
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_eq!(program.modules.len(), program.graph.modules().count());
     assert_module_loaded(&program, root.join("main.nia").to_string_lossy().as_ref());
     assert_module_loaded(&program, root.join("a.nia").to_string_lossy().as_ref());
@@ -83,7 +91,7 @@ module present;
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, root.join("main.nia").to_string_lossy().as_ref());
     assert_module_loaded(
         &program,
@@ -113,7 +121,7 @@ module present;
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, root.join("main.nia").to_string_lossy().as_ref());
     assert_module_loaded(
         &program,
@@ -146,7 +154,7 @@ fn query_loader_uses_package_module_map() {
         module_map,
     );
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_eq!(program.runtime, RuntimeModel::Bare);
     assert!(program.graph.package_root(&sym("std")).is_some());
     assert!(
@@ -185,7 +193,7 @@ pub fn build() i32 {
 
     let program = load_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     let dep = module_by_suffix(&program, "dep.nia");
     assert!(
         dep.process_used_paths,
@@ -201,7 +209,7 @@ fn query_loader_injects_default_std_module_map_to_toolchain_lib() {
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     let std_module = program
         .graph
         .get(
@@ -225,7 +233,7 @@ fn query_loader_loads_std_builtin_target_module() {
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert!(program.graph.package_root(&sym("builtin")).is_none());
     let target_loaded = program
         .modules
@@ -263,7 +271,25 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
+    let warnings = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.is_warning())
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 4, "{warnings:?}");
+    assert!(
+        warnings
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("collections")),
+        "{warnings:?}"
+    );
+    assert!(
+        warnings
+            .iter()
+            .all(|diagnostic| !diagnostic.diagnostic.summary.contains("process")),
+        "{warnings:?}"
+    );
     let collections = module_by_suffix(&program, "lib/std/collections.nia");
     let fs = module_by_suffix(&program, "lib/std/fs.nia");
     let io = module_by_suffix(&program, "lib/std/io.nia");
@@ -284,6 +310,39 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn query_loader_does_not_warn_for_used_narrow_explicit_import() {
+    let root = temp_dir("query_loader_does_not_warn_for_used_narrow_explicit_import");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&program);
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.is_warning())
+            .count()
+            == 0,
+        "{:?}",
+        program.diagnostics
+    );
+    assert_module_loaded(&program, "lib/std/process/types.nia");
+    assert_module_not_loaded(&program, "lib/std/process/command.nia");
+}
+
+#[test]
 fn query_loader_loads_facade_reexport_sources_by_used_name() {
     let root = temp_dir("query_loader_loads_facade_reexport_sources_by_used_name");
     let main_path = root.join("main.nia");
@@ -300,7 +359,7 @@ _ = values;
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/collections.nia");
     let collections_node = program
         .graph
@@ -332,7 +391,7 @@ comptime word_size: usize = size[usize]();
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     let builtin = module_by_suffix(&program, "lib/std/builtin.nia");
     let layout = module_by_suffix(&program, "lib/std/builtin/layout.nia");
     assert!(!builtin.process_used_paths);
@@ -358,7 +417,7 @@ _ = CStringView::from_ptr(&0u8);
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     let cstring = module_by_suffix(&program, "lib/std/cstring.nia");
     let std_root = program
         .graph
@@ -402,7 +461,7 @@ fn query_loader_injects_freestanding_entry_runtime_through_std_start_facade() {
         EntryRuntime::Freestanding,
     );
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_eq!(program.runtime, RuntimeModel::FreestandingExecutable);
     assert!(
         program
@@ -465,7 +524,7 @@ fn query_loader_loads_std_package_root_children_on_demand() {
         EntryRuntime::Freestanding,
     );
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert!(!program.graph.package_facade_active(&sym("std")));
     let process = module_by_suffix(&program, "lib/std/process.nia");
     assert!(
@@ -519,7 +578,7 @@ fn main() void {
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/iter.nia");
     assert_module_loaded(&program, "lib/std/iter/range.nia");
     assert_module_not_loaded(&program, "lib/std/process/command.nia");
@@ -544,7 +603,7 @@ hasher.finish()
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/hash.nia");
     assert_module_loaded(&program, "lib/std/hash/impls.nia");
     assert_module_loaded(&program, "lib/std/hash/wyhash.nia");
@@ -569,7 +628,7 @@ file.writer(state, buffer)
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/io/file_adapter.nia");
     assert_module_loaded(&program, "lib/std/fs/file.nia");
     assert_module_loaded(&program, "lib/std/fs/types.nia");
@@ -596,7 +655,7 @@ build::Build::init(init, allocator, path, path, path, path, 1usize)
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/build.nia");
     assert_module_loaded(&program, "lib/std/build/core.nia");
     assert_module_loaded(&program, "lib/std/build/types.nia");
@@ -651,7 +710,7 @@ pub fn score(&self) i32 {
 
     let program = load_program_with_map(main_path.to_string_lossy().into_owned(), module_map);
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_module_loaded(
         &program,
         root.join("pkg/facade.nia").to_string_lossy().as_ref(),
@@ -676,7 +735,7 @@ fn query_loader_resolves_std_root_reexport_import_shallowly() {
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert!(!program.graph.package_facade_active(&sym("std")));
     assert_module_loaded(&program, "lib/std/cstring.nia");
     assert_module_not_loaded(&program, "lib/std/process.nia");
@@ -690,7 +749,7 @@ fn query_loader_resolves_std_single_value_reexport_import_shallowly() {
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert!(!program.graph.package_facade_active(&sym("std")));
     assert_module_loaded(&program, "lib/std/cstring.nia");
     assert_module_not_loaded(&program, "lib/std/process.nia");
@@ -707,7 +766,7 @@ fn query_loader_resolves_std_qualified_root_reexport_shallowly() {
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert!(!program.graph.package_facade_active(&sym("std")));
     assert_module_loaded(&program, "lib/std/cstring.nia");
     assert_module_not_loaded(&program, "lib/std/process.nia");
@@ -733,7 +792,7 @@ _ = value;
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert!(!program.graph.package_facade_active(&sym("std")));
     assert!(program.graph.package_root(&sym("std")).is_none());
     assert!(
@@ -755,7 +814,7 @@ fn query_loader_resolves_root_children_relative_to_entry_file() {
 
     let program = load_program(main_path.to_string_lossy().into_owned());
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, root.join("main.nia").to_string_lossy().as_ref());
     assert_module_loaded(&program, root.join("defs.nia").to_string_lossy().as_ref());
     let root_module = program
@@ -780,7 +839,7 @@ fn query_loader_accepts_in_memory_sources() {
 
     let program = load_program_from_sources("main.nia", ModuleMap::default(), sources);
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert!(program.modules.iter().any(|module| {
         module.path.as_str() == "main.nia"
             && module.item_tree.items.iter().any(|item| {
@@ -932,7 +991,7 @@ extend types::Widget {
     ));
     let program = db.query(LoadedProgramQuery);
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program);
     assert_module_loaded(
         &program,
         root.join("pkg/facade/providers.nia")
@@ -972,7 +1031,7 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
     ));
 
     let first = db.query(LoadedProgramQuery);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert_no_error_diagnostics(&first);
     let first_module = first
         .modules
         .iter()
@@ -1004,7 +1063,7 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
     );
 
     let second = db.query(LoadedProgramQuery);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    assert_no_error_diagnostics(&second);
     let second_module = second
         .modules
         .iter()
@@ -1027,7 +1086,7 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
     ));
 
     let first = db.query(LoadedProgramQuery);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert_no_error_diagnostics(&first);
     assert_module_loaded(&first, "main.nia");
     assert_module_not_loaded(&first, "defs.nia");
 
@@ -1035,7 +1094,7 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
     db.invalidate(SourceTextQuery(main));
 
     let second = db.query(LoadedProgramQuery);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    assert_no_error_diagnostics(&second);
     assert!(
         second
             .modules
