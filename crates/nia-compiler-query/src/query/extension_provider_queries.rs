@@ -205,7 +205,7 @@ pub(super) struct ExtensionProviderModuleFactsQueryValue {
     pub(super) methods: nia_defs::ExtensionMethods,
     pub(super) associated_values: nia_defs::ExtensionAssociatedValues,
     pub(super) associated_value_diagnostics: Vec<Diagnostic>,
-    pub(super) nominal_providers: Vec<crate::program_signatures::NominalExtensionProviderEntry>,
+    pub(super) nominal_providers: Vec<nia_program_signatures::NominalExtensionProviderEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -216,7 +216,7 @@ pub(super) struct ExtensionProviderValidationFactsQueryValue {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderNominalModuleFactsQueryValue {
-    pub(super) nominal_providers: Vec<crate::program_signatures::NominalExtensionProviderEntry>,
+    pub(super) nominal_providers: Vec<nia_program_signatures::NominalExtensionProviderEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

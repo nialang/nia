@@ -17,7 +17,7 @@ pub(super) fn provide_program_signature_module_eligibility(
     set: nia_item_tree::SignatureItemSet,
 ) -> bool {
     let tree = db.query_shared(SignatureItemTreeQuery(module_id, set));
-    crate::program_signatures::signature_tree_has_program_signature_facts(&tree, set)
+    nia_program_signatures::signature_tree_has_program_signature_facts(&tree, set)
 }
 
 pub(super) fn provide_module_program_signature_facts(
@@ -29,7 +29,7 @@ pub(super) fn provide_module_program_signature_facts(
     let lowering = db.query_shared(SignatureTypeLoweringQuery(module_id, set));
     let signatures = db.query(SignatureItemSignaturesQuery(module_id, set));
     Arc::new(
-        crate::program_signatures::collect_module_program_signature_facts(ModuleSignatureInput {
+        nia_program_signatures::collect_module_program_signature_facts(ModuleSignatureInput {
             module_id,
             defs: &defs,
             lowering: &lowering,

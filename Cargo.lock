@@ -725,9 +725,22 @@ dependencies = [
 name = "nia-program-signatures"
 version = "0.4.3"
 dependencies = [
+ "nia-defs",
+ "nia-diagnostic",
  "nia-ids",
+ "nia-imports",
  "nia-item-signatures",
+ "nia-item-tree",
+ "nia-parser",
+ "nia-source",
+ "nia-span",
  "nia-symbol",
+ "nia-symbol-table",
+ "nia-syntax",
+ "nia-trait-solve",
+ "nia-ty",
+ "nia-type-lower",
+ "nia-type-normalize",
 ]
 
 [[package]]

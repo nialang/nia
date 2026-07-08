@@ -18,7 +18,7 @@ impl<'a> SharedProgramDefsResolver<'a> {
     }
 }
 
-impl crate::program_signatures::ProgramDefsResolver for SharedProgramDefsResolver<'_> {
+impl nia_program_signatures::ProgramDefsResolver for SharedProgramDefsResolver<'_> {
     fn defs(&self, module_id: ModuleId) -> Option<Arc<DefCollection>> {
         if let Some(defs) = self.cache.borrow().get(&module_id) {
             return defs.clone();
@@ -149,9 +149,9 @@ pub(super) fn provide_extension_trait_solving_module_facts(
     let input = db.query(ExtensionSignatureModuleInputQuery(module_id));
     let modules = [input.module()];
     Arc::new(ExtensionTraitSolvingModuleFactsQueryValue {
-        trait_impls: crate::program_signatures::collect_valid_program_trait_impls(&modules),
+        trait_impls: nia_program_signatures::collect_valid_program_trait_impls(&modules),
         invalid_trait_impl_method_ids:
-            crate::program_signatures::collect_invalid_trait_impl_method_ids(&modules),
+            nia_program_signatures::collect_invalid_trait_impl_method_ids(&modules),
     })
 }
 
@@ -543,7 +543,7 @@ fn visible_provider_modules_for_module(
     visible_modules_for_module(
         db,
         module_id,
-        crate::program_signatures::visible_extension_provider_modules,
+        nia_program_signatures::visible_extension_provider_modules,
     )
 }
 
@@ -554,16 +554,14 @@ fn visible_trait_impl_modules_for_module(
     visible_modules_for_module(
         db,
         module_id,
-        crate::program_signatures::visible_trait_impl_modules,
+        nia_program_signatures::visible_trait_impl_modules,
     )
 }
 
 fn visible_modules_for_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    compute: fn(
-        crate::program_signatures::VisibleExtensionProviderModulesInput<'_>,
-    ) -> Vec<ModuleId>,
+    compute: fn(nia_program_signatures::VisibleExtensionProviderModulesInput<'_>) -> Vec<ModuleId>,
 ) -> Vec<ModuleId> {
     let graph = db.query_shared(ModuleGraphQuery);
     let defs = SharedProgramDefsResolver::new(db);
@@ -585,7 +583,7 @@ fn visible_modules_for_module(
         .clone()
     };
     let provider_modules = compute(
-        crate::program_signatures::VisibleExtensionProviderModulesInput {
+        nia_program_signatures::VisibleExtensionProviderModulesInput {
             module_id,
             graph: &graph,
             using_scope: &using_scope,

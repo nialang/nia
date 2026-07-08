@@ -2,15 +2,6 @@
 use crate::{
     CheckedModule, CheckedProgram, CodegenProgram, LoadedModule, LoadedProgram, ProgramDiagnostic,
     RuntimeModel, TimingMode, module_diagnostics,
-    program_signatures::{
-        ExtensionMethodIndexModuleInput, ExtensionMethodValidationInput, ExtensionModuleInput,
-        ExtensionTraitSignatureIndex, ModuleProgramSignatureFacts, ModuleSignatureInput,
-        VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTraitImplsForModule,
-        VisibleTypeSignatures, collect_extension_associated_value_index_for_module,
-        collect_extension_method_index_for_module, collect_extension_methods_for_module,
-        collect_nominal_extension_providers_for_module, visible_extensions_for_module,
-        visible_trait_impls_for_module,
-    },
 };
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_comptime_check::{ComptimeCheck, ComptimeModuleLowering};
@@ -29,6 +20,15 @@ use nia_monomorphize::MonomorphizeModuleInput;
 use nia_node_id::NodeOriginTable;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_parser::ParseError;
+use nia_program_signatures::{
+    ExtensionMethodIndexModuleInput, ExtensionMethodValidationInput, ExtensionModuleInput,
+    ExtensionTraitSignatureIndex, ModuleProgramSignatureFacts, ModuleSignatureInput,
+    VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTraitImplsForModule,
+    VisibleTypeSignatures, collect_extension_associated_value_index_for_module,
+    collect_extension_method_index_for_module, collect_extension_methods_for_module,
+    collect_nominal_extension_providers_for_module, visible_extensions_for_module,
+    visible_trait_impls_for_module,
+};
 use nia_public_surface::{
     TypeExposureIndex, compute_exported_public_surfaces_with_symbols,
     compute_using_scopes_from_surfaces_with_symbols,
