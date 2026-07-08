@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 pub(super) struct ExecutableCheckCaches {
     pub(super) array_lengths: RefCell<HashMap<ModuleId, nia_comptime_check::ComptimeArrayLengths>>,
+    pub(super) body_resolution_inputs: RefCell<HashMap<ModuleId, BodyCheckResolutionInputs>>,
     pub(super) reachability_function_signatures:
         RefCell<HashMap<GlobalDefId, std::sync::Arc<ProgramFunctionSignature>>>,
     pub(super) body_function_signatures: RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>,
@@ -18,6 +19,7 @@ impl Default for ExecutableCheckCaches {
     fn default() -> Self {
         Self {
             array_lengths: RefCell::new(HashMap::new()),
+            body_resolution_inputs: RefCell::new(HashMap::new()),
             reachability_function_signatures: RefCell::new(HashMap::new()),
             body_function_signatures: RefCell::new(HashMap::new()),
             global_initializers: RefCell::new(HashMap::new()),
