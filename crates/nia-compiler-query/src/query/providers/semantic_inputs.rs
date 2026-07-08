@@ -1,0 +1,659 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use super::*;
+
+pub(super) struct LazyAssociatedValueResolver<'a> {
+    visible_extensions: &'a dyn Fn() -> VisibleExtensionsValue,
+    cache: RefCell<Option<VisibleExtensionsValue>>,
+}
+
+impl<'a> LazyAssociatedValueResolver<'a> {
+    pub(super) fn new(visible_extensions: &'a dyn Fn() -> VisibleExtensionsValue) -> Self {
+        Self {
+            visible_extensions,
+            cache: RefCell::new(None),
+        }
+    }
+
+    fn visible_extensions(&self) -> VisibleExtensionsValue {
+        if let Some(visible_extensions) = self.cache.borrow().as_ref() {
+            return visible_extensions.clone();
+        }
+        let visible_extensions = (self.visible_extensions)();
+        *self.cache.borrow_mut() = Some(visible_extensions.clone());
+        visible_extensions
+    }
+
+    fn target_matches(
+        interner: &nia_ty::TyInterner,
+        target_ty: InternedTyId,
+        target: nia_value_resolve::AssociatedValueTarget,
+    ) -> bool {
+        match target {
+            nia_value_resolve::AssociatedValueTarget::Primitive(primitive) => {
+                matches!(interner.get(target_ty), Some(TyKind::Primitive(found)) if *found == primitive)
+            }
+            nia_value_resolve::AssociatedValueTarget::Nominal(type_id) => {
+                matches!(interner.get(target_ty), Some(TyKind::Nominal { def_id, .. }) if *def_id == type_id)
+            }
+        }
+    }
+}
+
+impl nia_value_resolve::AssociatedValueResolver for LazyAssociatedValueResolver<'_> {
+    fn associated_value(
+        &self,
+        target: nia_value_resolve::AssociatedValueTarget,
+        name: &SymbolId,
+    ) -> Option<GlobalDefId> {
+        let visible_extensions = self.visible_extensions();
+        let mut matches = Vec::new();
+        for extension_target in visible_extensions.methods.targets() {
+            if !Self::target_matches(
+                &visible_extensions.interner,
+                extension_target.target_ty,
+                target,
+            ) {
+                continue;
+            }
+            for value in &extension_target.associated_values {
+                if &value.name == name {
+                    matches.push(value.def_id);
+                }
+            }
+        }
+        matches.sort();
+        matches.dedup();
+        let [def_id] = matches.as_slice() else {
+            return None;
+        };
+        Some(*def_id)
+    }
+}
+
+pub(super) fn provide_value_resolution(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> ValueResolution {
+    time_module_provider(db, "value_resolution", module_id, || {
+        let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+        let defs = db.query_shared(FullModuleDefsQuery(module_id));
+        let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
+        let graph = db.query_shared(ModuleGraphQuery);
+        let public_surfaces = db.query(PublicSurfacesQuery);
+        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
+        let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
+        let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+        let symbols = db.context().symbols();
+        nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
+            &active_item_tree,
+            &defs,
+            nia_value_resolve::ProgramDefsContext {
+                defs: Some(&program_defs),
+                graph: Some(&graph),
+            },
+            &public_surfaces.surfaces,
+            &using_scope,
+            Some(&associated_values),
+            Some(&symbols),
+        )
+    })
+}
+
+pub(super) fn provide_local_resolution(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> LocalResolution {
+    let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+    let defs = db.query_shared(FullModuleDefsQuery(module_id));
+    let values = db.query(ValueResolutionQuery(module_id));
+    let symbols = db.context().symbols();
+    nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
+        &active_item_tree,
+        &defs,
+        &values,
+        None,
+        &nia_node_id::NodeOriginTable::default(),
+        &symbols,
+    )
+}
+
+pub(super) fn provide_semantic_use_table(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> nia_sema_ir::SemanticUseTable {
+    let values = db.query(ValueResolutionQuery(module_id));
+    let locals = db.query(LocalResolutionQuery(module_id));
+    let type_resolution = db.query(TypeResolutionQuery(module_id));
+    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+    let needed_const_exprs =
+        needed_const_exprs_for_active_item_tree(&active_item_tree, &type_lowering);
+    let const_expr_value_resolution = if needed_const_exprs.is_empty() {
+        None
+    } else {
+        let defs = db.query_shared(FullModuleDefsQuery(module_id));
+        let public_surfaces = db.query(PublicSurfacesQuery);
+        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
+        let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
+        let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+        let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
+        let symbols = db.context().symbols();
+        Some(
+            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
+                type_lowering.const_exprs.iter().filter_map(|(id, expr)| {
+                    needed_const_exprs.contains(id).then_some(expr.clone())
+                }),
+                &defs,
+                nia_value_resolve::ProgramDefsContext {
+                    defs: Some(&program_defs),
+                    graph: Some(&db.query_shared(ModuleGraphQuery)),
+                },
+                &public_surfaces.surfaces,
+                &using_scope,
+                Some(&associated_values),
+                Some(&symbols),
+            ),
+        )
+    };
+    semantic_use_table_from_resolution_inputs_with_const_expr_values(
+        module_id,
+        &active_item_tree,
+        &values,
+        const_expr_value_resolution.as_ref(),
+        Some(&needed_const_exprs),
+        &locals,
+        &type_resolution,
+        &type_lowering,
+    )
+}
+
+pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
+    module_id: ModuleId,
+    active_item_tree: &ActiveModuleItemTree,
+    values: &ValueResolution,
+    const_expr_value_resolution: Option<&ValueResolution>,
+    const_expr_value_resolution_ids: Option<&HashSet<GlobalConstExprId>>,
+    locals: &LocalResolution,
+    type_resolution: &TypeResolution,
+    type_lowering: &TypeLowering,
+) -> nia_sema_ir::SemanticUseTable {
+    let mut builder = nia_sema_ir::SemanticUseTable::builder();
+
+    for (key, local_use) in &locals.node_uses {
+        if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
+            builder.insert_node_local_value_use(key.clone(), *local_id);
+        }
+    }
+    builder.extend_node_global_value_uses(
+        values
+            .node_qualified_values
+            .iter()
+            .map(|(key, global_id)| (key.clone(), *global_id)),
+    );
+    builder.extend_node_builtin_associated_values(
+        values
+            .node_builtin_associated_values
+            .iter()
+            .map(|(key, value)| (key.clone(), *value)),
+    );
+    builder.extend_node_associated_comptime_projections(
+        associated_comptime_projections_from_active_item_tree(active_item_tree, type_lowering),
+    );
+    builder.extend_node_associated_comptime_projections(
+        associated_comptime_projections_from_const_exprs(
+            &type_lowering.const_exprs,
+            None,
+            type_lowering,
+        ),
+    );
+    builder.extend_node_const_generic_uses(
+        type_resolution
+            .node_const_generic_names
+            .iter()
+            .map(|(key, name)| (key.clone(), name.clone())),
+    );
+    if let Some(const_expr_value_resolution) = const_expr_value_resolution {
+        let const_expr_nodes =
+            const_expr_node_keys(&type_lowering.const_exprs, const_expr_value_resolution_ids);
+        builder.extend_node_global_value_uses(
+            const_expr_value_resolution
+                .node_qualified_values
+                .iter()
+                .filter(|(key, _)| const_expr_nodes.contains(*key))
+                .map(|(key, global_id)| (key.clone(), *global_id)),
+        );
+        builder.extend_node_builtin_associated_values(
+            const_expr_value_resolution
+                .node_builtin_associated_values
+                .iter()
+                .filter(|(key, _)| const_expr_nodes.contains(*key))
+                .map(|(key, value)| (key.clone(), *value)),
+        );
+        builder.extend_node_associated_comptime_projections(
+            associated_comptime_projections_from_const_exprs(
+                &type_lowering.const_exprs,
+                const_expr_value_resolution_ids,
+                type_lowering,
+            ),
+        );
+        for (key, resolution) in &const_expr_value_resolution.node_names {
+            if !const_expr_nodes.contains(key) {
+                continue;
+            }
+            match resolution {
+                nia_value_resolve::ValueNameResolution::Def(def_id) => {
+                    builder.insert_node_global_value_use(
+                        key.clone(),
+                        GlobalDefId {
+                            module_id,
+                            def_id: *def_id,
+                        },
+                    );
+                }
+                nia_value_resolve::ValueNameResolution::External(global_id) => {
+                    builder.insert_node_global_value_use(key.clone(), *global_id);
+                }
+                nia_value_resolve::ValueNameResolution::Module
+                | nia_value_resolve::ValueNameResolution::LocalDeferred
+                | nia_value_resolve::ValueNameResolution::Error => {}
+            }
+        }
+    }
+    for (key, resolution) in &values.node_names {
+        match resolution {
+            nia_value_resolve::ValueNameResolution::Def(def_id) => {
+                builder.insert_node_global_value_use(
+                    key.clone(),
+                    GlobalDefId {
+                        module_id,
+                        def_id: *def_id,
+                    },
+                );
+            }
+            nia_value_resolve::ValueNameResolution::External(global_id) => {
+                builder.insert_node_global_value_use(key.clone(), *global_id);
+            }
+            nia_value_resolve::ValueNameResolution::Module
+            | nia_value_resolve::ValueNameResolution::LocalDeferred
+            | nia_value_resolve::ValueNameResolution::Error => {}
+        }
+    }
+    builder.extend_node_local_defs(
+        locals
+            .node_local_defs
+            .iter()
+            .map(|(key, local_id)| (key.clone(), *local_id)),
+    );
+    builder.extend_node_type_uses(
+        type_lowering.versioned_type_uses_from_active_item_tree(&active_item_tree),
+    );
+    builder.finish()
+}
+
+fn associated_comptime_projections_from_active_item_tree(
+    active_item_tree: &ActiveModuleItemTree,
+    type_lowering: &TypeLowering,
+) -> Vec<(
+    nia_node_id::VersionedNodeKey,
+    nia_sema_ir::AssociatedComptimeProjection,
+)> {
+    let mut collector = AssociatedComptimeProjectionCollector {
+        type_lowering,
+        projections: Vec::new(),
+    };
+    for item in &active_item_tree.items {
+        collector.visit_item_tree_node(item);
+    }
+    collector.projections
+}
+
+fn associated_comptime_projections_from_const_exprs(
+    const_exprs: &HashMap<GlobalConstExprId, nia_ast::Expr>,
+    ids: Option<&HashSet<GlobalConstExprId>>,
+    type_lowering: &TypeLowering,
+) -> Vec<(
+    nia_node_id::VersionedNodeKey,
+    nia_sema_ir::AssociatedComptimeProjection,
+)> {
+    let mut collector = AssociatedComptimeProjectionCollector {
+        type_lowering,
+        projections: Vec::new(),
+    };
+    for (id, expr) in const_exprs {
+        if ids.is_some_and(|ids| !ids.contains(id)) {
+            continue;
+        }
+        nia_ast_walk::Visitor::visit_expr(&mut collector, expr);
+    }
+    collector.projections
+}
+
+struct AssociatedComptimeProjectionCollector<'a> {
+    type_lowering: &'a TypeLowering,
+    projections: Vec<(
+        nia_node_id::VersionedNodeKey,
+        nia_sema_ir::AssociatedComptimeProjection,
+    )>,
+}
+
+impl AssociatedComptimeProjectionCollector<'_> {
+    fn visit_item_tree_node(&mut self, item: &nia_item_tree::ItemTreeNode) {
+        match &item.kind {
+            nia_item_tree::ItemTreeNodeKind::Function(function) => {
+                if let Some(body) = &function.body {
+                    nia_ast_walk::Visitor::visit_block(self, body);
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Binding(binding) => {
+                if let Some(value) = &binding.value {
+                    nia_ast_walk::Visitor::visit_expr(self, value);
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
+                for method in &item_trait.methods {
+                    if let Some(body) = &method.function.body {
+                        nia_ast_walk::Visitor::visit_block(self, body);
+                    }
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
+                for associated_value in &extend.associated_values {
+                    if let Some(value) = &associated_value.binding.value {
+                        nia_ast_walk::Visitor::visit_expr(self, value);
+                    }
+                }
+                for method in &extend.methods {
+                    if let Some(body) = &method.function.body {
+                        nia_ast_walk::Visitor::visit_block(self, body);
+                    }
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Module(_)
+            | nia_item_tree::ItemTreeNodeKind::Using(_)
+            | nia_item_tree::ItemTreeNodeKind::Struct(_)
+            | nia_item_tree::ItemTreeNodeKind::Union(_)
+            | nia_item_tree::ItemTreeNodeKind::Enum(_)
+            | nia_item_tree::ItemTreeNodeKind::TypeAlias(_) => {}
+        }
+    }
+
+    fn record_projection(
+        &mut self,
+        expr: &nia_ast::Expr,
+        target: &nia_ast::TypeRef,
+        trait_ref: &nia_ast::TypeRef,
+        name: &SymbolId,
+    ) {
+        let Some(self_ty) = self.type_lowering.ty_for_key(&target.node_key) else {
+            return;
+        };
+        let Some(trait_ty) = self.type_lowering.ty_for_key(&trait_ref.node_key) else {
+            return;
+        };
+        let Some((trait_id, trait_args, trait_const_args)) =
+            self.trait_id_and_args_from_ty(trait_ty)
+        else {
+            return;
+        };
+        self.projections.push((
+            expr.node_key.clone(),
+            nia_sema_ir::AssociatedComptimeProjection {
+                self_ty,
+                trait_id,
+                trait_args,
+                trait_const_args,
+                name: name.clone(),
+            },
+        ));
+    }
+
+    fn trait_id_and_args_from_ty(
+        &self,
+        ty: InternedTyId,
+    ) -> Option<(
+        nia_ty::TraitId,
+        Vec<InternedTyId>,
+        Vec<nia_ty::ConstGenericArg>,
+    )> {
+        match self.type_lowering.interner.get(ty)? {
+            nia_ty::TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } => Some((
+                nia_ty::TraitId::Source(*def_id),
+                args.clone(),
+                const_args.clone(),
+            )),
+            nia_ty::TyKind::BuiltinTrait { trait_id, args } => Some((
+                nia_ty::TraitId::Builtin(*trait_id),
+                args.clone(),
+                Vec::new(),
+            )),
+            nia_ty::TyKind::TraitObject {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                ..
+            }
+            | nia_ty::TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                ..
+            } => Some((*trait_id, trait_args.clone(), trait_const_args.clone())),
+            _ => None,
+        }
+    }
+}
+
+impl<'ast> nia_ast_walk::Visitor<'ast> for AssociatedComptimeProjectionCollector<'_> {
+    fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
+        if let nia_ast::ExprKind::Qualified { lhs, name } = &expr.kind
+            && let nia_ast::ExprKind::TraitTarget { ty, trait_ref } = &lhs.kind
+        {
+            self.record_projection(expr, ty, trait_ref, name);
+        }
+        nia_ast_walk::walk_expr(self, expr);
+    }
+}
+
+fn const_expr_node_keys(
+    const_exprs: &HashMap<GlobalConstExprId, nia_ast::Expr>,
+    ids: Option<&HashSet<GlobalConstExprId>>,
+) -> HashSet<nia_node_id::VersionedNodeKey> {
+    struct ExprNodeCollector {
+        keys: HashSet<nia_node_id::VersionedNodeKey>,
+    }
+
+    impl<'ast> nia_ast_walk::Visitor<'ast> for ExprNodeCollector {
+        fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
+            self.keys.insert(expr.node_key.clone());
+            nia_ast_walk::walk_expr(self, expr);
+        }
+    }
+
+    let mut collector = ExprNodeCollector {
+        keys: HashSet::new(),
+    };
+    for (id, expr) in const_exprs {
+        if ids.is_some_and(|ids| !ids.contains(id)) {
+            continue;
+        }
+        nia_ast_walk::Visitor::visit_expr(&mut collector, expr);
+    }
+    collector.keys
+}
+
+pub(super) fn needed_const_exprs_for_active_item_tree(
+    active_item_tree: &ActiveModuleItemTree,
+    type_lowering: &TypeLowering,
+) -> HashSet<GlobalConstExprId> {
+    if type_lowering.const_exprs.is_empty() {
+        return HashSet::new();
+    }
+    let candidate_ids = type_lowering
+        .const_exprs
+        .keys()
+        .copied()
+        .collect::<HashSet<_>>();
+    let mut out = HashSet::new();
+    let mut seen = HashSet::new();
+    for (_, ty) in type_lowering.versioned_type_uses_from_active_item_tree(active_item_tree) {
+        collect_array_len_const_exprs_in_ty(
+            &type_lowering.interner,
+            ty,
+            &candidate_ids,
+            &mut out,
+            &mut seen,
+        );
+        if out.len() == candidate_ids.len() {
+            break;
+        }
+    }
+    out
+}
+
+pub(super) fn const_expr_subset_for_ids(
+    const_exprs: &HashMap<GlobalConstExprId, nia_ast::Expr>,
+    ids: &HashSet<GlobalConstExprId>,
+) -> HashMap<GlobalConstExprId, nia_ast::Expr> {
+    const_exprs
+        .iter()
+        .filter_map(|(id, expr)| ids.contains(id).then_some((*id, expr.clone())))
+        .collect()
+}
+
+fn collect_array_len_const_exprs_in_ty(
+    interner: &nia_ty::TyInterner,
+    ty: InternedTyId,
+    candidate_ids: &HashSet<GlobalConstExprId>,
+    out: &mut HashSet<GlobalConstExprId>,
+    seen: &mut HashSet<InternedTyId>,
+) {
+    if !seen.insert(ty) {
+        return;
+    }
+    match interner.get(ty) {
+        Some(TyKind::Array { len, elem }) => {
+            collect_array_len_const_exprs_in_len(interner, len, candidate_ids, out, seen);
+            collect_array_len_const_exprs_in_ty(interner, *elem, candidate_ids, out, seen);
+        }
+        Some(
+            TyKind::Optional { elem }
+            | TyKind::Pointer { elem, .. }
+            | TyKind::VolatilePointer { elem, .. }
+            | TyKind::Slice { elem, .. }
+            | TyKind::SlicePointee { elem },
+        ) => {
+            collect_array_len_const_exprs_in_ty(interner, *elem, candidate_ids, out, seen);
+        }
+        Some(TyKind::ErrorUnion { error, value }) => {
+            collect_array_len_const_exprs_in_ty(interner, *error, candidate_ids, out, seen);
+            collect_array_len_const_exprs_in_ty(interner, *value, candidate_ids, out, seen);
+        }
+        Some(TyKind::Range {
+            bound: Some(bound), ..
+        }) => {
+            collect_array_len_const_exprs_in_ty(interner, *bound, candidate_ids, out, seen);
+        }
+        Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            ..
+        }) => {
+            for param in params {
+                collect_array_len_const_exprs_in_ty(interner, *param, candidate_ids, out, seen);
+            }
+            collect_array_len_const_exprs_in_ty(interner, *return_type, candidate_ids, out, seen);
+        }
+        Some(TyKind::Nominal {
+            args, const_args, ..
+        }) => {
+            for arg in args {
+                collect_array_len_const_exprs_in_ty(interner, *arg, candidate_ids, out, seen);
+            }
+            for arg in const_args {
+                collect_array_len_const_exprs_in_ty(interner, arg.ty, candidate_ids, out, seen);
+                collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
+            }
+        }
+        Some(TyKind::BuiltinTrait { args, .. }) => {
+            for arg in args {
+                collect_array_len_const_exprs_in_ty(interner, *arg, candidate_ids, out, seen);
+            }
+        }
+        Some(
+            TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }
+            | TyKind::TraitObjectPointee {
+                trait_args,
+                associated_type_bindings,
+                ..
+            },
+        ) => {
+            for arg in trait_args {
+                collect_array_len_const_exprs_in_ty(interner, *arg, candidate_ids, out, seen);
+            }
+            for binding in associated_type_bindings {
+                collect_array_len_const_exprs_in_ty(interner, binding.ty, candidate_ids, out, seen);
+            }
+        }
+        Some(TyKind::Projection {
+            self_ty,
+            trait_args,
+            ..
+        }) => {
+            collect_array_len_const_exprs_in_ty(interner, *self_ty, candidate_ids, out, seen);
+            for arg in trait_args {
+                collect_array_len_const_exprs_in_ty(interner, *arg, candidate_ids, out, seen);
+            }
+        }
+        Some(
+            TyKind::Range { bound: None, .. }
+            | TyKind::Error
+            | TyKind::ComptimeOnly
+            | TyKind::SelfParam
+            | TyKind::GenericParam(_)
+            | TyKind::Primitive(_)
+            | TyKind::BuiltinType(_)
+            | TyKind::Vector { .. },
+        )
+        | None => {}
+    }
+}
+
+fn collect_array_len_const_exprs_in_len(
+    interner: &nia_ty::TyInterner,
+    len: &ArrayLenTy,
+    candidate_ids: &HashSet<GlobalConstExprId>,
+    out: &mut HashSet<GlobalConstExprId>,
+    seen: &mut HashSet<InternedTyId>,
+) {
+    match len {
+        ArrayLenTy::ConstExpr(id) => {
+            if candidate_ids.contains(id) {
+                out.insert(*id);
+            }
+        }
+        ArrayLenTy::Builtin { ty, .. } => {
+            collect_array_len_const_exprs_in_ty(interner, *ty, candidate_ids, out, seen);
+        }
+        ArrayLenTy::Infer | ArrayLenTy::GenericParam(_) | ArrayLenTy::ConstValue(_) => {}
+    }
+}
+
+fn collect_array_len_const_exprs_in_const_arg(
+    arg: &nia_ty::ConstGenericArg,
+    candidate_ids: &HashSet<GlobalConstExprId>,
+    out: &mut HashSet<GlobalConstExprId>,
+) {
+    if let nia_ty::ConstGenericValue::ConstExpr(id) = arg.value
+        && candidate_ids.contains(&id)
+    {
+        out.insert(id);
+    }
+}
