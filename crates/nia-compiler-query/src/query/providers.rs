@@ -2824,7 +2824,11 @@ fn body_check_with_filter_and_layouts_with_inputs(
             .and_then(|program_layouts| program_layouts(module_id))
             .or_else(|| Some(db.query(SignatureLayoutsQuery(module_id))))
     };
-    let extensions = db.query(VisibleExtensionsQuery(module_id));
+    let empty_extensions = nia_defs::VisibleExtensionMethods::default();
+    let lazy_extensions = || {
+        let extensions = db.query(VisibleExtensionsQuery(module_id));
+        (extensions.methods.clone(), extensions.interner.clone())
+    };
     let empty_program_extension_methods = nia_defs::ExtensionMethods::default();
     let program_extension_methods = &empty_program_extension_methods;
     let program_extension_method_by_id =
@@ -3209,9 +3213,10 @@ fn body_check_with_filter_and_layouts_with_inputs(
                 comptime: body_comptime,
                 comptime_module,
                 layouts: &layouts,
-                extensions: &extensions.methods,
+                extensions: &empty_extensions,
+                lazy_extensions: Some(&lazy_extensions),
                 program_extension_methods,
-                extension_interner: Some(&extensions.interner),
+                extension_interner: None,
                 program: nia_body_check::BodyProgramContext {
                     defs: Some(&program_defs),
                     type_normalizations: Some(&program_type_normalization),
