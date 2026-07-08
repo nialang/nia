@@ -35,6 +35,13 @@ pub(super) fn write(path: &Path, source: &str) {
     fs::write(path, source).expect("write source file");
 }
 
+pub(super) fn assert_no_error_diagnostics(diagnostics: &[crate::ProgramDiagnostic]) {
+    assert!(
+        !nia_compiler_query::has_error_diagnostics(diagnostics),
+        "{diagnostics:?}"
+    );
+}
+
 pub(super) fn check_program(entry_path: impl Into<String>) -> crate::CheckedProgram {
     check_program_with_options(entry_path, NiaOptimizationLevel::default())
 }

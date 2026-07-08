@@ -6,7 +6,7 @@ use nia_backend_lower::BackendLowering;
 use nia_body_ir::BodyIr;
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::DefCollection;
-use nia_diagnostic::Diagnostic;
+use nia_diagnostic::{Diagnostic, Severity};
 use nia_flow_check::FlowCheck;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::ModuleGraph;
@@ -84,6 +84,20 @@ pub struct CodegenProgram {
 pub struct ProgramDiagnostic {
     pub path: SourcePath,
     pub diagnostic: Diagnostic,
+}
+
+impl ProgramDiagnostic {
+    pub fn is_error(&self) -> bool {
+        self.diagnostic.severity == Severity::Error
+    }
+
+    pub fn is_warning(&self) -> bool {
+        self.diagnostic.severity == Severity::Warning
+    }
+}
+
+pub fn has_error_diagnostics(diagnostics: &[ProgramDiagnostic]) -> bool {
+    diagnostics.iter().any(ProgramDiagnostic::is_error)
 }
 
 #[derive(Debug, Clone, PartialEq)]

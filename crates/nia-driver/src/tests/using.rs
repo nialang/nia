@@ -22,7 +22,7 @@ fn main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -49,7 +49,7 @@ pub fn sub(a: i32, b: i32) i32 { a - b }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -78,7 +78,7 @@ pub fn sub(a: i32, b: i32) i32 { a - b }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -105,7 +105,7 @@ pub fn add(a: i32, b: i32) i32 { a + b }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -140,7 +140,7 @@ pub fn add(a: i32, b: i32) i32 { a + b }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -230,7 +230,7 @@ pub using impl;
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -262,7 +262,7 @@ pub using impl;
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -293,7 +293,7 @@ pub using impl::add;
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -329,7 +329,7 @@ pub fn sub(a: i32, b: i32) i32 { a - b }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -367,7 +367,7 @@ pub using {math, math::add, palette, palette::Color::{Red, DDD}};
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -439,7 +439,7 @@ pub fn g(a: i32) i32 { a + 3 }
     write(&root.join("h.nia"), r#"pub enum Color: u8 { Red, Blue }"#);
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -500,7 +500,7 @@ pub using entry::math;
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -517,7 +517,7 @@ fn main() Color { Red }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -538,7 +538,7 @@ fn main() Color { pick(true) }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -565,7 +565,7 @@ pub enum Color: u8 { Red, Black, Green }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -599,7 +599,7 @@ pub enum Color: u8 { Red, Black, Green }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -647,7 +647,7 @@ fn main() palette::Color {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -670,7 +670,7 @@ fn same(a: palette::Color, b: palette::Color) bool {
     );
 
     let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
     let main_module = program
         .backend_lowering
         .program
@@ -729,7 +729,7 @@ extend Box {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -759,7 +759,7 @@ fn main() i32 { pick(palette::Color::Red) }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]
@@ -818,7 +818,7 @@ fn main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_no_error_diagnostics(&program.diagnostics);
 }
 
 #[test]

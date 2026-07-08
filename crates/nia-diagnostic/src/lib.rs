@@ -169,6 +169,12 @@ pub mod codes {
         "llvm-codegen",
         "LLVM code generation failed",
     );
+    pub const UNUSED_IMPORT: DiagnosticCodeDef = DiagnosticCodeDef::user_warning(
+        "W0201",
+        DiagnosticStage::Load,
+        "unused-import",
+        "import binding is never used",
+    );
 
     pub const ALL: &[DiagnosticCodeDef] = &[
         ICE,
@@ -198,6 +204,7 @@ pub mod codes {
         COMPTIME,
         STATIC_CHECK,
         LLVM_CODEGEN,
+        UNUSED_IMPORT,
     ];
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -237,6 +244,22 @@ pub mod codes {
                 code,
                 severity: Severity::Error,
                 category: DiagnosticCategory::Internal,
+                stage,
+                name,
+                description,
+            }
+        }
+
+        pub const fn user_warning(
+            code: &'static str,
+            stage: DiagnosticStage,
+            name: &'static str,
+            description: &'static str,
+        ) -> Self {
+            Self {
+                code,
+                severity: Severity::Warning,
+                category: DiagnosticCategory::User,
                 stage,
                 name,
                 description,
@@ -469,6 +492,16 @@ impl Diagnostic {
         summary: impl Into<String>,
     ) -> DiagnosticBuilder {
         assert_eq!(code.category, DiagnosticCategory::User);
+        assert_eq!(code.severity, Severity::Error);
+        Self::build(code, summary)
+    }
+
+    pub fn user_warning(
+        code: codes::DiagnosticCodeDef,
+        summary: impl Into<String>,
+    ) -> DiagnosticBuilder {
+        assert_eq!(code.category, DiagnosticCategory::User);
+        assert_eq!(code.severity, Severity::Warning);
         Self::build(code, summary)
     }
 
@@ -499,6 +532,17 @@ impl Diagnostic {
     ) -> Diagnostic {
         let summary = summary.into();
         Self::user_error(code, summary.clone())
+            .primary(span, summary)
+            .finish()
+    }
+
+    pub fn user_warning_at(
+        code: codes::DiagnosticCodeDef,
+        span: Span,
+        summary: impl Into<String>,
+    ) -> Diagnostic {
+        let summary = summary.into();
+        Self::user_warning(code, summary.clone())
             .primary(span, summary)
             .finish()
     }

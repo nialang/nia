@@ -3,8 +3,8 @@ use nia_ast::{
     TypeRef, UsingGroupItem, UsingHostSegment, UsingItem, UsingSelector,
 };
 use nia_ast_walk::{Visitor, walk_expr, walk_item, walk_module, walk_stmt, walk_type};
-use nia_diagnostic::Diagnostic;
-use nia_imports::{ModuleMap, ModuleRootSegment, ResolvedModuleDeclaration};
+use nia_diagnostic::{Diagnostic, codes};
+use nia_imports::{ModuleMap, ModuleRootSegment, ResolvedModuleDeclaration, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_symbol::{SymbolId, SymbolMap, ToSymbolId};
 use std::collections::HashMap;
@@ -12,7 +12,7 @@ use std::collections::HashMap;
 pub(crate) fn collect_used_modules(
     item_tree: &ActiveModuleItemTree,
     module_map: &ModuleMap,
-) -> (Vec<SymbolId>, Vec<UsedModulePath>) {
+) -> UsedModuleCollection {
     let mut packages = Vec::new();
     let mut paths = Vec::new();
     let local_module_names = item_tree
@@ -24,6 +24,9 @@ pub(crate) fn collect_used_modules(
         })
         .collect::<Vec<_>>();
     let using_aliases = module_using_aliases(item_tree, module_map, &local_module_names);
+    let explicit_imports =
+        module_explicit_imports(item_tree, module_map, &local_module_names, &using_aliases);
+    let mut used_aliases = Vec::new();
     for item in &item_tree.items {
         let ItemTreeNodeKind::Using(using) = &item.kind else {
             continue;
@@ -43,6 +46,7 @@ pub(crate) fn collect_used_modules(
         module_map,
         local_module_names: &local_module_names,
         using_aliases: &using_aliases,
+        used_aliases: &mut used_aliases,
         packages: &mut packages,
         paths: &mut paths,
         locals: Vec::new(),
@@ -52,6 +56,8 @@ pub(crate) fn collect_used_modules(
     packages.dedup();
     paths.sort();
     paths.dedup();
+    used_aliases.sort();
+    used_aliases.dedup();
     for path in &paths {
         if let UsedModulePath::Package { package, .. } = path {
             packages.push(*package);
@@ -59,13 +65,19 @@ pub(crate) fn collect_used_modules(
     }
     packages.sort();
     packages.dedup();
-    (packages, paths)
+    UsedModuleCollection {
+        package_roots: packages,
+        used_module_paths: paths,
+        explicit_imports,
+        used_aliases,
+    }
 }
 
 struct QualifiedPathModuleCollector<'a> {
     module_map: &'a ModuleMap,
     local_module_names: &'a [SymbolId],
     using_aliases: &'a SymbolMap<UsedModulePath>,
+    used_aliases: &'a mut Vec<SymbolId>,
     packages: &'a mut Vec<SymbolId>,
     paths: &'a mut Vec<UsedModulePath>,
     locals: Vec<SymbolMap<SymbolId>>,
@@ -100,6 +112,7 @@ impl QualifiedPathModuleCollector<'_> {
             return;
         };
         if let Some(alias) = self.using_aliases.get(first) {
+            self.used_aliases.push(*first);
             self.paths
                 .push(alias.with_appended_segments_with_processing_mode(rest, false, processing));
             return;
@@ -701,6 +714,163 @@ pub(crate) fn using_host_path(
     Some(root.path(&[], false, true))
 }
 
+fn module_explicit_imports(
+    item_tree: &ActiveModuleItemTree,
+    module_map: &ModuleMap,
+    local_module_names: &[SymbolId],
+    aliases: &SymbolMap<UsedModulePath>,
+) -> Vec<ExplicitUsingImport> {
+    let mut imports = Vec::new();
+    for item in &item_tree.items {
+        let ItemTreeNodeKind::Using(using) = &item.kind else {
+            continue;
+        };
+        if item.visibility != Visibility::Private {
+            continue;
+        }
+        collect_explicit_imports_from_using(
+            item.span,
+            using,
+            module_map,
+            local_module_names,
+            aliases,
+            &mut imports,
+        );
+    }
+    imports
+}
+
+fn collect_explicit_imports_from_using(
+    span: nia_span::Span,
+    using: &UsingItem,
+    module_map: &ModuleMap,
+    local_module_names: &[SymbolId],
+    aliases: &SymbolMap<UsedModulePath>,
+    imports: &mut Vec<ExplicitUsingImport>,
+) {
+    if using.host.is_empty() {
+        let UsingSelector::Group(items) = &using.selector else {
+            return;
+        };
+        for item in items {
+            collect_explicit_imports_from_root_group_item(
+                span,
+                item,
+                module_map,
+                local_module_names,
+                imports,
+            );
+        }
+        return;
+    }
+    let Some(host_path) = using_host_path(&using.host, module_map, local_module_names, aliases)
+    else {
+        return;
+    };
+    collect_explicit_imports_from_selector(span, host_path, &using.selector, imports);
+}
+
+fn collect_explicit_imports_from_root_group_item(
+    span: nia_span::Span,
+    item: &UsingGroupItem,
+    module_map: &ModuleMap,
+    local_module_names: &[SymbolId],
+    imports: &mut Vec<ExplicitUsingImport>,
+) {
+    match item {
+        UsingGroupItem::Name(name) => {
+            if !nia_imports::is_entry_module_root(name.name)
+                && !local_module_names.contains(&name.name)
+                && module_map.contains_root(name.name)
+            {
+                imports.push(ExplicitUsingImport {
+                    span,
+                    alias: name.alias.unwrap_or(name.name),
+                    path: UsedModulePath::Package {
+                        package: name.name,
+                        segments: Vec::new(),
+                        include_declared_children: false,
+                        processing: UsedModulePathProcessing::Never,
+                    },
+                });
+            }
+        }
+        UsingGroupItem::Nested { host, selector } => {
+            let aliases = SymbolMap::default();
+            let Some(host_path) = using_host_path(host, module_map, local_module_names, &aliases)
+            else {
+                return;
+            };
+            collect_explicit_imports_from_selector(span, host_path, selector, imports);
+        }
+    }
+}
+
+fn collect_explicit_imports_from_selector(
+    span: nia_span::Span,
+    host_path: UsedModulePath,
+    selector: &UsingSelector,
+    imports: &mut Vec<ExplicitUsingImport>,
+) {
+    match selector {
+        UsingSelector::SelfName => {
+            if let Some(alias) = host_path.last_segment_name() {
+                imports.push(ExplicitUsingImport {
+                    span,
+                    alias,
+                    path: host_path,
+                });
+            }
+        }
+        UsingSelector::Wildcard { .. } => {}
+        UsingSelector::Single(name) => {
+            imports.push(ExplicitUsingImport {
+                span,
+                alias: name.alias.unwrap_or(name.name),
+                path: host_path.with_appended_segments_with_processing_mode(
+                    std::slice::from_ref(&name.name),
+                    false,
+                    UsedModulePathProcessing::Never,
+                ),
+            });
+        }
+        UsingSelector::Group(items) => {
+            for item in items {
+                collect_explicit_imports_from_group_item(span, &host_path, item, imports);
+            }
+        }
+    }
+}
+
+fn collect_explicit_imports_from_group_item(
+    span: nia_span::Span,
+    host_path: &UsedModulePath,
+    item: &UsingGroupItem,
+    imports: &mut Vec<ExplicitUsingImport>,
+) {
+    match item {
+        UsingGroupItem::Name(name) => {
+            imports.push(ExplicitUsingImport {
+                span,
+                alias: name.alias.unwrap_or(name.name),
+                path: host_path.with_appended_segments_with_processing_mode(
+                    std::slice::from_ref(&name.name),
+                    false,
+                    UsedModulePathProcessing::Never,
+                ),
+            });
+        }
+        UsingGroupItem::Nested { host, selector } => {
+            let nested = host_path.with_appended_segments_with_processing(
+                &host_segments(host),
+                false,
+                false,
+            );
+            collect_explicit_imports_from_selector(span, nested, selector, imports);
+        }
+    }
+}
+
 fn collect_root_group_modules(
     selector: &UsingSelector,
     module_map: &ModuleMap,
@@ -747,7 +917,37 @@ pub(crate) struct ModuleDeclarations {
     pub(crate) declarations: Vec<ResolvedModuleDeclaration>,
     pub(crate) package_roots: Vec<SymbolId>,
     pub(crate) used_module_paths: Vec<UsedModulePath>,
+    pub(crate) explicit_imports: Vec<ExplicitUsingImport>,
+    pub(crate) used_import_aliases: Vec<SymbolId>,
     pub(crate) diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UsedModuleCollection {
+    pub(crate) package_roots: Vec<SymbolId>,
+    pub(crate) used_module_paths: Vec<UsedModulePath>,
+    pub(crate) explicit_imports: Vec<ExplicitUsingImport>,
+    pub(crate) used_aliases: Vec<SymbolId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExplicitUsingImport {
+    pub(crate) span: nia_span::Span,
+    pub(crate) alias: SymbolId,
+    pub(crate) path: UsedModulePath,
+}
+
+impl ExplicitUsingImport {
+    pub(crate) fn warning(&self, symbols: &dyn nia_symbol::SymbolText) -> Diagnostic {
+        Diagnostic::user_warning_at(
+            codes::UNUSED_IMPORT,
+            self.span,
+            format!(
+                "unused import `{}`",
+                nia_symbol::symbol_text_or_unresolved(symbols, self.alias)
+            ),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
