@@ -2233,21 +2233,18 @@ impl<'a> ExecutableFactMode<'a> {
         }
     }
 
-    fn executable(
-        program_signatures: &'a ProgramExecutableSignatures,
-        reachable_body_modules: &'a HashSet<ModuleId>,
-    ) -> Self {
+    fn executable(reachable_body_modules: &'a HashSet<ModuleId>) -> Self {
         Self {
-            program_signatures: Some(program_signatures),
+            program_signatures: None,
             reachable_body_modules: Some(reachable_body_modules),
         }
     }
 
     fn signature_facts_for(self, module_id: ModuleId) -> bool {
+        if let Some(reachable_body_modules) = self.reachable_body_modules {
+            return !reachable_body_modules.contains(&module_id);
+        }
         self.program_signatures.is_some()
-            && !self
-                .reachable_body_modules
-                .is_some_and(|modules| modules.contains(&module_id))
     }
 }
 
@@ -3076,26 +3073,38 @@ fn body_check_with_filter_and_layouts_with_inputs(
     let executable_program_comptime_values =
         RefCell::new(HashMap::<ModuleId, nia_comptime_check::ComptimeValues>::new());
     let program_comptime_array_lengths = |module_id| {
+        if fact_mode.signature_facts_for(module_id) {
+            if !executable_program_comptime_array_lengths
+                .borrow()
+                .contains_key(&module_id)
+            {
+                let array_lengths =
+                    signature_comptime_array_lengths(db, module_id, fact_mode.program_signatures);
+                executable_program_comptime_array_lengths
+                    .borrow_mut()
+                    .insert(module_id, array_lengths);
+            }
+            return executable_program_comptime_array_lengths
+                .borrow()
+                .get(&module_id)
+                .cloned();
+        }
         if let Some(signatures) = fact_mode.program_signatures {
             if !executable_program_comptime_array_lengths
                 .borrow()
                 .contains_key(&module_id)
             {
-                let array_lengths = if fact_mode.signature_facts_for(module_id) {
-                    signature_comptime_array_lengths(db, module_id, Some(signatures))
-                } else {
-                    with_comptime_input_and_program_signatures(
-                        db,
-                        module_id,
-                        Some(signatures),
-                        |input, module| {
-                            let mut array_lengths =
-                                nia_comptime_check::compute_module_comptime_array_lengths(input);
-                            array_lengths.diagnostics.extend(module.diagnostics.clone());
-                            array_lengths
-                        },
-                    )
-                };
+                let array_lengths = with_comptime_input_and_program_signatures(
+                    db,
+                    module_id,
+                    Some(signatures),
+                    |input, module| {
+                        let mut array_lengths =
+                            nia_comptime_check::compute_module_comptime_array_lengths(input);
+                        array_lengths.diagnostics.extend(module.diagnostics.clone());
+                        array_lengths
+                    },
+                );
                 executable_program_comptime_array_lengths
                     .borrow_mut()
                     .insert(module_id, array_lengths);
@@ -3108,44 +3117,55 @@ fn body_check_with_filter_and_layouts_with_inputs(
         Some(db.query(ComptimeArrayLengthsQuery(module_id)))
     };
     let program_comptime_values = |module_id| {
+        if fact_mode.signature_facts_for(module_id) {
+            if !executable_program_comptime_values
+                .borrow()
+                .contains_key(&module_id)
+            {
+                let values = signature_comptime_values(db, module_id, fact_mode.program_signatures);
+                executable_program_comptime_values
+                    .borrow_mut()
+                    .insert(module_id, values);
+            }
+            return executable_program_comptime_values
+                .borrow()
+                .get(&module_id)
+                .cloned();
+        }
         if let Some(signatures) = fact_mode.program_signatures {
             if !executable_program_comptime_values
                 .borrow()
                 .contains_key(&module_id)
             {
-                let values = if fact_mode.signature_facts_for(module_id) {
-                    signature_comptime_values(db, module_id, Some(signatures))
-                } else {
-                    let array_lengths = program_comptime_array_lengths(module_id)?;
-                    let enum_values = with_comptime_input_and_program_signatures(
-                        db,
-                        module_id,
-                        Some(signatures),
-                        |input, module| {
-                            let mut enum_values =
-                                nia_comptime_check::compute_module_comptime_enum_values(
-                                    input,
-                                    array_lengths.clone(),
-                                );
-                            enum_values.diagnostics.extend(module.diagnostics.clone());
-                            enum_values
-                        },
-                    );
-                    with_comptime_input_and_program_signatures(
-                        db,
-                        module_id,
-                        Some(signatures),
-                        |input, module| {
-                            let mut values = nia_comptime_check::compute_module_comptime_values(
+                let array_lengths = program_comptime_array_lengths(module_id)?;
+                let enum_values = with_comptime_input_and_program_signatures(
+                    db,
+                    module_id,
+                    Some(signatures),
+                    |input, module| {
+                        let mut enum_values =
+                            nia_comptime_check::compute_module_comptime_enum_values(
                                 input,
-                                array_lengths,
-                                enum_values,
+                                array_lengths.clone(),
                             );
-                            values.diagnostics.extend(module.diagnostics.clone());
-                            values
-                        },
-                    )
-                };
+                        enum_values.diagnostics.extend(module.diagnostics.clone());
+                        enum_values
+                    },
+                );
+                let values = with_comptime_input_and_program_signatures(
+                    db,
+                    module_id,
+                    Some(signatures),
+                    |input, module| {
+                        let mut values = nia_comptime_check::compute_module_comptime_values(
+                            input,
+                            array_lengths,
+                            enum_values,
+                        );
+                        values.diagnostics.extend(module.diagnostics.clone());
+                        values
+                    },
+                );
                 executable_program_comptime_values
                     .borrow_mut()
                     .insert(module_id, values);
@@ -4660,25 +4680,66 @@ pub(super) fn provide_executable_checked_modules(
 
 struct QueryExecutableExtensionLookup<'a> {
     db: &'a QueryDb<CompilerContext>,
+    trait_impls_by_trait:
+        RefCell<HashMap<nia_ty::TraitId, Vec<nia_item_signatures::ProgramTraitImplSignature>>>,
+    module_ids_by_trait: RefCell<HashMap<nia_ty::TraitId, Vec<ModuleId>>>,
+    methods_by_trait: RefCell<HashMap<nia_ty::TraitId, Vec<nia_defs::ExtensionMethod>>>,
+    methods_by_trait_name:
+        RefCell<HashMap<(nia_ty::TraitId, SymbolId), Vec<nia_defs::ExtensionMethod>>>,
 }
 
 impl QueryExecutableExtensionLookup<'_> {
-    fn module_ids_for_trait(&self, trait_id: nia_ty::TraitId) -> Vec<ModuleId> {
-        let mut modules = self
+    fn new(db: &QueryDb<CompilerContext>) -> QueryExecutableExtensionLookup<'_> {
+        QueryExecutableExtensionLookup {
+            db,
+            trait_impls_by_trait: RefCell::new(HashMap::new()),
+            module_ids_by_trait: RefCell::new(HashMap::new()),
+            methods_by_trait: RefCell::new(HashMap::new()),
+            methods_by_trait_name: RefCell::new(HashMap::new()),
+        }
+    }
+
+    fn trait_impls_for_trait(
+        &self,
+        trait_id: nia_ty::TraitId,
+    ) -> Vec<nia_item_signatures::ProgramTraitImplSignature> {
+        if let Some(trait_impls) = self.trait_impls_by_trait.borrow().get(&trait_id) {
+            return trait_impls.clone();
+        }
+        let trait_impls = self
             .db
             .query(ExtensionTraitImplsForTraitQuery(trait_id))
             .trait_impls
-            .iter()
+            .clone();
+        self.trait_impls_by_trait
+            .borrow_mut()
+            .insert(trait_id, trait_impls.clone());
+        trait_impls
+    }
+
+    fn module_ids_for_trait(&self, trait_id: nia_ty::TraitId) -> Vec<ModuleId> {
+        if let Some(modules) = self.module_ids_by_trait.borrow().get(&trait_id) {
+            return modules.clone();
+        }
+        let mut modules = self
+            .trait_impls_for_trait(trait_id)
+            .into_iter()
             .map(|impl_signature| impl_signature.module_id)
             .collect::<Vec<_>>();
         modules.sort();
         modules.dedup();
+        self.module_ids_by_trait
+            .borrow_mut()
+            .insert(trait_id, modules.clone());
         modules
     }
 }
 
 impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
     fn methods_for_trait(&self, trait_id: nia_ty::TraitId) -> Vec<nia_defs::ExtensionMethod> {
+        if let Some(methods) = self.methods_by_trait.borrow().get(&trait_id) {
+            return methods.clone();
+        }
         let mut seen = HashSet::new();
         let mut methods = Vec::new();
         for facts in self.db.query_many(
@@ -4695,6 +4756,9 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
                     .cloned(),
             );
         }
+        self.methods_by_trait
+            .borrow_mut()
+            .insert(trait_id, methods.clone());
         methods
     }
 
@@ -4703,6 +4767,10 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
         trait_id: nia_ty::TraitId,
         method_name: &SymbolId,
     ) -> Vec<nia_defs::ExtensionMethod> {
+        let key = (trait_id, *method_name);
+        if let Some(methods) = self.methods_by_trait_name.borrow().get(&key) {
+            return methods.clone();
+        }
         let mut seen = HashSet::new();
         let mut methods = Vec::new();
         for facts in self.db.query_many(
@@ -4719,6 +4787,9 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
                     .cloned(),
             );
         }
+        self.methods_by_trait_name
+            .borrow_mut()
+            .insert(key, methods.clone());
         methods
     }
 
@@ -4739,9 +4810,7 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
         method: &nia_defs::ExtensionMethod,
         trait_id: nia_ty::TraitId,
     ) -> Option<nia_item_signatures::ProgramTraitImplSignature> {
-        self.db
-            .query(ExtensionTraitImplsForTraitQuery(trait_id))
-            .trait_impls
+        self.trait_impls_for_trait(trait_id)
             .iter()
             .find(|impl_signature| {
                 impl_signature.module_id == method.def_id.module_id
@@ -4897,7 +4966,7 @@ fn executable_checked_module_set_inner(
     let mut checked_by_id = HashMap::<ModuleId, ExecutableCheckedModuleState>::new();
     let comptime_module_cache = RefCell::new(HashMap::<ModuleId, ComptimeModuleLowering>::new());
     let mut reachability_state = IncrementalExecutableReachability::default();
-    let extension_lookup = QueryExecutableExtensionLookup { db };
+    let extension_lookup = QueryExecutableExtensionLookup::new(db);
     let reachability = loop {
         let reachable_inputs = time_provider(
             db.context().timings(),
@@ -4999,21 +5068,13 @@ fn executable_checked_module_set_inner(
                 already_checked_functions: already_checked_functions,
                 already_checked_globals: already_checked_globals,
             };
-            let program_signatures = time_provider(
-                db.context().timings(),
-                "executable_checked_modules.program_signatures",
-                || {
-                    program_signatures
-                        .get_or_insert_with(|| executable_program_signatures_without_functions(db))
-                },
-            );
             let layouts = executable_layouts_for_reachable_items(
                 db,
                 module_id,
                 &reachability.functions,
                 &reachability.globals,
                 Some(&caches.array_lengths),
-                Some(&*program_signatures),
+                None,
             );
             let seed_interner = checked_by_id
                 .get(&module_id)
@@ -5029,7 +5090,7 @@ fn executable_checked_module_set_inner(
                     &reachability.functions,
                     &reachability.globals,
                     Some(&caches.array_lengths),
-                    Some(&*program_signatures),
+                    None,
                 );
                 let reachable_body_modules = executable_reachable_body_modules(
                     db,
@@ -5043,7 +5104,7 @@ fn executable_checked_module_set_inner(
                         filter,
                         Some(layouts.clone()),
                         Some(&executable_program_layouts),
-                        ExecutableFactMode::executable(program_signatures, &reachable_body_modules),
+                        ExecutableFactMode::executable(&reachable_body_modules),
                         None,
                         seed_interner,
                         Some(&caches.global_initializers),
