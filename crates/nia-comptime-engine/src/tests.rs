@@ -106,11 +106,12 @@ fn resolved_names_do_not_fall_back_to_ident_lookup() {
     };
     let err = eval_early_comptime_expr(&expr, &mut EmptyEnv)
         .expect_err("resolved names must be handled explicitly");
+    let expected_name = EmptyEnv.symbol_name(sym("x"));
     assert_eq!(
         err.message,
         format!(
             "resolved comptime value `{}` is not available in this context",
-            sym("x")
+            expected_name
         )
     );
 }
@@ -203,11 +204,12 @@ fn assignment_targets_require_resolved_locals() {
     };
     let err = eval_early_comptime_expr(&expr, &mut EmptyEnv)
         .expect_err("assignment targets must carry resolved local ids");
+    let expected_name = EmptyEnv.symbol_name(sym("x"));
     assert_eq!(
         err.message,
         format!(
             "failed to resolve comptime assignment target `{}`",
-            sym("x")
+            expected_name
         )
     );
 }
@@ -223,11 +225,12 @@ fn pattern_bindings_require_resolved_locals() {
         ComptimeValue::Int(IntConst::signed(1)),
     )
     .expect_err("pattern bindings must carry resolved local ids");
+    let expected_name = EmptyEnv.symbol_name(sym("payload"));
     assert_eq!(
         err.message,
         format!(
             "failed to resolve comptime pattern local `{}`",
-            sym("payload")
+            expected_name
         )
     );
 }
@@ -365,14 +368,14 @@ impl EarlyComptimeEnv for ConfigEnv {
                 span,
                 message: format!(
                     "resolved comptime value `{}` is not available in this test",
-                    name.display()
+                    self.symbol_name(name.display())
                 ),
             });
         };
         if *name != sym("config") {
             return Err(ComptimeError {
                 span,
-                message: format!("unknown comptime value `{name}`"),
+                message: format!("unknown comptime value `{}`", self.symbol_name(*name)),
             });
         }
         let mut target = BTreeMap::new();
@@ -426,7 +429,7 @@ impl EarlyComptimeEnv for PatternEnv {
                 span,
                 message: format!(
                     "resolved comptime value `{}` is not available in this test",
-                    name.display()
+                    self.symbol_name(name.display())
                 ),
             });
         };
@@ -436,7 +439,7 @@ impl EarlyComptimeEnv for PatternEnv {
             .find_map(|scope| scope.get(name).cloned())
             .ok_or_else(|| ComptimeError {
                 span,
-                message: format!("unknown comptime value `{name}`"),
+                message: format!("unknown comptime value `{}`", self.symbol_name(*name)),
             })
     }
 

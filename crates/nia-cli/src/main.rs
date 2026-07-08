@@ -1457,6 +1457,7 @@ mod tests {
     fn ice_boundary_converts_panic_to_failure() {
         let mut message = String::new();
         let code = run_with_ice_boundary(
+            TimingOptions::default(),
             || panic!("Nia ICE: forced failure"),
             |ice| message = ice.render_message(),
         );

@@ -1134,10 +1134,11 @@ mod tests {
     #[test]
     fn interns_identical_types_once() {
         let mut interner = TyInterner::new(ModuleId(0));
+        let initial_len = interner.len();
         let a = interner.intern(TyKind::Primitive(PrimitiveTy::I32));
         let b = interner.intern(TyKind::Primitive(PrimitiveTy::I32));
         assert_eq!(a, b);
-        assert_eq!(interner.len(), 19);
+        assert_eq!(interner.len(), initial_len);
     }
 
     #[test]
