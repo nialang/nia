@@ -43,24 +43,31 @@ pub struct ExecutableExtensionIndex<'a> {
 }
 
 pub trait ExecutableExtensionLookup {
-    fn methods_for_trait(&self, trait_id: TraitId) -> Vec<nia_defs::ExtensionMethod>;
+    fn for_each_method_for_trait(
+        &self,
+        trait_id: TraitId,
+        f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
+    );
 
-    fn methods_for_trait_method(
+    fn for_each_method_for_trait_method(
         &self,
         trait_id: TraitId,
         method_name: &SymbolId,
-    ) -> Vec<nia_defs::ExtensionMethod>;
+        f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
+    );
 
-    fn where_predicates_for_def(
+    fn with_where_predicates_for_def(
         &self,
         def_id: GlobalDefId,
-    ) -> Vec<nia_defs::WherePredicateSignature>;
+        f: &mut dyn FnMut(&[nia_defs::WherePredicateSignature]),
+    );
 
-    fn trait_impl_for_method(
+    fn with_trait_impl_for_method(
         &self,
         method: &nia_defs::ExtensionMethod,
         trait_id: TraitId,
-    ) -> Option<ProgramTraitImplSignature>;
+        f: &mut dyn FnMut(&ProgramTraitImplSignature),
+    ) -> bool;
 }
 
 impl<'a> ExecutableExtensionIndex<'a> {
@@ -106,44 +113,58 @@ impl<'a> ExecutableExtensionIndex<'a> {
 }
 
 impl ExecutableExtensionLookup for ExecutableExtensionIndex<'_> {
-    fn methods_for_trait(&self, trait_id: TraitId) -> Vec<nia_defs::ExtensionMethod> {
-        self.by_trait
-            .get(&trait_id)
-            .into_iter()
-            .flat_map(|methods| methods.iter().map(|method| (*method).clone()))
-            .collect()
+    fn for_each_method_for_trait(
+        &self,
+        trait_id: TraitId,
+        f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
+    ) {
+        if let Some(methods) = self.by_trait.get(&trait_id) {
+            for method in methods {
+                f(method);
+            }
+        }
     }
 
-    fn methods_for_trait_method(
+    fn for_each_method_for_trait_method(
         &self,
         trait_id: TraitId,
         method_name: &SymbolId,
-    ) -> Vec<nia_defs::ExtensionMethod> {
-        self.by_trait_method
-            .get(&(trait_id, method_name.clone()))
-            .into_iter()
-            .flat_map(|methods| methods.iter().map(|method| (*method).clone()))
-            .collect()
+        f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
+    ) {
+        if let Some(methods) = self.by_trait_method.get(&(trait_id, *method_name)) {
+            for method in methods {
+                f(method);
+            }
+        }
     }
 
-    fn where_predicates_for_def(
+    fn with_where_predicates_for_def(
         &self,
         def_id: GlobalDefId,
-    ) -> Vec<nia_defs::WherePredicateSignature> {
-        self.where_predicates_by_def
+        f: &mut dyn FnMut(&[nia_defs::WherePredicateSignature]),
+    ) {
+        let predicates = self
+            .where_predicates_by_def
             .get(&def_id)
-            .map(|predicates| predicates.to_vec())
-            .unwrap_or_default()
+            .copied()
+            .unwrap_or(&[]);
+        f(predicates);
     }
 
-    fn trait_impl_for_method(
+    fn with_trait_impl_for_method(
         &self,
         method: &nia_defs::ExtensionMethod,
         trait_id: TraitId,
-    ) -> Option<ProgramTraitImplSignature> {
-        self.trait_impls_by_key
-            .get(&(method.def_id.module_id, method.impl_id, trait_id))
-            .map(|signature| (*signature).clone())
+        f: &mut dyn FnMut(&ProgramTraitImplSignature),
+    ) -> bool {
+        let Some(signature) =
+            self.trait_impls_by_key
+                .get(&(method.def_id.module_id, method.impl_id, trait_id))
+        else {
+            return false;
+        };
+        f(signature);
+        true
     }
 }
 
@@ -1088,13 +1109,7 @@ fn extend_reachable_traits_from_generic_instantiation(
         self_ty,
         generics: &generic_substitutions,
     };
-    let extension_where_predicates = extension_index.where_predicates_for_def(instantiation.def_id);
-    for predicate in signature
-        .signature
-        .where_predicates
-        .iter()
-        .chain(extension_where_predicates.iter())
-    {
+    for predicate in &signature.signature.where_predicates {
         let mut substituted_interner = signature_interner.clone();
         let Some(self_ty) = substitute_ty(&mut substituted_interner, predicate.ty, &substitutions)
         else {
@@ -1142,6 +1157,58 @@ fn extend_reachable_traits_from_generic_instantiation(
             }
         }
     }
+    extension_index.with_where_predicates_for_def(instantiation.def_id, &mut |predicates| {
+        for predicate in predicates {
+            let mut substituted_interner = signature_interner.clone();
+            let Some(self_ty) =
+                substitute_ty(&mut substituted_interner, predicate.ty, &substitutions)
+            else {
+                continue;
+            };
+            for bound in &predicate.bounds {
+                let Some(trait_ty) =
+                    substitute_ty(&mut substituted_interner, bound.trait_ty, &substitutions)
+                else {
+                    continue;
+                };
+                let Some((trait_id, trait_args)) =
+                    trait_id_and_args(&substituted_interner, trait_ty)
+                else {
+                    continue;
+                };
+                match trait_id {
+                    TraitId::Source(trait_def) => {
+                        if let Some(trait_signature) = (program_signatures.trait_)(trait_def) {
+                            for method in &trait_signature.signature.methods {
+                                traits.insert_method_with_interner(
+                                    use_module_id,
+                                    trait_id,
+                                    method.name,
+                                    self_ty,
+                                    trait_args.clone(),
+                                    Some(substituted_interner.clone()),
+                                );
+                            }
+                        }
+                    }
+                    TraitId::Builtin(builtin_trait) => {
+                        for method in builtin_trait.required_methods() {
+                            if let Some(method_name) = builtin_trait_method_symbol(*method) {
+                                traits.insert_method_with_interner(
+                                    use_module_id,
+                                    trait_id,
+                                    method_name,
+                                    self_ty,
+                                    trait_args.clone(),
+                                    Some(substituted_interner.clone()),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
     let Some(target_module) = modules_by_id.get(&instantiation.def_id.module_id) else {
         return;
     };
@@ -1595,9 +1662,9 @@ fn extend_reachable_functions_from_traits(
         }
     }
     for vtable in &reachable_traits.vtables {
-        for method in extension_index.methods_for_trait(vtable.trait_id) {
+        extension_index.for_each_method_for_trait(vtable.trait_id, &mut |method| {
             if reachable_extension_method_match(
-                &method,
+                method,
                 vtable.trait_id,
                 vtable.self_ty,
                 &vtable.trait_args,
@@ -1608,7 +1675,7 @@ fn extend_reachable_functions_from_traits(
             )
             .is_none()
             {
-                continue;
+                return;
             }
             add_reachable_function(
                 method.def_id,
@@ -1617,42 +1684,44 @@ fn extend_reachable_functions_from_traits(
                 &mut modules,
                 pending_modules,
             );
-        }
+        });
     }
     let mut method_index = 0;
     while method_index < reachable_traits.methods.len() {
         let reachable = reachable_traits.methods[method_index].clone();
         method_index += 1;
-        for method in
-            extension_index.methods_for_trait_method(reachable.trait_id, &reachable.method_name)
-        {
-            let Some(matched) = reachable_extension_method_match(
-                &method,
-                reachable.trait_id,
-                reachable.self_ty,
-                &reachable.trait_args,
-                reachable.module_id,
-                reachable.interner.as_ref(),
-                extension_index,
-                modules_by_id,
-            ) else {
-                continue;
-            };
-            add_reachable_function(
-                method.def_id,
-                program_signatures,
-                reachable_functions,
-                &mut modules,
-                pending_modules,
-            );
-            extend_reachable_trait_methods_from_impl_where_predicates(
-                program_signatures,
-                &matched,
-                &reachable.method_name,
-                reachable.module_id,
-                reachable_traits,
-            );
-        }
+        extension_index.for_each_method_for_trait_method(
+            reachable.trait_id,
+            &reachable.method_name,
+            &mut |method| {
+                let Some(matched) = reachable_extension_method_match(
+                    method,
+                    reachable.trait_id,
+                    reachable.self_ty,
+                    &reachable.trait_args,
+                    reachable.module_id,
+                    reachable.interner.as_ref(),
+                    extension_index,
+                    modules_by_id,
+                ) else {
+                    return;
+                };
+                add_reachable_function(
+                    method.def_id,
+                    program_signatures,
+                    reachable_functions,
+                    &mut modules,
+                    pending_modules,
+                );
+                extend_reachable_trait_methods_from_impl_where_predicates(
+                    program_signatures,
+                    &matched,
+                    &reachable.method_name,
+                    reachable.module_id,
+                    reachable_traits,
+                );
+            },
+        );
     }
 }
 
@@ -1685,9 +1754,9 @@ fn extend_reachable_functions_from_traits_incremental(
             &mut modules,
             pending_modules,
         );
-        for method in extension_index.methods_for_trait(vtable.trait_id) {
+        extension_index.for_each_method_for_trait(vtable.trait_id, &mut |method| {
             if reachable_extension_method_match(
-                &method,
+                method,
                 vtable.trait_id,
                 vtable.self_ty,
                 &vtable.trait_args,
@@ -1698,7 +1767,7 @@ fn extend_reachable_functions_from_traits_incremental(
             )
             .is_none()
             {
-                continue;
+                return;
             }
             add_reachable_function(
                 method.def_id,
@@ -1707,7 +1776,7 @@ fn extend_reachable_functions_from_traits_incremental(
                 &mut modules,
                 pending_modules,
             );
-        }
+        });
     }
 
     let mut method_index = state
@@ -1725,36 +1794,38 @@ fn extend_reachable_functions_from_traits_incremental(
             &mut modules,
             pending_modules,
         );
-        for method in
-            extension_index.methods_for_trait_method(reachable.trait_id, &reachable.method_name)
-        {
-            let Some(matched) = reachable_extension_method_match(
-                &method,
-                reachable.trait_id,
-                reachable.self_ty,
-                &reachable.trait_args,
-                reachable.module_id,
-                reachable.interner.as_ref(),
-                extension_index,
-                modules_by_id,
-            ) else {
-                continue;
-            };
-            add_reachable_function(
-                method.def_id,
-                program_signatures,
-                &mut state.reachability.functions,
-                &mut modules,
-                pending_modules,
-            );
-            extend_reachable_trait_methods_from_impl_where_predicates(
-                program_signatures,
-                &matched,
-                &reachable.method_name,
-                reachable.module_id,
-                &mut state.reachable_traits,
-            );
-        }
+        extension_index.for_each_method_for_trait_method(
+            reachable.trait_id,
+            &reachable.method_name,
+            &mut |method| {
+                let Some(matched) = reachable_extension_method_match(
+                    method,
+                    reachable.trait_id,
+                    reachable.self_ty,
+                    &reachable.trait_args,
+                    reachable.module_id,
+                    reachable.interner.as_ref(),
+                    extension_index,
+                    modules_by_id,
+                ) else {
+                    return;
+                };
+                add_reachable_function(
+                    method.def_id,
+                    program_signatures,
+                    &mut state.reachability.functions,
+                    &mut modules,
+                    pending_modules,
+                );
+                extend_reachable_trait_methods_from_impl_where_predicates(
+                    program_signatures,
+                    &matched,
+                    &reachable.method_name,
+                    reachable.module_id,
+                    &mut state.reachable_traits,
+                );
+            },
+        );
     }
 
     state.trait_function_scan.vtables = vtable_index;
@@ -1841,9 +1912,13 @@ fn reachable_extension_method_match(
     if method.trait_args.len() != trait_args.len() {
         return None;
     }
-    let Some(impl_signature) = extension_index.trait_impl_for_method(method, trait_id) else {
+    let mut impl_signature = None;
+    if !extension_index.with_trait_impl_for_method(method, trait_id, &mut |signature| {
+        impl_signature = Some(signature.clone());
+    }) {
         return None;
     };
+    let impl_signature = impl_signature?;
     if impl_signature.trait_args.len() != trait_args.len() {
         return None;
     }
