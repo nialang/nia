@@ -2,9 +2,9 @@
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::VecDeque,
     fmt::{self, Debug},
-    hash::{Hash, Hasher},
+    hash::{BuildHasherDefault, Hash, Hasher},
     sync::{Arc, Condvar, Mutex},
 };
 
@@ -76,6 +76,9 @@ impl Hasher for FastHasher {
     }
 }
 
+type FastHashMap<K, V> = std::collections::HashMap<K, V, BuildHasherDefault<FastHasher>>;
+type FastHashSet<T> = std::collections::HashSet<T, BuildHasherDefault<FastHasher>>;
+
 pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     type Value: Clone + Send + Sync + 'static;
 
@@ -93,8 +96,8 @@ pub struct QueryDb<C> {
 struct QueryDbInner<C> {
     context: C,
     timings: nia_timing::TimingMode,
-    caches: Mutex<HashMap<TypeId, Box<dyn Any + Send + Sync>>>,
-    slots: Mutex<HashMap<QueryFrameIdentity, Arc<dyn ErasedQuerySlot>>>,
+    caches: Mutex<FastHashMap<TypeId, Box<dyn Any + Send + Sync>>>,
+    slots: Mutex<FastHashMap<QueryFrameIdentity, Arc<dyn ErasedQuerySlot>>>,
     dependencies: Mutex<QueryDependencyGraph>,
     stats: Mutex<QueryStatsTable>,
 }
@@ -262,8 +265,8 @@ where
 #[derive(Debug, Default)]
 struct QueryDependencyGraph {
     dependencies: Vec<QueryDependencyEdge>,
-    forward: HashMap<QueryFrameIdentity, HashSet<QueryFrameIdentity>>,
-    reverse: HashMap<QueryFrameIdentity, HashSet<QueryFrameIdentity>>,
+    forward: FastHashMap<QueryFrameIdentity, FastHashSet<QueryFrameIdentity>>,
+    reverse: FastHashMap<QueryFrameIdentity, FastHashSet<QueryFrameIdentity>>,
 }
 
 #[derive(Debug, Clone)]
@@ -324,7 +327,7 @@ pub struct QueryTraceQuery {
 
 #[derive(Debug, Default)]
 struct QueryStatsTable {
-    entries: HashMap<QueryFrameIdentity, QueryFrameStats>,
+    entries: FastHashMap<QueryFrameIdentity, QueryFrameStats>,
 }
 
 #[derive(Debug, Clone)]
@@ -352,8 +355,8 @@ impl<C> QueryDb<C> {
             inner: Arc::new(QueryDbInner {
                 context,
                 timings,
-                caches: Mutex::new(HashMap::new()),
-                slots: Mutex::new(HashMap::new()),
+                caches: Mutex::new(FastHashMap::default()),
+                slots: Mutex::new(FastHashMap::default()),
                 dependencies: Mutex::new(QueryDependencyGraph::default()),
                 stats: Mutex::new(QueryStatsTable::default()),
             }),
@@ -612,25 +615,30 @@ impl<C> QueryDb<C> {
         let mut caches = self.inner.caches.lock().expect("query cache lock poisoned");
         let cache = caches
             .entry(TypeId::of::<K>())
-            .or_insert_with(|| Box::new(Mutex::new(HashMap::<K, Arc<QuerySlot<K::Value>>>::new())))
-            .downcast_ref::<Mutex<HashMap<K, Arc<QuerySlot<K::Value>>>>>()
+            .or_insert_with(|| {
+                Box::new(Mutex::new(
+                    FastHashMap::<K, Arc<QuerySlot<K::Value>>>::default(),
+                ))
+            })
+            .downcast_ref::<Mutex<FastHashMap<K, Arc<QuerySlot<K::Value>>>>>()
             .expect("query cache type mismatch");
         let mut cache = cache.lock().expect("query cache lock poisoned");
-        let slot = cache
-            .entry(key.clone())
-            .or_insert_with(|| {
-                Arc::new(QuerySlot {
+        match cache.entry(key.clone()) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                let slot = Arc::new(QuerySlot {
                     state: Mutex::new(QueryState::Empty),
                     ready: Condvar::new(),
-                })
-            })
-            .clone();
-        self.inner
-            .slots
-            .lock()
-            .expect("query cache slot lock poisoned")
-            .insert(identity.clone(), slot.clone() as Arc<dyn ErasedQuerySlot>);
-        slot
+                });
+                entry.insert(slot.clone());
+                self.inner
+                    .slots
+                    .lock()
+                    .expect("query cache slot lock poisoned")
+                    .insert(identity, slot.clone() as Arc<dyn ErasedQuerySlot>);
+                slot
+            }
+        }
     }
 
     fn enter_query(&self, entry: QueryStackEntry) -> QueryResult<QueryStackGuard> {
@@ -784,7 +792,7 @@ impl QueryDependencyGraph {
     }
 
     fn collect_dependents(&self, root: QueryFrameIdentity) -> Vec<QueryFrameIdentity> {
-        let mut seen = HashSet::new();
+        let mut seen = FastHashSet::default();
         let mut queue = vec![root];
         let mut invalidated = Vec::new();
 
