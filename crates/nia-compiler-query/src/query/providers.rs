@@ -436,11 +436,31 @@ pub(super) fn provide_entry_checked_program(db: &QueryDb<CompilerContext>) -> Ch
 
 pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenProgram {
     time_provider(db.context().timings(), "codegen_program", || {
-        let graph = db.query(ModuleGraphQuery);
-        let optimization = db.query(CompilerOptimizationQuery);
-        let mut diagnostics = early_program_diagnostics(db);
-        let modules = checked_modules_for_codegen(db);
-        diagnostics.extend(checked_module_diagnostics(db, &modules));
+        let graph = time_provider(
+            db.context().timings(),
+            "codegen_program.module_graph",
+            || db.query(ModuleGraphQuery),
+        );
+        let optimization = time_provider(
+            db.context().timings(),
+            "codegen_program.optimization",
+            || db.query(CompilerOptimizationQuery),
+        );
+        let mut diagnostics = time_provider(
+            db.context().timings(),
+            "codegen_program.early_diagnostics",
+            || early_program_diagnostics(db),
+        );
+        let modules = time_provider(
+            db.context().timings(),
+            "codegen_program.checked_modules",
+            || checked_modules_for_codegen(db),
+        );
+        diagnostics.extend(time_provider(
+            db.context().timings(),
+            "codegen_program.checked_diagnostics",
+            || checked_module_diagnostics(db, &modules),
+        ));
         if !diagnostics.is_empty() {
             return CodegenProgram {
                 graph,
@@ -454,7 +474,11 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
         let monomorphization = time_provider(db.context().timings(), "monomorphization", || {
             monomorphization_for_checked_modules(db, &modules)
         });
-        diagnostics.extend(monomorphization_diagnostics(&modules, &monomorphization));
+        diagnostics.extend(time_provider(
+            db.context().timings(),
+            "codegen_program.monomorphization_diagnostics",
+            || monomorphization_diagnostics(&modules, &monomorphization),
+        ));
         if !diagnostics.is_empty() {
             return CodegenProgram {
                 graph,
@@ -468,7 +492,11 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
         let backend_lowering = time_provider(db.context().timings(), "backend_lowering", || {
             provide_backend_lowering_inner_for_modules(db, &monomorphization, &modules)
         });
-        diagnostics.extend(backend_lowering_diagnostics(&modules, &backend_lowering));
+        diagnostics.extend(time_provider(
+            db.context().timings(),
+            "codegen_program.backend_diagnostics",
+            || backend_lowering_diagnostics(&modules, &backend_lowering),
+        ));
         CodegenProgram {
             graph,
             optimization,
@@ -2181,8 +2209,33 @@ fn body_check_resolution_inputs_for_filter(
     }
 }
 
+fn full_body_check_resolution_inputs(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> BodyCheckResolutionInputs {
+    let source_version = db.query(ModuleSourceVersionQuery(module_id));
+    let origins = db.query(ModuleOriginsQuery(module_id));
+    let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+    let defs = db.query_shared(FullModuleDefsQuery(module_id));
+    let type_resolution = db.query(TypeResolutionQuery(module_id));
+    let lowered = db.query(TypeLoweringQuery(module_id));
+    body_check_resolution_inputs_for_filter(
+        db,
+        module_id,
+        nia_body_check::BodyCheckFilter::All,
+        BodyCheckResolutionContext {
+            source_version,
+            origins: &origins,
+            active_item_tree,
+            defs: &defs,
+            type_resolution: &type_resolution,
+            lowered: &lowered,
+        },
+    )
+}
+
 #[derive(Clone)]
-struct BodyCheckResolutionInputs {
+pub(super) struct BodyCheckResolutionInputs {
     active_item_tree: Arc<ActiveModuleItemTree>,
     values: ValueResolution,
     locals: LocalResolution,
@@ -5085,6 +5138,26 @@ fn executable_checked_module_set_inner(
                 .get(&module_id)
                 .map(|state| state.module.body_ir.interner.clone());
             let body_check = {
+                let resolution_inputs = {
+                    let cached = caches
+                        .body_resolution_inputs
+                        .borrow()
+                        .get(&module_id)
+                        .cloned();
+                    cached.unwrap_or_else(|| {
+                        let inputs = time_module_provider(
+                            db,
+                            "executable_checked_modules.full_body_inputs",
+                            module_id,
+                            || full_body_check_resolution_inputs(db, module_id),
+                        );
+                        caches
+                            .body_resolution_inputs
+                            .borrow_mut()
+                            .insert(module_id, inputs.clone());
+                        inputs
+                    })
+                };
                 let program_layout_cache = RefCell::new(HashMap::new());
                 program_layout_cache
                     .borrow_mut()
@@ -5110,7 +5183,7 @@ fn executable_checked_module_set_inner(
                         Some(layouts.clone()),
                         Some(&executable_program_layouts),
                         ExecutableFactMode::executable(&reachable_body_modules),
-                        None,
+                        Some(resolution_inputs),
                         seed_interner,
                         Some(&caches.global_initializers),
                         Some(&comptime_module_cache),
