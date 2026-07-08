@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-mod program_signatures;
 mod query;
 
 use nia_abi_check::AbiCheck;

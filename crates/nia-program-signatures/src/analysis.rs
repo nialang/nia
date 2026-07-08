@@ -34,52 +34,52 @@ use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
 type TypeNormalizationResolver<'a> = &'a dyn Fn(nia_ids::ModuleId) -> Option<TypeNormalization>;
-pub(crate) type NominalExtensionProviderResolver<'a> =
+pub type NominalExtensionProviderResolver<'a> =
     &'a dyn Fn(&[GlobalDefId]) -> Vec<nia_ids::ModuleId>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct NominalExtensionProviderEntry {
-    pub(crate) target: GlobalDefId,
-    pub(crate) module_id: nia_ids::ModuleId,
-    pub(crate) visibility: Visibility,
+pub struct NominalExtensionProviderEntry {
+    pub target: GlobalDefId,
+    pub module_id: nia_ids::ModuleId,
+    pub visibility: Visibility,
 }
 
-pub(crate) struct ModuleSignatureInput<'a> {
-    pub(crate) module_id: nia_ids::ModuleId,
-    pub(crate) defs: &'a DefCollection,
-    pub(crate) lowering: &'a TypeLowering,
-    pub(crate) signatures: &'a ItemSignatures,
+pub struct ModuleSignatureInput<'a> {
+    pub module_id: nia_ids::ModuleId,
+    pub defs: &'a DefCollection,
+    pub lowering: &'a TypeLowering,
+    pub signatures: &'a ItemSignatures,
 }
 
-pub(crate) struct ExtensionModuleInput<'a> {
-    pub(crate) module_id: nia_ids::ModuleId,
-    pub(crate) defs: &'a DefCollection,
-    pub(crate) lowering: &'a TypeLowering,
-    pub(crate) signatures: &'a ItemSignatures,
-    pub(crate) function_signatures: &'a ItemSignatures,
-    pub(crate) type_signatures: &'a ItemSignatures,
-    pub(crate) normalization: &'a TypeNormalization,
+pub struct ExtensionModuleInput<'a> {
+    pub module_id: nia_ids::ModuleId,
+    pub defs: &'a DefCollection,
+    pub lowering: &'a TypeLowering,
+    pub signatures: &'a ItemSignatures,
+    pub function_signatures: &'a ItemSignatures,
+    pub type_signatures: &'a ItemSignatures,
+    pub normalization: &'a TypeNormalization,
 }
 
-pub(crate) struct ExtensionMethodIndexModuleInput<'a> {
-    pub(crate) module_id: nia_ids::ModuleId,
-    pub(crate) defs: &'a DefCollection,
-    pub(crate) lowering: &'a TypeLowering,
-    pub(crate) signatures: &'a ItemSignatures,
-    pub(crate) normalization: &'a TypeNormalization,
+pub struct ExtensionMethodIndexModuleInput<'a> {
+    pub module_id: nia_ids::ModuleId,
+    pub defs: &'a DefCollection,
+    pub lowering: &'a TypeLowering,
+    pub signatures: &'a ItemSignatures,
+    pub normalization: &'a TypeNormalization,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ExtensionTraitSignatureIndex {
-    pub(crate) trait_defs: HashSet<GlobalDefId>,
-    pub(crate) trait_signatures: HashMap<GlobalDefId, ProgramTraitSignature>,
+pub struct ExtensionTraitSignatureIndex {
+    pub trait_defs: HashSet<GlobalDefId>,
+    pub trait_signatures: HashMap<GlobalDefId, ProgramTraitSignature>,
 }
 
-pub(crate) struct ExtensionMethodValidationInput<'a> {
-    pub(crate) trait_defs: &'a HashSet<GlobalDefId>,
-    pub(crate) trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
-    pub(crate) trait_impls_for_trait: &'a dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
-    pub(crate) symbols: &'a SymbolTable,
+pub struct ExtensionMethodValidationInput<'a> {
+    pub trait_defs: &'a HashSet<GlobalDefId>,
+    pub trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub trait_impls_for_trait: &'a dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
+    pub symbols: &'a SymbolTable,
 }
 
 fn symbol_name(symbols: &SymbolTable, symbol: SymbolId) -> String {
@@ -87,20 +87,20 @@ fn symbol_name(symbols: &SymbolTable, symbol: SymbolId) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ModuleProgramSignatureFacts {
-    pub(crate) trait_defs: HashSet<GlobalDefId>,
-    pub(crate) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
-    pub(crate) globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
-    pub(crate) comptimes: HashMap<GlobalDefId, ProgramComptimeSignature>,
-    pub(crate) structs: HashMap<GlobalDefId, ProgramStructSignature>,
-    pub(crate) unions: HashMap<GlobalDefId, ProgramUnionSignature>,
-    pub(crate) enums: HashMap<GlobalDefId, ProgramEnumSignature>,
-    pub(crate) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
-    pub(crate) type_aliases: HashMap<GlobalDefId, ProgramTypeAliasSignature>,
-    pub(crate) trait_impls: Vec<ProgramTraitImplSignature>,
+pub struct ModuleProgramSignatureFacts {
+    pub trait_defs: HashSet<GlobalDefId>,
+    pub functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
+    pub comptimes: HashMap<GlobalDefId, ProgramComptimeSignature>,
+    pub structs: HashMap<GlobalDefId, ProgramStructSignature>,
+    pub unions: HashMap<GlobalDefId, ProgramUnionSignature>,
+    pub enums: HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub traits: HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub type_aliases: HashMap<GlobalDefId, ProgramTypeAliasSignature>,
+    pub trait_impls: Vec<ProgramTraitImplSignature>,
 }
 
-pub(crate) fn collect_module_program_signature_facts(
+pub fn collect_module_program_signature_facts(
     module: ModuleSignatureInput<'_>,
 ) -> ModuleProgramSignatureFacts {
     let trait_defs = module
@@ -128,7 +128,7 @@ pub(crate) fn collect_module_program_signature_facts(
     }
 }
 
-pub(crate) fn signature_tree_has_program_signature_facts(
+pub fn signature_tree_has_program_signature_facts(
     tree: &nia_item_tree::ActiveModuleItemTree,
     set: nia_item_tree::SignatureItemSet,
 ) -> bool {
@@ -185,18 +185,18 @@ fn signature_tree_item_has_program_signature_facts(
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct VisibleExtensionsForModule {
-    pub(crate) methods: VisibleExtensionMethods,
-    pub(crate) interner: TyInterner,
+pub struct VisibleExtensionsForModule {
+    pub methods: VisibleExtensionMethods,
+    pub interner: TyInterner,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct VisibleTraitImplsForModule {
-    pub(crate) trait_impls: Vec<ProgramTraitImplSignature>,
-    pub(crate) trait_impl_index: nia_item_signatures::ProgramTraitImplIndex,
+pub struct VisibleTraitImplsForModule {
+    pub trait_impls: Vec<ProgramTraitImplSignature>,
+    pub trait_impl_index: nia_item_signatures::ProgramTraitImplIndex,
 }
 
-pub(crate) fn collect_program_functions_excluding(
+pub fn collect_program_functions_excluding(
     modules: &[ModuleSignatureInput<'_>],
     excluded: &HashSet<GlobalDefId>,
 ) -> HashMap<GlobalDefId, ProgramFunctionSignature> {
@@ -228,7 +228,7 @@ pub(crate) fn collect_program_functions_excluding(
     functions
 }
 
-pub(crate) fn collect_program_globals(
+pub fn collect_program_globals(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramGlobalSignature> {
     let mut globals = HashMap::new();
@@ -249,7 +249,7 @@ pub(crate) fn collect_program_globals(
     globals
 }
 
-pub(crate) fn collect_program_comptimes(
+pub fn collect_program_comptimes(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramComptimeSignature> {
     let mut comptimes = HashMap::new();
@@ -270,7 +270,7 @@ pub(crate) fn collect_program_comptimes(
     comptimes
 }
 
-pub(crate) fn collect_program_structs(
+pub fn collect_program_structs(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramStructSignature> {
     let mut structs = HashMap::new();
@@ -291,7 +291,7 @@ pub(crate) fn collect_program_structs(
     structs
 }
 
-pub(crate) fn collect_program_unions(
+pub fn collect_program_unions(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramUnionSignature> {
     let mut unions = HashMap::new();
@@ -312,7 +312,7 @@ pub(crate) fn collect_program_unions(
     unions
 }
 
-pub(crate) fn collect_program_enums(
+pub fn collect_program_enums(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramEnumSignature> {
     let mut enums = HashMap::new();
@@ -333,7 +333,7 @@ pub(crate) fn collect_program_enums(
     enums
 }
 
-pub(crate) fn collect_program_traits(
+pub fn collect_program_traits(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramTraitSignature> {
     let mut traits = HashMap::new();
@@ -354,7 +354,7 @@ pub(crate) fn collect_program_traits(
     traits
 }
 
-pub(crate) fn collect_program_type_aliases(
+pub fn collect_program_type_aliases(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramTypeAliasSignature> {
     let mut type_aliases = HashMap::new();
@@ -375,7 +375,7 @@ pub(crate) fn collect_program_type_aliases(
     type_aliases
 }
 
-pub(crate) fn collect_program_trait_impls(
+pub fn collect_program_trait_impls(
     modules: &[ModuleSignatureInput<'_>],
 ) -> Vec<ProgramTraitImplSignature> {
     let mut trait_impls = Vec::new();
@@ -411,7 +411,7 @@ pub(crate) fn collect_program_trait_impls(
     trait_impls
 }
 
-pub(crate) fn collect_valid_program_trait_impls(
+pub fn collect_valid_program_trait_impls(
     modules: &[ExtensionModuleInput<'_>],
 ) -> Vec<ProgramTraitImplSignature> {
     collect_program_trait_impls(
@@ -449,7 +449,7 @@ pub(crate) fn collect_valid_program_trait_impls(
     .collect()
 }
 
-pub(crate) fn collect_invalid_trait_impl_method_ids(
+pub fn collect_invalid_trait_impl_method_ids(
     modules: &[ExtensionModuleInput<'_>],
 ) -> HashSet<GlobalDefId> {
     let mut invalid_methods = HashSet::new();
@@ -517,7 +517,7 @@ fn trait_impl_signature_by_id(
         .find(|signature| signature.impl_id == impl_id)
 }
 
-pub(crate) fn collect_extension_methods_for_module(
+pub fn collect_extension_methods_for_module(
     module: &ExtensionModuleInput<'_>,
     input: ExtensionMethodValidationInput<'_>,
 ) -> (ExtensionMethods, Vec<Diagnostic>) {
@@ -601,7 +601,7 @@ pub(crate) fn collect_extension_methods_for_module(
     (extensions, diagnostics)
 }
 
-pub(crate) fn collect_extension_method_index_for_module(
+pub fn collect_extension_method_index_for_module(
     module: &ExtensionMethodIndexModuleInput<'_>,
     defs: &dyn ProgramDefsResolver,
 ) -> ExtensionMethods {
@@ -642,7 +642,7 @@ pub(crate) fn collect_extension_method_index_for_module(
     extensions
 }
 
-pub(crate) fn collect_nominal_extension_providers_for_module(
+pub fn collect_nominal_extension_providers_for_module(
     module: &ExtensionMethodIndexModuleInput<'_>,
     defs: &dyn ProgramDefsResolver,
 ) -> Vec<NominalExtensionProviderEntry> {
@@ -752,7 +752,7 @@ fn normalize_where_predicates(
         .collect()
 }
 
-pub(crate) fn collect_extension_associated_value_index_for_module(
+pub fn collect_extension_associated_value_index_for_module(
     module: &ExtensionMethodIndexModuleInput<'_>,
 ) -> (ExtensionAssociatedValues, Vec<Diagnostic>) {
     let mut values = ExtensionAssociatedValues::default();
@@ -2881,11 +2881,11 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
     }
 }
 
-pub(crate) trait ProgramDefsResolver {
+pub trait ProgramDefsResolver {
     fn defs(&self, module_id: nia_ids::ModuleId) -> Option<Arc<DefCollection>>;
 }
 
-pub(crate) struct VisibleExtensionsInput<'a> {
+pub struct VisibleExtensionsInput<'a> {
     pub module_id: nia_ids::ModuleId,
     pub graph: &'a nia_imports::ModuleGraph,
     pub using_scope: &'a nia_defs::ModuleUsingScope,
@@ -2902,7 +2902,7 @@ pub(crate) struct VisibleExtensionsInput<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct VisibleTypeSignatures<'a> {
+pub struct VisibleTypeSignatures<'a> {
     pub type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
 }
 
@@ -2939,7 +2939,7 @@ impl<'a> VisibleExtensionResolverCache<'a> {
     }
 }
 
-pub(crate) fn visible_extensions_for_module(
+pub fn visible_extensions_for_module(
     input: VisibleExtensionsInput<'_>,
 ) -> VisibleExtensionsForModule {
     let VisibleExtensionsInput {
@@ -3096,7 +3096,7 @@ pub(crate) fn visible_extensions_for_module(
     }
 }
 
-pub(crate) fn visible_trait_impls_for_module(
+pub fn visible_trait_impls_for_module(
     input: VisibleExtensionsInput<'_>,
 ) -> VisibleTraitImplsForModule {
     let VisibleExtensionsInput {
@@ -3153,7 +3153,7 @@ pub(crate) fn visible_trait_impls_for_module(
     }
 }
 
-pub(crate) struct VisibleExtensionProviderModulesInput<'a> {
+pub struct VisibleExtensionProviderModulesInput<'a> {
     pub module_id: nia_ids::ModuleId,
     pub graph: &'a nia_imports::ModuleGraph,
     pub using_scope: &'a nia_defs::ModuleUsingScope,
@@ -3164,14 +3164,14 @@ pub(crate) struct VisibleExtensionProviderModulesInput<'a> {
     pub nominal_extension_providers: NominalExtensionProviderResolver<'a>,
 }
 
-pub(crate) fn visible_extension_provider_modules(
+pub fn visible_extension_provider_modules(
     input: VisibleExtensionProviderModulesInput<'_>,
 ) -> Vec<nia_ids::ModuleId> {
     let context = visibility_closure_context(input);
     declared_module_closure(&context)
 }
 
-pub(crate) fn visible_trait_impl_modules(
+pub fn visible_trait_impl_modules(
     input: VisibleExtensionProviderModulesInput<'_>,
 ) -> Vec<nia_ids::ModuleId> {
     let context = visibility_closure_context(input);

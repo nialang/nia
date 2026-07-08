@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod analysis;
+
 use std::collections::HashMap;
 
 use nia_ids::GlobalDefId;
@@ -9,6 +11,8 @@ use nia_item_signatures::{
     ProgramUnionSignature,
 };
 use nia_symbol::{SymbolId, SymbolMap};
+
+pub use analysis::*;
 
 pub trait ProgramSignatureLookup {
     fn function(&self, def_id: GlobalDefId) -> Option<ProgramFunctionSignature>;
