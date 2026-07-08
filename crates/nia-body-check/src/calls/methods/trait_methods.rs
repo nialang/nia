@@ -663,7 +663,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn trait_method_candidate_more_specific(
-        &self,
+        &mut self,
         specific: &TraitMethodCandidate,
         general: &TraitMethodCandidate,
     ) -> bool {

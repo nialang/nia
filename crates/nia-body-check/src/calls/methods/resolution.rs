@@ -23,8 +23,7 @@ impl<'a> BodyChecker<'a> {
             return methods.clone();
         }
         let mut methods = self
-            .extensions
-            .all_methods_named(name)
+            .with_visible_extensions(|extensions| extensions.all_methods_named(name))
             .into_iter()
             .filter(|(_, method)| !method.is_trait_witness)
             .map(|(target_ty, method)| crate::CallableExtensionMethod { target_ty, method })
@@ -313,7 +312,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn try_match_type_pattern(
-        &self,
+        &mut self,
         pattern: InternedTyId,
         actual: InternedTyId,
         substitutions: &mut SymbolMap<InternedTyId>,
@@ -328,7 +327,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn try_match_type_pattern_with_consts(
-        &self,
+        &mut self,
         pattern: InternedTyId,
         actual: InternedTyId,
         substitutions: &mut SymbolMap<InternedTyId>,
@@ -903,16 +902,19 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn strictly_more_specific(
-        &self,
+        &mut self,
         specific: InternedTyId,
         general: InternedTyId,
     ) -> bool {
         self.pattern_subsumes(general, specific) && !self.pattern_subsumes(specific, general)
     }
 
-    pub(crate) fn pattern_subsumes(&self, general: InternedTyId, specific: InternedTyId) -> bool {
-        let mut checker = self.clone_for_type_compare();
-        checker.pattern_subsumes_inner(general, specific, &mut SymbolMap::new())
+    pub(crate) fn pattern_subsumes(
+        &mut self,
+        general: InternedTyId,
+        specific: InternedTyId,
+    ) -> bool {
+        self.pattern_subsumes_inner(general, specific, &mut SymbolMap::new())
     }
 
     fn pattern_subsumes_inner(
@@ -1280,7 +1282,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn patterns_equivalent(&self, left: InternedTyId, right: InternedTyId) -> bool {
+    fn patterns_equivalent(&mut self, left: InternedTyId, right: InternedTyId) -> bool {
         self.pattern_subsumes(left, right) && self.pattern_subsumes(right, left)
     }
 
@@ -1356,7 +1358,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn match_type_pattern(
-        &self,
+        &mut self,
         pattern: InternedTyId,
         actual: InternedTyId,
         substitutions: &mut SymbolMap<InternedTyId>,
@@ -1371,7 +1373,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn match_type_pattern_with_consts(
-        &self,
+        &mut self,
         pattern: InternedTyId,
         actual: InternedTyId,
         substitutions: &mut SymbolMap<InternedTyId>,
@@ -1379,87 +1381,82 @@ impl<'a> BodyChecker<'a> {
     ) -> bool {
         let pattern = self.normalization.normalize(pattern);
         let actual = self.normalization.normalize(actual);
-        match self.interner.get(pattern) {
+        let pattern_kind = self.interner.get(pattern).cloned();
+        let actual_kind = self.interner.get(actual).cloned();
+        match pattern_kind {
             Some(TyKind::GenericParam(name)) => {
-                if let Some(existing) = substitutions.get(name).copied() {
+                if let Some(existing) = substitutions.get(&name).copied() {
                     self.types_match(existing, actual)
                 } else {
-                    substitutions.insert(name.clone(), actual);
+                    substitutions.insert(name, actual);
                     true
                 }
             }
             Some(TyKind::SelfParam) => true,
             Some(TyKind::BuiltinType(pattern_builtin)) => {
-                matches!(self.interner.get(actual), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == actual_builtin)
+                matches!(actual_kind, Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == actual_builtin)
             }
             Some(TyKind::Pointer {
                 is_readonly: pattern_const,
                 elem: pattern_elem,
-            }) => matches!(
-                self.interner.get(actual),
-                Some(TyKind::Pointer {
-                    is_readonly,
-                    elem
-                }) if is_readonly == pattern_const
-                    && self.match_type_pattern_with_consts(
-                        *pattern_elem,
-                        *elem,
+            }) => match actual_kind {
+                Some(TyKind::Pointer { is_readonly, elem }) if is_readonly == pattern_const => self
+                    .match_type_pattern_with_consts(
+                        pattern_elem,
+                        elem,
                         substitutions,
-                        const_substitutions
-                    )
-            ),
+                        const_substitutions,
+                    ),
+                _ => false,
+            },
             Some(TyKind::VolatilePointer {
                 is_readonly: pattern_const,
                 elem: pattern_elem,
-            }) => matches!(
-                self.interner.get(actual),
-                Some(TyKind::VolatilePointer {
-                    is_readonly,
-                    elem
-                }) if is_readonly == pattern_const
-                    && self.match_type_pattern_with_consts(
-                        *pattern_elem,
-                        *elem,
+            }) => match actual_kind {
+                Some(TyKind::VolatilePointer { is_readonly, elem })
+                    if is_readonly == pattern_const =>
+                {
+                    self.match_type_pattern_with_consts(
+                        pattern_elem,
+                        elem,
                         substitutions,
-                        const_substitutions
+                        const_substitutions,
                     )
-            ),
+                }
+                _ => false,
+            },
             Some(TyKind::Slice {
                 is_readonly: pattern_const,
                 elem: pattern_elem,
-            }) => matches!(
-                self.interner.get(actual),
-                Some(TyKind::Slice {
-                    is_readonly,
-                    elem
-                }) if is_readonly == pattern_const
-                    && self.match_type_pattern_with_consts(
-                        *pattern_elem,
-                        *elem,
+            }) => match actual_kind {
+                Some(TyKind::Slice { is_readonly, elem }) if is_readonly == pattern_const => self
+                    .match_type_pattern_with_consts(
+                        pattern_elem,
+                        elem,
                         substitutions,
-                        const_substitutions
-                    )
-            ),
-            Some(TyKind::SlicePointee { elem: pattern_elem }) => matches!(
-                self.interner.get(actual),
-                Some(TyKind::SlicePointee { elem })
-                    if self.match_type_pattern_with_consts(
-                        *pattern_elem,
-                        *elem,
-                        substitutions,
-                        const_substitutions
-                    )
-            ),
+                        const_substitutions,
+                    ),
+                _ => false,
+            },
+            Some(TyKind::SlicePointee { elem: pattern_elem }) => match actual_kind {
+                Some(TyKind::SlicePointee { elem }) => self.match_type_pattern_with_consts(
+                    pattern_elem,
+                    elem,
+                    substitutions,
+                    const_substitutions,
+                ),
+                _ => false,
+            },
             Some(TyKind::Array {
                 len: pattern_len,
                 elem: pattern_elem,
-            }) => match self.interner.get(actual) {
+            }) => match actual_kind {
                 Some(TyKind::Array { len, elem })
-                    if self.match_array_len_pattern(pattern_len, len, const_substitutions) =>
+                    if self.match_array_len_pattern(&pattern_len, &len, const_substitutions) =>
                 {
                     self.match_type_pattern_with_consts(
-                        *pattern_elem,
-                        *elem,
+                        pattern_elem,
+                        elem,
                         substitutions,
                         const_substitutions,
                     )
@@ -1469,12 +1466,12 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Range {
                 kind: pattern_kind,
                 bound: pattern_bound,
-            }) => match self.interner.get(actual) {
+            }) => match actual_kind {
                 Some(TyKind::Range { kind, bound }) if pattern_kind == kind => {
                     match (pattern_bound, bound) {
                         (Some(pattern_bound), Some(bound)) => self.match_type_pattern_with_consts(
-                            *pattern_bound,
-                            *bound,
+                            pattern_bound,
+                            bound,
                             substitutions,
                             const_substitutions,
                         ),
@@ -1488,7 +1485,7 @@ impl<'a> BodyChecker<'a> {
                 params: pattern_params,
                 return_type: pattern_return,
                 is_variadic: pattern_variadic,
-            }) => match self.interner.get(actual) {
+            }) => match actual_kind {
                 Some(TyKind::FunctionPointer {
                     params,
                     return_type,
@@ -1497,23 +1494,23 @@ impl<'a> BodyChecker<'a> {
                     pattern_params.iter().zip(params).all(|(pattern, actual)| {
                         self.match_type_pattern_with_consts(
                             *pattern,
-                            *actual,
+                            actual,
                             substitutions,
                             const_substitutions,
                         )
                     }) && self.match_type_pattern_with_consts(
-                        *pattern_return,
-                        *return_type,
+                        pattern_return,
+                        return_type,
                         substitutions,
                         const_substitutions,
                     )
                 }
                 _ => false,
             },
-            Some(TyKind::Optional { elem: pattern_elem }) => match self.interner.get(actual) {
+            Some(TyKind::Optional { elem: pattern_elem }) => match actual_kind {
                 Some(TyKind::Optional { elem }) => self.match_type_pattern_with_consts(
-                    *pattern_elem,
-                    *elem,
+                    pattern_elem,
+                    elem,
                     substitutions,
                     const_substitutions,
                 ),
@@ -1522,16 +1519,16 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::ErrorUnion {
                 error: pattern_error,
                 value: pattern_value,
-            }) => match self.interner.get(actual) {
+            }) => match actual_kind {
                 Some(TyKind::ErrorUnion { error, value }) => {
                     self.match_type_pattern_with_consts(
-                        *pattern_error,
-                        *error,
+                        pattern_error,
+                        error,
                         substitutions,
                         const_substitutions,
                     ) && self.match_type_pattern_with_consts(
-                        *pattern_value,
-                        *value,
+                        pattern_value,
+                        value,
                         substitutions,
                         const_substitutions,
                     )
@@ -1542,7 +1539,7 @@ impl<'a> BodyChecker<'a> {
                 def_id: pattern_def,
                 args: pattern_args,
                 const_args: pattern_const_args,
-            }) => match self.interner.get(actual) {
+            }) => match actual_kind {
                 Some(TyKind::Nominal {
                     def_id,
                     args,
@@ -1554,7 +1551,7 @@ impl<'a> BodyChecker<'a> {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
                         self.match_type_pattern_with_consts(
                             *pattern,
-                            *actual,
+                            actual,
                             substitutions,
                             const_substitutions,
                         )
@@ -1564,7 +1561,7 @@ impl<'a> BodyChecker<'a> {
                         .all(|(pattern, actual)| {
                             self.match_const_generic_arg_pattern(
                                 pattern,
-                                actual,
+                                &actual,
                                 const_substitutions,
                             )
                         })
@@ -1574,14 +1571,14 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::BuiltinTrait {
                 trait_id: pattern_trait,
                 args: pattern_args,
-            }) => match self.interner.get(actual) {
+            }) => match actual_kind {
                 Some(TyKind::BuiltinTrait { trait_id, args })
                     if pattern_trait == trait_id && pattern_args.len() == args.len() =>
                 {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
                         self.match_type_pattern_with_consts(
                             *pattern,
-                            *actual,
+                            actual,
                             substitutions,
                             const_substitutions,
                         )
@@ -1595,7 +1592,7 @@ impl<'a> BodyChecker<'a> {
                 trait_args: pattern_args,
                 trait_const_args: pattern_const_args,
                 associated_type_bindings: pattern_bindings,
-            }) => match self.interner.get(actual) {
+            }) => match actual_kind {
                 Some(TyKind::TraitObject {
                     is_readonly,
                     trait_id,
@@ -1615,7 +1612,7 @@ impl<'a> BodyChecker<'a> {
                         .all(|(pattern, actual)| {
                             self.match_type_pattern_with_consts(
                                 *pattern,
-                                *actual,
+                                actual,
                                 substitutions,
                                 const_substitutions,
                             )
@@ -1624,7 +1621,7 @@ impl<'a> BodyChecker<'a> {
                             |(pattern, actual)| {
                                 self.match_const_generic_arg_pattern(
                                     pattern,
-                                    actual,
+                                    &actual,
                                     const_substitutions,
                                 )
                             },
@@ -1680,7 +1677,7 @@ impl<'a> BodyChecker<'a> {
                 trait_args: pattern_args,
                 trait_const_args: pattern_const_args,
                 associated_type_bindings: pattern_bindings,
-            }) => match self.interner.get(actual) {
+            }) => match actual_kind {
                 Some(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
@@ -1698,7 +1695,7 @@ impl<'a> BodyChecker<'a> {
                         .all(|(pattern, actual)| {
                             self.match_type_pattern_with_consts(
                                 *pattern,
-                                *actual,
+                                actual,
                                 substitutions,
                                 const_substitutions,
                             )
@@ -1707,7 +1704,7 @@ impl<'a> BodyChecker<'a> {
                             |(pattern, actual)| {
                                 self.match_const_generic_arg_pattern(
                                     pattern,
-                                    actual,
+                                    &actual,
                                     const_substitutions,
                                 )
                             },
@@ -1765,7 +1762,7 @@ impl<'a> BodyChecker<'a> {
                 trait_const_args: pattern_const_args,
                 name: pattern_name,
                 ..
-            }) => match self.interner.get(actual) {
+            }) => match actual_kind {
                 Some(TyKind::Projection {
                     self_ty,
                     trait_id,
@@ -1779,8 +1776,8 @@ impl<'a> BodyChecker<'a> {
                     && pattern_const_args.len() == trait_const_args.len() =>
                 {
                     self.match_type_pattern_with_consts(
-                        *pattern_self,
-                        *self_ty,
+                        pattern_self,
+                        self_ty,
                         substitutions,
                         const_substitutions,
                     ) && pattern_args
@@ -1789,7 +1786,7 @@ impl<'a> BodyChecker<'a> {
                         .all(|(pattern, actual)| {
                             self.match_type_pattern_with_consts(
                                 *pattern,
-                                *actual,
+                                actual,
                                 substitutions,
                                 const_substitutions,
                             )
@@ -1798,7 +1795,7 @@ impl<'a> BodyChecker<'a> {
                             |(pattern, actual)| {
                                 self.match_const_generic_arg_pattern(
                                     pattern,
-                                    actual,
+                                    &actual,
                                     const_substitutions,
                                 )
                             },

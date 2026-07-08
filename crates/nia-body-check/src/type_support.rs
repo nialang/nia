@@ -366,6 +366,7 @@ impl<'a> BodyChecker<'a> {
         let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
         let program_signature_scope = self.program_signature_scope;
         let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
+        let visible_trait_witness_impls = self.visible_extension_trait_witness_impls();
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
@@ -377,7 +378,7 @@ impl<'a> BodyChecker<'a> {
             const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&|module_id, impl_id| {
                 module_id == self.defs.module_id
-                    || self.extensions.has_trait_witness_impl(module_id, impl_id)
+                    || visible_trait_witness_impls.contains(&(module_id, impl_id))
             }),
         };
         let mut solver = context.solver_with_associated_type_assumptions(
@@ -401,6 +402,7 @@ impl<'a> BodyChecker<'a> {
         let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
         let program_signature_scope = self.program_signature_scope;
         let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
+        let visible_trait_witness_impls = self.visible_extension_trait_witness_impls();
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
@@ -412,7 +414,7 @@ impl<'a> BodyChecker<'a> {
             const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&|module_id, impl_id| {
                 module_id == self.defs.module_id
-                    || self.extensions.has_trait_witness_impl(module_id, impl_id)
+                    || visible_trait_witness_impls.contains(&(module_id, impl_id))
             }),
         };
         let mut solver = context.solver(&mut self.interner, &assumptions);
@@ -778,9 +780,13 @@ impl<'a> BodyChecker<'a> {
         ));
     }
 
-    pub(crate) fn types_match(&self, expected: InternedTyId, actual: InternedTyId) -> bool {
-        let mut checker = self.clone_for_type_compare();
-        checker.types_match_normalized(expected, actual)
+    pub(crate) fn types_match(&mut self, expected: InternedTyId, actual: InternedTyId) -> bool {
+        if let Some(matches) = self.type_match_cache.get(&(expected, actual)).copied() {
+            return matches;
+        }
+        let matches = self.types_match_normalized(expected, actual);
+        self.type_match_cache.insert((expected, actual), matches);
+        matches
     }
 
     fn types_match_normalized(&mut self, expected: InternedTyId, actual: InternedTyId) -> bool {
@@ -1131,6 +1137,7 @@ impl<'a> BodyChecker<'a> {
             trait_impls_by_trait: HashMap::new(),
             def_trait_obligations_cache: HashMap::new(),
             trait_obligation_resolution_cache: HashMap::new(),
+            type_match_cache: HashMap::new(),
             program_type_normalizations: std::cell::RefCell::new(
                 self.program_type_normalizations.borrow().clone(),
             ),

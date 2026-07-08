@@ -453,22 +453,24 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn extension_method_effective_generics(&mut self, def_id: GlobalDefId) -> Vec<SymbolId> {
-        self.extensions
-            .targets()
-            .iter()
-            .flat_map(|target| target.methods.iter())
-            .find(|method| method.def_id == def_id)
-            .map(|method| method.effective_generics.clone())
-            .or_else(|| {
-                self.program_extension_methods
-                    .method_by_id(def_id)
-                    .map(|method| method.effective_generics.clone())
-            })
-            .or_else(|| {
-                self.ensure_extension_method_lookup_for_id(def_id)
-                    .map(|method| method.effective_generics.clone())
-            })
-            .unwrap_or_default()
+        self.with_visible_extensions(|extensions| {
+            extensions
+                .targets()
+                .iter()
+                .flat_map(|target| target.methods.iter())
+                .find(|method| method.def_id == def_id)
+                .map(|method| method.effective_generics.clone())
+        })
+        .or_else(|| {
+            self.program_extension_methods
+                .method_by_id(def_id)
+                .map(|method| method.effective_generics.clone())
+        })
+        .or_else(|| {
+            self.ensure_extension_method_lookup_for_id(def_id)
+                .map(|method| method.effective_generics.clone())
+        })
+        .unwrap_or_default()
     }
 }
 

@@ -472,7 +472,9 @@ impl<'a> BodyChecker<'a> {
         name: &SymbolId,
     ) -> Option<VisibleExtensionAssociatedValue> {
         let mut matches = Vec::new();
-        for extension_target in self.extensions.targets() {
+        let extension_targets =
+            self.with_visible_extensions(|extensions| extensions.targets().to_vec());
+        for extension_target in &extension_targets {
             let mut substitutions = nia_symbol::SymbolMap::new();
             let mut const_substitutions = nia_symbol::SymbolMap::new();
             if !self.match_type_pattern_with_consts(

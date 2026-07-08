@@ -322,6 +322,13 @@ impl<'a> BodyProgramContext<'a> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct BodyVisibleExtensions<'a> {
+    pub methods: &'a VisibleExtensionMethods,
+    pub interner: Option<&'a TyInterner>,
+    pub lazy: Option<&'a dyn Fn() -> (VisibleExtensionMethods, TyInterner)>,
+}
+
 enum ModuleDefs<'a> {
     Borrowed(&'a DefCollection),
     Shared(Arc<DefCollection>),
@@ -380,6 +387,7 @@ pub struct BodyCheckInput<'a> {
     pub comptime_module: &'a ResolvedComptimeModule,
     pub layouts: &'a Layouts,
     pub extensions: &'a VisibleExtensionMethods,
+    pub lazy_extensions: Option<&'a dyn Fn() -> (VisibleExtensionMethods, TyInterner)>,
     pub program_extension_methods: &'a ExtensionMethods,
     pub extension_interner: Option<&'a TyInterner>,
     pub program: BodyProgramContext<'a>,
@@ -520,6 +528,7 @@ pub fn check_module_bodies(
         comptime_module: &empty_comptime_module,
         layouts: &layouts,
         extensions: &empty_extensions,
+        lazy_extensions: None,
         program_extension_methods: &empty_program_extension_methods,
         extension_interner: None,
         program: BodyProgramContext::empty(),
@@ -571,6 +580,7 @@ pub fn check_module_bodies_with_program_signatures(
         comptime_module: input.comptime_module,
         layouts: &layouts,
         extensions: input.extensions,
+        lazy_extensions: None,
         program_extension_methods: input.program_extension_methods,
         extension_interner: None,
         program: input.program,
@@ -660,6 +670,11 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         .seed_interner
         .clone()
         .unwrap_or_else(|| input.normalization.interner.clone());
+    let visible_extensions = BodyVisibleExtensions {
+        methods: input.extensions,
+        interner: input.extension_interner,
+        lazy: input.lazy_extensions,
+    };
     let extension_methods_by_id = time_body_stage(
         timing,
         "body_check.extension_method_lookup",
@@ -669,28 +684,34 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
                 module_id,
                 input.defs,
                 input.signatures,
-                input.extensions,
+                visible_extensions,
                 input.program_extension_methods,
                 &mut interner,
                 &input.lowered.interner,
                 input.normalization,
-                input.extension_interner,
                 input.program.extension_type_normalizations,
             )
         },
     );
-    let extensions = time_body_stage(
-        timing,
-        "body_check.import_visible_extensions",
-        module_id,
-        || {
-            import_visible_extensions_into_working_interner(
-                input.extensions,
-                input.extension_interner,
-                &mut interner,
-            )
-        },
-    );
+    let extensions = if let Some(lazy) = input.lazy_extensions {
+        BodyVisibleExtensionSource::Lazy {
+            load: lazy,
+            imported: RefCell::new(None),
+        }
+    } else {
+        BodyVisibleExtensionSource::Eager(time_body_stage(
+            timing,
+            "body_check.import_visible_extensions",
+            module_id,
+            || {
+                import_visible_extensions_into_working_interner(
+                    input.extensions,
+                    input.extension_interner,
+                    &mut interner,
+                )
+            },
+        ))
+    };
     let void_ty = interner.primitive(PrimitiveTy::Void);
     let mut checker = time_body_stage(timing, "body_check.init", module_id, || BodyChecker {
         active_item_tree: input.active_item_tree,
@@ -749,6 +770,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         trait_impls_by_trait: HashMap::new(),
         def_trait_obligations_cache: HashMap::new(),
         trait_obligation_resolution_cache: HashMap::new(),
+        type_match_cache: HashMap::new(),
         program_type_normalizations: RefCell::new(HashMap::new()),
         diagnostics: Vec::new(),
         timing,
@@ -851,7 +873,7 @@ struct BodyChecker<'a> {
     comptime: BodyComptime<'a>,
     comptime_module: &'a ResolvedComptimeModule,
     layouts: &'a Layouts,
-    extensions: VisibleExtensionMethods,
+    extensions: BodyVisibleExtensionSource<'a>,
     program_extension_methods: &'a ExtensionMethods,
     program_signature_scope: ProgramSignatureScope<'a>,
     program_trait_impls: &'a [ProgramTraitImplSignature],
@@ -888,6 +910,7 @@ struct BodyChecker<'a> {
     def_trait_obligations_cache: HashMap<DefId, Vec<TraitObligation>>,
     trait_obligation_resolution_cache:
         HashMap<TraitObligationResolutionKey, nia_trait_solve::TraitResolution>,
+    type_match_cache: HashMap<(InternedTyId, InternedTyId), bool>,
     program_type_normalizations: RefCell<HashMap<ModuleId, TypeNormalization>>,
     diagnostics: Vec<Diagnostic>,
     timing: bool,
@@ -1067,6 +1090,53 @@ struct CallableExtensionMethods {
     methods_by_base: HashMap<GlobalDefId, Vec<usize>>,
 }
 
+enum BodyVisibleExtensionSource<'a> {
+    Eager(VisibleExtensionMethods),
+    Lazy {
+        load: &'a dyn Fn() -> (VisibleExtensionMethods, TyInterner),
+        imported: RefCell<Option<VisibleExtensionMethods>>,
+    },
+}
+
+impl Clone for BodyVisibleExtensionSource<'_> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Eager(methods) => Self::Eager(methods.clone()),
+            Self::Lazy { load, imported } => Self::Lazy {
+                load: *load,
+                imported: RefCell::new(imported.borrow().clone()),
+            },
+        }
+    }
+}
+
+impl<'a> BodyVisibleExtensionSource<'a> {
+    fn with_methods<T>(
+        &self,
+        target: &mut TyInterner,
+        f: impl FnOnce(&VisibleExtensionMethods) -> T,
+    ) -> T {
+        match self {
+            Self::Eager(methods) => f(methods),
+            Self::Lazy { load, imported } => {
+                if imported.borrow().is_none() {
+                    let (methods, source) = load();
+                    let methods = import_visible_extensions_into_working_interner(
+                        &methods,
+                        Some(&source),
+                        target,
+                    );
+                    *imported.borrow_mut() = Some(methods);
+                }
+                let borrowed = imported.borrow();
+                f(borrowed
+                    .as_ref()
+                    .expect("lazy visible extensions must be imported"))
+            }
+        }
+    }
+}
+
 fn import_visible_extensions_into_working_interner(
     extensions: &VisibleExtensionMethods,
     source: Option<&TyInterner>,
@@ -1131,16 +1201,25 @@ fn import_where_predicates_between_interners(
 }
 
 impl<'a> BodyChecker<'a> {
+    fn with_visible_extensions<T>(&mut self, f: impl FnOnce(&VisibleExtensionMethods) -> T) -> T {
+        self.extensions.with_methods(&mut self.interner, f)
+    }
+
+    fn visible_extension_trait_witness_impls(
+        &mut self,
+    ) -> HashSet<(ModuleId, nia_ids::TraitImplId)> {
+        self.with_visible_extensions(|extensions| extensions.trait_witness_impls().collect())
+    }
+
     fn extension_method_lookup(
         module_id: ModuleId,
         defs: &DefCollection,
         signatures: BodyLocalSignatures<'_>,
-        extensions: &VisibleExtensionMethods,
+        extensions: BodyVisibleExtensions<'_>,
         _program_extensions: &ExtensionMethods,
         interner: &mut TyInterner,
         local_type_interner: &TyInterner,
         local_normalization: &TypeNormalization,
-        extension_interner: Option<&TyInterner>,
         _program_normalizations: Option<&dyn Fn(ModuleId) -> Option<TypeNormalization>>,
     ) -> Arc<HashMap<GlobalDefId, ExtensionMethodLookup>> {
         let mut methods = HashMap::new();
@@ -1169,13 +1248,17 @@ impl<'a> BodyChecker<'a> {
                 );
             }
         }
-        for target in extensions.targets() {
-            let target_ty = extension_interner
+        if extensions.lazy.is_some() {
+            return Arc::new(methods);
+        }
+        for target in extensions.methods.targets() {
+            let target_ty = extensions
+                .interner
                 .map(|source| nia_ty::import_type_into(interner, source, target.target_ty))
                 .unwrap_or(target.target_ty);
             for method in &target.methods {
                 let mut method = method.clone();
-                if let Some(source) = extension_interner {
+                if let Some(source) = extensions.interner {
                     method.trait_args = method
                         .trait_args
                         .iter()
