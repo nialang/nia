@@ -1614,35 +1614,35 @@ extend[T] & Box[ T ] {
     }
 
     fn member_id(defs: &DefCollection, owner: DefId, name: &str) -> DefId {
-        let name = sym(name);
+        let symbol = sym(name);
         defs.scopes
             .struct_members
             .get(&owner)
             .and_then(|members| {
                 members
                     .fields
-                    .get(&name)
-                    .or_else(|| members.methods.get(&name))
-                    .or_else(|| members.values.get(&name))
+                    .get(&symbol)
+                    .or_else(|| members.methods.get(&symbol))
+                    .or_else(|| members.values.get(&symbol))
             })
             .unwrap_or_else(|| panic!("missing member `{name}`"))
     }
 
     fn enum_variant_id(defs: &DefCollection, owner: DefId, name: &str) -> DefId {
-        let name = sym(name);
+        let symbol = sym(name);
         defs.scopes
             .enum_members
             .get(&owner)
-            .and_then(|members| members.variants.get(&name))
+            .and_then(|members| members.variants.get(&symbol))
             .unwrap_or_else(|| panic!("missing enum variant `{name}`"))
     }
 
     fn extension_method_id(defs: &DefCollection, name: &str) -> DefId {
-        let name = sym(name);
+        let symbol = sym(name);
         defs.defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == DefKind::Method && def.parent.is_none() && def.name == name)
+                (def.kind == DefKind::Method && def.parent.is_none() && def.name == symbol)
                     .then_some(def_id)
             })
             .unwrap_or_else(|| panic!("missing extension method `{name}`"))
