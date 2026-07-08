@@ -15,12 +15,9 @@ struct DynamicTraitMethodSearch<'a> {
 }
 
 impl<'a> BodyChecker<'a> {
-    fn all_callable_extension_methods_named(
-        &mut self,
-        name: &SymbolId,
-    ) -> crate::CallableExtensionMethods {
-        if let Some(methods) = self.callable_extension_methods_by_name.get(name) {
-            return methods.clone();
+    fn ensure_callable_extension_methods_named(&mut self, name: &SymbolId) {
+        if self.callable_extension_methods_by_name.contains_key(name) {
+            return;
         }
         let mut methods = self
             .with_visible_extensions(|extensions| extensions.all_methods_named(name))
@@ -92,8 +89,7 @@ impl<'a> BodyChecker<'a> {
             }
         }
         self.callable_extension_methods_by_name
-            .insert(name.clone(), indexed.clone());
-        indexed
+            .insert(name.clone(), indexed);
     }
 
     pub(in crate::calls) fn method_candidates_for_target(
@@ -101,12 +97,24 @@ impl<'a> BodyChecker<'a> {
         target_ty: InternedTyId,
         name: &SymbolId,
     ) -> Vec<MethodCandidate> {
-        let methods = self.profile_stage("body_check.profile.method.callable_named", |this| {
-            this.all_callable_extension_methods_named(name)
+        self.profile_stage("body_check.profile.method.callable_named", |this| {
+            this.ensure_callable_extension_methods_named(name)
         });
+        let methods_len = self
+            .callable_extension_methods_by_name
+            .get(name)
+            .map(|methods| methods.methods.len())
+            .unwrap_or_default();
         let mut candidates = Vec::new();
-        for method in methods.methods {
-            let candidate_ty = method.target_ty;
+        for index in 0..methods_len {
+            let Some((candidate_ty, method)) = self
+                .callable_extension_methods_by_name
+                .get(name)
+                .and_then(|methods| methods.methods.get(index))
+                .map(|method| (method.target_ty, method.method.clone()))
+            else {
+                continue;
+            };
             let mut target_substitutions = SymbolMap::new();
             let mut target_const_substitutions = SymbolMap::new();
             if self.profile_stage("body_check.profile.method.match_target", |this| {
@@ -120,7 +128,7 @@ impl<'a> BodyChecker<'a> {
                 candidates.push(MethodCandidate {
                     target_ty: candidate_ty,
                     self_ty: target_ty,
-                    method: method.method,
+                    method,
                     target_substitutions,
                     target_const_substitutions,
                 });
@@ -134,20 +142,33 @@ impl<'a> BodyChecker<'a> {
         receiver_ty: InternedTyId,
         name: &SymbolId,
     ) -> Vec<MethodCandidate> {
-        let methods = self.profile_stage("body_check.profile.method.callable_named", |this| {
-            this.all_callable_extension_methods_named(name)
+        self.profile_stage("body_check.profile.method.callable_named", |this| {
+            this.ensure_callable_extension_methods_named(name)
         });
         let mut receiver_ty = self.normalize_aliases_in_type(receiver_ty);
         loop {
             let receiver_base = self.receiver_base_type(receiver_ty);
-            let candidate_indexes = self.callable_method_indexes_for_receiver_base(
-                &methods,
-                receiver_base.as_ref().map(|base| base.def_id),
-            );
+            let candidate_indexes = self
+                .callable_extension_methods_by_name
+                .get(name)
+                .map(|methods| {
+                    self.callable_method_indexes_for_receiver_base(
+                        methods,
+                        receiver_base.as_ref().map(|base| base.def_id),
+                    )
+                })
+                .unwrap_or_default();
             let mut candidates = Vec::new();
             for index in candidate_indexes {
-                let method = &methods.methods[index];
-                let target_ty = self.normalize_aliases_in_type(method.target_ty);
+                let Some((target_ty, method)) = self
+                    .callable_extension_methods_by_name
+                    .get(name)
+                    .and_then(|methods| methods.methods.get(index))
+                    .map(|method| (method.target_ty, method.method.clone()))
+                else {
+                    continue;
+                };
+                let target_ty = self.normalize_aliases_in_type(target_ty);
                 if self.extension_receiver_base_mismatch(target_ty, receiver_base.as_ref()) {
                     continue;
                 }
@@ -157,22 +178,20 @@ impl<'a> BodyChecker<'a> {
                     self.profile_stage("body_check.profile.method.match_receiver", |this| {
                         this.match_extension_receiver_target(
                             target_ty,
-                            method.method.def_id,
+                            method.def_id,
                             receiver_ty,
                             &mut target_substitutions,
                             &mut target_const_substitutions,
                         )
                     });
                 if matches_receiver
-                    && self.extension_method_where_predicates_can_hold(
-                        &method.method,
-                        &target_substitutions,
-                    )
+                    && self
+                        .extension_method_where_predicates_can_hold(&method, &target_substitutions)
                 {
                     candidates.push(MethodCandidate {
                         target_ty,
                         self_ty: receiver_ty,
-                        method: method.method.clone(),
+                        method,
                         target_substitutions,
                         target_const_substitutions,
                     });
