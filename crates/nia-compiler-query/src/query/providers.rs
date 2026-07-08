@@ -4757,12 +4757,9 @@ impl QueryExecutableExtensionLookup<'_> {
         }
     }
 
-    fn trait_impls_for_trait(
-        &self,
-        trait_id: nia_ty::TraitId,
-    ) -> Vec<nia_item_signatures::ProgramTraitImplSignature> {
-        if let Some(trait_impls) = self.trait_impls_by_trait.borrow().get(&trait_id) {
-            return trait_impls.clone();
+    fn ensure_trait_impls_for_trait(&self, trait_id: nia_ty::TraitId) {
+        if self.trait_impls_by_trait.borrow().contains_key(&trait_id) {
+            return;
         }
         let trait_impls = self
             .db
@@ -4771,19 +4768,32 @@ impl QueryExecutableExtensionLookup<'_> {
             .clone();
         self.trait_impls_by_trait
             .borrow_mut()
-            .insert(trait_id, trait_impls.clone());
-        trait_impls
+            .insert(trait_id, trait_impls);
+    }
+
+    fn with_trait_impls_for_trait(
+        &self,
+        trait_id: nia_ty::TraitId,
+        f: &mut dyn FnMut(&[nia_item_signatures::ProgramTraitImplSignature]),
+    ) {
+        self.ensure_trait_impls_for_trait(trait_id);
+        let trait_impls = self.trait_impls_by_trait.borrow();
+        let trait_impls = trait_impls.get(&trait_id).map(Vec::as_slice).unwrap_or(&[]);
+        f(trait_impls);
     }
 
     fn module_ids_for_trait(&self, trait_id: nia_ty::TraitId) -> Vec<ModuleId> {
         if let Some(modules) = self.module_ids_by_trait.borrow().get(&trait_id) {
             return modules.clone();
         }
-        let mut modules = self
-            .trait_impls_for_trait(trait_id)
-            .into_iter()
-            .map(|impl_signature| impl_signature.module_id)
-            .collect::<Vec<_>>();
+        let mut modules = Vec::new();
+        self.with_trait_impls_for_trait(trait_id, &mut |trait_impls| {
+            modules.extend(
+                trait_impls
+                    .iter()
+                    .map(|impl_signature| impl_signature.module_id),
+            );
+        });
         modules.sort();
         modules.dedup();
         self.module_ids_by_trait
@@ -4794,9 +4804,19 @@ impl QueryExecutableExtensionLookup<'_> {
 }
 
 impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
-    fn methods_for_trait(&self, trait_id: nia_ty::TraitId) -> Vec<nia_defs::ExtensionMethod> {
-        if let Some(methods) = self.methods_by_trait.borrow().get(&trait_id) {
-            return methods.clone();
+    fn for_each_method_for_trait(
+        &self,
+        trait_id: nia_ty::TraitId,
+        f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
+    ) {
+        if self.methods_by_trait.borrow().contains_key(&trait_id) {
+            let methods = self.methods_by_trait.borrow();
+            if let Some(methods) = methods.get(&trait_id) {
+                for method in methods {
+                    f(method);
+                }
+            }
+            return;
         }
         let mut seen = HashSet::new();
         let mut methods = Vec::new();
@@ -4814,20 +4834,30 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
                     .cloned(),
             );
         }
-        self.methods_by_trait
-            .borrow_mut()
-            .insert(trait_id, methods.clone());
-        methods
+        self.methods_by_trait.borrow_mut().insert(trait_id, methods);
+        let methods = self.methods_by_trait.borrow();
+        if let Some(methods) = methods.get(&trait_id) {
+            for method in methods {
+                f(method);
+            }
+        }
     }
 
-    fn methods_for_trait_method(
+    fn for_each_method_for_trait_method(
         &self,
         trait_id: nia_ty::TraitId,
         method_name: &SymbolId,
-    ) -> Vec<nia_defs::ExtensionMethod> {
+        f: &mut dyn FnMut(&nia_defs::ExtensionMethod),
+    ) {
         let key = (trait_id, *method_name);
-        if let Some(methods) = self.methods_by_trait_name.borrow().get(&key) {
-            return methods.clone();
+        if self.methods_by_trait_name.borrow().contains_key(&key) {
+            let methods = self.methods_by_trait_name.borrow();
+            if let Some(methods) = methods.get(&key) {
+                for method in methods {
+                    f(method);
+                }
+            }
+            return;
         }
         let mut seen = HashSet::new();
         let mut methods = Vec::new();
@@ -4845,36 +4875,47 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
                     .cloned(),
             );
         }
-        self.methods_by_trait_name
-            .borrow_mut()
-            .insert(key, methods.clone());
-        methods
+        self.methods_by_trait_name.borrow_mut().insert(key, methods);
+        let methods = self.methods_by_trait_name.borrow();
+        if let Some(methods) = methods.get(&key) {
+            for method in methods {
+                f(method);
+            }
+        }
     }
 
-    fn where_predicates_for_def(
+    fn with_where_predicates_for_def(
         &self,
         def_id: GlobalDefId,
-    ) -> Vec<nia_defs::WherePredicateSignature> {
-        self.db
-            .query(ExtensionMethodByIdQuery(def_id))
+        f: &mut dyn FnMut(&[nia_defs::WherePredicateSignature]),
+    ) {
+        let method = self.db.query(ExtensionMethodByIdQuery(def_id));
+        let predicates = method
             .method
             .as_ref()
-            .map(|method| method.where_predicates.clone())
-            .unwrap_or_default()
+            .map(|method| method.where_predicates.as_slice())
+            .unwrap_or(&[]);
+        f(predicates);
     }
 
-    fn trait_impl_for_method(
+    fn with_trait_impl_for_method(
         &self,
         method: &nia_defs::ExtensionMethod,
         trait_id: nia_ty::TraitId,
-    ) -> Option<nia_item_signatures::ProgramTraitImplSignature> {
-        self.trait_impls_for_trait(trait_id)
-            .iter()
-            .find(|impl_signature| {
+        f: &mut dyn FnMut(&nia_item_signatures::ProgramTraitImplSignature),
+    ) -> bool {
+        let mut found = false;
+        self.with_trait_impls_for_trait(trait_id, &mut |trait_impls| {
+            let Some(signature) = trait_impls.iter().find(|impl_signature| {
                 impl_signature.module_id == method.def_id.module_id
                     && impl_signature.impl_id == method.impl_id
-            })
-            .cloned()
+            }) else {
+                return;
+            };
+            found = true;
+            f(signature);
+        });
+        found
     }
 }
 
