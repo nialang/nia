@@ -1173,7 +1173,16 @@ fn validate_trait_impl(
             trait_id,
             impl_signature,
         });
-        let validation_trait_impls = trait_impls_for_trait(TraitId::Source(trait_id));
+        let validation_trait_impls = trait_impls_for_trait_goal_and_supertraits(
+            module,
+            &mut comparison_interner,
+            target_ty,
+            TraitId::Source(trait_id),
+            &trait_args,
+            &trait_const_args,
+            &trait_signatures,
+            trait_impls_for_trait,
+        );
         if !trait_method_signature_matches(
             module,
             &validation_trait_impls,
@@ -2575,12 +2584,17 @@ fn trait_method_signature_matches(
     required: &nia_item_signatures::FunctionSignature,
     actual: &nia_item_signatures::FunctionSignature,
 ) -> bool {
-    let mut assumptions = vec![TraitGoal {
+    let mut assumptions = Vec::new();
+    push_trait_goal_assumption_with_supertraits(
+        module,
+        interner,
+        trait_signatures,
         self_ty,
         trait_id,
-        trait_args: trait_args.to_vec(),
-        trait_const_args: trait_const_args.to_vec(),
-    }];
+        trait_args.to_vec(),
+        trait_const_args.to_vec(),
+        &mut assumptions,
+    );
     let mut associated_type_assumptions = impl_signature
         .associated_types
         .iter()
@@ -2636,6 +2650,35 @@ fn trait_method_signature_matches(
             })
         && solver.types_equivalent(required.return_type, actual.return_type)
         && required.is_variadic == actual.is_variadic
+}
+
+fn trait_impls_for_trait_goal_and_supertraits(
+    module: &ExtensionModuleInput<'_>,
+    interner: &mut TyInterner,
+    self_ty: InternedTyId,
+    trait_id: TraitId,
+    trait_args: &[InternedTyId],
+    trait_const_args: &[nia_ty::ConstGenericArg],
+    trait_signatures: &HashMap<GlobalDefId, ProgramTraitSignature>,
+    trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
+) -> Vec<ProgramTraitImplSignature> {
+    let mut goals = Vec::new();
+    push_trait_goal_assumption_with_supertraits(
+        module,
+        interner,
+        trait_signatures,
+        self_ty,
+        trait_id,
+        trait_args.to_vec(),
+        trait_const_args.to_vec(),
+        &mut goals,
+    );
+    let mut seen = HashSet::new();
+    goals
+        .into_iter()
+        .filter_map(|goal| seen.insert(goal.trait_id).then_some(goal.trait_id))
+        .flat_map(trait_impls_for_trait)
+        .collect()
 }
 
 fn push_where_predicate_solver_assumptions(
