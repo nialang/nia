@@ -1194,6 +1194,7 @@ pub(super) fn executable_layouts_for_reachable_items(
         &RefCell<HashMap<ModuleId, nia_comptime_check::ComptimeArrayLengths>>,
     >,
     program_signatures_override: Option<&ProgramExecutableSignatures>,
+    reachable_body_modules_override: Option<&HashSet<ModuleId>>,
 ) -> nia_layout::Layouts {
     time_module_provider(db, "executable_layouts", module_id, || {
         let defs = db.query_shared(FullModuleDefsQuery(module_id));
@@ -1272,12 +1273,16 @@ pub(super) fn executable_layouts_for_reachable_items(
         let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
             if let Some(array_length_cache) = array_length_cache {
                 if !array_length_cache.borrow().contains_key(&id.module_id) {
-                    let has_reachable_body_items = has_reachable_executable_body_items(
-                        db,
-                        id.module_id,
-                        reachable_functions,
-                        reachable_globals,
-                    );
+                    let has_reachable_body_items = reachable_body_modules_override
+                        .map(|modules| modules.contains(&id.module_id))
+                        .unwrap_or_else(|| {
+                            has_reachable_executable_body_items(
+                                db,
+                                id.module_id,
+                                reachable_functions,
+                                reachable_globals,
+                            )
+                        });
                     let array_lengths = if has_reachable_body_items {
                         with_comptime_input_and_program_signatures(
                             db,
@@ -1377,17 +1382,22 @@ pub(super) fn executable_program_layouts<'a>(
         &'a RefCell<HashMap<ModuleId, nia_comptime_check::ComptimeArrayLengths>>,
     >,
     program_signatures_override: Option<&'a ProgramExecutableSignatures>,
+    reachable_body_modules_override: Option<&'a HashSet<ModuleId>>,
 ) -> impl Fn(ModuleId) -> Option<nia_layout::Layouts> + 'a {
     move |module_id| {
         if let Some(layouts) = cache.borrow().get(&module_id).cloned() {
             return Some(layouts);
         }
-        let has_reachable_body_items = has_reachable_executable_body_items(
-            db,
-            module_id,
-            reachable_functions,
-            reachable_globals,
-        );
+        let has_reachable_body_items = reachable_body_modules_override
+            .map(|modules| modules.contains(&module_id))
+            .unwrap_or_else(|| {
+                has_reachable_executable_body_items(
+                    db,
+                    module_id,
+                    reachable_functions,
+                    reachable_globals,
+                )
+            });
         let layouts = if has_reachable_body_items {
             executable_layouts_for_reachable_items(
                 db,
@@ -1396,6 +1406,7 @@ pub(super) fn executable_program_layouts<'a>(
                 reachable_globals,
                 array_length_cache,
                 program_signatures_override,
+                reachable_body_modules_override,
             )
         } else {
             signature_layouts_for_types(db, module_id, program_signatures_override)
@@ -1417,23 +1428,6 @@ fn has_reachable_executable_body_items(
         || reachable_globals
             .iter()
             .any(|def_id| def_id.module_id == module_id && is_runtime_global_def(db, *def_id))
-}
-
-pub(super) fn executable_reachable_body_modules(
-    db: &QueryDb<CompilerContext>,
-    reachable_functions: &HashSet<GlobalDefId>,
-    reachable_globals: &HashSet<GlobalDefId>,
-) -> HashSet<ModuleId> {
-    reachable_functions
-        .iter()
-        .map(|def_id| def_id.module_id)
-        .chain(
-            reachable_globals
-                .iter()
-                .filter(|def_id| is_runtime_global_def(db, **def_id))
-                .map(|def_id| def_id.module_id),
-        )
-        .collect()
 }
 
 fn is_runtime_global_def(db: &QueryDb<CompilerContext>, def_id: GlobalDefId) -> bool {
