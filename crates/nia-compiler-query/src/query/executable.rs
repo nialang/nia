@@ -121,6 +121,104 @@ impl ExecutableFactModuleState {
     }
 }
 
+#[derive(Default)]
+pub(super) struct ExecutableModuleReachability {
+    pub(super) functions: HashSet<GlobalDefId>,
+    pub(super) globals: HashSet<GlobalDefId>,
+}
+
+#[derive(Default)]
+pub(super) struct ExecutableReachabilityByModule {
+    modules: HashMap<ModuleId, ExecutableModuleReachability>,
+}
+
+impl ExecutableReachabilityByModule {
+    pub(super) fn new(reachability: &nia_executable_reachability::ExecutableReachability) -> Self {
+        let mut modules = HashMap::<ModuleId, ExecutableModuleReachability>::new();
+        for def_id in reachability.functions.iter().copied() {
+            modules
+                .entry(def_id.module_id)
+                .or_default()
+                .functions
+                .insert(def_id);
+        }
+        for def_id in reachability.globals.iter().copied() {
+            modules
+                .entry(def_id.module_id)
+                .or_default()
+                .globals
+                .insert(def_id);
+        }
+        Self { modules }
+    }
+
+    pub(super) fn get(&self, module_id: ModuleId) -> Option<&ExecutableModuleReachability> {
+        self.modules.get(&module_id)
+    }
+
+    pub(super) fn unchecked_items(
+        &self,
+        module_id: ModuleId,
+        fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
+    ) -> (HashSet<GlobalDefId>, HashSet<GlobalDefId>) {
+        let Some(items) = self.get(module_id) else {
+            return (HashSet::new(), HashSet::new());
+        };
+        let already_checked_functions = fact_by_id
+            .get(&module_id)
+            .map(|state| &state.checked_functions);
+        let already_checked_globals = fact_by_id
+            .get(&module_id)
+            .map(|state| &state.checked_globals);
+        let functions = items
+            .functions
+            .iter()
+            .copied()
+            .filter(|def_id| {
+                already_checked_functions.is_none_or(|checked| !checked.contains(def_id))
+            })
+            .collect();
+        let globals = items
+            .globals
+            .iter()
+            .copied()
+            .filter(|def_id| {
+                already_checked_globals.is_none_or(|checked| !checked.contains(def_id))
+            })
+            .collect();
+        (functions, globals)
+    }
+
+    fn has_pending_body_items(&self, db: &QueryDb<CompilerContext>, module_id: ModuleId) -> bool {
+        let Some(items) = self.get(module_id) else {
+            return false;
+        };
+        items.has_body_items(db)
+    }
+
+    pub(super) fn reachable_body_modules(
+        &self,
+        db: &QueryDb<CompilerContext>,
+    ) -> HashSet<ModuleId> {
+        self.modules
+            .iter()
+            .filter_map(|(module_id, items)| items.has_body_items(db).then_some(*module_id))
+            .collect()
+    }
+}
+
+impl ExecutableModuleReachability {
+    fn has_body_items(&self, db: &QueryDb<CompilerContext>) -> bool {
+        !self.functions.is_empty()
+            || self.globals.iter().any(|def_id| {
+                db.query_shared(ModuleDefsQuery(def_id.module_id))
+                    .defs
+                    .get(def_id.def_id)
+                    .is_some_and(|def| def.kind == DefKind::Global)
+            })
+    }
+}
+
 fn executable_module_refs_for_fact_state(
     state: &ExecutableFactModuleState,
 ) -> ExecutableModuleRefs {
@@ -176,51 +274,41 @@ pub(super) fn stale_executable_fact_modules(
     db: &QueryDb<CompilerContext>,
     parse_ok: &[ModuleId],
     reachability: &nia_executable_reachability::ExecutableReachability,
+    reachability_by_module: &ExecutableReachabilityByModule,
     fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
 ) -> std::collections::VecDeque<ModuleId> {
     parse_ok
         .iter()
         .copied()
         .filter(|module_id| reachability.modules.contains(module_id))
-        .filter(|module_id| executable_module_has_pending_body_items(db, *module_id, reachability))
-        .filter(|module_id| executable_fact_module_is_stale(*module_id, reachability, fact_by_id))
+        .filter(|module_id| reachability_by_module.has_pending_body_items(db, *module_id))
+        .filter(|module_id| {
+            executable_fact_module_is_stale(*module_id, reachability_by_module, fact_by_id)
+        })
         .collect()
 }
 
-pub(super) fn executable_fact_module_is_stale(
+fn executable_fact_module_is_stale(
     module_id: ModuleId,
-    reachability: &nia_executable_reachability::ExecutableReachability,
+    reachability_by_module: &ExecutableReachabilityByModule,
     fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
 ) -> bool {
+    let Some(items) = reachability_by_module.get(module_id) else {
+        return false;
+    };
     match fact_by_id.get(&module_id) {
         Some(state) => {
-            reachability.functions.iter().any(|def_id| {
-                def_id.module_id == module_id && !state.checked_functions.contains(def_id)
-            }) || reachability.globals.iter().any(|def_id| {
-                def_id.module_id == module_id && !state.checked_globals.contains(def_id)
-            })
+            items
+                .functions
+                .iter()
+                .any(|def_id| !state.checked_functions.contains(def_id))
+                || items
+                    .globals
+                    .iter()
+                    .any(|def_id| !state.checked_globals.contains(def_id))
         }
         None => true,
     }
-}
-
-pub(super) fn executable_module_has_pending_body_items(
-    db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-    reachability: &nia_executable_reachability::ExecutableReachability,
-) -> bool {
-    reachability
-        .functions
-        .iter()
-        .any(|def_id| def_id.module_id == module_id)
-        || reachability.globals.iter().any(|def_id| {
-            def_id.module_id == module_id
-                && db
-                    .query_shared(ModuleDefsQuery(def_id.module_id))
-                    .defs
-                    .get(def_id.def_id)
-                    .is_some_and(|def| def.kind == DefKind::Global)
-        })
 }
 
 pub(super) fn debug_executable_reachability_enabled() -> bool {
