@@ -235,7 +235,7 @@ pub(super) fn stale_executable_fact_modules(
     parse_ok
         .iter()
         .copied()
-        .filter(|module_id| reachability.modules.contains(module_id))
+        .filter(|module_id| reachability.modules().contains(module_id))
         .filter(|module_id| {
             executable_reachability_has_pending_body_items(db, reachability_by_module, *module_id)
         })
