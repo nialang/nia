@@ -36,6 +36,9 @@ pub(in crate::query) use self::body_check_flow::{
     BodyCheckResolutionInputs, BodyCheckWithResolutionInputs,
 };
 use self::body_executable::*;
+pub(in crate::query) use self::body_executable::{
+    ExecutableValueRefIndex, provide_executable_value_ref_index,
+};
 use self::body_signature_lookup::*;
 use self::codegen::*;
 use self::comptime::*;
