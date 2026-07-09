@@ -5,7 +5,10 @@ use std::{
     collections::VecDeque,
     fmt::{self, Debug},
     hash::{Hash, Hasher},
-    sync::{Arc, Condvar, Mutex},
+    sync::{
+        Arc, Condvar, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use nia_hash::{FastHashMap, FastHashSet, FastHasher};
@@ -33,13 +36,42 @@ struct QueryDbInner<C> {
     caches: Mutex<FastHashMap<TypeId, Box<dyn Any + Send + Sync>>>,
     slots: Mutex<FastHashMap<QueryFrameIdentity, Arc<dyn ErasedQuerySlot>>>,
     dependencies: Mutex<QueryDependencyGraph>,
-    stats: Mutex<QueryStatsTable>,
 }
 
 struct QuerySlot<V> {
     identity: QueryFrameIdentity,
+    stats: QuerySlotStats,
     state: Mutex<QueryState<V>>,
     ready: Condvar,
+}
+
+#[derive(Debug, Default)]
+struct QuerySlotStats {
+    executions: AtomicUsize,
+    cache_hits: AtomicUsize,
+    waits: AtomicUsize,
+}
+
+impl QuerySlotStats {
+    fn record_execution(&self) {
+        self.executions.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_cache_hit(&self) {
+        self.cache_hits.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_wait(&self) {
+        self.waits.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> QueryFrameStats {
+        QueryFrameStats {
+            executions: self.executions.load(Ordering::Relaxed),
+            cache_hits: self.cache_hits.load(Ordering::Relaxed),
+            waits: self.waits.load(Ordering::Relaxed),
+        }
+    }
 }
 
 enum QueryState<V> {
@@ -50,6 +82,7 @@ enum QueryState<V> {
 
 trait ErasedQuerySlot: Send + Sync {
     fn invalidate(&self);
+    fn stats(&self) -> QueryFrameStats;
 }
 
 impl<V> ErasedQuerySlot for QuerySlot<V>
@@ -68,6 +101,10 @@ where
                 self.ready.notify_all();
             }
         }
+    }
+
+    fn stats(&self) -> QueryFrameStats {
+        self.stats.snapshot()
     }
 }
 
@@ -253,11 +290,6 @@ pub struct QueryTraceQuery {
     pub stats: QueryFrameStats,
 }
 
-#[derive(Debug, Default)]
-struct QueryStatsTable {
-    entries: FastHashMap<QueryFrameIdentity, QueryFrameStats>,
-}
-
 #[derive(Debug, Clone)]
 struct QueryStackEntry {
     identity: QueryFrameIdentity,
@@ -286,7 +318,6 @@ impl<C> QueryDb<C> {
                 caches: Mutex::new(FastHashMap::default()),
                 slots: Mutex::new(FastHashMap::default()),
                 dependencies: Mutex::new(QueryDependencyGraph::default()),
-                stats: Mutex::new(QueryStatsTable::default()),
             }),
         }
     }
@@ -351,14 +382,14 @@ impl<C> QueryDb<C> {
             match &*state {
                 QueryState::Ready(value) => {
                     nia_timing::time_detail(detail_timing, "query.record_cache_hit", || {
-                        self.record_cache_hit(identity)
+                        slot.stats.record_cache_hit()
                     });
                     return Ok(O::cache_hit(value, detail_timing, identity.name));
                 }
                 QueryState::Computing { .. } => {
                     self.check_not_recursive_identity(identity)?;
                     nia_timing::time_detail(detail_timing, "query.record_wait", || {
-                        self.record_wait(identity)
+                        slot.stats.record_wait()
                     });
                     drop(
                         slot.ready
@@ -376,7 +407,7 @@ impl<C> QueryDb<C> {
                     };
                     let _guard = self.enter_query(entry)?;
                     nia_timing::time_detail(detail_timing, "query.record_execution", || {
-                        self.record_execution(identity)
+                        slot.stats.record_execution()
                     });
                     let value = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         nia_timing::time_detail(detail_timing, "query.provider", || {
@@ -484,12 +515,7 @@ impl<C> QueryDb<C> {
                 .lock()
                 .expect("query dependency lock poisoned")
                 .dependencies(),
-            queries: self
-                .inner
-                .stats
-                .lock()
-                .expect("query stats lock poisoned")
-                .queries(),
+            queries: self.query_stats(),
         }
     }
 
@@ -549,6 +575,7 @@ impl<C> QueryDb<C> {
         let identity = query_frame_identity::<C, K>(key);
         let slot = Arc::new(QuerySlot {
             identity: identity.clone(),
+            stats: QuerySlotStats::default(),
             state: Mutex::new(QueryState::Empty),
             ready: Condvar::new(),
         });
@@ -594,28 +621,23 @@ impl<C> QueryDb<C> {
         self.record_dependency_from_stack(identity);
     }
 
-    fn record_execution(&self, identity: &QueryFrameIdentity) {
-        self.record_query_stat(identity, |stats| stats.executions += 1);
-    }
-
-    fn record_cache_hit(&self, identity: &QueryFrameIdentity) {
-        self.record_query_stat(identity, |stats| stats.cache_hits += 1);
-    }
-
-    fn record_wait(&self, identity: &QueryFrameIdentity) {
-        self.record_query_stat(identity, |stats| stats.waits += 1);
-    }
-
-    fn record_query_stat(
-        &self,
-        identity: &QueryFrameIdentity,
-        update: impl FnOnce(&mut QueryFrameStats),
-    ) {
-        self.inner
-            .stats
+    fn query_stats(&self) -> Vec<QueryTraceQuery> {
+        let slots = self
+            .inner
+            .slots
             .lock()
-            .expect("query stats lock poisoned")
-            .record(identity, update);
+            .expect("query cache slot lock poisoned");
+        let mut queries = slots
+            .iter()
+            .map(|(identity, slot)| QueryTraceQuery {
+                frame: identity.frame(),
+                stats: slot.stats(),
+            })
+            .collect::<Vec<_>>();
+        queries.sort_by(|lhs, rhs| {
+            (lhs.frame.name, lhs.frame.key.as_str()).cmp(&(rhs.frame.name, rhs.frame.key.as_str()))
+        });
+        queries
     }
 
     fn record_dependency_from_stack(&self, to: &QueryFrameIdentity) {
@@ -647,32 +669,6 @@ impl<C> QueryDb<C> {
             .lock()
             .expect("query dependency lock poisoned")
             .remove_dependencies_from(from);
-    }
-}
-
-impl QueryStatsTable {
-    fn record(&mut self, identity: &QueryFrameIdentity, update: impl FnOnce(&mut QueryFrameStats)) {
-        let stats = if let Some(stats) = self.entries.get_mut(identity) {
-            stats
-        } else {
-            self.entries.entry(identity.clone()).or_default()
-        };
-        update(stats);
-    }
-
-    fn queries(&self) -> Vec<QueryTraceQuery> {
-        let mut queries = self
-            .entries
-            .iter()
-            .map(|(identity, stats)| QueryTraceQuery {
-                frame: identity.frame(),
-                stats: stats.clone(),
-            })
-            .collect::<Vec<_>>();
-        queries.sort_by(|lhs, rhs| {
-            (lhs.frame.name, lhs.frame.key.as_str()).cmp(&(rhs.frame.name, rhs.frame.key.as_str()))
-        });
-        queries
     }
 }
 
