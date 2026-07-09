@@ -21,14 +21,34 @@ use nia_ty::{AssociatedTypeBindingTy, TyInterner, TyKind};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExecutableReachability {
-    pub modules: HashSet<ModuleId>,
-    pub type_modules: HashSet<ModuleId>,
-    pub functions: HashSet<GlobalDefId>,
-    pub globals: HashSet<GlobalDefId>,
-    pub stats: ExecutableReachabilityStats,
+    modules: HashSet<ModuleId>,
+    type_modules: HashSet<ModuleId>,
+    functions: HashSet<GlobalDefId>,
+    globals: HashSet<GlobalDefId>,
+    stats: ExecutableReachabilityStats,
 }
 
 impl ExecutableReachability {
+    pub fn modules(&self) -> &HashSet<ModuleId> {
+        &self.modules
+    }
+
+    pub fn type_modules(&self) -> &HashSet<ModuleId> {
+        &self.type_modules
+    }
+
+    pub fn functions(&self) -> &HashSet<GlobalDefId> {
+        &self.functions
+    }
+
+    pub fn globals(&self) -> &HashSet<GlobalDefId> {
+        &self.globals
+    }
+
+    pub fn stats(&self) -> ExecutableReachabilityStats {
+        self.stats
+    }
+
     pub fn by_module(&self) -> ExecutableReachabilityByModule {
         ExecutableReachabilityByModule::new(self)
     }
@@ -36,6 +56,14 @@ impl ExecutableReachability {
     pub fn insert_function(&mut self, def_id: GlobalDefId) -> bool {
         let changed = self.functions.insert(def_id);
         self.modules.insert(def_id.module_id);
+        changed
+    }
+
+    pub fn insert_functions(&mut self, def_ids: impl IntoIterator<Item = GlobalDefId>) -> bool {
+        let mut changed = false;
+        for def_id in def_ids {
+            changed |= self.insert_function(def_id);
+        }
         changed
     }
 

@@ -464,8 +464,7 @@ fn executable_checked_module_set_inner(
             );
             reachability_state
                 .reachability_mut()
-                .functions
-                .extend(module_functions.iter().copied());
+                .insert_functions(module_functions.iter().copied());
             let filter = nia_body_check::BodyCheckFilter::ReachableItems {
                 functions: &module_functions,
                 globals: &module_globals,
@@ -488,8 +487,8 @@ fn executable_checked_module_set_inner(
                 executable_layouts_for_reachable_items(
                     db,
                     module_id,
-                    &reachability.functions,
-                    &reachability.globals,
+                    reachability.functions(),
+                    reachability.globals(),
                     Some(&caches.array_lengths),
                     None,
                     Some(&reachable_body_modules),
@@ -528,8 +527,8 @@ fn executable_checked_module_set_inner(
                     executable_program_layouts(
                         db,
                         &program_layout_cache,
-                        &reachability.functions,
-                        &reachability.globals,
+                        reachability.functions(),
+                        reachability.globals(),
                         Some(&caches.array_lengths),
                         None,
                         Some(&reachable_body_modules),
@@ -594,10 +593,10 @@ fn executable_checked_module_set_inner(
                     new_globals: new_globals_len,
                     checked_functions_total: state.checked_functions.len(),
                     checked_globals_total: state.checked_globals.len(),
-                    reachable_functions_total: reachability.functions.len(),
-                    reachable_globals_total: reachability.globals.len(),
-                    reachable_modules_total: reachability.modules.len(),
-                    type_modules_total: reachability.type_modules.len(),
+                    reachable_functions_total: reachability.functions().len(),
+                    reachable_globals_total: reachability.globals().len(),
+                    reachable_modules_total: reachability.modules().len(),
+                    type_modules_total: reachability.type_modules().len(),
                 });
             }
             batch_items.push(ExecutableBodyCheckBatchItem {
@@ -671,7 +670,7 @@ fn executable_checked_module_set_inner(
             parse_ok_modules
                 .iter()
                 .copied()
-                .filter(|module_id| reachability.modules.contains(module_id))
+                .filter(|module_id| reachability.modules().contains(module_id))
                 .filter_map(|module_id| checked_modules_by_id.remove(&module_id))
                 .collect::<Vec<_>>()
         },
@@ -699,8 +698,8 @@ fn executable_checked_module_set_inner(
     let executable_program_layouts = executable_program_layouts(
         db,
         &codegen_layout_cache,
-        &reachability.functions,
-        &reachability.globals,
+        reachability.functions(),
+        reachability.globals(),
         Some(&caches.array_lengths),
         Some(&*non_function_signatures),
         None,
@@ -712,8 +711,8 @@ fn executable_checked_module_set_inner(
             parse_ok_modules
                 .iter()
                 .copied()
-                .filter(|module_id| reachability.type_modules.contains(module_id))
-                .filter(|module_id| !reachability.modules.contains(module_id))
+                .filter(|module_id| reachability.type_modules().contains(module_id))
+                .filter(|module_id| !reachability.modules().contains(module_id))
                 .map(|module_id| {
                     let layouts = executable_program_layouts(module_id).unwrap_or_else(|| {
                         signature_layouts_for_types(db, module_id, Some(&*non_function_signatures))
@@ -838,13 +837,13 @@ fn final_executable_checked_modules(
     for module_id in parse_ok
         .iter()
         .copied()
-        .filter(|module_id| reachability.modules.contains(module_id))
+        .filter(|module_id| reachability.modules().contains(module_id))
     {
         let layouts = executable_layouts_for_reachable_items(
             db,
             module_id,
-            &reachability.functions,
-            &reachability.globals,
+            reachability.functions(),
+            reachability.globals(),
             Some(&caches.array_lengths),
             None,
             Some(&reachable_body_modules),
@@ -854,8 +853,8 @@ fn final_executable_checked_modules(
     let executable_program_layouts = executable_program_layouts(
         db,
         &program_layout_cache,
-        &reachability.functions,
-        &reachability.globals,
+        reachability.functions(),
+        reachability.globals(),
         Some(&caches.array_lengths),
         None,
         Some(&reachable_body_modules),
@@ -863,7 +862,7 @@ fn final_executable_checked_modules(
     parse_ok
         .iter()
         .copied()
-        .filter(|module_id| reachability.modules.contains(module_id))
+        .filter(|module_id| reachability.modules().contains(module_id))
         .filter_map(|module_id| {
             let Some(module_items) = reachability_by_module.get(module_id) else {
                 return None;
@@ -881,8 +880,8 @@ fn final_executable_checked_modules(
                     executable_layouts_for_reachable_items(
                         db,
                         module_id,
-                        &reachability.functions,
-                        &reachability.globals,
+                        reachability.functions(),
+                        reachability.globals(),
                         Some(&caches.array_lengths),
                         None,
                         Some(&reachable_body_modules),
@@ -952,7 +951,7 @@ fn extend_reachability_from_value_ref_edges(
 ) -> bool {
     let mut changed = false;
     for module_id in parse_ok.iter().copied() {
-        if !reachability.modules.contains(&module_id) {
+        if !reachability.modules().contains(&module_id) {
             continue;
         }
         let (module_functions, module_globals) =
