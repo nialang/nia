@@ -1676,7 +1676,7 @@ fn extend_reachable_functions_from_traits(
     }
     for vtable in &reachable_traits.vtables {
         extension_index.for_each_method_for_trait(vtable.trait_id, &mut |method| {
-            if reachable_extension_method_match(
+            if !with_reachable_extension_method_match(
                 method,
                 vtable.trait_id,
                 vtable.self_ty,
@@ -1685,9 +1685,8 @@ fn extend_reachable_functions_from_traits(
                 None,
                 extension_index,
                 modules_by_id,
-            )
-            .is_none()
-            {
+                &mut |_| {},
+            ) {
                 return;
             }
             add_reachable_function_pending(
@@ -1708,7 +1707,7 @@ fn extend_reachable_functions_from_traits(
             reachable.trait_id,
             &reachable.method_name,
             &mut |method| {
-                let Some(matched) = reachable_extension_method_match(
+                if !with_reachable_extension_method_match(
                     method,
                     reachable.trait_id,
                     reachable.self_ty,
@@ -1717,24 +1716,26 @@ fn extend_reachable_functions_from_traits(
                     reachable.interner.as_ref(),
                     extension_index,
                     modules_by_id,
-                ) else {
+                    &mut |matched| {
+                        add_reachable_function_pending(
+                            method.def_id,
+                            program_signatures,
+                            reachable_functions,
+                            reachable_modules,
+                            &mut pending_module_set,
+                            pending_modules,
+                        );
+                        extend_reachable_trait_methods_from_impl_where_predicates(
+                            program_signatures,
+                            &matched,
+                            &reachable.method_name,
+                            reachable.module_id,
+                            reachable_traits,
+                        );
+                    },
+                ) {
                     return;
-                };
-                add_reachable_function_pending(
-                    method.def_id,
-                    program_signatures,
-                    reachable_functions,
-                    reachable_modules,
-                    &mut pending_module_set,
-                    pending_modules,
-                );
-                extend_reachable_trait_methods_from_impl_where_predicates(
-                    program_signatures,
-                    &matched,
-                    &reachable.method_name,
-                    reachable.module_id,
-                    reachable_traits,
-                );
+                }
             },
         );
     }
@@ -1770,7 +1771,7 @@ fn extend_reachable_functions_from_traits_incremental(
             pending_modules,
         );
         extension_index.for_each_method_for_trait(vtable.trait_id, &mut |method| {
-            if reachable_extension_method_match(
+            if !with_reachable_extension_method_match(
                 method,
                 vtable.trait_id,
                 vtable.self_ty,
@@ -1779,9 +1780,8 @@ fn extend_reachable_functions_from_traits_incremental(
                 None,
                 extension_index,
                 modules_by_id,
-            )
-            .is_none()
-            {
+                &mut |_| {},
+            ) {
                 return;
             }
             add_reachable_function_pending(
@@ -1814,7 +1814,7 @@ fn extend_reachable_functions_from_traits_incremental(
             reachable.trait_id,
             &reachable.method_name,
             &mut |method| {
-                let Some(matched) = reachable_extension_method_match(
+                if !with_reachable_extension_method_match(
                     method,
                     reachable.trait_id,
                     reachable.self_ty,
@@ -1823,24 +1823,26 @@ fn extend_reachable_functions_from_traits_incremental(
                     reachable.interner.as_ref(),
                     extension_index,
                     modules_by_id,
-                ) else {
+                    &mut |matched| {
+                        add_reachable_function_pending(
+                            method.def_id,
+                            program_signatures,
+                            &mut state.reachability.functions,
+                            &state.reachability.modules,
+                            &mut pending_module_set,
+                            pending_modules,
+                        );
+                        extend_reachable_trait_methods_from_impl_where_predicates(
+                            program_signatures,
+                            &matched,
+                            &reachable.method_name,
+                            reachable.module_id,
+                            &mut state.reachable_traits,
+                        );
+                    },
+                ) {
                     return;
-                };
-                add_reachable_function_pending(
-                    method.def_id,
-                    program_signatures,
-                    &mut state.reachability.functions,
-                    &state.reachability.modules,
-                    &mut pending_module_set,
-                    pending_modules,
-                );
-                extend_reachable_trait_methods_from_impl_where_predicates(
-                    program_signatures,
-                    &matched,
-                    &reachable.method_name,
-                    reachable.module_id,
-                    &mut state.reachable_traits,
-                );
+                }
             },
         );
     }
@@ -1912,13 +1914,14 @@ fn add_reachable_default_trait_methods_for_vtable(
 }
 
 #[derive(Debug)]
-struct ReachableExtensionMethodMatch {
-    impl_signature: ProgramTraitImplSignature,
+struct ReachableExtensionMethodMatch<'a> {
+    impl_signature: &'a ProgramTraitImplSignature,
     interner: TyInterner,
     substitutions: SymbolMap<InternedTyId>,
 }
 
-fn reachable_extension_method_match(
+#[expect(clippy::too_many_arguments)]
+fn with_reachable_extension_method_match(
     method: &nia_defs::ExtensionMethod,
     trait_id: TraitId,
     self_ty: InternedTyId,
@@ -1927,60 +1930,59 @@ fn reachable_extension_method_match(
     use_interner_override: Option<&TyInterner>,
     extension_index: &dyn ExecutableExtensionLookup,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
-) -> Option<ReachableExtensionMethodMatch> {
+    f: &mut dyn FnMut(ReachableExtensionMethodMatch<'_>),
+) -> bool {
     if method.trait_args.len() != trait_args.len() {
-        return None;
+        return false;
     }
-    let mut impl_signature = None;
-    if !extension_index.with_trait_impl_for_method(method, trait_id, &mut |signature| {
-        impl_signature = Some(signature.clone());
-    }) {
-        return None;
-    };
-    let impl_signature = impl_signature?;
-    if impl_signature.trait_args.len() != trait_args.len() {
-        return None;
-    }
-    let mut interner = if let Some(interner) = use_interner_override {
-        interner.clone()
-    } else if let Some(use_module) = modules_by_id.get(&use_module_id) {
-        use_module.body_ir.interner.clone()
-    } else {
-        return None;
-    };
-    let Ok(target_ty) = nia_ty::try_import_type_into(
-        &mut interner,
-        &impl_signature.interner,
-        impl_signature.target_ty,
-    ) else {
-        return None;
-    };
-    let Ok(imported_trait_args) = impl_signature
-        .trait_args
-        .iter()
-        .map(|arg| nia_ty::try_import_type_into(&mut interner, &impl_signature.interner, *arg))
-        .collect::<Result<Vec<_>, _>>()
-    else {
-        return None;
-    };
-    let mut substitutions = SymbolMap::default();
-    if !match_type_pattern(&interner, target_ty, self_ty, &mut substitutions) {
-        return None;
-    }
-    if !imported_trait_args
-        .iter()
-        .zip(trait_args)
-        .all(|(pattern, actual)| {
-            match_type_pattern(&interner, *pattern, *actual, &mut substitutions)
-        })
-    {
-        return None;
-    }
-    Some(ReachableExtensionMethodMatch {
-        impl_signature,
-        interner,
-        substitutions,
-    })
+    let mut matched = false;
+    extension_index.with_trait_impl_for_method(method, trait_id, &mut |impl_signature| {
+        if impl_signature.trait_args.len() != trait_args.len() {
+            return;
+        }
+        let mut interner = if let Some(interner) = use_interner_override {
+            interner.clone()
+        } else if let Some(use_module) = modules_by_id.get(&use_module_id) {
+            use_module.body_ir.interner.clone()
+        } else {
+            return;
+        };
+        let Ok(target_ty) = nia_ty::try_import_type_into(
+            &mut interner,
+            &impl_signature.interner,
+            impl_signature.target_ty,
+        ) else {
+            return;
+        };
+        let Ok(imported_trait_args) = impl_signature
+            .trait_args
+            .iter()
+            .map(|arg| nia_ty::try_import_type_into(&mut interner, &impl_signature.interner, *arg))
+            .collect::<Result<Vec<_>, _>>()
+        else {
+            return;
+        };
+        let mut substitutions = SymbolMap::default();
+        if !match_type_pattern(&interner, target_ty, self_ty, &mut substitutions) {
+            return;
+        }
+        if !imported_trait_args
+            .iter()
+            .zip(trait_args)
+            .all(|(pattern, actual)| {
+                match_type_pattern(&interner, *pattern, *actual, &mut substitutions)
+            })
+        {
+            return;
+        }
+        matched = true;
+        f(ReachableExtensionMethodMatch {
+            impl_signature,
+            interner,
+            substitutions,
+        });
+    });
+    matched
 }
 
 fn extend_reachable_trait_methods_from_impl_where_predicates(
