@@ -4,8 +4,8 @@ use std::{fmt, sync::Arc};
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::{ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
+use nia_source::SourceIdentity;
 pub use nia_source::SourcePath;
-use nia_source::{SourceIdentity, normalize_path};
 use nia_span::Span;
 use nia_symbol::{KnownSymbolText, SymbolId, SymbolMap, SymbolText, known, stable_hash};
 
@@ -715,7 +715,7 @@ pub fn declared_child_source_path_for_with_symbols(
     } else {
         format!("{base}/{child}.nia")
     };
-    SourcePath::new(normalize_path(&joined))
+    SourcePath::from_normalized_unchecked(joined)
 }
 
 #[cfg(test)]
