@@ -199,15 +199,8 @@ where
 
 #[derive(Debug, Default)]
 struct QueryDependencyGraph {
-    dependencies: Vec<QueryDependencyEdge>,
     forward: FastHashMap<QueryFrameIdentity, FastHashSet<QueryFrameIdentity>>,
     reverse: FastHashMap<QueryFrameIdentity, FastHashSet<QueryFrameIdentity>>,
-}
-
-#[derive(Debug, Clone)]
-struct QueryDependencyEdge {
-    from: QueryFrameIdentity,
-    to: QueryFrameIdentity,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -490,13 +483,7 @@ impl<C> QueryDb<C> {
                 .dependencies
                 .lock()
                 .expect("query dependency lock poisoned")
-                .dependencies
-                .iter()
-                .map(|edge| QueryDependency {
-                    from: edge.from.frame(),
-                    to: edge.to.frame(),
-                })
-                .collect(),
+                .dependencies(),
             queries: self
                 .inner
                 .stats
@@ -717,11 +704,35 @@ impl QueryDependencyGraph {
                 .entry(to.identity.clone())
                 .or_default()
                 .insert(from.identity.clone());
-            self.dependencies.push(QueryDependencyEdge {
-                from: from.identity,
-                to: to.identity,
-            });
         }
+    }
+
+    fn dependencies(&self) -> Vec<QueryDependency> {
+        let mut dependencies = self
+            .forward
+            .iter()
+            .flat_map(|(from, targets)| {
+                targets.iter().map(move |to| QueryDependency {
+                    from: from.frame(),
+                    to: to.frame(),
+                })
+            })
+            .collect::<Vec<_>>();
+        dependencies.sort_by(|left, right| {
+            (
+                left.from.name,
+                left.from.key.as_str(),
+                left.to.name,
+                left.to.key.as_str(),
+            )
+                .cmp(&(
+                    right.from.name,
+                    right.from.key.as_str(),
+                    right.to.name,
+                    right.to.key.as_str(),
+                ))
+        });
+        dependencies
     }
 
     fn collect_dependents(&self, root: QueryFrameIdentity) -> Vec<QueryFrameIdentity> {
@@ -763,8 +774,6 @@ impl QueryDependencyGraph {
                 }
             }
         }
-        self.dependencies
-            .retain(|dependency| &dependency.from != from);
     }
 }
 
