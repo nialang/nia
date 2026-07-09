@@ -1120,43 +1120,44 @@ fn extend_reachable_traits_from_generic_instantiation(
             continue;
         };
         for bound in &predicate.bounds {
-            let Some(trait_ty) =
-                substitute_ty(&mut substituted_interner, bound.trait_ty, &substitutions)
+            let mut bound_interner = substituted_interner.clone();
+            let Some(trait_ty) = substitute_ty(&mut bound_interner, bound.trait_ty, &substitutions)
             else {
                 continue;
             };
-            let Some((trait_id, trait_args)) = trait_id_and_args(&substituted_interner, trait_ty)
-            else {
+            let Some((trait_id, trait_args)) = trait_id_and_args(&bound_interner, trait_ty) else {
                 continue;
             };
             match trait_id {
                 TraitId::Source(trait_def) => {
                     if let Some(trait_signature) = (program_signatures.trait_)(trait_def) {
-                        for method in &trait_signature.signature.methods {
-                            traits.insert_method_with_interner(
-                                use_module_id,
-                                trait_id,
-                                method.name.clone(),
-                                self_ty,
-                                trait_args.clone(),
-                                Some(substituted_interner.clone()),
-                            );
-                        }
+                        traits.insert_methods_with_interner(
+                            use_module_id,
+                            trait_id,
+                            trait_signature.signature.methods.iter().map(|method| {
+                                ReachableTraitMethodName {
+                                    name: method.name.clone(),
+                                }
+                            }),
+                            self_ty,
+                            &trait_args,
+                            bound_interner,
+                        );
                     }
                 }
                 TraitId::Builtin(builtin_trait) => {
-                    for method in builtin_trait.required_methods() {
-                        if let Some(method_name) = builtin_trait_method_symbol(*method) {
-                            traits.insert_method_with_interner(
-                                use_module_id,
-                                trait_id,
-                                method_name,
-                                self_ty,
-                                trait_args.clone(),
-                                Some(substituted_interner.clone()),
-                            );
-                        }
-                    }
+                    traits.insert_methods_with_interner(
+                        use_module_id,
+                        trait_id,
+                        builtin_trait
+                            .required_methods()
+                            .iter()
+                            .filter_map(|method| builtin_trait_method_symbol(*method))
+                            .map(|name| ReachableTraitMethodName { name }),
+                        self_ty,
+                        &trait_args,
+                        bound_interner,
+                    );
                 }
             }
         }
@@ -1170,44 +1171,46 @@ fn extend_reachable_traits_from_generic_instantiation(
                 continue;
             };
             for bound in &predicate.bounds {
+                let mut bound_interner = substituted_interner.clone();
                 let Some(trait_ty) =
-                    substitute_ty(&mut substituted_interner, bound.trait_ty, &substitutions)
+                    substitute_ty(&mut bound_interner, bound.trait_ty, &substitutions)
                 else {
                     continue;
                 };
-                let Some((trait_id, trait_args)) =
-                    trait_id_and_args(&substituted_interner, trait_ty)
+                let Some((trait_id, trait_args)) = trait_id_and_args(&bound_interner, trait_ty)
                 else {
                     continue;
                 };
                 match trait_id {
                     TraitId::Source(trait_def) => {
                         if let Some(trait_signature) = (program_signatures.trait_)(trait_def) {
-                            for method in &trait_signature.signature.methods {
-                                traits.insert_method_with_interner(
-                                    use_module_id,
-                                    trait_id,
-                                    method.name,
-                                    self_ty,
-                                    trait_args.clone(),
-                                    Some(substituted_interner.clone()),
-                                );
-                            }
+                            traits.insert_methods_with_interner(
+                                use_module_id,
+                                trait_id,
+                                trait_signature
+                                    .signature
+                                    .methods
+                                    .iter()
+                                    .map(|method| ReachableTraitMethodName { name: method.name }),
+                                self_ty,
+                                &trait_args,
+                                bound_interner,
+                            );
                         }
                     }
                     TraitId::Builtin(builtin_trait) => {
-                        for method in builtin_trait.required_methods() {
-                            if let Some(method_name) = builtin_trait_method_symbol(*method) {
-                                traits.insert_method_with_interner(
-                                    use_module_id,
-                                    trait_id,
-                                    method_name,
-                                    self_ty,
-                                    trait_args.clone(),
-                                    Some(substituted_interner.clone()),
-                                );
-                            }
-                        }
+                        traits.insert_methods_with_interner(
+                            use_module_id,
+                            trait_id,
+                            builtin_trait
+                                .required_methods()
+                                .iter()
+                                .filter_map(|method| builtin_trait_method_symbol(*method))
+                                .map(|name| ReachableTraitMethodName { name }),
+                            self_ty,
+                            &trait_args,
+                            bound_interner,
+                        );
                     }
                 }
             }
@@ -1290,16 +1293,20 @@ fn extend_reachable_traits_from_trait_default_instantiation(
     let Ok(trait_args) = trait_args else {
         return;
     };
-    for method in &trait_signature.signature.methods {
-        traits.insert_method_with_interner(
-            use_module_id,
-            trait_id,
-            method.name.clone(),
-            self_ty,
-            trait_args.clone(),
-            Some(method_interner.clone()),
-        );
-    }
+    traits.insert_methods_with_interner(
+        use_module_id,
+        trait_id,
+        trait_signature
+            .signature
+            .methods
+            .iter()
+            .map(|method| ReachableTraitMethodName {
+                name: method.name.clone(),
+            }),
+        self_ty,
+        &trait_args,
+        method_interner,
+    );
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1501,6 +1508,10 @@ struct ReachableTraitVtableKey {
     trait_args: Vec<InternedTyId>,
 }
 
+struct ReachableTraitMethodName {
+    name: SymbolId,
+}
+
 impl ReachableTraitRefs {
     fn extend(&mut self, refs: Self) {
         let ReachableTraitRefs {
@@ -1667,6 +1678,53 @@ impl ReachableTraitRefs {
             trait_args,
             interner: Some(interner),
         });
+    }
+
+    fn insert_methods_with_interner(
+        &mut self,
+        module_id: ModuleId,
+        trait_id: TraitId,
+        methods: impl IntoIterator<Item = ReachableTraitMethodName>,
+        self_ty: InternedTyId,
+        trait_args: &[InternedTyId],
+        interner: TyInterner,
+    ) {
+        self.traits.insert(trait_id);
+        let mut pending_methods = Vec::new();
+        for method in methods {
+            let Some(key) = Self::method_key_for_interner(
+                trait_id,
+                &method.name,
+                self_ty,
+                trait_args,
+                &interner,
+            ) else {
+                continue;
+            };
+            if !self.method_keys.insert(key) {
+                continue;
+            }
+            pending_methods.push(ReachableTraitMethod {
+                module_id,
+                trait_id,
+                method_name: method.name,
+                self_ty,
+                trait_args: trait_args.to_vec(),
+                interner: None,
+            });
+        }
+        if pending_methods.is_empty() {
+            return;
+        }
+        let interner = {
+            let id = ReachableTraitInternerId(self.interner_contexts.len());
+            self.interner_contexts.push(interner);
+            id
+        };
+        for mut method in pending_methods {
+            method.interner = Some(interner);
+            self.methods.push(method);
+        }
     }
 
     fn method_key_for_interner(
@@ -2106,32 +2164,36 @@ fn extend_reachable_trait_methods_from_impl_where_predicates(
             continue;
         };
         for bound in &predicate.bounds {
+            let mut bound_interner = interner.clone();
             let Ok(trait_ty) = nia_ty::try_import_type_into(
-                &mut interner,
+                &mut bound_interner,
                 &matched.impl_signature.interner,
                 bound.trait_ty,
             ) else {
                 continue;
             };
-            let Some(trait_ty) = substitute_ty(&mut interner, trait_ty, &substitutions) else {
+            let Some(trait_ty) = substitute_ty(&mut bound_interner, trait_ty, &substitutions)
+            else {
                 continue;
             };
-            let Some((trait_id, trait_args)) = trait_id_and_args(&interner, trait_ty) else {
+            let Some((trait_id, trait_args)) = trait_id_and_args(&bound_interner, trait_ty) else {
                 continue;
             };
             if let TraitId::Source(trait_def) = trait_id
                 && let Some(trait_signature) = (program_signatures.trait_)(trait_def)
             {
-                for method in &trait_signature.signature.methods {
-                    traits.insert_method_with_interner(
-                        module_id,
-                        trait_id,
-                        method.name.clone(),
-                        self_ty,
-                        trait_args.clone(),
-                        Some(interner.clone()),
-                    );
-                }
+                traits.insert_methods_with_interner(
+                    module_id,
+                    trait_id,
+                    trait_signature.signature.methods.iter().map(|method| {
+                        ReachableTraitMethodName {
+                            name: method.name.clone(),
+                        }
+                    }),
+                    self_ty,
+                    &trait_args,
+                    bound_interner,
+                );
                 continue;
             }
             traits.insert_method_with_interner(
@@ -2140,7 +2202,7 @@ fn extend_reachable_trait_methods_from_impl_where_predicates(
                 fallback_method_name.clone(),
                 self_ty,
                 trait_args,
-                Some(interner.clone()),
+                Some(bound_interner),
             );
         }
     }
