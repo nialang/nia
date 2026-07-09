@@ -72,6 +72,62 @@ impl ExecutableReachability {
         self.modules.insert(def_id.module_id);
         changed
     }
+
+    fn insert_module(&mut self, module_id: ModuleId) -> bool {
+        self.modules.insert(module_id)
+    }
+
+    fn insert_module_pending(
+        &mut self,
+        module_id: ModuleId,
+        pending_modules: &mut VecDeque<ModuleId>,
+    ) -> bool {
+        if self.modules.insert(module_id) {
+            pending_modules.push_back(module_id);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn insert_function_pending(
+        &mut self,
+        def_id: GlobalDefId,
+        pending_modules: &mut VecDeque<ModuleId>,
+    ) -> bool {
+        if self.functions.insert(def_id) {
+            self.insert_module_pending(def_id.module_id, pending_modules);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn insert_global_pending(
+        &mut self,
+        def_id: GlobalDefId,
+        pending_modules: &mut VecDeque<ModuleId>,
+    ) -> bool {
+        if self.globals.insert(def_id) {
+            self.insert_module_pending(def_id.module_id, pending_modules);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn set_stats(&mut self, stats: ExecutableReachabilityStats) {
+        self.stats = stats;
+    }
+
+    fn change_key(&self) -> (usize, usize, usize, usize) {
+        (
+            self.functions.len(),
+            self.globals.len(),
+            self.modules.len(),
+            self.type_modules.len(),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -376,12 +432,15 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
         .iter()
         .map(|module| (module.module_id, *module))
         .collect::<HashMap<_, _>>();
-    let mut reachable_functions = HashSet::default();
-    let mut reachable_globals = seed.map(|seed| seed.globals.clone()).unwrap_or_default();
-    let mut reachable_modules = seed.map(|seed| seed.modules.clone()).unwrap_or_default();
-    let mut reachable_type_modules = seed
-        .map(|seed| seed.type_modules.clone())
-        .unwrap_or_default();
+    let mut reachability = ExecutableReachability {
+        modules: seed.map(|seed| seed.modules.clone()).unwrap_or_default(),
+        type_modules: seed
+            .map(|seed| seed.type_modules.clone())
+            .unwrap_or_default(),
+        functions: HashSet::default(),
+        globals: seed.map(|seed| seed.globals.clone()).unwrap_or_default(),
+        stats: ExecutableReachabilityStats::default(),
+    };
     let mut pending_seed_modules = VecDeque::new();
     for def_id in seed
         .into_iter()
@@ -391,36 +450,29 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
         add_reachable_function(
             def_id,
             program_signatures,
-            &mut reachable_functions,
-            &mut reachable_modules,
+            &mut reachability,
             &mut pending_seed_modules,
         );
     }
-    reachable_modules.extend(reachable_functions.iter().map(|def_id| def_id.module_id));
-    add_reachable_module(graph.entry(), &mut reachable_modules, &mut VecDeque::new());
+    reachability.insert_module(graph.entry());
 
     let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
     loop {
-        let before = (
-            reachable_functions.len(),
-            reachable_globals.len(),
-            reachable_modules.len(),
-            reachable_type_modules.len(),
-        );
+        let before = reachability.change_key();
         let current_reachable_modules =
-            current_reachable_module_ids(&modules_by_id, &reachable_modules);
+            current_reachable_module_ids(&modules_by_id, reachability.modules());
         let mut reachable_traits = collect_reachable_traits_for_modules(
             &modules_by_id,
             &current_reachable_modules,
-            &reachable_functions,
-            &reachable_globals,
+            reachability.functions(),
+            reachability.globals(),
         );
         extend_reachable_traits_from_generic_instances(
             &modules_by_id,
             &current_reachable_modules,
             program_signatures,
             extension_index,
-            &reachable_functions,
+            reachability.functions(),
             &mut reachable_traits,
         );
         for module in current_reachable_module_inputs(&modules_by_id, &current_reachable_modules) {
@@ -428,17 +480,15 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
             extend_reachable_functions_from_bodies(
                 &module,
                 program_signatures,
-                &mut reachable_functions,
-                &mut reachable_globals,
-                &mut reachable_modules,
+                &mut reachability,
                 &mut pending_modules,
             );
             collect_reachable_fact_owner_modules(
                 &module,
                 program_signatures,
-                &reachable_functions,
-                &reachable_globals,
-                &mut reachable_type_modules,
+                &reachability.functions,
+                &reachability.globals,
+                &mut reachability.type_modules,
                 &mut reachable_traits,
             );
         }
@@ -448,37 +498,23 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
             extension_index,
             &modules_by_id,
             &mut reachable_traits,
-            &reachable_modules,
-            &mut reachable_functions,
+            &mut reachability,
             &mut pending_modules,
         );
         while let Some(module_id) = pending_modules.pop_front() {
             if !parse_ok_set.contains(&module_id) {
                 continue;
             }
-            reachable_modules.insert(module_id);
+            reachability.insert_module(module_id);
         }
-        if before
-            == (
-                reachable_functions.len(),
-                reachable_globals.len(),
-                reachable_modules.len(),
-                reachable_type_modules.len(),
-            )
-        {
+        if before == reachability.change_key() {
             break;
         }
     }
 
-    let stats = reachability_stats(&modules_by_id, &reachable_functions);
-
-    ExecutableReachability {
-        modules: reachable_modules,
-        type_modules: reachable_type_modules,
-        functions: reachable_functions,
-        globals: reachable_globals,
-        stats,
-    }
+    let stats = reachability_stats(&modules_by_id, reachability.functions());
+    reachability.set_stats(stats);
+    reachability
 }
 
 pub fn compute_executable_reachability_incremental(
@@ -551,16 +587,13 @@ pub fn compute_executable_reachability_incremental_with_timings(
             add_reachable_function(
                 def_id,
                 program_signatures,
-                &mut state.reachability.functions,
-                &mut state.reachability.modules,
+                &mut state.reachability,
                 &mut pending_modules,
             );
         }
-        add_reachable_module(
-            graph.entry(),
-            &mut state.reachability.modules,
-            &mut pending_modules,
-        );
+        state
+            .reachability
+            .insert_module_pending(graph.entry(), &mut pending_modules);
     });
 
     loop {
@@ -586,7 +619,7 @@ pub fn compute_executable_reachability_incremental_with_timings(
             );
             while let Some(module_id) = pending_modules.pop_front() {
                 if parse_ok_set.contains(&module_id) {
-                    state.reachability.modules.insert(module_id);
+                    state.reachability.insert_module(module_id);
                 }
             }
         }
@@ -615,7 +648,7 @@ pub fn compute_executable_reachability_incremental_with_timings(
         });
         while let Some(module_id) = pending_modules.pop_front() {
             if parse_ok_set.contains(&module_id) {
-                state.reachability.modules.insert(module_id);
+                state.reachability.insert_module(module_id);
             }
         }
         if before == incremental_reachability_key(state) {
@@ -709,7 +742,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
         );
         while let Some(module_id) = pending_modules.pop_front() {
             if parse_ok_set.contains(&module_id) {
-                state.reachability.modules.insert(module_id);
+                state.reachability.insert_module(module_id);
             }
         }
         let current_reachable_modules = time_reachability_stage(
@@ -749,7 +782,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
         );
         while let Some(module_id) = pending_modules.pop_front() {
             if parse_ok_set.contains(&module_id) {
-                state.reachability.modules.insert(module_id);
+                state.reachability.insert_module(module_id);
             }
         }
 
@@ -874,19 +907,14 @@ fn extend_reachability_from_unscanned_items(
         add_reachable_function(
             def_id,
             program_signatures,
-            &mut state.reachability.functions,
-            &mut state.reachability.modules,
+            &mut state.reachability,
             pending_modules,
         );
     }
     for def_id in refs.globals {
-        if state.reachability.globals.insert(def_id) {
-            add_reachable_module(
-                def_id.module_id,
-                &mut state.reachability.modules,
-                pending_modules,
-            );
-        }
+        state
+            .reachability
+            .insert_global_pending(def_id, pending_modules);
     }
     state.reachable_traits.extend(refs.traits);
     collect_reachable_fact_owner_modules_for_items(
@@ -926,19 +954,12 @@ pub fn extend_executable_reachability_from_checked_module_with_extension_index(
     module: ReachableModuleInput<'_>,
     checked_modules: &[ReachableModuleInput<'_>],
 ) -> bool {
-    let before = (
-        reachability.functions.len(),
-        reachability.globals.len(),
-        reachability.modules.len(),
-        reachability.type_modules.len(),
-    );
+    let before = reachability.change_key();
     let mut pending_modules = VecDeque::new();
     extend_reachable_functions_from_bodies(
         &module,
         program_signatures,
-        &mut reachability.functions,
-        &mut reachability.globals,
-        &mut reachability.modules,
+        reachability,
         &mut pending_modules,
     );
     let mut reachable_traits = ReachableTraitRefs::default();
@@ -976,17 +997,10 @@ pub fn extend_executable_reachability_from_checked_module_with_extension_index(
         extension_index,
         &modules_by_id,
         &mut reachable_traits,
-        &reachability.modules,
-        &mut reachability.functions,
+        reachability,
         &mut pending_modules,
     );
-    before
-        != (
-            reachability.functions.len(),
-            reachability.globals.len(),
-            reachability.modules.len(),
-            reachability.type_modules.len(),
-        )
+    before != reachability.change_key()
 }
 
 #[derive(Clone, Copy)]
@@ -1030,25 +1044,15 @@ fn executable_root_functions(
 fn extend_reachable_functions_from_bodies(
     module: &ReachableModuleInput<'_>,
     program_signatures: ExecutableSignatureIndex<'_>,
-    reachable_functions: &mut HashSet<GlobalDefId>,
-    reachable_globals: &mut HashSet<GlobalDefId>,
-    reachable_modules: &mut HashSet<ModuleId>,
+    reachability: &mut ExecutableReachability,
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
-    let refs = typed_executable_refs(module, reachable_functions, reachable_globals);
+    let refs = typed_executable_refs(module, &reachability.functions, &reachability.globals);
     for def_id in refs.functions {
-        add_reachable_function(
-            def_id,
-            program_signatures,
-            reachable_functions,
-            reachable_modules,
-            pending_modules,
-        );
+        add_reachable_function(def_id, program_signatures, reachability, pending_modules);
     }
     for def_id in refs.globals {
-        if reachable_globals.insert(def_id) {
-            add_reachable_module(def_id.module_id, reachable_modules, pending_modules);
-        }
+        reachability.insert_global_pending(def_id, pending_modules);
     }
 }
 
@@ -1937,10 +1941,11 @@ fn extend_reachable_functions_from_traits(
     extension_index: &dyn ExecutableExtensionLookup,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
     reachable_traits: &mut ReachableTraitRefs,
-    reachable_modules: &HashSet<ModuleId>,
-    reachable_functions: &mut HashSet<GlobalDefId>,
+    reachability: &mut ExecutableReachability,
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
+    let reachable_modules = &reachability.modules;
+    let reachable_functions = &mut reachability.functions;
     let mut pending_module_set = HashSet::new();
     for trait_id in &reachable_traits.traits {
         let TraitId::Source(trait_def) = trait_id else {
@@ -2405,17 +2410,14 @@ fn extend_reachable_trait_methods_from_impl_where_predicates(
 fn add_reachable_function(
     def_id: GlobalDefId,
     program_signatures: ExecutableSignatureIndex<'_>,
-    reachable_functions: &mut HashSet<GlobalDefId>,
-    reachable_modules: &mut HashSet<ModuleId>,
+    reachability: &mut ExecutableReachability,
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
     if !reachable_function_has_runtime_body(def_id, program_signatures) {
-        add_reachable_module(def_id.module_id, reachable_modules, pending_modules);
+        reachability.insert_module_pending(def_id.module_id, pending_modules);
         return;
     }
-    if reachable_functions.insert(def_id) {
-        add_reachable_module(def_id.module_id, reachable_modules, pending_modules);
-    }
+    reachability.insert_function_pending(def_id, pending_modules);
 }
 
 fn add_reachable_function_pending(
@@ -3547,16 +3549,6 @@ fn import_substitution_ty(
 ) -> Result<InternedTyId, nia_ty::TypeImportError> {
     match substitution {
         SubstitutionTy::External(ty) => nia_ty::try_import_type_into(interner, ty.interner, ty.ty),
-    }
-}
-
-fn add_reachable_module(
-    module_id: ModuleId,
-    reachable_modules: &mut HashSet<ModuleId>,
-    pending_modules: &mut VecDeque<ModuleId>,
-) {
-    if reachable_modules.insert(module_id) {
-        pending_modules.push_back(module_id);
     }
 }
 
