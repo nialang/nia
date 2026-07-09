@@ -168,7 +168,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let graph = db.query(ModuleGraphQuery);
         let id = graph
-            .module_id_for_path(self.0.as_str())
+            .module_id_for_source_identity(&self.0.identity())
             .unwrap_or_else(|| {
                 db.invalid_input(self, format!("missing module id for `{}`", self.0.as_str()))
             });
