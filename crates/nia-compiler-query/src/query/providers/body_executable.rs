@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use nia_ast::{BindingItem, FunctionItem};
-
-struct LocalExecutableValueRefs<'a> {
-    module_id: ModuleId,
-    defs: &'a DefCollection,
-    signatures: &'a HashMap<DefId, nia_item_signatures::FunctionSignature>,
-}
+use std::collections::VecDeque;
 
 #[derive(Clone, Default)]
 pub(super) struct ExecutableValueRefEdges {
@@ -21,32 +16,95 @@ pub(in crate::query) struct ExecutableValueRefIndex {
 }
 
 impl ExecutableValueRefIndex {
-    fn edges_for_items(
+    fn edges_for_item(
         &self,
-        functions: &HashSet<GlobalDefId>,
-        globals: &HashSet<GlobalDefId>,
-    ) -> ExecutableValueRefEdges {
-        let mut edges = ExecutableValueRefEdges::default();
-        for def_id in functions {
-            if let Some(function_edges) = self.functions.get(def_id) {
-                edges.extend_ref(function_edges);
-            }
+        owner: GlobalDefId,
+        kind: ExecutableValueRefOwner,
+    ) -> Option<&ExecutableValueRefEdges> {
+        match kind {
+            ExecutableValueRefOwner::Function => self.functions.get(&owner),
+            ExecutableValueRefOwner::Global => self.globals.get(&owner),
         }
-        for def_id in globals {
-            if let Some(global_edges) = self.globals.get(def_id) {
-                edges.extend_ref(global_edges);
-            }
-        }
-        edges
     }
 }
 
-impl ExecutableValueRefEdges {
-    fn extend_ref(&mut self, edges: &Self) {
-        self.functions.extend(edges.functions.iter().copied());
-        self.globals.extend(edges.globals.iter().copied());
-    }
+#[derive(Clone, Copy)]
+enum ExecutableValueRefOwner {
+    Function,
+    Global,
+}
 
+fn walk_executable_value_ref_closure(
+    module_id: ModuleId,
+    index: &ExecutableValueRefIndex,
+    functions: &mut HashSet<GlobalDefId>,
+    globals: &HashSet<GlobalDefId>,
+    checked_functions: Option<&HashSet<GlobalDefId>>,
+    mut on_function: impl FnMut(GlobalDefId) -> bool,
+    mut on_global: impl FnMut(GlobalDefId) -> bool,
+) -> bool {
+    let mut changed = false;
+    let mut pending_functions = functions.iter().copied().collect::<VecDeque<_>>();
+    let mut scanned_functions = HashSet::with_capacity(functions.len());
+    for global in globals {
+        if let Some(edges) = index.edges_for_item(*global, ExecutableValueRefOwner::Global) {
+            changed |= visit_executable_value_ref_edges(
+                module_id,
+                functions,
+                &mut pending_functions,
+                checked_functions,
+                edges,
+                &mut on_function,
+                &mut on_global,
+            );
+        }
+    }
+    while let Some(function) = pending_functions.pop_front() {
+        if !scanned_functions.insert(function) {
+            continue;
+        }
+        if let Some(edges) = index.edges_for_item(function, ExecutableValueRefOwner::Function) {
+            changed |= visit_executable_value_ref_edges(
+                module_id,
+                functions,
+                &mut pending_functions,
+                checked_functions,
+                edges,
+                &mut on_function,
+                &mut on_global,
+            );
+        }
+    }
+    changed
+}
+
+fn visit_executable_value_ref_edges(
+    module_id: ModuleId,
+    functions: &mut HashSet<GlobalDefId>,
+    pending_functions: &mut VecDeque<GlobalDefId>,
+    checked_functions: Option<&HashSet<GlobalDefId>>,
+    edges: &ExecutableValueRefEdges,
+    on_function: &mut impl FnMut(GlobalDefId) -> bool,
+    on_global: &mut impl FnMut(GlobalDefId) -> bool,
+) -> bool {
+    let mut changed = false;
+    for global_id in &edges.functions {
+        changed |= on_function(*global_id);
+        if global_id.module_id == module_id
+            && checked_functions.is_none_or(|checked| !checked.contains(global_id))
+            && functions.insert(*global_id)
+        {
+            pending_functions.push_back(*global_id);
+            changed = true;
+        }
+    }
+    for global_id in &edges.globals {
+        changed |= on_global(*global_id);
+    }
+    changed
+}
+
+impl ExecutableValueRefEdges {
     fn insert_edge(&mut self, db: &QueryDb<CompilerContext>, global_id: GlobalDefId) -> bool {
         let defs = db.query_shared(FullModuleDefsQuery(global_id.module_id));
         let Some(def) = defs.defs.get(global_id.def_id) else {
@@ -1757,39 +1815,21 @@ pub(super) fn extend_module_functions_from_filtered_value_refs(
     module_globals: &HashSet<GlobalDefId>,
     checked_functions: Option<&HashSet<GlobalDefId>>,
 ) -> HashSet<GlobalDefId> {
-    let defs = time_module_provider(db, "extend_value_refs.defs", module_id, || {
-        db.query_shared(FullModuleDefsQuery(module_id))
-    });
-    let signatures = time_module_provider(db, "extend_value_refs.signatures", module_id, || {
-        db.query_shared(SignatureItemSignaturesQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Functions,
-        ))
-    });
     let index = time_module_provider(db, "extend_value_refs.index", module_id, || {
         db.query(ExecutableValueRefIndexQuery(module_id))
     });
 
-    loop {
-        let local_refs = LocalExecutableValueRefs {
+    time_module_provider(db, "extend_value_refs.scan_refs", module_id, || {
+        walk_executable_value_ref_closure(
             module_id,
-            defs: &defs,
-            signatures: &signatures.functions,
-        };
-        let mut changed = false;
-        time_module_provider(db, "extend_value_refs.scan_refs", module_id, || {
-            let edges = index.edges_for_items(&module_functions, module_globals);
-            changed |= extend_local_executable_functions_from_value_ref_edges(
-                &mut module_functions,
-                &edges,
-                &local_refs,
-                checked_functions,
-            );
-        });
-        if !changed {
-            break;
-        }
-    }
+            &index,
+            &mut module_functions,
+            module_globals,
+            checked_functions,
+            |_| false,
+            |_| false,
+        );
+    });
     module_functions
 }
 
@@ -1804,44 +1844,18 @@ pub(super) fn executable_value_ref_edges_from_reachable_items(
     });
     let mut scan_functions = module_functions.clone();
     let mut all_edges = ExecutableValueRefEdges::default();
-    loop {
-        let before_local = scan_functions.len();
-        time_module_provider(db, "executable_value_refs.scan_refs", module_id, || {
-            let edges = index.edges_for_items(&scan_functions, module_globals);
-            scan_functions.extend(
-                edges
-                    .functions
-                    .iter()
-                    .copied()
-                    .filter(|def_id| def_id.module_id == module_id),
-            );
-            all_edges.extend_ref(&edges);
-        });
-        if scan_functions.len() == before_local {
-            break;
-        }
-    }
+    time_module_provider(db, "executable_value_refs.scan_refs", module_id, || {
+        walk_executable_value_ref_closure(
+            module_id,
+            &index,
+            &mut scan_functions,
+            module_globals,
+            None,
+            |def_id| all_edges.functions.insert(def_id),
+            |def_id| all_edges.globals.insert(def_id),
+        );
+    });
     all_edges
-}
-
-fn extend_local_executable_functions_from_value_ref_edges(
-    module_functions: &mut HashSet<GlobalDefId>,
-    edges: &ExecutableValueRefEdges,
-    refs: &LocalExecutableValueRefs<'_>,
-    checked_functions: Option<&HashSet<GlobalDefId>>,
-) -> bool {
-    let mut changed = false;
-    for global_id in &edges.functions {
-        if global_id.module_id == refs.module_id {
-            changed |= insert_local_executable_function(
-                module_functions,
-                refs,
-                global_id.def_id,
-                checked_functions,
-            );
-        }
-    }
-    changed
 }
 
 pub(in crate::query) fn provide_executable_value_ref_index(
@@ -2067,37 +2081,6 @@ fn collect_executable_value_ref_edge_for_key(
     if let Some(global_id) = values.node_qualified_values.get(key).copied() {
         edges.insert_edge(db, global_id);
     }
-}
-
-fn insert_local_executable_function(
-    module_functions: &mut HashSet<GlobalDefId>,
-    refs: &LocalExecutableValueRefs<'_>,
-    def_id: DefId,
-    checked_functions: Option<&HashSet<GlobalDefId>>,
-) -> bool {
-    let Some(def) = refs.defs.defs.get(def_id) else {
-        return false;
-    };
-    if !matches!(
-        def.kind,
-        DefKind::Function | DefKind::Method | DefKind::TraitMethod
-    ) {
-        return false;
-    }
-    let Some(signature) = refs.signatures.get(&def_id) else {
-        return false;
-    };
-    if signature.is_comptime || !signature.has_body {
-        return false;
-    }
-    let global_id = GlobalDefId {
-        module_id: refs.module_id,
-        def_id,
-    };
-    if checked_functions.is_some_and(|checked| checked.contains(&global_id)) {
-        return false;
-    }
-    module_functions.insert(global_id)
 }
 
 pub(super) fn provide_checked_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
