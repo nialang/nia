@@ -1231,13 +1231,17 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
         )
     };
     let body_check = run_body_check(inputs, body_comptime, comptime_module, filter);
-    let stored_inputs = match filter {
-        nia_body_check::BodyCheckFilter::ReachableItems {
-            globals,
-            already_checked_functions,
-            already_checked_globals,
-            ..
-        } => {
+    let stored_inputs = match (product, filter) {
+        (nia_body_check::BodyCheckProduct::FactsOnly, _) => filtered_inputs,
+        (
+            nia_body_check::BodyCheckProduct::Full,
+            nia_body_check::BodyCheckFilter::ReachableItems {
+                globals,
+                already_checked_functions,
+                already_checked_globals,
+                ..
+            },
+        ) => {
             let checked_functions = body_check.checked_functions.clone();
             let stored_filter = nia_body_check::BodyCheckFilter::ReachableItems {
                 functions: &checked_functions,
@@ -1259,8 +1263,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
                 },
             )
         }
-        nia_body_check::BodyCheckFilter::ReachableFunctions(_)
-        | nia_body_check::BodyCheckFilter::All => filtered_inputs,
+        (
+            nia_body_check::BodyCheckProduct::Full,
+            nia_body_check::BodyCheckFilter::ReachableFunctions(_)
+            | nia_body_check::BodyCheckFilter::All,
+        ) => filtered_inputs,
     };
     BodyCheckWithResolutionInputs {
         body_check,
