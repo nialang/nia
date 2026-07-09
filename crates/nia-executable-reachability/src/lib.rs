@@ -1936,6 +1936,40 @@ impl ReachableTraitRefs {
     }
 }
 
+struct DeferredModuleActivation<'a> {
+    reachable_functions: &'a mut HashSet<GlobalDefId>,
+    reachable_modules: &'a HashSet<ModuleId>,
+    pending_module_set: &'a mut HashSet<ModuleId>,
+    pending_modules: &'a mut VecDeque<ModuleId>,
+}
+
+impl DeferredModuleActivation<'_> {
+    fn is_reachable_module(&self, module_id: ModuleId) -> bool {
+        self.reachable_modules.contains(&module_id)
+    }
+
+    fn add_function(
+        &mut self,
+        def_id: GlobalDefId,
+        program_signatures: ExecutableSignatureIndex<'_>,
+    ) {
+        if !reachable_function_has_runtime_body(def_id, program_signatures) {
+            self.add_module(def_id.module_id);
+            return;
+        }
+        if self.reachable_functions.insert(def_id) {
+            self.add_module(def_id.module_id);
+        }
+    }
+
+    fn add_module(&mut self, module_id: ModuleId) {
+        if !self.reachable_modules.contains(&module_id) && self.pending_module_set.insert(module_id)
+        {
+            self.pending_modules.push_back(module_id);
+        }
+    }
+}
+
 fn extend_reachable_functions_from_traits(
     program_signatures: ExecutableSignatureIndex<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
@@ -1945,13 +1979,18 @@ fn extend_reachable_functions_from_traits(
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
     let reachable_modules = &reachability.modules;
-    let reachable_functions = &mut reachability.functions;
     let mut pending_module_set = HashSet::new();
+    let mut deferred_modules = DeferredModuleActivation {
+        reachable_functions: &mut reachability.functions,
+        reachable_modules,
+        pending_module_set: &mut pending_module_set,
+        pending_modules,
+    };
     for trait_id in &reachable_traits.traits {
         let TraitId::Source(trait_def) = trait_id else {
             continue;
         };
-        if !reachable_modules.contains(&trait_def.module_id) {
+        if !deferred_modules.is_reachable_module(trait_def.module_id) {
             continue;
         }
         let Some(trait_signature) = (program_signatures.trait_)(*trait_def) else {
@@ -1959,16 +1998,12 @@ fn extend_reachable_functions_from_traits(
         };
         for method in &trait_signature.signature.methods {
             if method.has_default && reachable_traits.needs_method(*trait_id, &method.name) {
-                add_reachable_function_pending(
+                deferred_modules.add_function(
                     GlobalDefId {
                         module_id: trait_def.module_id,
                         def_id: method.def_id,
                     },
                     program_signatures,
-                    reachable_functions,
-                    reachable_modules,
-                    &mut pending_module_set,
-                    pending_modules,
                 );
             }
         }
@@ -1986,14 +2021,7 @@ fn extend_reachable_functions_from_traits(
                 extension_index,
                 modules_by_id,
                 &mut |_| {
-                    add_reachable_function_pending(
-                        method.def_id,
-                        program_signatures,
-                        reachable_functions,
-                        reachable_modules,
-                        &mut pending_module_set,
-                        pending_modules,
-                    );
+                    deferred_modules.add_function(method.def_id, program_signatures);
                 },
             ) {
                 return;
@@ -2020,14 +2048,7 @@ fn extend_reachable_functions_from_traits(
                         extension_index,
                         modules_by_id,
                         &mut |matched| {
-                            add_reachable_function_pending(
-                                method.def_id,
-                                program_signatures,
-                                reachable_functions,
-                                reachable_modules,
-                                &mut pending_module_set,
-                                pending_modules,
-                            );
+                            deferred_modules.add_function(method.def_id, program_signatures);
                             extend_reachable_trait_methods_from_impl_where_predicates(
                                 program_signatures,
                                 &matched,
@@ -2061,6 +2082,12 @@ fn extend_reachable_functions_from_traits_incremental(
     }
 
     let mut pending_module_set = HashSet::new();
+    let mut deferred_modules = DeferredModuleActivation {
+        reachable_functions: &mut state.reachability.functions,
+        reachable_modules: &state.reachability.modules,
+        pending_module_set: &mut pending_module_set,
+        pending_modules,
+    };
     let mut vtable_index = state
         .trait_function_scan
         .vtables
@@ -2071,10 +2098,7 @@ fn extend_reachable_functions_from_traits_incremental(
         add_reachable_default_trait_methods_for_vtable(
             program_signatures,
             vtable,
-            &state.reachability.modules,
-            &mut state.reachability.functions,
-            &mut pending_module_set,
-            pending_modules,
+            &mut deferred_modules,
         );
         extension_index.for_each_method_for_trait(vtable.trait_id, &mut |method| {
             if !with_reachable_extension_method_match(
@@ -2087,14 +2111,7 @@ fn extend_reachable_functions_from_traits_incremental(
                 extension_index,
                 modules_by_id,
                 &mut |_| {
-                    add_reachable_function_pending(
-                        method.def_id,
-                        program_signatures,
-                        &mut state.reachability.functions,
-                        &state.reachability.modules,
-                        &mut pending_module_set,
-                        pending_modules,
-                    );
+                    deferred_modules.add_function(method.def_id, program_signatures);
                 },
             ) {
                 return;
@@ -2115,10 +2132,7 @@ fn extend_reachable_functions_from_traits_incremental(
             add_reachable_default_trait_method_for_method(
                 program_signatures,
                 reachable,
-                &state.reachability.modules,
-                &mut state.reachability.functions,
-                &mut pending_module_set,
-                pending_modules,
+                &mut deferred_modules,
             );
             extension_index.for_each_method_for_trait_method(
                 reachable.trait_id,
@@ -2134,14 +2148,7 @@ fn extend_reachable_functions_from_traits_incremental(
                         extension_index,
                         modules_by_id,
                         &mut |matched| {
-                            add_reachable_function_pending(
-                                method.def_id,
-                                program_signatures,
-                                &mut state.reachability.functions,
-                                &state.reachability.modules,
-                                &mut pending_module_set,
-                                pending_modules,
-                            );
+                            deferred_modules.add_function(method.def_id, program_signatures);
                             extend_reachable_trait_methods_from_impl_where_predicates(
                                 program_signatures,
                                 &matched,
@@ -2167,10 +2174,7 @@ fn extend_reachable_functions_from_traits_incremental(
 fn add_reachable_default_trait_method_for_method(
     program_signatures: ExecutableSignatureIndex<'_>,
     reachable: &ReachableTraitMethod,
-    reachable_modules: &HashSet<ModuleId>,
-    reachable_functions: &mut HashSet<GlobalDefId>,
-    pending_module_set: &mut HashSet<ModuleId>,
-    pending_modules: &mut VecDeque<ModuleId>,
+    deferred_modules: &mut DeferredModuleActivation<'_>,
 ) {
     let TraitId::Source(trait_def) = reachable.trait_id else {
         return;
@@ -2180,16 +2184,12 @@ fn add_reachable_default_trait_method_for_method(
     };
     for method in &trait_signature.signature.methods {
         if method.has_default && method.name == reachable.method_name {
-            add_reachable_function_pending(
+            deferred_modules.add_function(
                 GlobalDefId {
                     module_id: trait_def.module_id,
                     def_id: method.def_id,
                 },
                 program_signatures,
-                reachable_functions,
-                reachable_modules,
-                pending_module_set,
-                pending_modules,
             );
         }
     }
@@ -2198,10 +2198,7 @@ fn add_reachable_default_trait_method_for_method(
 fn add_reachable_default_trait_methods_for_vtable(
     program_signatures: ExecutableSignatureIndex<'_>,
     vtable: &ReachableTraitVtable,
-    reachable_modules: &HashSet<ModuleId>,
-    reachable_functions: &mut HashSet<GlobalDefId>,
-    pending_module_set: &mut HashSet<ModuleId>,
-    pending_modules: &mut VecDeque<ModuleId>,
+    deferred_modules: &mut DeferredModuleActivation<'_>,
 ) {
     let TraitId::Source(trait_def) = vtable.trait_id else {
         return;
@@ -2211,16 +2208,12 @@ fn add_reachable_default_trait_methods_for_vtable(
     };
     for method in &trait_signature.signature.methods {
         if method.has_default {
-            add_reachable_function_pending(
+            deferred_modules.add_function(
                 GlobalDefId {
                     module_id: trait_def.module_id,
                     def_id: method.def_id,
                 },
                 program_signatures,
-                reachable_functions,
-                reachable_modules,
-                pending_module_set,
-                pending_modules,
             );
         }
     }
@@ -2420,33 +2413,6 @@ fn add_reachable_function(
     reachability.insert_function_pending(def_id, pending_modules);
 }
 
-fn add_reachable_function_pending(
-    def_id: GlobalDefId,
-    program_signatures: ExecutableSignatureIndex<'_>,
-    reachable_functions: &mut HashSet<GlobalDefId>,
-    reachable_modules: &HashSet<ModuleId>,
-    pending_module_set: &mut HashSet<ModuleId>,
-    pending_modules: &mut VecDeque<ModuleId>,
-) {
-    if !reachable_function_has_runtime_body(def_id, program_signatures) {
-        add_pending_module(
-            def_id.module_id,
-            reachable_modules,
-            pending_module_set,
-            pending_modules,
-        );
-        return;
-    }
-    if reachable_functions.insert(def_id) {
-        add_pending_module(
-            def_id.module_id,
-            reachable_modules,
-            pending_module_set,
-            pending_modules,
-        );
-    }
-}
-
 fn reachable_function_has_runtime_body(
     def_id: GlobalDefId,
     program_signatures: ExecutableSignatureIndex<'_>,
@@ -2463,17 +2429,6 @@ fn reachable_function_has_runtime_body(
             })
         })
         .unwrap_or(false)
-}
-
-fn add_pending_module(
-    module_id: ModuleId,
-    reachable_modules: &HashSet<ModuleId>,
-    pending_module_set: &mut HashSet<ModuleId>,
-    pending_modules: &mut VecDeque<ModuleId>,
-) {
-    if !reachable_modules.contains(&module_id) && pending_module_set.insert(module_id) {
-        pending_modules.push_back(module_id);
-    }
 }
 
 fn match_type_pattern<'a>(
