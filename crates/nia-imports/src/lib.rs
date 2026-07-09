@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{fmt, sync::Arc};
 
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::{ModuleId, Visibility};
@@ -199,8 +199,8 @@ impl ModulePath {
 pub struct ModuleGraph {
     entry: ModuleId,
     modules: Vec<ModuleNode>,
-    by_source_identity: HashMap<SourceIdentity, ModuleId>,
-    by_module_path: HashMap<ModulePath, ModuleId>,
+    by_source_identity: nia_hash::FastHashMap<SourceIdentity, ModuleId>,
+    by_module_path: nia_hash::FastHashMap<ModulePath, ModuleId>,
     package_roots: SymbolMap<ModuleId>,
     active_package_facades: SymbolMap<ModuleId>,
     diagnostics: Vec<(SourcePath, Diagnostic)>,
@@ -244,9 +244,9 @@ impl ModuleGraph {
     ) -> Self {
         let entry = ModuleId(0);
         let entry_module_path = ModulePath::root(ENTRY_MODULE_MAP_NAME);
-        let mut by_source_identity = HashMap::new();
+        let mut by_source_identity = nia_hash::FastHashMap::default();
         by_source_identity.insert(entry_path.identity(), entry);
-        let mut by_module_path = HashMap::new();
+        let mut by_module_path = nia_hash::FastHashMap::default();
         by_module_path.insert(entry_module_path.clone(), entry);
         let mut package_roots = SymbolMap::default();
         package_roots.insert(known::ENTRY, entry);

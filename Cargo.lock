@@ -526,6 +526,7 @@ version = "0.4.3"
 dependencies = [
  "nia-ast",
  "nia-diagnostic",
+ "nia-hash",
  "nia-ids",
  "nia-item-tree",
  "nia-parser",
@@ -805,6 +806,9 @@ dependencies = [
 [[package]]
 name = "nia-source"
 version = "0.4.3"
+dependencies = [
+ "nia-hash",
+]
 
 [[package]]
 name = "nia-span"

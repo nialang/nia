@@ -178,7 +178,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             id,
             path: self.0.clone(),
             source_identity: self.0.identity(),
-            source_version: parsed.source.version(),
+            source_version: parsed.source_version,
             item_tree: parsed.item_tree.clone(),
             active_item_tree: parsed.active_item_tree.clone(),
             provider_summary,
@@ -206,7 +206,7 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let source = db.query(SourceTextQuery(self.path.clone()));
+        let source = db.query_shared(SourceTextQuery(self.path.clone()));
         let syntax = db.query(SyntaxModuleQuery {
             path: self.path.clone(),
             version: self.version,
@@ -222,16 +222,19 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             &db.context().target,
             Some(&db.context().symbols),
         );
+        let source_version = source
+            .file
+            .as_ref()
+            .map(SourceFile::version)
+            .unwrap_or_else(|| db.context().sources.empty_source(&self.path).version());
         Arc::new(ParsedModule {
-            source: source
-                .file
-                .unwrap_or_else(|| db.context().sources.empty_source(&self.path)),
+            source_version,
             item_tree,
             active_item_tree: prune_result.active_item_tree,
             origins,
             parse_errors,
             prune_diagnostics: prune_result.diagnostics,
-            read_diagnostic: source.diagnostic,
+            read_diagnostic: source.diagnostic.clone(),
         })
     }
 }
@@ -254,7 +257,7 @@ impl QueryKey<LoaderContext> for SyntaxModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let source = db.query(SourceTextQuery(self.path.clone()));
+        let source = db.query_shared(SourceTextQuery(self.path.clone()));
         Arc::new(
             source
                 .file
@@ -268,7 +271,7 @@ impl QueryKey<LoaderContext> for SyntaxModuleQuery {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ParsedModule {
-    pub(crate) source: SourceFile,
+    pub(crate) source_version: SourceVersion,
     pub(crate) item_tree: ModuleItemTree,
     pub(crate) active_item_tree: ActiveModuleItemTree,
     pub(crate) origins: nia_node_id::NodeOriginTable,
@@ -447,7 +450,7 @@ pub(crate) fn parsed_module_query(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
 ) -> ParsedModuleQuery {
-    let source = db.query(SourceTextQuery(path.clone()));
+    let source = db.query_shared(SourceTextQuery(path.clone()));
     let version = source
         .file
         .as_ref()
@@ -460,7 +463,7 @@ pub(crate) fn module_declarations_query(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
 ) -> ModuleDeclarationsQuery {
-    let source = db.query(SourceTextQuery(path.clone()));
+    let source = db.query_shared(SourceTextQuery(path.clone()));
     let version = source
         .file
         .as_ref()
@@ -473,7 +476,7 @@ pub(crate) fn provider_summary_query(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
 ) -> ProviderSummaryQuery {
-    let source = db.query(SourceTextQuery(path.clone()));
+    let source = db.query_shared(SourceTextQuery(path.clone()));
     let version = source
         .file
         .as_ref()
@@ -486,7 +489,7 @@ pub(crate) fn module_facade_facts_query(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
 ) -> ModuleFacadeFactsQuery {
-    let source = db.query(SourceTextQuery(path.clone()));
+    let source = db.query_shared(SourceTextQuery(path.clone()));
     let version = source
         .file
         .as_ref()
