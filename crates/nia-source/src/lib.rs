@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    collections::HashMap,
     fs, io,
     sync::{Arc, Mutex},
 };
@@ -121,7 +120,7 @@ pub struct SourceTable {
 
 #[derive(Debug, Default)]
 struct SourceTableInner {
-    paths: HashMap<SourcePath, SourceId>,
+    paths: nia_hash::FastHashMap<SourcePath, SourceId>,
     next_id: u32,
 }
 
@@ -161,7 +160,7 @@ impl SourceTable {
 #[derive(Debug, Clone, Default)]
 pub struct SourceDatabase {
     table: SourceTable,
-    files: Arc<Mutex<HashMap<SourceId, SourceFile>>>,
+    files: Arc<Mutex<nia_hash::FastHashMap<SourceId, SourceFile>>>,
 }
 
 impl SourceDatabase {
