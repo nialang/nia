@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use nia_defs::{DefId, DefKind};
+use nia_defs::DefKind;
 use nia_executable_reachability::{
     ExecutableExtensionLookup, ExecutableRootDefs, IncrementalExecutableReachability,
     compute_executable_reachability_incremental_with_timings,
