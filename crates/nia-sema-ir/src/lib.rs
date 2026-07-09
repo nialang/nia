@@ -284,6 +284,36 @@ pub struct SemanticFacts {
     pub node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
 }
 
+impl SemanticFacts {
+    pub fn extend(&mut self, facts: Self) {
+        self.global_types.extend(facts.global_types);
+        self.generic_instantiations
+            .extend(facts.generic_instantiations);
+        self.function_facts.extend(facts.function_facts);
+        self.node_expr_types.extend(facts.node_expr_types);
+        self.node_bracket_suffix_resolutions
+            .extend(facts.node_bracket_suffix_resolutions);
+        self.node_pointer_array_to_slice_coercions
+            .extend(facts.node_pointer_array_to_slice_coercions);
+        self.node_trait_object_coercions
+            .extend(facts.node_trait_object_coercions);
+        self.node_trait_object_upcasts
+            .extend(facts.node_trait_object_upcasts);
+        self.node_builtin_values.extend(facts.node_builtin_values);
+        self.node_builtin_associated_values
+            .extend(facts.node_builtin_associated_values);
+        self.node_associated_comptime_projections
+            .extend(facts.node_associated_comptime_projections);
+        self.node_array_repeat_counts
+            .extend(facts.node_array_repeat_counts);
+        self.node_switch_pattern_values
+            .extend(facts.node_switch_pattern_values);
+        self.node_resolved_calls.extend(facts.node_resolved_calls);
+        self.node_function_references
+            .extend(facts.node_function_references);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FunctionSemanticFacts {
     pub local_types: HashMap<LocalId, InternedTyId>,

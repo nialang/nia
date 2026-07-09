@@ -96,56 +96,25 @@ impl ExecutableFactModuleState {
             comptime: _,
         } = increment;
         let nia_body_check::BodyCheck {
-            ir,
+            mut ir,
             facts,
             checked_functions,
             diagnostics: _,
         } = body_check;
+        let executable_refs = executable_module_refs_for_increment(
+            self.module_id,
+            &self.defs,
+            &ir,
+            &facts,
+            &self.type_lowering,
+            &self.type_normalization,
+        );
         merge_executable_interner_snapshot(&mut self.body_ir.interner, ir.interner, "fact");
-        self.semantic_facts.global_types.extend(facts.global_types);
-        self.semantic_facts
-            .generic_instantiations
-            .extend(facts.generic_instantiations);
-        self.semantic_facts
-            .function_facts
-            .extend(facts.function_facts);
-        self.semantic_facts
-            .node_expr_types
-            .extend(facts.node_expr_types);
-        self.semantic_facts
-            .node_bracket_suffix_resolutions
-            .extend(facts.node_bracket_suffix_resolutions);
-        self.semantic_facts
-            .node_pointer_array_to_slice_coercions
-            .extend(facts.node_pointer_array_to_slice_coercions);
-        self.semantic_facts
-            .node_trait_object_coercions
-            .extend(facts.node_trait_object_coercions);
-        self.semantic_facts
-            .node_trait_object_upcasts
-            .extend(facts.node_trait_object_upcasts);
-        self.semantic_facts
-            .node_builtin_values
-            .extend(facts.node_builtin_values);
-        self.semantic_facts
-            .node_builtin_associated_values
-            .extend(facts.node_builtin_associated_values);
-        self.semantic_facts
-            .node_associated_comptime_projections
-            .extend(facts.node_associated_comptime_projections);
-        self.semantic_facts
-            .node_array_repeat_counts
-            .extend(facts.node_array_repeat_counts);
-        self.semantic_facts
-            .node_switch_pattern_values
-            .extend(facts.node_switch_pattern_values);
-        self.semantic_facts
-            .node_resolved_calls
-            .extend(facts.node_resolved_calls);
-        self.semantic_facts
-            .node_function_references
-            .extend(facts.node_function_references);
-        let executable_refs = executable_module_refs_for_fact_state(self);
+        self.body_ir
+            .function_bodies
+            .extend(ir.function_bodies.drain());
+        self.body_ir.global_inits.extend(ir.global_inits.drain());
+        self.semantic_facts.extend(facts);
         self.executable_refs.extend(executable_refs);
         self.checked_functions.extend(checked_functions);
         self.checked_globals.extend(checked_globals);
@@ -156,6 +125,29 @@ fn executable_module_refs_for_fact_state(
     state: &ExecutableFactModuleState,
 ) -> ExecutableModuleRefs {
     let input = state.reachable_input();
+    let mut refs = nia_executable_facts::executable_module_refs_from_typed_ir(&input);
+    refs.extend(nia_executable_facts::executable_module_refs_from_semantic_facts(&input));
+    refs
+}
+
+fn executable_module_refs_for_increment(
+    module_id: ModuleId,
+    defs: &DefCollection,
+    body_ir: &nia_body_ir::BodyIr,
+    semantic_facts: &nia_sema_ir::SemanticFacts,
+    type_lowering: &nia_type_lower::TypeLowering,
+    type_normalization: &nia_type_normalize::TypeNormalization,
+) -> ExecutableModuleRefs {
+    let empty_refs = ExecutableModuleRefs::default();
+    let input = ReachableModuleInput {
+        module_id,
+        defs,
+        body_ir,
+        executable_refs: &empty_refs,
+        semantic_facts,
+        type_lowering,
+        type_normalization,
+    };
     let mut refs = nia_executable_facts::executable_module_refs_from_typed_ir(&input);
     refs.extend(nia_executable_facts::executable_module_refs_from_semantic_facts(&input));
     refs
