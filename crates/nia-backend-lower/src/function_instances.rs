@@ -12,7 +12,7 @@ use nia_backend_ir::{
 use nia_function_ir::{FunctionBody, FunctionLocal, FunctionLocalKind};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::FunctionAttribute;
-use nia_symbol::SymbolId;
+use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{ConstGenericArg, TyKind};
 
 pub(crate) type InstanceKey = (
@@ -488,7 +488,7 @@ impl<'a> ModuleLowerer<'a> {
                         .intern(TyKind::GenericParam(generic.clone())),
                 )
             })
-            .collect::<HashMap<_, _>>();
+            .collect::<SymbolMap<_>>();
         let raw_function_body = include_body
             .then(|| self.input.program_function_bodies.get(&def_id).cloned())
             .flatten();
@@ -682,7 +682,7 @@ impl<'a> ModuleLowerer<'a> {
             let source = self.active_interner_for_type(arg).clone();
             self.import_type_from_known_interner(&source, arg)
         };
-        self.instantiate_ty(local, &HashMap::new())
+        self.instantiate_ty(local, &SymbolMap::default())
     }
 
     pub(crate) fn canonicalize_instance_ref_args(
@@ -701,7 +701,7 @@ impl<'a> ModuleLowerer<'a> {
                         || self.type_context.interner.get(arg).is_none())
                 {
                     let local = self.import_type_from_known_interner(interner, arg);
-                    return self.instantiate_ty(local, &HashMap::new());
+                    return self.instantiate_ty(local, &SymbolMap::default());
                 }
                 self.canonicalize_instance_arg(arg)
             })
@@ -727,7 +727,7 @@ impl<'a> ModuleLowerer<'a> {
                     || self.type_context.interner.get(self_arg).is_none())
             {
                 let local = self.import_type_from_known_interner(interner, self_arg);
-                return self.instantiate_ty(local, &HashMap::new());
+                return self.instantiate_ty(local, &SymbolMap::default());
             }
             self.canonicalize_instance_arg(self_arg)
         })
@@ -749,7 +749,7 @@ impl<'a> ModuleLowerer<'a> {
                         || self.type_context.interner.get(arg).is_none())
                 {
                     let local = self.import_type_from_known_interner(interner, arg);
-                    return self.instantiate_ty(local, &HashMap::new());
+                    return self.instantiate_ty(local, &SymbolMap::default());
                 }
                 self.canonicalize_instance_arg(arg)
             })

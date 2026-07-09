@@ -104,7 +104,7 @@ pub(super) fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> Func
         .iter()
         .zip(input.trait_args)
         .map(|(generic, arg)| (generic.clone(), *arg))
-        .collect::<HashMap<_, _>>();
+        .collect::<SymbolMap<_>>();
     let const_substitutions = const_substitutions_from_self_describing_args(input.trait_const_args);
     let mut signature = input.signature.clone();
     signature.params = signature
@@ -154,8 +154,8 @@ pub(super) fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> Func
 pub(super) fn normalize_impl_method_signature(
     input: ImplMethodSignatureNormalize<'_>,
 ) -> FunctionSignature {
-    let substitutions = HashMap::new();
-    let const_substitutions = HashMap::new();
+    let substitutions = SymbolMap::default();
+    let const_substitutions = SymbolMap::default();
     let context = Some(ProjectionImplContext {
         trait_id: input.trait_id,
         trait_args: input.trait_args,

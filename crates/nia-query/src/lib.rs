@@ -4,80 +4,14 @@ use std::{
     cell::RefCell,
     collections::VecDeque,
     fmt::{self, Debug},
-    hash::{BuildHasherDefault, Hash, Hasher},
+    hash::{Hash, Hasher},
     sync::{Arc, Condvar, Mutex},
 };
 
+use nia_hash::{FastHashMap, FastHashSet, FastHasher};
+
 const DEFAULT_MAX_QUERY_MANY_THREADS: usize = 4;
 const QUERY_THREADS_ENV: &str = "NIA_QUERY_THREADS";
-const FAST_HASH_MULTIPLIER: u64 = 0x517c_c1b7_2722_0a95;
-
-#[derive(Debug, Clone, Copy)]
-struct FastHasher {
-    hash: u64,
-}
-
-impl Default for FastHasher {
-    fn default() -> Self {
-        Self {
-            hash: 0xcbf2_9ce4_8422_2325,
-        }
-    }
-}
-
-impl FastHasher {
-    #[inline]
-    fn write_u64_value(&mut self, value: u64) {
-        self.hash ^= value;
-        self.hash = self.hash.rotate_left(5).wrapping_mul(FAST_HASH_MULTIPLIER);
-    }
-}
-
-impl Hasher for FastHasher {
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.hash
-    }
-
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        for chunk in bytes.chunks(8) {
-            let mut value = 0u64;
-            for (index, byte) in chunk.iter().enumerate() {
-                value |= u64::from(*byte) << (index * 8);
-            }
-            self.write_u64_value(value);
-        }
-    }
-
-    #[inline]
-    fn write_u8(&mut self, i: u8) {
-        self.write_u64_value(u64::from(i));
-    }
-
-    #[inline]
-    fn write_u16(&mut self, i: u16) {
-        self.write_u64_value(u64::from(i));
-    }
-
-    #[inline]
-    fn write_u32(&mut self, i: u32) {
-        self.write_u64_value(u64::from(i));
-    }
-
-    #[inline]
-    fn write_u64(&mut self, i: u64) {
-        self.write_u64_value(i);
-    }
-
-    #[inline]
-    fn write_usize(&mut self, i: usize) {
-        self.write_u64_value(i as u64);
-    }
-}
-
-type FastHashMap<K, V> = std::collections::HashMap<K, V, BuildHasherDefault<FastHasher>>;
-type FastHashSet<T> = std::collections::HashSet<T, BuildHasherDefault<FastHasher>>;
 
 pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     type Value: Clone + Send + Sync + 'static;

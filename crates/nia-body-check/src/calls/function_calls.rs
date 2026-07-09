@@ -523,8 +523,8 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let span = expr.span;
-        let mut substitutions = SymbolMap::new();
-        let mut const_substitutions = SymbolMap::new();
+        let mut substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
         self.infer_generic_function_call_substitutions(
             span,
             signature,

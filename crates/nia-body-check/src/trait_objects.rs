@@ -452,7 +452,7 @@ impl<'a> BodyChecker<'a> {
             let impl_interner = impl_signature.interner.clone();
             let target_ty =
                 nia_ty::import_type_into(&mut self.interner, &impl_interner, method.target_ty);
-            let mut substitutions = std::collections::HashMap::new();
+            let mut substitutions = nia_symbol::SymbolMap::default();
             if !self.match_type_pattern(target_ty, self_ty, &mut substitutions) {
                 continue;
             }

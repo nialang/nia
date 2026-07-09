@@ -26,6 +26,7 @@ use nia_sema_ir::{
 };
 use nia_span::Span;
 use nia_symbol::SymbolId;
+use nia_symbol::SymbolMap;
 use nia_ty::{ArrayLenTy, TyInterner, TyKind};
 
 impl<'a> BodyChecker<'a> {
@@ -1344,13 +1345,13 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .flat_map(|frame| frame.type_substitutions.iter())
             .map(|(name, ty)| (name.clone(), *ty))
-            .collect::<HashMap<_, _>>();
+            .collect::<SymbolMap<_>>();
         let const_substitutions = self
             .comptime_call_locals
             .iter()
             .flat_map(|frame| frame.const_substitutions.iter())
             .map(|(name, arg)| (name.clone(), arg.clone()))
-            .collect::<HashMap<_, _>>();
+            .collect::<SymbolMap<_>>();
         self.substitute_generics_and_consts(ty, &substitutions, &const_substitutions)
     }
 

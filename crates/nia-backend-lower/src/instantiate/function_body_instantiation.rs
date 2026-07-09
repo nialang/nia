@@ -1163,7 +1163,7 @@ impl<'a> ModuleLowerer<'a> {
         general: InternedTyId,
         specific: InternedTyId,
     ) -> bool {
-        self.match_extension_type_pattern(general, specific, &mut std::collections::HashMap::new())
+        self.match_extension_type_pattern(general, specific, &mut SymbolMap::default())
     }
 
     pub(super) fn instantiate_place(

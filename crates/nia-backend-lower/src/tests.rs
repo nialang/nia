@@ -398,6 +398,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &extensions,
+        lazy_extensions: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         extension_interner: None,
         program: nia_body_check::BodyProgramContext::empty(),
@@ -405,6 +406,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         function_scope: nia_body_check::FunctionCheckScope::LocalModule,
         program_comptime: nia_body_check::ProgramComptimeMaps::empty(),
         filter: nia_body_check::BodyCheckFilter::All,
+        product: nia_body_check::BodyCheckProduct::Full,
     });
     assert!(
         body_check.diagnostics.is_empty(),

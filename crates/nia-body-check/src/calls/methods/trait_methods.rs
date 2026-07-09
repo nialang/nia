@@ -561,7 +561,7 @@ impl<'a> BodyChecker<'a> {
         trait_const_args: &[ConstGenericArg],
     ) -> SymbolMap<ConstGenericArg> {
         let TraitId::Source(trait_id) = trait_id else {
-            return SymbolMap::new();
+            return SymbolMap::default();
         };
         self.generic_substitutions_and_consts_for_def(trait_id, trait_args, trait_const_args)
             .1

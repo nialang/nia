@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::{
     ExtensionTraitMethodCandidate, ModuleLowerer, TypeInstantiationKey, TypeSubstitutionId,
@@ -176,12 +176,12 @@ impl<'a> ModuleLowerer<'a> {
         const_args: &[nia_ty::ConstGenericArg],
     ) -> (SymbolMap<InternedTyId>, SymbolMap<nia_ty::ConstGenericArg>) {
         let Some(def) = crate::program_def(self.input, def_id) else {
-            return (SymbolMap::new(), SymbolMap::new());
+            return (SymbolMap::default(), SymbolMap::default());
         };
         let mut type_index = 0;
         let mut const_index = 0;
-        let mut substitutions = SymbolMap::new();
-        let mut const_substitutions = SymbolMap::new();
+        let mut substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
         for generic in &def.generic_params {
             match generic.kind {
                 nia_ast::GenericParamKind::Type => {
@@ -207,10 +207,10 @@ impl<'a> ModuleLowerer<'a> {
         const_args: &[nia_ty::ConstGenericArg],
     ) -> SymbolMap<nia_ty::ConstGenericArg> {
         let Some(def) = crate::program_def(self.input, def_id) else {
-            return SymbolMap::new();
+            return SymbolMap::default();
         };
         let mut const_index = 0;
-        let mut const_substitutions = SymbolMap::new();
+        let mut const_substitutions = SymbolMap::default();
         for generic in &def.generic_params {
             match generic.kind {
                 nia_ast::GenericParamKind::Type => {}
@@ -464,7 +464,7 @@ impl<'a> ModuleLowerer<'a> {
             type_arg_count,
             body,
             substitutions,
-            &HashMap::new(),
+            &SymbolMap::default(),
         )
     }
 
@@ -575,7 +575,7 @@ impl<'a> ModuleLowerer<'a> {
         trait_args: &[InternedTyId],
         self_ty: InternedTyId,
     ) -> Option<SymbolMap<InternedTyId>> {
-        let mut substitutions = HashMap::new();
+        let mut substitutions = SymbolMap::default();
         let candidate_interner = self.candidate_type_interner(candidate).clone();
         let target_ty =
             self.import_type_from_known_interner(&candidate_interner, candidate.target_ty);
@@ -1267,7 +1267,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         substitutions: &SymbolMap<InternedTyId>,
     ) -> TypeSubstitutionId {
-        self.intern_type_and_const_substitutions(substitutions, &HashMap::new())
+        self.intern_type_and_const_substitutions(substitutions, &SymbolMap::default())
     }
 
     pub(crate) fn intern_type_and_const_substitutions_with_self(
@@ -1300,7 +1300,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(super) fn empty_type_substitution_id(&mut self) -> TypeSubstitutionId {
-        self.intern_type_substitutions(&HashMap::new())
+        self.intern_type_substitutions(&SymbolMap::default())
     }
 
     fn normalize_type_for_match(&mut self, ty: InternedTyId) -> InternedTyId {

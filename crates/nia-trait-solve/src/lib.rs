@@ -1777,8 +1777,8 @@ where
         {
             return None;
         }
-        let mut substitutions = HashMap::new();
-        let mut const_substitutions = HashMap::new();
+        let mut substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
         let target_matches = self.match_impl_pattern_with_consts(
             target_ty,
             goal.self_ty,
@@ -1864,7 +1864,7 @@ where
     }
 
     fn pattern_subsumes(&mut self, general: InternedTyId, specific: InternedTyId) -> bool {
-        self.pattern_subsumes_inner(general, specific, &mut HashMap::new())
+        self.pattern_subsumes_inner(general, specific, &mut SymbolMap::default())
     }
 
     fn pattern_subsumes_inner(
@@ -1873,7 +1873,12 @@ where
         specific: InternedTyId,
         substitutions: &mut SymbolMap<InternedTyId>,
     ) -> bool {
-        self.match_impl_pattern_with_consts(general, specific, substitutions, &mut HashMap::new())
+        self.match_impl_pattern_with_consts(
+            general,
+            specific,
+            substitutions,
+            &mut SymbolMap::default(),
+        )
     }
 
     fn impl_where_predicates_hold(

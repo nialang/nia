@@ -339,7 +339,7 @@ pub fn compute_exported_public_surfaces_with_symbols(
             &defs_by_id,
             defs,
             graph,
-            &HashMap::new(),
+            &SymbolMap::default(),
             &surfaces,
             symbols,
         );

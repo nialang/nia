@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-    sync::Arc,
-};
+use std::{fmt, sync::Arc};
 
-pub type SymbolMap<T> = HashMap<SymbolId, T>;
-pub type SymbolSet = HashSet<SymbolId>;
+pub type SymbolMap<T> = nia_hash::FastHashMap<SymbolId, T>;
+pub type SymbolSet = nia_hash::FastHashSet<SymbolId>;
 
 pub trait SymbolText {
     fn symbol_text(&self, symbol: SymbolId) -> Option<Arc<str>>;
