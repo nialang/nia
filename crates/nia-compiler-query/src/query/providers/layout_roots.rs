@@ -28,6 +28,7 @@ pub(super) fn collect_semantic_layout_roots(
         for coercion in facts.node_trait_object_coercions.values() {
             roots.add(coercion.source_ty);
             roots.add(coercion.target_ty);
+            roots.add(coercion.self_ty);
         }
         for upcast in facts.node_trait_object_upcasts.values() {
             roots.add(upcast.source_ty);

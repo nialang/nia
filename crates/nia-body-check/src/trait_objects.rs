@@ -186,6 +186,7 @@ impl<'a> BodyChecker<'a> {
             TraitObjectCoercion {
                 source_ty: actual,
                 target_ty: expected,
+                self_ty,
             },
         );
         self.record_trait_object_vtable_instantiations(expr.span, self_ty, trait_id, &trait_args);
@@ -253,6 +254,7 @@ impl<'a> BodyChecker<'a> {
             TraitObjectCoercion {
                 source_ty,
                 target_ty: expected,
+                self_ty,
             },
         );
         self.record_trait_object_vtable_instantiations(expr.span, self_ty, trait_id, &trait_args);
@@ -279,30 +281,6 @@ impl<'a> BodyChecker<'a> {
             },
         );
         Some(expected)
-    }
-
-    pub(crate) fn trait_object_coercion_self_ty(
-        &mut self,
-        source_ty: InternedTyId,
-    ) -> InternedTyId {
-        let source_ty = self.normalization.normalize(source_ty);
-        match self.interner.get(source_ty).cloned() {
-            Some(TyKind::Pointer { elem, .. })
-                if matches!(
-                    self.interner.get(self.normalization.normalize(elem)),
-                    Some(TyKind::Slice { .. })
-                ) =>
-            {
-                let elem = self.normalization.normalize(elem);
-                let Some(TyKind::Slice { elem, .. }) = self.interner.get(elem).cloned() else {
-                    return source_ty;
-                };
-                self.interner.intern(TyKind::SlicePointee { elem })
-            }
-            Some(TyKind::Pointer { elem, .. }) => elem,
-            Some(TyKind::Slice { elem, .. }) => self.interner.intern(TyKind::SlicePointee { elem }),
-            _ => source_ty,
-        }
     }
 
     pub(crate) fn trait_object_bindings_match_impl(

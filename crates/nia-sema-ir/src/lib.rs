@@ -346,6 +346,7 @@ pub struct PointerArrayToSliceCoercion {
 pub struct TraitObjectCoercion {
     pub source_ty: InternedTyId,
     pub target_ty: InternedTyId,
+    pub self_ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
