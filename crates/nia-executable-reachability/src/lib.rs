@@ -28,6 +28,85 @@ pub struct ExecutableReachability {
     pub stats: ExecutableReachabilityStats,
 }
 
+impl ExecutableReachability {
+    pub fn by_module(&self) -> ExecutableReachabilityByModule {
+        ExecutableReachabilityByModule::new(self)
+    }
+
+    pub fn insert_function(&mut self, def_id: GlobalDefId) -> bool {
+        let changed = self.functions.insert(def_id);
+        self.modules.insert(def_id.module_id);
+        changed
+    }
+
+    pub fn insert_global(&mut self, def_id: GlobalDefId) -> bool {
+        let changed = self.globals.insert(def_id);
+        self.modules.insert(def_id.module_id);
+        changed
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExecutableModuleReachability {
+    pub functions: HashSet<GlobalDefId>,
+    pub globals: HashSet<GlobalDefId>,
+}
+
+impl ExecutableModuleReachability {
+    pub fn has_body_items(&self, mut is_runtime_global: impl FnMut(GlobalDefId) -> bool) -> bool {
+        !self.functions.is_empty()
+            || self
+                .globals
+                .iter()
+                .copied()
+                .any(|def_id| is_runtime_global(def_id))
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExecutableReachabilityByModule {
+    modules: HashMap<ModuleId, ExecutableModuleReachability>,
+}
+
+impl ExecutableReachabilityByModule {
+    pub fn new(reachability: &ExecutableReachability) -> Self {
+        let mut modules = HashMap::<ModuleId, ExecutableModuleReachability>::new();
+        for def_id in reachability.functions.iter().copied() {
+            modules
+                .entry(def_id.module_id)
+                .or_default()
+                .functions
+                .insert(def_id);
+        }
+        for def_id in reachability.globals.iter().copied() {
+            modules
+                .entry(def_id.module_id)
+                .or_default()
+                .globals
+                .insert(def_id);
+        }
+        Self { modules }
+    }
+
+    pub fn get(&self, module_id: ModuleId) -> Option<&ExecutableModuleReachability> {
+        self.modules.get(&module_id)
+    }
+
+    pub fn reachable_body_modules(
+        &self,
+        mut is_runtime_global: impl FnMut(GlobalDefId) -> bool,
+    ) -> HashSet<ModuleId> {
+        self.modules
+            .iter()
+            .filter_map(|(module_id, items)| {
+                items
+                    .has_body_items(&mut is_runtime_global)
+                    .then_some(*module_id)
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ExecutableReachabilityStats {
     pub checked_modules: usize,
