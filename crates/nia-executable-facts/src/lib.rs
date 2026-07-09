@@ -299,6 +299,14 @@ pub fn executable_module_refs_from_semantic_facts(
                 reference.trait_args.clone(),
             );
         }
+        for coercion in facts.node_trait_object_coercions.values().copied() {
+            collect_trait_object_vtable_ref(
+                module,
+                coercion.target_ty,
+                coercion.self_ty,
+                function_refs,
+            );
+        }
     }
     refs
 }

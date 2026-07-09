@@ -1109,10 +1109,7 @@ fn extend_reachable_traits_from_generic_instantiation(
     let self_ty = instantiation.self_arg.and_then(|self_arg| {
         nia_ty::try_import_type_into(&mut signature_interner, arg_interner, self_arg).ok()
     });
-    let substitutions = TypeSubstitutions {
-        self_ty,
-        generics: &generic_substitutions,
-    };
+    let substitutions = TypeSubstitutions::local(self_ty, &generic_substitutions);
     for predicate in &signature.signature.where_predicates {
         let mut substituted_interner = signature_interner.clone();
         let Some(self_ty) = substitute_ty(&mut substituted_interner, predicate.ty, &substitutions)
@@ -1411,7 +1408,7 @@ fn collect_reachable_body_trait_ids(
 }
 
 fn typed_executable_refs_from_executable_refs(
-    _module: &ReachableModuleInput<'_>,
+    module: &ReachableModuleInput<'_>,
     refs: ExecutableItemRefs,
 ) -> TypedExecutableRefs {
     let mut traits = ReachableTraitRefs::default();
@@ -1428,11 +1425,12 @@ fn typed_executable_refs_from_executable_refs(
         );
     }
     for vtable in refs.trait_refs.vtables {
-        traits.insert_vtable(
+        traits.insert_vtable_with_interner(
             vtable.module_id,
             vtable.trait_id,
             vtable.self_ty,
             vtable.trait_args,
+            Some(module.body_ir.interner.clone()),
         );
     }
     TypedExecutableRefs {
@@ -1498,6 +1496,7 @@ struct ReachableTraitVtable {
     trait_id: TraitId,
     self_ty: InternedTyId,
     trait_args: Vec<InternedTyId>,
+    interner: Option<ReachableTraitInternerId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1594,12 +1593,28 @@ impl ReachableTraitRefs {
             });
         }
         for vtable in vtables {
-            self.insert_vtable(
-                vtable.module_id,
-                vtable.trait_id,
-                vtable.self_ty,
-                vtable.trait_args,
-            );
+            let interner = match vtable.interner {
+                Some(source_interner) => match remapped_interner_ids
+                    .get(source_interner.0)
+                    .and_then(|id| *id)
+                {
+                    Some(id) => Some(id),
+                    None => {
+                        let Some(interner) = interner_contexts
+                            .get_mut(source_interner.0)
+                            .and_then(Option::take)
+                        else {
+                            continue;
+                        };
+                        let id = ReachableTraitInternerId(self.interner_contexts.len());
+                        self.interner_contexts.push(interner);
+                        remapped_interner_ids[source_interner.0] = Some(id);
+                        Some(id)
+                    }
+                },
+                None => None,
+            };
+            self.insert_vtable_with_interner_id(vtable, interner);
         }
     }
 
@@ -1747,12 +1762,13 @@ impl ReachableTraitRefs {
         })
     }
 
-    fn insert_vtable(
+    fn insert_vtable_with_interner(
         &mut self,
         module_id: ModuleId,
         trait_id: TraitId,
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
+        interner: Option<TyInterner>,
     ) {
         self.traits.insert(trait_id);
         if !self.vtable_keys.insert(ReachableTraitVtableKey {
@@ -1768,7 +1784,30 @@ impl ReachableTraitRefs {
             trait_id,
             self_ty,
             trait_args,
+            interner: interner.map(|interner| {
+                let id = ReachableTraitInternerId(self.interner_contexts.len());
+                self.interner_contexts.push(interner);
+                id
+            }),
         });
+    }
+
+    fn insert_vtable_with_interner_id(
+        &mut self,
+        vtable: ReachableTraitVtable,
+        interner: Option<ReachableTraitInternerId>,
+    ) {
+        self.traits.insert(vtable.trait_id);
+        if !self.vtable_keys.insert(ReachableTraitVtableKey {
+            module_id: vtable.module_id,
+            trait_id: vtable.trait_id,
+            self_ty: vtable.self_ty,
+            trait_args: vtable.trait_args.clone(),
+        }) {
+            return;
+        }
+        self.vtables
+            .push(ReachableTraitVtable { interner, ..vtable });
     }
 
     fn needs_method(&self, trait_id: TraitId, method_name: &SymbolId) -> bool {
@@ -1823,6 +1862,7 @@ fn extend_reachable_functions_from_traits(
         }
     }
     for vtable in &reachable_traits.vtables {
+        let vtable_interner = reachable_traits.interner_context(vtable.interner);
         extension_index.for_each_method_for_trait(vtable.trait_id, &mut |method| {
             if !with_reachable_extension_method_match(
                 method,
@@ -1830,21 +1870,22 @@ fn extend_reachable_functions_from_traits(
                 vtable.self_ty,
                 &vtable.trait_args,
                 vtable.module_id,
-                None,
+                vtable_interner,
                 extension_index,
                 modules_by_id,
-                &mut |_| {},
+                &mut |_| {
+                    add_reachable_function_pending(
+                        method.def_id,
+                        program_signatures,
+                        reachable_functions,
+                        reachable_modules,
+                        &mut pending_module_set,
+                        pending_modules,
+                    );
+                },
             ) {
                 return;
             }
-            add_reachable_function_pending(
-                method.def_id,
-                program_signatures,
-                reachable_functions,
-                reachable_modules,
-                &mut pending_module_set,
-                pending_modules,
-            );
         });
     }
     let mut method_index = 0;
@@ -1914,6 +1955,7 @@ fn extend_reachable_functions_from_traits_incremental(
         .min(state.reachable_traits.vtables.len());
     while vtable_index < state.reachable_traits.vtables.len() {
         let vtable = &state.reachable_traits.vtables[vtable_index];
+        let vtable_interner = state.reachable_traits.interner_context(vtable.interner);
         add_reachable_default_trait_methods_for_vtable(
             program_signatures,
             vtable,
@@ -1929,21 +1971,22 @@ fn extend_reachable_functions_from_traits_incremental(
                 vtable.self_ty,
                 &vtable.trait_args,
                 vtable.module_id,
-                None,
+                vtable_interner,
                 extension_index,
                 modules_by_id,
-                &mut |_| {},
+                &mut |_| {
+                    add_reachable_function_pending(
+                        method.def_id,
+                        program_signatures,
+                        &mut state.reachability.functions,
+                        &state.reachability.modules,
+                        &mut pending_module_set,
+                        pending_modules,
+                    );
+                },
             ) {
                 return;
             }
-            add_reachable_function_pending(
-                method.def_id,
-                program_signatures,
-                &mut state.reachability.functions,
-                &state.reachability.modules,
-                &mut pending_module_set,
-                pending_modules,
-            );
         });
         vtable_index += 1;
     }
@@ -2074,8 +2117,24 @@ fn add_reachable_default_trait_methods_for_vtable(
 #[derive(Debug)]
 struct ReachableExtensionMethodMatch<'a> {
     impl_signature: &'a ProgramTraitImplSignature,
-    interner: TyInterner,
-    substitutions: SymbolMap<InternedTyId>,
+    substitutions: SymbolMap<SubstitutionTy<'a>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TypedTyRef<'a> {
+    interner: &'a TyInterner,
+    ty: InternedTyId,
+}
+
+impl<'a> TypedTyRef<'a> {
+    fn kind(self) -> Option<&'a TyKind> {
+        self.interner.get(self.ty)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SubstitutionTy<'a> {
+    External(TypedTyRef<'a>),
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -2098,49 +2157,77 @@ fn with_reachable_extension_method_match(
         if impl_signature.trait_args.len() != trait_args.len() {
             return;
         }
-        let mut interner = if let Some(interner) = use_interner_override {
-            interner.clone()
+        let use_interner = if let Some(interner) = use_interner_override {
+            interner
         } else if let Some(use_module) = modules_by_id.get(&use_module_id) {
-            use_module.body_ir.interner.clone()
+            &use_module.body_ir.interner
         } else {
             return;
         };
-        let Ok(target_ty) = nia_ty::try_import_type_into(
-            &mut interner,
-            &impl_signature.interner,
-            impl_signature.target_ty,
-        ) else {
+        let self_ref = TypedTyRef {
+            interner: use_interner,
+            ty: self_ty,
+        };
+        let pointee_ref = typed_pointer_elem_ref(self_ref);
+        let direct = match_reachable_extension_impl(
+            TypedTyRef {
+                interner: &impl_signature.interner,
+                ty: impl_signature.target_ty,
+            },
+            impl_signature.trait_args.iter().map(|ty| TypedTyRef {
+                interner: &impl_signature.interner,
+                ty: *ty,
+            }),
+            self_ref,
+            trait_args.iter().map(|ty| TypedTyRef {
+                interner: use_interner,
+                ty: *ty,
+            }),
+        );
+        let pointee = direct.is_none().then(|| {
+            match_reachable_extension_impl(
+                TypedTyRef {
+                    interner: &impl_signature.interner,
+                    ty: impl_signature.target_ty,
+                },
+                impl_signature.trait_args.iter().map(|ty| TypedTyRef {
+                    interner: &impl_signature.interner,
+                    ty: *ty,
+                }),
+                pointee_ref?,
+                trait_args.iter().map(|ty| TypedTyRef {
+                    interner: use_interner,
+                    ty: *ty,
+                }),
+            )
+        });
+        let Some(substitutions) = direct.or_else(|| pointee.flatten()) else {
             return;
         };
-        let Ok(imported_trait_args) = impl_signature
-            .trait_args
-            .iter()
-            .map(|arg| nia_ty::try_import_type_into(&mut interner, &impl_signature.interner, *arg))
-            .collect::<Result<Vec<_>, _>>()
-        else {
-            return;
-        };
-        let mut substitutions = SymbolMap::default();
-        if !match_type_pattern(&interner, target_ty, self_ty, &mut substitutions) {
-            return;
-        }
-        if !imported_trait_args
-            .iter()
-            .zip(trait_args)
-            .all(|(pattern, actual)| {
-                match_type_pattern(&interner, *pattern, *actual, &mut substitutions)
-            })
-        {
-            return;
-        }
         matched = true;
         f(ReachableExtensionMethodMatch {
             impl_signature,
-            interner,
             substitutions,
         });
     });
     matched
+}
+
+fn match_reachable_extension_impl<'a>(
+    impl_target: TypedTyRef<'a>,
+    impl_trait_args: impl IntoIterator<Item = TypedTyRef<'a>>,
+    self_ty: TypedTyRef<'a>,
+    trait_args: impl IntoIterator<Item = TypedTyRef<'a>>,
+) -> Option<SymbolMap<SubstitutionTy<'a>>> {
+    let mut substitutions = SymbolMap::default();
+    if !match_type_pattern(impl_target, self_ty, &mut substitutions) {
+        return None;
+    }
+    let matches_trait_args = impl_trait_args
+        .into_iter()
+        .zip(trait_args)
+        .all(|(pattern, actual)| match_type_pattern(pattern, actual, &mut substitutions));
+    matches_trait_args.then_some(substitutions)
 }
 
 fn extend_reachable_trait_methods_from_impl_where_predicates(
@@ -2151,7 +2238,7 @@ fn extend_reachable_trait_methods_from_impl_where_predicates(
     traits: &mut ReachableTraitRefs,
 ) {
     for predicate in &matched.impl_signature.where_predicates {
-        let mut interner = matched.interner.clone();
+        let mut interner = matched.impl_signature.interner.clone();
         let Ok(predicate_ty) = nia_ty::try_import_type_into(
             &mut interner,
             &matched.impl_signature.interner,
@@ -2159,7 +2246,7 @@ fn extend_reachable_trait_methods_from_impl_where_predicates(
         ) else {
             continue;
         };
-        let substitutions = TypeSubstitutions::generics(&matched.substitutions);
+        let substitutions = TypeSubstitutions::typed_generics(&matched.substitutions);
         let Some(self_ty) = substitute_ty(&mut interner, predicate_ty, &substitutions) else {
             continue;
         };
@@ -2280,87 +2367,134 @@ fn add_pending_module(
     }
 }
 
-fn match_type_pattern(
-    interner: &TyInterner,
-    pattern: InternedTyId,
-    actual: InternedTyId,
-    substitutions: &mut SymbolMap<InternedTyId>,
+fn match_type_pattern<'a>(
+    pattern: TypedTyRef<'a>,
+    actual: TypedTyRef<'a>,
+    substitutions: &mut SymbolMap<SubstitutionTy<'a>>,
 ) -> bool {
-    let Some(pattern_ty) = interner.get(pattern) else {
+    let Some(pattern_ty) = pattern.kind() else {
         return false;
     };
     match pattern_ty {
         TyKind::GenericParam(name) => {
             if let Some(existing) = substitutions.get(name).copied() {
-                types_equivalent(interner, existing, actual)
+                substitution_ty_equivalent(existing, actual)
             } else {
-                substitutions.insert(name.clone(), actual);
+                substitutions.insert(name.clone(), SubstitutionTy::External(actual));
                 true
             }
         }
-        TyKind::SelfParam => matches!(interner.get(actual), Some(TyKind::SelfParam)),
+        TyKind::SelfParam => matches!(actual.kind(), Some(TyKind::SelfParam)),
         TyKind::Primitive(pattern_primitive) => {
-            matches!(interner.get(actual), Some(TyKind::Primitive(actual_primitive)) if pattern_primitive == actual_primitive)
+            matches!(actual.kind(), Some(TyKind::Primitive(actual_primitive)) if pattern_primitive == actual_primitive)
         }
         TyKind::BuiltinType(pattern_builtin) => {
-            matches!(interner.get(actual), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == actual_builtin)
+            matches!(actual.kind(), Some(TyKind::BuiltinType(actual_builtin)) if pattern_builtin == actual_builtin)
         }
         TyKind::Vector {
             elem: pattern_elem,
             lanes: pattern_lanes,
         } => {
-            matches!(interner.get(actual), Some(TyKind::Vector { elem, lanes }) if elem == pattern_elem && lanes == pattern_lanes)
+            matches!(actual.kind(), Some(TyKind::Vector { elem, lanes }) if elem == pattern_elem && lanes == pattern_lanes)
         }
-        TyKind::Pointer { is_readonly, elem } => match interner.get(actual) {
+        TyKind::Pointer { is_readonly, elem } => match actual.kind() {
             Some(TyKind::Pointer {
                 is_readonly: actual_readonly,
                 elem: actual_elem,
-            }) if is_readonly == actual_readonly => {
-                match_type_pattern(interner, *elem, *actual_elem, substitutions)
-            }
+            }) if is_readonly == actual_readonly => match_type_pattern(
+                TypedTyRef {
+                    interner: pattern.interner,
+                    ty: *elem,
+                },
+                TypedTyRef {
+                    interner: actual.interner,
+                    ty: *actual_elem,
+                },
+                substitutions,
+            ),
             _ => false,
         },
-        TyKind::VolatilePointer { is_readonly, elem } => match interner.get(actual) {
+        TyKind::VolatilePointer { is_readonly, elem } => match actual.kind() {
             Some(TyKind::VolatilePointer {
                 is_readonly: actual_readonly,
                 elem: actual_elem,
-            }) if is_readonly == actual_readonly => {
-                match_type_pattern(interner, *elem, *actual_elem, substitutions)
-            }
+            }) if is_readonly == actual_readonly => match_type_pattern(
+                TypedTyRef {
+                    interner: pattern.interner,
+                    ty: *elem,
+                },
+                TypedTyRef {
+                    interner: actual.interner,
+                    ty: *actual_elem,
+                },
+                substitutions,
+            ),
             _ => false,
         },
-        TyKind::Slice { is_readonly, elem } => match interner.get(actual) {
+        TyKind::Slice { is_readonly, elem } => match actual.kind() {
             Some(TyKind::Slice {
                 is_readonly: actual_readonly,
                 elem: actual_elem,
-            }) if is_readonly == actual_readonly => {
-                match_type_pattern(interner, *elem, *actual_elem, substitutions)
-            }
+            }) if is_readonly == actual_readonly => match_type_pattern(
+                TypedTyRef {
+                    interner: pattern.interner,
+                    ty: *elem,
+                },
+                TypedTyRef {
+                    interner: actual.interner,
+                    ty: *actual_elem,
+                },
+                substitutions,
+            ),
             _ => false,
         },
-        TyKind::SlicePointee { elem } => match interner.get(actual) {
-            Some(TyKind::SlicePointee { elem: actual_elem }) => {
-                match_type_pattern(interner, *elem, *actual_elem, substitutions)
-            }
+        TyKind::SlicePointee { elem } => match actual.kind() {
+            Some(TyKind::SlicePointee { elem: actual_elem }) => match_type_pattern(
+                TypedTyRef {
+                    interner: pattern.interner,
+                    ty: *elem,
+                },
+                TypedTyRef {
+                    interner: actual.interner,
+                    ty: *actual_elem,
+                },
+                substitutions,
+            ),
             _ => false,
         },
-        TyKind::Array { len, elem } => match interner.get(actual) {
+        TyKind::Array { len, elem } => match actual.kind() {
             Some(TyKind::Array {
                 len: actual_len,
                 elem: actual_elem,
-            }) if len == actual_len => {
-                match_type_pattern(interner, *elem, *actual_elem, substitutions)
-            }
+            }) if len == actual_len => match_type_pattern(
+                TypedTyRef {
+                    interner: pattern.interner,
+                    ty: *elem,
+                },
+                TypedTyRef {
+                    interner: actual.interner,
+                    ty: *actual_elem,
+                },
+                substitutions,
+            ),
             _ => false,
         },
-        TyKind::Range { kind, bound } => match interner.get(actual) {
+        TyKind::Range { kind, bound } => match actual.kind() {
             Some(TyKind::Range {
                 kind: actual_kind,
                 bound: actual_bound,
             }) if kind == actual_kind => match (bound, actual_bound) {
-                (Some(bound), Some(actual_bound)) => {
-                    match_type_pattern(interner, *bound, *actual_bound, substitutions)
-                }
+                (Some(bound), Some(actual_bound)) => match_type_pattern(
+                    TypedTyRef {
+                        interner: pattern.interner,
+                        ty: *bound,
+                    },
+                    TypedTyRef {
+                        interner: actual.interner,
+                        ty: *actual_bound,
+                    },
+                    substitutions,
+                ),
                 (None, None) => true,
                 _ => false,
             },
@@ -2370,7 +2504,7 @@ fn match_type_pattern(
             params,
             return_type,
             is_variadic,
-        } => match interner.get(actual) {
+        } => match actual.kind() {
             Some(TyKind::FunctionPointer {
                 params: actual_params,
                 return_type: actual_return,
@@ -2380,25 +2514,72 @@ fn match_type_pattern(
                     .iter()
                     .zip(actual_params)
                     .all(|(param, actual_param)| {
-                        match_type_pattern(interner, *param, *actual_param, substitutions)
+                        match_type_pattern(
+                            TypedTyRef {
+                                interner: pattern.interner,
+                                ty: *param,
+                            },
+                            TypedTyRef {
+                                interner: actual.interner,
+                                ty: *actual_param,
+                            },
+                            substitutions,
+                        )
                     })
-                    && match_type_pattern(interner, *return_type, *actual_return, substitutions)
+                    && match_type_pattern(
+                        TypedTyRef {
+                            interner: pattern.interner,
+                            ty: *return_type,
+                        },
+                        TypedTyRef {
+                            interner: actual.interner,
+                            ty: *actual_return,
+                        },
+                        substitutions,
+                    )
             }
             _ => false,
         },
-        TyKind::Optional { elem } => match interner.get(actual) {
-            Some(TyKind::Optional { elem: actual_elem }) => {
-                match_type_pattern(interner, *elem, *actual_elem, substitutions)
-            }
+        TyKind::Optional { elem } => match actual.kind() {
+            Some(TyKind::Optional { elem: actual_elem }) => match_type_pattern(
+                TypedTyRef {
+                    interner: pattern.interner,
+                    ty: *elem,
+                },
+                TypedTyRef {
+                    interner: actual.interner,
+                    ty: *actual_elem,
+                },
+                substitutions,
+            ),
             _ => false,
         },
-        TyKind::ErrorUnion { error, value } => match interner.get(actual) {
+        TyKind::ErrorUnion { error, value } => match actual.kind() {
             Some(TyKind::ErrorUnion {
                 error: actual_error,
                 value: actual_value,
             }) => {
-                match_type_pattern(interner, *error, *actual_error, substitutions)
-                    && match_type_pattern(interner, *value, *actual_value, substitutions)
+                match_type_pattern(
+                    TypedTyRef {
+                        interner: pattern.interner,
+                        ty: *error,
+                    },
+                    TypedTyRef {
+                        interner: actual.interner,
+                        ty: *actual_error,
+                    },
+                    substitutions,
+                ) && match_type_pattern(
+                    TypedTyRef {
+                        interner: pattern.interner,
+                        ty: *value,
+                    },
+                    TypedTyRef {
+                        interner: actual.interner,
+                        ty: *actual_value,
+                    },
+                    substitutions,
+                )
             }
             _ => false,
         },
@@ -2406,7 +2587,7 @@ fn match_type_pattern(
             def_id,
             args,
             const_args,
-        } => match interner.get(actual) {
+        } => match actual.kind() {
             Some(TyKind::Nominal {
                 def_id: actual_def_id,
                 args: actual_args,
@@ -2416,31 +2597,563 @@ fn match_type_pattern(
                 && const_args == actual_const_args =>
             {
                 args.iter().zip(actual_args).all(|(arg, actual_arg)| {
-                    match_type_pattern(interner, *arg, *actual_arg, substitutions)
+                    match_type_pattern(
+                        TypedTyRef {
+                            interner: pattern.interner,
+                            ty: *arg,
+                        },
+                        TypedTyRef {
+                            interner: actual.interner,
+                            ty: *actual_arg,
+                        },
+                        substitutions,
+                    )
                 })
             }
             _ => false,
         },
-        TyKind::BuiltinTrait { trait_id, args } => match interner.get(actual) {
+        TyKind::BuiltinTrait { trait_id, args } => match actual.kind() {
             Some(TyKind::BuiltinTrait {
                 trait_id: actual_trait_id,
                 args: actual_args,
             }) if trait_id == actual_trait_id && args.len() == actual_args.len() => {
                 args.iter().zip(actual_args).all(|(arg, actual_arg)| {
-                    match_type_pattern(interner, *arg, *actual_arg, substitutions)
+                    match_type_pattern(
+                        TypedTyRef {
+                            interner: pattern.interner,
+                            ty: *arg,
+                        },
+                        TypedTyRef {
+                            interner: actual.interner,
+                            ty: *actual_arg,
+                        },
+                        substitutions,
+                    )
                 })
             }
             _ => false,
         },
         TyKind::TraitObject { .. }
         | TyKind::TraitObjectPointee { .. }
-        | TyKind::Projection { .. } => types_equivalent(interner, pattern, actual),
+        | TyKind::Projection { .. } => typed_refs_equivalent(pattern, actual),
         TyKind::Error | TyKind::ComptimeOnly => true,
     }
 }
 
-fn types_equivalent(interner: &TyInterner, left: InternedTyId, right: InternedTyId) -> bool {
-    left == right || interner.get(left) == interner.get(right)
+fn substitution_ty_equivalent(existing: SubstitutionTy<'_>, actual: TypedTyRef<'_>) -> bool {
+    match existing {
+        SubstitutionTy::External(existing) => typed_refs_equivalent(existing, actual),
+    }
+}
+
+fn typed_pointer_elem_ref(ty: TypedTyRef<'_>) -> Option<TypedTyRef<'_>> {
+    match ty.kind() {
+        Some(TyKind::Pointer { elem, .. }) => Some(TypedTyRef {
+            interner: ty.interner,
+            ty: *elem,
+        }),
+        _ => None,
+    }
+}
+
+fn typed_refs_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_>) -> bool {
+    if left.ty == right.ty && left.interner.interner_id() == right.interner.interner_id() {
+        return true;
+    }
+    typed_refs_structurally_equivalent(left, right)
+}
+
+fn typed_refs_structurally_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_>) -> bool {
+    match (left.kind(), right.kind()) {
+        (Some(TyKind::Error), Some(TyKind::Error)) => true,
+        (Some(TyKind::ComptimeOnly), Some(TyKind::ComptimeOnly)) => true,
+        (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
+        (Some(TyKind::BuiltinType(left)), Some(TyKind::BuiltinType(right))) => left == right,
+        (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
+        (Some(TyKind::SelfParam), Some(TyKind::SelfParam)) => true,
+        (
+            Some(TyKind::Pointer {
+                is_readonly: left_readonly,
+                elem: left_elem,
+            }),
+            Some(TyKind::Pointer {
+                is_readonly: right_readonly,
+                elem: right_elem,
+            }),
+        )
+        | (
+            Some(TyKind::VolatilePointer {
+                is_readonly: left_readonly,
+                elem: left_elem,
+            }),
+            Some(TyKind::VolatilePointer {
+                is_readonly: right_readonly,
+                elem: right_elem,
+            }),
+        )
+        | (
+            Some(TyKind::Slice {
+                is_readonly: left_readonly,
+                elem: left_elem,
+            }),
+            Some(TyKind::Slice {
+                is_readonly: right_readonly,
+                elem: right_elem,
+            }),
+        ) => {
+            left_readonly == right_readonly
+                && typed_refs_equivalent(
+                    TypedTyRef {
+                        interner: left.interner,
+                        ty: *left_elem,
+                    },
+                    TypedTyRef {
+                        interner: right.interner,
+                        ty: *right_elem,
+                    },
+                )
+        }
+        (
+            Some(TyKind::SlicePointee { elem: left_elem }),
+            Some(TyKind::SlicePointee { elem: right_elem }),
+        )
+        | (
+            Some(TyKind::Optional { elem: left_elem }),
+            Some(TyKind::Optional { elem: right_elem }),
+        ) => typed_refs_equivalent(
+            TypedTyRef {
+                interner: left.interner,
+                ty: *left_elem,
+            },
+            TypedTyRef {
+                interner: right.interner,
+                ty: *right_elem,
+            },
+        ),
+        (
+            Some(TyKind::Array {
+                len: left_len,
+                elem: left_elem,
+            }),
+            Some(TyKind::Array {
+                len: right_len,
+                elem: right_elem,
+            }),
+        ) => {
+            array_lens_equivalent(left.interner, left_len, right.interner, right_len)
+                && typed_refs_equivalent(
+                    TypedTyRef {
+                        interner: left.interner,
+                        ty: *left_elem,
+                    },
+                    TypedTyRef {
+                        interner: right.interner,
+                        ty: *right_elem,
+                    },
+                )
+        }
+        (
+            Some(TyKind::Vector {
+                elem: left_elem,
+                lanes: left_lanes,
+            }),
+            Some(TyKind::Vector {
+                elem: right_elem,
+                lanes: right_lanes,
+            }),
+        ) => left_elem == right_elem && left_lanes == right_lanes,
+        (
+            Some(TyKind::Range {
+                kind: left_kind,
+                bound: left_bound,
+            }),
+            Some(TyKind::Range {
+                kind: right_kind,
+                bound: right_bound,
+            }),
+        ) => {
+            left_kind == right_kind
+                && optional_typed_refs_equivalent(
+                    left.interner,
+                    *left_bound,
+                    right.interner,
+                    *right_bound,
+                )
+        }
+        (
+            Some(TyKind::FunctionPointer {
+                params: left_params,
+                return_type: left_return,
+                is_variadic: left_variadic,
+            }),
+            Some(TyKind::FunctionPointer {
+                params: right_params,
+                return_type: right_return,
+                is_variadic: right_variadic,
+            }),
+        ) => {
+            left_variadic == right_variadic
+                && typed_ref_slices_equivalent(
+                    left.interner,
+                    left_params,
+                    right.interner,
+                    right_params,
+                )
+                && typed_refs_equivalent(
+                    TypedTyRef {
+                        interner: left.interner,
+                        ty: *left_return,
+                    },
+                    TypedTyRef {
+                        interner: right.interner,
+                        ty: *right_return,
+                    },
+                )
+        }
+        (
+            Some(TyKind::ErrorUnion {
+                error: left_error,
+                value: left_value,
+            }),
+            Some(TyKind::ErrorUnion {
+                error: right_error,
+                value: right_value,
+            }),
+        ) => {
+            typed_refs_equivalent(
+                TypedTyRef {
+                    interner: left.interner,
+                    ty: *left_error,
+                },
+                TypedTyRef {
+                    interner: right.interner,
+                    ty: *right_error,
+                },
+            ) && typed_refs_equivalent(
+                TypedTyRef {
+                    interner: left.interner,
+                    ty: *left_value,
+                },
+                TypedTyRef {
+                    interner: right.interner,
+                    ty: *right_value,
+                },
+            )
+        }
+        (
+            Some(TyKind::Nominal {
+                def_id: left_def,
+                args: left_args,
+                const_args: left_const_args,
+            }),
+            Some(TyKind::Nominal {
+                def_id: right_def,
+                args: right_args,
+                const_args: right_const_args,
+            }),
+        ) => {
+            left_def == right_def
+                && typed_ref_slices_equivalent(left.interner, left_args, right.interner, right_args)
+                && const_generic_args_equivalent(
+                    left.interner,
+                    left_const_args,
+                    right.interner,
+                    right_const_args,
+                )
+        }
+        (
+            Some(TyKind::BuiltinTrait {
+                trait_id: left_trait,
+                args: left_args,
+            }),
+            Some(TyKind::BuiltinTrait {
+                trait_id: right_trait,
+                args: right_args,
+            }),
+        ) => {
+            left_trait == right_trait
+                && typed_ref_slices_equivalent(left.interner, left_args, right.interner, right_args)
+        }
+        (
+            Some(TyKind::TraitObject {
+                is_readonly: left_readonly,
+                trait_id: left_trait,
+                trait_args: left_args,
+                trait_const_args: left_const_args,
+                associated_type_bindings: left_bindings,
+            }),
+            Some(TyKind::TraitObject {
+                is_readonly: right_readonly,
+                trait_id: right_trait,
+                trait_args: right_args,
+                trait_const_args: right_const_args,
+                associated_type_bindings: right_bindings,
+            }),
+        ) => {
+            left_readonly == right_readonly
+                && trait_object_parts_equivalent(
+                    left.interner,
+                    *left_trait,
+                    left_args,
+                    left_const_args,
+                    left_bindings,
+                    right.interner,
+                    *right_trait,
+                    right_args,
+                    right_const_args,
+                    right_bindings,
+                )
+        }
+        (
+            Some(TyKind::TraitObjectPointee {
+                trait_id: left_trait,
+                trait_args: left_args,
+                trait_const_args: left_const_args,
+                associated_type_bindings: left_bindings,
+            }),
+            Some(TyKind::TraitObjectPointee {
+                trait_id: right_trait,
+                trait_args: right_args,
+                trait_const_args: right_const_args,
+                associated_type_bindings: right_bindings,
+            }),
+        ) => trait_object_parts_equivalent(
+            left.interner,
+            *left_trait,
+            left_args,
+            left_const_args,
+            left_bindings,
+            right.interner,
+            *right_trait,
+            right_args,
+            right_const_args,
+            right_bindings,
+        ),
+        (
+            Some(TyKind::Projection {
+                self_ty: left_self,
+                trait_id: left_trait,
+                trait_args: left_args,
+                trait_const_args: left_const_args,
+                name: left_name,
+            }),
+            Some(TyKind::Projection {
+                self_ty: right_self,
+                trait_id: right_trait,
+                trait_args: right_args,
+                trait_const_args: right_const_args,
+                name: right_name,
+            }),
+        ) => {
+            left_trait == right_trait
+                && left_name == right_name
+                && typed_refs_equivalent(
+                    TypedTyRef {
+                        interner: left.interner,
+                        ty: *left_self,
+                    },
+                    TypedTyRef {
+                        interner: right.interner,
+                        ty: *right_self,
+                    },
+                )
+                && typed_ref_slices_equivalent(left.interner, left_args, right.interner, right_args)
+                && const_generic_args_equivalent(
+                    left.interner,
+                    left_const_args,
+                    right.interner,
+                    right_const_args,
+                )
+        }
+        _ => false,
+    }
+}
+
+fn optional_typed_refs_equivalent(
+    left_interner: &TyInterner,
+    left: Option<InternedTyId>,
+    right_interner: &TyInterner,
+    right: Option<InternedTyId>,
+) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => typed_refs_equivalent(
+            TypedTyRef {
+                interner: left_interner,
+                ty: left,
+            },
+            TypedTyRef {
+                interner: right_interner,
+                ty: right,
+            },
+        ),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn typed_ref_slices_equivalent(
+    left_interner: &TyInterner,
+    left: &[InternedTyId],
+    right_interner: &TyInterner,
+    right: &[InternedTyId],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            typed_refs_equivalent(
+                TypedTyRef {
+                    interner: left_interner,
+                    ty: *left,
+                },
+                TypedTyRef {
+                    interner: right_interner,
+                    ty: *right,
+                },
+            )
+        })
+}
+
+fn array_lens_equivalent(
+    left_interner: &TyInterner,
+    left: &nia_ty::ArrayLenTy,
+    right_interner: &TyInterner,
+    right: &nia_ty::ArrayLenTy,
+) -> bool {
+    use nia_ty::ArrayLenTy;
+    match (left, right) {
+        (ArrayLenTy::Infer, ArrayLenTy::Infer) => true,
+        (ArrayLenTy::GenericParam(left), ArrayLenTy::GenericParam(right)) => left == right,
+        (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstValue(right)) => left == right,
+        (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => left == right,
+        (
+            ArrayLenTy::Builtin {
+                builtin: left_builtin,
+                ty: left_ty,
+            },
+            ArrayLenTy::Builtin {
+                builtin: right_builtin,
+                ty: right_ty,
+            },
+        ) => {
+            left_builtin == right_builtin
+                && typed_refs_equivalent(
+                    TypedTyRef {
+                        interner: left_interner,
+                        ty: *left_ty,
+                    },
+                    TypedTyRef {
+                        interner: right_interner,
+                        ty: *right_ty,
+                    },
+                )
+        }
+        _ => false,
+    }
+}
+
+fn const_generic_args_equivalent(
+    left_interner: &TyInterner,
+    left: &[nia_ty::ConstGenericArg],
+    right_interner: &TyInterner,
+    right: &[nia_ty::ConstGenericArg],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.value == right.value
+                && typed_refs_equivalent(
+                    TypedTyRef {
+                        interner: left_interner,
+                        ty: left.ty,
+                    },
+                    TypedTyRef {
+                        interner: right_interner,
+                        ty: right.ty,
+                    },
+                )
+        })
+}
+
+#[expect(clippy::too_many_arguments)]
+fn trait_object_parts_equivalent(
+    left_interner: &TyInterner,
+    left_trait: TraitId,
+    left_args: &[InternedTyId],
+    left_const_args: &[nia_ty::ConstGenericArg],
+    left_bindings: &[AssociatedTypeBindingTy],
+    right_interner: &TyInterner,
+    right_trait: TraitId,
+    right_args: &[InternedTyId],
+    right_const_args: &[nia_ty::ConstGenericArg],
+    right_bindings: &[AssociatedTypeBindingTy],
+) -> bool {
+    left_trait == right_trait
+        && typed_ref_slices_equivalent(left_interner, left_args, right_interner, right_args)
+        && const_generic_args_equivalent(
+            left_interner,
+            left_const_args,
+            right_interner,
+            right_const_args,
+        )
+        && associated_type_bindings_equivalent(
+            left_interner,
+            left_bindings,
+            right_interner,
+            right_bindings,
+        )
+}
+
+fn associated_type_bindings_equivalent(
+    left_interner: &TyInterner,
+    left: &[AssociatedTypeBindingTy],
+    right_interner: &TyInterner,
+    right: &[AssociatedTypeBindingTy],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().all(|left_binding| {
+            right
+                .iter()
+                .find(|right_binding| {
+                    associated_type_binding_keys_equivalent(
+                        left_interner,
+                        left_binding,
+                        right_interner,
+                        right_binding,
+                    )
+                })
+                .is_some_and(|right_binding| {
+                    typed_refs_equivalent(
+                        TypedTyRef {
+                            interner: left_interner,
+                            ty: left_binding.ty,
+                        },
+                        TypedTyRef {
+                            interner: right_interner,
+                            ty: right_binding.ty,
+                        },
+                    )
+                })
+        })
+}
+
+fn associated_type_binding_keys_equivalent(
+    left_interner: &TyInterner,
+    left: &AssociatedTypeBindingTy,
+    right_interner: &TyInterner,
+    right: &AssociatedTypeBindingTy,
+) -> bool {
+    left.name == right.name
+        && left.trait_id == right.trait_id
+        && typed_ref_slices_equivalent(
+            left_interner,
+            &left.trait_args,
+            right_interner,
+            &right.trait_args,
+        )
+        && const_generic_args_equivalent(
+            left_interner,
+            &left.trait_const_args,
+            right_interner,
+            &right.trait_const_args,
+        )
 }
 
 fn trait_id_and_args(
@@ -2459,14 +3172,27 @@ fn trait_id_and_args(
 #[derive(Clone, Copy)]
 struct TypeSubstitutions<'a> {
     self_ty: Option<InternedTyId>,
-    generics: &'a SymbolMap<InternedTyId>,
+    generics: TypeSubstitutionGenerics<'a>,
+}
+
+#[derive(Clone, Copy)]
+enum TypeSubstitutionGenerics<'a> {
+    Local(&'a SymbolMap<InternedTyId>),
+    Typed(&'a SymbolMap<SubstitutionTy<'a>>),
 }
 
 impl<'a> TypeSubstitutions<'a> {
-    fn generics(generics: &'a SymbolMap<InternedTyId>) -> Self {
+    fn local(self_ty: Option<InternedTyId>, generics: &'a SymbolMap<InternedTyId>) -> Self {
+        Self {
+            self_ty,
+            generics: TypeSubstitutionGenerics::Local(generics),
+        }
+    }
+
+    fn typed_generics(generics: &'a SymbolMap<SubstitutionTy<'a>>) -> Self {
         Self {
             self_ty: None,
-            generics,
+            generics: TypeSubstitutionGenerics::Typed(generics),
         }
     }
 }
@@ -2478,7 +3204,7 @@ fn substitute_ty(
 ) -> Option<InternedTyId> {
     let kind = interner.get(ty)?.clone();
     match kind {
-        TyKind::GenericParam(name) => substitutions.generics.get(&name).copied().or(Some(ty)),
+        TyKind::GenericParam(name) => substitute_generic_ty(interner, &name, substitutions, ty),
         TyKind::SelfParam => substitutions.self_ty.or(Some(ty)),
         TyKind::Pointer { is_readonly, elem } => {
             let elem = substitute_ty(interner, elem, substitutions)?;
@@ -2689,6 +3415,34 @@ fn substitute_associated_type_bindings(
         .collect()
 }
 
+fn substitute_generic_ty(
+    interner: &mut TyInterner,
+    name: &SymbolId,
+    substitutions: &TypeSubstitutions<'_>,
+    fallback: InternedTyId,
+) -> Option<InternedTyId> {
+    match substitutions.generics {
+        TypeSubstitutionGenerics::Local(generics) => generics.get(name).copied().or(Some(fallback)),
+        TypeSubstitutionGenerics::Typed(generics) => generics
+            .get(name)
+            .copied()
+            .map(|ty| import_substitution_ty(interner, ty))
+            .transpose()
+            .ok()
+            .flatten()
+            .or(Some(fallback)),
+    }
+}
+
+fn import_substitution_ty(
+    interner: &mut TyInterner,
+    substitution: SubstitutionTy<'_>,
+) -> Result<InternedTyId, nia_ty::TypeImportError> {
+    match substitution {
+        SubstitutionTy::External(ty) => nia_ty::try_import_type_into(interner, ty.interner, ty.ty),
+    }
+}
+
 fn add_reachable_module(
     module_id: ModuleId,
     reachable_modules: &mut HashSet<ModuleId>,
@@ -2811,7 +3565,7 @@ fn collect_function_fact_owner_modules(
         type_ids.extend([coercion.pointer_ty, coercion.array_ty, coercion.slice_ty]);
     }
     for coercion in facts.node_trait_object_coercions.values() {
-        type_ids.extend([coercion.source_ty, coercion.target_ty]);
+        type_ids.extend([coercion.source_ty, coercion.target_ty, coercion.self_ty]);
     }
     for upcast in facts.node_trait_object_upcasts.values() {
         type_ids.extend([upcast.source_ty, upcast.target_ty]);

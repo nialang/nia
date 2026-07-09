@@ -535,7 +535,7 @@ impl<'a> BodyChecker<'a> {
                         self.lower_trait_object_coercion_source_expr(expr, coercion.source_ty),
                     ),
                     target_ty: coercion.target_ty,
-                    self_ty: self.trait_object_coercion_self_ty(coercion.source_ty),
+                    self_ty: coercion.self_ty,
                 },
             };
         }
