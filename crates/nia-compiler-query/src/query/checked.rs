@@ -47,6 +47,21 @@ impl QueryKey<CompilerContext> for ExecutableCheckedModuleSetQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExecutableValueRefIndexQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ExecutableValueRefIndexQuery {
+    type Value = ExecutableValueRefIndex;
+
+    fn name() -> &'static str {
+        "executable_value_ref_index"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        provide_executable_value_ref_index(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg(test)]
 pub(super) struct ExecutableCheckedModulesQuery;
 

@@ -1,17 +1,85 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use nia_ast::{BindingItem, FunctionItem};
 
 struct LocalExecutableValueRefs<'a> {
     module_id: ModuleId,
     defs: &'a DefCollection,
-    values: &'a ValueResolution,
     signatures: &'a HashMap<DefId, nia_item_signatures::FunctionSignature>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct ExecutableValueRefEdges {
     pub(super) functions: HashSet<GlobalDefId>,
     pub(super) globals: HashSet<GlobalDefId>,
+}
+
+#[derive(Clone, Default)]
+pub(in crate::query) struct ExecutableValueRefIndex {
+    pub(super) functions: HashMap<GlobalDefId, ExecutableValueRefEdges>,
+    pub(super) globals: HashMap<GlobalDefId, ExecutableValueRefEdges>,
+}
+
+impl ExecutableValueRefIndex {
+    fn edges_for_items(
+        &self,
+        functions: &HashSet<GlobalDefId>,
+        globals: &HashSet<GlobalDefId>,
+    ) -> ExecutableValueRefEdges {
+        let mut edges = ExecutableValueRefEdges::default();
+        for def_id in functions {
+            if let Some(function_edges) = self.functions.get(def_id) {
+                edges.extend_ref(function_edges);
+            }
+        }
+        for def_id in globals {
+            if let Some(global_edges) = self.globals.get(def_id) {
+                edges.extend_ref(global_edges);
+            }
+        }
+        edges
+    }
+}
+
+impl ExecutableValueRefEdges {
+    fn extend_ref(&mut self, edges: &Self) {
+        self.functions.extend(edges.functions.iter().copied());
+        self.globals.extend(edges.globals.iter().copied());
+    }
+
+    fn insert_edge(&mut self, db: &QueryDb<CompilerContext>, global_id: GlobalDefId) -> bool {
+        let defs = db.query_shared(FullModuleDefsQuery(global_id.module_id));
+        let Some(def) = defs.defs.get(global_id.def_id) else {
+            return false;
+        };
+        match def.kind {
+            DefKind::Function | DefKind::Method | DefKind::TraitMethod => {
+                let signatures = db.query_shared(SignatureItemSignaturesQuery(
+                    global_id.module_id,
+                    nia_item_tree::SignatureItemSet::Functions,
+                ));
+                let Some(signature) = signatures.functions.get(&global_id.def_id) else {
+                    return false;
+                };
+                if signature.is_comptime || !signature.has_body {
+                    return false;
+                }
+                self.functions.insert(global_id)
+            }
+            DefKind::Global => self.globals.insert(global_id),
+            DefKind::Comptime
+            | DefKind::Struct
+            | DefKind::StructField
+            | DefKind::Union
+            | DefKind::UnionField
+            | DefKind::Enum
+            | DefKind::EnumVariant
+            | DefKind::TypeAlias
+            | DefKind::Trait
+            | DefKind::TraitAssociatedType
+            | DefKind::Module => false,
+        }
+    }
 }
 
 struct BodyCheckComptimeInputs {
@@ -1669,12 +1737,8 @@ pub(super) fn extend_module_functions_from_filtered_value_refs(
     module_globals: &HashSet<GlobalDefId>,
     checked_functions: Option<&HashSet<GlobalDefId>>,
 ) -> HashSet<GlobalDefId> {
-    let active_item_tree =
-        time_module_provider(db, "extend_value_refs.active_item_tree", module_id, || {
-            db.query_shared(FullActiveModuleItemTreeQuery(module_id))
-        });
     let defs = time_module_provider(db, "extend_value_refs.defs", module_id, || {
-        db.query(FullModuleDefsQuery(module_id))
+        db.query_shared(FullModuleDefsQuery(module_id))
     });
     let signatures = time_module_provider(db, "extend_value_refs.signatures", module_id, || {
         db.query_shared(SignatureItemSignaturesQuery(
@@ -1682,56 +1746,22 @@ pub(super) fn extend_module_functions_from_filtered_value_refs(
             nia_item_tree::SignatureItemSet::Functions,
         ))
     });
-    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
-    let public_surfaces =
-        time_module_provider(db, "extend_value_refs.public_surfaces", module_id, || {
-            db.query(PublicSurfacesQuery)
-        });
-    let using_scope = time_module_provider(
-        db,
-        "extend_value_refs.module_using_scope",
-        module_id,
-        || db.query(ModuleUsingScopeQuery(module_id)),
-    );
-    let graph = time_module_provider(db, "extend_value_refs.module_graph", module_id, || {
-        db.query(ModuleGraphQuery)
+    let index = time_module_provider(db, "extend_value_refs.index", module_id, || {
+        db.query(ExecutableValueRefIndexQuery(module_id))
     });
 
     loop {
-        let filter = nia_body_check::BodyCheckFilter::ReachableItems {
-            functions: &module_functions,
-            globals: module_globals,
-            already_checked_functions: checked_functions,
-            already_checked_globals: None,
-        };
-        let filtered_active_item_tree =
-            time_module_provider(db, "extend_value_refs.filter_item_tree", module_id, || {
-                active_item_tree_for_body_check_filter(module_id, &defs, &active_item_tree, filter)
-            });
-        let values =
-            time_module_provider(db, "extend_value_refs.value_resolution", module_id, || {
-                nia_value_resolve::resolve_module_values_from_active_item_tree(
-                    &filtered_active_item_tree,
-                    &defs,
-                    nia_value_resolve::ProgramDefsContext {
-                        defs: Some(&program_defs),
-                        graph: Some(&graph),
-                    },
-                    &public_surfaces.surfaces,
-                    &using_scope,
-                )
-            });
         let local_refs = LocalExecutableValueRefs {
             module_id,
             defs: &defs,
-            values: &values,
             signatures: &signatures.functions,
         };
         let mut changed = false;
         time_module_provider(db, "extend_value_refs.scan_refs", module_id, || {
-            changed |= extend_local_executable_functions_from_value_refs(
+            let edges = index.edges_for_items(&module_functions, module_globals);
+            changed |= extend_local_executable_functions_from_value_ref_edges(
                 &mut module_functions,
-                &filtered_active_item_tree,
+                &edges,
                 &local_refs,
                 checked_functions,
             );
@@ -1749,110 +1779,40 @@ pub(super) fn executable_value_ref_edges_from_reachable_items(
     module_functions: &HashSet<GlobalDefId>,
     module_globals: &HashSet<GlobalDefId>,
 ) -> ExecutableValueRefEdges {
-    let active_item_tree = time_module_provider(
-        db,
-        "executable_value_refs.active_item_tree",
-        module_id,
-        || db.query_shared(FullActiveModuleItemTreeQuery(module_id)),
-    );
-    let defs = time_module_provider(db, "executable_value_refs.defs", module_id, || {
-        db.query(FullModuleDefsQuery(module_id))
+    let index = time_module_provider(db, "executable_value_refs.index", module_id, || {
+        db.query(ExecutableValueRefIndexQuery(module_id))
     });
-    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
-    let public_surfaces = time_module_provider(
-        db,
-        "executable_value_refs.public_surfaces",
-        module_id,
-        || db.query(PublicSurfacesQuery),
-    );
-    let using_scope = time_module_provider(
-        db,
-        "executable_value_refs.module_using_scope",
-        module_id,
-        || db.query(ModuleUsingScopeQuery(module_id)),
-    );
-    let graph = time_module_provider(db, "executable_value_refs.module_graph", module_id, || {
-        db.query(ModuleGraphQuery)
-    });
-
     let mut scan_functions = module_functions.clone();
-    let mut edges = ExecutableValueRefEdges::default();
+    let mut all_edges = ExecutableValueRefEdges::default();
     loop {
-        let filter = nia_body_check::BodyCheckFilter::ReachableItems {
-            functions: &scan_functions,
-            globals: module_globals,
-            already_checked_functions: None,
-            already_checked_globals: None,
-        };
-        let filtered_active_item_tree = time_module_provider(
-            db,
-            "executable_value_refs.filter_item_tree",
-            module_id,
-            || active_item_tree_for_body_check_filter(module_id, &defs, &active_item_tree, filter),
-        );
-        let values = time_module_provider(
-            db,
-            "executable_value_refs.value_resolution",
-            module_id,
-            || {
-                nia_value_resolve::resolve_module_values_from_active_item_tree(
-                    &filtered_active_item_tree,
-                    &defs,
-                    nia_value_resolve::ProgramDefsContext {
-                        defs: Some(&program_defs),
-                        graph: Some(&graph),
-                    },
-                    &public_surfaces.surfaces,
-                    &using_scope,
-                )
-            },
-        );
         let before_local = scan_functions.len();
         time_module_provider(db, "executable_value_refs.scan_refs", module_id, || {
-            extend_executable_edges_from_value_refs(
-                db,
-                module_id,
-                &filtered_active_item_tree,
-                &values,
-                &mut edges,
-                &mut scan_functions,
+            let edges = index.edges_for_items(&scan_functions, module_globals);
+            scan_functions.extend(
+                edges
+                    .functions
+                    .iter()
+                    .copied()
+                    .filter(|def_id| def_id.module_id == module_id),
             );
+            all_edges.extend_ref(&edges);
         });
         if scan_functions.len() == before_local {
             break;
         }
     }
-    edges
+    all_edges
 }
 
-fn extend_local_executable_functions_from_value_refs(
+fn extend_local_executable_functions_from_value_ref_edges(
     module_functions: &mut HashSet<GlobalDefId>,
-    active_item_tree: &ActiveModuleItemTree,
+    edges: &ExecutableValueRefEdges,
     refs: &LocalExecutableValueRefs<'_>,
     checked_functions: Option<&HashSet<GlobalDefId>>,
 ) -> bool {
-    let mut keys = HashSet::new();
-    collect_active_item_tree_node_keys(active_item_tree, &mut keys);
     let mut changed = false;
-    for key in keys {
-        if let Some(def_id) =
-            refs.values
-                .node_names
-                .get(&key)
-                .and_then(|resolution| match resolution {
-                    nia_value_resolve::ValueNameResolution::Def(def_id) => Some(*def_id),
-                    nia_value_resolve::ValueNameResolution::External(_)
-                    | nia_value_resolve::ValueNameResolution::Module
-                    | nia_value_resolve::ValueNameResolution::LocalDeferred
-                    | nia_value_resolve::ValueNameResolution::Error => None,
-                })
-        {
-            changed |=
-                insert_local_executable_function(module_functions, refs, def_id, checked_functions);
-        }
-        if let Some(global_id) = refs.values.node_qualified_values.get(&key)
-            && global_id.module_id == refs.module_id
-        {
+    for global_id in &edges.functions {
+        if global_id.module_id == refs.module_id {
             changed |= insert_local_executable_function(
                 module_functions,
                 refs,
@@ -1864,78 +1824,228 @@ fn extend_local_executable_functions_from_value_refs(
     changed
 }
 
-fn extend_executable_edges_from_value_refs(
+pub(in crate::query) fn provide_executable_value_ref_index(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    active_item_tree: &ActiveModuleItemTree,
+) -> ExecutableValueRefIndex {
+    time_module_provider(db, "executable_value_ref_index", module_id, || {
+        let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+        let defs = db.query_shared(FullModuleDefsQuery(module_id));
+        let values = db.query(ValueResolutionQuery(module_id));
+        let mut index = ExecutableValueRefIndex::default();
+        collect_executable_value_ref_index_for_items(
+            db,
+            module_id,
+            &active_item_tree.items,
+            &defs,
+            &values,
+            &mut index,
+        );
+        index
+    })
+}
+
+fn collect_executable_value_ref_index_for_items(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    items: &[nia_item_tree::ItemTreeNode],
+    defs: &DefCollection,
     values: &ValueResolution,
-    edges: &mut ExecutableValueRefEdges,
-    scan_functions: &mut HashSet<GlobalDefId>,
+    index: &mut ExecutableValueRefIndex,
 ) {
-    let mut keys = HashSet::new();
-    collect_active_item_tree_node_keys(active_item_tree, &mut keys);
-    for key in keys {
-        if let Some(global_id) = values
-            .node_names
-            .get(&key)
-            .and_then(|resolution| match resolution {
-                nia_value_resolve::ValueNameResolution::Def(def_id) => Some(GlobalDefId {
-                    module_id,
-                    def_id: *def_id,
-                }),
-                nia_value_resolve::ValueNameResolution::External(global_id) => Some(*global_id),
-                nia_value_resolve::ValueNameResolution::Module
-                | nia_value_resolve::ValueNameResolution::LocalDeferred
-                | nia_value_resolve::ValueNameResolution::Error => None,
-            })
-        {
-            insert_executable_value_ref_edge(db, global_id, edges, scan_functions);
-        }
-        if let Some(global_id) = values.node_qualified_values.get(&key).copied() {
-            insert_executable_value_ref_edge(db, global_id, edges, scan_functions);
+    for item in items {
+        match &item.kind {
+            nia_item_tree::ItemTreeNodeKind::Function(function) => {
+                collect_executable_value_ref_index_for_function(
+                    db, module_id, defs, values, function, index,
+                );
+            }
+            nia_item_tree::ItemTreeNodeKind::Binding(binding) => {
+                collect_executable_value_ref_index_for_binding(
+                    db, module_id, defs, values, binding, index,
+                );
+            }
+            nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
+                for method in &item_trait.methods {
+                    collect_executable_value_ref_index_for_function(
+                        db,
+                        module_id,
+                        defs,
+                        values,
+                        &method.function,
+                        index,
+                    );
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
+                for associated_value in &extend.associated_values {
+                    collect_executable_value_ref_index_for_binding(
+                        db,
+                        module_id,
+                        defs,
+                        values,
+                        &associated_value.binding,
+                        index,
+                    );
+                }
+                for method in &extend.methods {
+                    collect_executable_value_ref_index_for_function(
+                        db,
+                        module_id,
+                        defs,
+                        values,
+                        &method.function,
+                        index,
+                    );
+                }
+            }
+            nia_item_tree::ItemTreeNodeKind::Module(_)
+            | nia_item_tree::ItemTreeNodeKind::Using(_)
+            | nia_item_tree::ItemTreeNodeKind::Struct(_)
+            | nia_item_tree::ItemTreeNodeKind::Union(_)
+            | nia_item_tree::ItemTreeNodeKind::Enum(_)
+            | nia_item_tree::ItemTreeNodeKind::TypeAlias(_) => {}
         }
     }
 }
 
-fn insert_executable_value_ref_edge(
+fn collect_executable_value_ref_index_for_function(
     db: &QueryDb<CompilerContext>,
-    global_id: GlobalDefId,
-    edges: &mut ExecutableValueRefEdges,
-    scan_functions: &mut HashSet<GlobalDefId>,
+    module_id: ModuleId,
+    defs: &DefCollection,
+    values: &ValueResolution,
+    function: &FunctionItem,
+    index: &mut ExecutableValueRefIndex,
 ) {
-    let defs = db.query_shared(FullModuleDefsQuery(global_id.module_id));
-    let Some(def) = defs.defs.get(global_id.def_id) else {
+    if function.is_comptime || function.body.is_none() {
+        return;
+    }
+    let Some(def_id) = defs.def_nodes.get(&function.node_key) else {
         return;
     };
-    match def.kind {
-        DefKind::Function | DefKind::Method | DefKind::TraitMethod => {
-            let signatures = db.query_shared(SignatureItemSignaturesQuery(
-                global_id.module_id,
-                nia_item_tree::SignatureItemSet::Functions,
-            ));
-            let Some(signature) = signatures.functions.get(&global_id.def_id) else {
-                return;
-            };
-            if signature.is_comptime || !signature.has_body {
-                return;
-            }
-            edges.functions.insert(global_id);
-            scan_functions.insert(global_id);
+    let owner = GlobalDefId { module_id, def_id };
+    let edges = index.functions.entry(owner).or_default();
+    collect_executable_value_ref_edges_from_function(db, module_id, function, values, edges);
+}
+
+fn collect_executable_value_ref_index_for_binding(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    defs: &DefCollection,
+    values: &ValueResolution,
+    binding: &BindingItem,
+    index: &mut ExecutableValueRefIndex,
+) {
+    if binding.is_comptime || binding.value.is_none() {
+        return;
+    }
+    let Some(def_id) = defs.def_nodes.get(&binding.node_key) else {
+        return;
+    };
+    let owner = GlobalDefId { module_id, def_id };
+    let edges = index.globals.entry(owner).or_default();
+    collect_executable_value_ref_edges_from_binding(db, module_id, binding, values, edges);
+}
+
+fn collect_executable_value_ref_edges_from_function(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    function: &FunctionItem,
+    values: &ValueResolution,
+    edges: &mut ExecutableValueRefEdges,
+) {
+    let mut collector = ExecutableValueRefCollector::new(db, module_id, values, edges);
+    nia_ast_walk::Visitor::visit_function(&mut collector, function);
+}
+
+fn collect_executable_value_ref_edges_from_binding(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    binding: &BindingItem,
+    values: &ValueResolution,
+    edges: &mut ExecutableValueRefEdges,
+) {
+    let mut collector = ExecutableValueRefCollector::new(db, module_id, values, edges);
+    if let Some(ty) = &binding.ty {
+        nia_ast_walk::Visitor::visit_type(&mut collector, ty);
+    }
+    if let Some(value) = &binding.value {
+        nia_ast_walk::Visitor::visit_expr(&mut collector, value);
+    }
+}
+
+struct ExecutableValueRefCollector<'a> {
+    db: &'a QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    values: &'a ValueResolution,
+    edges: &'a mut ExecutableValueRefEdges,
+}
+
+impl<'a> ExecutableValueRefCollector<'a> {
+    fn new(
+        db: &'a QueryDb<CompilerContext>,
+        module_id: ModuleId,
+        values: &'a ValueResolution,
+        edges: &'a mut ExecutableValueRefEdges,
+    ) -> Self {
+        Self {
+            db,
+            module_id,
+            values,
+            edges,
         }
-        DefKind::Global => {
-            edges.globals.insert(global_id);
-        }
-        DefKind::Comptime
-        | DefKind::Struct
-        | DefKind::StructField
-        | DefKind::Union
-        | DefKind::UnionField
-        | DefKind::Enum
-        | DefKind::EnumVariant
-        | DefKind::TypeAlias
-        | DefKind::Trait
-        | DefKind::TraitAssociatedType
-        | DefKind::Module => {}
+    }
+}
+
+impl<'ast> nia_ast_walk::Visitor<'ast> for ExecutableValueRefCollector<'_> {
+    fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
+        collect_executable_value_ref_edge_for_key(
+            self.db,
+            self.module_id,
+            self.values,
+            self.edges,
+            &expr.node_key,
+        );
+        nia_ast_walk::walk_expr(self, expr);
+    }
+
+    fn visit_type(&mut self, ty: &'ast nia_ast::TypeRef) {
+        collect_executable_value_ref_edge_for_key(
+            self.db,
+            self.module_id,
+            self.values,
+            self.edges,
+            &ty.node_key,
+        );
+        nia_ast_walk::walk_type(self, ty);
+    }
+}
+
+fn collect_executable_value_ref_edge_for_key(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    values: &ValueResolution,
+    edges: &mut ExecutableValueRefEdges,
+    key: &nia_node_id::VersionedNodeKey,
+) {
+    if let Some(global_id) = values
+        .node_names
+        .get(key)
+        .and_then(|resolution| match resolution {
+            nia_value_resolve::ValueNameResolution::Def(def_id) => Some(GlobalDefId {
+                module_id,
+                def_id: *def_id,
+            }),
+            nia_value_resolve::ValueNameResolution::External(global_id) => Some(*global_id),
+            nia_value_resolve::ValueNameResolution::Module
+            | nia_value_resolve::ValueNameResolution::LocalDeferred
+            | nia_value_resolve::ValueNameResolution::Error => None,
+        })
+    {
+        edges.insert_edge(db, global_id);
+    }
+    if let Some(global_id) = values.node_qualified_values.get(key).copied() {
+        edges.insert_edge(db, global_id);
     }
 }
 
@@ -1968,32 +2078,6 @@ fn insert_local_executable_function(
         return false;
     }
     module_functions.insert(global_id)
-}
-
-fn collect_active_item_tree_node_keys(
-    active_item_tree: &ActiveModuleItemTree,
-    keys: &mut HashSet<nia_node_id::VersionedNodeKey>,
-) {
-    struct Collector<'a> {
-        keys: &'a mut HashSet<nia_node_id::VersionedNodeKey>,
-    }
-
-    impl<'ast> nia_ast_walk::Visitor<'ast> for Collector<'_> {
-        fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
-            self.keys.insert(expr.node_key.clone());
-            nia_ast_walk::walk_expr(self, expr);
-        }
-
-        fn visit_type(&mut self, ty: &'ast nia_ast::TypeRef) {
-            self.keys.insert(ty.node_key.clone());
-            nia_ast_walk::walk_type(self, ty);
-        }
-    }
-
-    let mut collector = Collector { keys };
-    for item in &active_item_tree.items {
-        nia_ast_walk::Visitor::visit_item(&mut collector, &item.to_ast_item());
-    }
 }
 
 pub(super) fn provide_checked_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
