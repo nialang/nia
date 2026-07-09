@@ -1448,6 +1448,7 @@ struct TypedExecutableRefs {
 struct ReachableTraitRefs {
     traits: HashSet<TraitId>,
     methods: Vec<ReachableTraitMethod>,
+    interner_contexts: Vec<TyInterner>,
     raw_method_keys: HashSet<ReachableTraitRawMethodKey>,
     method_keys: HashSet<ReachableTraitMethodKey>,
     vtables: Vec<ReachableTraitVtable>,
@@ -1461,8 +1462,11 @@ struct ReachableTraitMethod {
     method_name: SymbolId,
     self_ty: InternedTyId,
     trait_args: Vec<InternedTyId>,
-    interner: Option<TyInterner>,
+    interner: Option<ReachableTraitInternerId>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ReachableTraitInternerId(usize);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ReachableTraitRawMethodKey {
@@ -1499,18 +1503,86 @@ struct ReachableTraitVtableKey {
 
 impl ReachableTraitRefs {
     fn extend(&mut self, refs: Self) {
-        self.traits.extend(refs.traits);
-        for method in refs.methods {
-            self.insert_method_with_interner(
-                method.module_id,
-                method.trait_id,
-                method.method_name,
-                method.self_ty,
-                method.trait_args,
-                method.interner,
-            );
+        let ReachableTraitRefs {
+            traits,
+            methods,
+            interner_contexts,
+            vtables,
+            ..
+        } = refs;
+        self.traits.extend(traits);
+        let mut interner_contexts = interner_contexts.into_iter().map(Some).collect::<Vec<_>>();
+        let mut remapped_interner_ids: Vec<Option<ReachableTraitInternerId>> =
+            vec![None; interner_contexts.len()];
+        for method in methods {
+            let Some(source_interner) = method.interner else {
+                self.insert_method(
+                    method.module_id,
+                    method.trait_id,
+                    method.method_name,
+                    method.self_ty,
+                    method.trait_args,
+                );
+                continue;
+            };
+            let key = if let Some(interner) = remapped_interner_ids
+                .get(source_interner.0)
+                .and_then(|id| *id)
+                .and_then(|id| self.interner_contexts.get(id.0))
+            {
+                Self::method_key_for_interner(
+                    method.trait_id,
+                    &method.method_name,
+                    method.self_ty,
+                    &method.trait_args,
+                    interner,
+                )
+            } else {
+                let Some(interner) = interner_contexts
+                    .get(source_interner.0)
+                    .and_then(Option::as_ref)
+                else {
+                    continue;
+                };
+                Self::method_key_for_interner(
+                    method.trait_id,
+                    &method.method_name,
+                    method.self_ty,
+                    &method.trait_args,
+                    interner,
+                )
+            };
+            let Some(key) = key else {
+                continue;
+            };
+            self.traits.insert(method.trait_id);
+            if !self.method_keys.insert(key) {
+                continue;
+            }
+            let interner = match remapped_interner_ids
+                .get(source_interner.0)
+                .and_then(|id| *id)
+            {
+                Some(id) => id,
+                None => {
+                    let Some(interner) = interner_contexts
+                        .get_mut(source_interner.0)
+                        .and_then(Option::take)
+                    else {
+                        continue;
+                    };
+                    let id = ReachableTraitInternerId(self.interner_contexts.len());
+                    self.interner_contexts.push(interner);
+                    remapped_interner_ids[source_interner.0] = Some(id);
+                    id
+                }
+            };
+            self.methods.push(ReachableTraitMethod {
+                interner: Some(interner),
+                ..method
+            });
         }
-        for vtable in refs.vtables {
+        for vtable in vtables {
             self.insert_vtable(
                 vtable.module_id,
                 vtable.trait_id,
@@ -1552,8 +1624,7 @@ impl ReachableTraitRefs {
         interner: Option<TyInterner>,
     ) {
         self.traits.insert(trait_id);
-        let key_interner = interner.as_ref();
-        let key_interner = match key_interner {
+        let interner = match interner {
             Some(interner) => interner,
             None => {
                 if !self.raw_method_keys.insert(ReachableTraitRawMethodKey {
@@ -1571,36 +1642,51 @@ impl ReachableTraitRefs {
                     method_name,
                     self_ty,
                     trait_args,
-                    interner,
+                    interner: None,
                 });
             }
         };
-        let Some(self_ty_key) = key_interner.get(self_ty).cloned() else {
-            return;
-        };
-        let Some(trait_arg_keys) = trait_args
-            .iter()
-            .map(|arg| key_interner.get(*arg).cloned())
-            .collect::<Option<Vec<_>>>()
+        let Some(key) =
+            Self::method_key_for_interner(trait_id, &method_name, self_ty, &trait_args, &interner)
         else {
             return;
         };
-        if !self.method_keys.insert(ReachableTraitMethodKey {
-            trait_id,
-            method_name: method_name.clone(),
-            self_ty: self_ty_key,
-            trait_args: trait_arg_keys,
-        }) {
+        if !self.method_keys.insert(key) {
             return;
         }
+        let interner = {
+            let id = ReachableTraitInternerId(self.interner_contexts.len());
+            self.interner_contexts.push(interner);
+            id
+        };
         self.methods.push(ReachableTraitMethod {
             module_id,
             trait_id,
             method_name,
             self_ty,
             trait_args,
-            interner,
+            interner: Some(interner),
         });
+    }
+
+    fn method_key_for_interner(
+        trait_id: TraitId,
+        method_name: &SymbolId,
+        self_ty: InternedTyId,
+        trait_args: &[InternedTyId],
+        interner: &TyInterner,
+    ) -> Option<ReachableTraitMethodKey> {
+        let self_ty = interner.get(self_ty).cloned()?;
+        let trait_args = trait_args
+            .iter()
+            .map(|arg| interner.get(*arg).cloned())
+            .collect::<Option<Vec<_>>>()?;
+        Some(ReachableTraitMethodKey {
+            trait_id,
+            method_name: method_name.clone(),
+            self_ty,
+            trait_args,
+        })
     }
 
     fn insert_vtable(
@@ -1635,6 +1721,10 @@ impl ReachableTraitRefs {
                 .vtables
                 .iter()
                 .any(|vtable| vtable.trait_id == trait_id)
+    }
+
+    fn interner_context(&self, id: Option<ReachableTraitInternerId>) -> Option<&TyInterner> {
+        id.and_then(|id| self.interner_contexts.get(id.0))
     }
 }
 
@@ -1704,6 +1794,7 @@ fn extend_reachable_functions_from_traits(
         let mut discovered_traits = ReachableTraitRefs::default();
         {
             let reachable = &reachable_traits.methods[method_index];
+            let reachable_interner = reachable_traits.interner_context(reachable.interner);
             extension_index.for_each_method_for_trait_method(
                 reachable.trait_id,
                 &reachable.method_name,
@@ -1714,7 +1805,7 @@ fn extend_reachable_functions_from_traits(
                         reachable.self_ty,
                         &reachable.trait_args,
                         reachable.module_id,
-                        reachable.interner.as_ref(),
+                        reachable_interner,
                         extension_index,
                         modules_by_id,
                         &mut |matched| {
@@ -1807,6 +1898,7 @@ fn extend_reachable_functions_from_traits_incremental(
         let mut discovered_traits = ReachableTraitRefs::default();
         {
             let reachable = &state.reachable_traits.methods[method_index];
+            let reachable_interner = state.reachable_traits.interner_context(reachable.interner);
             add_reachable_default_trait_method_for_method(
                 program_signatures,
                 reachable,
@@ -1825,7 +1917,7 @@ fn extend_reachable_functions_from_traits_incremental(
                         reachable.self_ty,
                         &reachable.trait_args,
                         reachable.module_id,
-                        reachable.interner.as_ref(),
+                        reachable_interner,
                         extension_index,
                         modules_by_id,
                         &mut |matched| {
