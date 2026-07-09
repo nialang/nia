@@ -39,6 +39,14 @@ impl ExecutableItemRefs {
         self.generic_instantiations
             .extend(refs.generic_instantiations);
     }
+
+    pub fn extend_ref(&mut self, refs: &Self) {
+        self.functions.extend(refs.functions.iter().copied());
+        self.globals.extend(refs.globals.iter().copied());
+        self.trait_refs.extend_ref(&refs.trait_refs);
+        self.generic_instantiations
+            .extend(refs.generic_instantiations.iter().cloned());
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -65,19 +73,23 @@ impl ExecutableModuleRefs {
         let mut refs = ExecutableItemRefs::default();
         for def_id in functions {
             if let Some(function_refs) = self.functions.get(def_id) {
-                refs.extend(function_refs.clone());
+                refs.extend_ref(function_refs);
             }
         }
         for def_id in globals {
             if let Some(global_refs) = self.globals.get(def_id) {
-                refs.extend(global_refs.clone());
+                refs.extend_ref(global_refs);
             }
         }
         refs
     }
 
     pub fn refs_for_function(&self, def_id: GlobalDefId) -> ExecutableItemRefs {
-        self.functions.get(&def_id).cloned().unwrap_or_default()
+        let mut refs = ExecutableItemRefs::default();
+        if let Some(function_refs) = self.functions.get(&def_id) {
+            refs.extend_ref(function_refs);
+        }
+        refs
     }
 }
 
@@ -110,6 +122,12 @@ impl ExecutableTraitRefs {
         self.traits.extend(refs.traits);
         self.methods.extend(refs.methods);
         self.vtables.extend(refs.vtables);
+    }
+
+    pub fn extend_ref(&mut self, refs: &Self) {
+        self.traits.extend(refs.traits.iter().copied());
+        self.methods.extend(refs.methods.iter().cloned());
+        self.vtables.extend(refs.vtables.iter().cloned());
     }
 
     fn insert_trait(&mut self, trait_id: TraitId) {
