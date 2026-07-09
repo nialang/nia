@@ -568,9 +568,7 @@ fn executable_checked_module_set_inner(
                 "executable_checked_modules.fact_merge",
                 module_id,
                 || match fact_by_id.get_mut(&module_id) {
-                    Some(state) => {
-                        state.extend(body_check, checked_this_round.clone(), module_globals)
-                    }
+                    Some(state) => state.extend(body_check, module_globals),
                     None => {
                         fact_by_id.insert(
                             module_id,
@@ -578,7 +576,6 @@ fn executable_checked_module_set_inner(
                                 db,
                                 module_id,
                                 body_check,
-                                checked_this_round.clone(),
                                 module_globals,
                             ),
                         );

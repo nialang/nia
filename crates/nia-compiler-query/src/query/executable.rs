@@ -45,7 +45,6 @@ impl ExecutableFactModuleState {
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
         body_check: BodyCheckWithResolutionInputs,
-        checked_functions: HashSet<GlobalDefId>,
         checked_globals: HashSet<GlobalDefId>,
     ) -> Self {
         let BodyCheckWithResolutionInputs {
@@ -53,11 +52,17 @@ impl ExecutableFactModuleState {
             inputs: _,
             comptime: _,
         } = body_check;
+        let nia_body_check::BodyCheck {
+            ir,
+            facts,
+            checked_functions,
+            diagnostics: _,
+        } = body_check;
         let mut state = Self {
             module_id,
             defs: db.query(FullModuleDefsQuery(module_id)),
-            body_ir: body_check.ir,
-            semantic_facts: body_check.facts,
+            body_ir: ir,
+            semantic_facts: facts,
             type_lowering: db.query(TypeLoweringQuery(module_id)),
             type_normalization: db.query(TypeNormalizationQuery(module_id)),
             executable_refs: ExecutableModuleRefs::default(),
@@ -83,7 +88,6 @@ impl ExecutableFactModuleState {
     pub(super) fn extend(
         &mut self,
         increment: BodyCheckWithResolutionInputs,
-        checked_functions: HashSet<GlobalDefId>,
         checked_globals: HashSet<GlobalDefId>,
     ) {
         let BodyCheckWithResolutionInputs {
@@ -91,56 +95,56 @@ impl ExecutableFactModuleState {
             inputs: _,
             comptime: _,
         } = increment;
-        merge_executable_interner_snapshot(
-            &mut self.body_ir.interner,
-            body_check.ir.interner,
-            "fact",
-        );
-        self.semantic_facts
-            .global_types
-            .extend(body_check.facts.global_types);
+        let nia_body_check::BodyCheck {
+            ir,
+            facts,
+            checked_functions,
+            diagnostics: _,
+        } = body_check;
+        merge_executable_interner_snapshot(&mut self.body_ir.interner, ir.interner, "fact");
+        self.semantic_facts.global_types.extend(facts.global_types);
         self.semantic_facts
             .generic_instantiations
-            .extend(body_check.facts.generic_instantiations);
+            .extend(facts.generic_instantiations);
         self.semantic_facts
             .function_facts
-            .extend(body_check.facts.function_facts);
+            .extend(facts.function_facts);
         self.semantic_facts
             .node_expr_types
-            .extend(body_check.facts.node_expr_types);
+            .extend(facts.node_expr_types);
         self.semantic_facts
             .node_bracket_suffix_resolutions
-            .extend(body_check.facts.node_bracket_suffix_resolutions);
+            .extend(facts.node_bracket_suffix_resolutions);
         self.semantic_facts
             .node_pointer_array_to_slice_coercions
-            .extend(body_check.facts.node_pointer_array_to_slice_coercions);
+            .extend(facts.node_pointer_array_to_slice_coercions);
         self.semantic_facts
             .node_trait_object_coercions
-            .extend(body_check.facts.node_trait_object_coercions);
+            .extend(facts.node_trait_object_coercions);
         self.semantic_facts
             .node_trait_object_upcasts
-            .extend(body_check.facts.node_trait_object_upcasts);
+            .extend(facts.node_trait_object_upcasts);
         self.semantic_facts
             .node_builtin_values
-            .extend(body_check.facts.node_builtin_values);
+            .extend(facts.node_builtin_values);
         self.semantic_facts
             .node_builtin_associated_values
-            .extend(body_check.facts.node_builtin_associated_values);
+            .extend(facts.node_builtin_associated_values);
         self.semantic_facts
             .node_associated_comptime_projections
-            .extend(body_check.facts.node_associated_comptime_projections);
+            .extend(facts.node_associated_comptime_projections);
         self.semantic_facts
             .node_array_repeat_counts
-            .extend(body_check.facts.node_array_repeat_counts);
+            .extend(facts.node_array_repeat_counts);
         self.semantic_facts
             .node_switch_pattern_values
-            .extend(body_check.facts.node_switch_pattern_values);
+            .extend(facts.node_switch_pattern_values);
         self.semantic_facts
             .node_resolved_calls
-            .extend(body_check.facts.node_resolved_calls);
+            .extend(facts.node_resolved_calls);
         self.semantic_facts
             .node_function_references
-            .extend(body_check.facts.node_function_references);
+            .extend(facts.node_function_references);
         let executable_refs = executable_module_refs_for_fact_state(self);
         self.executable_refs.extend(executable_refs);
         self.checked_functions.extend(checked_functions);
