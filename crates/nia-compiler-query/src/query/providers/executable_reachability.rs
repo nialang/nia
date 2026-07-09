@@ -387,8 +387,7 @@ fn executable_checked_module_set_inner(
                 )
             },
         );
-        let reachability_by_module =
-            ExecutableReachabilityByModule::new(reachability_state.reachability());
+        let reachability_by_module = reachability_state.reachability().by_module();
         let value_edges_changed = time_provider(
             db.context().timings(),
             "executable_checked_modules.value_ref_edges",
@@ -423,7 +422,8 @@ fn executable_checked_module_set_inner(
         if stale.is_empty() {
             break;
         }
-        let round_reachable_body_modules = reachability_by_module.reachable_body_modules(db);
+        let round_reachable_body_modules =
+            executable_reachable_body_modules(db, &reachability_by_module);
         let mut batch_items = Vec::new();
         for module_id in stale {
             let already_checked_functions = fact_by_id
@@ -433,7 +433,7 @@ fn executable_checked_module_set_inner(
                 .get(&module_id)
                 .map(|state| &state.checked_globals);
             let (module_functions, module_globals) =
-                reachability_by_module.unchecked_items(module_id, &fact_by_id);
+                unchecked_executable_items(&reachability_by_module, module_id, &fact_by_id);
             let module_functions = time_module_provider(
                 db,
                 "executable_checked_modules.extend_local_static_owners",
@@ -646,7 +646,7 @@ fn executable_checked_module_set_inner(
         }
     }
     let reachability = reachability_state.into_reachability();
-    let reachability_by_module = ExecutableReachabilityByModule::new(&reachability);
+    let reachability_by_module = reachability.by_module();
 
     let parse_ok_modules = parse_ok;
     let mut checked_modules_by_id = time_provider(
@@ -753,11 +753,20 @@ fn executable_checked_module_set_inner(
             codegen_modules
                 .into_iter()
                 .map(|module| {
+                    let empty_functions = HashSet::new();
+                    let empty_globals = HashSet::new();
+                    let module_items = reachability_by_module.get(module.id);
+                    let reachable_functions = module_items
+                        .map(|items| &items.functions)
+                        .unwrap_or(&empty_functions);
+                    let reachable_globals = module_items
+                        .map(|items| &items.globals)
+                        .unwrap_or(&empty_globals);
                     filter_checked_module_for_codegen(
                         module,
                         db,
-                        &reachability.functions,
-                        &reachability.globals,
+                        reachable_functions,
+                        reachable_globals,
                         Some(&executable_program_layouts),
                         Some(&executable_program_array_lengths),
                     )
@@ -814,12 +823,12 @@ fn final_executable_checked_modules(
     db: &QueryDb<CompilerContext>,
     parse_ok: &[ModuleId],
     reachability: &nia_executable_reachability::ExecutableReachability,
-    reachability_by_module: &ExecutableReachabilityByModule,
+    reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
     fact_by_id: &mut HashMap<ModuleId, ExecutableFactModuleState>,
     caches: &ExecutableCheckCaches,
     comptime_module_cache: &RefCell<HashMap<ModuleId, ComptimeModuleLowering>>,
 ) -> HashMap<ModuleId, CheckedModule> {
-    let reachable_body_modules = reachability_by_module.reachable_body_modules(db);
+    let reachable_body_modules = executable_reachable_body_modules(db, reachability_by_module);
     let program_layout_cache = RefCell::new(HashMap::<ModuleId, nia_layout::Layouts>::new());
     for module_id in parse_ok
         .iter()
@@ -932,7 +941,7 @@ fn extend_reachability_from_value_ref_edges(
     db: &QueryDb<CompilerContext>,
     parse_ok: &[ModuleId],
     reachability: &mut nia_executable_reachability::ExecutableReachability,
-    reachability_by_module: &ExecutableReachabilityByModule,
+    reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
     function_signature: &dyn Fn(GlobalDefId) -> Option<Arc<ProgramFunctionSignature>>,
     fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
 ) -> bool {
@@ -942,7 +951,7 @@ fn extend_reachability_from_value_ref_edges(
             continue;
         }
         let (module_functions, module_globals) =
-            reachability_by_module.unchecked_items(module_id, fact_by_id);
+            unchecked_executable_items(reachability_by_module, module_id, fact_by_id);
         if module_functions.is_empty() && module_globals.is_empty() {
             continue;
         }
@@ -956,12 +965,10 @@ fn extend_reachability_from_value_ref_edges(
             if (function_signature)(def_id).is_none() {
                 continue;
             }
-            changed |= reachability.functions.insert(def_id);
-            changed |= reachability.modules.insert(def_id.module_id);
+            changed |= reachability.insert_function(def_id);
         }
         for def_id in edges.globals {
-            changed |= reachability.globals.insert(def_id);
-            changed |= reachability.modules.insert(def_id.module_id);
+            changed |= reachability.insert_global(def_id);
         }
     }
     changed
