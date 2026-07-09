@@ -55,6 +55,11 @@ impl SourcePath {
         Self(normalize_path(&path.into()))
     }
 
+    /// Builds a source path from text that already satisfies `normalize_path`.
+    pub fn from_normalized_unchecked(path: impl Into<String>) -> Self {
+        Self(path.into())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
