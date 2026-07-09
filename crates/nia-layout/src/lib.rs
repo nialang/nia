@@ -972,7 +972,7 @@ impl<'a> LayoutComputer<'a> {
             &mut self.interner,
             signature.target,
             &substitutions,
-            &HashMap::new(),
+            &SymbolMap::default(),
         );
         self.layout_ty(target, span)
     }

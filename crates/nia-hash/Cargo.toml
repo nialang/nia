@@ -1,13 +1,11 @@
 [package]
-name = "nia-query"
+name = "nia-hash"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [dependencies]
-nia-hash.workspace = true
-nia-timing.workspace = true
 
 [lib]
 path = "src/lib.rs"

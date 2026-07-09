@@ -17,7 +17,7 @@ use nia_item_signatures::{
     ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
     ProgramUnionSignature, TraitImplSignature, TraitSignature,
 };
-use nia_symbol::{SymbolId, ToSymbolId, symbol_text_or_unresolved};
+use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, symbol_text_or_unresolved};
 use nia_symbol_table::SymbolTable;
 use nia_trait_solve::{
     AssociatedTypeProjectionEq, IntrinsicOverlap, TraitGoal, TraitSolverContext,
@@ -904,7 +904,7 @@ fn trait_associated_comptime_type_matches(input: TraitAssociatedComptimeTypeMatc
         .iter()
         .zip(input.trait_args)
         .map(|(generic, arg)| (generic.clone(), *arg))
-        .collect::<HashMap<_, _>>();
+        .collect::<SymbolMap<_>>();
     let const_substitutions = const_substitutions_from_self_describing_args(input.trait_const_args);
     let projection_context = Some(ProjectionImplContext {
         trait_id: input.trait_id,
@@ -928,8 +928,8 @@ fn trait_associated_comptime_type_matches(input: TraitAssociatedComptimeTypeMatc
         input.module,
         &input.module.lowering.interner,
         input.actual_ty,
-        &HashMap::new(),
-        &HashMap::new(),
+        &SymbolMap::default(),
+        &SymbolMap::default(),
         projection_context,
         None,
     );
@@ -1399,14 +1399,14 @@ fn import_trait_bound(
         .iter()
         .zip(trait_args)
         .map(|(generic, arg)| (generic.clone(), *arg))
-        .collect::<HashMap<_, _>>();
+        .collect::<SymbolMap<_>>();
     substitute_imported_type(
         target_interner,
         module,
         source_interner,
         ty,
         &substitutions,
-        &HashMap::new(),
+        &SymbolMap::default(),
         None,
         None,
     )
@@ -1703,7 +1703,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                 .iter()
                 .zip(&trait_args)
                 .map(|(generic, arg)| (generic.clone(), *arg))
-                .collect::<HashMap<_, _>>();
+                .collect::<SymbolMap<_>>();
             let const_substitutions =
                 const_substitutions_from_self_describing_args(&trait_const_args);
             for supertrait in &trait_signature.signature.supertraits {

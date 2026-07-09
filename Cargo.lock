@@ -503,6 +503,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nia-hash"
+version = "0.4.3"
+
+[[package]]
 name = "nia-ice"
 version = "0.4.3"
 dependencies = [
@@ -771,6 +775,7 @@ dependencies = [
 name = "nia-query"
 version = "0.4.3"
 dependencies = [
+ "nia-hash",
  "nia-timing",
 ]
 
@@ -843,6 +848,7 @@ dependencies = [
 name = "nia-symbol"
 version = "0.4.3"
 dependencies = [
+ "nia-hash",
  "nia-ids",
 ]
 
@@ -898,6 +904,7 @@ dependencies = [
 name = "nia-ty"
 version = "0.4.3"
 dependencies = [
+ "nia-hash",
  "nia-ids",
  "nia-span",
  "nia-symbol",

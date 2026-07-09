@@ -338,8 +338,8 @@ impl Analyzer<'_> {
     }
 
     fn current_substitution_maps(&self) -> (SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>) {
-        let mut type_substitutions = HashMap::new();
-        let mut const_substitutions = HashMap::new();
+        let mut type_substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
         for frame in &self.call_locals {
             type_substitutions.extend(frame.type_substitutions.clone());
             const_substitutions.extend(frame.const_substitutions.clone());

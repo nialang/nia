@@ -248,7 +248,7 @@ impl ModuleGraph {
         by_source_identity.insert(entry_path.identity(), entry);
         let mut by_module_path = HashMap::new();
         by_module_path.insert(entry_module_path.clone(), entry);
-        let mut package_roots = HashMap::new();
+        let mut package_roots = SymbolMap::default();
         package_roots.insert(known::ENTRY, entry);
         Self {
             entry,
@@ -257,7 +257,7 @@ impl ModuleGraph {
                 path: entry_path,
                 module_path: entry_module_path,
                 parent: None,
-                children: HashMap::new(),
+                children: SymbolMap::default(),
                 declarations: Vec::new(),
                 process_used_paths: true,
                 process_declared_children: true,
@@ -265,7 +265,7 @@ impl ModuleGraph {
             by_source_identity,
             by_module_path,
             package_roots,
-            active_package_facades: HashMap::new(),
+            active_package_facades: SymbolMap::default(),
             diagnostics: Vec::new(),
             symbols,
         }
@@ -501,7 +501,7 @@ impl ModuleGraph {
             path,
             module_path,
             parent,
-            children: HashMap::new(),
+            children: SymbolMap::default(),
             declarations: Vec::new(),
             process_used_paths,
             process_declared_children,
@@ -575,7 +575,7 @@ pub fn resolve_module_declarations_from_active_item_tree_with_symbols(
     item_tree: &ActiveModuleItemTree,
     symbols: &dyn SymbolText,
 ) -> Vec<ResolvedModuleDeclaration> {
-    let mut seen = SymbolMap::<Span>::new();
+    let mut seen = SymbolMap::<Span>::default();
     let mut declarations = Vec::new();
     for item in &item_tree.items {
         let ItemTreeNodeKind::Module(module) = &item.kind else {

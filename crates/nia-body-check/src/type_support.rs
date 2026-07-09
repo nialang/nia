@@ -11,7 +11,7 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_sema_ir::PointerArrayToSliceCoercion;
 use nia_span::Span;
-use nia_symbol::{SymbolId, symbol_text_or_unresolved};
+use nia_symbol::{SymbolId, SymbolMap, symbol_text_or_unresolved};
 use nia_trait_solve::TraitSolverContext;
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy,
@@ -1210,7 +1210,7 @@ impl<'a> BodyChecker<'a> {
             symbols: self.symbols,
             extension_methods_by_id: self.extension_methods_by_id.clone(),
             extension_method_lookup_cache: self.extension_method_lookup_cache.clone(),
-            callable_extension_methods_by_name: HashMap::new(),
+            callable_extension_methods_by_name: SymbolMap::default(),
             node_expr_types: HashMap::new(),
             node_bracket_suffix_resolutions: HashMap::new(),
             node_pointer_array_to_slice_coercions: HashMap::new(),
@@ -1230,7 +1230,7 @@ impl<'a> BodyChecker<'a> {
             global_types: HashMap::new(),
             comptime_types: HashMap::new(),
             method_receiver_kinds: HashMap::new(),
-            traits_by_method_name: HashMap::new(),
+            traits_by_method_name: SymbolMap::default(),
             trait_impls_by_trait: HashMap::new(),
             def_trait_obligations_cache: HashMap::new(),
             trait_obligation_resolution_cache: HashMap::new(),

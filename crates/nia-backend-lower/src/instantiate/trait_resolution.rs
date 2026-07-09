@@ -24,7 +24,7 @@ impl<'a> ModuleLowerer<'a> {
         let impl_interner = impl_signature.interner.clone();
         let target_ty =
             self.import_type_from_known_interner(&impl_interner, impl_signature.target_ty);
-        let mut substitutions = SymbolMap::new();
+        let mut substitutions = SymbolMap::default();
         if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
             return None;
         }
@@ -482,7 +482,7 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .cloned()
             .zip(args)
-            .collect::<std::collections::HashMap<_, _>>();
+            .collect::<SymbolMap<_>>();
         let imported_predicates = self.import_where_predicates(&predicates.1, &predicates.2);
         let predicates = imported_predicates
             .iter()

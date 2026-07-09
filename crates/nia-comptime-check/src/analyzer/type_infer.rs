@@ -15,7 +15,7 @@ impl Analyzer<'_> {
             .iter()
             .flat_map(|frame| frame.type_substitutions.iter())
             .map(|(name, ty)| (name.clone(), *ty))
-            .collect::<HashMap<_, _>>();
+            .collect::<SymbolMap<_>>();
         let interner = self
             .working_interners
             .get_mut(&module_id)
@@ -52,8 +52,8 @@ impl Analyzer<'_> {
                 ),
             });
         }
-        let mut substitutions = HashMap::new();
-        let mut const_substitutions = HashMap::new();
+        let mut substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
         if type_args.is_empty() {
             if let Some(expected) = expected_return
                 && let Some(expected) =
@@ -1040,7 +1040,7 @@ impl Analyzer<'_> {
         if !field_set.is_valid() {
             return None;
         }
-        let mut substitutions = HashMap::new();
+        let mut substitutions = SymbolMap::default();
         for field in fields {
             let expected_field = *field_tys.get(field.name_symbol())?;
             if let Some(actual_field) =
@@ -1165,8 +1165,8 @@ impl Analyzer<'_> {
             .iter()
             .cloned()
             .zip(expected_args)
-            .collect::<HashMap<_, _>>();
-        let mut fields = HashMap::new();
+            .collect::<SymbolMap<_>>();
+        let mut fields = SymbolMap::default();
         for field in &signature.fields {
             let imported = self.import_ty_into_module_or_none(field.ty, current_module)?;
             let ty = {

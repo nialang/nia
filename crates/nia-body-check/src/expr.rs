@@ -475,8 +475,8 @@ impl<'a> BodyChecker<'a> {
         let extension_targets =
             self.with_visible_extensions(|extensions| extensions.targets().to_vec());
         for extension_target in &extension_targets {
-            let mut substitutions = nia_symbol::SymbolMap::new();
-            let mut const_substitutions = nia_symbol::SymbolMap::new();
+            let mut substitutions = nia_symbol::SymbolMap::default();
+            let mut const_substitutions = nia_symbol::SymbolMap::default();
             if !self.match_type_pattern_with_consts(
                 extension_target.target_ty,
                 target_ty,

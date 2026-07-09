@@ -7,7 +7,6 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{ModuleMap, ModuleRootSegment, ResolvedModuleDeclaration, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_symbol::{SymbolId, SymbolMap, ToSymbolId};
-use std::collections::HashMap;
 
 pub(crate) fn collect_used_modules(
     item_tree: &ActiveModuleItemTree,
@@ -245,7 +244,7 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
     }
 
     fn visit_block(&mut self, block: &'ast nia_ast::Block) {
-        self.locals.push(HashMap::new());
+        self.locals.push(SymbolMap::default());
         nia_ast_walk::walk_block(self, block);
         self.locals.pop();
     }
@@ -353,7 +352,7 @@ impl QualifiedPathModuleCollector<'_> {
         function: &nia_ast::FunctionItem,
         visit_body: bool,
     ) {
-        self.locals.push(HashMap::new());
+        self.locals.push(SymbolMap::default());
         self.visit_function_signature(function);
         if visit_body && let Some(body) = &function.body {
             self.visit_block(body);
@@ -366,7 +365,7 @@ impl QualifiedPathModuleCollector<'_> {
         extend: &nia_ast::ExtendItem,
         function: &nia_ast::FunctionItem,
     ) {
-        self.locals.push(HashMap::new());
+        self.locals.push(SymbolMap::default());
         self.visit_function_signature(function);
         if let Some(body) = &function.body {
             let mut collector = ExtendSelfMethodCollector {
@@ -440,7 +439,7 @@ struct ExtendSelfMethodCollector<'a, 'b> {
 
 impl<'ast> Visitor<'ast> for ExtendSelfMethodCollector<'_, '_> {
     fn visit_block(&mut self, block: &'ast nia_ast::Block) {
-        self.module_collector.locals.push(HashMap::new());
+        self.module_collector.locals.push(SymbolMap::default());
         nia_ast_walk::walk_block(self, block);
         self.module_collector.locals.pop();
     }
@@ -903,7 +902,7 @@ fn collect_root_group_modules(
                     selector,
                     module_map,
                     local_module_names,
-                    &HashMap::new(),
+                    &SymbolMap::default(),
                     packages,
                     paths,
                 );

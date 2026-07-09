@@ -9,8 +9,6 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_item_tree::{ActiveModuleItemTree, ConditionResolver, ItemTreeError, ModuleItemTree};
 use nia_span::Span;
 use nia_symbol::{SymbolMap, SymbolText, known, symbol_text_from_optional_resolver};
-use std::collections::HashMap;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetConfig {
     pub arch: String,
@@ -631,7 +629,7 @@ struct ConditionEvaluator<'a> {
 
 impl<'a> ConditionEvaluator<'a> {
     fn new(config: &TargetConfig, symbols: Option<&'a dyn SymbolText>) -> Self {
-        let mut values = HashMap::new();
+        let mut values = SymbolMap::default();
         values.insert(known::ARCH, ConditionValue::String(config.arch.clone()));
         values.insert(known::VENDOR, ConditionValue::String(config.vendor.clone()));
         values.insert(known::OS, ConditionValue::String(config.os.clone()));

@@ -115,8 +115,8 @@ impl<'a> BodyChecker<'a> {
             else {
                 continue;
             };
-            let mut target_substitutions = SymbolMap::new();
-            let mut target_const_substitutions = SymbolMap::new();
+            let mut target_substitutions = SymbolMap::default();
+            let mut target_const_substitutions = SymbolMap::default();
             if self.profile_stage("body_check.profile.method.match_target", |this| {
                 this.match_type_pattern_with_consts(
                     candidate_ty,
@@ -172,8 +172,8 @@ impl<'a> BodyChecker<'a> {
                 if self.extension_receiver_base_mismatch(target_ty, receiver_base.as_ref()) {
                     continue;
                 }
-                let mut target_substitutions = SymbolMap::new();
-                let mut target_const_substitutions = SymbolMap::new();
+                let mut target_substitutions = SymbolMap::default();
+                let mut target_const_substitutions = SymbolMap::default();
                 let matches_receiver =
                     self.profile_stage("body_check.profile.method.match_receiver", |this| {
                         this.match_extension_receiver_target(
@@ -336,7 +336,7 @@ impl<'a> BodyChecker<'a> {
         actual: InternedTyId,
         substitutions: &mut SymbolMap<InternedTyId>,
     ) -> bool {
-        let mut const_substitutions = SymbolMap::new();
+        let mut const_substitutions = SymbolMap::default();
         self.try_match_type_pattern_with_consts(
             pattern,
             actual,
@@ -933,7 +933,7 @@ impl<'a> BodyChecker<'a> {
         general: InternedTyId,
         specific: InternedTyId,
     ) -> bool {
-        self.pattern_subsumes_inner(general, specific, &mut SymbolMap::new())
+        self.pattern_subsumes_inner(general, specific, &mut SymbolMap::default())
     }
 
     fn pattern_subsumes_inner(
@@ -1382,7 +1382,7 @@ impl<'a> BodyChecker<'a> {
         actual: InternedTyId,
         substitutions: &mut SymbolMap<InternedTyId>,
     ) -> bool {
-        let mut const_substitutions = SymbolMap::new();
+        let mut const_substitutions = SymbolMap::default();
         self.match_type_pattern_with_consts(
             pattern,
             actual,

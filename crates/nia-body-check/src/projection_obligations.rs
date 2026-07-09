@@ -452,8 +452,8 @@ impl<'a> BodyChecker<'a> {
         };
         let target_ty = self.normalization.normalize(impl_context.target_ty);
         let owner_ty = self.normalization.normalize(owner_ty);
-        let mut substitutions = HashMap::new();
-        let mut const_substitutions = HashMap::new();
+        let mut substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
         self.match_type_pattern_with_consts(
             target_ty,
             owner_ty,
@@ -654,7 +654,7 @@ impl<'a> BodyChecker<'a> {
             let impl_signature = self.program_trait_impls[impl_index].clone();
             let impl_target_ty =
                 self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
-            let mut impl_substitutions = SymbolMap::new();
+            let mut impl_substitutions = SymbolMap::default();
             if !self.match_type_pattern(impl_target_ty, self_ty, &mut impl_substitutions) {
                 continue;
             }
@@ -1389,8 +1389,8 @@ impl<'a> BodyChecker<'a> {
             let target_ty =
                 self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
             let target_ty = self.normalization.normalize(target_ty);
-            let mut substitutions = HashMap::new();
-            let mut const_substitutions = HashMap::new();
+            let mut substitutions = SymbolMap::default();
+            let mut const_substitutions = SymbolMap::default();
             if !self.match_type_pattern_with_consts(
                 target_ty,
                 self_ty,
@@ -1492,7 +1492,7 @@ impl<'a> BodyChecker<'a> {
         predicates: &[WherePredicateSignature],
         substitutions: &SymbolMap<InternedTyId>,
     ) -> bool {
-        self.where_predicates_can_hold_with_consts(predicates, substitutions, &SymbolMap::new())
+        self.where_predicates_can_hold_with_consts(predicates, substitutions, &SymbolMap::default())
     }
 
     pub(crate) fn where_predicates_can_hold_with_consts(

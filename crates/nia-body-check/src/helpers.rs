@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
-
 use crate::{BodyChecker, ReceiverBase};
 use nia_ast::GenericParamKind;
 use nia_defs::{DefId, DefKind};
@@ -281,15 +279,15 @@ impl<'a> BodyChecker<'a> {
         const_args: &[ConstGenericArg],
     ) -> (SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>) {
         let Some(defs) = self.defs_for_module(def_id.module_id) else {
-            return (HashMap::new(), HashMap::new());
+            return (SymbolMap::default(), SymbolMap::default());
         };
         let Some(def) = defs.as_ref().defs.get(def_id.def_id) else {
-            return (HashMap::new(), HashMap::new());
+            return (SymbolMap::default(), SymbolMap::default());
         };
         let mut type_index = 0;
         let mut const_index = 0;
-        let mut substitutions = HashMap::new();
-        let mut const_substitutions = HashMap::new();
+        let mut substitutions = SymbolMap::default();
+        let mut const_substitutions = SymbolMap::default();
         for param in &def.generic_params {
             match param.kind {
                 GenericParamKind::Type => {
@@ -422,7 +420,7 @@ impl<'a> BodyChecker<'a> {
         ty: InternedTyId,
         substitutions: &SymbolMap<InternedTyId>,
     ) -> InternedTyId {
-        self.substitute_generics_and_consts(ty, substitutions, &HashMap::new())
+        self.substitute_generics_and_consts(ty, substitutions, &SymbolMap::default())
     }
 
     pub(crate) fn substitute_generics_with_self(
@@ -431,7 +429,12 @@ impl<'a> BodyChecker<'a> {
         substitutions: &SymbolMap<InternedTyId>,
         self_ty: InternedTyId,
     ) -> InternedTyId {
-        self.substitute_generics_and_consts_with_self(ty, substitutions, &HashMap::new(), self_ty)
+        self.substitute_generics_and_consts_with_self(
+            ty,
+            substitutions,
+            &SymbolMap::default(),
+            self_ty,
+        )
     }
 
     pub(crate) fn substitute_generics_and_consts(

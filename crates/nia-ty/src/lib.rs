@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
-
 pub use nia_ids::{BuiltinTrait, BuiltinType, LayoutBuiltin, TraitId};
 use nia_ids::{
     GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerId, TyInternerIndex,
@@ -230,10 +228,10 @@ pub struct ConstExprSummary {
 pub struct TyInterner {
     interner_id: TyInternerId,
     tys: Vec<TyKind>,
-    map: HashMap<TyKind, TyInternerIndex>,
+    map: nia_hash::FastHashMap<TyKind, TyInternerIndex>,
     error_ty: TyInternerIndex,
-    primitive_tys: HashMap<PrimitiveTy, TyInternerIndex>,
-    builtin_tys: HashMap<BuiltinType, TyInternerIndex>,
+    primitive_tys: nia_hash::FastHashMap<PrimitiveTy, TyInternerIndex>,
+    builtin_tys: nia_hash::FastHashMap<BuiltinType, TyInternerIndex>,
 }
 
 impl Default for TyInterner {
@@ -251,10 +249,10 @@ impl TyInterner {
         let mut interner = Self {
             interner_id,
             tys: Vec::new(),
-            map: HashMap::new(),
+            map: nia_hash::FastHashMap::default(),
             error_ty: TyInternerIndex::from_interner_index(0),
-            primitive_tys: HashMap::new(),
-            builtin_tys: HashMap::new(),
+            primitive_tys: nia_hash::FastHashMap::default(),
+            builtin_tys: nia_hash::FastHashMap::default(),
         };
         let error_ty = interner.intern_local(TyKind::Error);
         interner.error_ty = error_ty;

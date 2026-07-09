@@ -1101,7 +1101,7 @@ fn extend_reachable_traits_from_generic_instantiation(
                 .ok()
                 .map(|arg| (generic, arg))
         })
-        .collect::<HashMap<_, _>>();
+        .collect::<SymbolMap<_>>();
     let self_ty = instantiation.self_arg.and_then(|self_arg| {
         nia_ty::try_import_type_into(&mut signature_interner, arg_interner, self_arg).ok()
     });
@@ -1944,7 +1944,7 @@ fn reachable_extension_method_match(
     else {
         return None;
     };
-    let mut substitutions = HashMap::new();
+    let mut substitutions = SymbolMap::default();
     if !match_type_pattern(&interner, target_ty, self_ty, &mut substitutions) {
         return None;
     }

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::{
     ComptimeKey, ComptimeValueType, TypedComptimeValue,
     analyzer::{Analyzer, ComptimeCallFrame, ComptimeGenericInstantiation},
@@ -22,8 +20,8 @@ use nia_item_signatures::{FunctionAttribute, FunctionSignature};
 use nia_local_resolve::LocalKind;
 use nia_sema_ir::BuiltinAssociatedValue;
 use nia_span::Span;
-use nia_symbol::SymbolId;
 use nia_symbol::symbol_identity_key;
+use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{IntConst, TyKind};
 use std::path::{Path, PathBuf};
 
@@ -404,7 +402,7 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
         {
             ComptimeGenericInstantiation {
                 type_substitutions: substitutions,
-                const_substitutions: HashMap::new(),
+                const_substitutions: SymbolMap::default(),
             }
         } else {
             self.instantiate_resolved_function_generics(
@@ -555,7 +553,7 @@ impl Analyzer<'_> {
                     nia_ty::import_type_into(interner, &user.resolution_interner, ty),
                 )
             })
-            .collect::<HashMap<_, _>>();
+            .collect::<SymbolMap<_>>();
         let const_substitutions = user
             .const_substitutions
             .into_iter()
@@ -563,7 +561,7 @@ impl Analyzer<'_> {
                 arg.ty = nia_ty::import_type_into(interner, &user.resolution_interner, arg.ty);
                 (name, arg)
             })
-            .collect::<HashMap<_, _>>();
+            .collect::<SymbolMap<_>>();
         let frame = ComptimeCallFrame {
             module_id: Some(user.impl_module_id),
             function_id: None,

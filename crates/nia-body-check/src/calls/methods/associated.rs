@@ -206,13 +206,13 @@ impl<'a> BodyChecker<'a> {
         self.check_where_predicates_hold(
             &signature.where_predicates,
             &substitutions,
-            &SymbolMap::new(),
+            &SymbolMap::default(),
             span,
         );
         self.check_where_predicates_hold(
             &candidate.method.where_predicates,
             &substitutions,
-            &SymbolMap::new(),
+            &SymbolMap::default(),
             span,
         );
         let params: Vec<InternedTyId> = signature

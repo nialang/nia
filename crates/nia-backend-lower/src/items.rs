@@ -26,7 +26,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendStruct> {
         let def_id = self.def_id_for_node(node_key, DefKind::Struct)?;
         let signature = self.input.signatures.structs.get(&def_id)?;
-        let substitutions = SymbolMap::new();
+        let substitutions = SymbolMap::default();
         Some(BackendStruct {
             def_id: self.global_def_id(def_id),
             name: item.name,
@@ -54,7 +54,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendUnion> {
         let def_id = self.def_id_for_node(node_key, DefKind::Union)?;
         let signature = self.input.signatures.unions.get(&def_id)?;
-        let substitutions = SymbolMap::new();
+        let substitutions = SymbolMap::default();
         Some(BackendUnion {
             def_id: self.global_def_id(def_id),
             name: item.name,
@@ -82,7 +82,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendEnum> {
         let def_id = self.def_id_for_node(node_key, DefKind::Enum)?;
         let signature = self.input.signatures.enums.get(&def_id)?;
-        let substitutions = SymbolMap::new();
+        let substitutions = SymbolMap::default();
         Some(BackendEnum {
             def_id: self.global_def_id(def_id),
             name: item.name,
@@ -128,7 +128,7 @@ impl<'a> ModuleLowerer<'a> {
                 .explicit_type
                 .or_else(|| binding.value.as_ref().and_then(|value| self.expr_ty(value))))
             .unwrap_or_else(|| self.error_ty());
-        let ty = self.instantiate_ty(ty, &SymbolMap::new());
+        let ty = self.instantiate_ty(ty, &SymbolMap::default());
         let init = self
             .input
             .body_ir
@@ -162,7 +162,7 @@ impl<'a> ModuleLowerer<'a> {
             .copied()
             .or_else(|| signature.and_then(|signature| signature.explicit_type))
             .unwrap_or_else(|| self.error_ty());
-        let ty = self.instantiate_ty(ty, &SymbolMap::new());
+        let ty = self.instantiate_ty(ty, &SymbolMap::default());
         let init = self
             .input
             .body_ir
@@ -242,7 +242,7 @@ impl<'a> ModuleLowerer<'a> {
                         .intern(TyKind::GenericParam(generic.clone())),
                 )
             })
-            .collect::<std::collections::HashMap<_, _>>();
+            .collect::<SymbolMap<_>>();
         let function_body = source_function_body.clone().map(|body| {
             self.instantiate_function_body(
                 global_def_id,
@@ -309,7 +309,7 @@ impl<'a> ModuleLowerer<'a> {
                         .receiver
                         .map(|receiver| self.receiver_passing_ty(receiver, local_ty))
                         .unwrap_or(signature.ty);
-                    let substitutions = SymbolMap::new();
+                    let substitutions = SymbolMap::default();
                     BackendParam {
                         local_id,
                         name: param.name,
@@ -320,8 +320,7 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 })
                 .collect(),
-            return_type: self
-                .instantiate_ty(signature.return_type, &std::collections::HashMap::new()),
+            return_type: self.instantiate_ty(signature.return_type, &SymbolMap::default()),
             is_extern: signature.is_extern,
             is_variadic: signature.is_variadic,
             attributes: signature
