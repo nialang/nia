@@ -189,8 +189,8 @@ impl IncrementalExecutableReachability {
         &self.reachability
     }
 
-    pub fn replace_reachability(&mut self, reachability: ExecutableReachability) {
-        self.reachability = reachability;
+    pub fn reachability_mut(&mut self) -> &mut ExecutableReachability {
+        &mut self.reachability
     }
 
     pub fn into_reachability(self) -> ExecutableReachability {
@@ -395,7 +395,8 @@ pub fn compute_executable_reachability_incremental(
         program_signatures,
         &extension_index,
         modules,
-    )
+    );
+    state.reachability.clone()
 }
 
 pub fn compute_executable_reachability_incremental_with_extension_index(
@@ -406,7 +407,7 @@ pub fn compute_executable_reachability_incremental_with_extension_index(
     program_signatures: ExecutableSignatureIndex<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
     modules: &[ReachableModuleInput<'_>],
-) -> ExecutableReachability {
+) {
     compute_executable_reachability_incremental_with_timings(
         state,
         parse_ok,
@@ -429,7 +430,7 @@ pub fn compute_executable_reachability_incremental_with_timings(
     extension_index: &dyn ExecutableExtensionLookup,
     modules: &[ReachableModuleInput<'_>],
     timings: nia_timing::TimingMode,
-) -> ExecutableReachability {
+) {
     let modules_by_id = time_reachability_stage(timings, "incremental.modules_by_id", None, || {
         modules
             .iter()
@@ -529,7 +530,6 @@ pub fn compute_executable_reachability_incremental_with_timings(
     }
 
     state.reachability.stats = reachability_stats(&modules_by_id, &state.reachability.functions);
-    state.reachability.clone()
 }
 
 pub fn extend_incremental_executable_reachability_from_checked_module(
@@ -551,7 +551,8 @@ pub fn extend_incremental_executable_reachability_from_checked_module(
         module,
         checked_functions,
         modules_by_id,
-    )
+    );
+    state.reachability.clone()
 }
 
 pub fn extend_incremental_executable_reachability_from_checked_module_with_extension_index(
@@ -562,7 +563,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_exten
     module: ReachableModuleInput<'_>,
     checked_functions: &HashSet<GlobalDefId>,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
-) -> ExecutableReachability {
+) {
     extend_incremental_executable_reachability_from_checked_module_with_timings(
         state,
         parse_ok,
@@ -585,7 +586,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
     checked_functions: &HashSet<GlobalDefId>,
     modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
     timings: nia_timing::TimingMode,
-) -> ExecutableReachability {
+) {
     let parse_ok_set = time_reachability_stage(
         timings,
         "incremental.parse_ok",
@@ -668,8 +669,6 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
             break;
         }
     }
-
-    state.reachability.clone()
 }
 
 fn time_reachability_stage<T>(
