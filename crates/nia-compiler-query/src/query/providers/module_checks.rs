@@ -50,7 +50,7 @@ pub(super) fn provide_abi_check(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));
-    let function_signatures = db.query(SignatureItemSignaturesQuery(
+    let function_signatures = db.query_shared(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));
@@ -58,7 +58,7 @@ pub(super) fn provide_abi_check(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
-    let type_signatures = db.query(SignatureItemSignaturesQuery(
+    let type_signatures = db.query_shared(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
@@ -66,7 +66,7 @@ pub(super) fn provide_abi_check(
         module_id,
         nia_item_tree::SignatureItemSet::Values,
     ));
-    let value_signatures = db.query(SignatureItemSignaturesQuery(
+    let value_signatures = db.query_shared(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Values,
     ));
@@ -101,7 +101,7 @@ pub(super) fn provide_static_check(
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let symbols = db.context().symbols();
-    let signatures = db.query(SignatureItemSignaturesQuery(
+    let signatures = db.query_shared(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Values,
     ));
@@ -136,7 +136,7 @@ pub(super) fn provide_flow_check(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));
-    let signatures = db.query(SignatureItemSignaturesQuery(
+    let signatures = db.query_shared(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));

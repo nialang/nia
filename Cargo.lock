@@ -269,6 +269,7 @@ dependencies = [
  "nia-flow-check",
  "nia-function-ir",
  "nia-function-lower",
+ "nia-hash",
  "nia-ids",
  "nia-imports",
  "nia-item-signatures",
@@ -433,6 +434,7 @@ version = "0.4.3"
 dependencies = [
  "nia-defs",
  "nia-executable-facts",
+ "nia-hash",
  "nia-ids",
  "nia-imports",
  "nia-item-signatures",

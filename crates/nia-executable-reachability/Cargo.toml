@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 nia-defs.workspace = true
 nia-executable-facts.workspace = true
+nia-hash.workspace = true
 nia-ids.workspace = true
 nia-imports.workspace = true
 nia-item-signatures.workspace = true

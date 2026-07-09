@@ -415,7 +415,7 @@ pub(super) fn provide_signature_type_normalization(
     set: nia_item_tree::SignatureItemSet,
 ) -> TypeNormalization {
     let type_lowering = db.query_shared(SignatureTypeLoweringQuery(module_id, set));
-    let item_signatures = db.query(SignatureItemSignaturesQuery(module_id, set));
+    let item_signatures = db.query_shared(SignatureItemSignaturesQuery(module_id, set));
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
 }
 

@@ -145,16 +145,17 @@ pub(super) fn with_comptime_input_and_program_signatures<T>(
     let program_is_enum = |def_id: GlobalDefId| {
         program_signatures_override.is_some_and(|signatures| signatures.enums.contains_key(&def_id))
             || db
-                .query(SignatureItemSignaturesQuery(
+                .query_shared(SignatureItemSignaturesQuery(
                     def_id.module_id,
                     nia_item_tree::SignatureItemSet::Types,
                 ))
                 .enums
                 .contains_key(&def_id.def_id)
     };
-    let item_signatures_for_module = |module_id| Some(db.query(ItemSignaturesQuery(module_id)));
+    let item_signatures_for_module =
+        |module_id| Some(db.query_shared(ItemSignaturesQuery(module_id)));
     let value_signatures_for_module = |module_id| {
-        Some(db.query(SignatureItemSignaturesQuery(
+        Some(db.query_shared(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Values,
         )))

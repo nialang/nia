@@ -27,7 +27,7 @@ pub(super) fn provide_module_program_signature_facts(
 ) -> ModuleProgramSignatureFactsValue {
     let defs = db.query_shared(ModuleDefsQuery(module_id));
     let lowering = db.query_shared(SignatureTypeLoweringQuery(module_id, set));
-    let signatures = db.query(SignatureItemSignaturesQuery(module_id, set));
+    let signatures = db.query_shared(SignatureItemSignaturesQuery(module_id, set));
     Arc::new(
         nia_program_signatures::collect_module_program_signature_facts(ModuleSignatureInput {
             module_id,
@@ -42,25 +42,49 @@ pub(super) fn provide_module_abi_signature_facts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ModuleAbiSignatureFactsValue {
-    let signatures = db.query(SignatureItemSignaturesQuery(
+    let signatures = db.query_shared(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
     Arc::new(ModuleAbiSignatureFactsQueryValue {
         structs: signatures
             .structs
-            .into_iter()
-            .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature))
+            .iter()
+            .map(|(def_id, signature)| {
+                (
+                    GlobalDefId {
+                        module_id,
+                        def_id: *def_id,
+                    },
+                    signature.clone(),
+                )
+            })
             .collect(),
         unions: signatures
             .unions
-            .into_iter()
-            .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature))
+            .iter()
+            .map(|(def_id, signature)| {
+                (
+                    GlobalDefId {
+                        module_id,
+                        def_id: *def_id,
+                    },
+                    signature.clone(),
+                )
+            })
             .collect(),
         enums: signatures
             .enums
-            .into_iter()
-            .map(|(def_id, signature)| (GlobalDefId { module_id, def_id }, signature))
+            .iter()
+            .map(|(def_id, signature)| {
+                (
+                    GlobalDefId {
+                        module_id,
+                        def_id: *def_id,
+                    },
+                    signature.clone(),
+                )
+            })
             .collect(),
     })
 }
