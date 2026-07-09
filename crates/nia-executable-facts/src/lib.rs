@@ -75,6 +75,10 @@ impl ExecutableModuleRefs {
         }
         refs
     }
+
+    pub fn refs_for_function(&self, def_id: GlobalDefId) -> ExecutableItemRefs {
+        self.functions.get(&def_id).cloned().unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
