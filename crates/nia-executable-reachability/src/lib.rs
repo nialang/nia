@@ -2822,31 +2822,17 @@ fn collect_ty_ids_owner_modules<'a>(
 ) {
     let mut pending = tys
         .into_iter()
-        .map(|ty| PendingTy {
-            ty,
-            interner: None,
-            owned_interner: None,
-        })
+        .map(|ty| PendingTy { ty, interner: None })
         .collect::<VecDeque<_>>();
     let mut seen = HashSet::new();
     while let Some(pending_ty) = pending.pop_front() {
         let ty_id = pending_ty.ty;
         add_reachable_type_module(type_owner(ty_id).module_id(), type_modules);
-        let interner_id = pending_ty
-            .interner
-            .map(TyInterner::interner_id)
-            .or_else(|| {
-                pending_ty
-                    .owned_interner
-                    .as_ref()
-                    .map(TyInterner::interner_id)
-            });
+        let interner_id = pending_ty.interner.map(TyInterner::interner_id);
         if !seen.insert((ty_id, interner_id)) {
             continue;
         }
         let ty = if let Some(interner) = pending_ty.interner {
-            interner.get(ty_id)
-        } else if let Some(interner) = pending_ty.owned_interner.as_ref() {
             interner.get(ty_id)
         } else {
             body_interner
@@ -2855,15 +2841,22 @@ fn collect_ty_ids_owner_modules<'a>(
                 .or_else(|| normalization_interner.get(ty_id))
         };
         let Some(ty) = ty else { continue };
-        collect_ty_owner_modules(ty, program_signatures, &mut pending, type_modules, traits);
+        collect_ty_owner_modules(
+            ty,
+            pending_ty.interner,
+            program_signatures,
+            &mut pending,
+            type_modules,
+            traits,
+            &mut seen,
+        );
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct PendingTy<'a> {
     ty: InternedTyId,
     interner: Option<&'a TyInterner>,
-    owned_interner: Option<TyInterner>,
 }
 
 fn type_owner(ty: InternedTyId) -> nia_ids::TypeOwner {
@@ -2872,31 +2865,39 @@ fn type_owner(ty: InternedTyId) -> nia_ids::TypeOwner {
 
 fn collect_ty_owner_modules<'a>(
     ty: &TyKind,
+    current_interner: Option<&'a TyInterner>,
     program_signatures: ExecutableSignatureIndex<'a>,
     type_ids: &mut VecDeque<PendingTy<'a>>,
     type_modules: &mut HashSet<ModuleId>,
     traits: &mut ReachableTraitRefs,
+    seen: &mut HashSet<(InternedTyId, Option<nia_ids::TyInternerId>)>,
 ) {
     match ty {
         TyKind::Nominal { def_id, args, .. } => {
             add_reachable_type_module(def_id.module_id, type_modules);
-            push_tys(type_ids, args.iter().copied());
-            collect_nominal_signature_owner_type_ids(*def_id, program_signatures, type_ids);
+            push_tys(type_ids, current_interner, args.iter().copied());
+            collect_nominal_signature_owner_type_ids(
+                *def_id,
+                program_signatures,
+                type_modules,
+                traits,
+                seen,
+            );
         }
         TyKind::Pointer { elem, .. }
         | TyKind::VolatilePointer { elem, .. }
         | TyKind::Slice { elem, .. }
         | TyKind::SlicePointee { elem }
         | TyKind::Optional { elem } => {
-            push_ty(type_ids, *elem);
+            push_ty(type_ids, current_interner, *elem);
         }
         TyKind::Array { len, elem } => {
-            push_ty(type_ids, *elem);
-            collect_array_len_owner_modules(len, type_ids);
+            push_ty(type_ids, current_interner, *elem);
+            collect_array_len_owner_modules(len, current_interner, type_ids);
         }
         TyKind::Range { bound, .. } => {
             if let Some(bound) = bound {
-                push_ty(type_ids, *bound);
+                push_ty(type_ids, current_interner, *bound);
             }
         }
         TyKind::FunctionPointer {
@@ -2904,12 +2905,12 @@ fn collect_ty_owner_modules<'a>(
             return_type,
             ..
         } => {
-            push_tys(type_ids, params.iter().copied());
-            push_ty(type_ids, *return_type);
+            push_tys(type_ids, current_interner, params.iter().copied());
+            push_ty(type_ids, current_interner, *return_type);
         }
         TyKind::ErrorUnion { error, value } => {
-            push_ty(type_ids, *error);
-            push_ty(type_ids, *value);
+            push_ty(type_ids, current_interner, *error);
+            push_ty(type_ids, current_interner, *value);
         }
         TyKind::TraitObject {
             trait_id,
@@ -2925,10 +2926,15 @@ fn collect_ty_owner_modules<'a>(
             associated_type_bindings,
         } => {
             collect_trait_id_owner_module(*trait_id, type_modules, traits);
-            push_tys(type_ids, trait_args.iter().copied());
-            push_tys(type_ids, trait_const_args.iter().map(|arg| arg.ty));
+            push_tys(type_ids, current_interner, trait_args.iter().copied());
+            push_tys(
+                type_ids,
+                current_interner,
+                trait_const_args.iter().map(|arg| arg.ty),
+            );
             collect_associated_binding_owner_modules(
                 associated_type_bindings,
+                current_interner,
                 type_ids,
                 type_modules,
                 traits,
@@ -2941,12 +2947,18 @@ fn collect_ty_owner_modules<'a>(
             trait_const_args,
             ..
         } => {
-            push_ty(type_ids, *self_ty);
+            push_ty(type_ids, current_interner, *self_ty);
             collect_trait_id_owner_module(*trait_id, type_modules, traits);
-            push_tys(type_ids, trait_args.iter().copied());
-            push_tys(type_ids, trait_const_args.iter().map(|arg| arg.ty));
+            push_tys(type_ids, current_interner, trait_args.iter().copied());
+            push_tys(
+                type_ids,
+                current_interner,
+                trait_const_args.iter().map(|arg| arg.ty),
+            );
         }
-        TyKind::BuiltinTrait { args, .. } => push_tys(type_ids, args.iter().copied()),
+        TyKind::BuiltinTrait { args, .. } => {
+            push_tys(type_ids, current_interner, args.iter().copied())
+        }
         TyKind::Error
         | TyKind::ComptimeOnly
         | TyKind::Primitive(_)
@@ -2998,50 +3010,112 @@ fn builtin_trait_method_symbol(method: BuiltinTraitMethod) -> Option<SymbolId> {
 fn collect_nominal_signature_owner_type_ids<'a>(
     def_id: GlobalDefId,
     program_signatures: ExecutableSignatureIndex<'a>,
-    type_ids: &mut VecDeque<PendingTy<'a>>,
+    type_modules: &mut HashSet<ModuleId>,
+    traits: &mut ReachableTraitRefs,
+    seen: &mut HashSet<(InternedTyId, Option<nia_ids::TyInternerId>)>,
 ) {
     if let Some(signature) = (program_signatures.struct_)(def_id) {
-        push_owned_program_tys(
-            type_ids,
+        collect_ty_ids_owner_modules_with_interner(
             signature.signature.fields.iter().map(|field| field.ty),
+            program_signatures,
             &signature.interner,
+            type_modules,
+            traits,
+            seen,
         );
         collect_owned_where_predicate_type_ids_deque(
             &signature.signature.where_predicates,
-            type_ids,
+            program_signatures,
             &signature.interner,
+            type_modules,
+            traits,
+            seen,
         );
     }
     if let Some(signature) = (program_signatures.union)(def_id) {
-        push_owned_program_tys(
-            type_ids,
+        collect_ty_ids_owner_modules_with_interner(
             signature.signature.fields.iter().map(|field| field.ty),
+            program_signatures,
             &signature.interner,
+            type_modules,
+            traits,
+            seen,
         );
         collect_owned_where_predicate_type_ids_deque(
             &signature.signature.where_predicates,
-            type_ids,
+            program_signatures,
             &signature.interner,
+            type_modules,
+            traits,
+            seen,
+        );
+    }
+}
+
+fn collect_ty_ids_owner_modules_with_interner<'a>(
+    tys: impl IntoIterator<Item = InternedTyId>,
+    program_signatures: ExecutableSignatureIndex<'a>,
+    interner: &'a TyInterner,
+    type_modules: &mut HashSet<ModuleId>,
+    traits: &mut ReachableTraitRefs,
+    seen: &mut HashSet<(InternedTyId, Option<nia_ids::TyInternerId>)>,
+) {
+    let mut pending = tys
+        .into_iter()
+        .map(|ty| PendingTy {
+            ty,
+            interner: Some(interner),
+        })
+        .collect::<VecDeque<_>>();
+    while let Some(pending_ty) = pending.pop_front() {
+        let ty_id = pending_ty.ty;
+        add_reachable_type_module(type_owner(ty_id).module_id(), type_modules);
+        let interner_id = pending_ty.interner.map(TyInterner::interner_id);
+        if !seen.insert((ty_id, interner_id)) {
+            continue;
+        }
+        let Some(ty) = pending_ty.interner.and_then(|interner| interner.get(ty_id)) else {
+            continue;
+        };
+        collect_ty_owner_modules(
+            ty,
+            pending_ty.interner,
+            program_signatures,
+            &mut pending,
+            type_modules,
+            traits,
+            seen,
         );
     }
 }
 
 fn collect_owned_where_predicate_type_ids_deque(
     predicates: &[nia_defs::WherePredicateSignature],
-    type_ids: &mut VecDeque<PendingTy<'_>>,
+    program_signatures: ExecutableSignatureIndex<'_>,
     interner: &TyInterner,
+    type_modules: &mut HashSet<ModuleId>,
+    traits: &mut ReachableTraitRefs,
+    seen: &mut HashSet<(InternedTyId, Option<nia_ids::TyInternerId>)>,
 ) {
     let mut collected = Vec::new();
     collect_where_predicate_type_ids(predicates, &mut collected);
-    push_owned_program_tys(type_ids, collected, interner);
+    collect_ty_ids_owner_modules_with_interner(
+        collected,
+        program_signatures,
+        interner,
+        type_modules,
+        traits,
+        seen,
+    );
 }
 
-fn collect_array_len_owner_modules(
+fn collect_array_len_owner_modules<'a>(
     len: &nia_ty::ArrayLenTy,
-    type_ids: &mut VecDeque<PendingTy<'_>>,
+    current_interner: Option<&'a TyInterner>,
+    type_ids: &mut VecDeque<PendingTy<'a>>,
 ) {
     if let nia_ty::ArrayLenTy::Builtin { ty, .. } = len {
-        push_ty(type_ids, *ty);
+        push_ty(type_ids, current_interner, *ty);
     }
 }
 
@@ -3058,6 +3132,7 @@ fn collect_trait_id_owner_module(
 
 fn collect_associated_binding_owner_modules<'a>(
     bindings: &[AssociatedTypeBindingTy],
+    current_interner: Option<&'a TyInterner>,
     type_ids: &mut VecDeque<PendingTy<'a>>,
     type_modules: &mut HashSet<ModuleId>,
     traits: &mut ReachableTraitRefs,
@@ -3066,36 +3141,32 @@ fn collect_associated_binding_owner_modules<'a>(
         if let Some(trait_id) = binding.trait_id {
             collect_trait_id_owner_module(trait_id, type_modules, traits);
         }
-        push_tys(type_ids, binding.trait_args.iter().copied());
-        push_tys(type_ids, binding.trait_const_args.iter().map(|arg| arg.ty));
-        push_ty(type_ids, binding.ty);
+        push_tys(
+            type_ids,
+            current_interner,
+            binding.trait_args.iter().copied(),
+        );
+        push_tys(
+            type_ids,
+            current_interner,
+            binding.trait_const_args.iter().map(|arg| arg.ty),
+        );
+        push_ty(type_ids, current_interner, binding.ty);
     }
 }
 
-fn push_ty(type_ids: &mut VecDeque<PendingTy<'_>>, ty: InternedTyId) {
-    type_ids.push_back(PendingTy {
-        ty,
-        interner: None,
-        owned_interner: None,
-    });
-}
-
-fn push_tys(type_ids: &mut VecDeque<PendingTy<'_>>, tys: impl IntoIterator<Item = InternedTyId>) {
-    type_ids.extend(tys.into_iter().map(|ty| PendingTy {
-        ty,
-        interner: None,
-        owned_interner: None,
-    }));
-}
-
-fn push_owned_program_tys(
-    type_ids: &mut VecDeque<PendingTy<'_>>,
-    tys: impl IntoIterator<Item = InternedTyId>,
-    interner: &TyInterner,
+fn push_ty<'a>(
+    type_ids: &mut VecDeque<PendingTy<'a>>,
+    interner: Option<&'a TyInterner>,
+    ty: InternedTyId,
 ) {
-    type_ids.extend(tys.into_iter().map(|ty| PendingTy {
-        ty,
-        interner: None,
-        owned_interner: Some(interner.clone()),
-    }));
+    type_ids.push_back(PendingTy { ty, interner });
+}
+
+fn push_tys<'a>(
+    type_ids: &mut VecDeque<PendingTy<'a>>,
+    interner: Option<&'a TyInterner>,
+    tys: impl IntoIterator<Item = InternedTyId>,
+) {
+    type_ids.extend(tys.into_iter().map(|ty| PendingTy { ty, interner }));
 }
