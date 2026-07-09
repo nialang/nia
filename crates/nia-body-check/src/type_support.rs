@@ -781,12 +781,109 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn types_match(&mut self, expected: InternedTyId, actual: InternedTyId) -> bool {
+        let expected = self.import_type_to_working_interner(expected);
+        let actual = self.import_type_to_working_interner(actual);
         if let Some(matches) = self.type_match_cache.get(&(expected, actual)).copied() {
             return matches;
         }
         let matches = self.types_match_normalized(expected, actual);
-        self.type_match_cache.insert((expected, actual), matches);
+        if matches || !self.type_match_depends_on_const_expr_len(expected, actual) {
+            self.type_match_cache.insert((expected, actual), matches);
+        }
         matches
+    }
+
+    fn type_match_depends_on_const_expr_len(
+        &self,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> bool {
+        self.type_contains_const_expr_len(expected, &mut HashSet::new())
+            || self.type_contains_const_expr_len(actual, &mut HashSet::new())
+    }
+
+    fn type_contains_const_expr_len(
+        &self,
+        ty: InternedTyId,
+        visited: &mut HashSet<InternedTyId>,
+    ) -> bool {
+        if !visited.insert(ty) {
+            return false;
+        }
+        match self.interner.get(ty) {
+            Some(TyKind::Array { len, elem }) => {
+                matches!(len, ArrayLenTy::ConstExpr(_))
+                    || self.type_contains_const_expr_len(*elem, visited)
+            }
+            Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::VolatilePointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::SlicePointee { elem }) => {
+                self.type_contains_const_expr_len(*elem, visited)
+            }
+            Some(TyKind::Optional { elem }) => self.type_contains_const_expr_len(*elem, visited),
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.type_contains_const_expr_len(*error, visited)
+                    || self.type_contains_const_expr_len(*value, visited)
+            }
+            Some(TyKind::Range { bound, .. }) => {
+                bound.is_some_and(|bound| self.type_contains_const_expr_len(bound, visited))
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            }) => {
+                params
+                    .iter()
+                    .any(|param| self.type_contains_const_expr_len(*param, visited))
+                    || self.type_contains_const_expr_len(*return_type, visited)
+            }
+            Some(TyKind::Nominal { args, .. }) => args
+                .iter()
+                .any(|arg| self.type_contains_const_expr_len(*arg, visited)),
+            Some(TyKind::BuiltinTrait { args, .. }) => args
+                .iter()
+                .any(|arg| self.type_contains_const_expr_len(*arg, visited)),
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                trait_args
+                    .iter()
+                    .any(|arg| self.type_contains_const_expr_len(*arg, visited))
+                    || associated_type_bindings
+                        .iter()
+                        .any(|binding| self.type_contains_const_expr_len(binding.ty, visited))
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                trait_const_args: _,
+                ..
+            }) => {
+                self.type_contains_const_expr_len(*self_ty, visited)
+                    || trait_args
+                        .iter()
+                        .any(|arg| self.type_contains_const_expr_len(*arg, visited))
+            }
+            Some(
+                TyKind::Primitive(_)
+                | TyKind::ComptimeOnly
+                | TyKind::Vector { .. }
+                | TyKind::BuiltinType(_)
+                | TyKind::GenericParam(_)
+                | TyKind::SelfParam
+                | TyKind::Error,
+            )
+            | None => false,
+        }
     }
 
     fn types_match_normalized(&mut self, expected: InternedTyId, actual: InternedTyId) -> bool {
@@ -865,10 +962,10 @@ impl<'a> BodyChecker<'a> {
                 // length conversion failures should make the predicate false;
                 // the context that produced the malformed length owns the
                 // user-facing diagnostic.
-                let Ok(expected_len) = self.array_len_value(Span::default(), &expected_len) else {
+                let Some(expected_len) = self.array_len_value_for_match(&expected_len) else {
                     return false;
                 };
-                let Ok(actual_len) = self.array_len_value(Span::default(), &actual_len) else {
+                let Some(actual_len) = self.array_len_value_for_match(&actual_len) else {
                     return false;
                 };
                 expected_len == actual_len
@@ -1150,6 +1247,7 @@ impl<'a> BodyChecker<'a> {
             comptime_context_depth: self.comptime_context_depth,
             comptime_call_locals: Vec::new(),
             body_filter: self.body_filter.clone(),
+            product: self.product,
             checked_functions: self.checked_functions.clone(),
             pending_functions: self.pending_functions.clone(),
             profile: nia_timing::TimingAccumulator::default(),
@@ -1311,6 +1409,27 @@ impl<'a> BodyChecker<'a> {
                 "array length const generic `{}` at {span:?} is not substituted",
                 self.symbol_name(*name)
             )),
+        }
+    }
+
+    fn array_len_value_for_match(&mut self, len: &ArrayLenTy) -> Option<u64> {
+        match len {
+            ArrayLenTy::ConstValue(value) => Some(*value),
+            ArrayLenTy::ConstExpr(id) => {
+                if let Some(value) = self.array_len_const_expr_value(*id) {
+                    return Some(value);
+                }
+                let usize_ty = self.primitive(PrimitiveTy::Usize);
+                match self.const_expr_value_for_trait_solver(*id, usize_ty)? {
+                    ConstGenericValue::Int(value) => u64::try_from(value.bits()).ok(),
+                    ConstGenericValue::Bool(_)
+                    | ConstGenericValue::Char(_)
+                    | ConstGenericValue::GenericParam(_)
+                    | ConstGenericValue::ConstExpr(_) => None,
+                }
+            }
+            ArrayLenTy::Builtin { .. } => self.array_len_value(Span::default(), len).ok(),
+            ArrayLenTy::Infer | ArrayLenTy::GenericParam(_) => None,
         }
     }
 

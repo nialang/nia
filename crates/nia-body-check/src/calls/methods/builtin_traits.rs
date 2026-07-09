@@ -81,14 +81,20 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         }
-        let output = self.builtin_trait_method_output(call.receiver_ty, trait_id, trait_args);
+        let output =
+            self.builtin_trait_method_output(call.receiver_ty, trait_id, trait_args.clone());
         if let Some(expected) = call.expected {
             self.expect_type(call.span, expected, output, "builtin trait method call");
         }
         self.record_resolved_node_call(
             call.span,
             call.node_key,
-            ResolvedCall::BuiltinTraitMethod { trait_id, op },
+            ResolvedCall::BuiltinTraitMethod {
+                trait_id,
+                op,
+                self_ty: call.receiver_ty,
+                trait_args,
+            },
         );
         Some(output)
     }
@@ -175,14 +181,19 @@ impl<'a> BodyChecker<'a> {
                 ),
             ));
         }
-        let output = self.builtin_trait_method_output(target_ty, trait_id, trait_args);
+        let output = self.builtin_trait_method_output(target_ty, trait_id, trait_args.clone());
         if let Some(expected) = expected {
             self.expect_type(span, expected, output, "builtin trait method call");
         }
         self.record_resolved_node_call(
             span,
             &expr.node_key,
-            ResolvedCall::BuiltinTraitMethod { trait_id, op },
+            ResolvedCall::BuiltinTraitMethod {
+                trait_id,
+                op,
+                self_ty: target_ty,
+                trait_args,
+            },
         );
         Some(output)
     }

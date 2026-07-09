@@ -8,6 +8,12 @@ struct LocalExecutableValueRefs<'a> {
     signatures: &'a HashMap<DefId, nia_item_signatures::FunctionSignature>,
 }
 
+#[derive(Default)]
+pub(super) struct ExecutableValueRefEdges {
+    pub(super) functions: HashSet<GlobalDefId>,
+    pub(super) globals: HashSet<GlobalDefId>,
+}
+
 struct BodyCheckComptimeInputs {
     module: ComptimeModuleLowering,
     array_lengths: nia_comptime_check::ComptimeArrayLengths,
@@ -518,6 +524,41 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     program_function_signature_cache: Option<
         &RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>,
     >,
+) -> BodyCheckWithResolutionInputs {
+    body_check_with_filter_and_layouts_with_inputs_and_product(
+        db,
+        module_id,
+        filter,
+        layouts,
+        program_layouts_override,
+        fact_mode,
+        resolution_inputs,
+        seed_interner,
+        global_initializer_cache,
+        comptime_module_cache,
+        program_function_signature_cache,
+        nia_body_check::BodyCheckProduct::Full,
+    )
+}
+
+#[expect(clippy::too_many_arguments)]
+pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    filter: nia_body_check::BodyCheckFilter<'_>,
+    layouts: Option<nia_layout::Layouts>,
+    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
+    fact_mode: ExecutableFactMode<'_>,
+    resolution_inputs: Option<BodyCheckResolutionInputs>,
+    seed_interner: Option<nia_ty::TyInterner>,
+    global_initializer_cache: Option<
+        &RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
+    >,
+    comptime_module_cache: Option<&RefCell<HashMap<ModuleId, ComptimeModuleLowering>>>,
+    program_function_signature_cache: Option<
+        &RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>,
+    >,
+    product: nia_body_check::BodyCheckProduct,
 ) -> BodyCheckWithResolutionInputs {
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
@@ -1032,6 +1073,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     module: &program_comptime_module,
                 },
                 filter,
+                product,
             },
             db.context().timings(),
         )
@@ -1701,6 +1743,88 @@ pub(super) fn extend_module_functions_from_filtered_value_refs(
     module_functions
 }
 
+pub(super) fn executable_value_ref_edges_from_reachable_items(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    module_functions: &HashSet<GlobalDefId>,
+    module_globals: &HashSet<GlobalDefId>,
+) -> ExecutableValueRefEdges {
+    let active_item_tree = time_module_provider(
+        db,
+        "executable_value_refs.active_item_tree",
+        module_id,
+        || db.query_shared(FullActiveModuleItemTreeQuery(module_id)),
+    );
+    let defs = time_module_provider(db, "executable_value_refs.defs", module_id, || {
+        db.query(FullModuleDefsQuery(module_id))
+    });
+    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
+    let public_surfaces = time_module_provider(
+        db,
+        "executable_value_refs.public_surfaces",
+        module_id,
+        || db.query(PublicSurfacesQuery),
+    );
+    let using_scope = time_module_provider(
+        db,
+        "executable_value_refs.module_using_scope",
+        module_id,
+        || db.query(ModuleUsingScopeQuery(module_id)),
+    );
+    let graph = time_module_provider(db, "executable_value_refs.module_graph", module_id, || {
+        db.query(ModuleGraphQuery)
+    });
+
+    let mut scan_functions = module_functions.clone();
+    let mut edges = ExecutableValueRefEdges::default();
+    loop {
+        let filter = nia_body_check::BodyCheckFilter::ReachableItems {
+            functions: &scan_functions,
+            globals: module_globals,
+            already_checked_functions: None,
+            already_checked_globals: None,
+        };
+        let filtered_active_item_tree = time_module_provider(
+            db,
+            "executable_value_refs.filter_item_tree",
+            module_id,
+            || active_item_tree_for_body_check_filter(module_id, &defs, &active_item_tree, filter),
+        );
+        let values = time_module_provider(
+            db,
+            "executable_value_refs.value_resolution",
+            module_id,
+            || {
+                nia_value_resolve::resolve_module_values_from_active_item_tree(
+                    &filtered_active_item_tree,
+                    &defs,
+                    nia_value_resolve::ProgramDefsContext {
+                        defs: Some(&program_defs),
+                        graph: Some(&graph),
+                    },
+                    &public_surfaces.surfaces,
+                    &using_scope,
+                )
+            },
+        );
+        let before_local = scan_functions.len();
+        time_module_provider(db, "executable_value_refs.scan_refs", module_id, || {
+            extend_executable_edges_from_value_refs(
+                db,
+                module_id,
+                &filtered_active_item_tree,
+                &values,
+                &mut edges,
+                &mut scan_functions,
+            );
+        });
+        if scan_functions.len() == before_local {
+            break;
+        }
+    }
+    edges
+}
+
 fn extend_local_executable_functions_from_value_refs(
     module_functions: &mut HashSet<GlobalDefId>,
     active_item_tree: &ActiveModuleItemTree,
@@ -1738,6 +1862,81 @@ fn extend_local_executable_functions_from_value_refs(
         }
     }
     changed
+}
+
+fn extend_executable_edges_from_value_refs(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    active_item_tree: &ActiveModuleItemTree,
+    values: &ValueResolution,
+    edges: &mut ExecutableValueRefEdges,
+    scan_functions: &mut HashSet<GlobalDefId>,
+) {
+    let mut keys = HashSet::new();
+    collect_active_item_tree_node_keys(active_item_tree, &mut keys);
+    for key in keys {
+        if let Some(global_id) = values
+            .node_names
+            .get(&key)
+            .and_then(|resolution| match resolution {
+                nia_value_resolve::ValueNameResolution::Def(def_id) => Some(GlobalDefId {
+                    module_id,
+                    def_id: *def_id,
+                }),
+                nia_value_resolve::ValueNameResolution::External(global_id) => Some(*global_id),
+                nia_value_resolve::ValueNameResolution::Module
+                | nia_value_resolve::ValueNameResolution::LocalDeferred
+                | nia_value_resolve::ValueNameResolution::Error => None,
+            })
+        {
+            insert_executable_value_ref_edge(db, global_id, edges, scan_functions);
+        }
+        if let Some(global_id) = values.node_qualified_values.get(&key).copied() {
+            insert_executable_value_ref_edge(db, global_id, edges, scan_functions);
+        }
+    }
+}
+
+fn insert_executable_value_ref_edge(
+    db: &QueryDb<CompilerContext>,
+    global_id: GlobalDefId,
+    edges: &mut ExecutableValueRefEdges,
+    scan_functions: &mut HashSet<GlobalDefId>,
+) {
+    let defs = db.query_shared(FullModuleDefsQuery(global_id.module_id));
+    let Some(def) = defs.defs.get(global_id.def_id) else {
+        return;
+    };
+    match def.kind {
+        DefKind::Function | DefKind::Method | DefKind::TraitMethod => {
+            let signatures = db.query(SignatureItemSignaturesQuery(
+                global_id.module_id,
+                nia_item_tree::SignatureItemSet::Functions,
+            ));
+            let Some(signature) = signatures.functions.get(&global_id.def_id) else {
+                return;
+            };
+            if signature.is_comptime || !signature.has_body {
+                return;
+            }
+            edges.functions.insert(global_id);
+            scan_functions.insert(global_id);
+        }
+        DefKind::Global => {
+            edges.globals.insert(global_id);
+        }
+        DefKind::Comptime
+        | DefKind::Struct
+        | DefKind::StructField
+        | DefKind::Union
+        | DefKind::UnionField
+        | DefKind::Enum
+        | DefKind::EnumVariant
+        | DefKind::TypeAlias
+        | DefKind::Trait
+        | DefKind::TraitAssociatedType
+        | DefKind::Module => {}
+    }
 }
 
 fn insert_local_executable_function(

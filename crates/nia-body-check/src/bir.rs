@@ -953,7 +953,7 @@ impl<'a> BodyChecker<'a> {
                             args: lowered_args,
                         }
                     }
-                } else if let Some(ResolvedCall::BuiltinTraitMethod { trait_id, op }) =
+                } else if let Some(ResolvedCall::BuiltinTraitMethod { trait_id, op, .. }) =
                     self.resolved_call(expr)
                 {
                     let lowered_args = self.lower_builtin_trait_method_call_args(callee, args);
@@ -2405,7 +2405,7 @@ impl<'a> BodyChecker<'a> {
                         .unwrap_or_else(|| self.lower_expr(callee)),
                 ),
             },
-            ResolvedCall::BuiltinTraitMethod { trait_id, op } => {
+            ResolvedCall::BuiltinTraitMethod { trait_id, op, .. } => {
                 TypedCallee::BuiltinOperator(BuiltinOperator { trait_id, op })
             }
             ResolvedCall::BuiltinMethod { method, self_ty } => {

@@ -335,6 +335,7 @@ fn pipeline_with_options(
         comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &extensions,
+        lazy_extensions: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         extension_interner: None,
         program: BodyProgramContext::empty(),
@@ -342,6 +343,7 @@ fn pipeline_with_options(
         function_scope: FunctionCheckScope::LocalModule,
         program_comptime: ProgramComptimeMaps::empty(),
         filter: crate::BodyCheckFilter::All,
+        product: crate::BodyCheckProduct::Full,
     })
 }
 

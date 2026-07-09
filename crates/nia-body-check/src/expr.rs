@@ -522,6 +522,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         expected: InternedTyId,
     ) -> Option<InternedTyId> {
+        let expected = self.import_type_to_working_interner(expected);
         let comptime_expr = self.lower_comptime_expr(expr).ok()?;
         match self.comptime_expr_type_for_ir_with_expected(&comptime_expr, Some(expected))? {
             nia_comptime_check::ComptimeValueType::Runtime(actual)

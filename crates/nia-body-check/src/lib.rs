@@ -54,7 +54,8 @@ use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
 use nia_sema_ir::{
     AssociatedComptimeProjection, BracketSuffixResolution, BuiltinValue, FunctionReference,
     FunctionSemanticFacts, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
-    SemanticFacts, SemanticUseTable, SemanticValueUse, TraitObjectCoercion, TraitObjectUpcast,
+    SemanticFacts, SemanticTraitMethodRef, SemanticUseTable, SemanticValueUse, TraitObjectCoercion,
+    TraitObjectUpcast,
 };
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
@@ -74,6 +75,12 @@ pub struct BodyCheck {
     pub facts: SemanticFacts,
     pub checked_functions: HashSet<GlobalDefId>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyCheckProduct {
+    Full,
+    FactsOnly,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -395,6 +402,7 @@ pub struct BodyCheckInput<'a> {
     pub function_scope: FunctionCheckScope,
     pub program_comptime: ProgramComptimeMaps<'a>,
     pub filter: BodyCheckFilter<'a>,
+    pub product: BodyCheckProduct,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -536,6 +544,7 @@ pub fn check_module_bodies(
         program_comptime: ProgramComptimeMaps::empty(),
         function_scope: FunctionCheckScope::LocalModule,
         filter: BodyCheckFilter::All,
+        product: BodyCheckProduct::Full,
     };
     let mut checked = check_module_bodies_with_program_signatures_and_layouts_with_timings(
         input,
@@ -588,6 +597,7 @@ pub fn check_module_bodies_with_program_signatures(
         function_scope: input.function_scope,
         program_comptime: ProgramComptimeMaps::empty(),
         filter: BodyCheckFilter::All,
+        product: BodyCheckProduct::Full,
     });
     checked.diagnostics.extend(layouts.diagnostics);
     checked
@@ -781,6 +791,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         comptime_context_depth: 0,
         comptime_call_locals: Vec::new(),
         body_filter: ActiveBodyCheckFilter::from_filter(input.filter),
+        product: input.product,
         checked_functions: HashSet::new(),
         pending_functions: VecDeque::new(),
         profile: nia_timing::TimingAccumulator::default(),
@@ -921,6 +932,7 @@ struct BodyChecker<'a> {
     comptime_context_depth: usize,
     comptime_call_locals: Vec<ComptimeCallFrame>,
     body_filter: ActiveBodyCheckFilter<'a>,
+    product: BodyCheckProduct,
     checked_functions: HashSet<GlobalDefId>,
     pending_functions: VecDeque<GlobalDefId>,
     profile: nia_timing::TimingAccumulator,
@@ -1365,6 +1377,12 @@ impl<'a> BodyChecker<'a> {
         self.node_resolved_calls.insert(key.clone(), call.clone());
         if let Some(facts) = self.current_function_facts() {
             facts.node_resolved_calls.insert(key.clone(), call);
+        }
+    }
+
+    fn record_trait_method_ref(&mut self, reference: SemanticTraitMethodRef) {
+        if let Some(facts) = self.current_function_facts() {
+            facts.trait_method_refs.push(reference);
         }
     }
 
@@ -2154,20 +2172,22 @@ impl<'a> BodyChecker<'a> {
                     });
                 },
             );
-            let body = time_body_stage_if_slow(
-                self.timing,
-                "body_check.function.lower_body",
-                self.timing_module_id,
-                mangle_symbol_id(function.name),
-                0.020,
-                || {
-                    self.profile_stage("body_check.profile.function.lower_body", |this| {
-                        this.lower_body(body)
-                    })
-                },
-            );
-            self.function_bodies
-                .insert(self.global_def_id(def_id), body);
+            if self.product == BodyCheckProduct::Full {
+                let body = time_body_stage_if_slow(
+                    self.timing,
+                    "body_check.function.lower_body",
+                    self.timing_module_id,
+                    mangle_symbol_id(function.name),
+                    0.020,
+                    || {
+                        self.profile_stage("body_check.profile.function.lower_body", |this| {
+                            this.lower_body(body)
+                        })
+                    },
+                );
+                self.function_bodies
+                    .insert(self.global_def_id(def_id), body);
+            }
         }
         self.current_return = previous_return;
         self.current_def_id = previous_def_id;
@@ -2353,6 +2373,20 @@ impl<'a> BodyChecker<'a> {
         }
         let item_ty = self.iterable_item_projection(iterable_ty);
         let iterator_ty = self.iterable_iter_projection(iterable_ty);
+        self.record_trait_method_ref(SemanticTraitMethodRef {
+            module_id: self.timing_module_id,
+            trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterable),
+            method_name: known::ITER_METHOD,
+            self_ty: iterable_ty,
+            trait_args: Vec::new(),
+        });
+        self.record_trait_method_ref(SemanticTraitMethodRef {
+            module_id: self.timing_module_id,
+            trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
+            method_name: known::NEXT,
+            self_ty: iterator_ty,
+            trait_args: Vec::new(),
+        });
         self.check_for_iterator(iter.span, iterator_ty, item_ty);
         (item_ty, iterator_ty)
     }

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use nia_defs::ExtensionMethods;
 pub use nia_executable_facts::{
-    ExecutableBodyRefs, ReachableModuleInput, filter_semantic_facts_for_reachable_functions,
+    ExecutableItemRefs, ReachableModuleInput, filter_semantic_facts_for_reachable_functions,
     filter_semantic_facts_for_reachable_items,
 };
 use nia_ids::{
@@ -734,7 +734,7 @@ fn extend_reachability_from_unscanned_items(
         .iter()
         .copied()
         .filter(|def_id| def_id.module_id == module.module_id)
-        .filter(|def_id| module.body_ir.function_bodies.contains_key(def_id))
+        .filter(|def_id| module.executable_refs.functions.contains_key(def_id))
         .filter(|def_id| !state.scanned_functions.contains(def_id))
         .collect::<HashSet<_>>();
     let present_globals = state
@@ -743,14 +743,14 @@ fn extend_reachability_from_unscanned_items(
         .iter()
         .copied()
         .filter(|def_id| def_id.module_id == module.module_id)
-        .filter(|def_id| module.body_ir.global_inits.contains_key(def_id))
+        .filter(|def_id| module.executable_refs.globals.contains_key(def_id))
         .filter(|def_id| !state.scanned_globals.contains(def_id))
         .collect::<HashSet<_>>();
     if present_functions.is_empty() && present_globals.is_empty() {
         return;
     }
 
-    let refs = typed_body_refs_for_items(module, &present_functions, &present_globals);
+    let refs = typed_executable_refs_for_items(module, &present_functions, &present_globals);
     for def_id in refs.functions {
         add_reachable_function(
             def_id,
@@ -919,7 +919,7 @@ fn extend_reachable_functions_from_bodies(
     reachable_modules: &mut HashSet<ModuleId>,
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
-    let refs = typed_body_refs(module, reachable_functions, reachable_globals);
+    let refs = typed_executable_refs(module, reachable_functions, reachable_globals);
     for def_id in refs.functions {
         add_reachable_function(
             def_id,
@@ -972,9 +972,9 @@ fn extend_reachable_traits_from_generic_instances(
         let Some(module) = modules_by_id.get(&def_id.module_id) else {
             continue;
         };
-        let mut body_refs =
-            typed_body_refs_for_items(module, &HashSet::from([*def_id]), &HashSet::new());
-        for instantiation in body_refs.generic_instantiations.drain(..) {
+        let mut executable_refs =
+            typed_executable_refs_for_items(module, &HashSet::from([*def_id]), &HashSet::new());
+        for instantiation in executable_refs.generic_instantiations.drain(..) {
             let mut visited = HashSet::new();
             extend_reachable_traits_from_generic_instantiation(
                 module.module_id,
@@ -1029,9 +1029,9 @@ fn extend_reachable_traits_from_generic_instances_incremental(
             continue;
         };
         state.scanned_generic_trait_functions.insert(def_id);
-        let mut body_refs =
-            typed_body_refs_for_items(module, &HashSet::from([def_id]), &HashSet::new());
-        for instantiation in body_refs.generic_instantiations.drain(..) {
+        let mut executable_refs =
+            typed_executable_refs_for_items(module, &HashSet::from([def_id]), &HashSet::new());
+        for instantiation in executable_refs.generic_instantiations.drain(..) {
             let mut visited = HashSet::new();
             extend_reachable_traits_from_generic_instantiation(
                 module.module_id,
@@ -1364,21 +1364,21 @@ fn instantiate_nested_generic_instantiation(
     })
 }
 
-fn typed_body_refs(
+fn typed_executable_refs(
     module: &ReachableModuleInput<'_>,
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
-) -> TypedBodyRefs {
-    typed_body_refs_for_items(module, reachable_functions, reachable_globals)
+) -> TypedExecutableRefs {
+    typed_executable_refs_for_items(module, reachable_functions, reachable_globals)
 }
 
-fn typed_body_refs_for_items(
+fn typed_executable_refs_for_items(
     module: &ReachableModuleInput<'_>,
     functions: &HashSet<GlobalDefId>,
     globals: &HashSet<GlobalDefId>,
-) -> TypedBodyRefs {
-    let refs = module.body_refs.refs_for_items(functions, globals);
-    typed_body_refs_from_executable_refs(module, refs)
+) -> TypedExecutableRefs {
+    let refs = module.executable_refs.refs_for_items(functions, globals);
+    typed_executable_refs_from_executable_refs(module, refs)
 }
 
 fn collect_reachable_body_trait_ids(
@@ -1387,14 +1387,14 @@ fn collect_reachable_body_trait_ids(
     reachable_globals: &HashSet<GlobalDefId>,
     traits: &mut ReachableTraitRefs,
 ) {
-    let refs = typed_body_refs_for_items(module, reachable_functions, reachable_globals);
+    let refs = typed_executable_refs_for_items(module, reachable_functions, reachable_globals);
     traits.extend(refs.traits);
 }
 
-fn typed_body_refs_from_executable_refs(
+fn typed_executable_refs_from_executable_refs(
     _module: &ReachableModuleInput<'_>,
-    refs: ExecutableBodyRefs,
-) -> TypedBodyRefs {
+    refs: ExecutableItemRefs,
+) -> TypedExecutableRefs {
     let mut traits = ReachableTraitRefs::default();
     for trait_id in refs.trait_refs.traits {
         traits.insert_trait(trait_id);
@@ -1416,7 +1416,7 @@ fn typed_body_refs_from_executable_refs(
             vtable.trait_args,
         );
     }
-    TypedBodyRefs {
+    TypedExecutableRefs {
         functions: refs.functions,
         globals: refs.globals,
         traits,
@@ -1425,7 +1425,7 @@ fn typed_body_refs_from_executable_refs(
 }
 
 #[derive(Default)]
-struct TypedBodyRefs {
+struct TypedExecutableRefs {
     functions: HashSet<GlobalDefId>,
     globals: HashSet<GlobalDefId>,
     traits: ReachableTraitRefs,
@@ -2602,6 +2602,17 @@ fn collect_function_fact_owner_modules(
         type_ids.extend(reference.args.iter().copied());
         type_ids.extend(reference.const_args.iter().map(|arg| arg.ty));
     }
+    for reference in &facts.trait_method_refs {
+        traits.insert_method(
+            reference.module_id,
+            reference.trait_id,
+            reference.method_name,
+            reference.self_ty,
+            reference.trait_args.clone(),
+        );
+        type_ids.push(reference.self_ty);
+        type_ids.extend(reference.trait_args.iter().copied());
+    }
 }
 
 fn collect_resolved_call_owner_modules(
@@ -2661,9 +2672,26 @@ fn collect_resolved_call_owner_modules(
             type_ids.extend(params.iter().copied());
             type_ids.push(*return_type);
         }
-        nia_sema_ir::ResolvedCall::BuiltinTraitMethod { trait_id, op } => {
-            let _ = op;
+        nia_sema_ir::ResolvedCall::BuiltinTraitMethod {
+            trait_id,
+            op,
+            self_ty,
+            trait_args,
+        } => {
             traits.insert_trait(TraitId::Builtin(*trait_id));
+            if let Some(method) = op.method()
+                && let Some(method_name) = builtin_trait_method_symbol(method)
+            {
+                traits.insert_method(
+                    module_id,
+                    TraitId::Builtin(*trait_id),
+                    method_name,
+                    *self_ty,
+                    trait_args.clone(),
+                );
+            }
+            type_ids.push(*self_ty);
+            type_ids.extend(trait_args.iter().copied());
         }
         nia_sema_ir::ResolvedCall::BuiltinMethod { method, self_ty } => {
             if let Some((trait_id, trait_method)) = semantic_builtin_method_trait(*method) {
