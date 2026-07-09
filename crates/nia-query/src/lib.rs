@@ -293,9 +293,12 @@ pub struct QueryTraceQuery {
 #[derive(Debug, Clone)]
 struct QueryStackEntry {
     identity: QueryFrameIdentity,
+    dependencies: FastHashSet<QueryFrameIdentity>,
 }
 
-struct QueryStackGuard;
+struct QueryStackGuard {
+    active: bool,
+}
 
 struct QueryStackInstallGuard {
     previous: Vec<QueryStackEntry>,
@@ -375,7 +378,7 @@ impl<C> QueryDb<C> {
         let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key));
         let identity = &slot.identity;
         nia_timing::time_detail(detail_timing, "query.record_dependency", || {
-            self.record_dependency_identity(identity)
+            record_dependency_on_current_stack(identity)
         });
         loop {
             let mut state = slot.state.lock().expect("query cache lock poisoned");
@@ -404,8 +407,9 @@ impl<C> QueryDb<C> {
                     self.clear_dependencies_from(identity);
                     let entry = QueryStackEntry {
                         identity: identity.clone(),
+                        dependencies: FastHashSet::default(),
                     };
-                    let _guard = self.enter_query(entry)?;
+                    let mut guard = self.enter_query(entry)?;
                     nia_timing::time_detail(detail_timing, "query.record_execution", || {
                         slot.stats.record_execution()
                     });
@@ -421,6 +425,7 @@ impl<C> QueryDb<C> {
                             // Dependencies recorded during a failed execution are speculative:
                             // keeping them would make future invalidations report a query value
                             // that was never cached and can no longer be reused.
+                            guard.discard();
                             self.clear_dependencies_from(identity);
                             slot.ready.notify_all();
                             drop(state);
@@ -440,8 +445,11 @@ impl<C> QueryDb<C> {
                         // The value was computed from an input that changed while this query was
                         // running. Return it to the caller that did the work, but drop the cache
                         // entry and its edges so the next request recomputes against fresh inputs.
+                        guard.discard();
                         self.clear_dependencies_from(identity);
                     } else {
+                        let dependencies = guard.take_dependencies();
+                        self.replace_dependencies_from(identity, dependencies);
                         *state = QueryState::Ready(cached);
                     }
                     slot.ready.notify_all();
@@ -468,7 +476,9 @@ impl<C> QueryDb<C> {
         let worker_count = query_many_worker_count(keys.len());
         if worker_count == 1 {
             let _stack_guard = install_query_stack(parent_stack);
-            return keys.into_iter().map(|key| self.query(key)).collect();
+            let values = keys.into_iter().map(|key| self.query(key)).collect();
+            merge_dependencies_into_current_stack(take_current_stack_dependencies());
+            return values;
         }
         let queue = Arc::new(Mutex::new(
             keys.into_iter().enumerate().collect::<VecDeque<_>>(),
@@ -488,7 +498,7 @@ impl<C> QueryDb<C> {
                                 .expect("query_many work queue lock poisoned")
                                 .pop_front();
                             let Some((index, key)) = work else {
-                                return values;
+                                return (values, take_current_stack_dependencies());
                             };
                             values.push((index, db.query(key)));
                         }
@@ -496,12 +506,17 @@ impl<C> QueryDb<C> {
                 })
                 .collect::<Vec<_>>();
             let mut values = Vec::new();
+            let mut dependencies = FastHashSet::default();
             for handle in handles {
                 match handle.join() {
-                    Ok(worker_values) => values.extend(worker_values),
+                    Ok((worker_values, worker_dependencies)) => {
+                        values.extend(worker_values);
+                        dependencies.extend(worker_dependencies);
+                    }
                     Err(payload) => std::panic::resume_unwind(payload),
                 }
             }
+            merge_dependencies_into_current_stack(dependencies);
             values.sort_by_key(|(index, _)| *index);
             values.into_iter().map(|(_, value)| value).collect()
         })
@@ -593,7 +608,7 @@ impl<C> QueryDb<C> {
         QUERY_STACK.with(|stack| {
             stack.borrow_mut().push(entry);
         });
-        Ok(QueryStackGuard)
+        Ok(QueryStackGuard { active: true })
     }
 
     fn check_not_recursive_identity(&self, identity: &QueryFrameIdentity) -> QueryResult<()> {
@@ -617,10 +632,6 @@ impl<C> QueryDb<C> {
         })
     }
 
-    fn record_dependency_identity(&self, identity: &QueryFrameIdentity) {
-        self.record_dependency_from_stack(identity);
-    }
-
     fn query_stats(&self) -> Vec<QueryTraceQuery> {
         let slots = self
             .inner
@@ -640,20 +651,6 @@ impl<C> QueryDb<C> {
         queries
     }
 
-    fn record_dependency_from_stack(&self, to: &QueryFrameIdentity) {
-        QUERY_STACK.with(|stack| {
-            let stack = stack.borrow();
-            let Some(from) = stack.last() else {
-                return;
-            };
-            self.inner
-                .dependencies
-                .lock()
-                .expect("query dependency lock poisoned")
-                .record(&from.identity, to);
-        });
-    }
-
     fn collect_invalidated_frames(&self, root: QueryFrameIdentity) -> Vec<QueryFrameIdentity> {
         let dependencies = self
             .inner
@@ -669,6 +666,18 @@ impl<C> QueryDb<C> {
             .lock()
             .expect("query dependency lock poisoned")
             .remove_dependencies_from(from);
+    }
+
+    fn replace_dependencies_from(
+        &self,
+        from: &QueryFrameIdentity,
+        targets: FastHashSet<QueryFrameIdentity>,
+    ) {
+        self.inner
+            .dependencies
+            .lock()
+            .expect("query dependency lock poisoned")
+            .replace_dependencies_from(from, targets);
     }
 }
 
@@ -694,21 +703,22 @@ fn default_query_many_threads() -> usize {
 }
 
 impl QueryDependencyGraph {
-    fn record(&mut self, from: &QueryFrameIdentity, to: &QueryFrameIdentity) {
-        if let Some(targets) = self.forward.get_mut(from) {
-            if targets.contains(to) {
-                return;
-            }
-            targets.insert(to.clone());
-        } else {
-            let mut targets = FastHashSet::default();
-            targets.insert(to.clone());
-            self.forward.insert(from.clone(), targets);
+    fn replace_dependencies_from(
+        &mut self,
+        from: &QueryFrameIdentity,
+        targets: FastHashSet<QueryFrameIdentity>,
+    ) {
+        self.remove_dependencies_from(from);
+        if targets.is_empty() {
+            return;
         }
-        self.reverse
-            .entry(to.clone())
-            .or_default()
-            .insert(from.clone());
+        for target in &targets {
+            self.reverse
+                .entry(target.clone())
+                .or_default()
+                .insert(from.clone());
+        }
+        self.forward.insert(from.clone(), targets);
     }
 
     fn dependencies(&self) -> Vec<QueryDependency> {
@@ -846,9 +856,36 @@ impl<C> Clone for QueryDb<C> {
 
 impl Drop for QueryStackGuard {
     fn drop(&mut self) {
+        if self.active {
+            QUERY_STACK.with(|stack| {
+                stack.borrow_mut().pop();
+            });
+        }
+    }
+}
+
+impl QueryStackGuard {
+    fn discard(&mut self) {
+        if self.active {
+            QUERY_STACK.with(|stack| {
+                stack.borrow_mut().pop();
+            });
+            self.active = false;
+        }
+    }
+
+    fn take_dependencies(&mut self) -> FastHashSet<QueryFrameIdentity> {
+        if !self.active {
+            return FastHashSet::default();
+        }
+        self.active = false;
         QUERY_STACK.with(|stack| {
-            stack.borrow_mut().pop();
-        });
+            stack
+                .borrow_mut()
+                .pop()
+                .map(|entry| entry.dependencies)
+                .unwrap_or_default()
+        })
     }
 }
 
@@ -862,6 +899,39 @@ impl Drop for QueryStackInstallGuard {
 
 fn current_query_stack() -> Vec<QueryStackEntry> {
     QUERY_STACK.with(|stack| stack.borrow().clone())
+}
+
+fn take_current_stack_dependencies() -> FastHashSet<QueryFrameIdentity> {
+    QUERY_STACK.with(|stack| {
+        stack
+            .borrow_mut()
+            .last_mut()
+            .map(|entry| std::mem::take(&mut entry.dependencies))
+            .unwrap_or_default()
+    })
+}
+
+fn record_dependency_on_current_stack(to: &QueryFrameIdentity) {
+    QUERY_STACK.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        let Some(from) = stack.last_mut() else {
+            return;
+        };
+        from.dependencies.insert(to.clone());
+    });
+}
+
+fn merge_dependencies_into_current_stack(dependencies: FastHashSet<QueryFrameIdentity>) {
+    if dependencies.is_empty() {
+        return;
+    }
+    QUERY_STACK.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        let Some(entry) = stack.last_mut() else {
+            return;
+        };
+        entry.dependencies.extend(dependencies);
+    });
 }
 
 fn install_query_stack(stack_snapshot: Vec<QueryStackEntry>) -> QueryStackInstallGuard {
