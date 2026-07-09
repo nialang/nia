@@ -342,23 +342,23 @@ impl<C> QueryDb<C> {
     {
         let detail_timing = self.inner.timings.detail();
         let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key));
-        let identity = slot.identity.clone();
+        let identity = &slot.identity;
         nia_timing::time_detail(detail_timing, "query.record_dependency", || {
-            self.record_dependency_identity(identity.clone())
+            self.record_dependency_identity(identity)
         });
         loop {
             let mut state = slot.state.lock().expect("query cache lock poisoned");
             match &*state {
                 QueryState::Ready(value) => {
                     nia_timing::time_detail(detail_timing, "query.record_cache_hit", || {
-                        self.record_cache_hit(identity.clone())
+                        self.record_cache_hit(identity)
                     });
                     return Ok(O::cache_hit(value, detail_timing, identity.name));
                 }
                 QueryState::Computing { .. } => {
-                    self.check_not_recursive_identity(&identity)?;
+                    self.check_not_recursive_identity(identity)?;
                     nia_timing::time_detail(detail_timing, "query.record_wait", || {
-                        self.record_wait(identity.clone())
+                        self.record_wait(identity)
                     });
                     drop(
                         slot.ready
@@ -370,13 +370,13 @@ impl<C> QueryDb<C> {
                     *state = QueryState::Computing { invalidated: false };
                     drop(state);
 
-                    self.clear_dependencies_from(&identity);
+                    self.clear_dependencies_from(identity);
                     let entry = QueryStackEntry {
                         identity: identity.clone(),
                     };
                     let _guard = self.enter_query(entry)?;
                     nia_timing::time_detail(detail_timing, "query.record_execution", || {
-                        self.record_execution(identity.clone())
+                        self.record_execution(identity)
                     });
                     let value = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         nia_timing::time_detail(detail_timing, "query.provider", || {
@@ -390,7 +390,7 @@ impl<C> QueryDb<C> {
                             // Dependencies recorded during a failed execution are speculative:
                             // keeping them would make future invalidations report a query value
                             // that was never cached and can no longer be reused.
-                            self.clear_dependencies_from(&identity);
+                            self.clear_dependencies_from(identity);
                             slot.ready.notify_all();
                             drop(state);
                             match payload.downcast::<QueryError>() {
@@ -409,7 +409,7 @@ impl<C> QueryDb<C> {
                         // The value was computed from an input that changed while this query was
                         // running. Return it to the caller that did the work, but drop the cache
                         // entry and its edges so the next request recomputes against fresh inputs.
-                        self.clear_dependencies_from(&identity);
+                        self.clear_dependencies_from(identity);
                     } else {
                         *state = QueryState::Ready(cached);
                     }
@@ -590,25 +590,25 @@ impl<C> QueryDb<C> {
         })
     }
 
-    fn record_dependency_identity(&self, identity: QueryFrameIdentity) {
-        self.record_dependency_from_stack(QueryStackEntry { identity });
+    fn record_dependency_identity(&self, identity: &QueryFrameIdentity) {
+        self.record_dependency_from_stack(identity);
     }
 
-    fn record_execution(&self, identity: QueryFrameIdentity) {
+    fn record_execution(&self, identity: &QueryFrameIdentity) {
         self.record_query_stat(identity, |stats| stats.executions += 1);
     }
 
-    fn record_cache_hit(&self, identity: QueryFrameIdentity) {
+    fn record_cache_hit(&self, identity: &QueryFrameIdentity) {
         self.record_query_stat(identity, |stats| stats.cache_hits += 1);
     }
 
-    fn record_wait(&self, identity: QueryFrameIdentity) {
+    fn record_wait(&self, identity: &QueryFrameIdentity) {
         self.record_query_stat(identity, |stats| stats.waits += 1);
     }
 
     fn record_query_stat(
         &self,
-        identity: QueryFrameIdentity,
+        identity: &QueryFrameIdentity,
         update: impl FnOnce(&mut QueryFrameStats),
     ) {
         self.inner
@@ -618,16 +618,17 @@ impl<C> QueryDb<C> {
             .record(identity, update);
     }
 
-    fn record_dependency_from_stack(&self, to: QueryStackEntry) {
+    fn record_dependency_from_stack(&self, to: &QueryFrameIdentity) {
         QUERY_STACK.with(|stack| {
-            let Some(from) = stack.borrow().last().cloned() else {
+            let stack = stack.borrow();
+            let Some(from) = stack.last() else {
                 return;
             };
             self.inner
                 .dependencies
                 .lock()
                 .expect("query dependency lock poisoned")
-                .record(from, to);
+                .record(&from.identity, to);
         });
     }
 
@@ -650,8 +651,12 @@ impl<C> QueryDb<C> {
 }
 
 impl QueryStatsTable {
-    fn record(&mut self, identity: QueryFrameIdentity, update: impl FnOnce(&mut QueryFrameStats)) {
-        let stats = self.entries.entry(identity).or_default();
+    fn record(&mut self, identity: &QueryFrameIdentity, update: impl FnOnce(&mut QueryFrameStats)) {
+        let stats = if let Some(stats) = self.entries.get_mut(identity) {
+            stats
+        } else {
+            self.entries.entry(identity.clone()).or_default()
+        };
         update(stats);
     }
 
@@ -693,18 +698,21 @@ fn default_query_many_threads() -> usize {
 }
 
 impl QueryDependencyGraph {
-    fn record(&mut self, from: QueryStackEntry, to: QueryStackEntry) {
-        if self
-            .forward
-            .entry(from.identity.clone())
-            .or_default()
-            .insert(to.identity.clone())
-        {
-            self.reverse
-                .entry(to.identity.clone())
-                .or_default()
-                .insert(from.identity.clone());
+    fn record(&mut self, from: &QueryFrameIdentity, to: &QueryFrameIdentity) {
+        if let Some(targets) = self.forward.get_mut(from) {
+            if targets.contains(to) {
+                return;
+            }
+            targets.insert(to.clone());
+        } else {
+            let mut targets = FastHashSet::default();
+            targets.insert(to.clone());
+            self.forward.insert(from.clone(), targets);
         }
+        self.reverse
+            .entry(to.clone())
+            .or_default()
+            .insert(from.clone());
     }
 
     fn dependencies(&self) -> Vec<QueryDependency> {
