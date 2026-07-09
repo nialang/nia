@@ -37,6 +37,7 @@ struct QueryDbInner<C> {
 }
 
 struct QuerySlot<V> {
+    identity: QueryFrameIdentity,
     state: Mutex<QueryState<V>>,
     ready: Condvar,
 }
@@ -346,13 +347,11 @@ impl<C> QueryDb<C> {
         K: QueryKey<C>,
         O: QueryOutput<K::Value>,
     {
-        let identity = query_frame_identity::<C, K>(&key);
         let detail_timing = self.inner.timings.detail();
+        let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key));
+        let identity = slot.identity.clone();
         nia_timing::time_detail(detail_timing, "query.record_dependency", || {
             self.record_dependency_identity(identity.clone())
-        });
-        let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || {
-            self.slot_for(&key, identity.clone())
         });
         loop {
             let mut state = slot.state.lock().expect("query cache lock poisoned");
@@ -542,7 +541,7 @@ impl<C> QueryDb<C> {
         }
     }
 
-    fn slot_for<K>(&self, key: &K, identity: QueryFrameIdentity) -> Arc<QuerySlot<K::Value>>
+    fn slot_for<K>(&self, key: &K) -> Arc<QuerySlot<K::Value>>
     where
         K: QueryKey<C>,
     {
@@ -557,22 +556,22 @@ impl<C> QueryDb<C> {
             .downcast_ref::<Mutex<FastHashMap<K, Arc<QuerySlot<K::Value>>>>>()
             .expect("query cache type mismatch");
         let mut cache = cache.lock().expect("query cache lock poisoned");
-        match cache.entry(key.clone()) {
-            std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone(),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                let slot = Arc::new(QuerySlot {
-                    state: Mutex::new(QueryState::Empty),
-                    ready: Condvar::new(),
-                });
-                entry.insert(slot.clone());
-                self.inner
-                    .slots
-                    .lock()
-                    .expect("query cache slot lock poisoned")
-                    .insert(identity, slot.clone() as Arc<dyn ErasedQuerySlot>);
-                slot
-            }
+        if let Some(slot) = cache.get(key) {
+            return slot.clone();
         }
+        let identity = query_frame_identity::<C, K>(key);
+        let slot = Arc::new(QuerySlot {
+            identity: identity.clone(),
+            state: Mutex::new(QueryState::Empty),
+            ready: Condvar::new(),
+        });
+        cache.insert(key.clone(), slot.clone());
+        self.inner
+            .slots
+            .lock()
+            .expect("query cache slot lock poisoned")
+            .insert(identity, slot.clone() as Arc<dyn ErasedQuerySlot>);
+        slot
     }
 
     fn enter_query(&self, entry: QueryStackEntry) -> QueryResult<QueryStackGuard> {
