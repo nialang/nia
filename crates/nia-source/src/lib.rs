@@ -37,7 +37,9 @@ impl SourceIdentity {
     }
 
     pub fn from_path(path: &SourcePath) -> Self {
-        Self::new(path.as_str())
+        Self {
+            normalized_path: path.as_str().to_string(),
+        }
     }
 
     pub fn normalized_path(&self) -> &str {
