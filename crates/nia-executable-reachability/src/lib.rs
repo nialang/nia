@@ -1701,43 +1701,47 @@ fn extend_reachable_functions_from_traits(
     }
     let mut method_index = 0;
     while method_index < reachable_traits.methods.len() {
-        let reachable = reachable_traits.methods[method_index].clone();
+        let mut discovered_traits = ReachableTraitRefs::default();
+        {
+            let reachable = &reachable_traits.methods[method_index];
+            extension_index.for_each_method_for_trait_method(
+                reachable.trait_id,
+                &reachable.method_name,
+                &mut |method| {
+                    if !with_reachable_extension_method_match(
+                        method,
+                        reachable.trait_id,
+                        reachable.self_ty,
+                        &reachable.trait_args,
+                        reachable.module_id,
+                        reachable.interner.as_ref(),
+                        extension_index,
+                        modules_by_id,
+                        &mut |matched| {
+                            add_reachable_function_pending(
+                                method.def_id,
+                                program_signatures,
+                                reachable_functions,
+                                reachable_modules,
+                                &mut pending_module_set,
+                                pending_modules,
+                            );
+                            extend_reachable_trait_methods_from_impl_where_predicates(
+                                program_signatures,
+                                &matched,
+                                &reachable.method_name,
+                                reachable.module_id,
+                                &mut discovered_traits,
+                            );
+                        },
+                    ) {
+                        return;
+                    }
+                },
+            );
+        }
         method_index += 1;
-        extension_index.for_each_method_for_trait_method(
-            reachable.trait_id,
-            &reachable.method_name,
-            &mut |method| {
-                if !with_reachable_extension_method_match(
-                    method,
-                    reachable.trait_id,
-                    reachable.self_ty,
-                    &reachable.trait_args,
-                    reachable.module_id,
-                    reachable.interner.as_ref(),
-                    extension_index,
-                    modules_by_id,
-                    &mut |matched| {
-                        add_reachable_function_pending(
-                            method.def_id,
-                            program_signatures,
-                            reachable_functions,
-                            reachable_modules,
-                            &mut pending_module_set,
-                            pending_modules,
-                        );
-                        extend_reachable_trait_methods_from_impl_where_predicates(
-                            program_signatures,
-                            &matched,
-                            &reachable.method_name,
-                            reachable.module_id,
-                            reachable_traits,
-                        );
-                    },
-                ) {
-                    return;
-                }
-            },
-        );
+        reachable_traits.extend(discovered_traits);
     }
 }
 
@@ -1760,11 +1764,10 @@ fn extend_reachable_functions_from_traits_incremental(
         .vtables
         .min(state.reachable_traits.vtables.len());
     while vtable_index < state.reachable_traits.vtables.len() {
-        let vtable = state.reachable_traits.vtables[vtable_index].clone();
-        vtable_index += 1;
+        let vtable = &state.reachable_traits.vtables[vtable_index];
         add_reachable_default_trait_methods_for_vtable(
             program_signatures,
-            &vtable,
+            vtable,
             &state.reachability.modules,
             &mut state.reachability.functions,
             &mut pending_module_set,
@@ -1793,6 +1796,7 @@ fn extend_reachable_functions_from_traits_incremental(
                 pending_modules,
             );
         });
+        vtable_index += 1;
     }
 
     let mut method_index = state
@@ -1800,51 +1804,55 @@ fn extend_reachable_functions_from_traits_incremental(
         .methods
         .min(state.reachable_traits.methods.len());
     while method_index < state.reachable_traits.methods.len() {
-        let reachable = state.reachable_traits.methods[method_index].clone();
+        let mut discovered_traits = ReachableTraitRefs::default();
+        {
+            let reachable = &state.reachable_traits.methods[method_index];
+            add_reachable_default_trait_method_for_method(
+                program_signatures,
+                reachable,
+                &state.reachability.modules,
+                &mut state.reachability.functions,
+                &mut pending_module_set,
+                pending_modules,
+            );
+            extension_index.for_each_method_for_trait_method(
+                reachable.trait_id,
+                &reachable.method_name,
+                &mut |method| {
+                    if !with_reachable_extension_method_match(
+                        method,
+                        reachable.trait_id,
+                        reachable.self_ty,
+                        &reachable.trait_args,
+                        reachable.module_id,
+                        reachable.interner.as_ref(),
+                        extension_index,
+                        modules_by_id,
+                        &mut |matched| {
+                            add_reachable_function_pending(
+                                method.def_id,
+                                program_signatures,
+                                &mut state.reachability.functions,
+                                &state.reachability.modules,
+                                &mut pending_module_set,
+                                pending_modules,
+                            );
+                            extend_reachable_trait_methods_from_impl_where_predicates(
+                                program_signatures,
+                                &matched,
+                                &reachable.method_name,
+                                reachable.module_id,
+                                &mut discovered_traits,
+                            );
+                        },
+                    ) {
+                        return;
+                    }
+                },
+            );
+        }
         method_index += 1;
-        add_reachable_default_trait_method_for_method(
-            program_signatures,
-            &reachable,
-            &state.reachability.modules,
-            &mut state.reachability.functions,
-            &mut pending_module_set,
-            pending_modules,
-        );
-        extension_index.for_each_method_for_trait_method(
-            reachable.trait_id,
-            &reachable.method_name,
-            &mut |method| {
-                if !with_reachable_extension_method_match(
-                    method,
-                    reachable.trait_id,
-                    reachable.self_ty,
-                    &reachable.trait_args,
-                    reachable.module_id,
-                    reachable.interner.as_ref(),
-                    extension_index,
-                    modules_by_id,
-                    &mut |matched| {
-                        add_reachable_function_pending(
-                            method.def_id,
-                            program_signatures,
-                            &mut state.reachability.functions,
-                            &state.reachability.modules,
-                            &mut pending_module_set,
-                            pending_modules,
-                        );
-                        extend_reachable_trait_methods_from_impl_where_predicates(
-                            program_signatures,
-                            &matched,
-                            &reachable.method_name,
-                            reachable.module_id,
-                            &mut state.reachable_traits,
-                        );
-                    },
-                ) {
-                    return;
-                }
-            },
-        );
+        state.reachable_traits.extend(discovered_traits);
     }
 
     state.trait_function_scan.vtables = vtable_index;
