@@ -475,10 +475,7 @@ impl<C> QueryDb<C> {
         let parent_stack = current_query_stack();
         let worker_count = query_many_worker_count(keys.len());
         if worker_count == 1 {
-            let _stack_guard = install_query_stack(parent_stack);
-            let values = keys.into_iter().map(|key| self.query(key)).collect();
-            merge_dependencies_into_current_stack(take_current_stack_dependencies());
-            return values;
+            return keys.into_iter().map(|key| self.query(key)).collect();
         }
         let queue = Arc::new(Mutex::new(
             keys.into_iter().enumerate().collect::<VecDeque<_>>(),
@@ -1196,6 +1193,28 @@ mod tests {
     }
 
     #[test]
+    fn records_single_item_query_many_dependencies_from_parent_query() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        assert_eq!(db.query(SingleDoubleMany(2)), 4);
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "single_double_many" && dependency.to.description == "double(2)"
+        }));
+
+        let invalidation = db.invalidate(Double(2));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.description.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(invalidated, vec!["double(2)", "single_double_many(2)"]);
+    }
+
+    #[test]
     fn invalidates_direct_query_value() {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
@@ -1351,6 +1370,25 @@ mod tests {
 
         fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
             db.query_many(self.0.map(Double)).into_iter().sum()
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct SingleDoubleMany(usize);
+
+    impl QueryKey<TestContext> for SingleDoubleMany {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "single_double_many"
+        }
+
+        fn description(&self) -> String {
+            format!("single_double_many({})", self.0)
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.query_many([Double(self.0)]).into_iter().sum()
         }
     }
 
