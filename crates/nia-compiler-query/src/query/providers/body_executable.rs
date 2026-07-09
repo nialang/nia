@@ -91,9 +91,32 @@ struct BodyCheckComptimeInputs {
 }
 
 #[derive(Clone, Copy)]
+pub(super) struct ReachableBodyModules<'a> {
+    base: &'a HashSet<ModuleId>,
+    extra: Option<ModuleId>,
+}
+
+impl<'a> ReachableBodyModules<'a> {
+    pub(super) fn new(base: &'a HashSet<ModuleId>) -> Self {
+        Self { base, extra: None }
+    }
+
+    pub(super) fn with_extra(self, module_id: ModuleId) -> Self {
+        Self {
+            base: self.base,
+            extra: Some(module_id),
+        }
+    }
+
+    fn contains(self, module_id: ModuleId) -> bool {
+        self.extra == Some(module_id) || self.base.contains(&module_id)
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(super) struct ExecutableFactMode<'a> {
     non_function_signatures: Option<&'a ProgramExecutableNonFunctionSignatures>,
-    reachable_body_modules: Option<&'a HashSet<ModuleId>>,
+    reachable_body_modules: Option<ReachableBodyModules<'a>>,
 }
 
 impl<'a> ExecutableFactMode<'a> {
@@ -104,7 +127,7 @@ impl<'a> ExecutableFactMode<'a> {
         }
     }
 
-    pub(super) fn executable(reachable_body_modules: &'a HashSet<ModuleId>) -> Self {
+    pub(super) fn executable(reachable_body_modules: ReachableBodyModules<'a>) -> Self {
         Self {
             non_function_signatures: None,
             reachable_body_modules: Some(reachable_body_modules),
@@ -113,7 +136,7 @@ impl<'a> ExecutableFactMode<'a> {
 
     fn signature_facts_for(self, module_id: ModuleId) -> bool {
         if let Some(reachable_body_modules) = self.reachable_body_modules {
-            return !reachable_body_modules.contains(&module_id);
+            return !reachable_body_modules.contains(module_id);
         }
         self.non_function_signatures.is_some()
     }
@@ -1197,7 +1220,7 @@ pub(super) fn executable_layouts_for_reachable_items(
         &RefCell<HashMap<ModuleId, nia_comptime_check::ComptimeArrayLengths>>,
     >,
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
-    reachable_body_modules_override: Option<&HashSet<ModuleId>>,
+    reachable_body_modules_override: Option<ReachableBodyModules<'_>>,
 ) -> nia_layout::Layouts {
     time_module_provider(db, "executable_layouts", module_id, || {
         let defs = db.query_shared(FullModuleDefsQuery(module_id));
@@ -1277,7 +1300,7 @@ pub(super) fn executable_layouts_for_reachable_items(
             if let Some(array_length_cache) = array_length_cache {
                 if !array_length_cache.borrow().contains_key(&id.module_id) {
                     let has_reachable_body_items = reachable_body_modules_override
-                        .map(|modules| modules.contains(&id.module_id))
+                        .map(|modules| modules.contains(id.module_id))
                         .unwrap_or_else(|| {
                             has_reachable_executable_body_items(
                                 db,
@@ -1385,14 +1408,14 @@ pub(super) fn executable_program_layouts<'a>(
         &'a RefCell<HashMap<ModuleId, nia_comptime_check::ComptimeArrayLengths>>,
     >,
     non_function_signatures_override: Option<&'a ProgramExecutableNonFunctionSignatures>,
-    reachable_body_modules_override: Option<&'a HashSet<ModuleId>>,
+    reachable_body_modules_override: Option<ReachableBodyModules<'a>>,
 ) -> impl Fn(ModuleId) -> Option<nia_layout::Layouts> + 'a {
     move |module_id| {
         if let Some(layouts) = cache.borrow().get(&module_id).cloned() {
             return Some(layouts);
         }
         let has_reachable_body_items = reachable_body_modules_override
-            .map(|modules| modules.contains(&module_id))
+            .map(|modules| modules.contains(module_id))
             .unwrap_or_else(|| {
                 has_reachable_executable_body_items(
                     db,
