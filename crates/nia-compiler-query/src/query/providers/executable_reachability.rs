@@ -833,12 +833,18 @@ fn final_executable_checked_modules(
     comptime_module_cache: &RefCell<HashMap<ModuleId, ComptimeModuleLowering>>,
 ) -> HashMap<ModuleId, CheckedModule> {
     let reachable_body_modules = executable_reachable_body_modules(db, reachability_by_module);
-    let program_layout_cache = RefCell::new(HashMap::<ModuleId, nia_layout::Layouts>::new());
-    for module_id in parse_ok
+    let modules_with_executable_items = parse_ok
         .iter()
         .copied()
         .filter(|module_id| reachability.modules().contains(module_id))
-    {
+        .filter_map(|module_id| {
+            let module_items = reachability_by_module.get(module_id)?;
+            (!module_items.functions.is_empty() || !module_items.globals.is_empty())
+                .then_some((module_id, module_items))
+        })
+        .collect::<Vec<_>>();
+    let program_layout_cache = RefCell::new(HashMap::<ModuleId, nia_layout::Layouts>::new());
+    for (module_id, _) in modules_with_executable_items.iter().copied() {
         let layouts = executable_layouts_for_reachable_items(
             db,
             module_id,
@@ -859,19 +865,11 @@ fn final_executable_checked_modules(
         None,
         Some(&reachable_body_modules),
     );
-    parse_ok
-        .iter()
-        .copied()
-        .filter(|module_id| reachability.modules().contains(module_id))
-        .filter_map(|module_id| {
-            let Some(module_items) = reachability_by_module.get(module_id) else {
-                return None;
-            };
-            let module_functions = module_items.functions.clone();
-            let module_globals = module_items.globals.clone();
-            if module_functions.is_empty() && module_globals.is_empty() {
-                return None;
-            }
+    modules_with_executable_items
+        .into_iter()
+        .map(|(module_id, module_items)| {
+            let module_functions = &module_items.functions;
+            let module_globals = &module_items.globals;
             let layouts = program_layout_cache
                 .borrow()
                 .get(&module_id)
@@ -888,8 +886,8 @@ fn final_executable_checked_modules(
                     )
                 });
             let filter = nia_body_check::BodyCheckFilter::ReachableItems {
-                functions: &module_functions,
-                globals: &module_globals,
+                functions: module_functions,
+                globals: module_globals,
                 already_checked_functions: None,
                 already_checked_globals: None,
             };
@@ -936,7 +934,7 @@ fn final_executable_checked_modules(
             let module = executable_checked_module_with_body_and_flow_check(
                 db, module_id, body_check, flow_check, layouts,
             );
-            Some((module_id, module))
+            (module_id, module)
         })
         .collect()
 }
