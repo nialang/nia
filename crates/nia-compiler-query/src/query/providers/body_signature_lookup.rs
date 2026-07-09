@@ -4,7 +4,7 @@ use super::*;
 pub(super) struct BodyProgramSignatureLookup<'a> {
     pub(super) functions: &'a dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>,
     pub(super) fallback: ProgramSignatureResolvers<'a>,
-    pub(super) maps: Option<ProgramSignatureMaps<'a>>,
+    pub(super) maps: Option<ProgramNonFunctionSignatureMaps<'a>>,
 }
 
 impl nia_program_signatures::ProgramSignatureLookup for BodyProgramSignatureLookup<'_> {

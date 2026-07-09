@@ -92,21 +92,21 @@ struct BodyCheckComptimeInputs {
 
 #[derive(Clone, Copy)]
 pub(super) struct ExecutableFactMode<'a> {
-    program_signatures: Option<&'a ProgramExecutableSignatures>,
+    non_function_signatures: Option<&'a ProgramExecutableNonFunctionSignatures>,
     reachable_body_modules: Option<&'a HashSet<ModuleId>>,
 }
 
 impl<'a> ExecutableFactMode<'a> {
     fn full() -> Self {
         Self {
-            program_signatures: None,
+            non_function_signatures: None,
             reachable_body_modules: None,
         }
     }
 
     pub(super) fn executable(reachable_body_modules: &'a HashSet<ModuleId>) -> Self {
         Self {
-            program_signatures: None,
+            non_function_signatures: None,
             reachable_body_modules: Some(reachable_body_modules),
         }
     }
@@ -115,7 +115,7 @@ impl<'a> ExecutableFactMode<'a> {
         if let Some(reachable_body_modules) = self.reachable_body_modules {
             return !reachable_body_modules.contains(&module_id);
         }
-        self.program_signatures.is_some()
+        self.non_function_signatures.is_some()
     }
 }
 
@@ -416,7 +416,7 @@ fn comptime_inputs_for_body_check(
         )))
     };
     let trait_impls_for_module = |module_id| {
-        if let Some(signatures) = fact_mode.program_signatures {
+        if let Some(signatures) = fact_mode.non_function_signatures {
             return Some(signatures.trait_impls.clone());
         }
         Some(
@@ -427,7 +427,7 @@ fn comptime_inputs_for_body_check(
     };
     let program_is_enum = |def_id: GlobalDefId| {
         fact_mode
-            .program_signatures
+            .non_function_signatures
             .is_some_and(|signatures| signatures.enums.contains_key(&def_id))
             || db
                 .query_shared(SignatureItemSignaturesQuery(
@@ -552,7 +552,7 @@ pub(super) fn body_check_with_filter_and_layouts(
     filter: nia_body_check::BodyCheckFilter<'_>,
     layouts: Option<nia_layout::Layouts>,
     program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
-    program_signatures_override: Option<&ProgramExecutableSignatures>,
+    non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> nia_body_check::BodyCheck {
     body_check_with_filter_and_layouts_with_inputs(
         db,
@@ -560,9 +560,9 @@ pub(super) fn body_check_with_filter_and_layouts(
         filter,
         layouts,
         program_layouts_override,
-        match program_signatures_override {
+        match non_function_signatures_override {
             Some(program_signatures) => ExecutableFactMode {
-                program_signatures: Some(program_signatures),
+                non_function_signatures: Some(program_signatures),
                 reachable_body_modules: None,
             },
             None => ExecutableFactMode::full(),
@@ -937,9 +937,8 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
     };
     let map_program_signatures =
         fact_mode
-            .program_signatures
-            .map(|signatures| ProgramSignatureMaps {
-                functions: &signatures.functions,
+            .non_function_signatures
+            .map(|signatures| ProgramNonFunctionSignatureMaps {
                 globals: &signatures.globals,
                 comptimes: &signatures.comptimes,
                 structs: &signatures.structs,
@@ -955,7 +954,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
         maps: map_program_signatures,
     };
     let visible_trait_impls;
-    let program_signatures = if let Some(signatures) = fact_mode.program_signatures {
+    let program_signatures = if let Some(signatures) = fact_mode.non_function_signatures {
         ProgramSignatureContext::new_indexed(
             &program_signature_lookup,
             &signatures.trait_impls,
@@ -988,8 +987,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
                 .borrow()
                 .contains_key(&module_id)
             {
-                let array_lengths =
-                    signature_comptime_array_lengths(db, module_id, fact_mode.program_signatures);
+                let array_lengths = signature_comptime_array_lengths(
+                    db,
+                    module_id,
+                    fact_mode.non_function_signatures,
+                );
                 executable_program_comptime_array_lengths
                     .borrow_mut()
                     .insert(module_id, array_lengths);
@@ -999,7 +1001,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
                 .get(&module_id)
                 .cloned();
         }
-        if let Some(signatures) = fact_mode.program_signatures {
+        if let Some(signatures) = fact_mode.non_function_signatures {
             if !executable_program_comptime_array_lengths
                 .borrow()
                 .contains_key(&module_id)
@@ -1032,7 +1034,8 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
                 .borrow()
                 .contains_key(&module_id)
             {
-                let values = signature_comptime_values(db, module_id, fact_mode.program_signatures);
+                let values =
+                    signature_comptime_values(db, module_id, fact_mode.non_function_signatures);
                 executable_program_comptime_values
                     .borrow_mut()
                     .insert(module_id, values);
@@ -1042,7 +1045,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
                 .get(&module_id)
                 .cloned();
         }
-        if let Some(signatures) = fact_mode.program_signatures {
+        if let Some(signatures) = fact_mode.non_function_signatures {
             if !executable_program_comptime_values
                 .borrow()
                 .contains_key(&module_id)
@@ -1193,7 +1196,7 @@ pub(super) fn executable_layouts_for_reachable_items(
     array_length_cache: Option<
         &RefCell<HashMap<ModuleId, nia_comptime_check::ComptimeArrayLengths>>,
     >,
-    program_signatures_override: Option<&ProgramExecutableSignatures>,
+    non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
     reachable_body_modules_override: Option<&HashSet<ModuleId>>,
 ) -> nia_layout::Layouts {
     time_module_provider(db, "executable_layouts", module_id, || {
@@ -1287,7 +1290,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                         with_comptime_input_and_program_signatures(
                             db,
                             id.module_id,
-                            program_signatures_override,
+                            non_function_signatures_override,
                             |input, module| {
                                 let mut array_lengths =
                                     nia_comptime_check::compute_module_comptime_array_lengths(
@@ -1301,7 +1304,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                         with_type_signature_comptime_input(
                             db,
                             id.module_id,
-                            program_signatures_override,
+                            non_function_signatures_override,
                             |input, module| {
                                 let mut array_lengths =
                                     nia_comptime_check::compute_module_comptime_array_lengths(
@@ -1381,7 +1384,7 @@ pub(super) fn executable_program_layouts<'a>(
     array_length_cache: Option<
         &'a RefCell<HashMap<ModuleId, nia_comptime_check::ComptimeArrayLengths>>,
     >,
-    program_signatures_override: Option<&'a ProgramExecutableSignatures>,
+    non_function_signatures_override: Option<&'a ProgramExecutableNonFunctionSignatures>,
     reachable_body_modules_override: Option<&'a HashSet<ModuleId>>,
 ) -> impl Fn(ModuleId) -> Option<nia_layout::Layouts> + 'a {
     move |module_id| {
@@ -1405,11 +1408,11 @@ pub(super) fn executable_program_layouts<'a>(
                 reachable_functions,
                 reachable_globals,
                 array_length_cache,
-                program_signatures_override,
+                non_function_signatures_override,
                 reachable_body_modules_override,
             )
         } else {
-            signature_layouts_for_types(db, module_id, program_signatures_override)
+            signature_layouts_for_types(db, module_id, non_function_signatures_override)
         };
         cache.borrow_mut().insert(module_id, layouts.clone());
         Some(layouts)
@@ -1637,7 +1640,7 @@ pub(super) fn executable_signature_checked_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     layouts: nia_layout::Layouts,
-    program_signatures: &ProgramExecutableSignatures,
+    program_signatures: &ProgramExecutableNonFunctionSignatures,
 ) -> CheckedModule {
     let type_resolution = db.query(SignatureTypeResolutionQuery(
         module_id,

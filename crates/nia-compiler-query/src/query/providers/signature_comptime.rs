@@ -3,16 +3,16 @@ use super::*;
 pub(super) fn with_type_signature_comptime_input<T>(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    program_signatures_override: Option<&ProgramExecutableSignatures>,
+    non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
     f: impl FnOnce(nia_comptime_check::ComptimeInput<'_>, &ComptimeModuleLowering) -> T,
 ) -> T {
-    with_signature_comptime_input(db, module_id, program_signatures_override, f)
+    with_signature_comptime_input(db, module_id, non_function_signatures_override, f)
 }
 
 fn with_signature_comptime_input<T>(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    program_signatures_override: Option<&ProgramExecutableSignatures>,
+    non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
     f: impl FnOnce(nia_comptime_check::ComptimeInput<'_>, &ComptimeModuleLowering) -> T,
 ) -> T {
     let module = db.query(SignatureComptimeModuleQuery(module_id));
@@ -48,7 +48,7 @@ fn with_signature_comptime_input<T>(
         )))
     };
     let trait_impls_for_module = |module_id| {
-        if let Some(signatures) = program_signatures_override {
+        if let Some(signatures) = non_function_signatures_override {
             return Some(signatures.trait_impls.clone());
         }
         Some(
@@ -58,7 +58,8 @@ fn with_signature_comptime_input<T>(
         )
     };
     let program_is_enum = |def_id: GlobalDefId| {
-        program_signatures_override.is_some_and(|signatures| signatures.enums.contains_key(&def_id))
+        non_function_signatures_override
+            .is_some_and(|signatures| signatures.enums.contains_key(&def_id))
             || db
                 .query_shared(SignatureItemSignaturesQuery(
                     def_id.module_id,
@@ -159,12 +160,12 @@ pub(super) fn signature_comptime_module_lowering(
 pub(super) fn signature_comptime_array_lengths(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    program_signatures_override: Option<&ProgramExecutableSignatures>,
+    non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> nia_comptime_check::ComptimeArrayLengths {
     with_type_signature_comptime_input(
         db,
         module_id,
-        program_signatures_override,
+        non_function_signatures_override,
         |input, module| {
             let mut array_lengths =
                 nia_comptime_check::compute_module_comptime_array_lengths(input);
@@ -177,14 +178,14 @@ pub(super) fn signature_comptime_array_lengths(
 pub(super) fn signature_comptime_values(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    program_signatures_override: Option<&ProgramExecutableSignatures>,
+    non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> nia_comptime_check::ComptimeValues {
     let array_lengths =
-        signature_comptime_array_lengths(db, module_id, program_signatures_override);
+        signature_comptime_array_lengths(db, module_id, non_function_signatures_override);
     let enum_values = with_type_signature_comptime_input(
         db,
         module_id,
-        program_signatures_override,
+        non_function_signatures_override,
         |input, module| {
             let mut enum_values = nia_comptime_check::compute_module_comptime_enum_values(
                 input,
@@ -197,7 +198,7 @@ pub(super) fn signature_comptime_values(
     with_type_signature_comptime_input(
         db,
         module_id,
-        program_signatures_override,
+        non_function_signatures_override,
         |input, module| {
             let mut values = nia_comptime_check::compute_module_comptime_values(
                 input,
@@ -363,7 +364,7 @@ fn empty_local_resolution() -> LocalResolution {
 pub(super) fn signature_layouts_for_types(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    program_signatures_override: Option<&ProgramExecutableSignatures>,
+    non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> nia_layout::Layouts {
     time_module_provider(db, "signature_layouts", module_id, || {
         let defs = db.query_shared(ModuleDefsQuery(module_id));
@@ -454,7 +455,7 @@ pub(super) fn signature_layouts_for_types(
         let array_lengths = with_type_signature_comptime_input(
             db,
             module_id,
-            program_signatures_override,
+            non_function_signatures_override,
             |input, module| {
                 let mut array_lengths =
                     nia_comptime_check::compute_module_comptime_array_lengths(input);
@@ -467,7 +468,7 @@ pub(super) fn signature_layouts_for_types(
             with_type_signature_comptime_input(
                 db,
                 id.module_id,
-                program_signatures_override,
+                non_function_signatures_override,
                 |input, module| {
                     let mut array_lengths =
                         nia_comptime_check::compute_module_comptime_array_lengths(input);

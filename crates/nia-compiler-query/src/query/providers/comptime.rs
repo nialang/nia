@@ -117,7 +117,7 @@ fn with_comptime_input<T>(
 pub(super) fn with_comptime_input_and_program_signatures<T>(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    program_signatures_override: Option<&ProgramExecutableSignatures>,
+    non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
     f: impl FnOnce(nia_comptime_check::ComptimeInput<'_>, &ComptimeModuleLowering) -> T,
 ) -> T {
     let module = db.query(ComptimeModuleQuery(module_id));
@@ -133,7 +133,7 @@ pub(super) fn with_comptime_input_and_program_signatures<T>(
         )))
     };
     let trait_impls_for_module = |module_id| {
-        if let Some(signatures) = program_signatures_override {
+        if let Some(signatures) = non_function_signatures_override {
             return Some(signatures.trait_impls.clone());
         }
         Some(
@@ -143,7 +143,8 @@ pub(super) fn with_comptime_input_and_program_signatures<T>(
         )
     };
     let program_is_enum = |def_id: GlobalDefId| {
-        program_signatures_override.is_some_and(|signatures| signatures.enums.contains_key(&def_id))
+        non_function_signatures_override
+            .is_some_and(|signatures| signatures.enums.contains_key(&def_id))
             || db
                 .query_shared(SignatureItemSignaturesQuery(
                     def_id.module_id,

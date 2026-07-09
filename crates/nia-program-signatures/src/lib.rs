@@ -168,6 +168,18 @@ pub struct ProgramSignatureMaps<'a> {
     pub trait_method_index: &'a ProgramTraitMethodIndex,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ProgramNonFunctionSignatureMaps<'a> {
+    pub globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
+    pub comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
+    pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
+    pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
+    pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
+    pub trait_method_index: &'a ProgramTraitMethodIndex,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ProgramTraitMethodIndex {
     trait_ids_by_method_name: SymbolMap<Vec<GlobalDefId>>,
@@ -308,6 +320,54 @@ impl ProgramSignatureLookup for ProgramSignatureMaps<'_> {
 
     fn has_type_alias(&self, def_id: GlobalDefId) -> bool {
         self.type_aliases.contains_key(&def_id)
+    }
+}
+
+impl ProgramNonFunctionSignatureMaps<'_> {
+    pub fn global(&self, def_id: GlobalDefId) -> Option<ProgramGlobalSignature> {
+        self.globals.get(&def_id).cloned()
+    }
+
+    pub fn comptime(&self, def_id: GlobalDefId) -> Option<ProgramComptimeSignature> {
+        self.comptimes.get(&def_id).cloned()
+    }
+
+    pub fn struct_(&self, def_id: GlobalDefId) -> Option<ProgramStructSignature> {
+        self.structs.get(&def_id).cloned()
+    }
+
+    pub fn union(&self, def_id: GlobalDefId) -> Option<ProgramUnionSignature> {
+        self.unions.get(&def_id).cloned()
+    }
+
+    pub fn enum_(&self, def_id: GlobalDefId) -> Option<ProgramEnumSignature> {
+        self.enums.get(&def_id).cloned()
+    }
+
+    pub fn trait_(&self, def_id: GlobalDefId) -> Option<ProgramTraitSignature> {
+        self.traits.get(&def_id).cloned()
+    }
+
+    pub fn type_alias(&self, def_id: GlobalDefId) -> Option<ProgramTypeAliasSignature> {
+        self.type_aliases.get(&def_id).cloned()
+    }
+
+    pub fn trait_ids_with_method_named(&self, name: &SymbolId) -> Vec<GlobalDefId> {
+        self.trait_method_index.trait_ids_with_method_named(name)
+    }
+
+    pub fn trait_owning_method(
+        &self,
+        method_id: GlobalDefId,
+    ) -> Option<(GlobalDefId, ProgramTraitSignature)> {
+        self.trait_method_index
+            .trait_owning_method_id(method_id)
+            .and_then(|trait_id| {
+                self.traits
+                    .get(&trait_id)
+                    .cloned()
+                    .map(|signature| (trait_id, signature))
+            })
     }
 }
 

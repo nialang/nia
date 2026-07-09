@@ -99,8 +99,7 @@ pub(super) struct ProgramVisibleTypeSignatures {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ProgramExecutableSignatures {
-    pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
+pub(super) struct ProgramExecutableNonFunctionSignatures {
     pub(super) globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
     pub(super) comptimes: HashMap<GlobalDefId, ProgramComptimeSignature>,
     pub(super) structs: HashMap<GlobalDefId, ProgramStructSignature>,
@@ -151,10 +150,13 @@ pub(super) struct LoweredFunctionBodies {
     pub(super) diagnostics: Vec<nia_function_lower::FunctionLoweringDiagnostic>,
 }
 
-impl ProgramExecutableSignatures {
-    pub(super) fn codegen_maps(&self) -> ProgramCodegenSignatures<'_> {
+impl ProgramExecutableNonFunctionSignatures {
+    pub(super) fn codegen_maps_with_functions<'a>(
+        &'a self,
+        functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
+    ) -> ProgramCodegenSignatures<'a> {
         ProgramCodegenSignatures {
-            functions: &self.functions,
+            functions,
             structs: &self.structs,
             unions: &self.unions,
             enums: &self.enums,
