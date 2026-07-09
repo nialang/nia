@@ -320,6 +320,7 @@ impl Analyzer<'_> {
         let function_id = self.resolved_comptime_function(callee)?;
         let signature = self
             .signatures_for_module(function_id.module_id)?
+            .as_ref()
             .functions
             .get(&function_id.def_id)?
             .clone();

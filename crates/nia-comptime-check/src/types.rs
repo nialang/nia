@@ -217,8 +217,8 @@ pub struct ComptimeProgramContext<'a> {
         Option<&'a dyn Fn(ModuleId) -> Option<nia_type_normalize::TypeNormalization>>,
     pub value_type_normalizations:
         Option<&'a dyn Fn(ModuleId) -> Option<nia_type_normalize::TypeNormalization>>,
-    pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
-    pub value_signatures: Option<&'a dyn Fn(ModuleId) -> Option<ItemSignatures>>,
+    pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
+    pub value_signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
     pub comptime_values: Option<&'a dyn Fn(ModuleId) -> Option<ComptimeValues>>,
     pub global_initializer: Option<&'a dyn Fn(GlobalDefId) -> Option<ResolvedComptimeExpr>>,
     pub program_is_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,

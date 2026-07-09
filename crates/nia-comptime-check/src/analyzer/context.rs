@@ -14,6 +14,20 @@ impl ModuleDefs<'_> {
     }
 }
 
+pub(super) enum ModuleSignatures<'a> {
+    Borrowed(&'a ItemSignatures),
+    Shared(std::sync::Arc<ItemSignatures>),
+}
+
+impl ModuleSignatures<'_> {
+    pub(super) fn as_ref(&self) -> &ItemSignatures {
+        match self {
+            ModuleSignatures::Borrowed(signatures) => signatures,
+            ModuleSignatures::Shared(signatures) => signatures,
+        }
+    }
+}
+
 impl Analyzer<'_> {
     pub(super) fn with_execution_module<T>(
         &mut self,
@@ -36,7 +50,11 @@ impl Analyzer<'_> {
                     return signatures.comptimes.get(&global_id.def_id)?.explicit_type;
                 }
                 let signatures = self.signatures_for_module(global_id.module_id)?;
-                signatures.comptimes.get(&global_id.def_id)?.explicit_type
+                signatures
+                    .as_ref()
+                    .comptimes
+                    .get(&global_id.def_id)?
+                    .explicit_type
             }
             ComptimeKey::Local(local_id) => self.find_local_binding_type(local_id),
         }
@@ -455,11 +473,14 @@ impl Analyzer<'_> {
         Some(())
     }
 
-    pub(super) fn signatures_for_module(&self, module_id: ModuleId) -> Option<ItemSignatures> {
+    pub(super) fn signatures_for_module(
+        &self,
+        module_id: ModuleId,
+    ) -> Option<ModuleSignatures<'_>> {
         if module_id == self.input.defs.module_id {
-            Some(self.input.signatures.clone())
+            Some(ModuleSignatures::Borrowed(self.input.signatures))
         } else {
-            (self.input.program.signatures?)(module_id)
+            (self.input.program.signatures?)(module_id).map(ModuleSignatures::Shared)
         }
     }
 
@@ -589,7 +610,7 @@ impl Analyzer<'_> {
         let layouts = nia_layout::compute_layouts_with_program_context(
             defs.as_ref(),
             interner,
-            &signatures,
+            signatures.as_ref(),
             &normalized,
             &array_lengths,
             nia_layout::TargetDataLayout::LP64,
@@ -683,7 +704,7 @@ impl Analyzer<'_> {
         let layouts = nia_layout::compute_layouts_with_program_context(
             defs.as_ref(),
             interner,
-            &signatures,
+            signatures.as_ref(),
             &normalized,
             &array_lengths,
             nia_layout::TargetDataLayout::LP64,
@@ -837,12 +858,12 @@ impl Analyzer<'_> {
                 let Some(signatures) = self.signatures_for_module(def_id.module_id) else {
                     return;
                 };
-                if let Some(signature) = signatures.structs.get(&def_id.def_id) {
+                if let Some(signature) = signatures.as_ref().structs.get(&def_id.def_id) {
                     for field in &signature.fields {
                         self.collect_array_len_const_exprs_in_ty_inner(field.ty, out, seen);
                     }
                 }
-                if let Some(signature) = signatures.unions.get(&def_id.def_id) {
+                if let Some(signature) = signatures.as_ref().unions.get(&def_id.def_id) {
                     for field in &signature.fields {
                         self.collect_array_len_const_exprs_in_ty_inner(field.ty, out, seen);
                     }
@@ -944,7 +965,7 @@ impl Analyzer<'_> {
         Some(nia_layout::compute_layouts_with_program_context(
             defs.as_ref(),
             &interner,
-            &signatures,
+            signatures.as_ref(),
             &normalized,
             &array_lengths_for_layout,
             nia_layout::TargetDataLayout::LP64,

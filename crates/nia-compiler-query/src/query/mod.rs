@@ -4581,7 +4581,7 @@ extend Sink : Writer {
         )]);
         let db = query_db(loaded);
 
-        let signatures = db.query(SignatureItemSignaturesQuery(
+        let signatures = db.query_shared(SignatureItemSignaturesQuery(
             ModuleId(0),
             nia_item_tree::SignatureItemSet::Traits,
         ));
@@ -4651,7 +4651,7 @@ pub enum Errno: i32 {
         };
         let db = query_db(loaded);
 
-        let signatures = db.query(SignatureItemSignaturesQuery(
+        let signatures = db.query_shared(SignatureItemSignaturesQuery(
             ModuleId(0),
             nia_item_tree::SignatureItemSet::Traits,
         ));
@@ -4737,7 +4737,7 @@ pub enum Errno: i32 {
         };
         let db = query_db(loaded);
 
-        let signatures = db.query(SignatureItemSignaturesQuery(
+        let signatures = db.query_shared(SignatureItemSignaturesQuery(
             ModuleId(0),
             nia_item_tree::SignatureItemSet::Traits,
         ));

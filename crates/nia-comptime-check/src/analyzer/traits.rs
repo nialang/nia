@@ -112,7 +112,7 @@ impl Analyzer<'_> {
         let normalized = self.normalized_for_module(module_id).unwrap_or_default();
         let local_enums = self
             .signatures_for_module(module_id)
-            .map(|signatures| signatures.enums.clone())
+            .map(|signatures| signatures.as_ref().enums.clone())
             .unwrap_or_else(|| self.input.signatures.enums.clone());
         let program_is_enum = |def_id: GlobalDefId| {
             if def_id.module_id == module_id {
@@ -182,7 +182,7 @@ impl Analyzer<'_> {
         let normalized = self.normalized_for_module(module_id).unwrap_or_default();
         let local_enums = self
             .signatures_for_module(module_id)
-            .map(|signatures| signatures.enums.clone())
+            .map(|signatures| signatures.as_ref().enums.clone())
             .unwrap_or_else(|| self.input.signatures.enums.clone());
         let program_is_enum = |def_id: GlobalDefId| {
             if def_id.module_id == module_id {
@@ -258,7 +258,7 @@ impl Analyzer<'_> {
         let normalized = self.normalized_for_module(module_id).unwrap_or_default();
         let local_enums = self
             .signatures_for_module(module_id)
-            .map(|signatures| signatures.enums.clone())
+            .map(|signatures| signatures.as_ref().enums.clone())
             .unwrap_or_else(|| self.input.signatures.enums.clone());
         let program_is_enum = |def_id: GlobalDefId| {
             if def_id.module_id == module_id {
@@ -324,6 +324,7 @@ impl Analyzer<'_> {
             TraitId::Source(trait_def_id) => {
                 let signature = self.signatures_for_module(trait_def_id.module_id)?;
                 let associated_value = signature
+                    .as_ref()
                     .traits
                     .get(&trait_def_id.def_id)?
                     .associated_values
@@ -374,7 +375,12 @@ impl Analyzer<'_> {
         let Some(signatures) = self.signatures_for_module(function_id.module_id) else {
             return Vec::new();
         };
-        let Some(signature) = signatures.functions.get(&function_id.def_id).cloned() else {
+        let Some(signature) = signatures
+            .as_ref()
+            .functions
+            .get(&function_id.def_id)
+            .cloned()
+        else {
             return Vec::new();
         };
         let substitutions = self

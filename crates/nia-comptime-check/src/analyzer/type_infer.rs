@@ -1141,6 +1141,7 @@ impl Analyzer<'_> {
         def_id: GlobalDefId,
     ) -> Option<nia_item_signatures::StructSignature> {
         self.signatures_for_module(def_id.module_id)?
+            .as_ref()
             .structs
             .get(&def_id.def_id)
             .cloned()

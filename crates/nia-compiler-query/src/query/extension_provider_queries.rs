@@ -6,10 +6,10 @@ use nia_symbol::SymbolId;
 pub(super) struct ExtensionSignatureModuleInputQueryValue {
     pub(super) module_id: ModuleId,
     pub(super) lowering: Arc<TypeLowering>,
-    pub(super) signatures: ItemSignatures,
+    pub(super) signatures: Arc<ItemSignatures>,
     pub(super) defs: Arc<DefCollection>,
-    pub(super) function_signatures: ItemSignatures,
-    pub(super) type_signatures: ItemSignatures,
+    pub(super) function_signatures: Arc<ItemSignatures>,
+    pub(super) type_signatures: Arc<ItemSignatures>,
     pub(super) normalization: TypeNormalization,
 }
 

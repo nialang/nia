@@ -60,7 +60,7 @@ fn with_signature_comptime_input<T>(
     let program_is_enum = |def_id: GlobalDefId| {
         program_signatures_override.is_some_and(|signatures| signatures.enums.contains_key(&def_id))
             || db
-                .query(SignatureItemSignaturesQuery(
+                .query_shared(SignatureItemSignaturesQuery(
                     def_id.module_id,
                     nia_item_tree::SignatureItemSet::Types,
                 ))
@@ -68,13 +68,13 @@ fn with_signature_comptime_input<T>(
                 .contains_key(&def_id.def_id)
     };
     let item_signatures_for_module = |module_id| {
-        Some(db.query(SignatureItemSignaturesQuery(
+        Some(db.query_shared(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         )))
     };
     let value_signatures_for_module = |module_id| {
-        Some(db.query(SignatureItemSignaturesQuery(
+        Some(db.query_shared(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Values,
         )))
@@ -379,12 +379,12 @@ pub(super) fn signature_layouts_for_types(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ));
-        let item_signatures = db.query(SignatureItemSignaturesQuery(
+        let item_signatures = db.query_shared(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ));
         let program_struct = |def_id: GlobalDefId| {
-            db.query(SignatureItemSignaturesQuery(
+            db.query_shared(SignatureItemSignaturesQuery(
                 def_id.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))
@@ -401,7 +401,7 @@ pub(super) fn signature_layouts_for_types(
             })
         };
         let program_union = |def_id: GlobalDefId| {
-            db.query(SignatureItemSignaturesQuery(
+            db.query_shared(SignatureItemSignaturesQuery(
                 def_id.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))
@@ -418,7 +418,7 @@ pub(super) fn signature_layouts_for_types(
             })
         };
         let program_enum = |def_id: GlobalDefId| {
-            db.query(SignatureItemSignaturesQuery(
+            db.query_shared(SignatureItemSignaturesQuery(
                 def_id.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))
@@ -435,7 +435,7 @@ pub(super) fn signature_layouts_for_types(
             })
         };
         let program_type_alias = |def_id: GlobalDefId| {
-            db.query(SignatureItemSignaturesQuery(
+            db.query_shared(SignatureItemSignaturesQuery(
                 def_id.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))

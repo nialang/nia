@@ -225,7 +225,7 @@ fn executable_checked_module_set_inner(
         {
             return Some(signature);
         }
-        let signatures = db.query(SignatureItemSignaturesQuery(
+        let signatures = db.query_shared(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Functions,
         ));
@@ -255,7 +255,7 @@ fn executable_checked_module_set_inner(
         Some(signature)
     };
     let struct_signature = |def_id: GlobalDefId| {
-        db.query(SignatureItemSignaturesQuery(
+        db.query_shared(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))
@@ -272,7 +272,7 @@ fn executable_checked_module_set_inner(
         })
     };
     let union_signature = |def_id: GlobalDefId| {
-        db.query(SignatureItemSignaturesQuery(
+        db.query_shared(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))
@@ -289,7 +289,7 @@ fn executable_checked_module_set_inner(
         })
     };
     let trait_signature = |def_id: GlobalDefId| {
-        db.query(SignatureItemSignaturesQuery(
+        db.query_shared(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ))
@@ -306,7 +306,7 @@ fn executable_checked_module_set_inner(
         })
     };
     let trait_default_method = |def_id: GlobalDefId| {
-        let signatures = db.query(SignatureItemSignaturesQuery(
+        let signatures = db.query_shared(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));

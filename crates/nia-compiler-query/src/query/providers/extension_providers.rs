@@ -123,15 +123,15 @@ pub(super) fn provide_extension_signature_module_input(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         )),
-        signatures: db.query(SignatureItemSignaturesQuery(
+        signatures: db.query_shared(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         )),
-        function_signatures: db.query(SignatureItemSignaturesQuery(
+        function_signatures: db.query_shared(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::ExtensionFunctions,
         )),
-        type_signatures: db.query(SignatureItemSignaturesQuery(
+        type_signatures: db.query_shared(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         )),
@@ -259,7 +259,7 @@ pub(super) fn provide_extension_provider_module_facts(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
-        let signatures = db.query(SignatureItemSignaturesQuery(
+        let signatures = db.query_shared(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
@@ -354,7 +354,7 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,
             ));
-            let signatures = db.query(SignatureItemSignaturesQuery(
+            let signatures = db.query_shared(SignatureItemSignaturesQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,
             ));

@@ -36,10 +36,12 @@ pub struct ExecutableReachabilityStats {
 }
 
 pub struct ExecutableExtensionIndex<'a> {
-    by_trait: HashMap<TraitId, Vec<&'a nia_defs::ExtensionMethod>>,
-    by_trait_method: HashMap<(TraitId, SymbolId), Vec<&'a nia_defs::ExtensionMethod>>,
-    where_predicates_by_def: HashMap<GlobalDefId, &'a [nia_defs::WherePredicateSignature]>,
-    trait_impls_by_key: HashMap<(ModuleId, TraitImplId, TraitId), &'a ProgramTraitImplSignature>,
+    by_trait: nia_hash::FastHashMap<TraitId, Vec<&'a nia_defs::ExtensionMethod>>,
+    by_trait_method: nia_hash::FastHashMap<(TraitId, SymbolId), Vec<&'a nia_defs::ExtensionMethod>>,
+    where_predicates_by_def:
+        nia_hash::FastHashMap<GlobalDefId, &'a [nia_defs::WherePredicateSignature]>,
+    trait_impls_by_key:
+        nia_hash::FastHashMap<(ModuleId, TraitImplId, TraitId), &'a ProgramTraitImplSignature>,
 }
 
 pub trait ExecutableExtensionLookup {
@@ -75,11 +77,15 @@ impl<'a> ExecutableExtensionIndex<'a> {
         extension_methods: &'a ExtensionMethods,
         trait_impls: &'a [ProgramTraitImplSignature],
     ) -> Self {
-        let mut by_trait = HashMap::<TraitId, Vec<&'a nia_defs::ExtensionMethod>>::new();
-        let mut by_trait_method =
-            HashMap::<(TraitId, SymbolId), Vec<&'a nia_defs::ExtensionMethod>>::new();
+        let mut by_trait =
+            nia_hash::FastHashMap::<TraitId, Vec<&'a nia_defs::ExtensionMethod>>::default();
+        let mut by_trait_method = nia_hash::FastHashMap::<
+            (TraitId, SymbolId),
+            Vec<&'a nia_defs::ExtensionMethod>,
+        >::default();
         let mut where_predicates_by_def =
-            HashMap::<GlobalDefId, &'a [nia_defs::WherePredicateSignature]>::new();
+            nia_hash::FastHashMap::<GlobalDefId, &'a [nia_defs::WherePredicateSignature]>::default(
+            );
         let trait_impls_by_key = trait_impls
             .iter()
             .map(|impl_signature| {
@@ -92,7 +98,7 @@ impl<'a> ExecutableExtensionIndex<'a> {
                     impl_signature,
                 )
             })
-            .collect::<HashMap<_, _>>();
+            .collect::<nia_hash::FastHashMap<_, _>>();
         for method in extension_methods.all_methods() {
             where_predicates_by_def.insert(method.def_id, method.where_predicates.as_slice());
             if let Some(trait_id) = method.trait_id {
@@ -263,7 +269,7 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
         .iter()
         .map(|module| (module.module_id, *module))
         .collect::<HashMap<_, _>>();
-    let mut reachable_functions = HashSet::new();
+    let mut reachable_functions = HashSet::default();
     let mut reachable_globals = seed.map(|seed| seed.globals.clone()).unwrap_or_default();
     let mut reachable_modules = seed.map(|seed| seed.modules.clone()).unwrap_or_default();
     let mut reachable_type_modules = seed
@@ -898,7 +904,7 @@ fn executable_root_functions(
     graph: &ModuleGraph,
     root_defs: ExecutableRootDefs<'_>,
 ) -> HashSet<GlobalDefId> {
-    let mut roots = HashSet::new();
+    let mut roots = HashSet::default();
     if let Some(main) = (root_defs.named_function)(graph.entry(), known::MAIN) {
         roots.insert(main);
     }
@@ -975,7 +981,7 @@ fn extend_reachable_traits_from_generic_instances(
         let mut executable_refs =
             typed_executable_refs_for_items(module, &HashSet::from([*def_id]), &HashSet::new());
         for instantiation in executable_refs.generic_instantiations.drain(..) {
-            let mut visited = HashSet::new();
+            let mut visited = HashSet::default();
             extend_reachable_traits_from_generic_instantiation(
                 module.module_id,
                 &module.body_ir.interner,
@@ -991,7 +997,7 @@ fn extend_reachable_traits_from_generic_instances(
             continue;
         };
         for instantiation in &function_facts.generic_instantiations {
-            let mut visited = HashSet::new();
+            let mut visited = HashSet::default();
             extend_reachable_traits_from_generic_instantiation(
                 module.module_id,
                 &module.body_ir.interner,
@@ -1032,7 +1038,7 @@ fn extend_reachable_traits_from_generic_instances_incremental(
         let mut executable_refs =
             typed_executable_refs_for_items(module, &HashSet::from([def_id]), &HashSet::new());
         for instantiation in executable_refs.generic_instantiations.drain(..) {
-            let mut visited = HashSet::new();
+            let mut visited = HashSet::default();
             extend_reachable_traits_from_generic_instantiation(
                 module.module_id,
                 &module.body_ir.interner,
@@ -1045,7 +1051,7 @@ fn extend_reachable_traits_from_generic_instances_incremental(
             );
         }
         for instantiation in &function_facts.generic_instantiations {
-            let mut visited = HashSet::new();
+            let mut visited = HashSet::default();
             extend_reachable_traits_from_generic_instantiation(
                 module.module_id,
                 &module.body_ir.interner,
