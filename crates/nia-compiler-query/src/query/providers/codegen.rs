@@ -21,7 +21,7 @@ pub(super) fn monomorphization_for_checked_modules(
     let program_enums_storage;
     let (program_enums, trait_impls, trait_impl_index) =
         if runtime == RuntimeModel::FreestandingExecutable {
-            executable_signatures = executable_program_signatures_without_functions(db);
+            executable_signatures = executable_program_non_function_signatures(db);
             (
                 &executable_signatures.enums,
                 executable_signatures.trait_impls.as_slice(),
@@ -264,18 +264,17 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         )
     });
     let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
-    let mut executable_program_signatures;
+    let executable_program_signatures;
     let executable_program_functions;
     let backend_program_signatures;
     let program_signatures =
         if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
-            executable_program_signatures = executable_program_signatures_without_functions(db);
+            executable_program_signatures = executable_program_non_function_signatures(db);
             executable_program_functions = executable_program_functions_for_modules(
                 db,
                 checked_modules.iter().map(|module| module.id),
             );
-            executable_program_signatures.functions = executable_program_functions;
-            executable_program_signatures.codegen_maps()
+            executable_program_signatures.codegen_maps_with_functions(&executable_program_functions)
         } else {
             backend_program_signatures = db.query(ProgramBackendSignaturesQuery);
             backend_program_signatures.codegen_maps()

@@ -214,7 +214,7 @@ fn executable_checked_module_set_inner(
 ) -> ExecutableCheckedModuleSet {
     let parse_ok = db.query(SemanticModuleIdsQuery);
     let graph = db.query_shared(ModuleGraphQuery);
-    let mut program_signatures = None::<ProgramExecutableSignatures>;
+    let mut non_function_signatures = None::<ProgramExecutableNonFunctionSignatures>;
     let caches = ExecutableCheckCaches::default();
     let function_signature = |def_id: GlobalDefId| {
         if let Some(signature) = caches
@@ -688,12 +688,12 @@ fn executable_checked_module_set_inner(
             )
         },
     );
-    let program_signatures = time_provider(
+    let non_function_signatures = time_provider(
         db.context().timings(),
-        "executable_checked_modules.final.program_signatures",
+        "executable_checked_modules.final.non_function_signatures",
         || {
-            program_signatures
-                .get_or_insert_with(|| executable_program_signatures_without_functions(db))
+            non_function_signatures
+                .get_or_insert_with(|| executable_program_non_function_signatures(db))
         },
     );
     let executable_program_layouts = executable_program_layouts(
@@ -702,7 +702,7 @@ fn executable_checked_module_set_inner(
         &reachability.functions,
         &reachability.globals,
         Some(&caches.array_lengths),
-        Some(&*program_signatures),
+        Some(&*non_function_signatures),
         None,
     );
     let type_only_modules = time_provider(
@@ -716,9 +716,14 @@ fn executable_checked_module_set_inner(
                 .filter(|module_id| !reachability.modules.contains(module_id))
                 .map(|module_id| {
                     let layouts = executable_program_layouts(module_id).unwrap_or_else(|| {
-                        signature_layouts_for_types(db, module_id, Some(&*program_signatures))
+                        signature_layouts_for_types(db, module_id, Some(&*non_function_signatures))
                     });
-                    executable_signature_checked_module(db, module_id, layouts, program_signatures)
+                    executable_signature_checked_module(
+                        db,
+                        module_id,
+                        layouts,
+                        non_function_signatures,
+                    )
                 })
                 .collect::<Vec<_>>()
         },

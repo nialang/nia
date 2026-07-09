@@ -8,7 +8,7 @@ use nia_executable_reachability::{
     filter_semantic_facts_for_reachable_items,
 };
 use nia_program_signatures::{
-    ProgramSignatureContext, ProgramSignatureMaps, ProgramSignatureResolvers,
+    ProgramNonFunctionSignatureMaps, ProgramSignatureContext, ProgramSignatureResolvers,
     ProgramTraitMethodIndex,
 };
 use nia_symbol::{SymbolId, SymbolMap};

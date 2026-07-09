@@ -257,9 +257,9 @@ pub(super) fn provide_program_trait_method_index(
     })
 }
 
-pub(super) fn executable_program_signatures_without_functions(
+pub(super) fn executable_program_non_function_signatures(
     db: &QueryDb<CompilerContext>,
-) -> ProgramExecutableSignatures {
+) -> ProgramExecutableNonFunctionSignatures {
     let value_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Values);
     let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
     let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
@@ -267,8 +267,7 @@ pub(super) fn executable_program_signatures_without_functions(
     let trait_method_index = ProgramTraitMethodIndex::from_traits(&traits);
     let trait_impls = collect_trait_impls(&trait_facts);
     let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
-    ProgramExecutableSignatures {
-        functions: HashMap::new(),
+    ProgramExecutableNonFunctionSignatures {
         globals: collect_globals(&value_facts),
         comptimes: collect_comptimes(&value_facts),
         structs: collect_structs(&type_facts),
