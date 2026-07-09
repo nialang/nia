@@ -31,8 +31,10 @@ mod program_signatures;
 mod semantic_inputs;
 mod signature_comptime;
 
-pub(in crate::query) use self::body_check_flow::BodyCheckResolutionInputs;
 use self::body_check_flow::*;
+pub(in crate::query) use self::body_check_flow::{
+    BodyCheckResolutionInputs, BodyCheckWithResolutionInputs,
+};
 use self::body_executable::*;
 use self::body_signature_lookup::*;
 use self::codegen::*;

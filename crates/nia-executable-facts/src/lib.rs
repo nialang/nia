@@ -7,7 +7,7 @@ use nia_body_ir::{
 };
 use nia_defs::{DefCollection, DefKind};
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId};
-use nia_sema_ir::{GenericInstantiation, SemanticFacts};
+use nia_sema_ir::{GenericInstantiation, ResolvedCall, SemanticFacts};
 use nia_static_ir::StaticInit;
 use nia_symbol::{SymbolId, known};
 use std::collections::{HashMap, HashSet};
@@ -17,21 +17,21 @@ pub struct ReachableModuleInput<'a> {
     pub module_id: ModuleId,
     pub defs: &'a DefCollection,
     pub body_ir: &'a BodyIr,
-    pub body_refs: &'a ExecutableModuleBodyRefs,
+    pub executable_refs: &'a ExecutableModuleRefs,
     pub semantic_facts: &'a SemanticFacts,
     pub type_lowering: &'a nia_type_lower::TypeLowering,
     pub type_normalization: &'a nia_type_normalize::TypeNormalization,
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct ExecutableBodyRefs {
+pub struct ExecutableItemRefs {
     pub functions: HashSet<GlobalDefId>,
     pub globals: HashSet<GlobalDefId>,
     pub trait_refs: ExecutableTraitRefs,
     pub generic_instantiations: Vec<GenericInstantiation>,
 }
 
-impl ExecutableBodyRefs {
+impl ExecutableItemRefs {
     pub fn extend(&mut self, refs: Self) {
         self.functions.extend(refs.functions);
         self.globals.extend(refs.globals);
@@ -42,12 +42,12 @@ impl ExecutableBodyRefs {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct ExecutableModuleBodyRefs {
-    pub functions: HashMap<GlobalDefId, ExecutableBodyRefs>,
-    pub globals: HashMap<GlobalDefId, ExecutableBodyRefs>,
+pub struct ExecutableModuleRefs {
+    pub functions: HashMap<GlobalDefId, ExecutableItemRefs>,
+    pub globals: HashMap<GlobalDefId, ExecutableItemRefs>,
 }
 
-impl ExecutableModuleBodyRefs {
+impl ExecutableModuleRefs {
     pub fn extend(&mut self, refs: Self) {
         for (def_id, refs) in refs.functions {
             self.functions.entry(def_id).or_default().extend(refs);
@@ -61,8 +61,8 @@ impl ExecutableModuleBodyRefs {
         &self,
         functions: &HashSet<GlobalDefId>,
         globals: &HashSet<GlobalDefId>,
-    ) -> ExecutableBodyRefs {
-        let mut refs = ExecutableBodyRefs::default();
+    ) -> ExecutableItemRefs {
+        let mut refs = ExecutableItemRefs::default();
         for def_id in functions {
             if let Some(function_refs) = self.functions.get(def_id) {
                 refs.extend(function_refs.clone());
@@ -185,16 +185,16 @@ fn builtin_trait_method_symbol(method: BuiltinTraitMethod) -> SymbolId {
     }
 }
 
-pub fn executable_body_refs_for_items(
+pub fn executable_refs_for_items(
     module: &ReachableModuleInput<'_>,
     functions: &HashSet<GlobalDefId>,
     globals: &HashSet<GlobalDefId>,
-) -> ExecutableBodyRefs {
-    let mut refs = ExecutableBodyRefs::default();
+) -> ExecutableItemRefs {
+    let mut refs = ExecutableItemRefs::default();
     if functions.len() <= module.body_ir.function_bodies.len() {
         for def_id in functions {
             if let Some(body) = module.body_ir.function_bodies.get(def_id) {
-                collect_typed_body_refs(module, body, &mut refs);
+                collect_typed_executable_refs(module, body, &mut refs);
                 collect_local_static_globals_owned_by_function(module, *def_id, &mut refs);
             }
         }
@@ -203,7 +203,7 @@ pub fn executable_body_refs_for_items(
             if !functions.contains(def_id) {
                 continue;
             }
-            collect_typed_body_refs(module, body, &mut refs);
+            collect_typed_executable_refs(module, body, &mut refs);
             collect_local_static_globals_owned_by_function(module, *def_id, &mut refs);
         }
     }
@@ -224,26 +224,227 @@ pub fn executable_body_refs_for_items(
     refs
 }
 
-pub fn executable_module_body_refs(module: &ReachableModuleInput<'_>) -> ExecutableModuleBodyRefs {
-    let mut refs = ExecutableModuleBodyRefs::default();
+pub fn executable_module_refs_from_typed_ir(
+    module: &ReachableModuleInput<'_>,
+) -> ExecutableModuleRefs {
+    let mut refs = ExecutableModuleRefs::default();
     for (def_id, body) in &module.body_ir.function_bodies {
-        let mut function_refs = ExecutableBodyRefs::default();
-        collect_typed_body_refs(module, body, &mut function_refs);
+        let mut function_refs = ExecutableItemRefs::default();
+        collect_typed_executable_refs(module, body, &mut function_refs);
         collect_local_static_globals_owned_by_function(module, *def_id, &mut function_refs);
         refs.functions.insert(*def_id, function_refs);
     }
     for (def_id, init) in &module.body_ir.global_inits {
-        let mut global_refs = ExecutableBodyRefs::default();
+        let mut global_refs = ExecutableItemRefs::default();
         collect_static_init_refs(init, &mut global_refs);
         refs.globals.insert(*def_id, global_refs);
     }
     refs
 }
 
+pub fn executable_module_refs_from_semantic_facts(
+    module: &ReachableModuleInput<'_>,
+) -> ExecutableModuleRefs {
+    let mut refs = ExecutableModuleRefs::default();
+    for (def_id, facts) in &module.semantic_facts.function_facts {
+        let function_refs = refs.functions.entry(*def_id).or_default();
+        collect_local_static_globals_owned_by_function(module, *def_id, function_refs);
+        for call in facts.node_resolved_calls.values() {
+            collect_resolved_call_refs(module, call, function_refs);
+        }
+        for reference in facts.node_function_references.values() {
+            function_refs.functions.insert(reference.def_id);
+            if !reference.args.is_empty() || !reference.const_args.is_empty() {
+                function_refs
+                    .generic_instantiations
+                    .push(GenericInstantiation {
+                        def_id: reference.def_id,
+                        self_arg: None,
+                        args: reference.args.clone(),
+                        const_args: reference.const_args.clone(),
+                        generics: Vec::new(),
+                        span: nia_span::Span::default(),
+                        source_def_id: None,
+                    });
+            }
+        }
+        for reference in &facts.trait_method_refs {
+            function_refs.trait_refs.insert_method(
+                reference.module_id,
+                reference.trait_id,
+                reference.method_name,
+                reference.self_ty,
+                reference.trait_args.clone(),
+            );
+        }
+    }
+    refs
+}
+
+fn collect_resolved_call_refs(
+    module: &ReachableModuleInput<'_>,
+    call: &ResolvedCall,
+    refs: &mut ExecutableItemRefs,
+) {
+    match call {
+        ResolvedCall::Function(def_id) => {
+            refs.functions.insert(*def_id);
+        }
+        ResolvedCall::FunctionInstance {
+            def_id,
+            args,
+            const_args,
+            ..
+        } => {
+            refs.functions.insert(*def_id);
+            refs.generic_instantiations.push(GenericInstantiation {
+                def_id: *def_id,
+                self_arg: None,
+                args: args.clone(),
+                const_args: const_args.clone(),
+                generics: Vec::new(),
+                span: nia_span::Span::default(),
+                source_def_id: None,
+            });
+        }
+        ResolvedCall::Method { def_id, args, .. } => {
+            refs.functions.insert(*def_id);
+            if !args.is_empty() {
+                refs.generic_instantiations.push(GenericInstantiation {
+                    def_id: *def_id,
+                    self_arg: None,
+                    args: args.clone(),
+                    const_args: Vec::new(),
+                    generics: Vec::new(),
+                    span: nia_span::Span::default(),
+                    source_def_id: None,
+                });
+            }
+        }
+        ResolvedCall::TraitMethod {
+            trait_id,
+            method_id,
+            method_name,
+            self_ty,
+            trait_args,
+            args,
+            ..
+        } => {
+            refs.functions.insert(*method_id);
+            refs.trait_refs.insert_method(
+                module.module_id,
+                TraitId::Source(*trait_id),
+                *method_name,
+                *self_ty,
+                trait_args.clone(),
+            );
+            if !args.is_empty() {
+                refs.generic_instantiations.push(GenericInstantiation {
+                    def_id: *method_id,
+                    self_arg: Some(*self_ty),
+                    args: args.clone(),
+                    const_args: Vec::new(),
+                    generics: Vec::new(),
+                    span: nia_span::Span::default(),
+                    source_def_id: None,
+                });
+            }
+        }
+        ResolvedCall::TraitAssociatedFunction {
+            trait_id,
+            method_id,
+            method_name,
+            self_ty,
+            trait_args,
+            args,
+        } => {
+            refs.functions.insert(*method_id);
+            refs.trait_refs.insert_method(
+                module.module_id,
+                TraitId::Source(*trait_id),
+                *method_name,
+                *self_ty,
+                trait_args.clone(),
+            );
+            if !args.is_empty() {
+                refs.generic_instantiations.push(GenericInstantiation {
+                    def_id: *method_id,
+                    self_arg: Some(*self_ty),
+                    args: args.clone(),
+                    const_args: Vec::new(),
+                    generics: Vec::new(),
+                    span: nia_span::Span::default(),
+                    source_def_id: None,
+                });
+            }
+        }
+        ResolvedCall::DynamicTraitMethod {
+            trait_id,
+            method_id,
+            method_name,
+            trait_args,
+            object_ty,
+            ..
+        } => {
+            refs.functions.insert(*method_id);
+            refs.trait_refs.insert_method(
+                module.module_id,
+                *trait_id,
+                *method_name,
+                *object_ty,
+                trait_args.clone(),
+            );
+        }
+        ResolvedCall::BuiltinTraitMethod {
+            trait_id,
+            op,
+            self_ty,
+            trait_args,
+        } => {
+            refs.trait_refs.insert_trait(TraitId::Builtin(*trait_id));
+            if let Some(method) = op.method() {
+                refs.trait_refs.insert_method(
+                    module.module_id,
+                    TraitId::Builtin(*trait_id),
+                    builtin_trait_method_symbol(method),
+                    *self_ty,
+                    trait_args.clone(),
+                );
+            }
+        }
+        ResolvedCall::BuiltinMethod { method, self_ty } => {
+            if let Some((trait_id, trait_method)) = builtin_method_trait(*method) {
+                refs.trait_refs.insert_method(
+                    module.module_id,
+                    TraitId::Builtin(trait_id),
+                    builtin_trait_method_symbol(trait_method),
+                    *self_ty,
+                    Vec::new(),
+                );
+            }
+        }
+        ResolvedCall::BuiltinPlaceMethod {
+            trait_id,
+            method,
+            self_ty,
+            trait_args,
+        } => {
+            refs.trait_refs.insert_method(
+                module.module_id,
+                TraitId::Builtin(*trait_id),
+                builtin_trait_method_symbol(*method),
+                *self_ty,
+                trait_args.clone(),
+            );
+        }
+        ResolvedCall::BuiltinFunction { .. } | ResolvedCall::FunctionPointer => {}
+    }
+}
+
 fn collect_local_static_globals_owned_by_function(
     module: &ReachableModuleInput<'_>,
     function: GlobalDefId,
-    refs: &mut ExecutableBodyRefs,
+    refs: &mut ExecutableItemRefs,
 ) {
     for (def_id, def) in module.defs.defs.iter() {
         if def.kind == DefKind::Global && def.parent == Some(function.def_id) {
@@ -255,10 +456,10 @@ fn collect_local_static_globals_owned_by_function(
     }
 }
 
-fn collect_typed_body_refs(
+fn collect_typed_executable_refs(
     module: &ReachableModuleInput<'_>,
     body: &TypedBody,
-    refs: &mut ExecutableBodyRefs,
+    refs: &mut ExecutableItemRefs,
 ) {
     for stmt in &body.stmts {
         collect_typed_stmt_refs(module, stmt, refs);
@@ -271,7 +472,7 @@ fn collect_typed_body_refs(
 fn collect_typed_stmt_refs(
     module: &ReachableModuleInput<'_>,
     stmt: &TypedStmt,
-    refs: &mut ExecutableBodyRefs,
+    refs: &mut ExecutableItemRefs,
 ) {
     match &stmt.kind {
         TypedStmtKind::Binding(binding) => {
@@ -303,13 +504,15 @@ fn collect_typed_stmt_refs(
                 Vec::new(),
             );
             collect_typed_expr_refs(module, &for_in.iter, refs);
-            collect_typed_body_refs(module, &for_in.body, refs);
+            collect_typed_executable_refs(module, &for_in.body, refs);
         }
         TypedStmtKind::While(while_loop) => {
             collect_typed_expr_refs(module, &while_loop.cond, refs);
-            collect_typed_body_refs(module, &while_loop.body, refs);
+            collect_typed_executable_refs(module, &while_loop.body, refs);
         }
-        TypedStmtKind::Loop(loop_body) => collect_typed_body_refs(module, &loop_body.body, refs),
+        TypedStmtKind::Loop(loop_body) => {
+            collect_typed_executable_refs(module, &loop_body.body, refs)
+        }
         TypedStmtKind::Break | TypedStmtKind::Continue => {}
     }
 }
@@ -317,7 +520,7 @@ fn collect_typed_stmt_refs(
 fn collect_typed_expr_refs(
     module: &ReachableModuleInput<'_>,
     expr: &TypedExpr,
-    refs: &mut ExecutableBodyRefs,
+    refs: &mut ExecutableItemRefs,
 ) {
     match &expr.kind {
         TypedExprKind::Function(def_id) | TypedExprKind::FunctionInstance { def_id, .. } => {
@@ -428,14 +631,14 @@ fn collect_typed_expr_refs(
                 collect_typed_expr_refs(module, end, refs);
             }
         }
-        TypedExprKind::Block(body) => collect_typed_body_refs(module, body, refs),
+        TypedExprKind::Block(body) => collect_typed_executable_refs(module, body, refs),
         TypedExprKind::If {
             cond,
             then_branch,
             else_branch,
         } => {
             collect_typed_expr_refs(module, cond, refs);
-            collect_typed_body_refs(module, then_branch, refs);
+            collect_typed_executable_refs(module, then_branch, refs);
             if let Some(else_branch) = else_branch.as_deref() {
                 collect_typed_expr_refs(module, else_branch, refs);
             }
@@ -449,7 +652,9 @@ fn collect_typed_expr_refs(
                 match &arm.body {
                     TypedSwitchArmBody::Expr(expr) => collect_typed_expr_refs(module, expr, refs),
                     TypedSwitchArmBody::Stmt(stmt) => collect_typed_stmt_refs(module, stmt, refs),
-                    TypedSwitchArmBody::Block(body) => collect_typed_body_refs(module, body, refs),
+                    TypedSwitchArmBody::Block(body) => {
+                        collect_typed_executable_refs(module, body, refs)
+                    }
                 }
             }
         }
@@ -457,7 +662,7 @@ fn collect_typed_expr_refs(
             collect_typed_expr_refs(module, &if_pattern.target, refs);
             for arm in &if_pattern.arms {
                 collect_typed_pattern_refs(module, &arm.pattern, refs);
-                collect_typed_body_refs(module, &arm.body, refs);
+                collect_typed_executable_refs(module, &arm.body, refs);
             }
             if let Some(else_branch) = if_pattern.else_branch.as_deref() {
                 collect_typed_expr_refs(module, else_branch, refs);
@@ -485,7 +690,7 @@ fn collect_typed_callee_refs(
     module: &ReachableModuleInput<'_>,
     callee: &TypedCallee,
     args: &[TypedExpr],
-    refs: &mut ExecutableBodyRefs,
+    refs: &mut ExecutableItemRefs,
 ) {
     match callee {
         TypedCallee::Function(def_id) => {
@@ -629,7 +834,7 @@ fn collect_trait_object_vtable_ref(
     module: &ReachableModuleInput<'_>,
     object_ty: InternedTyId,
     self_ty: InternedTyId,
-    refs: &mut ExecutableBodyRefs,
+    refs: &mut ExecutableItemRefs,
 ) {
     let Some(ty) = module.body_ir.interner.get(object_ty) else {
         return;
@@ -655,7 +860,7 @@ fn collect_trait_object_vtable_ref(
 fn collect_typed_pattern_refs(
     module: &ReachableModuleInput<'_>,
     pattern: &TypedPattern,
-    refs: &mut ExecutableBodyRefs,
+    refs: &mut ExecutableItemRefs,
 ) {
     match &pattern.kind {
         TypedPatternKind::Pointer(pattern)
@@ -677,7 +882,7 @@ fn collect_typed_pattern_refs(
 fn collect_typed_switch_pattern_refs(
     module: &ReachableModuleInput<'_>,
     pattern: &nia_body_ir::TypedSwitchPattern,
-    refs: &mut ExecutableBodyRefs,
+    refs: &mut ExecutableItemRefs,
 ) {
     match &pattern.kind {
         nia_body_ir::TypedSwitchPatternKind::Expr(expr) => {
@@ -696,7 +901,7 @@ fn collect_typed_switch_pattern_refs(
 fn collect_typed_atomic_refs(
     module: &ReachableModuleInput<'_>,
     atomic: &TypedAtomic,
-    refs: &mut ExecutableBodyRefs,
+    refs: &mut ExecutableItemRefs,
 ) {
     match atomic {
         TypedAtomic::Load { ptr, .. } => collect_typed_expr_refs(module, ptr, refs),
@@ -721,7 +926,7 @@ fn collect_typed_atomic_refs(
 fn collect_typed_inline_asm_refs(
     module: &ReachableModuleInput<'_>,
     asm: &TypedInlineAsm,
-    refs: &mut ExecutableBodyRefs,
+    refs: &mut ExecutableItemRefs,
 ) {
     for input in &asm.inputs {
         collect_typed_expr_refs(module, &input.value, refs);
@@ -734,7 +939,7 @@ fn collect_typed_inline_asm_refs(
 fn collect_typed_place_refs(
     module: &ReachableModuleInput<'_>,
     place: &TypedPlace,
-    refs: &mut ExecutableBodyRefs,
+    refs: &mut ExecutableItemRefs,
 ) {
     match &place.base {
         PlaceBase::Deref(expr) => collect_typed_expr_refs(module, expr, refs),
@@ -751,7 +956,7 @@ fn collect_typed_place_refs(
     }
 }
 
-fn collect_static_init_refs(init: &StaticInit, refs: &mut ExecutableBodyRefs) {
+fn collect_static_init_refs(init: &StaticInit, refs: &mut ExecutableItemRefs) {
     match init {
         StaticInit::Array(elems) => {
             for elem in elems {

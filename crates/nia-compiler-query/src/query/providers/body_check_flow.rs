@@ -329,10 +329,10 @@ pub(in crate::query) struct BodyCheckResolutionInputs {
     pub(super) semantic_uses: nia_sema_ir::SemanticUseTable,
 }
 
-pub(super) struct BodyCheckWithResolutionInputs {
-    pub(super) body_check: nia_body_check::BodyCheck,
-    pub(super) inputs: BodyCheckResolutionInputs,
-    pub(super) comptime: Option<ComptimeCheck>,
+pub(in crate::query) struct BodyCheckWithResolutionInputs {
+    pub(in crate::query) body_check: nia_body_check::BodyCheck,
+    pub(in crate::query) inputs: BodyCheckResolutionInputs,
+    pub(in crate::query) comptime: Option<ComptimeCheck>,
 }
 
 pub(super) struct BodyCheckResolutionContext<'a> {

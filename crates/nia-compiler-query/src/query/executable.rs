@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use nia_defs::DefKind;
-use nia_executable_facts::{ExecutableModuleBodyRefs, ReachableModuleInput};
+use nia_executable_facts::{ExecutableModuleRefs, ReachableModuleInput};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
@@ -28,254 +28,141 @@ impl Default for ExecutableCheckCaches {
 }
 
 #[derive(Clone)]
-pub(super) struct ExecutableCheckedModuleState {
-    pub(super) module: CheckedModule,
-    pub(super) body_refs: ExecutableModuleBodyRefs,
+pub(super) struct ExecutableFactModuleState {
+    pub(super) module_id: ModuleId,
+    pub(super) defs: DefCollection,
+    pub(super) body_ir: nia_body_ir::BodyIr,
+    pub(super) semantic_facts: nia_sema_ir::SemanticFacts,
+    pub(super) type_lowering: nia_type_lower::TypeLowering,
+    pub(super) type_normalization: nia_type_normalize::TypeNormalization,
+    pub(super) executable_refs: ExecutableModuleRefs,
     pub(super) checked_functions: HashSet<GlobalDefId>,
     pub(super) checked_globals: HashSet<GlobalDefId>,
 }
 
-impl ExecutableCheckedModuleState {
+impl ExecutableFactModuleState {
     pub(super) fn new(
-        module: CheckedModule,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+        body_check: BodyCheckWithResolutionInputs,
         checked_functions: HashSet<GlobalDefId>,
         checked_globals: HashSet<GlobalDefId>,
     ) -> Self {
-        let body_refs = executable_body_refs_for_checked_module(&module);
-        Self {
-            module,
-            body_refs,
+        let BodyCheckWithResolutionInputs {
+            body_check,
+            inputs: _,
+            comptime: _,
+        } = body_check;
+        let mut state = Self {
+            module_id,
+            defs: db.query(FullModuleDefsQuery(module_id)),
+            body_ir: body_check.ir,
+            semantic_facts: body_check.facts,
+            type_lowering: db.query(TypeLoweringQuery(module_id)),
+            type_normalization: db.query(TypeNormalizationQuery(module_id)),
+            executable_refs: ExecutableModuleRefs::default(),
             checked_functions,
             checked_globals,
-        }
+        };
+        state.executable_refs = executable_module_refs_for_fact_state(&state);
+        state
     }
 
     pub(super) fn reachable_input(&self) -> ReachableModuleInput<'_> {
         ReachableModuleInput {
-            module_id: self.module.id,
-            defs: &self.module.defs,
-            body_ir: &self.module.body_ir,
-            body_refs: &self.body_refs,
-            semantic_facts: &self.module.semantic_facts,
-            type_lowering: &self.module.type_lowering,
-            type_normalization: &self.module.type_normalization,
+            module_id: self.module_id,
+            defs: &self.defs,
+            body_ir: &self.body_ir,
+            executable_refs: &self.executable_refs,
+            semantic_facts: &self.semantic_facts,
+            type_lowering: &self.type_lowering,
+            type_normalization: &self.type_normalization,
         }
     }
 
     pub(super) fn extend(
         &mut self,
-        increment: CheckedModule,
+        increment: BodyCheckWithResolutionInputs,
         checked_functions: HashSet<GlobalDefId>,
         checked_globals: HashSet<GlobalDefId>,
     ) {
-        self.body_refs
-            .extend(executable_body_refs_for_checked_module(&increment));
-        self.module
-            .value_resolution
-            .node_names
-            .extend(increment.value_resolution.node_names);
-        self.module
-            .value_resolution
-            .node_qualified_values
-            .extend(increment.value_resolution.node_qualified_values);
-        self.module
-            .value_resolution
-            .node_builtin_associated_values
-            .extend(increment.value_resolution.node_builtin_associated_values);
-        self.module
-            .value_resolution
-            .node_variant_enums
-            .extend(increment.value_resolution.node_variant_enums);
-        self.module
-            .value_resolution
-            .node_qualified_type_prefixes
-            .extend(increment.value_resolution.node_qualified_type_prefixes);
-        self.module
-            .value_resolution
-            .diagnostics
-            .extend(increment.value_resolution.diagnostics);
-
-        self.module
-            .local_resolution
-            .node_local_defs
-            .extend(increment.local_resolution.node_local_defs);
-        self.module
-            .local_resolution
-            .node_uses
-            .extend(increment.local_resolution.node_uses);
-        self.module
-            .local_resolution
-            .diagnostics
-            .extend(increment.local_resolution.diagnostics);
-
-        self.module
-            .semantic_uses
-            .node_value_uses
-            .extend(increment.semantic_uses.node_value_uses);
-        self.module
-            .semantic_uses
-            .node_const_generic_uses
-            .extend(increment.semantic_uses.node_const_generic_uses);
-        self.module
-            .semantic_uses
-            .node_builtin_associated_values
-            .extend(increment.semantic_uses.node_builtin_associated_values);
-        self.module
-            .semantic_uses
-            .node_associated_comptime_projections
-            .extend(increment.semantic_uses.node_associated_comptime_projections);
-        self.module
-            .semantic_uses
-            .node_local_defs
-            .extend(increment.semantic_uses.node_local_defs);
-        self.module
-            .semantic_uses
-            .node_type_uses
-            .extend(increment.semantic_uses.node_type_uses);
-
+        let BodyCheckWithResolutionInputs {
+            body_check,
+            inputs: _,
+            comptime: _,
+        } = increment;
         merge_executable_interner_snapshot(
-            &mut self.module.comptime.interner,
-            increment.comptime.interner,
-            "comptime",
+            &mut self.body_ir.interner,
+            body_check.ir.interner,
+            "fact",
         );
-        self.module
-            .comptime
-            .values
-            .extend(increment.comptime.values);
-        self.module
-            .comptime
-            .typed_values
-            .extend(increment.comptime.typed_values);
-        self.module
-            .comptime
-            .enum_values
-            .extend(increment.comptime.enum_values);
-        self.module
-            .comptime
-            .typed_enum_values
-            .extend(increment.comptime.typed_enum_values);
-        self.module
-            .comptime
-            .array_lengths
-            .extend(increment.comptime.array_lengths);
-        self.module
-            .comptime
-            .diagnostics
-            .extend(increment.comptime.diagnostics);
-
-        merge_executable_interner_snapshot(
-            &mut self.module.body_ir.interner,
-            increment.body_ir.interner,
-            "body",
-        );
-        self.module
-            .body_ir
-            .function_bodies
-            .extend(increment.body_ir.function_bodies);
-        self.module
-            .body_ir
-            .global_inits
-            .extend(increment.body_ir.global_inits);
-        self.module
-            .semantic_facts
+        self.semantic_facts
             .global_types
-            .extend(increment.semantic_facts.global_types);
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.global_types);
+        self.semantic_facts
             .generic_instantiations
-            .extend(increment.semantic_facts.generic_instantiations);
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.generic_instantiations);
+        self.semantic_facts
             .function_facts
-            .extend(increment.semantic_facts.function_facts);
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.function_facts);
+        self.semantic_facts
             .node_expr_types
-            .extend(increment.semantic_facts.node_expr_types);
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.node_expr_types);
+        self.semantic_facts
             .node_bracket_suffix_resolutions
-            .extend(increment.semantic_facts.node_bracket_suffix_resolutions);
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.node_bracket_suffix_resolutions);
+        self.semantic_facts
             .node_pointer_array_to_slice_coercions
-            .extend(
-                increment
-                    .semantic_facts
-                    .node_pointer_array_to_slice_coercions,
-            );
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.node_pointer_array_to_slice_coercions);
+        self.semantic_facts
             .node_trait_object_coercions
-            .extend(increment.semantic_facts.node_trait_object_coercions);
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.node_trait_object_coercions);
+        self.semantic_facts
             .node_trait_object_upcasts
-            .extend(increment.semantic_facts.node_trait_object_upcasts);
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.node_trait_object_upcasts);
+        self.semantic_facts
             .node_builtin_values
-            .extend(increment.semantic_facts.node_builtin_values);
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.node_builtin_values);
+        self.semantic_facts
             .node_builtin_associated_values
-            .extend(increment.semantic_facts.node_builtin_associated_values);
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.node_builtin_associated_values);
+        self.semantic_facts
             .node_associated_comptime_projections
-            .extend(
-                increment
-                    .semantic_facts
-                    .node_associated_comptime_projections,
-            );
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.node_associated_comptime_projections);
+        self.semantic_facts
             .node_array_repeat_counts
-            .extend(increment.semantic_facts.node_array_repeat_counts);
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.node_array_repeat_counts);
+        self.semantic_facts
             .node_switch_pattern_values
-            .extend(increment.semantic_facts.node_switch_pattern_values);
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.node_switch_pattern_values);
+        self.semantic_facts
             .node_resolved_calls
-            .extend(increment.semantic_facts.node_resolved_calls);
-        self.module
-            .semantic_facts
+            .extend(body_check.facts.node_resolved_calls);
+        self.semantic_facts
             .node_function_references
-            .extend(increment.semantic_facts.node_function_references);
-        self.module
-            .body_diagnostics
-            .extend(increment.body_diagnostics);
-        self.module
-            .flow_check
-            .diagnostics
-            .extend(increment.flow_check.diagnostics);
-        self.module.layouts = increment.layouts;
+            .extend(body_check.facts.node_function_references);
+        let executable_refs = executable_module_refs_for_fact_state(self);
+        self.executable_refs.extend(executable_refs);
         self.checked_functions.extend(checked_functions);
         self.checked_globals.extend(checked_globals);
     }
 }
 
-fn executable_body_refs_for_checked_module(module: &CheckedModule) -> ExecutableModuleBodyRefs {
-    let input = ReachableModuleInput {
-        module_id: module.id,
-        defs: &module.defs,
-        body_ir: &module.body_ir,
-        body_refs: &ExecutableModuleBodyRefs::default(),
-        semantic_facts: &module.semantic_facts,
-        type_lowering: &module.type_lowering,
-        type_normalization: &module.type_normalization,
-    };
-    nia_executable_facts::executable_module_body_refs(&input)
+fn executable_module_refs_for_fact_state(
+    state: &ExecutableFactModuleState,
+) -> ExecutableModuleRefs {
+    let input = state.reachable_input();
+    let mut refs = nia_executable_facts::executable_module_refs_from_typed_ir(&input);
+    refs.extend(nia_executable_facts::executable_module_refs_from_semantic_facts(&input));
+    refs
 }
 
-pub(super) fn reachable_module_inputs(
-    checked_by_id: &HashMap<ModuleId, ExecutableCheckedModuleState>,
+pub(super) fn reachable_fact_module_inputs(
+    fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
 ) -> Vec<ReachableModuleInput<'_>> {
-    checked_by_id
+    fact_by_id
         .values()
-        .map(ExecutableCheckedModuleState::reachable_input)
+        .map(ExecutableFactModuleState::reachable_input)
         .collect()
 }
 
@@ -289,27 +176,27 @@ pub(super) fn reachable_module_inputs_by_id<'a>(
         .collect()
 }
 
-pub(super) fn stale_executable_modules(
+pub(super) fn stale_executable_fact_modules(
     db: &QueryDb<CompilerContext>,
     parse_ok: &[ModuleId],
     reachability: &nia_executable_reachability::ExecutableReachability,
-    checked_by_id: &HashMap<ModuleId, ExecutableCheckedModuleState>,
+    fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
 ) -> std::collections::VecDeque<ModuleId> {
     parse_ok
         .iter()
         .copied()
         .filter(|module_id| reachability.modules.contains(module_id))
         .filter(|module_id| executable_module_has_pending_body_items(db, *module_id, reachability))
-        .filter(|module_id| executable_module_is_stale(*module_id, reachability, checked_by_id))
+        .filter(|module_id| executable_fact_module_is_stale(*module_id, reachability, fact_by_id))
         .collect()
 }
 
-pub(super) fn executable_module_is_stale(
+pub(super) fn executable_fact_module_is_stale(
     module_id: ModuleId,
     reachability: &nia_executable_reachability::ExecutableReachability,
-    checked_by_id: &HashMap<ModuleId, ExecutableCheckedModuleState>,
+    fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
 ) -> bool {
-    match checked_by_id.get(&module_id) {
+    match fact_by_id.get(&module_id) {
         Some(state) => {
             reachability.functions.iter().any(|def_id| {
                 def_id.module_id == module_id && !state.checked_functions.contains(def_id)
@@ -347,6 +234,8 @@ pub(super) fn debug_executable_reachability_enabled() -> bool {
 pub(super) struct ExecutableRoundDebug<'a> {
     pub(super) module_id: ModuleId,
     pub(super) module_path: &'a SourcePath,
+    pub(super) requested_function_names: Vec<String>,
+    pub(super) checked_function_names: Vec<String>,
     pub(super) requested_functions: usize,
     pub(super) new_functions: usize,
     pub(super) new_globals: usize,
@@ -376,6 +265,14 @@ pub(super) fn print_executable_round_debug(info: ExecutableRoundDebug<'_>) {
         info.reachable_modules_total,
         info.type_modules_total,
     );
+    if !info.requested_function_names.is_empty() || !info.checked_function_names.is_empty() {
+        eprintln!(
+            "debug executable_reachability.functions module={:?} requested=[{}] checked=[{}]",
+            info.module_id,
+            info.requested_function_names.join(", "),
+            info.checked_function_names.join(", "),
+        );
+    }
 }
 
 fn merge_executable_interner_snapshot(

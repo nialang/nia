@@ -301,6 +301,16 @@ pub struct FunctionSemanticFacts {
     pub node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
     pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
     pub node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
+    pub trait_method_refs: Vec<SemanticTraitMethodRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticTraitMethodRef {
+    pub module_id: ModuleId,
+    pub trait_id: TraitId,
+    pub method_name: SymbolId,
+    pub self_ty: InternedTyId,
+    pub trait_args: Vec<InternedTyId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -412,6 +422,8 @@ pub enum ResolvedCall {
     BuiltinTraitMethod {
         trait_id: BuiltinTrait,
         op: BuiltinOperatorOp,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
     },
     BuiltinMethod {
         method: BuiltinMethod,
