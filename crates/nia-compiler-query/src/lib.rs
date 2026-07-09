@@ -119,8 +119,9 @@ pub struct CheckedModule {
     pub semantic_uses: SemanticUseTable,
     pub semantic_facts: SemanticFacts,
     pub executable_reachable_globals: Option<std::collections::HashSet<GlobalDefId>>,
-    pub executable_reachable_structs: Option<std::collections::HashSet<GlobalDefId>>,
-    pub executable_reachable_unions: Option<std::collections::HashSet<GlobalDefId>>,
+    pub executable_reachable_structs:
+        Option<std::sync::Arc<std::collections::HashSet<GlobalDefId>>>,
+    pub executable_reachable_unions: Option<std::sync::Arc<std::collections::HashSet<GlobalDefId>>>,
     pub executable_type_only: bool,
     pub body_diagnostics: Vec<Diagnostic>,
 }

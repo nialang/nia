@@ -794,9 +794,12 @@ fn executable_checked_module_set_inner(
         db.context().timings(),
         "executable_checked_modules.final.store_aggregate_roots",
         || {
+            let reachable_structs = std::sync::Arc::new(aggregate_roots.structs);
+            let reachable_unions = std::sync::Arc::new(aggregate_roots.unions);
             for module in &mut codegen_modules {
-                module.executable_reachable_structs = Some(aggregate_roots.structs.clone());
-                module.executable_reachable_unions = Some(aggregate_roots.unions.clone());
+                module.executable_reachable_structs =
+                    Some(std::sync::Arc::clone(&reachable_structs));
+                module.executable_reachable_unions = Some(std::sync::Arc::clone(&reachable_unions));
             }
         },
     );
