@@ -471,17 +471,18 @@ fn executable_checked_module_set_inner(
                 already_checked_functions: already_checked_functions,
                 already_checked_globals: already_checked_globals,
             };
-            let mut reachable_body_modules = round_reachable_body_modules.clone();
-            if !module_functions.is_empty()
+            let has_reachable_body_items = !module_functions.is_empty()
                 || module_globals.iter().any(|def_id| {
                     db.query_shared(ModuleDefsQuery(def_id.module_id))
                         .defs
                         .get(def_id.def_id)
                         .is_some_and(|def| def.kind == DefKind::Global)
-                })
-            {
-                reachable_body_modules.insert(module_id);
-            }
+                });
+            let reachable_body_modules = if has_reachable_body_items {
+                ReachableBodyModules::new(&round_reachable_body_modules).with_extra(module_id)
+            } else {
+                ReachableBodyModules::new(&round_reachable_body_modules)
+            };
             let layouts = {
                 let reachability = reachability_state.reachability();
                 executable_layouts_for_reachable_items(
@@ -491,7 +492,7 @@ fn executable_checked_module_set_inner(
                     reachability.globals(),
                     Some(&caches.array_lengths),
                     None,
-                    Some(&reachable_body_modules),
+                    Some(reachable_body_modules),
                 )
             };
             let seed_interner = fact_by_id
@@ -531,7 +532,7 @@ fn executable_checked_module_set_inner(
                         reachability.globals(),
                         Some(&caches.array_lengths),
                         None,
-                        Some(&reachable_body_modules),
+                        Some(reachable_body_modules),
                     )
                 };
                 time_module_provider(db, "executable_fact_check", module_id, || {
@@ -541,7 +542,7 @@ fn executable_checked_module_set_inner(
                         filter,
                         Some(layouts.clone()),
                         Some(&executable_program_layouts),
-                        ExecutableFactMode::executable(&reachable_body_modules),
+                        ExecutableFactMode::executable(reachable_body_modules),
                         Some(resolution_inputs),
                         seed_interner,
                         Some(&caches.global_initializers),
@@ -852,7 +853,7 @@ fn final_executable_checked_modules(
             reachability.globals(),
             Some(&caches.array_lengths),
             None,
-            Some(&reachable_body_modules),
+            Some(ReachableBodyModules::new(&reachable_body_modules)),
         );
         program_layout_cache.borrow_mut().insert(module_id, layouts);
     }
@@ -863,7 +864,7 @@ fn final_executable_checked_modules(
         reachability.globals(),
         Some(&caches.array_lengths),
         None,
-        Some(&reachable_body_modules),
+        Some(ReachableBodyModules::new(&reachable_body_modules)),
     );
     modules_with_executable_items
         .into_iter()
@@ -882,7 +883,7 @@ fn final_executable_checked_modules(
                         reachability.globals(),
                         Some(&caches.array_lengths),
                         None,
-                        Some(&reachable_body_modules),
+                        Some(ReachableBodyModules::new(&reachable_body_modules)),
                     )
                 });
             let filter = nia_body_check::BodyCheckFilter::ReachableItems {
@@ -921,7 +922,9 @@ fn final_executable_checked_modules(
                     filter,
                     Some(layouts.clone()),
                     Some(&executable_program_layouts),
-                    ExecutableFactMode::executable(&reachable_body_modules),
+                    ExecutableFactMode::executable(ReachableBodyModules::new(
+                        &reachable_body_modules,
+                    )),
                     Some(resolution_inputs),
                     seed_interner,
                     Some(&caches.global_initializers),
