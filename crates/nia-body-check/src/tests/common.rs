@@ -344,6 +344,7 @@ fn pipeline_with_options(
         program_comptime: ProgramComptimeMaps::empty(),
         filter: crate::BodyCheckFilter::All,
         product: crate::BodyCheckProduct::Full,
+        prechecked: None,
     })
 }
 

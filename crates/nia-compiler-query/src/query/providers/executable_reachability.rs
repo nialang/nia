@@ -549,6 +549,7 @@ fn executable_checked_module_set_inner(
                         Some(&comptime_module_cache),
                         Some(&caches.body_function_signatures),
                         nia_body_check::BodyCheckProduct::FactsOnly,
+                        None,
                     )
                 })
             };
@@ -915,11 +916,20 @@ fn final_executable_checked_modules(
                     inputs
                 })
             };
-            let seed_interner = fact_by_id
-                .remove(&module_id)
-                .map(|state| state.body_ir.interner);
+            let prechecked =
+                fact_by_id
+                    .remove(&module_id)
+                    .map(|state| nia_body_check::PrecheckedBodyCheck {
+                        ir: state.body_ir,
+                        facts: state.semantic_facts,
+                        checked_functions: state.checked_functions,
+                        diagnostics: state.diagnostics,
+                    });
+            let seed_interner = prechecked
+                .as_ref()
+                .map(|prechecked| prechecked.ir.interner.clone());
             let body_check = time_module_provider(db, "executable_body_check", module_id, || {
-                body_check_with_filter_and_layouts_with_inputs(
+                body_check_with_filter_and_layouts_with_inputs_and_product(
                     db,
                     module_id,
                     filter,
@@ -933,6 +943,8 @@ fn final_executable_checked_modules(
                     Some(&caches.global_initializers),
                     Some(comptime_module_cache),
                     Some(&caches.body_function_signatures),
+                    nia_body_check::BodyCheckProduct::Full,
+                    prechecked,
                 )
             });
             let checked_functions = body_check.body_check.checked_functions.clone();

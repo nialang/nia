@@ -687,6 +687,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         comptime_module_cache,
         program_function_signature_cache,
         nia_body_check::BodyCheckProduct::Full,
+        None,
     )
 }
 
@@ -708,6 +709,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
         &RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>,
     >,
     product: nia_body_check::BodyCheckProduct,
+    prechecked: Option<nia_body_check::PrecheckedBodyCheck>,
 ) -> BodyCheckWithResolutionInputs {
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
@@ -1179,58 +1181,63 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
     };
     let program_visible_extensions =
         |module_id| Some(db.query(VisibleExtensionsQuery(module_id)).methods.clone());
-    let run_body_check = |inputs: &BodyCheckResolutionInputs,
-                          body_comptime: nia_body_check::BodyComptime<'_>,
-                          comptime_module: &nia_comptime_ir::ResolvedComptimeModule,
-                          filter: nia_body_check::BodyCheckFilter<'_>| {
-        nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
-            nia_body_check::BodyCheckInput {
-                source_version: Some(source_version),
-                source_path: &source_path,
-                symbols: &db.context().symbols(),
-                origins: &origins,
-                active_item_tree: &inputs.active_item_tree,
-                defs: &defs,
-                values: &inputs.values,
-                locals: &inputs.locals,
-                semantic_uses: &inputs.semantic_uses,
-                lowered: &lowered,
-                signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
-                comptime_signatures: &signatures,
-                normalization: &normalization,
-                seed_interner: seed_interner.clone(),
-                target: &db.query(CompilerTargetQuery),
-                comptime: body_comptime,
-                comptime_module,
-                layouts: &layouts,
-                extensions: &empty_extensions,
-                lazy_extensions: Some(&lazy_extensions),
-                program_extension_methods,
-                extension_interner: None,
-                program: nia_body_check::BodyProgramContext {
-                    defs: Some(&program_defs),
-                    type_normalizations: Some(&program_type_normalization),
-                    extension_type_normalizations: Some(&extension_method_normalization),
-                    signatures: Some(&item_signatures_for_module),
-                    layouts: Some(&program_layouts),
-                    visible_extensions: Some(&program_visible_extensions),
-                    extension_method_by_id: Some(&program_extension_method_by_id),
-                    extension_methods_named: Some(&program_extension_methods_named),
+    let run_body_check =
+        |inputs: &BodyCheckResolutionInputs,
+         body_comptime: nia_body_check::BodyComptime<'_>,
+         comptime_module: &nia_comptime_ir::ResolvedComptimeModule,
+         filter: nia_body_check::BodyCheckFilter<'_>,
+         prechecked: Option<nia_body_check::PrecheckedBodyCheck>| {
+            nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
+                nia_body_check::BodyCheckInput {
+                    source_version: Some(source_version),
+                    source_path: &source_path,
+                    symbols: &db.context().symbols(),
+                    origins: &origins,
+                    active_item_tree: &inputs.active_item_tree,
+                    defs: &defs,
+                    values: &inputs.values,
+                    locals: &inputs.locals,
+                    semantic_uses: &inputs.semantic_uses,
+                    lowered: &lowered,
+                    signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(
+                        &signatures,
+                    ),
+                    comptime_signatures: &signatures,
+                    normalization: &normalization,
+                    seed_interner: seed_interner.clone(),
+                    target: &db.query(CompilerTargetQuery),
+                    comptime: body_comptime,
+                    comptime_module,
+                    layouts: &layouts,
+                    extensions: &empty_extensions,
+                    lazy_extensions: Some(&lazy_extensions),
+                    program_extension_methods,
+                    extension_interner: None,
+                    program: nia_body_check::BodyProgramContext {
+                        defs: Some(&program_defs),
+                        type_normalizations: Some(&program_type_normalization),
+                        extension_type_normalizations: Some(&extension_method_normalization),
+                        signatures: Some(&item_signatures_for_module),
+                        layouts: Some(&program_layouts),
+                        visible_extensions: Some(&program_visible_extensions),
+                        extension_method_by_id: Some(&program_extension_method_by_id),
+                        extension_methods_named: Some(&program_extension_methods_named),
+                    },
+                    program_signatures,
+                    function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
+                    program_comptime: nia_body_check::ProgramComptimeMaps {
+                        values: &program_comptime_values,
+                        array_lengths: &program_comptime_array_lengths,
+                        module: &program_comptime_module,
+                    },
+                    filter,
+                    product,
+                    prechecked,
                 },
-                program_signatures,
-                function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
-                program_comptime: nia_body_check::ProgramComptimeMaps {
-                    values: &program_comptime_values,
-                    array_lengths: &program_comptime_array_lengths,
-                    module: &program_comptime_module,
-                },
-                filter,
-                product,
-            },
-            db.context().timings(),
-        )
-    };
-    let body_check = run_body_check(inputs, body_comptime, comptime_module, filter);
+                db.context().timings(),
+            )
+        };
+    let body_check = run_body_check(inputs, body_comptime, comptime_module, filter, prechecked);
     let stored_inputs = match (product, filter) {
         (nia_body_check::BodyCheckProduct::FactsOnly, _) => filtered_inputs,
         (
