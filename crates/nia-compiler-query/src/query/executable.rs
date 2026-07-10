@@ -38,6 +38,7 @@ pub(super) struct ExecutableFactModuleState {
     pub(super) executable_refs: ExecutableModuleRefs,
     pub(super) checked_functions: HashSet<GlobalDefId>,
     pub(super) checked_globals: HashSet<GlobalDefId>,
+    pub(super) diagnostics: Vec<nia_diagnostic::Diagnostic>,
 }
 
 impl ExecutableFactModuleState {
@@ -56,7 +57,7 @@ impl ExecutableFactModuleState {
             ir,
             facts,
             checked_functions,
-            diagnostics: _,
+            diagnostics,
         } = body_check;
         let mut state = Self {
             module_id,
@@ -68,6 +69,7 @@ impl ExecutableFactModuleState {
             executable_refs: ExecutableModuleRefs::default(),
             checked_functions,
             checked_globals,
+            diagnostics,
         };
         state.executable_refs = executable_module_refs_for_fact_state(&state);
         state
@@ -99,7 +101,7 @@ impl ExecutableFactModuleState {
             mut ir,
             facts,
             checked_functions,
-            diagnostics: _,
+            diagnostics,
         } = body_check;
         let executable_refs = executable_module_refs_for_increment(
             self.module_id,
@@ -118,6 +120,7 @@ impl ExecutableFactModuleState {
         self.executable_refs.extend(executable_refs);
         self.checked_functions.extend(checked_functions);
         self.checked_globals.extend(checked_globals);
+        self.diagnostics.extend(diagnostics);
     }
 }
 

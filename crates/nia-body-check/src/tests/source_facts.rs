@@ -126,6 +126,7 @@ fn main() i32 {
         program_comptime: ProgramComptimeMaps::empty(),
         filter: crate::BodyCheckFilter::All,
         product: crate::BodyCheckProduct::Full,
+        prechecked: None,
     });
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -287,6 +288,7 @@ fn main() i32 {
         program_comptime: ProgramComptimeMaps::empty(),
         filter: crate::BodyCheckFilter::All,
         product: crate::BodyCheckProduct::Full,
+        prechecked: None,
     });
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
