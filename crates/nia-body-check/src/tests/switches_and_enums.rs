@@ -418,11 +418,13 @@ fn non_constant(value: i32, start: i32) i32 {
         assert!(
             checked
                 .facts
-                .node_switch_pattern_values
-                .values()
-                .any(|value| *value == expected),
+                .iter_node_switch_pattern_values()
+                .any(|(_, value)| *value == expected),
             "missing switch pattern value {expected}: {:?}",
-            checked.facts.node_switch_pattern_values
+            checked
+                .facts
+                .iter_node_switch_pattern_values()
+                .collect::<Vec<_>>()
         );
     }
 }

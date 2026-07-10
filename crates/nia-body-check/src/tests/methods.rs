@@ -1120,17 +1120,21 @@ fn main() i32 {
 
     let mut saw_method = false;
     let mut saw_function_pointer = false;
-    for call in checked.facts.node_resolved_calls.values() {
+    for (_, call) in checked.facts.iter_node_resolved_calls() {
         match call {
             nia_sema_ir::ResolvedCall::Method { .. } => saw_method = true,
             nia_sema_ir::ResolvedCall::FunctionPointer => saw_function_pointer = true,
             _ => {}
         }
     }
-    assert!(saw_method, "{:?}", checked.facts.node_resolved_calls);
+    assert!(
+        saw_method,
+        "{:?}",
+        checked.facts.iter_node_resolved_calls().collect::<Vec<_>>()
+    );
     assert!(
         saw_function_pointer,
         "{:?}",
-        checked.facts.node_resolved_calls
+        checked.facts.iter_node_resolved_calls().collect::<Vec<_>>()
     );
 }

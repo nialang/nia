@@ -122,14 +122,17 @@ fn main(xs: [4]u8) usize {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let const_instance_count = checked
         .facts
-        .generic_instantiations
-        .iter()
+        .iter_generic_instantiations()
         .filter(|inst| !inst.const_args.is_empty())
         .count();
     assert_eq!(
-        const_instance_count, 2,
+        const_instance_count,
+        2,
         "{:?}",
-        checked.facts.generic_instantiations
+        checked
+            .facts
+            .iter_generic_instantiations()
+            .collect::<Vec<_>>()
     );
 }
 
@@ -150,8 +153,7 @@ fn main() usize {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let const_instance = checked
         .facts
-        .generic_instantiations
-        .iter()
+        .iter_generic_instantiations()
         .find(|inst| !inst.const_args.is_empty())
         .expect("const generic instantiation");
     assert_eq!(const_instance.const_args.len(), 1);

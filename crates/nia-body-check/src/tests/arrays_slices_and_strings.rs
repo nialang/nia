@@ -21,16 +21,14 @@ fn main() usize {
     assert!(
         checked
             .facts
-            .node_builtin_values
-            .values()
-            .any(|value| *value == BuiltinValue::Usize(8))
+            .iter_node_builtin_values()
+            .any(|(_, value)| *value == BuiltinValue::Usize(8))
     );
     assert!(
         checked
             .facts
-            .node_builtin_values
-            .values()
-            .any(|value| *value == BuiltinValue::Usize(4))
+            .iter_node_builtin_values()
+            .any(|(_, value)| *value == BuiltinValue::Usize(4))
     );
 }
 
@@ -59,16 +57,14 @@ fn main() usize {
     assert!(
         checked
             .facts
-            .node_builtin_values
-            .values()
-            .any(|value| *value == BuiltinValue::Usize(4))
+            .iter_node_builtin_values()
+            .any(|(_, value)| *value == BuiltinValue::Usize(4))
     );
     assert!(
         checked
             .facts
-            .node_builtin_values
-            .values()
-            .any(|value| *value == BuiltinValue::Usize(0))
+            .iter_node_builtin_values()
+            .any(|(_, value)| *value == BuiltinValue::Usize(0))
     );
     let body = checked
         .ir
@@ -656,11 +652,13 @@ fn main() i32 {
     assert!(
         checked
             .facts
-            .node_array_repeat_counts
-            .values()
-            .any(|count| *count == 1048576),
+            .iter_node_array_repeat_counts()
+            .any(|(_, count)| *count == 1048576),
         "{:?}",
-        checked.facts.node_array_repeat_counts
+        checked
+            .facts
+            .iter_node_array_repeat_counts()
+            .collect::<Vec<_>>()
     );
 }
 
@@ -836,9 +834,16 @@ fn make() i32 {
         checked.diagnostics
     );
     assert!(
-        checked.facts.node_pointer_array_to_slice_coercions.len() >= 3,
+        checked
+            .facts
+            .iter_node_pointer_array_to_slice_coercions()
+            .count()
+            >= 3,
         "{:?}",
-        checked.facts.node_pointer_array_to_slice_coercions
+        checked
+            .facts
+            .iter_node_pointer_array_to_slice_coercions()
+            .collect::<Vec<_>>()
     );
 }
 

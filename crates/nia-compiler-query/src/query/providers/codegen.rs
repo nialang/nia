@@ -50,27 +50,40 @@ pub(super) fn monomorphization_for_checked_modules(
         .map(|module| (module.id, db.query(ItemSignaturesQuery(module.id))))
         .collect::<HashMap<_, _>>();
     let function_bodies = function_bodies_from_checked_modules(db, checked_modules);
+    let semantic_instantiations = checked_modules
+        .iter()
+        .map(|module| {
+            module
+                .semantic_facts
+                .iter_generic_instantiations()
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
     nia_monomorphize::collect_monomorphizations(
         &checked_modules
             .iter()
             .zip(function_bodies.iter())
-            .map(|(module, function_bodies)| MonomorphizeModuleInput {
-                module_id: module.id,
-                defs: &module.defs,
-                interner: &function_bodies.interner,
-                normalization: &module.type_normalization,
-                comptime: &module.comptime,
-                const_expr_summaries: &module.type_lowering.const_expr_summaries,
-                layouts: Some(&module.layouts),
-                local_enums: &local_signatures
-                    .get(&module.id)
-                    .expect("monomorphization signatures must exist for checked module")
-                    .enums,
-                program_enums,
-                trait_impls,
-                trait_impl_index,
-                instantiations: &module.semantic_facts.generic_instantiations,
-            })
+            .zip(semantic_instantiations.iter())
+            .map(
+                |((module, function_bodies), semantic_instantiations)| MonomorphizeModuleInput {
+                    module_id: module.id,
+                    defs: &module.defs,
+                    interner: &function_bodies.interner,
+                    normalization: &module.type_normalization,
+                    comptime: &module.comptime,
+                    const_expr_summaries: &module.type_lowering.const_expr_summaries,
+                    layouts: Some(&module.layouts),
+                    local_enums: &local_signatures
+                        .get(&module.id)
+                        .expect("monomorphization signatures must exist for checked module")
+                        .enums,
+                    program_enums,
+                    trait_impls,
+                    trait_impl_index,
+                    instantiations: semantic_instantiations,
+                },
+            )
             .collect::<Vec<_>>(),
     )
 }

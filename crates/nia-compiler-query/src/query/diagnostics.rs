@@ -11,8 +11,7 @@ pub(super) fn path_for_diagnostic_span(modules: &[CheckedModule], span: Span) ->
         .find(|module| {
             module
                 .semantic_facts
-                .generic_instantiations
-                .iter()
+                .iter_generic_instantiations()
                 .any(|instantiation| instantiation.span == span)
         })
         .map(|module| module.path.clone())

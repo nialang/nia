@@ -407,6 +407,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         program_comptime: nia_body_check::ProgramComptimeMaps::empty(),
         filter: nia_body_check::BodyCheckFilter::All,
         product: nia_body_check::BodyCheckProduct::Full,
+        prechecked: None,
     });
     assert!(
         body_check.diagnostics.is_empty(),
@@ -425,6 +426,11 @@ fn lower_source_with_body_check_mutation_and_optimization(
         })
         .collect::<HashMap<_, _>>();
     let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::default();
+    let semantic_instantiations = body_check
+        .facts
+        .iter_generic_instantiations()
+        .cloned()
+        .collect::<Vec<_>>();
     let monomorphization =
         nia_monomorphize::collect_monomorphizations(&[nia_monomorphize::MonomorphizeModuleInput {
             module_id: ModuleId(0),
@@ -438,7 +444,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
             program_enums: &HashMap::new(),
             trait_impls: &[],
             trait_impl_index: &trait_impl_index,
-            instantiations: &body_check.facts.generic_instantiations,
+            instantiations: &semantic_instantiations,
         }]);
     assert!(
         monomorphization.diagnostics.is_empty(),
