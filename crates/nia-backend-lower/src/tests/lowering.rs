@@ -183,6 +183,7 @@ fn main() i32 {
         program_comptime: nia_body_check::ProgramComptimeMaps::empty(),
         filter: nia_body_check::BodyCheckFilter::All,
         product: nia_body_check::BodyCheckProduct::Full,
+        prechecked: None,
     });
     assert!(
         body_check.diagnostics.is_empty(),

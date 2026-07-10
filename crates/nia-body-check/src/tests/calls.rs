@@ -187,9 +187,9 @@ fn main() i32 {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
-    let counts = checked.facts.node_bracket_suffix_resolutions.values().fold(
+    let counts = checked.facts.iter_node_bracket_suffix_resolutions().fold(
         (0usize, 0usize, 0usize),
-        |(indexes, generic_calls, type_prefixes), resolution| match resolution {
+        |(indexes, generic_calls, type_prefixes), (_, resolution)| match resolution {
             BracketSuffixResolution::Index => (indexes + 1, generic_calls, type_prefixes),
             BracketSuffixResolution::GenericCall => (indexes, generic_calls + 1, type_prefixes),
             BracketSuffixResolution::TypePrefixInstantiation => {
@@ -222,20 +222,21 @@ fn main() i32 {
     assert!(
         checked
             .facts
-            .node_bracket_suffix_resolutions
-            .values()
-            .any(|resolution| matches!(resolution, BracketSuffixResolution::GenericCall)),
+            .iter_node_bracket_suffix_resolutions()
+            .any(|(_, resolution)| matches!(resolution, BracketSuffixResolution::GenericCall)),
         "{:?}",
-        checked.facts.node_bracket_suffix_resolutions
+        checked
+            .facts
+            .iter_node_bracket_suffix_resolutions()
+            .collect::<Vec<_>>()
     );
     assert!(
         checked
             .facts
-            .node_resolved_calls
-            .values()
-            .any(|call| matches!(call, nia_sema_ir::ResolvedCall::FunctionInstance { .. })),
+            .iter_node_resolved_calls()
+            .any(|(_, call)| matches!(call, nia_sema_ir::ResolvedCall::FunctionInstance { .. })),
         "{:?}",
-        checked.facts.node_resolved_calls
+        checked.facts.iter_node_resolved_calls().collect::<Vec<_>>()
     );
 }
 
@@ -256,24 +257,25 @@ fn main() i32 {
     assert_eq!(
         checked
             .facts
-            .node_bracket_suffix_resolutions
-            .values()
-            .filter(|resolution| matches!(resolution, BracketSuffixResolution::GenericCall))
+            .iter_node_bracket_suffix_resolutions()
+            .filter(|(_, resolution)| matches!(resolution, BracketSuffixResolution::GenericCall))
             .count(),
         2,
         "{:?}",
-        checked.facts.node_bracket_suffix_resolutions
+        checked
+            .facts
+            .iter_node_bracket_suffix_resolutions()
+            .collect::<Vec<_>>()
     );
     assert_eq!(
         checked
             .facts
-            .node_resolved_calls
-            .values()
-            .filter(|call| matches!(call, nia_sema_ir::ResolvedCall::FunctionInstance { .. }))
+            .iter_node_resolved_calls()
+            .filter(|(_, call)| matches!(call, nia_sema_ir::ResolvedCall::FunctionInstance { .. }))
             .count(),
         2,
         "{:?}",
-        checked.facts.node_resolved_calls
+        checked.facts.iter_node_resolved_calls().collect::<Vec<_>>()
     );
 }
 

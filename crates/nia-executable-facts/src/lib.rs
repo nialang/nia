@@ -1059,44 +1059,6 @@ pub fn filter_semantic_facts_for_reachable_items(
             .collect(),
         ..Default::default()
     };
-    for def_id in reachable_functions {
-        let Some(function_facts) = facts.function_facts.get(def_id) else {
-            continue;
-        };
-        reachable_facts
-            .generic_instantiations
-            .extend(function_facts.generic_instantiations.clone());
-        reachable_facts
-            .node_expr_types
-            .extend(function_facts.node_expr_types.clone());
-        reachable_facts
-            .node_bracket_suffix_resolutions
-            .extend(function_facts.node_bracket_suffix_resolutions.clone());
-        reachable_facts
-            .node_pointer_array_to_slice_coercions
-            .extend(function_facts.node_pointer_array_to_slice_coercions.clone());
-        reachable_facts
-            .node_trait_object_coercions
-            .extend(function_facts.node_trait_object_coercions.clone());
-        reachable_facts
-            .node_trait_object_upcasts
-            .extend(function_facts.node_trait_object_upcasts.clone());
-        reachable_facts
-            .node_builtin_values
-            .extend(function_facts.node_builtin_values.clone());
-        reachable_facts
-            .node_array_repeat_counts
-            .extend(function_facts.node_array_repeat_counts.clone());
-        reachable_facts
-            .node_switch_pattern_values
-            .extend(function_facts.node_switch_pattern_values.clone());
-        reachable_facts
-            .node_resolved_calls
-            .extend(function_facts.node_resolved_calls.clone());
-        reachable_facts
-            .node_function_references
-            .extend(function_facts.node_function_references.clone());
-    }
     reachable_facts.generic_instantiations.extend(
         facts
             .generic_instantiations

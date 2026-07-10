@@ -1150,8 +1150,7 @@ impl<'a> ModuleLowerer<'a> {
             generic_instantiations: self
                 .input
                 .semantic_facts
-                .generic_instantiations
-                .iter()
+                .iter_generic_instantiations()
                 .map(|inst| nia_backend_ir::BackendGenericInstantiation {
                     def_id: inst.def_id,
                     arg_module_id: self.input.module_id,
@@ -2165,11 +2164,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
-        self.input
-            .semantic_facts
-            .node_expr_types
-            .get(&expr.node_key)
-            .copied()
+        self.input.semantic_facts.node_expr_type(&expr.node_key)
     }
 
     pub(crate) fn receiver_kind_for_method(

@@ -266,8 +266,12 @@ fn int_mask(bits: u32) -> u128 {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticFacts {
     pub global_types: HashMap<GlobalDefId, InternedTyId>,
+    /// Instantiations owned by module-level facts. Function body instantiations live in
+    /// `function_facts`; use `iter_generic_instantiations` when both owners are relevant.
     pub generic_instantiations: Vec<GenericInstantiation>,
     pub function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
+    /// Node facts owned by module-level expressions. Function body node facts live in
+    /// `function_facts`; use the `iter_node_*` methods when both owners are relevant.
     pub node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
     pub node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
     pub node_pointer_array_to_slice_coercions:
@@ -311,6 +315,172 @@ impl SemanticFacts {
         self.node_resolved_calls.extend(facts.node_resolved_calls);
         self.node_function_references
             .extend(facts.node_function_references);
+    }
+
+    pub fn iter_generic_instantiations(&self) -> impl Iterator<Item = &GenericInstantiation> + '_ {
+        self.generic_instantiations.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.generic_instantiations.iter()),
+        )
+    }
+
+    pub fn node_expr_type(&self, key: &VersionedNodeKey) -> Option<InternedTyId> {
+        self.node_expr_types.get(key).copied().or_else(|| {
+            self.function_facts
+                .values()
+                .find_map(|facts| facts.node_expr_types.get(key).copied())
+        })
+    }
+
+    pub fn iter_node_expr_types(
+        &self,
+    ) -> impl Iterator<Item = (&VersionedNodeKey, &InternedTyId)> + '_ {
+        self.node_expr_types.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_expr_types.iter()),
+        )
+    }
+
+    pub fn iter_node_bracket_suffix_resolutions(
+        &self,
+    ) -> impl Iterator<Item = (&VersionedNodeKey, &BracketSuffixResolution)> + '_ {
+        self.node_bracket_suffix_resolutions.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_bracket_suffix_resolutions.iter()),
+        )
+    }
+
+    pub fn iter_node_pointer_array_to_slice_coercions(
+        &self,
+    ) -> impl Iterator<Item = (&VersionedNodeKey, &PointerArrayToSliceCoercion)> + '_ {
+        self.node_pointer_array_to_slice_coercions.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_pointer_array_to_slice_coercions.iter()),
+        )
+    }
+
+    pub fn iter_node_trait_object_coercions(
+        &self,
+    ) -> impl Iterator<Item = (&VersionedNodeKey, &TraitObjectCoercion)> + '_ {
+        self.node_trait_object_coercions.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_trait_object_coercions.iter()),
+        )
+    }
+
+    pub fn iter_node_trait_object_upcasts(
+        &self,
+    ) -> impl Iterator<Item = (&VersionedNodeKey, &TraitObjectUpcast)> + '_ {
+        self.node_trait_object_upcasts.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_trait_object_upcasts.iter()),
+        )
+    }
+
+    pub fn iter_node_builtin_values(
+        &self,
+    ) -> impl Iterator<Item = (&VersionedNodeKey, &BuiltinValue)> + '_ {
+        self.node_builtin_values.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_builtin_values.iter()),
+        )
+    }
+
+    pub fn iter_node_associated_comptime_projections(
+        &self,
+    ) -> impl Iterator<Item = (&VersionedNodeKey, &AssociatedComptimeProjection)> + '_ {
+        self.node_associated_comptime_projections.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_associated_comptime_projections.iter()),
+        )
+    }
+
+    pub fn iter_node_array_repeat_counts(
+        &self,
+    ) -> impl Iterator<Item = (&VersionedNodeKey, &u64)> + '_ {
+        self.node_array_repeat_counts.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_array_repeat_counts.iter()),
+        )
+    }
+
+    pub fn iter_node_switch_pattern_values(
+        &self,
+    ) -> impl Iterator<Item = (&VersionedNodeKey, &i128)> + '_ {
+        self.node_switch_pattern_values.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_switch_pattern_values.iter()),
+        )
+    }
+
+    pub fn iter_node_resolved_calls(
+        &self,
+    ) -> impl Iterator<Item = (&VersionedNodeKey, &ResolvedCall)> + '_ {
+        self.node_resolved_calls.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_resolved_calls.iter()),
+        )
+    }
+
+    pub fn iter_node_function_references(
+        &self,
+    ) -> impl Iterator<Item = (&VersionedNodeKey, &FunctionReference)> + '_ {
+        self.node_function_references.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_function_references.iter()),
+        )
+    }
+
+    pub fn retain_module_level_facts(&mut self) {
+        self.generic_instantiations
+            .retain(|instantiation| instantiation.source_def_id.is_none());
+        for facts in self.function_facts.values() {
+            for key in facts.node_expr_types.keys() {
+                self.node_expr_types.remove(key);
+            }
+            for key in facts.node_bracket_suffix_resolutions.keys() {
+                self.node_bracket_suffix_resolutions.remove(key);
+            }
+            for key in facts.node_pointer_array_to_slice_coercions.keys() {
+                self.node_pointer_array_to_slice_coercions.remove(key);
+            }
+            for key in facts.node_trait_object_coercions.keys() {
+                self.node_trait_object_coercions.remove(key);
+            }
+            for key in facts.node_trait_object_upcasts.keys() {
+                self.node_trait_object_upcasts.remove(key);
+            }
+            for key in facts.node_builtin_values.keys() {
+                self.node_builtin_values.remove(key);
+            }
+            for key in facts.node_associated_comptime_projections.keys() {
+                self.node_associated_comptime_projections.remove(key);
+            }
+            for key in facts.node_array_repeat_counts.keys() {
+                self.node_array_repeat_counts.remove(key);
+            }
+            for key in facts.node_switch_pattern_values.keys() {
+                self.node_switch_pattern_values.remove(key);
+            }
+            for key in facts.node_resolved_calls.keys() {
+                self.node_resolved_calls.remove(key);
+            }
+            for key in facts.node_function_references.keys() {
+                self.node_function_references.remove(key);
+            }
+        }
     }
 }
 

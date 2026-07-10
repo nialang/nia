@@ -130,8 +130,8 @@ fn main() i32 {
     });
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    assert!(!checked.facts.node_expr_types.is_empty());
-    assert!(checked.facts.node_expr_types.keys().any(|key| {
+    assert!(checked.facts.iter_node_expr_types().next().is_some());
+    assert!(checked.facts.iter_node_expr_types().any(|(key, _)| {
         key.source_version() == version
             && key.kind() == SyntaxKind::Expr
             && matches!(key.position(), NodePosition::ChildPathRange { .. })
@@ -292,22 +292,17 @@ fn main() i32 {
     });
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    assert!(checked.facts.node_expr_types.keys().any(|key| {
+    assert!(checked.facts.iter_node_expr_types().any(|(key, _)| {
         key.source_version() == version
             && key.kind() == SyntaxKind::Expr
             && matches!(key.position(), NodePosition::ChildPathRange { .. })
     }));
-    assert!(checked.facts.node_builtin_values.keys().any(|key| {
+    assert!(checked.facts.iter_node_builtin_values().any(|(key, _)| {
         key.source_version() == version
             && key.kind() == SyntaxKind::Expr
             && matches!(key.position(), NodePosition::ChildPathRange { .. })
     }));
-    assert!(checked.facts.node_resolved_calls.keys().any(|key| {
-        key.source_version() == version
-            && key.kind() == SyntaxKind::Expr
-            && matches!(key.position(), NodePosition::ChildPathRange { .. })
-    }));
-    assert!(checked.facts.node_function_references.keys().any(|key| {
+    assert!(checked.facts.iter_node_resolved_calls().any(|(key, _)| {
         key.source_version() == version
             && key.kind() == SyntaxKind::Expr
             && matches!(key.position(), NodePosition::ChildPathRange { .. })
@@ -315,9 +310,18 @@ fn main() i32 {
     assert!(
         checked
             .facts
-            .node_pointer_array_to_slice_coercions
-            .keys()
-            .any(|key| {
+            .iter_node_function_references()
+            .any(|(key, _)| {
+                key.source_version() == version
+                    && key.kind() == SyntaxKind::Expr
+                    && matches!(key.position(), NodePosition::ChildPathRange { .. })
+            })
+    );
+    assert!(
+        checked
+            .facts
+            .iter_node_pointer_array_to_slice_coercions()
+            .any(|(key, _)| {
                 key.source_version() == version
                     && key.kind() == SyntaxKind::Expr
                     && matches!(key.position(), NodePosition::ChildPathRange { .. })

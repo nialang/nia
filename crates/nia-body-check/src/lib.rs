@@ -826,13 +826,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         });
     }
     checker.print_profile();
-    time_body_stage(timing, "body_check.finish", module_id, || BodyCheck {
-        ir: BodyIr {
-            interner: checker.interner,
-            function_bodies: checker.function_bodies,
-            global_inits: checker.global_inits,
-        },
-        facts: SemanticFacts {
+    time_body_stage(timing, "body_check.finish", module_id, || {
+        let mut facts = SemanticFacts {
             global_types: checker
                 .global_types
                 .into_iter()
@@ -855,9 +850,18 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
             node_switch_pattern_values: checker.node_switch_pattern_values,
             node_resolved_calls: checker.node_resolved_calls,
             node_function_references: checker.node_function_references,
-        },
-        checked_functions: checker.checked_functions,
-        diagnostics: checker.diagnostics,
+        };
+        facts.retain_module_level_facts();
+        BodyCheck {
+            ir: BodyIr {
+                interner: checker.interner,
+                function_bodies: checker.function_bodies,
+                global_inits: checker.global_inits,
+            },
+            facts,
+            checked_functions: checker.checked_functions,
+            diagnostics: checker.diagnostics,
+        }
     })
 }
 
@@ -1817,6 +1821,28 @@ impl<'a> BodyChecker<'a> {
         let previous_def_id = self.current_def_id;
         let previous_param_locals = std::mem::take(&mut self.current_param_locals);
         let previous_local_types = std::mem::take(&mut self.local_types);
+        let previous_node_expr_types = std::mem::take(&mut self.node_expr_types);
+        let previous_node_bracket_suffix_resolutions =
+            std::mem::take(&mut self.node_bracket_suffix_resolutions);
+        let previous_node_pointer_array_to_slice_coercions =
+            std::mem::take(&mut self.node_pointer_array_to_slice_coercions);
+        let previous_node_trait_object_coercions =
+            std::mem::take(&mut self.node_trait_object_coercions);
+        let previous_node_trait_object_upcasts =
+            std::mem::take(&mut self.node_trait_object_upcasts);
+        let previous_node_builtin_values = std::mem::take(&mut self.node_builtin_values);
+        let previous_node_associated_comptime_projections =
+            std::mem::take(&mut self.node_associated_comptime_projections);
+        let previous_node_array_repeat_counts = std::mem::take(&mut self.node_array_repeat_counts);
+        let previous_node_switch_pattern_values =
+            std::mem::take(&mut self.node_switch_pattern_values);
+        let previous_node_resolved_calls = std::mem::take(&mut self.node_resolved_calls);
+        let previous_node_function_references = std::mem::take(&mut self.node_function_references);
+        let function_facts = self
+            .function_facts
+            .get(&global_def_id)
+            .cloned()
+            .unwrap_or_default();
         self.current_return = signature.return_type;
         self.current_def_id = Some(global_def_id);
         self.current_param_locals = function
@@ -1824,11 +1850,20 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .filter_map(|param| self.local_def(&param.node_key))
             .collect();
-        self.local_types = self
-            .function_facts
-            .get(&global_def_id)
-            .map(|facts| facts.local_types.clone())
-            .unwrap_or_default();
+        self.local_types = function_facts.local_types;
+        self.node_expr_types = function_facts.node_expr_types;
+        self.node_bracket_suffix_resolutions = function_facts.node_bracket_suffix_resolutions;
+        self.node_pointer_array_to_slice_coercions =
+            function_facts.node_pointer_array_to_slice_coercions;
+        self.node_trait_object_coercions = function_facts.node_trait_object_coercions;
+        self.node_trait_object_upcasts = function_facts.node_trait_object_upcasts;
+        self.node_builtin_values = function_facts.node_builtin_values;
+        self.node_associated_comptime_projections =
+            function_facts.node_associated_comptime_projections;
+        self.node_array_repeat_counts = function_facts.node_array_repeat_counts;
+        self.node_switch_pattern_values = function_facts.node_switch_pattern_values;
+        self.node_resolved_calls = function_facts.node_resolved_calls;
+        self.node_function_references = function_facts.node_function_references;
         let lowered = self.profile_stage("body_check.profile.function.lower_body", |this| {
             this.lower_body(body)
         });
@@ -1837,6 +1872,17 @@ impl<'a> BodyChecker<'a> {
         self.current_def_id = previous_def_id;
         self.current_param_locals = previous_param_locals;
         self.local_types = previous_local_types;
+        self.node_expr_types = previous_node_expr_types;
+        self.node_bracket_suffix_resolutions = previous_node_bracket_suffix_resolutions;
+        self.node_pointer_array_to_slice_coercions = previous_node_pointer_array_to_slice_coercions;
+        self.node_trait_object_coercions = previous_node_trait_object_coercions;
+        self.node_trait_object_upcasts = previous_node_trait_object_upcasts;
+        self.node_builtin_values = previous_node_builtin_values;
+        self.node_associated_comptime_projections = previous_node_associated_comptime_projections;
+        self.node_array_repeat_counts = previous_node_array_repeat_counts;
+        self.node_switch_pattern_values = previous_node_switch_pattern_values;
+        self.node_resolved_calls = previous_node_resolved_calls;
+        self.node_function_references = previous_node_function_references;
     }
 
     fn check_module(

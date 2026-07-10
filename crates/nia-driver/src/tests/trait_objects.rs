@@ -1,6 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 
+fn has_trait_object_coercion(module: &nia_compiler_query::CheckedModule) -> bool {
+    module
+        .semantic_facts
+        .iter_node_trait_object_coercions()
+        .next()
+        .is_some()
+}
+
+fn trait_object_upcast_count(module: &nia_compiler_query::CheckedModule) -> usize {
+    module
+        .semantic_facts
+        .iter_node_trait_object_upcasts()
+        .count()
+}
+
 #[test]
 fn trait_object_extension_methods_resolve_on_object_values() {
     let root = temp_dir("trait_object_extension_methods_resolve_on_object_values");
@@ -239,12 +254,17 @@ fn use_child(child: & Child) void {
         program
             .modules
             .iter()
-            .any(|module| !module.semantic_facts.node_trait_object_upcasts.is_empty()),
+            .any(|module| trait_object_upcast_count(module) > 0),
         "{:?}",
         program
             .modules
             .iter()
-            .map(|module| &module.semantic_facts.node_trait_object_upcasts)
+            .map(|module| {
+                module
+                    .semantic_facts
+                    .iter_node_trait_object_upcasts()
+                    .collect::<Vec<_>>()
+            })
             .collect::<Vec<_>>()
     );
 }
@@ -311,7 +331,7 @@ fn main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert!(program.modules.iter().any(|module| {
-        !module.semantic_facts.node_trait_object_coercions.is_empty()
+        has_trait_object_coercion(module)
             && module
                 .body_ir
                 .function_bodies
@@ -355,7 +375,7 @@ fn main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert!(program.modules.iter().any(|module| {
-        !module.semantic_facts.node_trait_object_coercions.is_empty()
+        has_trait_object_coercion(module)
             && module
                 .body_ir
                 .function_bodies
@@ -392,12 +412,7 @@ fn main() i32 {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert!(
-        program
-            .modules
-            .iter()
-            .any(|module| { !module.semantic_facts.node_trait_object_coercions.is_empty() })
-    );
+    assert!(program.modules.iter().any(has_trait_object_coercion));
 }
 
 #[test]
@@ -428,12 +443,7 @@ fn main() i32 {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert!(
-        program
-            .modules
-            .iter()
-            .any(|module| { !module.semantic_facts.node_trait_object_coercions.is_empty() })
-    );
+    assert!(program.modules.iter().any(has_trait_object_coercion));
 }
 
 #[test]
@@ -509,7 +519,7 @@ extend i32 : Format {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert!(program.modules.iter().any(|module| {
-        !module.semantic_facts.node_trait_object_coercions.is_empty()
+        has_trait_object_coercion(module)
             && module
                 .body_ir
                 .function_bodies
@@ -808,7 +818,7 @@ fn main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert!(program.modules.iter().any(|module| {
-        module.semantic_facts.node_trait_object_upcasts.len() >= 2
+        trait_object_upcast_count(module) >= 2
             && module
                 .body_ir
                 .function_bodies

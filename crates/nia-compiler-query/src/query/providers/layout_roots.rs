@@ -12,41 +12,30 @@ pub(super) fn collect_semantic_layout_roots(
         for ty in facts.local_types.values().copied() {
             roots.add(ty);
         }
-        for ty in facts.node_expr_types.values().copied() {
-            roots.add(ty);
-        }
-        for instantiation in &facts.generic_instantiations {
-            for ty in &instantiation.args {
-                roots.add(*ty);
-            }
-        }
-        for coercion in facts.node_pointer_array_to_slice_coercions.values() {
-            roots.add(coercion.pointer_ty);
-            roots.add(coercion.array_ty);
-            roots.add(coercion.slice_ty);
-        }
-        for coercion in facts.node_trait_object_coercions.values() {
-            roots.add(coercion.source_ty);
-            roots.add(coercion.target_ty);
-            roots.add(coercion.self_ty);
-        }
-        for upcast in facts.node_trait_object_upcasts.values() {
-            roots.add(upcast.source_ty);
-            roots.add(upcast.target_ty);
-        }
-        for value in facts.node_builtin_values.values() {
-            collect_builtin_value_layout_roots(value, roots);
-        }
     }
-    for ty in semantic_facts.node_expr_types.values().copied() {
-        roots.add(ty);
+    for (_, ty) in semantic_facts.iter_node_expr_types() {
+        roots.add(*ty);
     }
-    for instantiation in &semantic_facts.generic_instantiations {
+    for instantiation in semantic_facts.iter_generic_instantiations() {
         for ty in &instantiation.args {
             roots.add(*ty);
         }
     }
-    for value in semantic_facts.node_builtin_values.values() {
+    for (_, coercion) in semantic_facts.iter_node_pointer_array_to_slice_coercions() {
+        roots.add(coercion.pointer_ty);
+        roots.add(coercion.array_ty);
+        roots.add(coercion.slice_ty);
+    }
+    for (_, coercion) in semantic_facts.iter_node_trait_object_coercions() {
+        roots.add(coercion.source_ty);
+        roots.add(coercion.target_ty);
+        roots.add(coercion.self_ty);
+    }
+    for (_, upcast) in semantic_facts.iter_node_trait_object_upcasts() {
+        roots.add(upcast.source_ty);
+        roots.add(upcast.target_ty);
+    }
+    for (_, value) in semantic_facts.iter_node_builtin_values() {
         collect_builtin_value_layout_roots(value, roots);
     }
 }
