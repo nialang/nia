@@ -644,7 +644,7 @@ where
     }
 
     fn select_user_impl_for_normalized_goal(&mut self, goal: &TraitGoal) -> TraitSelection {
-        let user_impls = self.matching_user_impls(&goal);
+        let user_impls = self.matching_user_impls(goal);
         if user_impls.len() > 1 {
             return TraitSelection::Ambiguous;
         }
@@ -747,7 +747,7 @@ where
         });
         let key = AssociatedTypeProjectionKey {
             goal: goal.clone(),
-            name: name.clone(),
+            name: *name,
         };
         if !active.insert(key.clone()) {
             return None;
@@ -2345,7 +2345,7 @@ where
                 if let Some(existing) = substitutions.get(name).cloned() {
                     self.const_generic_args_equivalent(&existing, actual)
                 } else {
-                    substitutions.insert(name.clone(), actual.clone());
+                    substitutions.insert(*name, actual.clone());
                     true
                 }
             }
@@ -2370,7 +2370,7 @@ where
                 if let Some(existing) = substitutions.get(name).cloned() {
                     self.const_generic_args_equivalent(&existing, &actual_arg)
                 } else {
-                    substitutions.insert(name.clone(), actual_arg);
+                    substitutions.insert(*name, actual_arg);
                     true
                 }
             }
@@ -2384,7 +2384,7 @@ where
             ArrayLenTy::ConstValue(value) => {
                 ConstGenericValue::Int(nia_ty::IntConst::unsigned((*value).into()))
             }
-            ArrayLenTy::GenericParam(name) => ConstGenericValue::GenericParam(name.clone()),
+            ArrayLenTy::GenericParam(name) => ConstGenericValue::GenericParam(*name),
             ArrayLenTy::ConstExpr(id) => ConstGenericValue::ConstExpr(*id),
             ArrayLenTy::Builtin { .. } | ArrayLenTy::Infer => return None,
         };

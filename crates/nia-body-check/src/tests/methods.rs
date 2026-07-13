@@ -38,6 +38,28 @@ fn main(value: &i32) i32 {
 }
 
 #[test]
+fn attributes_provider_demand_to_calling_function() {
+    let checked = pipeline_without_visible_extensions(
+        r#"
+struct Value {}
+
+fn main(value: Value) i32 {
+    value.missing()
+}
+"#,
+    );
+    let owned_provider_demands = checked
+        .provider_demands_by_function
+        .values()
+        .flat_map(|demands| demands.iter().cloned())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(owned_provider_demands, checked.provider_demands);
+    assert_eq!(checked.provider_demands_by_function.len(), 1);
+    assert_eq!(checked.diagnostic_owners.len(), checked.diagnostics.len());
+    assert!(checked.diagnostic_owners.iter().all(Option::is_some));
+}
+
+#[test]
 fn method_candidate_expected_context_does_not_reject_nested_calls() {
     let checked = pipeline(
         r#"

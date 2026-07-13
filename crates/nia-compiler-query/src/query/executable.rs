@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use crate::ProviderDemand;
 use nia_defs::DefKind;
 use nia_executable_facts::{ExecutableModuleRefs, ReachableModuleInput};
 use std::cell::RefCell;
@@ -13,6 +14,7 @@ pub(super) struct ExecutableCheckCaches {
     pub(super) body_function_signatures: RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>,
     pub(super) global_initializers:
         RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
+    pub(super) comptime_modules: RefCell<HashMap<ModuleId, ComptimeModuleLowering>>,
 }
 
 impl Default for ExecutableCheckCaches {
@@ -23,7 +25,31 @@ impl Default for ExecutableCheckCaches {
             reachability_function_signatures: RefCell::new(HashMap::new()),
             body_function_signatures: RefCell::new(HashMap::new()),
             global_initializers: RefCell::new(HashMap::new()),
+            comptime_modules: RefCell::new(HashMap::new()),
         }
+    }
+}
+
+impl ExecutableCheckCaches {
+    fn retain_modules(&mut self, modules: &HashSet<ModuleId>) {
+        self.array_lengths
+            .get_mut()
+            .retain(|module_id, _| modules.contains(module_id));
+        self.body_resolution_inputs
+            .get_mut()
+            .retain(|module_id, _| modules.contains(module_id));
+        self.reachability_function_signatures
+            .get_mut()
+            .retain(|def_id, _| modules.contains(&def_id.module_id));
+        self.body_function_signatures
+            .get_mut()
+            .retain(|def_id, _| modules.contains(&def_id.module_id));
+        self.global_initializers
+            .get_mut()
+            .retain(|def_id, _| modules.contains(&def_id.module_id));
+        self.comptime_modules
+            .get_mut()
+            .retain(|module_id, _| modules.contains(module_id));
     }
 }
 
@@ -33,15 +59,121 @@ pub(super) struct ExecutableFactModuleState {
     pub(super) defs: DefCollection,
     pub(super) body_ir: nia_body_ir::BodyIr,
     pub(super) semantic_facts: nia_sema_ir::SemanticFacts,
+    pub(super) provider_demands: HashSet<ProviderDemand>,
+    pub(super) provider_demands_by_function: HashMap<GlobalDefId, HashSet<ProviderDemand>>,
+    pub(super) unowned_provider_demands: HashSet<ProviderDemand>,
     pub(super) type_lowering: nia_type_lower::TypeLowering,
     pub(super) type_normalization: nia_type_normalize::TypeNormalization,
     pub(super) executable_refs: ExecutableModuleRefs,
     pub(super) checked_functions: HashSet<GlobalDefId>,
     pub(super) checked_globals: HashSet<GlobalDefId>,
+    pub(super) diagnostic_owners: Vec<Option<GlobalDefId>>,
     pub(super) diagnostics: Vec<nia_diagnostic::Diagnostic>,
 }
 
+#[derive(Default)]
+pub(super) struct ExecutableFactSession {
+    pub(super) modules: HashMap<ModuleId, ExecutableFactModuleState>,
+    pub(super) reachability: nia_executable_reachability::IncrementalExecutableReachability,
+    pub(super) caches: ExecutableCheckCaches,
+}
+
+impl ExecutableFactSession {
+    pub(super) fn retain_after_graph_growth(
+        &mut self,
+        body_activated: &HashSet<ModuleId>,
+        provider_changes: &HashSet<ProviderDemand>,
+    ) {
+        self.reachability = Default::default();
+        let mut retained_modules = HashSet::new();
+        self.modules.retain(|module_id, state| {
+            let retained = !body_activated.contains(module_id)
+                && state.invalidate_provider_changes(provider_changes);
+            if retained {
+                retained_modules.insert(*module_id);
+            }
+            retained
+        });
+        self.caches.retain_modules(&retained_modules);
+    }
+}
+
 impl ExecutableFactModuleState {
+    pub(super) fn invalidate_provider_changes(
+        &mut self,
+        provider_changes: &HashSet<ProviderDemand>,
+    ) -> bool {
+        if self.unowned_provider_demands.iter().any(|demand| {
+            provider_change_invalidates_facts(demand) && provider_changes.contains(demand)
+        }) {
+            return false;
+        }
+        let invalidated_functions = self
+            .provider_demands_by_function
+            .iter()
+            .filter(|(_, demands)| {
+                demands.iter().any(|demand| {
+                    provider_change_invalidates_facts(demand) && provider_changes.contains(demand)
+                })
+            })
+            .map(|(function, _)| *function)
+            .collect::<HashSet<_>>();
+        if invalidated_functions.is_empty() {
+            return true;
+        }
+        for function in &invalidated_functions {
+            self.body_ir.function_bodies.remove(function);
+            self.semantic_facts.function_facts.remove(function);
+            self.checked_functions.remove(function);
+            self.provider_demands_by_function.remove(function);
+        }
+        let mut diagnostic_index = 0usize;
+        self.diagnostics.retain(|_| {
+            let retain = self
+                .diagnostic_owners
+                .get(diagnostic_index)
+                .copied()
+                .flatten()
+                .is_none_or(|owner| !invalidated_functions.contains(&owner));
+            diagnostic_index += 1;
+            retain
+        });
+        self.diagnostic_owners
+            .retain(|owner| owner.is_none_or(|owner| !invalidated_functions.contains(&owner)));
+        let local_statics =
+            self.defs
+                .defs
+                .iter()
+                .filter_map(|(def_id, def)| {
+                    let parent = def.parent.map(|parent| GlobalDefId {
+                        module_id: self.module_id,
+                        def_id: parent,
+                    })?;
+                    (def.kind == DefKind::Global && invalidated_functions.contains(&parent))
+                        .then_some(GlobalDefId {
+                            module_id: self.module_id,
+                            def_id,
+                        })
+                })
+                .collect::<Vec<_>>();
+        for global in local_statics {
+            self.body_ir.global_inits.remove(&global);
+            self.checked_globals.remove(&global);
+        }
+        self.rebuild_provider_demands();
+        self.executable_refs = executable_module_refs_for_fact_state(self);
+        true
+    }
+
+    fn rebuild_provider_demands(&mut self) {
+        self.provider_demands = self.unowned_provider_demands.clone();
+        self.provider_demands.extend(
+            self.provider_demands_by_function
+                .values()
+                .flat_map(|demands| demands.iter().cloned()),
+        );
+    }
+
     pub(super) fn new(
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
@@ -56,19 +188,34 @@ impl ExecutableFactModuleState {
         let nia_body_check::BodyCheck {
             ir,
             facts,
+            provider_demands,
+            provider_demands_by_function,
             checked_functions,
+            diagnostic_owners,
             diagnostics,
         } = body_check;
+        let owned_provider_demands = provider_demands_by_function
+            .values()
+            .flat_map(|demands| demands.iter().cloned())
+            .collect::<HashSet<_>>();
+        let unowned_provider_demands = provider_demands
+            .difference(&owned_provider_demands)
+            .cloned()
+            .collect();
         let mut state = Self {
             module_id,
             defs: db.query(FullModuleDefsQuery(module_id)),
             body_ir: ir,
             semantic_facts: facts,
+            provider_demands,
+            provider_demands_by_function,
+            unowned_provider_demands,
             type_lowering: db.query(TypeLoweringQuery(module_id)),
             type_normalization: db.query(TypeNormalizationQuery(module_id)),
             executable_refs: ExecutableModuleRefs::default(),
             checked_functions,
             checked_globals,
+            diagnostic_owners,
             diagnostics,
         };
         state.executable_refs = executable_module_refs_for_fact_state(&state);
@@ -100,7 +247,10 @@ impl ExecutableFactModuleState {
         let nia_body_check::BodyCheck {
             mut ir,
             facts,
+            provider_demands,
+            provider_demands_by_function,
             checked_functions,
+            diagnostic_owners,
             diagnostics,
         } = body_check;
         let executable_refs = executable_module_refs_for_increment(
@@ -117,11 +267,32 @@ impl ExecutableFactModuleState {
             .extend(ir.function_bodies.drain());
         self.body_ir.global_inits.extend(ir.global_inits.drain());
         self.semantic_facts.extend(facts);
+        let owned_provider_demands = provider_demands_by_function
+            .values()
+            .flat_map(|demands| demands.iter().cloned())
+            .collect::<HashSet<_>>();
+        self.unowned_provider_demands.extend(
+            provider_demands
+                .difference(&owned_provider_demands)
+                .cloned(),
+        );
+        for (function, demands) in provider_demands_by_function {
+            self.provider_demands_by_function
+                .entry(function)
+                .or_default()
+                .extend(demands);
+        }
+        self.diagnostic_owners.extend(diagnostic_owners);
+        self.rebuild_provider_demands();
         self.executable_refs.extend(executable_refs);
         self.checked_functions.extend(checked_functions);
         self.checked_globals.extend(checked_globals);
         self.diagnostics.extend(diagnostics);
     }
+}
+
+fn provider_change_invalidates_facts(demand: &ProviderDemand) -> bool {
+    demand.request.invalidates_resolved_body_facts()
 }
 
 pub(super) fn unchecked_executable_items(
@@ -324,12 +495,9 @@ fn merge_executable_interner_snapshot(
     increment: nia_ty::TyInterner,
     source: &str,
 ) {
-    if current.interner_id() != increment.interner_id() {
+    if current.interner_id() != increment.interner_id() || current.is_prefix_of(&increment) {
         *current = increment;
-    } else if current.is_prefix_of(&increment) {
-        *current = increment;
-    } else if increment.is_prefix_of(current) {
-    } else {
+    } else if !increment.is_prefix_of(current) {
         panic!(
             "Nia ICE: executable {source} type interner snapshots share id {:?} but are not prefix-compatible",
             current.interner_id()

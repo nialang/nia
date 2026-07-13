@@ -2,6 +2,8 @@ pub(pkg) module core;
 pub(pkg) module error;
 pub(pkg) module types;
 
+using pkg::build::core;
+
 pub using core::noop_step;
 pub using error::Error;
 pub using types::{

@@ -111,7 +111,7 @@ impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
                 .or_else(|| {
                     semantic_uses
                         .node_const_generic_use(key)
-                        .map(|name| ComptimeNameResolution::GenericParam(name.clone()))
+                        .map(|name| ComptimeNameResolution::GenericParam(*name))
                 })
                 .or_else(|| {
                     semantic_uses
@@ -188,7 +188,7 @@ impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
             return Ok(Some(ComptimeNameResolution::BuiltinAssociatedValue(value)));
         }
         if let Some(name) = self.semantic_uses.node_const_generic_use(key) {
-            return Ok(Some(ComptimeNameResolution::GenericParam(name.clone())));
+            return Ok(Some(ComptimeNameResolution::GenericParam(*name)));
         }
         self.semantic_uses
             .node_value_use(key)
@@ -282,7 +282,7 @@ fn lower_expr_internal(
         ),
         nia_ast::ExprKind::Field { lhs, name } => EarlyComptimeExprKind::Field {
             lhs: Box::new(lower_expr_internal(lhs, context)?),
-            name: name.clone(),
+            name: *name,
         },
         nia_ast::ExprKind::BracketSuffix { callee, args } => {
             let [arg] = args.as_slice() else {
@@ -734,14 +734,14 @@ fn lower_assign_target_base_with_context(
     match &expr.kind {
         nia_ast::ExprKind::Ident(name) => Ok((
             expr.span,
-            name.clone(),
+            *name,
             lower_local_use(context, &expr.node_key, expr.span)?,
         )),
         nia_ast::ExprKind::Field { lhs, name } => {
             let base = lower_assign_target_base_with_context(lhs, context, path)?;
             path.push(EarlyComptimeAssignPathElem::Field {
                 span: expr.span,
-                name: name.clone(),
+                name: *name,
             });
             Ok(base)
         }
@@ -821,8 +821,8 @@ fn lower_comptime_name(
     context: &dyn ComptimeLowerContext,
 ) -> Result<EarlyComptimeName, ComptimeLowerError> {
     match resolve_name(context, key, span)? {
-        Some(resolution) => Ok(EarlyComptimeName::resolved(name.clone(), resolution)),
-        None => Ok(EarlyComptimeName::unresolved(name.clone())),
+        Some(resolution) => Ok(EarlyComptimeName::resolved(*name, resolution)),
+        None => Ok(EarlyComptimeName::unresolved(*name)),
     }
 }
 
@@ -915,7 +915,7 @@ fn resolve_comptime_stmt(
             else_branch: else_branch.map(resolve_comptime_block).transpose()?,
         },
         EarlyComptimeStmtKind::ForIn(for_in) => {
-            ResolvedComptimeStmtKind::ForIn(resolve_comptime_for_in(for_in)?)
+            ResolvedComptimeStmtKind::ForIn(resolve_comptime_for_in(*for_in)?)
         }
         EarlyComptimeStmtKind::While { cond, body } => ResolvedComptimeStmtKind::While {
             cond: resolve_expr(cond)?,
@@ -1222,7 +1222,7 @@ fn resolve_comptime_switch_arm_body(
             resolve_expr(expr).map(ResolvedComptimeSwitchArmBody::expr)
         }
         EarlyComptimeSwitchArmBody::Stmt(stmt) => {
-            resolve_comptime_stmt(stmt).map(ResolvedComptimeSwitchArmBody::stmt)
+            resolve_comptime_stmt(*stmt).map(ResolvedComptimeSwitchArmBody::stmt)
         }
         EarlyComptimeSwitchArmBody::Block(block) => {
             resolve_comptime_block(block).map(ResolvedComptimeSwitchArmBody::block)
@@ -1346,7 +1346,7 @@ fn lower_function_internal(
             };
             Ok(EarlyComptimeParam {
                 span: param.span,
-                name: name.clone(),
+                name: *name,
                 local_id: lower_local_id(context, &param.node_key, param.span)?,
                 ty: param
                     .ty
@@ -1413,7 +1413,7 @@ fn lower_stmt_with_context(
                 })?;
             EarlyComptimeStmtKind::Binding(EarlyComptimeBinding {
                 span: stmt.span,
-                name: name.clone(),
+                name: *name,
                 local_id: lower_local_id(context, node_key, binding.pattern.span)?,
                 explicit_type: binding
                     .ty
@@ -1441,11 +1441,13 @@ fn lower_stmt_with_context(
         ),
         nia_ast::StmtKind::Break => EarlyComptimeStmtKind::Break,
         nia_ast::StmtKind::Continue => EarlyComptimeStmtKind::Continue,
-        nia_ast::StmtKind::ForIn(for_in) => EarlyComptimeStmtKind::ForIn(EarlyComptimeForIn {
-            pattern: lower_pattern_with_context(&for_in.pattern, context)?,
-            iter: lower_expr_internal(&for_in.iter, context)?,
-            body: lower_block_with_context(&for_in.body, context)?,
-        }),
+        nia_ast::StmtKind::ForIn(for_in) => {
+            EarlyComptimeStmtKind::ForIn(Box::new(EarlyComptimeForIn {
+                pattern: lower_pattern_with_context(&for_in.pattern, context)?,
+                iter: lower_expr_internal(&for_in.iter, context)?,
+                body: lower_block_with_context(&for_in.body, context)?,
+            }))
+        }
         nia_ast::StmtKind::While(while_stmt) => EarlyComptimeStmtKind::While {
             cond: lower_expr_internal(&while_stmt.cond, context)?,
             body: lower_block_with_context(&while_stmt.body, context)?,
@@ -1607,7 +1609,7 @@ fn lower_pattern_with_context(
     match &pattern.kind {
         nia_ast::PatternKind::Wildcard => Ok(EarlyComptimePattern::Wildcard { span: pattern.span }),
         nia_ast::PatternKind::Bind { name, node_key, .. } => Ok(EarlyComptimePattern::Bind {
-            name: name.clone(),
+            name: *name,
             local_id: lower_local_id(context, node_key, pattern.span)?,
             span: pattern.span,
         }),
@@ -1670,9 +1672,9 @@ fn lower_switch_arm_body_with_context(
         nia_ast::SwitchArmBody::Expr(expr) => {
             lower_expr_internal(expr, context).map(EarlyComptimeSwitchArmBody::Expr)
         }
-        nia_ast::SwitchArmBody::Stmt(stmt) => {
-            lower_stmt_with_context(stmt, context).map(EarlyComptimeSwitchArmBody::Stmt)
-        }
+        nia_ast::SwitchArmBody::Stmt(stmt) => lower_stmt_with_context(stmt, context)
+            .map(Box::new)
+            .map(EarlyComptimeSwitchArmBody::Stmt),
         nia_ast::SwitchArmBody::Block(block) => {
             lower_block_with_context(block, context).map(EarlyComptimeSwitchArmBody::Block)
         }
@@ -1685,7 +1687,7 @@ fn lower_field_init_with_context(
 ) -> Result<EarlyComptimeFieldInit, ComptimeLowerError> {
     Ok(EarlyComptimeFieldInit {
         span: field.span,
-        name: field.name.clone(),
+        name: field.name,
         value: lower_expr_internal(&field.value, context)?,
     })
 }

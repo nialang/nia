@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+#[derive(Debug, Clone, PartialEq)]
+pub(in crate::query) struct ExecutableValueRefItemInput {
+    pub(in crate::query) active_item_tree: Arc<ActiveModuleItemTree>,
+    pub(in crate::query) item_index: usize,
+    pub(in crate::query) owner_node_key: nia_node_id::VersionedNodeKey,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CheckedModuleQuery(pub(super) ModuleId);
 
@@ -47,17 +54,32 @@ impl QueryKey<CompilerContext> for ExecutableCheckedModuleSetQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExecutableValueRefIndexQuery(pub(super) ModuleId);
+pub(super) struct ExecutableValueRefItemQuery(pub(super) GlobalDefId);
 
-impl QueryKey<CompilerContext> for ExecutableValueRefIndexQuery {
-    type Value = ExecutableValueRefIndex;
+impl QueryKey<CompilerContext> for ExecutableValueRefItemQuery {
+    type Value = Option<Arc<ExecutableValueRefItemInput>>;
 
     fn name() -> &'static str {
-        "executable_value_ref_index"
+        "executable_value_ref_item"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        provide_executable_value_ref_index(db, self.0)
+        db.context().executable_value_ref_item(self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExecutableValueRefEdgesQuery(pub(super) GlobalDefId);
+
+impl QueryKey<CompilerContext> for ExecutableValueRefEdgesQuery {
+    type Value = ExecutableValueRefEdges;
+
+    fn name() -> &'static str {
+        "executable_value_ref_edges"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        provide_executable_value_ref_edges(db, self.0)
     }
 }
 

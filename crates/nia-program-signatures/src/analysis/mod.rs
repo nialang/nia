@@ -74,6 +74,7 @@ pub struct ExtensionTraitSignatureIndex {
     pub trait_signatures: HashMap<GlobalDefId, ProgramTraitSignature>,
 }
 
+#[derive(Clone, Copy)]
 pub struct ExtensionMethodValidationInput<'a> {
     pub trait_defs: &'a HashSet<GlobalDefId>,
     pub trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
@@ -214,7 +215,7 @@ pub fn collect_extension_methods_for_module(
         let trait_id = impl_trait_id(module, impl_signature, input.trait_defs, &mut diagnostics);
         let trait_args = impl_trait_args(module, impl_signature, trait_id).unwrap_or_default();
         let where_predicates =
-            normalize_where_predicates(&module.normalization, &impl_signature.where_predicates);
+            normalize_where_predicates(module.normalization, &impl_signature.where_predicates);
         if trait_id.is_none() {
             for associated_type in &impl_signature.associated_types {
                 diagnostics.push(Diagnostic::user_error_at(
@@ -230,9 +231,7 @@ pub fn collect_extension_methods_for_module(
                 impl_signature,
                 target_ty,
                 trait_id,
-                input.trait_signatures,
-                input.trait_impls_for_trait,
-                input.symbols,
+                input,
                 &mut diagnostics,
             ),
             Some(TraitId::Builtin(trait_id)) => validate_builtin_trait_impl(
@@ -255,7 +254,7 @@ pub fn collect_extension_methods_for_module(
             extensions.insert_with_nominal_target(
                 module.module_id,
                 ExtensionMethod {
-                    name: method.name.clone(),
+                    name: method.name,
                     def_id: GlobalDefId {
                         module_id: module.module_id,
                         def_id: method.def_id,
@@ -289,14 +288,14 @@ pub fn collect_extension_method_index_for_module(
         let trait_args =
             impl_trait_args_for_index(module, impl_signature, trait_id).unwrap_or_default();
         let where_predicates =
-            normalize_where_predicates(&module.normalization, &impl_signature.where_predicates);
+            normalize_where_predicates(module.normalization, &impl_signature.where_predicates);
         for method in &impl_signature.methods {
             let effective_generics =
                 extension_method_effective_generics(module, impl_signature, method, target_ty);
             extensions.insert_with_nominal_target(
                 module.module_id,
                 ExtensionMethod {
-                    name: method.name.clone(),
+                    name: method.name,
                     def_id: GlobalDefId {
                         module_id: module.module_id,
                         def_id: method.def_id,
@@ -413,7 +412,7 @@ fn normalize_where_predicates(
                         .associated_type_bindings
                         .iter()
                         .map(|binding| AssociatedTypeBindingSignature {
-                            name: binding.name.clone(),
+                            name: binding.name,
                             ty: normalization.normalize(binding.ty),
                             span: binding.span,
                         })
@@ -445,7 +444,7 @@ pub fn collect_extension_associated_value_index_for_module(
             values.insert_with_nominal_target(
                 module.module_id,
                 ExtensionAssociatedValue {
-                    name: associated_value.name.clone(),
+                    name: associated_value.name,
                     def_id: GlobalDefId {
                         module_id: module.module_id,
                         def_id: associated_value.def_id,
@@ -467,9 +466,7 @@ fn impl_trait_id(
     trait_defs: &HashSet<GlobalDefId>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<TraitId> {
-    let Some(trait_ty) = impl_signature.trait_ty else {
-        return None;
-    };
+    let trait_ty = impl_signature.trait_ty?;
     let span = impl_signature.trait_span.unwrap_or(impl_signature.span);
     let ty = module.normalization.normalize(trait_ty);
     match module.lowering.interner.get(ty).cloned() {
@@ -672,12 +669,10 @@ fn validate_trait_impl(
     impl_signature: &TraitImplSignature,
     target_ty: nia_ids::InternedTyId,
     trait_id: GlobalDefId,
-    trait_signatures: &HashMap<GlobalDefId, ProgramTraitSignature>,
-    trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
-    symbols: &SymbolTable,
+    input: ExtensionMethodValidationInput<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> bool {
-    let Some(trait_signature) = trait_signature_ref(trait_signatures, trait_id) else {
+    let Some(trait_signature) = trait_signature_ref(input.trait_signatures, trait_id) else {
         return false;
     };
     let start_len = diagnostics.len();
@@ -691,7 +686,7 @@ fn validate_trait_impl(
             .iter()
             .any(|required| required.name == associated_type.name)
         {
-            let name = symbol_name(symbols, associated_type.name);
+            let name = symbol_name(input.symbols, associated_type.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 associated_type.span,
@@ -706,7 +701,7 @@ fn validate_trait_impl(
             .iter()
             .find(|required| required.name == associated_value.name)
         else {
-            let name = symbol_name(symbols, associated_value.name);
+            let name = symbol_name(input.symbols, associated_value.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 associated_value.span,
@@ -720,7 +715,7 @@ fn validate_trait_impl(
             .get(&associated_value.def_id)
             .and_then(|signature| signature.explicit_type)
         else {
-            let name = symbol_name(symbols, associated_value.name);
+            let name = symbol_name(input.symbols, associated_value.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 associated_value.span,
@@ -741,7 +736,7 @@ fn validate_trait_impl(
             trait_const_args: &trait_const_args,
             impl_signature,
         }) {
-            let name = symbol_name(symbols, associated_value.name);
+            let name = symbol_name(input.symbols, associated_value.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 associated_value.span,
@@ -757,7 +752,7 @@ fn validate_trait_impl(
             .iter()
             .any(|associated_type| associated_type.name == required.name)
         {
-            let name = symbol_name(symbols, required.name);
+            let name = symbol_name(input.symbols, required.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
@@ -771,7 +766,7 @@ fn validate_trait_impl(
             .iter()
             .any(|associated_value| associated_value.name == required.name)
         {
-            let name = symbol_name(symbols, required.name);
+            let name = symbol_name(input.symbols, required.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
@@ -786,7 +781,7 @@ fn validate_trait_impl(
             .iter()
             .any(|required| required.name == method.name)
         {
-            let name = symbol_name(symbols, method.name);
+            let name = symbol_name(input.symbols, method.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 method.span,
@@ -800,8 +795,7 @@ fn validate_trait_impl(
         target_ty,
         trait_signature,
         &trait_args,
-        trait_impls_for_trait,
-        symbols,
+        input,
         diagnostics,
     );
     let mut comparison_interner = module.normalization.interner.clone();
@@ -812,7 +806,7 @@ fn validate_trait_impl(
             .find(|method| method.name == required.name)
         else {
             if !required.has_default {
-                let name = symbol_name(symbols, required.name);
+                let name = symbol_name(input.symbols, required.name);
                 diagnostics.push(Diagnostic::user_error_at(
                     codes::NAME_RESOLUTION,
                     impl_signature.span,
@@ -847,30 +841,33 @@ fn validate_trait_impl(
             trait_id,
             impl_signature,
         });
+        let goal_context = TraitGoalExpansionContext {
+            module,
+            trait_signatures: input.trait_signatures,
+        };
+        let trait_goal = TraitGoal {
+            self_ty: target_ty,
+            trait_id: TraitId::Source(trait_id),
+            trait_args: trait_args.clone(),
+            trait_const_args: trait_const_args.clone(),
+        };
         let validation_trait_impls = trait_impls_for_trait_goal_and_supertraits(
-            module,
+            goal_context,
             &mut comparison_interner,
-            target_ty,
-            TraitId::Source(trait_id),
-            &trait_args,
-            &trait_const_args,
-            &trait_signatures,
-            trait_impls_for_trait,
+            trait_goal.clone(),
+            input.trait_impls_for_trait,
         );
-        if !trait_method_signature_matches(
+        if !trait_method_signature_matches(TraitMethodSignatureMatch {
             module,
-            &validation_trait_impls,
-            &mut comparison_interner,
-            target_ty,
-            TraitId::Source(trait_id),
-            &trait_args,
-            &trait_const_args,
+            trait_impls: &validation_trait_impls,
+            interner: &mut comparison_interner,
+            trait_goal,
             impl_signature,
-            &trait_signatures,
-            &required_signature,
-            &actual_signature,
-        ) {
-            let name = symbol_name(symbols, required.name);
+            trait_signatures: input.trait_signatures,
+            required: &required_signature,
+            actual: &actual_signature,
+        }) {
+            let name = symbol_name(input.symbols, required.name);
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 method.span,
@@ -903,7 +900,7 @@ fn trait_associated_comptime_type_matches(input: TraitAssociatedComptimeTypeMatc
         .generics
         .iter()
         .zip(input.trait_args)
-        .map(|(generic, arg)| (generic.clone(), *arg))
+        .map(|(generic, arg)| (*generic, *arg))
         .collect::<SymbolMap<_>>();
     let const_substitutions = const_substitutions_from_self_describing_args(input.trait_const_args);
     let projection_context = Some(ProjectionImplContext {
@@ -920,8 +917,10 @@ fn trait_associated_comptime_type_matches(input: TraitAssociatedComptimeTypeMatc
         input.required_ty,
         &substitutions,
         &const_substitutions,
-        projection_context,
-        Some(input.target_ty),
+        TypeSubstitutionTarget {
+            projection: projection_context,
+            self_ty: Some(input.target_ty),
+        },
     );
     let actual = substitute_imported_type(
         &mut comparison_interner,
@@ -930,8 +929,10 @@ fn trait_associated_comptime_type_matches(input: TraitAssociatedComptimeTypeMatc
         input.actual_ty,
         &SymbolMap::default(),
         &SymbolMap::default(),
-        projection_context,
-        None,
+        TypeSubstitutionTarget {
+            projection: projection_context,
+            self_ty: None,
+        },
     );
     types_equivalent_in_interner(&comparison_interner, required, actual)
 }
@@ -1344,8 +1345,7 @@ fn validate_supertrait_impls(
     target_ty: nia_ids::InternedTyId,
     trait_signature: TraitSignatureRef<'_>,
     trait_args: &[nia_ids::InternedTyId],
-    trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
-    symbols: &SymbolTable,
+    input: ExtensionMethodValidationInput<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for supertrait in &trait_signature.signature.supertraits {
@@ -1367,7 +1367,7 @@ fn validate_supertrait_impls(
             continue;
         };
         let supertrait_id = TraitId::Source(supertrait_def_id);
-        let trait_impls = trait_impls_for_trait(supertrait_id);
+        let trait_impls = (input.trait_impls_for_trait)(supertrait_id);
         if !has_matching_trait_impl(
             &comparison_interner,
             target_ty,
@@ -1380,7 +1380,7 @@ fn validate_supertrait_impls(
                 impl_signature.span,
                 format!(
                     "implementation of trait requires explicit implementation of supertrait `{}`",
-                    trait_name(module, supertrait_def_id, symbols)
+                    trait_name(module, supertrait_def_id, input.symbols)
                 ),
             ));
         }
@@ -1398,7 +1398,7 @@ fn import_trait_bound(
     let substitutions = trait_generics
         .iter()
         .zip(trait_args)
-        .map(|(generic, arg)| (generic.clone(), *arg))
+        .map(|(generic, arg)| (*generic, *arg))
         .collect::<SymbolMap<_>>();
     substitute_imported_type(
         target_interner,
@@ -1407,8 +1407,7 @@ fn import_trait_bound(
         ty,
         &substitutions,
         &SymbolMap::default(),
-        None,
-        None,
+        TypeSubstitutionTarget::default(),
     )
 }
 
@@ -1456,108 +1455,107 @@ fn trait_name(
         .unwrap_or_else(|| format!("trait#{}.{}", trait_id.module_id.0, trait_id.def_id.0))
 }
 
-fn trait_method_signature_matches(
-    module: &ExtensionModuleInput<'_>,
-    trait_impls: &[ProgramTraitImplSignature],
-    interner: &mut TyInterner,
-    self_ty: nia_ids::InternedTyId,
-    trait_id: TraitId,
-    trait_args: &[nia_ids::InternedTyId],
-    trait_const_args: &[nia_ty::ConstGenericArg],
-    impl_signature: &TraitImplSignature,
-    trait_signatures: &HashMap<GlobalDefId, ProgramTraitSignature>,
-    required: &nia_item_signatures::FunctionSignature,
-    actual: &nia_item_signatures::FunctionSignature,
-) -> bool {
-    let mut assumptions = Vec::new();
-    push_trait_goal_assumption_with_supertraits(
-        module,
-        interner,
-        trait_signatures,
+struct TraitMethodSignatureMatch<'a> {
+    module: &'a ExtensionModuleInput<'a>,
+    trait_impls: &'a [ProgramTraitImplSignature],
+    interner: &'a mut TyInterner,
+    trait_goal: TraitGoal,
+    impl_signature: &'a TraitImplSignature,
+    trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    required: &'a nia_item_signatures::FunctionSignature,
+    actual: &'a nia_item_signatures::FunctionSignature,
+}
+
+fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool {
+    let TraitGoal {
         self_ty,
         trait_id,
-        trait_args.to_vec(),
-        trait_const_args.to_vec(),
+        trait_args,
+        trait_const_args,
+    } = &input.trait_goal;
+    let mut assumptions = Vec::new();
+    push_trait_goal_assumption_with_supertraits(
+        TraitGoalExpansionContext {
+            module: input.module,
+            trait_signatures: input.trait_signatures,
+        },
+        input.interner,
+        input.trait_goal.clone(),
         &mut assumptions,
     );
-    let mut associated_type_assumptions = impl_signature
+    let mut associated_type_assumptions = input
+        .impl_signature
         .associated_types
         .iter()
         .map(|associated_type| AssociatedTypeProjectionEq {
             goal: TraitGoal {
-                self_ty,
-                trait_id,
-                trait_args: trait_args.to_vec(),
-                trait_const_args: trait_const_args.to_vec(),
+                self_ty: *self_ty,
+                trait_id: *trait_id,
+                trait_args: trait_args.clone(),
+                trait_const_args: trait_const_args.clone(),
             },
-            name: associated_type.name.clone(),
+            name: associated_type.name,
             ty: import_type_into(
-                interner,
-                &module.normalization.interner,
-                module.normalization.normalize(associated_type.ty),
+                input.interner,
+                &input.module.normalization.interner,
+                input.module.normalization.normalize(associated_type.ty),
             ),
         })
         .collect::<Vec<_>>();
     push_where_predicate_solver_assumptions(
-        module,
-        interner,
-        &impl_signature.where_predicates,
-        trait_signatures,
+        input.module,
+        input.interner,
+        &input.impl_signature.where_predicates,
+        input.trait_signatures,
         &mut assumptions,
         &mut associated_type_assumptions,
     );
     let context = TraitSolverContext {
-        normalization: module.normalization,
-        trait_impls,
+        normalization: input.module.normalization,
+        trait_impls: input.trait_impls,
         trait_impl_index: None,
         layouts: None,
-        local_module_id: module.module_id,
-        local_enums: &module.signatures.enums,
+        local_module_id: input.module.module_id,
+        local_enums: &input.module.signatures.enums,
         program_is_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
     let mut solver = context.solver_with_associated_type_assumptions(
-        interner,
+        input.interner,
         &assumptions,
         &associated_type_assumptions,
     );
-    required.generics == actual.generics
-        && required.where_predicates == actual.where_predicates
-        && required.params.len() == actual.params.len()
-        && required
+    input.required.generics == input.actual.generics
+        && input.required.where_predicates == input.actual.where_predicates
+        && input.required.params.len() == input.actual.params.len()
+        && input
+            .required
             .params
             .iter()
-            .zip(actual.params.iter())
+            .zip(input.actual.params.iter())
             .all(|(required, actual)| {
                 required.receiver == actual.receiver
                     && solver.types_equivalent(required.ty, actual.ty)
             })
-        && solver.types_equivalent(required.return_type, actual.return_type)
-        && required.is_variadic == actual.is_variadic
+        && solver.types_equivalent(input.required.return_type, input.actual.return_type)
+        && input.required.is_variadic == input.actual.is_variadic
+}
+
+#[derive(Clone, Copy)]
+struct TraitGoalExpansionContext<'a> {
+    module: &'a ExtensionModuleInput<'a>,
+    trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
 }
 
 fn trait_impls_for_trait_goal_and_supertraits(
-    module: &ExtensionModuleInput<'_>,
+    context: TraitGoalExpansionContext<'_>,
     interner: &mut TyInterner,
-    self_ty: InternedTyId,
-    trait_id: TraitId,
-    trait_args: &[InternedTyId],
-    trait_const_args: &[nia_ty::ConstGenericArg],
-    trait_signatures: &HashMap<GlobalDefId, ProgramTraitSignature>,
+    goal: TraitGoal,
     trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
 ) -> Vec<ProgramTraitImplSignature> {
     let mut goals = Vec::new();
-    push_trait_goal_assumption_with_supertraits(
-        module,
-        interner,
-        trait_signatures,
-        self_ty,
-        trait_id,
-        trait_args.to_vec(),
-        trait_const_args.to_vec(),
-        &mut goals,
-    );
+    push_trait_goal_assumption_with_supertraits(context, interner, goal, &mut goals);
     let mut seen = HashSet::new();
     goals
         .into_iter()
@@ -1592,13 +1590,17 @@ fn push_where_predicate_solver_assumptions(
                 continue;
             };
             push_trait_goal_assumption_with_supertraits(
-                module,
+                TraitGoalExpansionContext {
+                    module,
+                    trait_signatures,
+                },
                 interner,
-                trait_signatures,
-                self_ty,
-                trait_id,
-                trait_args.clone(),
-                trait_const_args.clone(),
+                TraitGoal {
+                    self_ty,
+                    trait_id,
+                    trait_args: trait_args.clone(),
+                    trait_const_args: trait_const_args.clone(),
+                },
                 assumptions,
             );
             for binding in &bound.associated_type_bindings {
@@ -1614,7 +1616,7 @@ fn push_where_predicate_solver_assumptions(
                         trait_args: trait_args.clone(),
                         trait_const_args: trait_const_args.clone(),
                     },
-                    name: binding.name.clone(),
+                    name: binding.name,
                     ty,
                 });
             }
@@ -1623,39 +1625,33 @@ fn push_where_predicate_solver_assumptions(
 }
 
 fn push_trait_goal_assumption_with_supertraits(
-    module: &ExtensionModuleInput<'_>,
+    context: TraitGoalExpansionContext<'_>,
     interner: &mut TyInterner,
-    trait_signatures: &HashMap<GlobalDefId, ProgramTraitSignature>,
-    self_ty: InternedTyId,
-    trait_id: TraitId,
-    trait_args: Vec<InternedTyId>,
-    trait_const_args: Vec<nia_ty::ConstGenericArg>,
+    goal: TraitGoal,
     assumptions: &mut Vec<TraitGoal>,
 ) {
     push_trait_goal_assumption_with_supertraits_inner(
-        module,
+        context,
         interner,
-        trait_signatures,
-        self_ty,
-        trait_id,
-        trait_args,
-        trait_const_args,
+        goal,
         assumptions,
         &mut HashSet::new(),
     );
 }
 
 fn push_trait_goal_assumption_with_supertraits_inner(
-    module: &ExtensionModuleInput<'_>,
+    context: TraitGoalExpansionContext<'_>,
     interner: &mut TyInterner,
-    trait_signatures: &HashMap<GlobalDefId, ProgramTraitSignature>,
-    self_ty: InternedTyId,
-    trait_id: TraitId,
-    trait_args: Vec<InternedTyId>,
-    trait_const_args: Vec<nia_ty::ConstGenericArg>,
+    goal: TraitGoal,
     assumptions: &mut Vec<TraitGoal>,
     visited: &mut HashSet<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
 ) {
+    let TraitGoal {
+        self_ty,
+        trait_id,
+        trait_args,
+        trait_const_args,
+    } = goal;
     if !visited.insert((trait_id, trait_args.clone(), trait_const_args.clone())) {
         return;
     }
@@ -1681,20 +1677,22 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                     Vec::new()
                 };
                 push_trait_goal_assumption_with_supertraits_inner(
-                    module,
+                    context,
                     interner,
-                    trait_signatures,
-                    self_ty,
-                    TraitId::Builtin(supertrait.trait_id),
-                    supertrait_args,
-                    Vec::new(),
+                    TraitGoal {
+                        self_ty,
+                        trait_id: TraitId::Builtin(supertrait.trait_id),
+                        trait_args: supertrait_args,
+                        trait_const_args: Vec::new(),
+                    },
                     assumptions,
                     visited,
                 );
             }
         }
         TraitId::Source(trait_id) => {
-            let Some(trait_signature) = trait_signature_ref(trait_signatures, trait_id) else {
+            let Some(trait_signature) = trait_signature_ref(context.trait_signatures, trait_id)
+            else {
                 return;
             };
             let substitutions = trait_signature
@@ -1702,20 +1700,22 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                 .generics
                 .iter()
                 .zip(&trait_args)
-                .map(|(generic, arg)| (generic.clone(), *arg))
+                .map(|(generic, arg)| (*generic, *arg))
                 .collect::<SymbolMap<_>>();
             let const_substitutions =
                 const_substitutions_from_self_describing_args(&trait_const_args);
             for supertrait in &trait_signature.signature.supertraits {
                 let supertrait = substitute_imported_type(
                     interner,
-                    module,
+                    context.module,
                     trait_signature.interner,
                     supertrait.ty,
                     &substitutions,
                     &const_substitutions,
-                    None,
-                    Some(self_ty),
+                    TypeSubstitutionTarget {
+                        projection: None,
+                        self_ty: Some(self_ty),
+                    },
                 );
                 let Some((supertrait_id, supertrait_args, supertrait_const_args)) =
                     trait_id_and_args(interner, supertrait)
@@ -1723,13 +1723,14 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                     continue;
                 };
                 push_trait_goal_assumption_with_supertraits_inner(
-                    module,
+                    context,
                     interner,
-                    trait_signatures,
-                    self_ty,
-                    supertrait_id,
-                    supertrait_args,
-                    supertrait_const_args,
+                    TraitGoal {
+                        self_ty,
+                        trait_id: supertrait_id,
+                        trait_args: supertrait_args,
+                        trait_const_args: supertrait_const_args,
+                    },
                     assumptions,
                     visited,
                 );

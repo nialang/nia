@@ -1,6 +1,7 @@
 using pkg::collections;
 using pkg::process;
 using pkg::process::command;
+using pkg::process::term;
 using pkg::process::types::ArgList;
 using pkg::fmt;
 using pkg::fs;

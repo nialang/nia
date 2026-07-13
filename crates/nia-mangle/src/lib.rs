@@ -152,7 +152,7 @@ where
             )
         }
         Some(TyKind::Slice { is_readonly, elem }) => {
-            let prefix = if *is_readonly { "slice" } else { "slice" };
+            let prefix = if *is_readonly { "slice_read" } else { "slice" };
             format!(
                 "{prefix}__{}",
                 mangle_type_inner(interner, *elem, nominal_name, array_len)

@@ -111,7 +111,7 @@ pub enum BuildError {
     CompileRunner {
         path: String,
         source: String,
-        error: DriverError,
+        error: Box<DriverError>,
     },
     BuildRunnerCache {
         operation: &'static str,
@@ -382,7 +382,7 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
     let artifact = output.result.map_err(|error| BuildError::CompileRunner {
         path: runner.path,
         source: runner.source,
-        error,
+        error: Box::new(error),
     })?;
     nia_driver::publish_executable_artifact_cache(&artifact.path, &cache).map_err(|error| {
         BuildError::BuildRunnerCache {
@@ -872,7 +872,7 @@ mod tests {
         let runner = build_runner_source(&plan).expect("build runner source");
         let before = build_runner_cache_entry(&plan, &runner);
         let mut changed_runner = runner.clone();
-        changed_runner.source.push_str("\n");
+        changed_runner.source.push('\n');
 
         let after = build_runner_cache_entry(&plan, &changed_runner);
 

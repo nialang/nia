@@ -9,59 +9,44 @@ use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{StructLayout, TypeLayout};
 use nia_ty::{ConstGenericArg, TraitId, TyKind};
 
+type InstanceArgs = (Vec<InternedTyId>, Vec<ConstGenericArg>);
+type AggregateInstanceIndex<'a, T> = HashMap<GlobalDefId, HashMap<InstanceArgs, &'a T>>;
+type GlobalInstanceIndex<'a> = HashMap<
+    (GlobalDefId, ModuleId),
+    HashMap<InstanceArgs, &'a nia_backend_ir::BackendGlobalInstance>,
+>;
+type FunctionInstanceArgs = (
+    Option<InternedTyId>,
+    Vec<InternedTyId>,
+    Vec<ConstGenericArg>,
+);
+type FunctionInstanceIndex<'a> =
+    HashMap<(GlobalDefId, ModuleId), HashMap<FunctionInstanceArgs, &'a BackendFunctionInstance>>;
+type AggregateLayoutIndex<'a> = HashMap<GlobalDefId, HashMap<InstanceArgs, &'a StructLayout>>;
+
 pub(super) struct ProgramIndex<'a> {
     pub(super) modules: HashMap<ModuleId, &'a nia_backend_ir::BackendModule>,
     pub(super) structs: HashMap<GlobalDefId, &'a nia_backend_ir::BackendStruct>,
     pub(super) unions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendUnion>,
-    pub(super) struct_instances: HashMap<
-        GlobalDefId,
-        HashMap<
-            (Vec<InternedTyId>, Vec<ConstGenericArg>),
-            &'a nia_backend_ir::BackendStructInstance,
-        >,
-    >,
-    pub(super) union_instances: HashMap<
-        GlobalDefId,
-        HashMap<
-            (Vec<InternedTyId>, Vec<ConstGenericArg>),
-            &'a nia_backend_ir::BackendUnionInstance,
-        >,
-    >,
+    pub(super) struct_instances: AggregateInstanceIndex<'a, nia_backend_ir::BackendStructInstance>,
+    pub(super) union_instances: AggregateInstanceIndex<'a, nia_backend_ir::BackendUnionInstance>,
     pub(super) enums: HashMap<GlobalDefId, &'a nia_backend_ir::BackendEnum>,
     pub(super) enum_variants: HashMap<GlobalDefId, &'a nia_backend_ir::BackendEnumVariant>,
     pub(super) enum_variant_infos: HashMap<GlobalDefId, EnumVariantInfo<'a>>,
     pub(super) globals: HashMap<GlobalDefId, &'a nia_backend_ir::BackendGlobal>,
-    pub(super) global_instances: HashMap<
-        (GlobalDefId, ModuleId),
-        HashMap<
-            (Vec<InternedTyId>, Vec<ConstGenericArg>),
-            &'a nia_backend_ir::BackendGlobalInstance,
-        >,
-    >,
+    pub(super) global_instances: GlobalInstanceIndex<'a>,
     pub(super) global_instances_by_def:
         HashMap<GlobalDefId, Vec<&'a nia_backend_ir::BackendGlobalInstance>>,
     pub(super) functions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendFunction>,
-    pub(super) function_instances: HashMap<
-        (GlobalDefId, ModuleId),
-        HashMap<
-            (
-                Option<InternedTyId>,
-                Vec<InternedTyId>,
-                Vec<ConstGenericArg>,
-            ),
-            &'a BackendFunctionInstance,
-        >,
-    >,
+    pub(super) function_instances: FunctionInstanceIndex<'a>,
     pub(super) function_instances_by_def: HashMap<GlobalDefId, Vec<&'a BackendFunctionInstance>>,
     trait_object_vtables_by_object_ty: HashMap<InternedTyId, Vec<&'a BackendTraitObjectVtable>>,
     trait_object_vtables_by_trait: HashMap<TraitId, Vec<&'a BackendTraitObjectVtable>>,
     type_layouts: HashMap<InternedTyId, &'a TypeLayout>,
     struct_layouts: HashMap<GlobalDefId, &'a StructLayout>,
     union_layouts: HashMap<GlobalDefId, &'a StructLayout>,
-    struct_instance_layouts:
-        HashMap<GlobalDefId, HashMap<(Vec<InternedTyId>, Vec<ConstGenericArg>), &'a StructLayout>>,
-    union_instance_layouts:
-        HashMap<GlobalDefId, HashMap<(Vec<InternedTyId>, Vec<ConstGenericArg>), &'a StructLayout>>,
+    struct_instance_layouts: AggregateLayoutIndex<'a>,
+    union_instance_layouts: AggregateLayoutIndex<'a>,
     struct_instance_layouts_by_def: HashMap<GlobalDefId, Vec<BackendLayoutInstance<'a>>>,
     union_instance_layouts_by_def: HashMap<GlobalDefId, Vec<BackendLayoutInstance<'a>>>,
     pub(super) struct_instances_by_def:

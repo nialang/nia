@@ -48,7 +48,7 @@ impl<'a> ModuleLowerer<'a> {
                 span,
             },
             FunctionOp::MemoryIntrinsic(memory) => {
-                FunctionOp::MemoryIntrinsic(nia_function_ir::FunctionMemoryIntrinsic {
+                FunctionOp::MemoryIntrinsic(Box::new(nia_function_ir::FunctionMemoryIntrinsic {
                     span: memory.span,
                     op: memory.op,
                     elem_ty: self.instantiate_ty_with_id(memory.elem_ty, substitutions),
@@ -65,7 +65,7 @@ impl<'a> ModuleLowerer<'a> {
                             )
                         }
                     },
-                })
+                }))
             }
             FunctionOp::Expr(expr) => FunctionOp::Expr(self.instantiate_expr(expr, substitutions)),
             FunctionOp::Defer(body) => {

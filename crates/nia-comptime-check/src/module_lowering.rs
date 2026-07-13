@@ -257,7 +257,7 @@ impl ComptimeModuleLowerer<'_> {
                 .semantic_uses
                 .node_const_generic_uses
                 .iter()
-                .map(|(key, name)| (key.clone(), name.clone())),
+                .map(|(key, name)| (key.clone(), *name)),
         );
         builder.extend_node_local_defs(
             self.input

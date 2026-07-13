@@ -355,7 +355,7 @@ impl<'a> ModuleLowerer<'a> {
             .map(|generic| {
                 self.type_context
                     .interner
-                    .intern(TyKind::GenericParam(generic.clone()))
+                    .intern(TyKind::GenericParam(*generic))
             })
             .collect();
         Some(TraitGoal {
@@ -690,14 +690,17 @@ impl<'a> ModuleLowerer<'a> {
                 };
                 let substitutions = self.empty_type_substitution_id();
                 let mut active_projections = std::collections::HashSet::new();
+                let projection = super::ProjectionInstantiationKey {
+                    self_ty,
+                    trait_id: TraitId::Builtin(trait_id),
+                    trait_args: trait_args.to_vec(),
+                    trait_const_args: Vec::new(),
+                    name: BuiltinAssociatedType::Output.symbol_id(),
+                };
                 Some(FunctionExpr {
                     span: range.span,
                     ty: self.resolve_associated_type_projection(
-                        self_ty,
-                        TraitId::Builtin(trait_id),
-                        trait_args,
-                        &[],
-                        &BuiltinAssociatedType::Output.symbol_id(),
+                        &projection,
                         substitutions,
                         &mut active_projections,
                     )?,

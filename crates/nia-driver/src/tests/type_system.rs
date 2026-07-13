@@ -1158,6 +1158,34 @@ fn driver_invalidates_reused_loader_sources() {
 }
 
 #[test]
+fn driver_finalizes_executable_once_after_provider_discovery() {
+    let driver = Driver::new();
+    driver.set_source(
+        "main.nia",
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    );
+
+    let program = checked_program_from_output(
+        driver
+            .check_entry(CheckRequest::new("main.nia").with_runtime(crate::Runtime::Freestanding)),
+    );
+
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_eq!(driver.compiler_query_executions("entry_checked_program"), 1);
+    assert!(
+        driver.compiler_query_executions("executable_provider_demands") > 0,
+        "provider discovery should run before finalization"
+    );
+}
+
+#[test]
 fn lowers_monomorphized_function_instances_with_symbolic_names() {
     let root = temp_dir("lowers_monomorphized_function_instances_with_symbolic_names");
     write(

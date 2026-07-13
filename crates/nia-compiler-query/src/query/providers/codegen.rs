@@ -15,36 +15,10 @@ pub(super) fn monomorphization_for_checked_modules(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[CheckedModule],
 ) -> nia_monomorphize::Monomorphization {
-    let runtime = db.query(CompilerRuntimeQuery);
-    let executable_signatures;
-    let trait_solving_signatures;
-    let program_enums_storage;
-    let (program_enums, trait_impls, trait_impl_index) =
-        if runtime == RuntimeModel::FreestandingExecutable {
-            executable_signatures = executable_program_non_function_signatures(db);
-            (
-                &executable_signatures.enums,
-                executable_signatures.trait_impls.as_slice(),
-                &executable_signatures.trait_impl_index,
-            )
-        } else {
-            trait_solving_signatures = db.query(ProgramTraitSolvingSignaturesQuery);
-            let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
-            program_enums_storage = type_facts
-                .iter()
-                .flat_map(|facts| {
-                    facts
-                        .enums
-                        .iter()
-                        .map(|(def_id, signature)| (*def_id, signature.clone()))
-                })
-                .collect::<HashMap<_, _>>();
-            (
-                &program_enums_storage,
-                trait_solving_signatures.trait_impls.as_slice(),
-                &trait_solving_signatures.trait_impl_index,
-            )
-        };
+    let executable_signatures = executable_program_non_function_signatures(db);
+    let program_enums = &executable_signatures.enums;
+    let trait_impls = executable_signatures.trait_impls.as_slice();
+    let trait_impl_index = &executable_signatures.trait_impl_index;
     let local_signatures = checked_modules
         .iter()
         .map(|module| (module.id, db.query(ItemSignaturesQuery(module.id))))
@@ -89,11 +63,7 @@ pub(super) fn monomorphization_for_checked_modules(
 }
 
 pub(super) fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
-    if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
-        materialize_executable_checked_modules(db, db.query(ExecutableCheckedModuleSetQuery))
-    } else {
-        materialize_checked_modules(db, db.query(CheckedModuleIdsQuery))
-    }
+    materialize_executable_checked_modules(db, db.query(ExecutableCheckedModuleSetQuery))
 }
 
 pub(super) fn checked_modules_for_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
@@ -197,7 +167,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 checked_modules
                     .iter()
                     .map(|checked_module| {
-                        db.query_shared(FullActiveModuleItemTreeQuery(checked_module.id))
+                        db.query(FullActiveModuleItemTreeQuery(checked_module.id))
                     })
                     .collect::<Vec<_>>()
             });
@@ -277,21 +247,13 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         )
     });
     let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
-    let executable_program_signatures;
-    let executable_program_functions;
-    let backend_program_signatures;
+    let executable_program_signatures = executable_program_non_function_signatures(db);
+    let executable_program_functions = executable_program_functions_for_modules(
+        db,
+        checked_modules.iter().map(|module| module.id),
+    );
     let program_signatures =
-        if db.query(CompilerRuntimeQuery) == RuntimeModel::FreestandingExecutable {
-            executable_program_signatures = executable_program_non_function_signatures(db);
-            executable_program_functions = executable_program_functions_for_modules(
-                db,
-                checked_modules.iter().map(|module| module.id),
-            );
-            executable_program_signatures.codegen_maps_with_functions(&executable_program_functions)
-        } else {
-            backend_program_signatures = db.query(ProgramBackendSignaturesQuery);
-            backend_program_signatures.codegen_maps()
-        };
+        executable_program_signatures.codegen_maps_with_functions(&executable_program_functions);
     let symbols = db.context().symbols();
     let inputs = time_provider(
         db.context().timings(),

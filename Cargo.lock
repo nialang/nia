@@ -244,7 +244,6 @@ dependencies = [
  "nia-span",
  "nia-static-ir",
  "nia-symbol",
- "nia-symbol-table",
  "nia-timing",
  "nia-ty",
 ]
@@ -436,7 +435,6 @@ dependencies = [
  "nia-executable-facts",
  "nia-hash",
  "nia-ids",
- "nia-imports",
  "nia-item-signatures",
  "nia-sema-ir",
  "nia-span",

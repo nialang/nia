@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     cell::RefCell,
+    cmp::Reverse,
     collections::HashMap,
     sync::{
         Arc, Condvar, Mutex, OnceLock,
@@ -192,7 +193,7 @@ impl TimingAccumulator {
 
     pub fn emit_query_timings(&self, name_suffix: impl Fn(&'static str) -> String) {
         let mut entries = self.entries.iter().collect::<Vec<_>>();
-        entries.sort_by(|(_, left), (_, right)| right.total.cmp(&left.total));
+        entries.sort_by_key(|(name, entry)| (Reverse(entry.total), **name));
         for (name, entry) in entries {
             emit_query_measurement(
                 name_suffix(name),

@@ -122,14 +122,14 @@ impl Parser {
     fn parse_binding_stmt(&mut self) -> Option<BindingStmt> {
         let is_comptime = self.eat(TokenKind::Comptime).is_some();
         let mut is_mutable = if is_comptime {
-            if self.eat(TokenKind::Let).is_some() {
-                false
-            } else if self.at(TokenKind::Mut) || self.starts_binding_pattern() {
-                false
-            } else {
+            if self.eat(TokenKind::Let).is_none()
+                && !self.at(TokenKind::Mut)
+                && !self.starts_binding_pattern()
+            {
                 self.error_here("expected `let` binding");
                 return None;
             }
+            false
         } else if self.eat(TokenKind::Let).is_some() {
             false
         } else {

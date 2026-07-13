@@ -817,7 +817,7 @@ impl MonoCollector<'_> {
                     trait_id,
                     trait_args: trait_args.clone(),
                     trait_const_args: trait_const_args.clone(),
-                    name: name.clone(),
+                    name,
                 };
                 let projection = self.intern_working_ty(
                     module_id,
@@ -826,7 +826,7 @@ impl MonoCollector<'_> {
                         trait_id,
                         trait_args: trait_args.clone(),
                         trait_const_args: trait_const_args.clone(),
-                        name: name.clone(),
+                        name,
                     },
                 );
                 if !active_projections.insert(projection_key.clone()) {
@@ -977,7 +977,7 @@ impl MonoCollector<'_> {
                                 arg
                             })
                             .collect(),
-                        name: binding.name.clone(),
+                        name: binding.name,
                         ty: self.instantiate_ty_inner(
                             module_id,
                             binding.ty,
@@ -1057,7 +1057,7 @@ impl MonoCollector<'_> {
                                 arg
                             })
                             .collect(),
-                        name: binding.name.clone(),
+                        name: binding.name,
                         ty: self.instantiate_ty_inner(
                             module_id,
                             binding.ty,
@@ -2084,7 +2084,9 @@ fn wrap[T](value: T) T { value }
         assert_eq!(collector.type_substitutions[first.0].self_arg, None);
         assert_eq!(
             collector.type_substitutions[first.0].substitutions,
-            SymbolMap::from([(sym("T"), i32_ty), (sym("U"), bool_ty)])
+            [(sym("T"), i32_ty), (sym("U"), bool_ty)]
+                .into_iter()
+                .collect::<SymbolMap<_>>()
         );
     }
 

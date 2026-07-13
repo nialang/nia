@@ -110,7 +110,7 @@ impl<'a> BodyChecker<'a> {
             .map(
                 |associated_value| nia_item_signatures::TraitAssociatedValueSignature {
                     def_id: associated_value.def_id,
-                    name: associated_value.name.clone(),
+                    name: associated_value.name,
                     ty: self.import_type_from(&program_signature.interner, associated_value.ty),
                     span: associated_value.span,
                 },
@@ -209,7 +209,7 @@ impl<'a> BodyChecker<'a> {
                             .associated_type_bindings
                             .iter()
                             .map(|binding| AssociatedTypeBindingSignature {
-                                name: binding.name.clone(),
+                                name: binding.name,
                                 ty: self.import_type_from(source, binding.ty),
                                 span: binding.span,
                             })

@@ -127,14 +127,14 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .zip(candidate.trait_args.iter())
             {
-                substitutions.insert(name.clone(), *arg);
+                substitutions.insert(*name, *arg);
             }
             for (name, arg) in candidate
                 .trait_generics
                 .iter()
                 .zip(candidate.trait_const_args.iter())
             {
-                const_substitutions.insert(name.clone(), arg.clone());
+                const_substitutions.insert(*name, arg.clone());
             }
             if let Some((instance_args, instance_const_args)) = self
                 .complete_instance_args_and_const_args_for_def(
@@ -159,7 +159,7 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::TraitMethod {
                 trait_id: candidate.trait_id,
                 method_id: candidate.method_id,
-                method_name: call.name.clone(),
+                method_name: *call.name,
                 self_ty: candidate.self_ty,
                 trait_args,
                 args: method_instantiation_args,
@@ -271,7 +271,7 @@ impl<'a> BodyChecker<'a> {
                 object_ty: candidate.object_ty,
                 trait_id: candidate.trait_id,
                 method_id: candidate.method_id,
-                method_name: call.name.clone(),
+                method_name: *call.name,
                 trait_args: candidate.trait_args.clone(),
                 slot: candidate.slot,
                 params,

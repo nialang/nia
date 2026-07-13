@@ -617,10 +617,10 @@ impl FlowChecker<'_> {
             ExprKind::ByteChar(value) => Some(ExprFingerprint::ByteChar(value.clone())),
             ExprKind::Bool(value) => Some(ExprFingerprint::Bool(*value)),
             ExprKind::Null => Some(ExprFingerprint::Null),
-            ExprKind::Ident(name) => Some(ExprFingerprint::Ident(name.clone())),
+            ExprKind::Ident(name) => Some(ExprFingerprint::Ident(*name)),
             ExprKind::Qualified { lhs, name } => Some(ExprFingerprint::Qualified(
                 Box::new(Self::expr_fingerprint(lhs)?),
-                name.clone(),
+                *name,
             )),
             _ => None,
         }

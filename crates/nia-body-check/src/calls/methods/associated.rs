@@ -103,6 +103,9 @@ impl<'a> BodyChecker<'a> {
             });
         }
         let Some(candidate) = self.single_method_candidate(span, name, &candidates) else {
+            if candidates.is_empty() && trait_candidates.is_empty() {
+                self.record_method_provider_demand(target_ty, *name);
+            }
             let name = self.symbol_name(*name);
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -112,6 +115,7 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         };
         let method_id = candidate.method.def_id;
+        self.record_semantic_provider_module(method_id.module_id);
         let Some(signature) = self
             .resolved_function_signature(method_id)
             .map(|resolved| resolved.signature)
@@ -387,7 +391,7 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::TraitAssociatedFunction {
                 trait_id: candidate.trait_id,
                 method_id: candidate.method_id,
-                method_name: name.clone(),
+                method_name: *name,
                 self_ty: target_ty,
                 trait_args,
                 args: method_instantiation_args,

@@ -293,16 +293,16 @@ fn signature_semantic_use_table_from_resolution_inputs(
     type_lowering: &TypeLowering,
 ) -> nia_sema_ir::SemanticUseTable {
     let empty_locals = empty_local_resolution();
-    semantic_use_table_from_resolution_inputs_with_const_expr_values(
+    semantic_use_table_from_resolution_inputs_with_const_expr_values(SemanticUseInputs {
         module_id,
         active_item_tree,
         values,
-        None,
-        None,
-        &empty_locals,
+        const_expr_values: None,
+        const_expr_value_ids: None,
+        locals: &empty_locals,
         type_resolution,
         type_lowering,
-    )
+    })
 }
 
 fn collect_enum_discriminant_exprs(

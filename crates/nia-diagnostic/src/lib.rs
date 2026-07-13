@@ -365,17 +365,9 @@ pub struct DiagnosticBuilder {
     diagnostic: Diagnostic,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DiagnosticSinkConfig {
     pub allow_user_fallback_spans: bool,
-}
-
-impl Default for DiagnosticSinkConfig {
-    fn default() -> Self {
-        Self {
-            allow_user_fallback_spans: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1074,8 +1066,13 @@ mod tests {
             assert_eq!(code.code.len(), 5, "{code:?}");
             let mut chars = code.code.chars();
             let prefix = chars.next().expect("code prefix");
-            assert!(matches!(prefix, 'E' | 'I'), "{code:?}");
+            assert!(matches!(prefix, 'E' | 'W' | 'I'), "{code:?}");
             assert!(chars.all(|ch| ch.is_ascii_digit()), "{code:?}");
+            assert_eq!(
+                prefix == 'W',
+                code.severity == Severity::Warning,
+                "{code:?}"
+            );
             assert_eq!(
                 matches!(prefix, 'I'),
                 code.category == DiagnosticCategory::Internal,

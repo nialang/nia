@@ -454,6 +454,13 @@ struct AssociatedTypeScope {
     names: Vec<SymbolId>,
 }
 
+struct LoweredAssocBindingKey<'a> {
+    name: &'a SymbolId,
+    trait_id: Option<TraitId>,
+    trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<ConstGenericArg>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TypeContext {
     Value,
@@ -503,9 +510,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                                 .iter()
                                 .filter(|generic| matches!(generic.kind, GenericParamKind::Type))
                                 .map(|generic| {
-                                    lowerer
-                                        .interner
-                                        .intern(TyKind::GenericParam(generic.name.clone()))
+                                    lowerer.interner.intern(TyKind::GenericParam(generic.name))
                                 })
                                 .collect::<Vec<_>>();
                             let trait_const_args = item_trait
@@ -518,9 +523,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                                             lowerer.lower_type_in_context(ty, TypeContext::Value);
                                         Some(ConstGenericArg {
                                             ty,
-                                            value: ConstGenericValue::GenericParam(
-                                                generic.name.clone(),
-                                            ),
+                                            value: ConstGenericValue::GenericParam(generic.name),
                                         })
                                     }
                                 })
@@ -528,7 +531,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                             let associated_types = item_trait
                                 .associated_types
                                 .iter()
-                                .map(|associated_type| associated_type.name.clone())
+                                .map(|associated_type| associated_type.name)
                                 .collect::<Vec<_>>();
                             lowerer.with_associated_type_scope(
                                 AssociatedTypeScope {
@@ -744,9 +747,7 @@ impl TypeLowerer<'_> {
                                 .iter()
                                 .filter(|generic| matches!(generic.kind, GenericParamKind::Type))
                                 .map(|generic| {
-                                    lowerer
-                                        .interner
-                                        .intern(TyKind::GenericParam(generic.name.clone()))
+                                    lowerer.interner.intern(TyKind::GenericParam(generic.name))
                                 })
                                 .collect::<Vec<_>>();
                             let trait_const_args = item_trait
@@ -759,9 +760,7 @@ impl TypeLowerer<'_> {
                                             lowerer.lower_type_in_context(ty, TypeContext::Value);
                                         Some(ConstGenericArg {
                                             ty,
-                                            value: ConstGenericValue::GenericParam(
-                                                generic.name.clone(),
-                                            ),
+                                            value: ConstGenericValue::GenericParam(generic.name),
                                         })
                                     }
                                 })
@@ -769,7 +768,7 @@ impl TypeLowerer<'_> {
                             let associated_types = item_trait
                                 .associated_types
                                 .iter()
-                                .map(|associated_type| associated_type.name.clone())
+                                .map(|associated_type| associated_type.name)
                                 .collect::<Vec<_>>();
                             lowerer.with_associated_type_scope(
                                 AssociatedTypeScope {
@@ -1079,7 +1078,7 @@ impl<'a> TypeLowerer<'a> {
                     trait_id,
                     trait_args: args,
                     trait_const_args: const_args,
-                    name: name.clone(),
+                    name: *name,
                 })
             }
         }
@@ -1259,7 +1258,7 @@ impl<'a> TypeLowerer<'a> {
                                 "associated type bindings require a trait bound",
                             ));
                         } else {
-                            let Some((name, _, _, _)) =
+                            let Some(LoweredAssocBindingKey { name, .. }) =
                                 self.lower_assoc_binding_key(key, Some(TraitId::Source(def_id)))
                             else {
                                 continue;
@@ -1530,12 +1529,12 @@ impl<'a> TypeLowerer<'a> {
                 } => {
                     seen_assoc_binding = true;
                     let binding_ty = self.lower_type_in_context(binding_ty, TypeContext::Value);
-                    let Some((
+                    let Some(LoweredAssocBindingKey {
                         name,
-                        binding_trait_id,
-                        binding_trait_args,
-                        binding_trait_const_args,
-                    )) = self.lower_assoc_binding_key(key, Some(trait_id))
+                        trait_id: binding_trait_id,
+                        trait_args: binding_trait_args,
+                        trait_const_args: binding_trait_const_args,
+                    }) = self.lower_assoc_binding_key(key, Some(trait_id))
                     else {
                         continue;
                     };
@@ -1568,7 +1567,7 @@ impl<'a> TypeLowerer<'a> {
                             trait_id: binding_trait_id,
                             trait_args: binding_trait_args,
                             trait_const_args: binding_trait_const_args,
-                            name: name.clone(),
+                            name: *name,
                             ty: binding_ty,
                         });
                 }
@@ -1581,14 +1580,14 @@ impl<'a> TypeLowerer<'a> {
         &mut self,
         key: &'b AssocBindingKey,
         target_trait: Option<TraitId>,
-    ) -> Option<(
-        &'b SymbolId,
-        Option<TraitId>,
-        Vec<InternedTyId>,
-        Vec<ConstGenericArg>,
-    )> {
+    ) -> Option<LoweredAssocBindingKey<'b>> {
         match key {
-            AssocBindingKey::Name(name) => Some((name, None, Vec::new(), Vec::new())),
+            AssocBindingKey::Name(name) => Some(LoweredAssocBindingKey {
+                name,
+                trait_id: None,
+                trait_args: Vec::new(),
+                trait_const_args: Vec::new(),
+            }),
             AssocBindingKey::Projection(projection) => {
                 let TypeKind::Projection {
                     ty,
@@ -1642,9 +1641,19 @@ impl<'a> TypeLowerer<'a> {
                 if let Some(target_trait) = target_trait
                     && trait_id == target_trait
                 {
-                    return Some((name, None, trait_args, trait_const_args));
+                    return Some(LoweredAssocBindingKey {
+                        name,
+                        trait_id: None,
+                        trait_args,
+                        trait_const_args,
+                    });
                 }
-                Some((name, Some(trait_id), trait_args, trait_const_args))
+                Some(LoweredAssocBindingKey {
+                    name,
+                    trait_id: Some(trait_id),
+                    trait_args,
+                    trait_const_args,
+                })
             }
         }
     }
@@ -1721,12 +1730,12 @@ impl<'a> TypeLowerer<'a> {
                     seen_assoc_binding = true;
                     if context == TypeContext::TraitBound {
                         self.lower_type_in_context(binding_ty, TypeContext::Value);
-                        let Some((
+                        let Some(LoweredAssocBindingKey {
                             name,
-                            binding_trait_id,
-                            binding_trait_args,
-                            binding_trait_const_args,
-                        )) = self.lower_assoc_binding_key(key, Some(TraitId::Builtin(trait_id)))
+                            trait_id: binding_trait_id,
+                            trait_args: binding_trait_args,
+                            trait_const_args: binding_trait_const_args,
+                        }) = self.lower_assoc_binding_key(key, Some(TraitId::Builtin(trait_id)))
                         else {
                             continue;
                         };
@@ -1892,10 +1901,10 @@ impl<'a> TypeLowerer<'a> {
     }
 
     fn lower_const_generic_value_from_expr(&mut self, expr: &Expr) -> Option<ConstGenericValue> {
-        if let ExprKind::Ident(name) = &expr.kind {
-            if self.is_comptime_generic_param(name) {
-                return Some(ConstGenericValue::GenericParam(*name));
-            }
+        if let ExprKind::Ident(name) = &expr.kind
+            && self.is_comptime_generic_param(name)
+        {
+            return Some(ConstGenericValue::GenericParam(*name));
         }
         if let ExprKind::Bool(value) = &expr.kind {
             return Some(ConstGenericValue::Bool(*value));
@@ -1991,7 +2000,7 @@ impl<'a> TypeLowerer<'a> {
             trait_id: scope.trait_id,
             trait_args: scope.trait_args,
             trait_const_args: scope.trait_const_args,
-            name: name.clone(),
+            name: *name,
         })
     }
 
@@ -2037,7 +2046,7 @@ impl<'a> TypeLowerer<'a> {
             .filter_map(|(_, def)| {
                 (def.parent == Some(trait_id.def_id)
                     && def.kind == nia_defs::DefKind::TraitAssociatedType)
-                    .then_some(def.name.clone())
+                    .then_some(def.name)
             })
             .collect()
     }
@@ -2066,7 +2075,7 @@ impl<'a> TypeLowerer<'a> {
         if let ExprKind::Ident(name) = &expr.kind
             && self.is_comptime_generic_param(name)
         {
-            return ArrayLenTy::GenericParam(name.clone());
+            return ArrayLenTy::GenericParam(*name);
         }
         if let Some((builtin, type_arg)) = layout_builtin_array_len(expr) {
             ArrayLenTy::Builtin {

@@ -9,7 +9,7 @@ use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, ConstGenericValue, TyKind};
 
-use super::BackendValidator;
+use super::{BackendValidator, FunctionInstanceRef};
 
 impl BackendValidator<'_> {
     pub(super) fn validate_function_body(&mut self, body: &FunctionBody) {
@@ -171,11 +171,13 @@ impl BackendValidator<'_> {
                 const_args,
             } => {
                 self.validate_function_instance_ref(
-                    *def_id,
-                    *arg_module_id,
-                    *self_arg,
-                    args,
-                    const_args,
+                    FunctionInstanceRef {
+                        def_id: *def_id,
+                        arg_module_id: *arg_module_id,
+                        self_arg: *self_arg,
+                        args,
+                        const_args,
+                    },
                     expr.span,
                     "backend IR expression references missing function instance",
                 );
@@ -363,11 +365,13 @@ impl BackendValidator<'_> {
                 args,
                 const_args,
             } => self.validate_function_instance_ref(
-                *def_id,
-                *arg_module_id,
-                *self_arg,
-                args,
-                const_args,
+                FunctionInstanceRef {
+                    def_id: *def_id,
+                    arg_module_id: *arg_module_id,
+                    self_arg: *self_arg,
+                    args,
+                    const_args,
+                },
                 span,
                 "backend IR call references missing function instance",
             ),
@@ -388,11 +392,13 @@ impl BackendValidator<'_> {
                     );
                 } else {
                     self.validate_function_instance_ref(
-                        *def_id,
-                        *arg_module_id,
-                        *self_arg,
-                        args,
-                        &[],
+                        FunctionInstanceRef {
+                            def_id: *def_id,
+                            arg_module_id: *arg_module_id,
+                            self_arg: *self_arg,
+                            args,
+                            const_args: &[],
+                        },
                         span,
                         "backend IR method call references missing function instance",
                     );

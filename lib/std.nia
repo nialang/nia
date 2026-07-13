@@ -29,3 +29,6 @@ pub using collections::{ArrayList, HashMap};
 pub using cstring::CStringView;
 pub using fs::{PathBuf, PathView};
 pub using string::{StringBuf, StringView};
+
+using pkg::iter::range;
+using pkg::hash;

@@ -10,7 +10,6 @@ pub use nia_executable_facts::{
 use nia_ids::{
     BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId, TraitImplId,
 };
-use nia_imports::ModuleGraph;
 use nia_item_signatures::{
     ProgramFunctionSignature, ProgramStructSignature, ProgramTraitImplSignature,
     ProgramTraitSignature, ProgramUnionSignature,
@@ -70,6 +69,14 @@ impl ExecutableReachability {
     pub fn insert_global(&mut self, def_id: GlobalDefId) -> bool {
         let changed = self.globals.insert(def_id);
         self.modules.insert(def_id.module_id);
+        changed
+    }
+
+    pub fn insert_globals(&mut self, def_ids: impl IntoIterator<Item = GlobalDefId>) -> bool {
+        let mut changed = false;
+        for def_id in def_ids {
+            changed |= self.insert_global(def_id);
+        }
         changed
     }
 
@@ -137,13 +144,8 @@ pub struct ExecutableModuleReachability {
 }
 
 impl ExecutableModuleReachability {
-    pub fn has_body_items(&self, mut is_runtime_global: impl FnMut(GlobalDefId) -> bool) -> bool {
-        !self.functions.is_empty()
-            || self
-                .globals
-                .iter()
-                .copied()
-                .any(|def_id| is_runtime_global(def_id))
+    pub fn has_body_items(&self, is_runtime_global: impl FnMut(GlobalDefId) -> bool) -> bool {
+        !self.functions.is_empty() || self.globals.iter().copied().any(is_runtime_global)
     }
 }
 
@@ -267,7 +269,7 @@ impl<'a> ExecutableExtensionIndex<'a> {
             if let Some(trait_id) = method.trait_id {
                 by_trait.entry(trait_id).or_default().push(method);
                 by_trait_method
-                    .entry((trait_id, method.name.clone()))
+                    .entry((trait_id, method.name))
                     .or_default()
                     .push(method);
             }
@@ -363,71 +365,52 @@ impl IncrementalExecutableReachability {
 
 #[derive(Clone, Copy)]
 pub struct ExecutableRootDefs<'a> {
-    pub named_function: &'a dyn Fn(ModuleId, SymbolId) -> Option<GlobalDefId>,
-    pub module_functions: &'a dyn Fn(ModuleId) -> Vec<GlobalDefId>,
+    pub functions: &'a [GlobalDefId],
+    pub globals: &'a [GlobalDefId],
 }
 
 impl std::fmt::Debug for ExecutableRootDefs<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExecutableRootDefs")
-            .field("named_function", &true)
-            .field("module_functions", &true)
+            .field("functions", &self.functions)
+            .field("globals", &self.globals)
             .finish()
     }
 }
 
-pub fn compute_executable_reachability(
-    parse_ok: &[ModuleId],
-    graph: &ModuleGraph,
-    root_defs: ExecutableRootDefs<'_>,
-    program_signatures: ExecutableSignatureIndex<'_>,
-    extension_methods: &ExtensionMethods,
-    trait_impls: &[ProgramTraitImplSignature],
-    modules: &[ReachableModuleInput<'_>],
-) -> ExecutableReachability {
-    compute_executable_reachability_with_seed(
-        None,
-        parse_ok,
-        graph,
-        root_defs,
-        program_signatures,
-        extension_methods,
-        trait_impls,
-        modules,
-    )
+pub struct ExecutableExtensionSources<'a> {
+    pub methods: &'a ExtensionMethods,
+    pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
-pub fn compute_executable_reachability_with_seed(
-    seed: Option<&ExecutableReachability>,
-    parse_ok: &[ModuleId],
-    graph: &ModuleGraph,
-    root_defs: ExecutableRootDefs<'_>,
-    program_signatures: ExecutableSignatureIndex<'_>,
-    extension_methods: &ExtensionMethods,
-    trait_impls: &[ProgramTraitImplSignature],
-    modules: &[ReachableModuleInput<'_>],
-) -> ExecutableReachability {
-    let extension_index = ExecutableExtensionIndex::new(extension_methods, trait_impls);
-    compute_executable_reachability_with_seed_and_extension_index(
-        seed,
-        parse_ok,
-        graph,
-        root_defs,
-        program_signatures,
-        &extension_index,
-        modules,
-    )
+pub struct ExecutableReachabilityInput<'a> {
+    pub parse_ok: &'a [ModuleId],
+    pub entry_module: ModuleId,
+    pub root_defs: ExecutableRootDefs<'a>,
+    pub program_signatures: ExecutableSignatureIndex<'a>,
+    pub modules: &'a [ReachableModuleInput<'a>],
+}
+
+pub struct CheckedModuleReachabilityInput<'a> {
+    pub parse_ok: &'a [ModuleId],
+    pub program_signatures: ExecutableSignatureIndex<'a>,
+    pub module: ReachableModuleInput<'a>,
+    pub checked_functions: &'a HashSet<GlobalDefId>,
+    pub modules_by_id: &'a HashMap<ModuleId, ReachableModuleInput<'a>>,
 }
 
 pub fn compute_executable_reachability_with_seed_and_extension_index(
     seed: Option<&ExecutableReachability>,
-    parse_ok: &[ModuleId],
-    graph: &ModuleGraph,
-    root_defs: ExecutableRootDefs<'_>,
-    program_signatures: ExecutableSignatureIndex<'_>,
+    input: ExecutableReachabilityInput<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
-    modules: &[ReachableModuleInput<'_>],
 ) -> ExecutableReachability {
+    let ExecutableReachabilityInput {
+        parse_ok,
+        entry_module,
+        root_defs,
+        program_signatures,
+        modules,
+    } = input;
     let modules_by_id = modules
         .iter()
         .map(|module| (module.module_id, *module))
@@ -445,7 +428,7 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
     for def_id in seed
         .into_iter()
         .flat_map(|seed| seed.functions.iter().copied())
-        .chain(executable_root_functions(graph, root_defs))
+        .chain(root_defs.functions.iter().copied())
     {
         add_reachable_function(
             def_id,
@@ -454,7 +437,8 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
             &mut pending_seed_modules,
         );
     }
-    reachability.insert_module(graph.entry());
+    reachability.insert_globals(root_defs.globals.iter().copied());
+    reachability.insert_module(entry_module);
 
     let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
     loop {
@@ -517,61 +501,32 @@ pub fn compute_executable_reachability_with_seed_and_extension_index(
     reachability
 }
 
-pub fn compute_executable_reachability_incremental(
-    state: &mut IncrementalExecutableReachability,
-    parse_ok: &[ModuleId],
-    graph: &ModuleGraph,
-    root_defs: ExecutableRootDefs<'_>,
-    program_signatures: ExecutableSignatureIndex<'_>,
-    extension_methods: &ExtensionMethods,
-    trait_impls: &[ProgramTraitImplSignature],
-    modules: &[ReachableModuleInput<'_>],
-) -> ExecutableReachability {
-    let extension_index = ExecutableExtensionIndex::new(extension_methods, trait_impls);
-    compute_executable_reachability_incremental_with_extension_index(
-        state,
-        parse_ok,
-        graph,
-        root_defs,
-        program_signatures,
-        &extension_index,
-        modules,
-    );
-    state.reachability.clone()
-}
-
 pub fn compute_executable_reachability_incremental_with_extension_index(
     state: &mut IncrementalExecutableReachability,
-    parse_ok: &[ModuleId],
-    graph: &ModuleGraph,
-    root_defs: ExecutableRootDefs<'_>,
-    program_signatures: ExecutableSignatureIndex<'_>,
+    input: ExecutableReachabilityInput<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
-    modules: &[ReachableModuleInput<'_>],
 ) {
     compute_executable_reachability_incremental_with_timings(
         state,
-        parse_ok,
-        graph,
-        root_defs,
-        program_signatures,
+        input,
         extension_index,
-        modules,
         nia_timing::TimingMode::Off,
     )
 }
 
-#[expect(clippy::too_many_arguments)]
 pub fn compute_executable_reachability_incremental_with_timings(
     state: &mut IncrementalExecutableReachability,
-    parse_ok: &[ModuleId],
-    graph: &ModuleGraph,
-    root_defs: ExecutableRootDefs<'_>,
-    program_signatures: ExecutableSignatureIndex<'_>,
+    input: ExecutableReachabilityInput<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
-    modules: &[ReachableModuleInput<'_>],
     timings: nia_timing::TimingMode,
 ) {
+    let ExecutableReachabilityInput {
+        parse_ok,
+        entry_module,
+        root_defs,
+        program_signatures,
+        modules,
+    } = input;
     let modules_by_id = time_reachability_stage(timings, "incremental.modules_by_id", None, || {
         modules
             .iter()
@@ -583,7 +538,7 @@ pub fn compute_executable_reachability_incremental_with_timings(
     });
     let mut pending_modules = VecDeque::new();
     time_reachability_stage(timings, "incremental.roots", None, || {
-        for def_id in executable_root_functions(graph, root_defs) {
+        for def_id in root_defs.functions.iter().copied() {
             add_reachable_function(
                 def_id,
                 program_signatures,
@@ -593,7 +548,10 @@ pub fn compute_executable_reachability_incremental_with_timings(
         }
         state
             .reachability
-            .insert_module_pending(graph.entry(), &mut pending_modules);
+            .insert_globals(root_defs.globals.iter().copied());
+        state
+            .reachability
+            .insert_module_pending(entry_module, &mut pending_modules);
     });
 
     loop {
@@ -661,59 +619,44 @@ pub fn compute_executable_reachability_incremental_with_timings(
 
 pub fn extend_incremental_executable_reachability_from_checked_module(
     state: &mut IncrementalExecutableReachability,
-    parse_ok: &[ModuleId],
-    program_signatures: ExecutableSignatureIndex<'_>,
-    extension_methods: &ExtensionMethods,
-    trait_impls: &[ProgramTraitImplSignature],
-    module: ReachableModuleInput<'_>,
-    checked_functions: &HashSet<GlobalDefId>,
-    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
+    input: CheckedModuleReachabilityInput<'_>,
+    extensions: ExecutableExtensionSources<'_>,
 ) -> ExecutableReachability {
-    let extension_index = ExecutableExtensionIndex::new(extension_methods, trait_impls);
+    let extension_index = ExecutableExtensionIndex::new(extensions.methods, extensions.trait_impls);
     extend_incremental_executable_reachability_from_checked_module_with_extension_index(
         state,
-        parse_ok,
-        program_signatures,
+        input,
         &extension_index,
-        module,
-        checked_functions,
-        modules_by_id,
     );
     state.reachability.clone()
 }
 
 pub fn extend_incremental_executable_reachability_from_checked_module_with_extension_index(
     state: &mut IncrementalExecutableReachability,
-    parse_ok: &[ModuleId],
-    program_signatures: ExecutableSignatureIndex<'_>,
+    input: CheckedModuleReachabilityInput<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
-    module: ReachableModuleInput<'_>,
-    checked_functions: &HashSet<GlobalDefId>,
-    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
 ) {
     extend_incremental_executable_reachability_from_checked_module_with_timings(
         state,
-        parse_ok,
-        program_signatures,
+        input,
         extension_index,
-        module,
-        checked_functions,
-        modules_by_id,
         nia_timing::TimingMode::Off,
     )
 }
 
-#[expect(clippy::too_many_arguments)]
 pub fn extend_incremental_executable_reachability_from_checked_module_with_timings(
     state: &mut IncrementalExecutableReachability,
-    parse_ok: &[ModuleId],
-    program_signatures: ExecutableSignatureIndex<'_>,
+    input: CheckedModuleReachabilityInput<'_>,
     extension_index: &dyn ExecutableExtensionLookup,
-    module: ReachableModuleInput<'_>,
-    checked_functions: &HashSet<GlobalDefId>,
-    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
     timings: nia_timing::TimingMode,
 ) {
+    let CheckedModuleReachabilityInput {
+        parse_ok,
+        program_signatures,
+        module,
+        checked_functions,
+        modules_by_id,
+    } = input;
     let parse_ok_set = time_reachability_stage(
         timings,
         "incremental.parse_ok",
@@ -758,7 +701,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
             || {
                 extend_reachable_traits_from_generic_instances_incremental(
                     state,
-                    &modules_by_id,
+                    modules_by_id,
                     &current_reachable_modules,
                     program_signatures,
                     extension_index,
@@ -775,7 +718,7 @@ pub fn extend_incremental_executable_reachability_from_checked_module_with_timin
                     state,
                     program_signatures,
                     extension_index,
-                    &modules_by_id,
+                    modules_by_id,
                     &mut pending_modules,
                 );
             },
@@ -903,6 +846,14 @@ fn extend_reachability_from_unscanned_items(
     }
 
     let refs = typed_executable_refs_for_items(module, &present_functions, &present_globals);
+    for instantiation in &refs.generic_instantiations {
+        add_reachable_function(
+            instantiation.def_id,
+            program_signatures,
+            &mut state.reachability,
+            pending_modules,
+        );
+    }
     for def_id in refs.functions {
         add_reachable_function(
             def_id,
@@ -1024,21 +975,11 @@ impl std::fmt::Debug for ExecutableSignatureIndex<'_> {
     }
 }
 
-fn executable_root_functions(
-    graph: &ModuleGraph,
-    root_defs: ExecutableRootDefs<'_>,
-) -> HashSet<GlobalDefId> {
-    let mut roots = HashSet::default();
-    if let Some(main) = (root_defs.named_function)(graph.entry(), known::MAIN) {
-        roots.insert(main);
-    }
-    if let Some(start_module) = freestanding_start_module(graph)
-        && let Some(start) = (root_defs.named_function)(start_module, known::START_ENTRY)
-    {
-        roots.insert(start);
-        roots.extend((root_defs.module_functions)(start_module));
-    }
-    roots
+#[derive(Clone, Copy)]
+struct GenericTraitReachabilityContext<'a> {
+    modules_by_id: &'a HashMap<ModuleId, ReachableModuleInput<'a>>,
+    program_signatures: ExecutableSignatureIndex<'a>,
+    extension_index: &'a dyn ExecutableExtensionLookup,
 }
 
 fn extend_reachable_functions_from_bodies(
@@ -1048,6 +989,14 @@ fn extend_reachable_functions_from_bodies(
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
     let refs = typed_executable_refs(module, &reachability.functions, &reachability.globals);
+    for instantiation in &refs.generic_instantiations {
+        add_reachable_function(
+            instantiation.def_id,
+            program_signatures,
+            reachability,
+            pending_modules,
+        );
+    }
     for def_id in refs.functions {
         add_reachable_function(def_id, program_signatures, reachability, pending_modules);
     }
@@ -1095,28 +1044,15 @@ fn extend_reachable_traits_from_generic_instances(
             extend_reachable_traits_from_generic_instantiation(
                 module.module_id,
                 &module.body_ir.interner,
-                modules_by_id,
-                program_signatures,
-                extension_index,
+                GenericTraitReachabilityContext {
+                    modules_by_id,
+                    program_signatures,
+                    extension_index,
+                },
                 traits,
                 &instantiation,
                 &mut visited,
-            );
-        }
-        let Some(function_facts) = module.semantic_facts.function_facts.get(def_id) else {
-            continue;
-        };
-        for instantiation in &function_facts.generic_instantiations {
-            let mut visited = HashSet::default();
-            extend_reachable_traits_from_generic_instantiation(
-                module.module_id,
-                &module.body_ir.interner,
-                modules_by_id,
-                program_signatures,
-                extension_index,
-                traits,
-                instantiation,
-                &mut visited,
+                &mut HashSet::new(),
             );
         }
     }
@@ -1141,9 +1077,6 @@ fn extend_reachable_traits_from_generic_instances_incremental(
         let Some(module) = modules_by_id.get(&def_id.module_id) else {
             continue;
         };
-        let Some(function_facts) = module.semantic_facts.function_facts.get(&def_id) else {
-            continue;
-        };
         state.scanned_generic_trait_functions.insert(def_id);
         let mut executable_refs = typed_executable_refs_for_function(module, def_id);
         for instantiation in executable_refs.generic_instantiations.drain(..) {
@@ -1151,25 +1084,15 @@ fn extend_reachable_traits_from_generic_instances_incremental(
             extend_reachable_traits_from_generic_instantiation(
                 module.module_id,
                 &module.body_ir.interner,
-                modules_by_id,
-                program_signatures,
-                extension_index,
+                GenericTraitReachabilityContext {
+                    modules_by_id,
+                    program_signatures,
+                    extension_index,
+                },
                 &mut state.reachable_traits,
                 &instantiation,
                 &mut visited,
-            );
-        }
-        for instantiation in &function_facts.generic_instantiations {
-            let mut visited = HashSet::default();
-            extend_reachable_traits_from_generic_instantiation(
-                module.module_id,
-                &module.body_ir.interner,
-                modules_by_id,
-                program_signatures,
-                extension_index,
-                &mut state.reachable_traits,
-                instantiation,
-                &mut visited,
+                &mut HashSet::new(),
             );
         }
     }
@@ -1178,17 +1101,24 @@ fn extend_reachable_traits_from_generic_instances_incremental(
 fn extend_reachable_traits_from_generic_instantiation(
     use_module_id: ModuleId,
     arg_interner: &TyInterner,
-    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
-    program_signatures: ExecutableSignatureIndex<'_>,
-    extension_index: &dyn ExecutableExtensionLookup,
+    context: GenericTraitReachabilityContext<'_>,
     traits: &mut ReachableTraitRefs,
     instantiation: &nia_sema_ir::GenericInstantiation,
     visited: &mut HashSet<ReachableGenericInstantiationKey>,
+    active_defs: &mut HashSet<GlobalDefId>,
 ) {
+    let GenericTraitReachabilityContext {
+        modules_by_id,
+        program_signatures,
+        extension_index,
+    } = context;
     if !visited.insert(reachable_generic_instantiation_key(
         arg_interner,
         instantiation,
     )) {
+        return;
+    }
+    if !active_defs.insert(instantiation.def_id) {
         return;
     }
     extend_reachable_traits_from_trait_default_instantiation(
@@ -1199,6 +1129,7 @@ fn extend_reachable_traits_from_generic_instantiation(
         instantiation,
     );
     let Some(signature) = (program_signatures.function)(instantiation.def_id) else {
+        active_defs.remove(&instantiation.def_id);
         return;
     };
     let mut signature_interner = signature.interner.clone();
@@ -1236,38 +1167,15 @@ fn extend_reachable_traits_from_generic_instantiation(
             let Some((trait_id, trait_args)) = trait_id_and_args(&bound_interner, trait_ty) else {
                 continue;
             };
-            match trait_id {
-                TraitId::Source(trait_def) => {
-                    if let Some(trait_signature) = (program_signatures.trait_)(trait_def) {
-                        traits.insert_methods_with_interner(
-                            use_module_id,
-                            trait_id,
-                            trait_signature.signature.methods.iter().map(|method| {
-                                ReachableTraitMethodName {
-                                    name: method.name.clone(),
-                                }
-                            }),
-                            self_ty,
-                            &trait_args,
-                            bound_interner,
-                        );
-                    }
-                }
-                TraitId::Builtin(builtin_trait) => {
-                    traits.insert_methods_with_interner(
-                        use_module_id,
-                        trait_id,
-                        builtin_trait
-                            .required_methods()
-                            .iter()
-                            .filter_map(|method| builtin_trait_method_symbol(*method))
-                            .map(|name| ReachableTraitMethodName { name }),
-                        self_ty,
-                        &trait_args,
-                        bound_interner,
-                    );
-                }
-            }
+            insert_trait_and_supertrait_methods(
+                program_signatures,
+                traits,
+                use_module_id,
+                trait_id,
+                self_ty,
+                &trait_args,
+                bound_interner,
+            );
         }
     }
     extension_index.with_where_predicates_for_def(instantiation.def_id, &mut |predicates| {
@@ -1289,42 +1197,20 @@ fn extend_reachable_traits_from_generic_instantiation(
                 else {
                     continue;
                 };
-                match trait_id {
-                    TraitId::Source(trait_def) => {
-                        if let Some(trait_signature) = (program_signatures.trait_)(trait_def) {
-                            traits.insert_methods_with_interner(
-                                use_module_id,
-                                trait_id,
-                                trait_signature
-                                    .signature
-                                    .methods
-                                    .iter()
-                                    .map(|method| ReachableTraitMethodName { name: method.name }),
-                                self_ty,
-                                &trait_args,
-                                bound_interner,
-                            );
-                        }
-                    }
-                    TraitId::Builtin(builtin_trait) => {
-                        traits.insert_methods_with_interner(
-                            use_module_id,
-                            trait_id,
-                            builtin_trait
-                                .required_methods()
-                                .iter()
-                                .filter_map(|method| builtin_trait_method_symbol(*method))
-                                .map(|name| ReachableTraitMethodName { name }),
-                            self_ty,
-                            &trait_args,
-                            bound_interner,
-                        );
-                    }
-                }
+                insert_trait_and_supertrait_methods(
+                    program_signatures,
+                    traits,
+                    use_module_id,
+                    trait_id,
+                    self_ty,
+                    &trait_args,
+                    bound_interner,
+                );
             }
         }
     });
     let Some(target_module) = modules_by_id.get(&instantiation.def_id.module_id) else {
+        active_defs.remove(&instantiation.def_id);
         return;
     };
     let nested_instantiations = target_module
@@ -1353,14 +1239,14 @@ fn extend_reachable_traits_from_generic_instantiation(
         extend_reachable_traits_from_generic_instantiation(
             use_module_id,
             &nested_interner,
-            modules_by_id,
-            program_signatures,
-            extension_index,
+            context,
             traits,
             &nested_instantiation,
             visited,
+            active_defs,
         );
     }
+    active_defs.remove(&instantiation.def_id);
 }
 
 fn extend_reachable_traits_from_trait_default_instantiation(
@@ -1408,13 +1294,145 @@ fn extend_reachable_traits_from_trait_default_instantiation(
             .signature
             .methods
             .iter()
-            .map(|method| ReachableTraitMethodName {
-                name: method.name.clone(),
-            }),
+            .map(|method| ReachableTraitMethodName { name: method.name }),
         self_ty,
         &trait_args,
         method_interner,
     );
+}
+
+fn insert_trait_and_supertrait_methods(
+    program_signatures: ExecutableSignatureIndex<'_>,
+    traits: &mut ReachableTraitRefs,
+    module_id: ModuleId,
+    trait_id: TraitId,
+    self_ty: InternedTyId,
+    trait_args: &[InternedTyId],
+    interner: TyInterner,
+) {
+    insert_trait_and_supertrait_methods_inner(
+        program_signatures,
+        traits,
+        module_id,
+        trait_id,
+        self_ty,
+        trait_args,
+        interner,
+        &mut HashSet::new(),
+    );
+}
+
+fn insert_trait_and_supertrait_methods_inner(
+    program_signatures: ExecutableSignatureIndex<'_>,
+    traits: &mut ReachableTraitRefs,
+    module_id: ModuleId,
+    trait_id: TraitId,
+    self_ty: InternedTyId,
+    trait_args: &[InternedTyId],
+    interner: TyInterner,
+    active_traits: &mut HashSet<TraitId>,
+) {
+    if !active_traits.insert(trait_id) {
+        return;
+    }
+    match trait_id {
+        TraitId::Builtin(builtin_trait) => {
+            traits.insert_methods_with_interner(
+                module_id,
+                trait_id,
+                builtin_trait
+                    .required_methods()
+                    .iter()
+                    .filter_map(|method| builtin_trait_method_symbol(*method))
+                    .map(|name| ReachableTraitMethodName { name }),
+                self_ty,
+                trait_args,
+                interner.clone(),
+            );
+            for supertrait in builtin_trait.supertraits() {
+                let supertrait_args = if supertrait.preserves_trait_args {
+                    trait_args
+                } else {
+                    &[]
+                };
+                insert_trait_and_supertrait_methods_inner(
+                    program_signatures,
+                    traits,
+                    module_id,
+                    TraitId::Builtin(supertrait.trait_id),
+                    self_ty,
+                    supertrait_args,
+                    interner.clone(),
+                    active_traits,
+                );
+            }
+        }
+        TraitId::Source(trait_def) => {
+            let Some(trait_signature) = (program_signatures.trait_)(trait_def) else {
+                active_traits.remove(&trait_id);
+                return;
+            };
+            traits.insert_methods_with_interner(
+                module_id,
+                trait_id,
+                trait_signature
+                    .signature
+                    .methods
+                    .iter()
+                    .map(|method| ReachableTraitMethodName { name: method.name }),
+                self_ty,
+                trait_args,
+                interner.clone(),
+            );
+            for supertrait in &trait_signature.signature.supertraits {
+                let mut supertrait_interner = trait_signature.interner.clone();
+                let Ok(imported_self_ty) =
+                    nia_ty::try_import_type_into(&mut supertrait_interner, &interner, self_ty)
+                else {
+                    continue;
+                };
+                let imported_trait_args = trait_args
+                    .iter()
+                    .map(|arg| {
+                        nia_ty::try_import_type_into(&mut supertrait_interner, &interner, *arg).ok()
+                    })
+                    .collect::<Option<Vec<_>>>();
+                let Some(imported_trait_args) = imported_trait_args else {
+                    continue;
+                };
+                let substitutions = trait_signature
+                    .signature
+                    .generics
+                    .iter()
+                    .copied()
+                    .zip(imported_trait_args)
+                    .collect::<SymbolMap<_>>();
+                let substitutions =
+                    TypeSubstitutions::local(Some(imported_self_ty), &substitutions);
+                let Some(supertrait_ty) =
+                    substitute_ty(&mut supertrait_interner, supertrait.ty, &substitutions)
+                else {
+                    continue;
+                };
+                let Some((supertrait_id, supertrait_args)) =
+                    trait_id_and_args(&supertrait_interner, supertrait_ty)
+                else {
+                    continue;
+                };
+                insert_trait_and_supertrait_methods_inner(
+                    program_signatures,
+                    traits,
+                    module_id,
+                    supertrait_id,
+                    imported_self_ty,
+                    &supertrait_args,
+                    supertrait_interner,
+                    active_traits,
+                );
+            }
+        }
+    }
+    active_traits.remove(&trait_id);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1767,7 +1785,7 @@ impl ReachableTraitRefs {
                 if !self.raw_method_keys.insert(ReachableTraitRawMethodKey {
                     module_id,
                     trait_id,
-                    method_name: method_name.clone(),
+                    method_name,
                     self_ty,
                     trait_args: trait_args.clone(),
                 }) {
@@ -1867,7 +1885,7 @@ impl ReachableTraitRefs {
             .collect::<Option<Vec<_>>>()?;
         Some(ReachableTraitMethodKey {
             trait_id,
-            method_name: method_name.clone(),
+            method_name: *method_name,
             self_ty,
             trait_args,
         })
@@ -1978,6 +1996,21 @@ fn extend_reachable_functions_from_traits(
     reachability: &mut ExecutableReachability,
     pending_modules: &mut VecDeque<ModuleId>,
 ) {
+    for vtable in reachable_traits.vtables.clone() {
+        let Some(vtable_interner) = reachable_traits.interner_context(vtable.interner).cloned()
+        else {
+            continue;
+        };
+        insert_trait_and_supertrait_methods(
+            program_signatures,
+            reachable_traits,
+            vtable.module_id,
+            vtable.trait_id,
+            vtable.self_ty,
+            &vtable.trait_args,
+            vtable_interner,
+        );
+    }
     let reachable_modules = &reachability.modules;
     let mut pending_module_set = HashSet::new();
     let mut deferred_modules = DeferredModuleActivation {
@@ -2012,20 +2045,20 @@ fn extend_reachable_functions_from_traits(
         let vtable_interner = reachable_traits.interner_context(vtable.interner);
         extension_index.for_each_method_for_trait(vtable.trait_id, &mut |method| {
             if !with_reachable_extension_method_match(
-                method,
-                vtable.trait_id,
-                vtable.self_ty,
-                &vtable.trait_args,
-                vtable.module_id,
-                vtable_interner,
-                extension_index,
-                modules_by_id,
+                ReachableExtensionMatchInput {
+                    method,
+                    trait_id: vtable.trait_id,
+                    self_ty: vtable.self_ty,
+                    trait_args: &vtable.trait_args,
+                    use_module_id: vtable.module_id,
+                    use_interner_override: vtable_interner,
+                    extension_index,
+                    modules_by_id,
+                },
                 &mut |_| {
                     deferred_modules.add_function(method.def_id, program_signatures);
                 },
-            ) {
-                return;
-            }
+            ) {}
         });
     }
     let mut method_index = 0;
@@ -2039,14 +2072,16 @@ fn extend_reachable_functions_from_traits(
                 &reachable.method_name,
                 &mut |method| {
                     if !with_reachable_extension_method_match(
-                        method,
-                        reachable.trait_id,
-                        reachable.self_ty,
-                        &reachable.trait_args,
-                        reachable.module_id,
-                        reachable_interner,
-                        extension_index,
-                        modules_by_id,
+                        ReachableExtensionMatchInput {
+                            method,
+                            trait_id: reachable.trait_id,
+                            self_ty: reachable.self_ty,
+                            trait_args: &reachable.trait_args,
+                            use_module_id: reachable.module_id,
+                            use_interner_override: reachable_interner,
+                            extension_index,
+                            modules_by_id,
+                        },
                         &mut |matched| {
                             deferred_modules.add_function(method.def_id, program_signatures);
                             extend_reachable_trait_methods_from_impl_where_predicates(
@@ -2057,9 +2092,7 @@ fn extend_reachable_functions_from_traits(
                                 &mut discovered_traits,
                             );
                         },
-                    ) {
-                        return;
-                    }
+                    ) {}
                 },
             );
         }
@@ -2093,29 +2126,43 @@ fn extend_reachable_functions_from_traits_incremental(
         .vtables
         .min(state.reachable_traits.vtables.len());
     while vtable_index < state.reachable_traits.vtables.len() {
-        let vtable = &state.reachable_traits.vtables[vtable_index];
-        let vtable_interner = state.reachable_traits.interner_context(vtable.interner);
+        let vtable = state.reachable_traits.vtables[vtable_index].clone();
+        let vtable_interner = state
+            .reachable_traits
+            .interner_context(vtable.interner)
+            .cloned();
+        if let Some(vtable_interner) = vtable_interner.as_ref() {
+            insert_trait_and_supertrait_methods(
+                program_signatures,
+                &mut state.reachable_traits,
+                vtable.module_id,
+                vtable.trait_id,
+                vtable.self_ty,
+                &vtable.trait_args,
+                vtable_interner.clone(),
+            );
+        }
         add_reachable_default_trait_methods_for_vtable(
             program_signatures,
-            vtable,
+            &vtable,
             &mut deferred_modules,
         );
         extension_index.for_each_method_for_trait(vtable.trait_id, &mut |method| {
             if !with_reachable_extension_method_match(
-                method,
-                vtable.trait_id,
-                vtable.self_ty,
-                &vtable.trait_args,
-                vtable.module_id,
-                vtable_interner,
-                extension_index,
-                modules_by_id,
+                ReachableExtensionMatchInput {
+                    method,
+                    trait_id: vtable.trait_id,
+                    self_ty: vtable.self_ty,
+                    trait_args: &vtable.trait_args,
+                    use_module_id: vtable.module_id,
+                    use_interner_override: vtable_interner.as_ref(),
+                    extension_index,
+                    modules_by_id,
+                },
                 &mut |_| {
                     deferred_modules.add_function(method.def_id, program_signatures);
                 },
-            ) {
-                return;
-            }
+            ) {}
         });
         vtable_index += 1;
     }
@@ -2139,14 +2186,16 @@ fn extend_reachable_functions_from_traits_incremental(
                 &reachable.method_name,
                 &mut |method| {
                     if !with_reachable_extension_method_match(
-                        method,
-                        reachable.trait_id,
-                        reachable.self_ty,
-                        &reachable.trait_args,
-                        reachable.module_id,
-                        reachable_interner,
-                        extension_index,
-                        modules_by_id,
+                        ReachableExtensionMatchInput {
+                            method,
+                            trait_id: reachable.trait_id,
+                            self_ty: reachable.self_ty,
+                            trait_args: &reachable.trait_args,
+                            use_module_id: reachable.module_id,
+                            use_interner_override: reachable_interner,
+                            extension_index,
+                            modules_by_id,
+                        },
                         &mut |matched| {
                             deferred_modules.add_function(method.def_id, program_signatures);
                             extend_reachable_trait_methods_from_impl_where_predicates(
@@ -2157,9 +2206,7 @@ fn extend_reachable_functions_from_traits_incremental(
                                 &mut discovered_traits,
                             );
                         },
-                    ) {
-                        return;
-                    }
+                    ) {}
                 },
             );
         }
@@ -2242,18 +2289,31 @@ enum SubstitutionTy<'a> {
     External(TypedTyRef<'a>),
 }
 
-#[expect(clippy::too_many_arguments)]
-fn with_reachable_extension_method_match(
-    method: &nia_defs::ExtensionMethod,
+struct ReachableExtensionMatchInput<'a> {
+    method: &'a nia_defs::ExtensionMethod,
     trait_id: TraitId,
     self_ty: InternedTyId,
-    trait_args: &[InternedTyId],
+    trait_args: &'a [InternedTyId],
     use_module_id: ModuleId,
-    use_interner_override: Option<&TyInterner>,
-    extension_index: &dyn ExecutableExtensionLookup,
-    modules_by_id: &HashMap<ModuleId, ReachableModuleInput<'_>>,
+    use_interner_override: Option<&'a TyInterner>,
+    extension_index: &'a dyn ExecutableExtensionLookup,
+    modules_by_id: &'a HashMap<ModuleId, ReachableModuleInput<'a>>,
+}
+
+fn with_reachable_extension_method_match(
+    input: ReachableExtensionMatchInput<'_>,
     f: &mut dyn FnMut(ReachableExtensionMethodMatch<'_>),
 ) -> bool {
+    let ReachableExtensionMatchInput {
+        method,
+        trait_id,
+        self_ty,
+        trait_args,
+        use_module_id,
+        use_interner_override,
+        extension_index,
+        modules_by_id,
+    } = input;
     if method.trait_args.len() != trait_args.len() {
         return false;
     }
@@ -2377,11 +2437,11 @@ fn extend_reachable_trait_methods_from_impl_where_predicates(
                 traits.insert_methods_with_interner(
                     module_id,
                     trait_id,
-                    trait_signature.signature.methods.iter().map(|method| {
-                        ReachableTraitMethodName {
-                            name: method.name.clone(),
-                        }
-                    }),
+                    trait_signature
+                        .signature
+                        .methods
+                        .iter()
+                        .map(|method| ReachableTraitMethodName { name: method.name }),
                     self_ty,
                     &trait_args,
                     bound_interner,
@@ -2391,7 +2451,7 @@ fn extend_reachable_trait_methods_from_impl_where_predicates(
             traits.insert_method_with_interner(
                 module_id,
                 trait_id,
-                fallback_method_name.clone(),
+                *fallback_method_name,
                 self_ty,
                 trait_args,
                 Some(bound_interner),
@@ -2444,7 +2504,7 @@ fn match_type_pattern<'a>(
             if let Some(existing) = substitutions.get(name).copied() {
                 substitution_ty_equivalent(existing, actual)
             } else {
-                substitutions.insert(name.clone(), SubstitutionTy::External(actual));
+                substitutions.insert(*name, SubstitutionTy::External(actual));
                 true
             }
         }
@@ -2956,16 +3016,20 @@ fn typed_refs_structurally_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_
         ) => {
             left_readonly == right_readonly
                 && trait_object_parts_equivalent(
-                    left.interner,
-                    *left_trait,
-                    left_args,
-                    left_const_args,
-                    left_bindings,
-                    right.interner,
-                    *right_trait,
-                    right_args,
-                    right_const_args,
-                    right_bindings,
+                    TraitObjectParts {
+                        interner: left.interner,
+                        trait_id: *left_trait,
+                        args: left_args,
+                        const_args: left_const_args,
+                        bindings: left_bindings,
+                    },
+                    TraitObjectParts {
+                        interner: right.interner,
+                        trait_id: *right_trait,
+                        args: right_args,
+                        const_args: right_const_args,
+                        bindings: right_bindings,
+                    },
                 )
         }
         (
@@ -2982,16 +3046,20 @@ fn typed_refs_structurally_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_
                 associated_type_bindings: right_bindings,
             }),
         ) => trait_object_parts_equivalent(
-            left.interner,
-            *left_trait,
-            left_args,
-            left_const_args,
-            left_bindings,
-            right.interner,
-            *right_trait,
-            right_args,
-            right_const_args,
-            right_bindings,
+            TraitObjectParts {
+                interner: left.interner,
+                trait_id: *left_trait,
+                args: left_args,
+                const_args: left_const_args,
+                bindings: left_bindings,
+            },
+            TraitObjectParts {
+                interner: right.interner,
+                trait_id: *right_trait,
+                args: right_args,
+                const_args: right_const_args,
+                bindings: right_bindings,
+            },
         ),
         (
             Some(TyKind::Projection {
@@ -3136,32 +3204,29 @@ fn const_generic_args_equivalent(
         })
 }
 
-#[expect(clippy::too_many_arguments)]
-fn trait_object_parts_equivalent(
-    left_interner: &TyInterner,
-    left_trait: TraitId,
-    left_args: &[InternedTyId],
-    left_const_args: &[nia_ty::ConstGenericArg],
-    left_bindings: &[AssociatedTypeBindingTy],
-    right_interner: &TyInterner,
-    right_trait: TraitId,
-    right_args: &[InternedTyId],
-    right_const_args: &[nia_ty::ConstGenericArg],
-    right_bindings: &[AssociatedTypeBindingTy],
-) -> bool {
-    left_trait == right_trait
-        && typed_ref_slices_equivalent(left_interner, left_args, right_interner, right_args)
+#[derive(Clone, Copy)]
+struct TraitObjectParts<'a> {
+    interner: &'a TyInterner,
+    trait_id: TraitId,
+    args: &'a [InternedTyId],
+    const_args: &'a [nia_ty::ConstGenericArg],
+    bindings: &'a [AssociatedTypeBindingTy],
+}
+
+fn trait_object_parts_equivalent(left: TraitObjectParts<'_>, right: TraitObjectParts<'_>) -> bool {
+    left.trait_id == right.trait_id
+        && typed_ref_slices_equivalent(left.interner, left.args, right.interner, right.args)
         && const_generic_args_equivalent(
-            left_interner,
-            left_const_args,
-            right_interner,
-            right_const_args,
+            left.interner,
+            left.const_args,
+            right.interner,
+            right.const_args,
         )
         && associated_type_bindings_equivalent(
-            left_interner,
-            left_bindings,
-            right_interner,
-            right_bindings,
+            left.interner,
+            left.bindings,
+            right.interner,
+            right.bindings,
         )
 }
 
@@ -3511,18 +3576,6 @@ fn add_reachable_type_module(module_id: ModuleId, type_modules: &mut HashSet<Mod
     type_modules.insert(module_id);
 }
 
-fn freestanding_start_module(graph: &ModuleGraph) -> Option<ModuleId> {
-    graph.module_id_for_module_path(&nia_imports::ModulePath {
-        package: known::std(),
-        segments: vec![
-            known::START,
-            known::FREESTANDING,
-            known::LINUX,
-            known::X86_64,
-        ],
-    })
-}
-
 fn collect_reachable_fact_owner_modules(
     module: &ReachableModuleInput<'_>,
     program_signatures: ExecutableSignatureIndex<'_>,
@@ -3730,16 +3783,16 @@ fn collect_resolved_call_owner_modules(
             type_ids.extend(trait_args.iter().copied());
         }
         nia_sema_ir::ResolvedCall::BuiltinMethod { method, self_ty } => {
-            if let Some((trait_id, trait_method)) = semantic_builtin_method_trait(*method) {
-                if let Some(method_name) = builtin_trait_method_symbol(trait_method) {
-                    traits.insert_method(
-                        module_id,
-                        TraitId::Builtin(trait_id),
-                        method_name,
-                        *self_ty,
-                        Vec::new(),
-                    );
-                }
+            if let Some((trait_id, trait_method)) = semantic_builtin_method_trait(*method)
+                && let Some(method_name) = builtin_trait_method_symbol(trait_method)
+            {
+                traits.insert_method(
+                    module_id,
+                    TraitId::Builtin(trait_id),
+                    method_name,
+                    *self_ty,
+                    Vec::new(),
+                );
             }
             type_ids.push(*self_ty);
         }

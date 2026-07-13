@@ -112,8 +112,11 @@ impl<'a> BodyChecker<'a> {
             })
             .unwrap_or_default();
         let mut call_receiver_ty = dynamic_receiver_ty.unwrap_or(receiver_ty);
-        if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
-            crate::symbols::builtin_trait_method_symbol(*name)?;
+        if candidates.is_empty()
+            && trait_candidates.is_empty()
+            && dynamic_candidates.is_empty()
+            && crate::symbols::builtin_trait_method_symbol(*name).is_some()
+        {
             call_receiver_ty = self
                 .builtin_place_method_receiver_coercion(receiver, name, receiver_ty)
                 .unwrap_or(receiver_ty);
@@ -178,8 +181,11 @@ impl<'a> BodyChecker<'a> {
             })
             .unwrap_or_default();
         let mut call_receiver_ty = dynamic_receiver_ty.unwrap_or(receiver_ty);
-        if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
-            crate::symbols::builtin_trait_method_symbol(*name)?;
+        if candidates.is_empty()
+            && trait_candidates.is_empty()
+            && dynamic_candidates.is_empty()
+            && crate::symbols::builtin_trait_method_symbol(*name).is_some()
+        {
             call_receiver_ty = self
                 .builtin_place_method_receiver_coercion(receiver, name, receiver_ty)
                 .unwrap_or(receiver_ty);
@@ -252,11 +258,15 @@ impl<'a> BodyChecker<'a> {
         {
             return Some(return_ty);
         }
+        if viable_candidates.is_empty() {
+            self.record_method_provider_demand(receiver_ty, *call.name);
+        }
         let candidate = self
             .profile_stage("body_check.profile.method.single_candidate", |this| {
                 this.single_method_candidate(call.span, call.name, &viable_candidates)
             })?;
         let method_id = candidate.method.def_id;
+        self.record_semantic_provider_module(method_id.module_id);
         let Some(signature) = self.profile_stage("body_check.profile.method.signature", |this| {
             this.resolved_function_signature(method_id)
                 .map(|resolved| resolved.signature)

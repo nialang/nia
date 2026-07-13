@@ -266,6 +266,7 @@ fn int_mask(bits: u32) -> u128 {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticFacts {
     pub global_types: HashMap<GlobalDefId, InternedTyId>,
+    pub comptime_types: HashMap<GlobalDefId, InternedTyId>,
     /// Instantiations owned by module-level facts. Function body instantiations live in
     /// `function_facts`; use `iter_generic_instantiations` when both owners are relevant.
     pub generic_instantiations: Vec<GenericInstantiation>,
@@ -291,6 +292,7 @@ pub struct SemanticFacts {
 impl SemanticFacts {
     pub fn extend(&mut self, facts: Self) {
         self.global_types.extend(facts.global_types);
+        self.comptime_types.extend(facts.comptime_types);
         self.generic_instantiations
             .extend(facts.generic_instantiations);
         self.function_facts.extend(facts.function_facts);

@@ -126,6 +126,46 @@ fn main() void {}
     assert!(stderr.contains("unused import `collections`"), "{stderr}");
 }
 
+#[test]
+fn emit_obj_reports_unused_import_warning_without_skipping_codegen() {
+    let root = temp_dir("emit_obj_reports_unused_import_warning_without_skipping_codegen");
+    let main = root.join("main.nia");
+    let object = root.join("main.o");
+    std::fs::write(
+        &main,
+        r#"
+using std::collections;
+
+pub fn main() void {}
+"#,
+    )
+    .expect("write source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("--obj")
+        .arg(&main)
+        .arg("-o")
+        .arg(&object)
+        .output_timeout("emit object with unused import warning");
+
+    assert!(
+        output.status.success(),
+        "emit should succeed with warnings\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("warning[W0201]"), "{stderr}");
+    assert!(stderr.contains("unused import `collections`"), "{stderr}");
+    assert!(
+        std::fs::metadata(&object)
+            .expect("emitted object metadata")
+            .len()
+            > 0,
+        "emitted object should not be empty"
+    );
+}
+
 fn nia_code_blocks(markdown: &str) -> Vec<(usize, String)> {
     let mut blocks = Vec::new();
     let mut current = None::<String>;

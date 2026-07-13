@@ -48,7 +48,6 @@ pub(crate) fn collect_used_modules(
         used_aliases: &mut used_aliases,
         packages: &mut packages,
         paths: &mut paths,
-        locals: Vec::new(),
     };
     walk_module(&mut collector, &module);
     packages.sort();
@@ -79,7 +78,6 @@ struct QualifiedPathModuleCollector<'a> {
     used_aliases: &'a mut Vec<SymbolId>,
     packages: &'a mut Vec<SymbolId>,
     paths: &'a mut Vec<UsedModulePath>,
-    locals: Vec<SymbolMap<SymbolId>>,
 }
 
 impl QualifiedPathModuleCollector<'_> {
@@ -153,24 +151,6 @@ impl QualifiedPathModuleCollector<'_> {
         );
     }
 
-    fn collect_trait_method_provider(
-        &mut self,
-        target_type_name: Option<SymbolId>,
-        name: &SymbolId,
-    ) {
-        for alias in self.using_aliases.values() {
-            self.paths
-                .push(alias.with_appended_segments_with_processing_mode(
-                    &[],
-                    false,
-                    UsedModulePathProcessing::IfProvidesTraitMethod {
-                        target_type_name,
-                        associated_name: *name,
-                    },
-                ));
-        }
-    }
-
     fn collect_implicit_trait_provider(&mut self, trait_name: SymbolId) {
         for alias in self.using_aliases.values() {
             self.paths
@@ -180,28 +160,6 @@ impl QualifiedPathModuleCollector<'_> {
                     UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name },
                 ));
         }
-    }
-
-    fn collect_inherent_provider_for_type(&mut self, target: &TypeRef, associated_name: &SymbolId) {
-        let TypeKind::Path { segments } = &target.kind else {
-            return;
-        };
-        let Some(last) = segments.last() else {
-            return;
-        };
-        let Some(segments) = type_path_names(segments) else {
-            return;
-        };
-        let Some(target_type_name) = type_path_segment_name(last) else {
-            return;
-        };
-        self.collect_path_segments_with_processing(
-            segments,
-            UsedModulePathProcessing::IfProvidesInherentAssociated {
-                target_type_name,
-                associated_name: *associated_name,
-            },
-        );
     }
 }
 
@@ -243,12 +201,6 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
         self.visit_function_with_optional_body(function, true);
     }
 
-    fn visit_block(&mut self, block: &'ast nia_ast::Block) {
-        self.locals.push(SymbolMap::default());
-        nia_ast_walk::walk_block(self, block);
-        self.locals.pop();
-    }
-
     fn visit_item(&mut self, item: &'ast Item) {
         let ItemKind::Extend(extend) = &item.kind else {
             walk_item(self, item);
@@ -279,16 +231,6 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
         if let StmtKind::Using(using) = &stmt.kind {
             self.collect_using(using);
         }
-        if let StmtKind::Binding(binding) = &stmt.kind {
-            if let Some(ty) = &binding.ty {
-                self.visit_type(ty);
-                self.record_pattern_type(&binding.pattern, ty);
-            }
-            if let Some(value) = &binding.value {
-                self.visit_expr(value);
-            }
-            return;
-        }
         if let StmtKind::ForIn(_) = &stmt.kind {
             self.collect_implicit_trait_provider(nia_ids::BuiltinTrait::Iterable.symbol_id());
             walk_stmt(self, stmt);
@@ -299,13 +241,6 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
 
     fn visit_expr(&mut self, expr: &'ast Expr) {
         if let ExprKind::Call { callee, args } = &expr.kind {
-            if let ExprKind::Field { name, .. } = &callee.kind {
-                let target_type_name = match method_receiver_local_type_name(callee) {
-                    Some(MethodReceiverName::Local(local_name)) => self.local_type_name(local_name),
-                    Some(MethodReceiverName::SelfValue) | None => None,
-                };
-                self.collect_trait_method_provider(target_type_name, name);
-            }
             if let Some(segments) = expr_qualified_segments(callee) {
                 self.collect_path_segments(segments);
                 for arg in args {
@@ -352,29 +287,21 @@ impl QualifiedPathModuleCollector<'_> {
         function: &nia_ast::FunctionItem,
         visit_body: bool,
     ) {
-        self.locals.push(SymbolMap::default());
         self.visit_function_signature(function);
         if visit_body && let Some(body) = &function.body {
             self.visit_block(body);
         }
-        self.locals.pop();
     }
 
     fn visit_extend_method(
         &mut self,
-        extend: &nia_ast::ExtendItem,
+        _extend: &nia_ast::ExtendItem,
         function: &nia_ast::FunctionItem,
     ) {
-        self.locals.push(SymbolMap::default());
         self.visit_function_signature(function);
         if let Some(body) = &function.body {
-            let mut collector = ExtendSelfMethodCollector {
-                target: &extend.target,
-                module_collector: self,
-            };
-            collector.visit_block(body);
+            self.visit_block(body);
         }
-        self.locals.pop();
     }
 
     fn visit_function_signature(&mut self, function: &nia_ast::FunctionItem) {
@@ -382,134 +309,11 @@ impl QualifiedPathModuleCollector<'_> {
         for param in &function.params {
             if let Some(ty) = &param.ty {
                 self.visit_type(ty);
-                if let Some(name) = &param.name {
-                    self.record_local_type(name, ty);
-                }
             }
         }
         if let Some(return_type) = &function.return_type {
             self.visit_type(return_type);
         }
-    }
-
-    fn record_pattern_type(&mut self, pattern: &nia_ast::Pattern, ty: &TypeRef) {
-        if let nia_ast::PatternKind::Bind { name, .. } = &pattern.kind {
-            self.record_local_type(name, ty);
-        }
-    }
-
-    fn record_local_type(&mut self, name: &SymbolId, ty: &TypeRef) {
-        let Some(type_name) = type_ref_last_name(ty) else {
-            return;
-        };
-        if let Some(scope) = self.locals.last_mut() {
-            scope.insert(*name, type_name);
-        }
-    }
-
-    fn local_type_name(&self, name: &SymbolId) -> Option<SymbolId> {
-        self.locals
-            .iter()
-            .rev()
-            .find_map(|scope| scope.get(name).cloned())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MethodReceiverName<'a> {
-    Local(&'a SymbolId),
-    SelfValue,
-}
-
-fn method_receiver_local_type_name(callee: &Expr) -> Option<MethodReceiverName<'_>> {
-    let ExprKind::Field { lhs, .. } = &callee.kind else {
-        return None;
-    };
-    match &lhs.kind {
-        ExprKind::Ident(name) => Some(MethodReceiverName::Local(name)),
-        ExprKind::SelfValue => Some(MethodReceiverName::SelfValue),
-        _ => None,
-    }
-}
-
-struct ExtendSelfMethodCollector<'a, 'b> {
-    target: &'a TypeRef,
-    module_collector: &'a mut QualifiedPathModuleCollector<'b>,
-}
-
-impl<'ast> Visitor<'ast> for ExtendSelfMethodCollector<'_, '_> {
-    fn visit_block(&mut self, block: &'ast nia_ast::Block) {
-        self.module_collector.locals.push(SymbolMap::default());
-        nia_ast_walk::walk_block(self, block);
-        self.module_collector.locals.pop();
-    }
-
-    fn visit_expr(&mut self, expr: &'ast Expr) {
-        if let ExprKind::Field { lhs, name } = &expr.kind
-            && matches!(&lhs.kind, ExprKind::SelfValue)
-        {
-            self.module_collector
-                .collect_inherent_provider_for_type(self.target, name);
-        }
-        if let ExprKind::Call { callee, args } = &expr.kind {
-            if let ExprKind::Field { name, .. } = &callee.kind {
-                let target_type_name = if matches!(
-                    method_receiver_local_type_name(callee),
-                    Some(MethodReceiverName::SelfValue)
-                ) {
-                    type_ref_last_name(self.target)
-                } else {
-                    match method_receiver_local_type_name(callee) {
-                        Some(MethodReceiverName::Local(local_name)) => {
-                            self.module_collector.local_type_name(local_name)
-                        }
-                        Some(MethodReceiverName::SelfValue) | None => None,
-                    }
-                };
-                self.module_collector
-                    .collect_trait_method_provider(target_type_name, name);
-            }
-            if let Some(segments) = expr_qualified_segments(callee) {
-                self.module_collector.collect_path_segments(segments);
-                for arg in args {
-                    self.visit_expr(arg);
-                }
-                return;
-            }
-        }
-        if let Some(segments) = expr_qualified_segments(expr) {
-            self.module_collector.collect_path_segments(segments);
-            return;
-        }
-        walk_expr(self, expr);
-    }
-
-    fn visit_type(&mut self, ty: &'ast TypeRef) {
-        self.module_collector.visit_type(ty);
-    }
-
-    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
-        if let StmtKind::Using(using) = &stmt.kind {
-            self.module_collector.collect_using(using);
-        }
-        if let StmtKind::Binding(binding) = &stmt.kind {
-            if let Some(ty) = &binding.ty {
-                self.module_collector.visit_type(ty);
-                self.module_collector
-                    .record_pattern_type(&binding.pattern, ty);
-            }
-            if let Some(value) = &binding.value {
-                self.visit_expr(value);
-            }
-            return;
-        }
-        if let StmtKind::ForIn(_) = &stmt.kind {
-            self.module_collector
-                .collect_implicit_trait_provider(nia_ids::BuiltinTrait::Iterable.symbol_id());
-            walk_stmt(self, stmt);
-            return;
-        }
-        walk_stmt(self, stmt);
     }
 }
 
@@ -517,12 +321,12 @@ fn expr_qualified_segments(expr: &Expr) -> Option<Vec<SymbolId>> {
     fn collect(expr: &Expr, segments: &mut Vec<SymbolId>) -> Option<()> {
         match &expr.kind {
             ExprKind::Ident(name) => {
-                segments.push(name.clone());
+                segments.push(*name);
                 Some(())
             }
             ExprKind::Qualified { lhs, name } => {
                 collect(lhs, segments)?;
-                segments.push(name.clone());
+                segments.push(*name);
                 Some(())
             }
             _ => None,
@@ -1084,7 +888,7 @@ impl UsedModulePath {
         match self {
             UsedModulePath::Package {
                 package, segments, ..
-            } => segments.last().cloned().or_else(|| Some(*package)),
+            } => segments.last().cloned().or(Some(*package)),
             UsedModulePath::PackageRelative { segments, .. }
             | UsedModulePath::ParentRelative { segments, .. }
             | UsedModulePath::Local { segments, .. } => segments.last().cloned(),
@@ -1120,10 +924,6 @@ pub(crate) enum UsedModulePathProcessing {
         target_type_name: Option<SymbolId>,
         associated_name: SymbolId,
     },
-    IfProvidesInherentAssociated {
-        target_type_name: SymbolId,
-        associated_name: SymbolId,
-    },
 }
 
 impl UsedModulePathProcessing {
@@ -1135,19 +935,15 @@ impl UsedModulePathProcessing {
         }
     }
 
-    pub(crate) fn is_replayable_provider_request(&self) -> bool {
-        matches!(
-            self,
-            Self::IfProvidesImplicitTraitImpl { .. }
-                | Self::IfProvidesTraitMethod {
-                    target_type_name: None,
-                    ..
-                }
-        )
-    }
-
     pub(crate) fn should_process_module(self) -> bool {
         matches!(self, Self::Always | Self::IfSelectedItem)
+    }
+
+    pub(crate) fn is_provider_demand(&self) -> bool {
+        matches!(
+            self,
+            Self::IfProvidesTraitImpl { .. } | Self::IfProvidesTraitMethod { .. }
+        )
     }
 }
 
@@ -1398,13 +1194,6 @@ fn root_with_extra(root: &UsedModuleRoot, extra: &[SymbolId]) -> UsedModuleRoot 
 
 pub(crate) fn host_segments(host: &[UsingHostSegment]) -> Vec<SymbolId> {
     host.iter().filter_map(using_host_segment_name).collect()
-}
-
-pub(crate) fn type_ref_last_name(ty: &TypeRef) -> Option<SymbolId> {
-    match &ty.kind {
-        TypeKind::Path { segments } => segments.last().and_then(type_path_segment_name),
-        _ => None,
-    }
 }
 
 fn using_host_segment_name(segment: &UsingHostSegment) -> Option<SymbolId> {

@@ -236,22 +236,24 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .map(|generic| {
                 (
-                    generic.clone(),
+                    *generic,
                     self.type_context
                         .interner
-                        .intern(TyKind::GenericParam(generic.clone())),
+                        .intern(TyKind::GenericParam(*generic)),
                 )
             })
             .collect::<SymbolMap<_>>();
         let function_body = source_function_body.clone().map(|body| {
-            self.instantiate_function_body(
-                global_def_id,
-                self.input.module_id,
-                false,
-                0,
+            self.instantiate_function_body(crate::instantiate::FunctionBodyInstantiation {
+                function: global_def_id,
+                module_id: self.input.module_id,
+                is_instance: false,
+                type_arg_count: 0,
                 body,
-                &identity_substitutions,
-            )
+                self_arg: None,
+                substitutions: &identity_substitutions,
+                const_substitutions: &SymbolMap::default(),
+            })
         });
         let typed_param_tys = source_function_body
             .as_ref()

@@ -203,6 +203,7 @@ pub struct ModuleGraph {
     by_module_path: nia_hash::FastHashMap<ModulePath, ModuleId>,
     package_roots: SymbolMap<ModuleId>,
     active_package_facades: SymbolMap<ModuleId>,
+    executable_root_subtrees: Vec<ModuleId>,
     diagnostics: Vec<(SourcePath, Diagnostic)>,
     symbols: Arc<dyn SymbolText + Send + Sync>,
 }
@@ -216,6 +217,7 @@ impl fmt::Debug for ModuleGraph {
             .field("by_module_path", &self.by_module_path)
             .field("package_roots", &self.package_roots)
             .field("active_package_facades", &self.active_package_facades)
+            .field("executable_root_subtrees", &self.executable_root_subtrees)
             .field("diagnostics", &self.diagnostics)
             .finish_non_exhaustive()
     }
@@ -229,6 +231,7 @@ impl PartialEq for ModuleGraph {
             && self.by_module_path == other.by_module_path
             && self.package_roots == other.package_roots
             && self.active_package_facades == other.active_package_facades
+            && self.executable_root_subtrees == other.executable_root_subtrees
             && self.diagnostics == other.diagnostics
     }
 }
@@ -259,6 +262,7 @@ impl ModuleGraph {
                 parent: None,
                 children: SymbolMap::default(),
                 declarations: Vec::new(),
+                semantic_selected: true,
                 process_used_paths: true,
                 process_declared_children: true,
             }],
@@ -266,6 +270,7 @@ impl ModuleGraph {
             by_module_path,
             package_roots,
             active_package_facades: SymbolMap::default(),
+            executable_root_subtrees: Vec::new(),
             diagnostics: Vec::new(),
             symbols,
         }
@@ -273,6 +278,24 @@ impl ModuleGraph {
 
     pub fn entry(&self) -> ModuleId {
         self.entry
+    }
+
+    pub fn mark_executable_root_subtree(&mut self, module_id: ModuleId) {
+        if self.get(module_id).is_some() && !self.executable_root_subtrees.contains(&module_id) {
+            self.executable_root_subtrees.push(module_id);
+        }
+    }
+
+    pub fn is_executable_root_module(&self, mut module_id: ModuleId) -> bool {
+        loop {
+            if self.executable_root_subtrees.contains(&module_id) {
+                return true;
+            }
+            let Some(parent) = self.get(module_id).and_then(|node| node.parent) else {
+                return false;
+            };
+            module_id = parent;
+        }
     }
 
     pub fn get(&self, id: ModuleId) -> Option<&ModuleNode> {
@@ -365,8 +388,19 @@ impl ModuleGraph {
     pub fn mark_process_used_paths(&mut self, module_id: ModuleId) -> bool {
         if let Some(module) = self.modules.get_mut(module_id.0 as usize) {
             let was_enabled = module.process_used_paths;
+            module.semantic_selected = true;
             module.process_used_paths = true;
             !was_enabled
+        } else {
+            false
+        }
+    }
+
+    pub fn mark_semantic_selected(&mut self, module_id: ModuleId) -> bool {
+        if let Some(module) = self.modules.get_mut(module_id.0 as usize) {
+            let was_selected = module.semantic_selected;
+            module.semantic_selected = true;
+            !was_selected
         } else {
             false
         }
@@ -503,6 +537,7 @@ impl ModuleGraph {
             parent,
             children: SymbolMap::default(),
             declarations: Vec::new(),
+            semantic_selected: process_used_paths,
             process_used_paths,
             process_declared_children,
         });
@@ -540,8 +575,109 @@ pub struct ModuleNode {
     pub parent: Option<ModuleId>,
     pub children: SymbolMap<ModuleId>,
     pub declarations: Vec<ModuleDeclaration>,
+    pub semantic_selected: bool,
     pub process_used_paths: bool,
     pub process_declared_children: bool,
+}
+
+pub enum ModuleNodeRef<'a> {
+    Borrowed(&'a ModuleNode),
+    Shared(Arc<ModuleNode>),
+}
+
+impl std::ops::Deref for ModuleNodeRef<'_> {
+    type Target = ModuleNode;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            ModuleNodeRef::Borrowed(node) => node,
+            ModuleNodeRef::Shared(node) => node,
+        }
+    }
+}
+
+pub trait ModuleGraphLookup {
+    fn module(&self, module_id: ModuleId) -> Option<ModuleNodeRef<'_>>;
+    fn entry_module(&self) -> ModuleId;
+    fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId>;
+
+    fn module_path(&self, module_id: ModuleId) -> Option<ModulePath> {
+        Some(self.module(module_id)?.module_path.clone())
+    }
+
+    fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
+        self.module(module_id)?.parent
+    }
+
+    fn child_declaration(
+        &self,
+        module_id: ModuleId,
+        name: &SymbolId,
+    ) -> Option<(ModuleId, Visibility)> {
+        let module = self.module(module_id)?;
+        let target = module.children.get(name).copied()?;
+        let declaration = module
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == *name && declaration.target == target)?;
+        Some((target, declaration.visibility))
+    }
+
+    fn current_package_root_module(&self, module_id: ModuleId) -> Option<ModuleId> {
+        let package = self.module_path(module_id)?.package;
+        self.package_root_module(&package)
+    }
+
+    fn root_module_for_segment(
+        &self,
+        current_module: ModuleId,
+        segment: ModuleRootSegment,
+    ) -> Option<ModuleId> {
+        match segment {
+            ModuleRootSegment::Current => Some(current_module),
+            ModuleRootSegment::Parent => self.parent_module(current_module),
+            ModuleRootSegment::PackageRelative => self.current_package_root_module(current_module),
+            ModuleRootSegment::Named(name) => {
+                if is_entry_module_root(name) {
+                    return Some(self.entry_module());
+                }
+                self.child_declaration(current_module, &name)
+                    .map(|(target, _)| target)
+                    .or_else(|| self.package_root_module(&name))
+            }
+        }
+    }
+}
+
+impl ModuleGraphLookup for ModuleGraph {
+    fn module(&self, module_id: ModuleId) -> Option<ModuleNodeRef<'_>> {
+        self.get(module_id).map(ModuleNodeRef::Borrowed)
+    }
+
+    fn entry_module(&self) -> ModuleId {
+        self.entry()
+    }
+
+    fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId> {
+        self.package_root(package)
+    }
+}
+
+impl<T> ModuleGraphLookup for Arc<T>
+where
+    T: ModuleGraphLookup + ?Sized,
+{
+    fn module(&self, module_id: ModuleId) -> Option<ModuleNodeRef<'_>> {
+        self.as_ref().module(module_id)
+    }
+
+    fn entry_module(&self) -> ModuleId {
+        self.as_ref().entry_module()
+    }
+
+    fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId> {
+        self.as_ref().package_root_module(package)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -620,7 +756,7 @@ pub fn add_resolved_module_declarations(
 
 pub fn visibility_allows(
     visibility: Visibility,
-    graph: &ModuleGraph,
+    graph: &(impl ModuleGraphLookup + ?Sized),
     defining_module: ModuleId,
     accessing_module: ModuleId,
 ) -> bool {
@@ -630,19 +766,18 @@ pub fn visibility_allows(
     match visibility {
         Visibility::Public => true,
         Visibility::PublicPkg => {
-            let Some(defining) = graph.get(defining_module) else {
+            let Some(defining) = graph.module_path(defining_module) else {
                 return false;
             };
-            let Some(accessing) = graph.get(accessing_module) else {
+            let Some(accessing) = graph.module_path(accessing_module) else {
                 return false;
             };
-            defining.module_path.package == accessing.module_path.package
+            defining.package == accessing.package
         }
         Visibility::PublicSuper => {
             is_descendant_or_self(graph, accessing_module, defining_module)
                 || graph
-                    .get(defining_module)
-                    .and_then(|node| node.parent)
+                    .parent_module(defining_module)
                     .is_some_and(|parent| is_descendant_or_self(graph, accessing_module, parent))
         }
         Visibility::Private => false,
@@ -651,7 +786,7 @@ pub fn visibility_allows(
 
 pub fn module_declaration_visibility_allows(
     visibility: Visibility,
-    graph: &ModuleGraph,
+    graph: &(impl ModuleGraphLookup + ?Sized),
     declaring_module: ModuleId,
     accessing_module: ModuleId,
 ) -> bool {
@@ -661,13 +796,17 @@ pub fn module_declaration_visibility_allows(
     visibility_allows(visibility, graph, declaring_module, accessing_module)
 }
 
-fn is_descendant_or_self(graph: &ModuleGraph, module: ModuleId, ancestor: ModuleId) -> bool {
+fn is_descendant_or_self(
+    graph: &(impl ModuleGraphLookup + ?Sized),
+    module: ModuleId,
+    ancestor: ModuleId,
+) -> bool {
     let mut current = Some(module);
     while let Some(module_id) = current {
         if module_id == ancestor {
             return true;
         }
-        current = graph.get(module_id).and_then(|node| node.parent);
+        current = graph.parent_module(module_id);
     }
     false
 }

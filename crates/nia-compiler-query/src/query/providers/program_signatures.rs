@@ -100,22 +100,6 @@ pub(super) fn program_signature_facts(
     )
 }
 
-fn collect_functions_excluding(
-    facts: &[ModuleProgramSignatureFactsValue],
-    excluded: &HashSet<GlobalDefId>,
-) -> HashMap<GlobalDefId, ProgramFunctionSignature> {
-    facts
-        .iter()
-        .flat_map(|facts| {
-            facts
-                .functions
-                .iter()
-                .filter(|(def_id, _)| !excluded.contains(def_id))
-                .map(|(def_id, signature)| (*def_id, signature.clone()))
-        })
-        .collect()
-}
-
 fn collect_globals(
     facts: &[ModuleProgramSignatureFactsValue],
 ) -> HashMap<GlobalDefId, ProgramGlobalSignature> {
@@ -233,21 +217,6 @@ fn collect_trait_impls(
         .collect()
 }
 
-pub(super) fn provide_program_visible_type_signatures(
-    db: &QueryDb<CompilerContext>,
-) -> Arc<ProgramVisibleTypeSignatures> {
-    time_provider(
-        db.context().timings(),
-        "program_visible_type_signatures",
-        || {
-            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
-            Arc::new(ProgramVisibleTypeSignatures {
-                type_aliases: collect_type_aliases(&facts),
-            })
-        },
-    )
-}
-
 pub(super) fn provide_program_trait_method_index(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramTraitMethodIndex> {
@@ -300,7 +269,7 @@ pub(super) fn executable_program_functions_for_modules(
                     let name = defs
                         .defs
                         .get(def_id)
-                        .map(|def| def.name.clone())
+                        .map(|def| def.name)
                         .unwrap_or_default();
                     (
                         global_def_id,
@@ -313,32 +282,6 @@ pub(super) fn executable_program_functions_for_modules(
                 })
         })
         .collect()
-}
-
-pub(super) fn provide_program_backend_signatures(
-    db: &QueryDb<CompilerContext>,
-) -> Arc<ProgramBackendSignatures> {
-    time_provider(db.context().timings(), "program_backend_signatures", || {
-        let function_facts =
-            program_signature_facts(db, nia_item_tree::SignatureItemSet::Functions);
-        let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
-        let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
-        let trait_solving = db.query(ProgramTraitSolvingSignaturesQuery);
-        let traits = collect_traits(&trait_facts);
-        Arc::new(ProgramBackendSignatures {
-            functions: collect_functions_excluding(
-                &function_facts,
-                &trait_solving.invalid_trait_impl_method_ids,
-            ),
-            structs: collect_structs(&type_facts),
-            unions: collect_unions(&type_facts),
-            enums: collect_enums(&type_facts),
-            traits,
-            type_aliases: collect_type_aliases(&type_facts),
-            trait_impls: trait_solving.trait_impls.clone(),
-            trait_impl_index: trait_solving.trait_impl_index.clone(),
-        })
-    })
 }
 
 pub(super) fn provide_program_abi_signatures(

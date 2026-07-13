@@ -14,7 +14,7 @@ impl Analyzer<'_> {
             .call_locals
             .iter()
             .flat_map(|frame| frame.type_substitutions.iter())
-            .map(|(name, ty)| (name.clone(), *ty))
+            .map(|(name, ty)| (*name, *ty))
             .collect::<SymbolMap<_>>();
         let interner = self
             .working_interners
@@ -117,15 +117,13 @@ impl Analyzer<'_> {
                 match &generic.kind {
                     GenericParamSignatureKind::Type => {
                         let imported = self.import_ty_into_module(arg.ty(), signature_module_id)?;
-                        substitutions.insert(generic.name.clone(), imported);
+                        substitutions.insert(generic.name, imported);
                     }
                     GenericParamSignatureKind::Comptime { ty } => {
                         let value = self
                             .const_generic_arg_from_resolved_type_arg(arg, signature_module_id)?;
-                        const_substitutions.insert(
-                            generic.name.clone(),
-                            nia_ty::ConstGenericArg { ty: *ty, value },
-                        );
+                        const_substitutions
+                            .insert(generic.name, nia_ty::ConstGenericArg { ty: *ty, value });
                     }
                 }
             }
@@ -147,9 +145,7 @@ impl Analyzer<'_> {
             .get(&module_id)
             .and_then(|interner| interner.get(imported))
         {
-            Some(TyKind::GenericParam(name)) => {
-                Ok(nia_ty::ConstGenericValue::GenericParam(name.clone()))
-            }
+            Some(TyKind::GenericParam(name)) => Ok(nia_ty::ConstGenericValue::GenericParam(*name)),
             _ => Err(ComptimeError {
                 span: arg.span(),
                 message: "comptime generic argument must be a comptime value".to_string(),
@@ -1034,7 +1030,7 @@ impl Analyzer<'_> {
         let field_set = check_required_field_set(
             fields
                 .iter()
-                .map(|field| NamedField::new(field.span(), field.name_symbol().clone())),
+                .map(|field| NamedField::new(field.span(), *field.name_symbol())),
             field_tys.keys().cloned(),
         );
         if !field_set.is_valid() {
@@ -1080,7 +1076,7 @@ impl Analyzer<'_> {
                 return None;
             }
             typed_fields.push(ComptimeValueFieldType {
-                name: field.name_symbol().clone(),
+                name: *field.name_symbol(),
                 ty: self.resolved_comptime_expr_type(field.value(), None)?,
             });
         }
@@ -1176,7 +1172,7 @@ impl Analyzer<'_> {
                     substitutions.get(generic).copied()
                 })
             };
-            fields.insert(field.name.clone(), ty);
+            fields.insert(field.name, ty);
         }
         Some(fields)
     }

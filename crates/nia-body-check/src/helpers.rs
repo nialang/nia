@@ -190,7 +190,7 @@ impl<'a> BodyChecker<'a> {
         generics
             .iter()
             .zip(args)
-            .map(|(name, ty)| (name.clone(), *ty))
+            .map(|(name, ty)| (*name, *ty))
             .collect()
     }
 
@@ -204,7 +204,7 @@ impl<'a> BodyChecker<'a> {
             .or_else(|| self.current_method_owner_comptime_generic_type(current_def_id, name))?;
         Some(ConstGenericArg {
             ty,
-            value: ConstGenericValue::GenericParam(name.clone()),
+            value: ConstGenericValue::GenericParam(*name),
         })
     }
 
@@ -222,11 +222,10 @@ impl<'a> BodyChecker<'a> {
                 let def = defs.defs.get(id)?;
                 if let Some(param) = def.generic_params.iter().find(|param| {
                     &param.name == name && matches!(param.kind, GenericParamKind::Comptime { .. })
-                }) {
-                    if let GenericParamKind::Comptime { ty: param_ty } = &param.kind {
-                        ty = Some(param_ty.clone());
-                        break;
-                    }
+                }) && let GenericParamKind::Comptime { ty: param_ty } = &param.kind
+                {
+                    ty = Some(param_ty.clone());
+                    break;
                 }
                 def_id = def.parent;
             }
@@ -292,13 +291,13 @@ impl<'a> BodyChecker<'a> {
             match param.kind {
                 GenericParamKind::Type => {
                     if let Some(arg) = args.get(type_index).copied() {
-                        substitutions.insert(param.name.clone(), arg);
+                        substitutions.insert(param.name, arg);
                     }
                     type_index += 1;
                 }
                 GenericParamKind::Comptime { .. } => {
                     if let Some(arg) = const_args.get(const_index).cloned() {
-                        const_substitutions.insert(param.name.clone(), arg);
+                        const_substitutions.insert(param.name, arg);
                     }
                     const_index += 1;
                 }
@@ -335,7 +334,7 @@ impl<'a> BodyChecker<'a> {
             generics
                 .iter()
                 .map(|generic| GenericParamSignature {
-                    name: generic.name.clone(),
+                    name: generic.name,
                     kind: match &generic.kind {
                         GenericParamKind::Type => GenericParamSignatureKind::Type,
                         GenericParamKind::Comptime { ty } => GenericParamSignatureKind::Comptime {
@@ -692,7 +691,7 @@ impl<'a> BodyChecker<'a> {
                             .iter()
                             .map(|arg| self.substitute_const_generic_arg(arg, const_substitutions))
                             .collect(),
-                        name: binding.name.clone(),
+                        name: binding.name,
                         ty: self.substitute_generics_and_consts_inner(
                             binding.ty,
                             substitutions,
@@ -756,7 +755,7 @@ impl<'a> BodyChecker<'a> {
                             .iter()
                             .map(|arg| self.substitute_const_generic_arg(arg, const_substitutions))
                             .collect(),
-                        name: binding.name.clone(),
+                        name: binding.name,
                         ty: self.substitute_generics_and_consts_inner(
                             binding.ty,
                             substitutions,
@@ -784,7 +783,7 @@ impl<'a> BodyChecker<'a> {
                 let trait_id = *trait_id;
                 let trait_args = trait_args.clone();
                 let trait_const_args = trait_const_args.clone();
-                let name = name.clone();
+                let name = *name;
                 let projection_self_ty = self.substitute_generics_and_consts_inner(
                     projection_self_ty,
                     substitutions,
@@ -856,7 +855,7 @@ impl<'a> BodyChecker<'a> {
 fn array_len_from_const_arg(arg: &ConstGenericArg) -> Option<ArrayLenTy> {
     match &arg.value {
         ConstGenericValue::Int(value) => value.bits().try_into().ok().map(ArrayLenTy::ConstValue),
-        ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(name.clone())),
+        ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(*name)),
         ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(*id)),
         ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => None,
     }

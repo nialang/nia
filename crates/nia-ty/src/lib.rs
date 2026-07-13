@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_hash::FastHashSet;
 pub use nia_ids::{BuiltinTrait, BuiltinType, LayoutBuiltin, TraitId};
 use nia_ids::{
     GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerId, TyInternerIndex,
@@ -348,14 +349,12 @@ impl TyInterner {
     }
 
     pub fn contains_error(&self, id: InternedTyId) -> bool {
-        let mut seen = Vec::new();
+        let mut seen = FastHashSet::default();
         self.contains_error_inner(id, &mut seen)
     }
 
-    fn contains_error_inner(&self, id: InternedTyId, seen: &mut Vec<InternedTyId>) -> bool {
-        if !seen.iter().any(|seen_id| *seen_id == id) {
-            seen.push(id);
-        } else {
+    fn contains_error_inner(&self, id: InternedTyId, seen: &mut FastHashSet<InternedTyId>) -> bool {
+        if !seen.insert(id) {
             return false;
         }
         match self.get(id) {
@@ -425,7 +424,11 @@ impl TyInterner {
         }
     }
 
-    fn array_len_contains_error(&self, len: &ArrayLenTy, seen: &mut Vec<InternedTyId>) -> bool {
+    fn array_len_contains_error(
+        &self,
+        len: &ArrayLenTy,
+        seen: &mut FastHashSet<InternedTyId>,
+    ) -> bool {
         match len {
             ArrayLenTy::Builtin { ty, .. } => self.contains_error_inner(*ty, seen),
             ArrayLenTy::Infer
@@ -438,7 +441,7 @@ impl TyInterner {
     fn associated_type_binding_contains_error(
         &self,
         binding: &AssociatedTypeBindingTy,
-        seen: &mut Vec<InternedTyId>,
+        seen: &mut FastHashSet<InternedTyId>,
     ) -> bool {
         binding
             .trait_args

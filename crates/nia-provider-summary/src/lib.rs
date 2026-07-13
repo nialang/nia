@@ -52,7 +52,7 @@ where
         for (module, summary) in summaries {
             for provider in &summary.providers {
                 if let Some(name) = provider.target.ty.nominal_provider_index_name() {
-                    named.entry(name.clone()).or_default().push(module);
+                    named.entry(*name).or_default().push(module);
                 }
             }
         }
@@ -97,12 +97,12 @@ impl ProviderSummary {
                 let associated_methods = extend
                     .methods
                     .iter()
-                    .map(|method| method.function.name.clone())
+                    .map(|method| method.function.name)
                     .collect();
                 let associated_values = extend
                     .associated_values
                     .iter()
-                    .map(|value| value.binding.name.clone())
+                    .map(|value| value.binding.name)
                     .collect();
                 Some(Provider {
                     target: ProviderTarget {
@@ -232,7 +232,11 @@ impl ProviderSummary {
     ) -> bool {
         self.providers.iter().any(|provider| {
             if let Some(target_type_name) = target_type_name {
-                if !provider.target.ty.may_match_nominal_name(target_type_name) {
+                if !provider
+                    .target
+                    .ty
+                    .may_match_demand_nominal_name(target_type_name)
+                {
                     return false;
                 }
             } else if provider.trait_ref.is_none()
@@ -283,6 +287,11 @@ impl ProviderTypeRef {
             || self.last_name.as_ref().is_none_or(|last| last == name)
     }
 
+    fn may_match_demand_nominal_name(&self, name: &SymbolId) -> bool {
+        self.is_generic_or_structural_target
+            || self.last_name.as_ref().is_none_or(|last| last == name)
+    }
+
     fn may_match_trait_name(&self, name: &SymbolId) -> bool {
         self.last_name.as_ref().is_none_or(|last| last == name)
     }
@@ -292,7 +301,6 @@ impl ProviderTypeRef {
             return NominalProviderCandidate::Conservative;
         }
         self.last_name
-            .clone()
             .map(NominalProviderCandidate::Named)
             .unwrap_or(NominalProviderCandidate::Conservative)
     }
@@ -314,9 +322,9 @@ fn local_nominal_type_names(item_tree: &ActiveModuleItemTree) -> SymbolSet {
         .items
         .iter()
         .filter_map(|item| match &item.kind {
-            ItemTreeNodeKind::Struct(item) => Some(item.name.clone()),
-            ItemTreeNodeKind::Union(item) => Some(item.name.clone()),
-            ItemTreeNodeKind::Enum(item) => Some(item.name.clone()),
+            ItemTreeNodeKind::Struct(item) => Some(item.name),
+            ItemTreeNodeKind::Union(item) => Some(item.name),
+            ItemTreeNodeKind::Enum(item) => Some(item.name),
             _ => None,
         })
         .collect()
@@ -327,7 +335,7 @@ fn local_trait_names(item_tree: &ActiveModuleItemTree) -> SymbolSet {
         .items
         .iter()
         .filter_map(|item| match &item.kind {
-            ItemTreeNodeKind::Trait(item) => Some(item.name.clone()),
+            ItemTreeNodeKind::Trait(item) => Some(item.name),
             _ => None,
         })
         .collect()
@@ -359,7 +367,7 @@ fn collect_using_selector_names(
         }
         UsingSelector::Wildcard { .. } => {}
         UsingSelector::Single(name) => {
-            names.insert(name.alias.clone().unwrap_or_else(|| name.name.clone()));
+            names.insert(name.alias.unwrap_or(name.name));
         }
         UsingSelector::Group(items) => {
             for item in items {
@@ -372,7 +380,7 @@ fn collect_using_selector_names(
 fn collect_using_group_item_names(item: &UsingGroupItem, names: &mut SymbolSet) {
     match item {
         UsingGroupItem::Name(name) => {
-            names.insert(name.alias.clone().unwrap_or_else(|| name.name.clone()));
+            names.insert(name.alias.unwrap_or(name.name));
         }
         UsingGroupItem::Nested { host, selector } => {
             collect_using_selector_names(host, selector, names);

@@ -129,7 +129,11 @@ fn import_target_is_semantic(
     };
     graph
         .get(module_id)
-        .is_some_and(|node| node.process_used_paths)
+        .is_some_and(|module| module.semantic_selected)
+        || matches!(
+            path,
+            UsedModulePath::Package { segments, .. } if segments.is_empty()
+        )
 }
 
 fn import_target_module(
@@ -317,8 +321,8 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SourceText {
-    file: Option<SourceFile>,
-    diagnostic: Option<Diagnostic>,
+    pub(crate) file: Option<SourceFile>,
+    pub(crate) diagnostic: Option<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

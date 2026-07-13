@@ -6,7 +6,9 @@ use std::{
     sync::Mutex,
 };
 
-use nia_compiler_query::{CompileRequest, CompilerDatabase, TimingMode, has_error_diagnostics};
+use nia_compiler_query::{
+    CompileRequest, CompilerDatabase, ProviderDemand, TimingMode, has_error_diagnostics,
+};
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
 use nia_linker::{LinkOptions, LinkTarget};
@@ -17,16 +19,11 @@ use nia_target_config::TargetConfig;
 
 use crate::{CheckedProgram, CodegenProgram, LoadedProgram};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Runtime {
+    #[default]
     Bare,
     Freestanding,
-}
-
-impl Default for Runtime {
-    fn default() -> Self {
-        Self::Bare
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +84,25 @@ impl Driver {
         &self.sources
     }
 
+    #[cfg(test)]
+    pub(crate) fn compiler_query_executions(&self, name: &str) -> usize {
+        self.compiler
+            .lock()
+            .expect("driver compiler lock poisoned")
+            .as_ref()
+            .map(|compiler| {
+                compiler
+                    .database
+                    .query_trace()
+                    .queries
+                    .iter()
+                    .filter(|query| query.frame.name == name)
+                    .map(|query| query.stats.executions)
+                    .sum()
+            })
+            .unwrap_or_default()
+    }
+
     pub fn set_source(&self, path: impl Into<String>, text: impl Into<std::sync::Arc<str>>) {
         let path = path.into();
         let loader = self.loader.lock().expect("driver loader lock poisoned");
@@ -109,7 +125,7 @@ impl Driver {
     }
 
     fn check_all_modules_inner(&self, request: CheckRequest) -> CheckedProgram {
-        self.compile_with(request, CompilerDatabase::check_program)
+        self.compile_with(request, false, CompilerDatabase::check_program)
     }
 
     pub fn check_entry(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
@@ -123,7 +139,7 @@ impl Driver {
     }
 
     fn check_entry_inner(&self, request: CheckRequest) -> CheckedProgram {
-        self.compile_with(request, CompilerDatabase::entry_check_program)
+        self.compile_with(request, true, CompilerDatabase::entry_check_program)
     }
 
     pub fn codegen(&self, request: CheckRequest) -> DriverOutput<CodegenProgram> {
@@ -137,35 +153,81 @@ impl Driver {
     }
 
     fn codegen_inner(&self, request: CheckRequest) -> CodegenProgram {
-        self.compile_with(request, CompilerDatabase::codegen_program)
+        self.compile_with(request, true, CompilerDatabase::codegen_program)
     }
 
     fn compile_with<T>(
         &self,
         request: CheckRequest,
-        compile: impl FnOnce(&CompilerDatabase) -> T,
-    ) -> T {
-        let loaded = self.load_program(&request);
-        let compile_request = CompileRequest::new(loaded)
-            .with_optimization(request.optimization)
-            .with_timings(request.timings);
+        discover_executable_providers: bool,
+        compile: impl Fn(&CompilerDatabase) -> T,
+    ) -> T
+    where
+        T: ProviderDemandOutput,
+    {
+        let loader = self.loader_database(&request);
+        let loaded = loader.load_program();
+        let mut graph_state = module_graph_state(&loaded);
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
-        let database = match &*compiler_guard {
-            Some(compiler) => {
-                compiler.database.update(compile_request);
-                compiler.database.clone()
-            }
-            _ => {
-                let database = CompilerDatabase::new(compile_request);
-                *compiler_guard = Some(SessionCompiler {
-                    database: database.clone(),
-                });
-                database
-            }
+        let (database, mut pending_update) = if let Some(compiler) = &*compiler_guard {
+            (
+                compiler.database.clone(),
+                Some((loaded, Vec::<ProviderDemand>::new())),
+            )
+        } else {
+            let database = CompilerDatabase::new(
+                CompileRequest::new(loaded)
+                    .with_optimization(request.optimization)
+                    .with_timings(request.timings),
+            );
+            *compiler_guard = Some(SessionCompiler {
+                database: database.clone(),
+            });
+            (database, None)
         };
-        let output = compile(&database);
-        drop(compiler_guard);
-        output
+        loop {
+            let can_finalize_without_discovery =
+                pending_update
+                    .as_ref()
+                    .is_some_and(|(_, provider_changes)| {
+                        !provider_changes.is_empty()
+                            && provider_changes
+                                .iter()
+                                .all(|demand| !demand.request.invalidates_resolved_body_facts())
+                    });
+            if let Some((loaded, provider_changes)) = pending_update.take() {
+                database.update(
+                    CompileRequest::new(loaded)
+                        .with_optimization(request.optimization)
+                        .with_timings(request.timings)
+                        .with_provider_changes(provider_changes),
+                );
+            }
+            if discover_executable_providers && !can_finalize_without_discovery {
+                let provider_changes =
+                    loader.add_provider_demands_collect_new(database.executable_provider_demands());
+                if !provider_changes.is_empty() {
+                    let next_loaded = loader.load_program();
+                    if module_graph_state(&next_loaded) != graph_state {
+                        graph_state = module_graph_state(&next_loaded);
+                        pending_update = Some((next_loaded, provider_changes));
+                        continue;
+                    }
+                }
+            }
+            let output = compile(&database);
+            let provider_demands = output.provider_demands();
+            let provider_changes = loader.add_provider_demands_collect_new(provider_demands);
+            if provider_changes.is_empty() {
+                return output;
+            }
+            let next_loaded = loader.load_program();
+            if module_graph_state(&next_loaded) == graph_state {
+                return output;
+            }
+            graph_state = module_graph_state(&next_loaded);
+            pending_update = Some((next_loaded, provider_changes));
+        }
     }
 
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
@@ -394,7 +456,7 @@ impl Driver {
         })
     }
 
-    fn load_program(&self, request: &CheckRequest) -> LoadedProgram {
+    fn loader_database(&self, request: &CheckRequest) -> LoaderDatabase {
         let key = LoaderKey {
             entry_path: request.entry_path.clone(),
             module_map: request.module_map.clone(),
@@ -420,8 +482,47 @@ impl Driver {
             }
         };
         drop(loader_guard);
-        database.load_program()
+        database
     }
+}
+
+trait ProviderDemandOutput {
+    fn provider_demands(&self) -> Vec<ProviderDemand>;
+}
+
+impl ProviderDemandOutput for CheckedProgram {
+    fn provider_demands(&self) -> Vec<ProviderDemand> {
+        self.modules
+            .iter()
+            .flat_map(|module| module.provider_demands.iter().cloned())
+            .collect()
+    }
+}
+
+impl ProviderDemandOutput for CodegenProgram {
+    fn provider_demands(&self) -> Vec<ProviderDemand> {
+        self.modules
+            .iter()
+            .flat_map(|module| module.provider_demands.iter().cloned())
+            .collect()
+    }
+}
+
+fn module_graph_state(
+    program: &LoadedProgram,
+) -> Vec<(nia_source::SourceIdentity, bool, bool, bool)> {
+    program
+        .graph
+        .modules()
+        .map(|module| {
+            (
+                module.path.identity(),
+                module.semantic_selected,
+                module.process_used_paths,
+                module.process_declared_children,
+            )
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -592,7 +693,7 @@ impl<T> DriverOutput<T> {
     }
 
     fn from_codegen_diagnostics(program: CodegenProgram) -> Self {
-        Self::from_error(DriverError::CodegenProgramDiagnostics(program))
+        Self::from_error(DriverError::CodegenProgramDiagnostics(Box::new(program)))
     }
 
     pub(crate) fn catch_ice(f: impl FnOnce() -> Self) -> Self {
@@ -606,7 +707,7 @@ impl<T> DriverOutput<T> {
 #[derive(Debug)]
 pub enum DriverError {
     CheckDiagnostics(CheckedProgram),
-    CodegenProgramDiagnostics(CodegenProgram),
+    CodegenProgramDiagnostics(Box<CodegenProgram>),
     CodegenDiagnostics(Vec<Diagnostic>),
     InternalDiagnostic(Diagnostic),
     InvalidArtifactRequest(String),

@@ -29,9 +29,9 @@ pub struct AssociatedTypeBindingSignature {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ExtensionMethods {
-    by_module: HashMap<ModuleId, Vec<ExtensionMethod>>,
-    by_nominal_target: HashMap<GlobalDefId, Vec<ExtensionMethod>>,
-    by_name: SymbolMap<Vec<ExtensionMethod>>,
+    by_module: HashMap<ModuleId, Vec<GlobalDefId>>,
+    by_nominal_target: HashMap<GlobalDefId, Vec<GlobalDefId>>,
+    by_name: SymbolMap<Vec<GlobalDefId>>,
     by_id: HashMap<GlobalDefId, ExtensionMethod>,
 }
 
@@ -46,8 +46,9 @@ pub struct ExtensionAssociatedValue {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ExtensionAssociatedValues {
-    by_module: HashMap<ModuleId, Vec<ExtensionAssociatedValue>>,
-    by_nominal_target: HashMap<GlobalDefId, Vec<ExtensionAssociatedValue>>,
+    by_module: HashMap<ModuleId, Vec<GlobalDefId>>,
+    by_nominal_target: HashMap<GlobalDefId, Vec<GlobalDefId>>,
+    by_id: HashMap<GlobalDefId, ExtensionAssociatedValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,28 +102,29 @@ pub struct VisibleExtensionTarget {
 
 impl ExtensionMethods {
     pub fn extend(&mut self, other: Self) {
-        for (module_id, methods) in other.by_module {
-            self.by_module.entry(module_id).or_default().extend(methods);
+        for (module_id, method_ids) in other.by_module {
+            self.by_module
+                .entry(module_id)
+                .or_default()
+                .extend(method_ids);
         }
-        for (target, methods) in other.by_nominal_target {
+        for (target, method_ids) in other.by_nominal_target {
             self.by_nominal_target
                 .entry(target)
                 .or_default()
-                .extend(methods);
+                .extend(method_ids);
         }
-        for (name, methods) in other.by_name {
-            self.by_name.entry(name).or_default().extend(methods);
+        for (name, method_ids) in other.by_name {
+            self.by_name.entry(name).or_default().extend(method_ids);
         }
         self.by_id.extend(other.by_id);
     }
 
     pub fn insert(&mut self, module_id: ModuleId, method: ExtensionMethod) {
-        self.by_name
-            .entry(method.name.clone())
-            .or_default()
-            .push(method.clone());
-        self.by_id.insert(method.def_id, method.clone());
-        self.by_module.entry(module_id).or_default().push(method);
+        let def_id = method.def_id;
+        self.by_name.entry(method.name).or_default().push(def_id);
+        self.by_module.entry(module_id).or_default().push(def_id);
+        self.by_id.insert(def_id, method);
     }
 
     pub fn insert_with_nominal_target(
@@ -131,12 +133,13 @@ impl ExtensionMethods {
         method: ExtensionMethod,
         nominal_target: Option<GlobalDefId>,
     ) {
-        self.insert(module_id, method.clone());
+        let def_id = method.def_id;
+        self.insert(module_id, method);
         if let Some(nominal_target) = nominal_target {
             self.by_nominal_target
                 .entry(nominal_target)
                 .or_default()
-                .push(method);
+                .push(def_id);
         }
     }
 
@@ -147,14 +150,19 @@ impl ExtensionMethods {
         visibility_allows: impl Fn(Visibility, ModuleId) -> bool,
         mut f: impl FnMut(&ExtensionMethod),
     ) {
-        if let Some(module_methods) = self.by_module.get(&current_module) {
-            for method in module_methods {
-                f(method);
+        if let Some(method_ids) = self.by_module.get(&current_module) {
+            for def_id in method_ids {
+                if let Some(method) = self.by_id.get(def_id) {
+                    f(method);
+                }
             }
         }
         for module_id in imported_modules {
-            if let Some(module_methods) = self.by_module.get(&module_id) {
-                for method in module_methods {
+            if let Some(method_ids) = self.by_module.get(&module_id) {
+                for def_id in method_ids {
+                    let Some(method) = self.by_id.get(def_id) else {
+                        continue;
+                    };
                     if method.trait_id.is_some()
                         || visibility_allows(method.visibility, method.def_id.module_id)
                     {
@@ -185,20 +193,21 @@ impl ExtensionMethods {
         self.by_module
             .get(&module_id)
             .into_iter()
-            .flat_map(|methods| methods.iter())
-            .map(|method| method.def_id.def_id)
+            .flat_map(|method_ids| method_ids.iter())
+            .map(|def_id| def_id.def_id)
             .collect()
     }
 
     pub fn all_methods(&self) -> impl Iterator<Item = &ExtensionMethod> {
-        self.by_module.values().flat_map(|methods| methods.iter())
+        self.by_id.values()
     }
 
     pub fn methods_named(&self, name: &SymbolId) -> impl Iterator<Item = &ExtensionMethod> {
         self.by_name
             .get(name)
             .into_iter()
-            .flat_map(|methods| methods.iter())
+            .flat_map(|method_ids| method_ids.iter())
+            .filter_map(|def_id| self.by_id.get(def_id))
     }
 
     pub fn method_by_id(&self, def_id: GlobalDefId) -> Option<&ExtensionMethod> {
@@ -212,25 +221,32 @@ impl ExtensionMethods {
         self.by_nominal_target
             .get(&target_def_id)
             .into_iter()
-            .flat_map(|methods| methods.iter())
+            .flat_map(|method_ids| method_ids.iter())
+            .filter_map(|def_id| self.by_id.get(def_id))
     }
 }
 
 impl ExtensionAssociatedValues {
     pub fn extend(&mut self, other: Self) {
-        for (module_id, values) in other.by_module {
-            self.by_module.entry(module_id).or_default().extend(values);
+        for (module_id, value_ids) in other.by_module {
+            self.by_module
+                .entry(module_id)
+                .or_default()
+                .extend(value_ids);
         }
-        for (target, values) in other.by_nominal_target {
+        for (target, value_ids) in other.by_nominal_target {
             self.by_nominal_target
                 .entry(target)
                 .or_default()
-                .extend(values);
+                .extend(value_ids);
         }
+        self.by_id.extend(other.by_id);
     }
 
     pub fn insert(&mut self, module_id: ModuleId, value: ExtensionAssociatedValue) {
-        self.by_module.entry(module_id).or_default().push(value);
+        let def_id = value.def_id;
+        self.by_module.entry(module_id).or_default().push(def_id);
+        self.by_id.insert(def_id, value);
     }
 
     pub fn insert_with_nominal_target(
@@ -239,12 +255,13 @@ impl ExtensionAssociatedValues {
         value: ExtensionAssociatedValue,
         nominal_target: Option<GlobalDefId>,
     ) {
-        self.insert(module_id, value.clone());
+        let def_id = value.def_id;
+        self.insert(module_id, value);
         if let Some(nominal_target) = nominal_target {
             self.by_nominal_target
                 .entry(nominal_target)
                 .or_default()
-                .push(value);
+                .push(def_id);
         }
     }
 
@@ -255,14 +272,19 @@ impl ExtensionAssociatedValues {
         visibility_allows: impl Fn(Visibility, ModuleId) -> bool,
         mut f: impl FnMut(&ExtensionAssociatedValue),
     ) {
-        if let Some(module_values) = self.by_module.get(&current_module) {
-            for value in module_values {
-                f(value);
+        if let Some(value_ids) = self.by_module.get(&current_module) {
+            for def_id in value_ids {
+                if let Some(value) = self.by_id.get(def_id) {
+                    f(value);
+                }
             }
         }
         for module_id in imported_modules {
-            if let Some(module_values) = self.by_module.get(&module_id) {
-                for value in module_values {
+            if let Some(value_ids) = self.by_module.get(&module_id) {
+                for def_id in value_ids {
+                    let Some(value) = self.by_id.get(def_id) else {
+                        continue;
+                    };
                     if visibility_allows(value.visibility, value.def_id.module_id) {
                         f(value);
                     }
@@ -288,7 +310,7 @@ impl ExtensionAssociatedValues {
     }
 
     pub fn all_values(&self) -> impl Iterator<Item = &ExtensionAssociatedValue> {
-        self.by_module.values().flat_map(|values| values.iter())
+        self.by_id.values()
     }
 
     pub fn values_for_nominal_target(
@@ -298,7 +320,8 @@ impl ExtensionAssociatedValues {
         self.by_nominal_target
             .get(&target_def_id)
             .into_iter()
-            .flat_map(|values| values.iter())
+            .flat_map(|value_ids| value_ids.iter())
+            .filter_map(|def_id| self.by_id.get(def_id))
     }
 }
 
@@ -313,13 +336,13 @@ impl VisibleExtensionMethods {
         let method_index = self.targets[target_index].methods.len();
         if method.is_callable {
             self.callable_by_name
-                .entry(method.name.clone())
+                .entry(method.name)
                 .or_default()
                 .push((target_index, method_index));
         }
         if method.is_trait_witness {
             self.trait_witnesses_by_name
-                .entry(method.name.clone())
+                .entry(method.name)
                 .or_default()
                 .push((target_index, method_index));
             self.trait_witness_impls
@@ -341,7 +364,7 @@ impl VisibleExtensionMethods {
         let target_index = self.target_index(impl_id, target_ty);
         let value_index = self.targets[target_index].associated_values.len();
         self.associated_values_by_target_name
-            .entry((target_ty, value.name.clone()))
+            .entry((target_ty, value.name))
             .or_default()
             .push((target_index, value_index));
         self.targets[target_index].associated_values.push(value);
@@ -416,7 +439,7 @@ impl VisibleExtensionMethods {
     ) -> Option<VisibleExtensionAssociatedValue> {
         let mut matches = self
             .associated_values_by_target_name
-            .get(&(target_ty, name.clone()))?
+            .get(&(target_ty, *name))?
             .iter()
             .filter_map(|(target_index, value_index)| {
                 self.targets

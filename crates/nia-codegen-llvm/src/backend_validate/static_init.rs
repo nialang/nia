@@ -4,7 +4,7 @@ use nia_ids::InternedTyId;
 use nia_span::Span;
 use nia_static_ir::{StaticAddressElem, StaticFieldInit, StaticInit};
 
-use super::BackendValidator;
+use super::{BackendValidator, FunctionInstanceRef};
 
 impl BackendValidator<'_> {
     pub(super) fn validate_static_init(&mut self, ty: InternedTyId, init: &StaticInit, span: Span) {
@@ -72,11 +72,13 @@ impl BackendValidator<'_> {
                     );
                 } else {
                     self.validate_function_instance_ref(
-                        *function,
-                        function.module_id,
-                        None,
-                        args,
-                        &[],
+                        FunctionInstanceRef {
+                            def_id: *function,
+                            arg_module_id: function.module_id,
+                            self_arg: None,
+                            args,
+                            const_args: &[],
+                        },
                         span,
                         "backend IR static initializer references missing function instance",
                     );

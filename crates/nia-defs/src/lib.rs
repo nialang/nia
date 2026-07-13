@@ -27,7 +27,7 @@ pub use extensions::{
 };
 pub use public_surface::{
     ModulePublicSurface, ModuleUsingScope, PublicItem, PublicNamespace, PublicSource,
-    PublicSurfaces, UsingEntry,
+    PublicSurfaceLookup, PublicSurfaces, UsingEntry, UsingScopeLookup,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -576,6 +576,16 @@ struct NameEntry {
     span: Span,
 }
 
+struct MemberDefInput {
+    identity: DefIdentity,
+    parent: Option<DefId>,
+    name: SymbolId,
+    kind: DefKind,
+    visibility: Visibility,
+    span: Span,
+    generics: Vec<GenericParam>,
+}
+
 struct Collector<'a> {
     module_id: ModuleId,
     symbols: Option<&'a dyn SymbolText>,
@@ -638,7 +648,7 @@ impl<'a> Collector<'a> {
         match &item.kind {
             ItemTreeNodeKind::Module(module) => {
                 self.add_module_def(
-                    module.name.clone(),
+                    module.name,
                     DefKind::Module,
                     item.visibility,
                     item.span,
@@ -657,7 +667,7 @@ impl<'a> Collector<'a> {
             ItemTreeNodeKind::Function(function) => {
                 self.check_duplicate_generics(&function.generics, item.span);
                 let function_id = self.add_value_def(
-                    function.name.clone(),
+                    function.name,
                     DefKind::Function,
                     item.visibility,
                     item.span,
@@ -675,7 +685,7 @@ impl<'a> Collector<'a> {
             }
             ItemTreeNodeKind::Binding(binding) => {
                 self.add_value_def(
-                    binding.name.clone(),
+                    binding.name,
                     if binding.is_comptime {
                         DefKind::Comptime
                     } else {
@@ -703,8 +713,7 @@ impl<'a> Collector<'a> {
         self.check_duplicate_generics(&item_struct.generics, item.span);
         let identity = DefIdentity::top(DefNamespace::Type, DefKind::Struct, &item_struct.name);
         let struct_id = self.add_type_def(
-            identity.clone(),
-            item_struct.name.clone(),
+            item_struct.name,
             DefKind::Struct,
             item.visibility,
             item.span,
@@ -716,7 +725,7 @@ impl<'a> Collector<'a> {
             let field_id = self.push_member_def(
                 identity.child(DefKind::StructField, &field.name),
                 Some(struct_id),
-                field.name.clone(),
+                field.name,
                 DefKind::StructField,
                 Visibility::Private,
                 field.span,
@@ -724,7 +733,7 @@ impl<'a> Collector<'a> {
             self.def_nodes.insert(field.node_key.clone(), field_id);
             self.insert_member(
                 &mut members.fields,
-                field.name.clone(),
+                field.name,
                 field_id,
                 field.span,
                 "duplicate struct field",
@@ -737,8 +746,7 @@ impl<'a> Collector<'a> {
         self.check_duplicate_generics(&item_union.generics, item.span);
         let identity = DefIdentity::top(DefNamespace::Type, DefKind::Union, &item_union.name);
         let union_id = self.add_type_def(
-            identity.clone(),
-            item_union.name.clone(),
+            item_union.name,
             DefKind::Union,
             item.visibility,
             item.span,
@@ -750,7 +758,7 @@ impl<'a> Collector<'a> {
             let field_id = self.push_member_def(
                 identity.child(DefKind::UnionField, &field.name),
                 Some(union_id),
-                field.name.clone(),
+                field.name,
                 DefKind::UnionField,
                 Visibility::Private,
                 field.span,
@@ -758,7 +766,7 @@ impl<'a> Collector<'a> {
             self.def_nodes.insert(field.node_key.clone(), field_id);
             self.insert_member(
                 &mut members.fields,
-                field.name.clone(),
+                field.name,
                 field_id,
                 field.span,
                 "duplicate union field",
@@ -786,8 +794,7 @@ impl<'a> Collector<'a> {
         self.check_duplicate_generics(&item_trait.generics, item.span);
         let identity = DefIdentity::top(DefNamespace::Type, DefKind::Trait, &item_trait.name);
         let trait_id = self.add_type_def(
-            identity.clone(),
-            item_trait.name.clone(),
+            item_trait.name,
             DefKind::Trait,
             item.visibility,
             item.span,
@@ -827,7 +834,7 @@ impl<'a> Collector<'a> {
         let associated_type_id = self.push_member_def(
             owner_identity.child(DefKind::TraitAssociatedType, &associated_type.name),
             parent,
-            associated_type.name.clone(),
+            associated_type.name,
             DefKind::TraitAssociatedType,
             Visibility::Public,
             associated_type.span,
@@ -836,7 +843,7 @@ impl<'a> Collector<'a> {
             .insert(associated_type.node_key.clone(), associated_type_id);
         self.insert_member(
             &mut members.fields,
-            associated_type.name.clone(),
+            associated_type.name,
             associated_type_id,
             associated_type.span,
             "duplicate trait associated type",
@@ -853,7 +860,7 @@ impl<'a> Collector<'a> {
         let value_id = self.push_member_def(
             owner_identity.child(DefKind::Comptime, &associated_value.name),
             parent,
-            associated_value.name.clone(),
+            associated_value.name,
             DefKind::Comptime,
             Visibility::Public,
             associated_value.span,
@@ -862,7 +869,7 @@ impl<'a> Collector<'a> {
             .insert(associated_value.node_key.clone(), value_id);
         self.insert_member(
             &mut members.values,
-            associated_value.name.clone(),
+            associated_value.name,
             value_id,
             associated_value.span,
             "duplicate trait associated comptime",
@@ -879,7 +886,7 @@ impl<'a> Collector<'a> {
         let associated_type_id = self.push_member_def(
             owner_identity.child(DefKind::TraitAssociatedType, &associated_type.name),
             parent,
-            associated_type.name.clone(),
+            associated_type.name,
             DefKind::TraitAssociatedType,
             Visibility::Private,
             associated_type.span,
@@ -888,7 +895,7 @@ impl<'a> Collector<'a> {
             .insert(associated_type.node_key.clone(), associated_type_id);
         self.insert_member(
             &mut members.fields,
-            associated_type.name.clone(),
+            associated_type.name,
             associated_type_id,
             associated_type.span,
             "duplicate associated type definition",
@@ -913,7 +920,7 @@ impl<'a> Collector<'a> {
         self.def_nodes.insert(binding.node_key.clone(), value_id);
         self.insert_member(
             &mut members.values,
-            binding.name.clone(),
+            binding.name,
             value_id,
             associated_value.span,
             "duplicate associated value definition",
@@ -928,19 +935,19 @@ impl<'a> Collector<'a> {
         method: &FunctionItem,
     ) {
         self.check_duplicate_generics(&method.generics, method.span);
-        let method_id = self.push_member_def_with_generics(
-            owner_identity.child(DefKind::TraitMethod, &method.name),
+        let method_id = self.push_member_def_with_generics(MemberDefInput {
+            identity: owner_identity.child(DefKind::TraitMethod, &method.name),
             parent,
-            method.name.clone(),
-            DefKind::TraitMethod,
-            Visibility::Public,
-            method.span,
-            method.generics.clone(),
-        );
+            name: method.name,
+            kind: DefKind::TraitMethod,
+            visibility: Visibility::Public,
+            span: method.span,
+            generics: method.generics.clone(),
+        });
         self.def_nodes.insert(method.node_key.clone(), method_id);
         self.insert_member(
             &mut members.methods,
-            method.name.clone(),
+            method.name,
             method_id,
             method.span,
             "duplicate trait method",
@@ -962,19 +969,19 @@ impl<'a> Collector<'a> {
         visibility: Visibility,
     ) {
         self.check_duplicate_generics(&method.generics, method.span);
-        let method_id = self.push_member_def_with_generics(
-            owner_identity.child(DefKind::Method, &method.name),
+        let method_id = self.push_member_def_with_generics(MemberDefInput {
+            identity: owner_identity.child(DefKind::Method, &method.name),
             parent,
-            method.name.clone(),
-            DefKind::Method,
+            name: method.name,
+            kind: DefKind::Method,
             visibility,
-            method.span,
-            method.generics.clone(),
-        );
+            span: method.span,
+            generics: method.generics.clone(),
+        });
         self.def_nodes.insert(method.node_key.clone(), method_id);
         self.insert_member(
             &mut members.methods,
-            method.name.clone(),
+            method.name,
             method_id,
             method.span,
             "duplicate struct method",
@@ -1013,7 +1020,7 @@ impl<'a> Collector<'a> {
                     let def_id = self.push_member_def(
                         owner_identity.child(DefKind::Global, &binding.name),
                         Some(parent),
-                        binding.name.clone(),
+                        binding.name,
                         DefKind::Global,
                         visibility,
                         stmt.span,
@@ -1066,7 +1073,7 @@ impl<'a> Collector<'a> {
         self.push_member_def(
             identity,
             parent,
-            binding.name.clone(),
+            binding.name,
             DefKind::Comptime,
             visibility,
             span,
@@ -1076,8 +1083,7 @@ impl<'a> Collector<'a> {
     fn collect_enum(&mut self, item: &ItemTreeNode, item_enum: &EnumItem) {
         let identity = DefIdentity::top(DefNamespace::Type, DefKind::Enum, &item_enum.name);
         let enum_id = self.add_type_def(
-            identity.clone(),
-            item_enum.name.clone(),
+            item_enum.name,
             DefKind::Enum,
             item.visibility,
             item.span,
@@ -1089,7 +1095,7 @@ impl<'a> Collector<'a> {
             let variant_id = self.push_member_def(
                 identity.child(DefKind::EnumVariant, &variant.name),
                 Some(enum_id),
-                variant.name.clone(),
+                variant.name,
                 DefKind::EnumVariant,
                 Visibility::Public,
                 variant.span,
@@ -1097,7 +1103,7 @@ impl<'a> Collector<'a> {
             self.def_nodes.insert(variant.node_key.clone(), variant_id);
             self.insert_member(
                 &mut members.variants,
-                variant.name.clone(),
+                variant.name,
                 variant_id,
                 variant.span,
                 "duplicate enum variant",
@@ -1109,8 +1115,7 @@ impl<'a> Collector<'a> {
     fn collect_type_alias(&mut self, item: &ItemTreeNode, alias: &TypeAliasItem) {
         self.check_duplicate_generics(&alias.generics, item.span);
         self.add_type_def(
-            DefIdentity::top(DefNamespace::Type, DefKind::TypeAlias, &alias.name),
-            alias.name.clone(),
+            alias.name,
             DefKind::TypeAlias,
             item.visibility,
             item.span,
@@ -1129,7 +1134,7 @@ impl<'a> Collector<'a> {
     ) -> DefId {
         let def_id = self.push_top_def(
             DefIdentity::top(DefNamespace::Module, kind, &name),
-            name.clone(),
+            name,
             kind,
             visibility,
             span,
@@ -1142,7 +1147,6 @@ impl<'a> Collector<'a> {
 
     fn add_type_def(
         &mut self,
-        identity: DefIdentity,
         name: SymbolId,
         kind: DefKind,
         visibility: Visibility,
@@ -1150,7 +1154,8 @@ impl<'a> Collector<'a> {
         node_key: VersionedNodeKey,
         generics: Vec<GenericParam>,
     ) -> DefId {
-        let def_id = self.push_top_def(identity, name.clone(), kind, visibility, span, generics);
+        let identity = DefIdentity::top(DefNamespace::Type, kind, &name);
+        let def_id = self.push_top_def(identity, name, kind, visibility, span, generics);
         self.def_nodes.insert(node_key, def_id);
         self.insert_top_type(name, def_id, span, "duplicate type definition");
         def_id
@@ -1167,7 +1172,7 @@ impl<'a> Collector<'a> {
     ) -> DefId {
         let def_id = self.push_top_def(
             DefIdentity::top(DefNamespace::Value, kind, &name),
-            name.clone(),
+            name,
             kind,
             visibility,
             span,
@@ -1212,27 +1217,27 @@ impl<'a> Collector<'a> {
         visibility: Visibility,
         span: Span,
     ) -> DefId {
-        self.push_member_def_with_generics(
+        self.push_member_def_with_generics(MemberDefInput {
             identity,
             parent,
             name,
             kind,
             visibility,
             span,
-            Vec::new(),
-        )
+            generics: Vec::new(),
+        })
     }
 
-    fn push_member_def_with_generics(
-        &mut self,
-        identity: DefIdentity,
-        parent: Option<DefId>,
-        name: SymbolId,
-        kind: DefKind,
-        visibility: Visibility,
-        span: Span,
-        generics: Vec<GenericParam>,
-    ) -> DefId {
+    fn push_member_def_with_generics(&mut self, input: MemberDefInput) -> DefId {
+        let MemberDefInput {
+            identity,
+            parent,
+            name,
+            kind,
+            visibility,
+            span,
+            generics,
+        } = input;
         let generic_names = nia_ast::generic_param_names(&generics);
         self.push_def(
             identity,

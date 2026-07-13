@@ -3,12 +3,13 @@ use std::{collections::HashMap, sync::Arc};
 
 use nia_ast::{Expr, ExprKind, Module, PathSegmentKind, TypeArg, TypeKind, TypeRef, Visibility};
 use nia_ast_walk::{Visitor, walk_expr, walk_where_clause};
-use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces};
+use nia_defs::{DefCollection, DefKind, PublicNamespace, PublicSurfaceLookup, UsingScopeLookup};
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::{
-    ModuleGraph, ModuleRootSegment, module_declaration_visibility_allows, visibility_allows,
+    ModuleGraph, ModuleGraphLookup, ModuleRootSegment, module_declaration_visibility_allows,
+    visibility_allows,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::VersionedNodeKey;
@@ -74,7 +75,7 @@ where
 #[derive(Clone, Copy)]
 pub struct ProgramDefsContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
-    pub graph: Option<&'a ModuleGraph>,
+    pub graph: Option<&'a dyn ModuleGraphLookup>,
 }
 
 impl<'a> ProgramDefsContext<'a> {
@@ -160,8 +161,8 @@ pub fn resolve_module_values_with_context(
     defs: &DefCollection,
     graph: &ModuleGraph,
     program_defs: ProgramDefsContext<'_>,
-    public_surfaces: &PublicSurfaces,
-    using_scope: &ModuleUsingScope,
+    public_surfaces: &dyn PublicSurfaceLookup,
+    using_scope: &dyn UsingScopeLookup,
 ) -> ValueResolution {
     let item_tree = ModuleItemTree::from_module(module);
     resolve_module_values_from_item_tree_inner(
@@ -200,8 +201,8 @@ pub fn resolve_module_values_from_active_item_tree(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
     program_defs: ProgramDefsContext<'_>,
-    public_surfaces: &PublicSurfaces,
-    using_scope: &ModuleUsingScope,
+    public_surfaces: &dyn PublicSurfaceLookup,
+    using_scope: &dyn UsingScopeLookup,
 ) -> ValueResolution {
     resolve_module_values_from_active_item_tree_with_associated_values(
         item_tree,
@@ -217,8 +218,8 @@ pub fn resolve_module_values_from_active_item_tree_with_associated_values(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
     program_defs: ProgramDefsContext<'_>,
-    public_surfaces: &PublicSurfaces,
-    using_scope: &ModuleUsingScope,
+    public_surfaces: &dyn PublicSurfaceLookup,
+    using_scope: &dyn UsingScopeLookup,
     associated_values: Option<&dyn AssociatedValueResolver>,
 ) -> ValueResolution {
     resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
@@ -236,8 +237,8 @@ pub fn resolve_module_values_from_active_item_tree_with_associated_values_and_sy
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
     program_defs: ProgramDefsContext<'_>,
-    public_surfaces: &PublicSurfaces,
-    using_scope: &ModuleUsingScope,
+    public_surfaces: &dyn PublicSurfaceLookup,
+    using_scope: &dyn UsingScopeLookup,
     associated_values: Option<&dyn AssociatedValueResolver>,
     symbols: Option<&dyn SymbolText>,
 ) -> ValueResolution {
@@ -259,8 +260,8 @@ pub fn resolve_module_values_from_exprs(
     exprs: impl IntoIterator<Item = Expr>,
     defs: &DefCollection,
     program_defs: ProgramDefsContext<'_>,
-    public_surfaces: &PublicSurfaces,
-    using_scope: &ModuleUsingScope,
+    public_surfaces: &dyn PublicSurfaceLookup,
+    using_scope: &dyn UsingScopeLookup,
 ) -> ValueResolution {
     resolve_module_values_from_exprs_with_associated_values(
         exprs,
@@ -276,8 +277,8 @@ pub fn resolve_module_values_from_exprs_with_associated_values(
     exprs: impl IntoIterator<Item = Expr>,
     defs: &DefCollection,
     program_defs: ProgramDefsContext<'_>,
-    public_surfaces: &PublicSurfaces,
-    using_scope: &ModuleUsingScope,
+    public_surfaces: &dyn PublicSurfaceLookup,
+    using_scope: &dyn UsingScopeLookup,
     associated_values: Option<&dyn AssociatedValueResolver>,
 ) -> ValueResolution {
     resolve_module_values_from_exprs_with_associated_values_and_symbols(
@@ -295,8 +296,8 @@ pub fn resolve_module_values_from_exprs_with_associated_values_and_symbols(
     exprs: impl IntoIterator<Item = Expr>,
     defs: &DefCollection,
     program_defs: ProgramDefsContext<'_>,
-    public_surfaces: &PublicSurfaces,
-    using_scope: &ModuleUsingScope,
+    public_surfaces: &dyn PublicSurfaceLookup,
+    using_scope: &dyn UsingScopeLookup,
     associated_values: Option<&dyn AssociatedValueResolver>,
     symbols: Option<&dyn SymbolText>,
 ) -> ValueResolution {
@@ -345,20 +346,20 @@ fn resolve_module_values_from_items(
 
 struct ValueResolveInputs<'a> {
     defs: &'a DefCollection,
-    graph: Option<&'a ModuleGraph>,
+    graph: Option<&'a dyn ModuleGraphLookup>,
     program_defs: ProgramDefsContext<'a>,
-    public_surfaces: Option<&'a PublicSurfaces>,
-    using_scope: Option<&'a ModuleUsingScope>,
+    public_surfaces: Option<&'a dyn PublicSurfaceLookup>,
+    using_scope: Option<&'a dyn UsingScopeLookup>,
     associated_values: Option<&'a dyn AssociatedValueResolver>,
     symbols: Option<&'a dyn SymbolText>,
 }
 
 struct ValueResolver<'a> {
     defs: &'a DefCollection,
-    graph: Option<&'a ModuleGraph>,
+    graph: Option<&'a dyn ModuleGraphLookup>,
     program_defs: ProgramDefsContext<'a>,
-    public_surfaces: Option<&'a PublicSurfaces>,
-    using_scope: Option<&'a ModuleUsingScope>,
+    public_surfaces: Option<&'a dyn PublicSurfaceLookup>,
+    using_scope: Option<&'a dyn UsingScopeLookup>,
     associated_values: Option<&'a dyn AssociatedValueResolver>,
     symbols: Option<&'a dyn SymbolText>,
     node_names: HashMap<VersionedNodeKey, ValueNameResolution>,
@@ -399,7 +400,7 @@ impl ValueResolver<'_> {
         }
     }
 
-    fn graph(&self) -> Option<&ModuleGraph> {
+    fn graph(&self) -> Option<&dyn ModuleGraphLookup> {
         self.graph.or(self.program_defs.graph)
     }
 
@@ -456,13 +457,7 @@ impl ValueResolver<'_> {
         name: &SymbolId,
     ) -> Option<(ModuleId, Visibility)> {
         let graph = self.graph()?;
-        let parent = graph.get(parent_module)?;
-        let target = parent.children.get(name).copied()?;
-        let declaration = parent
-            .declarations
-            .iter()
-            .find(|declaration| &declaration.name == name && declaration.target == target)?;
-        Some((target, declaration.visibility))
+        graph.child_declaration(parent_module, name)
     }
 
     fn direct_type_member(&self, module_id: ModuleId, name: &SymbolId) -> DirectMember<DefId> {
@@ -725,7 +720,7 @@ impl<'a> ValueResolver<'a> {
         }
         let name = segment.name()?;
         if let Some(scope) = self.using_scope
-            && let Some(module_id) = scope.lookup_module(&name)
+            && let Some(module_id) = scope.using_module(&name)
         {
             self.insert_name(segment.node_key, ValueNameResolution::Module);
             return Some(ResolvedNamespace::Module(module_id));
@@ -737,7 +732,7 @@ impl<'a> ValueResolver<'a> {
             }));
         }
         if let Some(scope) = self.using_scope
-            && let Some(entry) = scope.lookup_type(&name)
+            && let Some(entry) = scope.using_type(&name)
         {
             let type_id = GlobalDefId {
                 module_id: entry.target_module,
@@ -779,13 +774,11 @@ impl<'a> ValueResolver<'a> {
                     ));
                     return None;
                 };
-                if let Some(surfaces) = self.public_surfaces
-                    && let Some(surface) = surfaces.get(module_id)
-                {
-                    if let Some(child_module) = surface.lookup_module(&name) {
+                if let Some(surfaces) = self.public_surfaces {
+                    if let Some(child_module) = surfaces.public_module(module_id, &name) {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
-                    if let Some(item) = surface.lookup_type(&name) {
+                    if let Some(item) = surfaces.public_type(module_id, &name) {
                         return Some(ResolvedNamespace::Type(GlobalDefId {
                             module_id: item.target_module,
                             def_id: item.target_def_id,
@@ -861,10 +854,8 @@ impl<'a> ValueResolver<'a> {
             ));
             return;
         };
-        if let Some(surfaces) = self.public_surfaces
-            && let Some(surface) = surfaces.get(module_id)
-        {
-            if let Some(item) = surface.lookup_value(&symbol) {
+        if let Some(surfaces) = self.public_surfaces {
+            if let Some(item) = surfaces.public_value(module_id, &symbol) {
                 self.insert_qualified_value(
                     node_key,
                     GlobalDefId {
@@ -877,7 +868,7 @@ impl<'a> ValueResolver<'a> {
                 }
                 return;
             }
-            if let Some(item) = surface.lookup_type(&symbol) {
+            if let Some(item) = surfaces.public_type(module_id, &symbol) {
                 self.insert_qualified_type_prefix(
                     node_key,
                     GlobalDefId {
@@ -887,7 +878,7 @@ impl<'a> ValueResolver<'a> {
                 );
                 return;
             }
-            if surface.lookup_module(&symbol).is_some() {
+            if surfaces.public_module(module_id, &symbol).is_some() {
                 return;
             }
         }
@@ -1052,7 +1043,7 @@ impl<'a> ValueResolver<'a> {
         }
 
         if let Some(scope) = self.using_scope
-            && let Some(entry) = scope.lookup_value(name)
+            && let Some(entry) = scope.using_value(name)
             && entry.namespace == PublicNamespace::Value
         {
             if let Some(enum_id) = entry.parent_enum {
@@ -1065,7 +1056,7 @@ impl<'a> ValueResolver<'a> {
         }
 
         if let Some(scope) = self.using_scope
-            && let Some(entry) = scope.lookup_type(name)
+            && let Some(entry) = scope.using_type(name)
             && entry.namespace == PublicNamespace::Type
         {
             self.insert_qualified_type_prefix(
@@ -1078,7 +1069,7 @@ impl<'a> ValueResolver<'a> {
         }
         if self
             .using_scope
-            .is_some_and(|scope| scope.has_unresolved_name(name))
+            .is_some_and(|scope| scope.has_unresolved_using_name(name))
         {
             return ValueNameResolution::Error;
         }

@@ -1,6 +1,14 @@
 use super::ty_substitution::substitute_ty_generics_in_interner;
 use super::*;
 
+type ActiveProjectionSet = HashSet<(
+    InternedTyId,
+    TraitId,
+    Vec<InternedTyId>,
+    Vec<nia_ty::ConstGenericArg>,
+    SymbolId,
+)>;
+
 fn builtin_trait_has_associated_comptime_symbol(
     trait_id: nia_ty::BuiltinTrait,
     name: SymbolId,
@@ -19,13 +27,7 @@ impl Analyzer<'_> {
     pub(super) fn normalize_projection_inner(
         &mut self,
         ty: InternedTyId,
-        active: &mut HashSet<(
-            InternedTyId,
-            TraitId,
-            Vec<InternedTyId>,
-            Vec<nia_ty::ConstGenericArg>,
-            SymbolId,
-        )>,
+        active: &mut ActiveProjectionSet,
     ) -> InternedTyId {
         let ty = self.normalized_ty(ty);
         match self.ty_kind(ty) {
@@ -46,7 +48,7 @@ impl Analyzer<'_> {
                     trait_id,
                     trait_args.clone(),
                     trait_const_args.clone(),
-                    name.clone(),
+                    name,
                 );
                 let projection = self
                     .intern_current_ty(TyKind::Projection {
@@ -54,7 +56,7 @@ impl Analyzer<'_> {
                         trait_id,
                         trait_args: trait_args.clone(),
                         trait_const_args: trait_const_args.clone(),
-                        name: name.clone(),
+                        name,
                     })
                     .unwrap_or(ty);
                 if !active.insert(key.clone()) {

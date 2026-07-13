@@ -289,7 +289,7 @@ fn pipeline_with_options(
                     impl_signature.impl_id,
                     target_ty,
                     VisibleExtensionMethod {
-                        name: method_def.name.clone(),
+                        name: method_def.name,
                         def_id: GlobalDefId {
                             module_id: ModuleId(0),
                             def_id: method_id,

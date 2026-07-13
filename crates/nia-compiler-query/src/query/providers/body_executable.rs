@@ -4,9 +4,9 @@ use nia_ast::{BindingItem, FunctionItem};
 use std::collections::VecDeque;
 
 #[derive(Clone, Default)]
-pub(super) struct ExecutableValueRefEdges {
-    pub(super) functions: HashSet<GlobalDefId>,
-    pub(super) globals: HashSet<GlobalDefId>,
+pub(in crate::query) struct ExecutableValueRefEdges {
+    pub(in crate::query) functions: HashSet<GlobalDefId>,
+    pub(in crate::query) globals: HashSet<GlobalDefId>,
 }
 
 #[derive(Clone, Default)]
@@ -15,28 +15,9 @@ pub(in crate::query) struct ExecutableValueRefIndex {
     pub(super) globals: HashMap<GlobalDefId, ExecutableValueRefEdges>,
 }
 
-impl ExecutableValueRefIndex {
-    fn edges_for_item(
-        &self,
-        owner: GlobalDefId,
-        kind: ExecutableValueRefOwner,
-    ) -> Option<&ExecutableValueRefEdges> {
-        match kind {
-            ExecutableValueRefOwner::Function => self.functions.get(&owner),
-            ExecutableValueRefOwner::Global => self.globals.get(&owner),
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-enum ExecutableValueRefOwner {
-    Function,
-    Global,
-}
-
 fn walk_executable_value_ref_closure(
+    db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    index: &ExecutableValueRefIndex,
     functions: &mut HashSet<GlobalDefId>,
     globals: &HashSet<GlobalDefId>,
     checked_functions: Option<&HashSet<GlobalDefId>>,
@@ -47,33 +28,31 @@ fn walk_executable_value_ref_closure(
     let mut pending_functions = functions.iter().copied().collect::<VecDeque<_>>();
     let mut scanned_functions = HashSet::with_capacity(functions.len());
     for global in globals {
-        if let Some(edges) = index.edges_for_item(*global, ExecutableValueRefOwner::Global) {
-            changed |= visit_executable_value_ref_edges(
-                module_id,
-                functions,
-                &mut pending_functions,
-                checked_functions,
-                edges,
-                &mut on_function,
-                &mut on_global,
-            );
-        }
+        let edges = db.query(ExecutableValueRefEdgesQuery(*global));
+        changed |= visit_executable_value_ref_edges(
+            module_id,
+            functions,
+            &mut pending_functions,
+            checked_functions,
+            &edges,
+            &mut on_function,
+            &mut on_global,
+        );
     }
     while let Some(function) = pending_functions.pop_front() {
         if !scanned_functions.insert(function) {
             continue;
         }
-        if let Some(edges) = index.edges_for_item(function, ExecutableValueRefOwner::Function) {
-            changed |= visit_executable_value_ref_edges(
-                module_id,
-                functions,
-                &mut pending_functions,
-                checked_functions,
-                edges,
-                &mut on_function,
-                &mut on_global,
-            );
-        }
+        let edges = db.query(ExecutableValueRefEdgesQuery(function));
+        changed |= visit_executable_value_ref_edges(
+            module_id,
+            functions,
+            &mut pending_functions,
+            checked_functions,
+            &edges,
+            &mut on_function,
+            &mut on_global,
+        );
     }
     changed
 }
@@ -234,7 +213,7 @@ fn filtered_comptime_global_initializer_for_body_check(
         db,
         "executable_body_check.comptime.global_initializer.active_item_tree",
         global_id.module_id,
-        || db.query_shared(FullActiveModuleItemTreeQuery(global_id.module_id)),
+        || db.query(FullActiveModuleItemTreeQuery(global_id.module_id)),
     );
     let filtered_active_item_tree = time_module_provider(
         db,
@@ -331,14 +310,16 @@ fn filtered_comptime_global_initializer_for_body_check(
             global_id.module_id,
             || {
                 semantic_use_table_from_resolution_inputs_with_const_expr_values(
-                    global_id.module_id,
-                    &filtered_active_item_tree,
-                    &values,
-                    Some(&const_expr_value_resolution),
-                    Some(&needed_const_exprs),
-                    &locals,
-                    &type_resolution,
-                    &lowered,
+                    SemanticUseInputs {
+                        module_id: global_id.module_id,
+                        active_item_tree: &filtered_active_item_tree,
+                        values: &values,
+                        const_expr_values: Some(&const_expr_value_resolution),
+                        const_expr_value_ids: Some(&needed_const_exprs),
+                        locals: &locals,
+                        type_resolution: &type_resolution,
+                        type_lowering: &lowered,
+                    },
                 )
             },
         );
@@ -421,21 +402,34 @@ fn executable_program_global_initializer(
     filtered_comptime_global_initializer_for_body_check(db, global_id)
 }
 
+struct ComptimeBodyModuleInput<'a> {
+    module_id: ModuleId,
+    defs: &'a DefCollection,
+    source_path: &'a SourcePath,
+    signatures: &'a ItemSignatures,
+    normalization: &'a TypeNormalization,
+    lowered: &'a TypeLowering,
+    resolution: &'a BodyCheckResolutionInputs,
+}
+
 fn comptime_inputs_for_body_check(
     db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-    defs: &DefCollection,
-    source_path: &SourcePath,
-    signatures: &ItemSignatures,
-    normalization: &TypeNormalization,
-    lowered: &TypeLowering,
-    inputs: &BodyCheckResolutionInputs,
+    module: ComptimeBodyModuleInput<'_>,
     fact_mode: ExecutableFactMode<'_>,
     global_initializer_cache: Option<
         &RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
     >,
     comptime_module_cache: Option<&RefCell<HashMap<ModuleId, ComptimeModuleLowering>>>,
 ) -> BodyCheckComptimeInputs {
+    let ComptimeBodyModuleInput {
+        module_id,
+        defs,
+        source_path,
+        signatures,
+        normalization,
+        lowered,
+        resolution: inputs,
+    } = module;
     let needed_const_exprs =
         needed_const_exprs_for_active_item_tree(&inputs.active_item_tree, lowered);
     let filtered_const_exprs = const_expr_subset_for_ids(&lowered.const_exprs, &needed_const_exprs);
@@ -637,45 +631,52 @@ pub(super) fn body_check_with_filter_and_layouts(
 ) -> nia_body_check::BodyCheck {
     body_check_with_filter_and_layouts_with_inputs(
         db,
-        module_id,
-        filter,
-        layouts,
-        program_layouts_override,
-        match non_function_signatures_override {
-            Some(program_signatures) => ExecutableFactMode {
-                non_function_signatures: Some(program_signatures),
-                reachable_body_modules: None,
+        ExecutableBodyCheckInput {
+            module_id,
+            filter,
+            layouts,
+            program_layouts_override,
+            fact_mode: match non_function_signatures_override {
+                Some(program_signatures) => ExecutableFactMode {
+                    non_function_signatures: Some(program_signatures),
+                    reachable_body_modules: None,
+                },
+                None => ExecutableFactMode::full(),
             },
-            None => ExecutableFactMode::full(),
+            resolution_inputs: None,
+            seed_interner: None,
+            global_initializer_cache: None,
+            comptime_module_cache: None,
+            program_function_signature_cache: None,
+            product: nia_body_check::BodyCheckProduct::Full,
+            prechecked: None,
         },
-        None,
-        None,
-        None,
-        None,
-        None,
     )
     .body_check
 }
 
+pub(super) struct ExecutableBodyCheckInput<'a> {
+    pub module_id: ModuleId,
+    pub filter: nia_body_check::BodyCheckFilter<'a>,
+    pub layouts: Option<nia_layout::Layouts>,
+    pub program_layouts_override: Option<&'a dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
+    pub fact_mode: ExecutableFactMode<'a>,
+    pub resolution_inputs: Option<BodyCheckResolutionInputs>,
+    pub seed_interner: Option<nia_ty::TyInterner>,
+    pub global_initializer_cache:
+        Option<&'a RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>>,
+    pub comptime_module_cache: Option<&'a RefCell<HashMap<ModuleId, ComptimeModuleLowering>>>,
+    pub program_function_signature_cache:
+        Option<&'a RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>>,
+    pub product: nia_body_check::BodyCheckProduct,
+    pub prechecked: Option<nia_body_check::PrecheckedBodyCheck>,
+}
+
 pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-    filter: nia_body_check::BodyCheckFilter<'_>,
-    layouts: Option<nia_layout::Layouts>,
-    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
-    fact_mode: ExecutableFactMode<'_>,
-    resolution_inputs: Option<BodyCheckResolutionInputs>,
-    seed_interner: Option<nia_ty::TyInterner>,
-    global_initializer_cache: Option<
-        &RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
-    >,
-    comptime_module_cache: Option<&RefCell<HashMap<ModuleId, ComptimeModuleLowering>>>,
-    program_function_signature_cache: Option<
-        &RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>,
-    >,
+    input: ExecutableBodyCheckInput<'_>,
 ) -> BodyCheckWithResolutionInputs {
-    body_check_with_filter_and_layouts_with_inputs_and_product(
-        db,
+    let ExecutableBodyCheckInput {
         module_id,
         filter,
         layouts,
@@ -686,34 +687,12 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         global_initializer_cache,
         comptime_module_cache,
         program_function_signature_cache,
-        nia_body_check::BodyCheckProduct::Full,
-        None,
-    )
-}
-
-#[expect(clippy::too_many_arguments)]
-pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
-    db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-    filter: nia_body_check::BodyCheckFilter<'_>,
-    layouts: Option<nia_layout::Layouts>,
-    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
-    fact_mode: ExecutableFactMode<'_>,
-    resolution_inputs: Option<BodyCheckResolutionInputs>,
-    seed_interner: Option<nia_ty::TyInterner>,
-    global_initializer_cache: Option<
-        &RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
-    >,
-    comptime_module_cache: Option<&RefCell<HashMap<ModuleId, ComptimeModuleLowering>>>,
-    program_function_signature_cache: Option<
-        &RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>,
-    >,
-    product: nia_body_check::BodyCheckProduct,
-    prechecked: Option<nia_body_check::PrecheckedBodyCheck>,
-) -> BodyCheckWithResolutionInputs {
+        product,
+        prechecked,
+    } = input;
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
-    let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query_shared(FullModuleDefsQuery(module_id));
     let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
@@ -781,13 +760,15 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
                 || {
                     comptime_inputs_for_body_check(
                         db,
-                        module_id,
-                        &defs,
-                        &source_path,
-                        &signatures,
-                        &normalization,
-                        &lowered,
-                        inputs,
+                        ComptimeBodyModuleInput {
+                            module_id,
+                            defs: &defs,
+                            source_path: &source_path,
+                            signatures: &signatures,
+                            normalization: &normalization,
+                            lowered: &lowered,
+                            resolution: inputs,
+                        },
                         fact_mode,
                         global_initializer_cache,
                         comptime_module_cache,
@@ -857,7 +838,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
                     .query(ModuleDefsQuery(def_id.module_id))
                     .defs
                     .get(def_id.def_id)
-                    .map(|def| def.name.clone())
+                    .map(|def| def.name)
                     .unwrap_or_default(),
                 signature,
                 interner: signature_type_interner(
@@ -1263,7 +1244,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs_and_product(
                 BodyCheckResolutionContext {
                     source_version,
                     origins: &origins,
-                    active_item_tree: db.query_shared(FullActiveModuleItemTreeQuery(module_id)),
+                    active_item_tree: db.query(FullActiveModuleItemTreeQuery(module_id)),
                     defs: &defs,
                     type_resolution: &type_resolution,
                     lowered: &lowered,
@@ -1296,7 +1277,7 @@ pub(super) fn executable_layouts_for_reachable_items(
 ) -> nia_layout::Layouts {
     time_module_provider(db, "executable_layouts", module_id, || {
         let defs = db.query_shared(FullModuleDefsQuery(module_id));
-        let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+        let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
         let type_lowering = db.query(TypeLoweringQuery(module_id));
         let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
@@ -1426,11 +1407,13 @@ pub(super) fn executable_layouts_for_reachable_items(
             time_module_provider(db, "executable_layouts.roots", module_id, || {
                 let mut layout_interner = type_normalization.interner.clone();
                 let roots = executable_layout_roots(
-                    module_id,
+                    ExecutableLayoutModule {
+                        module_id,
+                        signatures: &item_signatures,
+                        program_struct: &program_struct,
+                        program_union: &program_union,
+                    },
                     &mut layout_interner,
-                    &item_signatures,
-                    &program_struct,
-                    &program_union,
                     type_lowering
                         .versioned_type_uses_from_active_item_tree(&active_item_tree)
                         .into_iter()
@@ -1440,7 +1423,8 @@ pub(super) fn executable_layouts_for_reachable_items(
                 );
                 (layout_interner, roots)
             });
-        let layouts = time_module_provider(db, "executable_layouts.compute", module_id, || {
+
+        time_module_provider(db, "executable_layouts.compute", module_id, || {
             let symbols = db.context().symbols();
             nia_layout::compute_layouts_for_roots_with_program_context(
                 nia_layout::LayoutComputationInput {
@@ -1466,8 +1450,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                     unions: &roots.unions,
                 },
             )
-        });
-        layouts
+        })
     })
 }
 
@@ -1585,16 +1568,26 @@ fn rooted_layouts_for_checked_module(
     )
 }
 
-fn executable_layout_roots(
+struct ExecutableLayoutModule<'a> {
     module_id: ModuleId,
+    signatures: &'a ItemSignatures,
+    program_struct: &'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
+    program_union: &'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
+}
+
+fn executable_layout_roots(
+    module: ExecutableLayoutModule<'_>,
     interner: &mut nia_ty::TyInterner,
-    signatures: &ItemSignatures,
-    program_struct: &dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
-    program_union: &dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
     type_uses: impl IntoIterator<Item = InternedTyId>,
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
 ) -> CollectedLayoutRoots {
+    let ExecutableLayoutModule {
+        module_id,
+        signatures,
+        program_struct,
+        program_union,
+    } = module;
     let mut roots = LayoutRootCollector::with_program(interner, program_struct, program_union);
     for ty in type_uses {
         roots.add(ty);
@@ -1682,6 +1675,7 @@ fn checked_module_with_body_and_flow_check(
         body_ir: body_check.ir,
         semantic_uses: db.query(SemanticUseTableQuery(module_id)),
         semantic_facts: body_check.facts,
+        provider_demands: body_check.provider_demands,
         executable_reachable_globals: None,
         executable_reachable_structs: None,
         executable_reachable_unions: None,
@@ -1723,6 +1717,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         body_ir: body_check.ir,
         semantic_uses: body_inputs.semantic_uses,
         semantic_facts: body_check.facts,
+        provider_demands: body_check.provider_demands,
         executable_reachable_globals: None,
         executable_reachable_structs: None,
         executable_reachable_unions: None,
@@ -1814,6 +1809,7 @@ pub(super) fn executable_signature_checked_module(
         },
         semantic_uses: nia_sema_ir::SemanticUseTable::default(),
         semantic_facts: nia_sema_ir::SemanticFacts::default(),
+        provider_demands: HashSet::new(),
         executable_reachable_globals: Some(HashSet::new()),
         executable_reachable_structs: None,
         executable_reachable_unions: None,
@@ -1829,14 +1825,10 @@ pub(super) fn extend_module_functions_from_filtered_value_refs(
     module_globals: &HashSet<GlobalDefId>,
     checked_functions: Option<&HashSet<GlobalDefId>>,
 ) -> HashSet<GlobalDefId> {
-    let index = time_module_provider(db, "extend_value_refs.index", module_id, || {
-        db.query(ExecutableValueRefIndexQuery(module_id))
-    });
-
     time_module_provider(db, "extend_value_refs.scan_refs", module_id, || {
         walk_executable_value_ref_closure(
+            db,
             module_id,
-            &index,
             &mut module_functions,
             module_globals,
             checked_functions,
@@ -1853,15 +1845,12 @@ pub(super) fn executable_value_ref_edges_from_reachable_items(
     module_functions: &HashSet<GlobalDefId>,
     module_globals: &HashSet<GlobalDefId>,
 ) -> ExecutableValueRefEdges {
-    let index = time_module_provider(db, "executable_value_refs.index", module_id, || {
-        db.query(ExecutableValueRefIndexQuery(module_id))
-    });
     let mut scan_functions = module_functions.clone();
     let mut all_edges = ExecutableValueRefEdges::default();
     time_module_provider(db, "executable_value_refs.scan_refs", module_id, || {
         walk_executable_value_ref_closure(
+            db,
             module_id,
-            &index,
             &mut scan_functions,
             module_globals,
             None,
@@ -1872,25 +1861,73 @@ pub(super) fn executable_value_ref_edges_from_reachable_items(
     all_edges
 }
 
-pub(in crate::query) fn provide_executable_value_ref_index(
+pub(in crate::query) fn provide_executable_value_ref_edges(
     db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-) -> ExecutableValueRefIndex {
-    time_module_provider(db, "executable_value_ref_index", module_id, || {
-        let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
-        let defs = db.query_shared(FullModuleDefsQuery(module_id));
-        let values = db.query(ValueResolutionQuery(module_id));
+    owner: GlobalDefId,
+) -> ExecutableValueRefEdges {
+    time_module_provider(db, "executable_value_ref_edges", owner.module_id, || {
+        let Some(item_input) = db.query(ExecutableValueRefItemQuery(owner)) else {
+            return ExecutableValueRefEdges::default();
+        };
+        let active_item_tree = executable_value_ref_active_item_tree(&item_input);
+        let defs = db.query_shared(ModuleDefsQuery(owner.module_id));
+        let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
+        let graph = QueryModuleGraphLookup::new(db);
+        let public_surfaces = QueryPublicSurfaceLookup::new(db);
+        let using_scope = QueryUsingScopeLookup::new(db, owner.module_id);
+        let visible_extensions = || db.query(VisibleExtensionsQuery(owner.module_id));
+        let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+        let symbols = db.context().symbols();
+        let values = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
+            &active_item_tree,
+            &defs,
+            nia_value_resolve::ProgramDefsContext {
+                defs: Some(&program_defs),
+                graph: Some(&graph),
+            },
+            &public_surfaces,
+            &using_scope,
+            Some(&associated_values),
+            Some(&symbols),
+        );
         let mut index = ExecutableValueRefIndex::default();
         collect_executable_value_ref_index_for_items(
             db,
-            module_id,
+            owner.module_id,
             &active_item_tree.items,
             &defs,
             &values,
             &mut index,
         );
         index
+            .functions
+            .remove(&owner)
+            .or_else(|| index.globals.remove(&owner))
+            .unwrap_or_default()
     })
+}
+
+fn executable_value_ref_active_item_tree(
+    input: &ExecutableValueRefItemInput,
+) -> ActiveModuleItemTree {
+    let mut item = input.active_item_tree.items[input.item_index].clone();
+    match &mut item.kind {
+        nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
+            item_trait
+                .methods
+                .retain(|method| method.function.node_key == input.owner_node_key);
+        }
+        nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
+            extend
+                .methods
+                .retain(|method| method.function.node_key == input.owner_node_key);
+            extend
+                .associated_values
+                .retain(|value| value.binding.node_key == input.owner_node_key);
+        }
+        _ => {}
+    }
+    ActiveModuleItemTree::new(vec![item], input.active_item_tree.inactive_spans.clone())
 }
 
 fn collect_executable_value_ref_index_for_items(
@@ -2194,7 +2231,7 @@ pub(super) fn executable_flow_check(
     reachable_functions: &HashSet<GlobalDefId>,
 ) -> nia_flow_check::FlowCheck {
     time_module_provider(db, "executable_flow_check", module_id, || {
-        let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+        let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
         let type_lowering = db.query_shared(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Functions,

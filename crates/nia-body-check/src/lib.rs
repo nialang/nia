@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::fmt;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    rc::Rc,
     sync::Arc,
 };
 
@@ -36,7 +37,9 @@ use nia_defs::{
     VisibleExtensionMethods,
 };
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind, Visibility};
+use nia_ids::{
+    BuiltinTraitMethod, GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind, Visibility,
+};
 use nia_item_signatures::{
     ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
     ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
@@ -59,7 +62,7 @@ use nia_sema_ir::{
 };
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
-use nia_symbol::{SymbolId, SymbolMap, known};
+use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, known};
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
 use nia_ty::{ConstGenericArg, PrimitiveTy, TyInterner, TyKind};
@@ -74,7 +77,39 @@ pub struct BodyCheck {
     pub ir: BodyIr,
     pub facts: SemanticFacts,
     pub checked_functions: HashSet<GlobalDefId>,
+    pub provider_demands: HashSet<ProviderDemand>,
+    pub provider_demands_by_function: HashMap<GlobalDefId, HashSet<ProviderDemand>>,
+    pub diagnostic_owners: Vec<Option<GlobalDefId>>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ProviderDemand {
+    pub source_path: SourcePath,
+    pub request: ProviderRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ProviderRequest {
+    Method {
+        target_type_name: Option<SymbolId>,
+        method_name: SymbolId,
+    },
+    TraitImpl {
+        trait_name: SymbolId,
+    },
+    ModuleSemantic {
+        module_id: ModuleId,
+    },
+    ModuleBody {
+        module_path: SourcePath,
+    },
+}
+
+impl ProviderRequest {
+    pub fn invalidates_resolved_body_facts(&self) -> bool {
+        matches!(self, Self::Method { .. } | Self::TraitImpl { .. })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +123,7 @@ pub struct PrecheckedBodyCheck {
     pub ir: BodyIr,
     pub facts: SemanticFacts,
     pub checked_functions: HashSet<GlobalDefId>,
+    pub diagnostic_owners: Vec<Option<GlobalDefId>>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -310,6 +346,8 @@ fn empty_global_def_ids() -> &'static HashSet<GlobalDefId> {
     EMPTY.get_or_init(HashSet::new)
 }
 
+type ExtensionMethodsNamed<'a> = &'a dyn Fn(&SymbolId) -> Vec<ExtensionMethod>;
+
 #[derive(Clone, Copy)]
 pub struct BodyProgramContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
@@ -319,7 +357,7 @@ pub struct BodyProgramContext<'a> {
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
     pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<VisibleExtensionMethods>>,
     pub extension_method_by_id: Option<&'a dyn Fn(GlobalDefId) -> Option<ExtensionMethod>>,
-    pub extension_methods_named: Option<&'a dyn Fn(&SymbolId) -> Vec<ExtensionMethod>>,
+    pub extension_methods_named: Option<ExtensionMethodsNamed<'a>>,
 }
 
 impl<'a> BodyProgramContext<'a> {
@@ -707,11 +745,9 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
                 input.defs,
                 input.signatures,
                 visible_extensions,
-                input.program_extension_methods,
                 &mut interner,
                 &input.lowered.interner,
                 input.normalization,
-                input.program.extension_type_normalizations,
             )
         },
     );
@@ -769,6 +805,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         extension_methods_by_id,
         extension_method_lookup_cache: HashMap::new(),
         callable_extension_methods_by_name: SymbolMap::default(),
+        provider_demands: Rc::new(RefCell::new(HashSet::new())),
+        provider_demands_by_function: Rc::new(RefCell::new(HashMap::new())),
         node_expr_types: HashMap::new(),
         node_bracket_suffix_resolutions: HashMap::new(),
         node_pointer_array_to_slice_coercions: HashMap::new(),
@@ -795,6 +833,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         type_match_cache: HashMap::new(),
         program_type_normalizations: RefCell::new(HashMap::new()),
         diagnostics: Vec::new(),
+        diagnostic_owners: Vec::new(),
         timing,
         timing_module_id: module_id,
         current_return: void_ty,
@@ -833,6 +872,11 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
                 .into_iter()
                 .map(|(def_id, ty)| (GlobalDefId { module_id, def_id }, ty))
                 .collect(),
+            comptime_types: checker
+                .comptime_types
+                .into_iter()
+                .map(|(def_id, ty)| (GlobalDefId { module_id, def_id }, ty))
+                .collect(),
             generic_instantiations: checker.generic_instantiations,
             function_facts: checker.function_facts,
             node_expr_types: checker.node_expr_types,
@@ -852,6 +896,9 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
             node_function_references: checker.node_function_references,
         };
         facts.retain_module_level_facts();
+        checker
+            .diagnostic_owners
+            .resize(checker.diagnostics.len(), None);
         BodyCheck {
             ir: BodyIr {
                 interner: checker.interner,
@@ -860,6 +907,9 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
             },
             facts,
             checked_functions: checker.checked_functions,
+            provider_demands: checker.provider_demands.borrow().clone(),
+            provider_demands_by_function: checker.provider_demands_by_function.borrow().clone(),
+            diagnostic_owners: checker.diagnostic_owners,
             diagnostics: checker.diagnostics,
         }
     })
@@ -924,6 +974,8 @@ struct BodyChecker<'a> {
     extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,
     extension_method_lookup_cache: HashMap<GlobalDefId, ExtensionMethodLookup>,
     callable_extension_methods_by_name: SymbolMap<CallableExtensionMethods>,
+    provider_demands: Rc<RefCell<HashSet<ProviderDemand>>>,
+    provider_demands_by_function: Rc<RefCell<HashMap<GlobalDefId, HashSet<ProviderDemand>>>>,
     node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
     node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
     node_pointer_array_to_slice_coercions: HashMap<VersionedNodeKey, PointerArrayToSliceCoercion>,
@@ -951,6 +1003,7 @@ struct BodyChecker<'a> {
     type_match_cache: HashMap<(InternedTyId, InternedTyId), bool>,
     program_type_normalizations: RefCell<HashMap<ModuleId, TypeNormalization>>,
     diagnostics: Vec<Diagnostic>,
+    diagnostic_owners: Vec<Option<GlobalDefId>>,
     timing: bool,
     timing_module_id: ModuleId,
     current_return: InternedTyId,
@@ -1226,7 +1279,7 @@ fn import_where_predicates_between_interners(
                         .associated_type_bindings
                         .iter()
                         .map(|binding| nia_defs::AssociatedTypeBindingSignature {
-                            name: binding.name.clone(),
+                            name: binding.name,
                             ty: nia_ty::import_type_into(target, source, binding.ty),
                             span: binding.span,
                         })
@@ -1255,11 +1308,9 @@ impl<'a> BodyChecker<'a> {
         defs: &DefCollection,
         signatures: BodyLocalSignatures<'_>,
         extensions: BodyVisibleExtensions<'_>,
-        _program_extensions: &ExtensionMethods,
         interner: &mut TyInterner,
         local_type_interner: &TyInterner,
         local_normalization: &TypeNormalization,
-        _program_normalizations: Option<&dyn Fn(ModuleId) -> Option<TypeNormalization>>,
     ) -> Arc<HashMap<GlobalDefId, ExtensionMethodLookup>> {
         let mut methods = HashMap::new();
         for impl_signature in signatures.trait_impls {
@@ -1411,6 +1462,21 @@ impl<'a> BodyChecker<'a> {
         if let Some(facts) = self.current_function_facts() {
             facts.trait_method_refs.push(reference);
         }
+    }
+
+    fn record_builtin_trait_method_ref(
+        &mut self,
+        method: BuiltinTraitMethod,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+    ) {
+        self.record_trait_method_ref(SemanticTraitMethodRef {
+            module_id: self.timing_module_id,
+            trait_id: nia_ty::TraitId::Builtin(method.trait_id()),
+            method_name: method.symbol_id(),
+            self_ty,
+            trait_args,
+        });
     }
 
     fn enqueue_same_module_resolved_call(&mut self, call: &ResolvedCall) {
@@ -1719,14 +1785,23 @@ impl<'a> BodyChecker<'a> {
             ir,
             facts,
             checked_functions,
+            diagnostic_owners,
             diagnostics,
         } = prechecked;
         self.interner = ir.interner;
         self.global_inits = ir.global_inits;
         self.checked_functions = checked_functions;
+        self.diagnostic_owners = diagnostic_owners;
         self.diagnostics = diagnostics;
         self.global_types = facts
             .global_types
+            .into_iter()
+            .filter_map(|(def_id, ty)| {
+                (def_id.module_id == module_id).then_some((def_id.def_id, ty))
+            })
+            .collect();
+        self.comptime_types = facts
+            .comptime_types
             .into_iter()
             .filter_map(|(def_id, ty)| {
                 (def_id.module_id == module_id).then_some((def_id.def_id, ty))
@@ -1903,22 +1978,27 @@ impl<'a> BodyChecker<'a> {
             }
         });
         time_body_stage(timing, "body_check.functions", module_id, || {
-            let function_items = self.function_items_by_id(active_item_tree);
-            self.check_reachable_functions(&function_items, timing, module_id);
+            let function_items =
+                time_body_stage(timing, "body_check.function_index", module_id, || {
+                    self.function_items_by_id(active_item_tree)
+                });
+            time_body_stage(timing, "body_check.function_check", module_id, || {
+                self.check_reachable_functions(&function_items, timing, module_id);
+            });
         });
         time_body_stage(timing, "body_check.extends", module_id, || {
             for item in &active_item_tree.items {
-                if let ItemTreeNodeKind::Extend(extend) = &item.kind {
-                    if extend.generics.is_empty() {
-                        for associated_value in &extend.associated_values {
-                            if associated_value.binding.value.is_none() {
-                                continue;
-                            }
-                            self.check_reachable_comptime_binding(
-                                associated_value.span,
-                                &associated_value.binding,
-                            );
+                if let ItemTreeNodeKind::Extend(extend) = &item.kind
+                    && extend.generics.is_empty()
+                {
+                    for associated_value in &extend.associated_values {
+                        if associated_value.binding.value.is_none() {
+                            continue;
                         }
+                        self.check_reachable_comptime_binding(
+                            associated_value.span,
+                            &associated_value.binding,
+                        );
                     }
                 }
             }
@@ -2267,6 +2347,17 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_function(&mut self, def_id: DefId, function: &FunctionItem) {
+        let global_def_id = self.global_def_id(def_id);
+        let diagnostic_start = self.diagnostics.len();
+        self.check_function_inner(def_id, function);
+        let diagnostic_end = self.diagnostics.len();
+        if diagnostic_start != diagnostic_end {
+            self.diagnostic_owners.resize(diagnostic_end, None);
+            self.diagnostic_owners[diagnostic_start..diagnostic_end].fill(Some(global_def_id));
+        }
+    }
+
+    fn check_function_inner(&mut self, def_id: DefId, function: &FunctionItem) {
         let global_def_id = self.global_def_id(def_id);
         if !self
             .program_signature_scope

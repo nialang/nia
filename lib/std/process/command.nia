@@ -3,6 +3,7 @@ using pkg::error;
 using pkg::fs;
 using pkg::os;
 using pkg::process::args;
+using pkg::process::child;
 using pkg::process::types;
 
 using types::{ArgList, Child, Command, Error, StdIo, Term};

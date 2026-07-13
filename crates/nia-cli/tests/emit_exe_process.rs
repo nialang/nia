@@ -1584,6 +1584,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     std::fs::write(
         &left,
         r#"
+using std::fmt;
 using std::io;
 using std::process;
 
@@ -1600,6 +1601,7 @@ pub fn write(init: process::Init) process::ExitCode!void {
     std::fs::write(
         &right,
         r#"
+using std::fmt;
 using std::io;
 using std::process;
 

@@ -659,7 +659,7 @@ impl<'a> SignatureCollector<'a> {
             };
             fields.push(FieldSignature {
                 def_id: field_id,
-                name: field.name.clone(),
+                name: field.name,
                 ty: self.ty_for_type(&field.ty),
                 span: field.span,
             });
@@ -694,7 +694,7 @@ impl<'a> SignatureCollector<'a> {
             };
             fields.push(FieldSignature {
                 def_id: field_id,
-                name: field.name.clone(),
+                name: field.name,
                 ty: self.ty_for_type(&field.ty),
                 span: field.span,
             });
@@ -724,7 +724,7 @@ impl<'a> SignatureCollector<'a> {
                 self.collect_method(signatures, &method.function)
                     .map(|def_id| TraitImplMethodSignature {
                         def_id,
-                        name: method.function.name.clone(),
+                        name: method.function.name,
                         visibility: method.vis,
                         span: method.function.span,
                     })
@@ -737,7 +737,7 @@ impl<'a> SignatureCollector<'a> {
                 self.collect_associated_comptime(signatures, associated_value)
                     .map(|def_id| TraitImplAssociatedValueSignature {
                         def_id,
-                        name: associated_value.binding.name.clone(),
+                        name: associated_value.binding.name,
                         visibility: associated_value.vis,
                         span: associated_value.span,
                     })
@@ -759,7 +759,7 @@ impl<'a> SignatureCollector<'a> {
                 .associated_types
                 .iter()
                 .map(|associated_type| TraitImplAssociatedTypeSignature {
-                    name: associated_type.name.clone(),
+                    name: associated_type.name,
                     ty: self.ty_for_type(&associated_type.ty),
                     span: associated_type.span,
                 })
@@ -805,7 +805,7 @@ impl<'a> SignatureCollector<'a> {
             };
             associated_types.push(TraitAssociatedTypeSignature {
                 def_id: associated_type_id,
-                name: associated_type.name.clone(),
+                name: associated_type.name,
                 span: associated_type.span,
             });
         }
@@ -820,7 +820,7 @@ impl<'a> SignatureCollector<'a> {
             };
             associated_values.push(TraitAssociatedValueSignature {
                 def_id: associated_value_id,
-                name: associated_value.name.clone(),
+                name: associated_value.name,
                 ty: self.ty_for_type(&associated_value.ty),
                 span: associated_value.span,
             });
@@ -837,7 +837,7 @@ impl<'a> SignatureCollector<'a> {
             let signature = self.function_signature(&method.function);
             methods.push(TraitMethodSignature {
                 def_id: method_id,
-                name: method.function.name.clone(),
+                name: method.function.name,
                 signature: signature.clone(),
                 has_default: method.function.body.is_some(),
                 span: method.function.span,
@@ -871,10 +871,7 @@ impl<'a> SignatureCollector<'a> {
         signatures: &mut ItemSignatures,
         method: &FunctionItem,
     ) -> Option<DefId> {
-        let Some(def_id) = self.def_id_for_node(&method.node_key, method.span, DefKind::Method)
-        else {
-            return None;
-        };
+        let def_id = self.def_id_for_node(&method.node_key, method.span, DefKind::Method)?;
         signatures
             .functions
             .insert(def_id, self.function_signature(method));
@@ -903,7 +900,7 @@ impl<'a> SignatureCollector<'a> {
             };
             variants.push(EnumVariantSignature {
                 def_id: variant_id,
-                name: variant.name.clone(),
+                name: variant.name,
                 span: variant.span,
             });
         }
@@ -1074,11 +1071,8 @@ impl<'a> SignatureCollector<'a> {
         associated_value: &nia_ast::ExtendAssociatedValue,
     ) -> Option<DefId> {
         let binding = &associated_value.binding;
-        let Some(def_id) =
-            self.def_id_for_node(&binding.node_key, associated_value.span, DefKind::Comptime)
-        else {
-            return None;
-        };
+        let def_id =
+            self.def_id_for_node(&binding.node_key, associated_value.span, DefKind::Comptime)?;
         signatures.comptimes.insert(
             def_id,
             ComptimeSignature {
@@ -1187,7 +1181,7 @@ impl<'a> SignatureCollector<'a> {
         generics
             .iter()
             .map(|generic| GenericParamSignature {
-                name: generic.name.clone(),
+                name: generic.name,
                 kind: match &generic.kind {
                     GenericParamKind::Type => GenericParamSignatureKind::Type,
                     GenericParamKind::Comptime { ty } => GenericParamSignatureKind::Comptime {
@@ -1387,23 +1381,22 @@ impl<'a> SignatureCollector<'a> {
             }
             if let Some(builtin_name) =
                 self.parse_builtin_attribute_name(attribute, meta.args.as_slice())
+                && out.replace(builtin_name).is_some()
             {
-                if out.replace(builtin_name).is_some() {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::ITEM_SIGNATURE,
-                        attribute.span,
-                        "duplicate `@[builtin]` extend attribute",
-                    ));
-                }
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::ITEM_SIGNATURE,
+                    attribute.span,
+                    "duplicate `@[builtin]` extend attribute",
+                ));
             }
         }
         out
     }
 
-    fn parse_builtin_attribute_name<'attr>(
+    fn parse_builtin_attribute_name(
         &mut self,
         attribute: &Attribute,
-        args: &'attr [nia_ast::Expr],
+        args: &[nia_ast::Expr],
     ) -> Option<String> {
         match args {
             [arg] => match &arg.kind {
@@ -1454,7 +1447,7 @@ impl<'a> SignatureCollector<'a> {
             }
         };
         ParamSignature {
-            name: param.name.clone(),
+            name: param.name,
             receiver: param.receiver,
             ty,
             span: param.span,
@@ -1503,7 +1496,7 @@ impl<'a> SignatureCollector<'a> {
                             else {
                                 return None;
                             };
-                            name.clone()
+                            *name
                         }
                     };
                     Some(AssociatedTypeBindingSignature {

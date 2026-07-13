@@ -34,6 +34,21 @@ impl QueryKey<CompilerContext> for EntryCheckedProgramQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExecutableProviderDemandsQuery;
+
+impl QueryKey<CompilerContext> for ExecutableProviderDemandsQuery {
+    type Value = Vec<crate::ProviderDemand>;
+
+    fn name() -> &'static str {
+        "executable_provider_demands"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        provide_executable_provider_demands(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CodegenProgramQuery;
 
 impl QueryKey<CompilerContext> for CodegenProgramQuery {
@@ -60,6 +75,116 @@ impl QueryKey<CompilerContext> for ModuleGraphQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.module_graph)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleGraphNodeQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ModuleGraphNodeQuery {
+    type Value = Option<Arc<ModuleNode>>;
+
+    fn name() -> &'static str {
+        "module_graph_node"
+    }
+
+    fn description(&self) -> String {
+        format!("module_graph_node({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().module_graph_node(self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleGraphEntryQuery;
+
+impl QueryKey<CompilerContext> for ModuleGraphEntryQuery {
+    type Value = ModuleId;
+
+    fn name() -> &'static str {
+        "module_graph_entry"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().module_graph_entry()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleGraphPathQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ModuleGraphPathQuery {
+    type Value = Option<nia_imports::ModulePath>;
+
+    fn name() -> &'static str {
+        "module_graph_path"
+    }
+
+    fn description(&self) -> String {
+        format!("module_graph_path({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().module_graph_path(self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleGraphParentQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ModuleGraphParentQuery {
+    type Value = Option<ModuleId>;
+
+    fn name() -> &'static str {
+        "module_graph_parent"
+    }
+
+    fn description(&self) -> String {
+        format!("module_graph_parent({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().module_graph_parent(self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleGraphChildQuery(pub(super) ModuleId, pub(super) SymbolId);
+
+impl QueryKey<CompilerContext> for ModuleGraphChildQuery {
+    type Value = Option<(ModuleId, nia_ids::Visibility)>;
+
+    fn name() -> &'static str {
+        "module_graph_child"
+    }
+
+    fn description(&self) -> String {
+        format!("module_graph_child({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().module_graph_child(self.0, &self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModulePackageRootQuery(pub(super) SymbolId);
+
+impl QueryKey<CompilerContext> for ModulePackageRootQuery {
+    type Value = Option<ModuleId>;
+
+    fn name() -> &'static str {
+        "module_package_root"
+    }
+
+    fn description(&self) -> String {
+        format!("module_package_root({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().module_package_root(&self.0)
     }
 }
 
@@ -120,6 +245,21 @@ impl QueryKey<CompilerContext> for CompilerRuntimeQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.context().runtime()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExecutableRootModulesQuery;
+
+impl QueryKey<CompilerContext> for ExecutableRootModulesQuery {
+    type Value = (ModuleId, Vec<ModuleId>);
+
+    fn name() -> &'static str {
+        "executable_root_modules"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().executable_root_modules()
     }
 }
 
@@ -399,7 +539,7 @@ impl QueryKey<CompilerContext> for ModuleItemTreeQuery {
 }
 
 impl QueryKey<CompilerContext> for FullModuleItemTreeQuery {
-    type Value = ModuleItemTree;
+    type Value = Arc<ModuleItemTree>;
 
     fn name() -> &'static str {
         "full_module_item_tree"
@@ -469,7 +609,7 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeQuery {
 }
 
 impl QueryKey<CompilerContext> for FullActiveModuleItemTreeQuery {
-    type Value = ActiveModuleItemTree;
+    type Value = Arc<ActiveModuleItemTree>;
 
     fn name() -> &'static str {
         "full_active_module_item_tree"
@@ -516,21 +656,6 @@ impl QueryKey<CompilerContext> for FullModuleDefsQuery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct DefsByModuleQuery;
-
-impl QueryKey<CompilerContext> for DefsByModuleQuery {
-    type Value = Vec<DefCollection>;
-
-    fn name() -> &'static str {
-        "defs_by_module"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.defs_by_module)(db)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct PublicUsingScopesQueryValue {
     pub(super) using_scopes: HashMap<ModuleId, ModuleUsingScope>,
@@ -555,6 +680,82 @@ impl QueryKey<CompilerContext> for PublicSurfacesQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.public_surfaces)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModulePublicSurfaceQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ModulePublicSurfaceQuery {
+    type Value = Option<Arc<ModulePublicSurface>>;
+
+    fn name() -> &'static str {
+        "module_public_surface"
+    }
+
+    fn description(&self) -> String {
+        format!("module_public_surface({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        (db.context().providers.module_public_surface)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct PublicSurfaceModuleQuery(pub(super) ModuleId, pub(super) SymbolId);
+
+impl QueryKey<CompilerContext> for PublicSurfaceModuleQuery {
+    type Value = Option<ModuleId>;
+
+    fn name() -> &'static str {
+        "public_surface_module"
+    }
+
+    fn description(&self) -> String {
+        format!("public_surface_module({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().public_surface_module(self.0, &self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct PublicSurfaceValueQuery(pub(super) ModuleId, pub(super) SymbolId);
+
+impl QueryKey<CompilerContext> for PublicSurfaceValueQuery {
+    type Value = Option<nia_defs::PublicItem>;
+
+    fn name() -> &'static str {
+        "public_surface_value"
+    }
+
+    fn description(&self) -> String {
+        format!("public_surface_value({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().public_surface_value(self.0, &self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct PublicSurfaceTypeQuery(pub(super) ModuleId, pub(super) SymbolId);
+
+impl QueryKey<CompilerContext> for PublicSurfaceTypeQuery {
+    type Value = Option<nia_defs::PublicItem>;
+
+    fn name() -> &'static str {
+        "public_surface_type"
+    }
+
+    fn description(&self) -> String {
+        format!("public_surface_type({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().public_surface_type(self.0, &self.1)
     }
 }
 
@@ -589,6 +790,82 @@ impl QueryKey<CompilerContext> for ModuleUsingScopeQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.module_using_scope)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct UsingScopeModuleQuery(pub(super) ModuleId, pub(super) SymbolId);
+
+impl QueryKey<CompilerContext> for UsingScopeModuleQuery {
+    type Value = Option<ModuleId>;
+
+    fn name() -> &'static str {
+        "using_scope_module"
+    }
+
+    fn description(&self) -> String {
+        format!("using_scope_module({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().using_scope_module(self.0, &self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct UsingScopeValueQuery(pub(super) ModuleId, pub(super) SymbolId);
+
+impl QueryKey<CompilerContext> for UsingScopeValueQuery {
+    type Value = Option<nia_defs::UsingEntry>;
+
+    fn name() -> &'static str {
+        "using_scope_value"
+    }
+
+    fn description(&self) -> String {
+        format!("using_scope_value({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().using_scope_value(self.0, &self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct UsingScopeTypeQuery(pub(super) ModuleId, pub(super) SymbolId);
+
+impl QueryKey<CompilerContext> for UsingScopeTypeQuery {
+    type Value = Option<nia_defs::UsingEntry>;
+
+    fn name() -> &'static str {
+        "using_scope_type"
+    }
+
+    fn description(&self) -> String {
+        format!("using_scope_type({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().using_scope_type(self.0, &self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct UsingScopeUnresolvedQuery(pub(super) ModuleId, pub(super) SymbolId);
+
+impl QueryKey<CompilerContext> for UsingScopeUnresolvedQuery {
+    type Value = bool;
+
+    fn name() -> &'static str {
+        "using_scope_unresolved"
+    }
+
+    fn description(&self) -> String {
+        format!("using_scope_unresolved({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().using_scope_unresolved(self.0, &self.1)
     }
 }
 

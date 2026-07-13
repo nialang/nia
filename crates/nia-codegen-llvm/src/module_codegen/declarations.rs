@@ -15,6 +15,15 @@ enum AdapterFunction<'a> {
     Instance(&'a BackendFunctionInstance),
 }
 
+struct TraitObjectAdapterTarget<'ctx, 'a> {
+    def_id: GlobalDefId,
+    arg_module_id: ModuleId,
+    self_arg: Option<InternedTyId>,
+    args: &'a [InternedTyId],
+    const_args: &'a [ConstGenericArg],
+    function: FunctionValue<'ctx>,
+}
+
 impl<'a> AdapterFunction<'a> {
     fn params(&self) -> &'a [BackendParam] {
         match self {
@@ -483,12 +492,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         self.trait_object_slice_adapter(
             self_ty,
-            def_id,
-            arg_module_id,
-            self_arg,
-            &args,
-            &const_args,
-            function,
+            TraitObjectAdapterTarget {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args: &args,
+                const_args: &const_args,
+                function,
+            },
             span,
         )
     }
@@ -496,14 +507,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn trait_object_slice_adapter(
         &self,
         self_ty: InternedTyId,
-        def_id: GlobalDefId,
-        arg_module_id: ModuleId,
-        self_arg: Option<InternedTyId>,
-        args: &[InternedTyId],
-        const_args: &[ConstGenericArg],
-        target: FunctionValue<'ctx>,
+        target: TraitObjectAdapterTarget<'ctx, '_>,
         span: Span,
     ) -> Result<FunctionValue<'ctx>, Diagnostic> {
+        let TraitObjectAdapterTarget {
+            def_id,
+            arg_module_id,
+            self_arg,
+            args,
+            const_args,
+            function: target,
+        } = target;
         let key = (
             self_ty,
             def_id,

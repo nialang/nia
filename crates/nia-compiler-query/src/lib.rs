@@ -28,6 +28,8 @@ use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 
+pub use nia_body_check::{ProviderDemand, ProviderRequest};
+
 pub use nia_backend_lower::BackendOptimizationChange;
 pub use nia_timing::TimingMode;
 pub use query::{CompileRequest, CompilerDatabase, compiler_work_permit};
@@ -118,6 +120,7 @@ pub struct CheckedModule {
     pub body_ir: BodyIr,
     pub semantic_uses: SemanticUseTable,
     pub semantic_facts: SemanticFacts,
+    pub provider_demands: std::collections::HashSet<ProviderDemand>,
     pub executable_reachable_globals: Option<std::collections::HashSet<GlobalDefId>>,
     pub executable_reachable_structs:
         Option<std::sync::Arc<std::collections::HashSet<GlobalDefId>>>,

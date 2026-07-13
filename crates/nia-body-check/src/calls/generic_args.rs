@@ -79,7 +79,7 @@ impl<'a> BodyChecker<'a> {
                     if let Some(ty) = &arg.ty {
                         let ty = self.ty_for_type(ty);
                         lowered.type_args.push(ty);
-                        lowered.type_substitutions.insert(param.name.clone(), ty);
+                        lowered.type_substitutions.insert(param.name, ty);
                     } else {
                         let name = self.symbol_name(param.name);
                         self.diagnostics.push(Diagnostic::user_error_at(
@@ -102,7 +102,7 @@ impl<'a> BodyChecker<'a> {
                     };
                     let arg = ConstGenericArg { ty: *ty, value };
                     lowered.const_args.push(arg.clone());
-                    lowered.const_substitutions.insert(param.name.clone(), arg);
+                    lowered.const_substitutions.insert(param.name, arg);
                 }
             }
         }
@@ -120,7 +120,7 @@ impl<'a> BodyChecker<'a> {
                     .ok()
                     .map(|value| ConstGenericValue::Int(IntConst::signed(value))),
                 ExprKind::Bool(value) => Some(ConstGenericValue::Bool(*value)),
-                ExprKind::Ident(name) => Some(ConstGenericValue::GenericParam(name.clone())),
+                ExprKind::Ident(name) => Some(ConstGenericValue::GenericParam(*name)),
                 _ => self.eval_const_generic_expr(expr, expected_ty),
             };
             return value.filter(|value| self.const_generic_value_matches_type(value, expected_ty));
@@ -407,17 +407,16 @@ impl<'a> BodyChecker<'a> {
             return generics;
         }
         let mut generics = self.extension_method_effective_generics(def_id);
-        if def_id.module_id == self.defs.module_id {
-            if generics.is_empty()
-                && let Some(def) = self.defs.defs.get(def_id.def_id)
-            {
-                generics = def
-                    .parent
-                    .and_then(|parent| self.defs.defs.get(parent))
-                    .map(|parent| parent.generics.clone())
-                    .unwrap_or_default();
-                generics.extend(def.generics.clone());
-            }
+        if def_id.module_id == self.defs.module_id
+            && generics.is_empty()
+            && let Some(def) = self.defs.defs.get(def_id.def_id)
+        {
+            generics = def
+                .parent
+                .and_then(|parent| self.defs.defs.get(parent))
+                .map(|parent| parent.generics.clone())
+                .unwrap_or_default();
+            generics.extend(def.generics.clone());
         }
         generics
     }

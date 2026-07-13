@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use nia_symbol::known;
 
 pub(in crate::query) fn provide_executable_checked_module_set(
     db: &QueryDb<CompilerContext>,
@@ -7,8 +8,35 @@ pub(in crate::query) fn provide_executable_checked_module_set(
     time_provider(
         db.context().timings(),
         "executable_checked_module_set",
-        || executable_checked_module_set_inner(db),
+        || match executable_check(db, ExecutableCheckProduct::Modules) {
+            ExecutableCheckOutput::Modules(set) => set,
+            ExecutableCheckOutput::ProviderDemands(_) => unreachable!(),
+        },
     )
+}
+
+pub(in crate::query) fn provide_executable_provider_demands(
+    db: &QueryDb<CompilerContext>,
+) -> Vec<crate::ProviderDemand> {
+    time_provider(
+        db.context().timings(),
+        "executable_provider_demands",
+        || match executable_check(db, ExecutableCheckProduct::ProviderDemands) {
+            ExecutableCheckOutput::ProviderDemands(demands) => demands,
+            ExecutableCheckOutput::Modules(_) => unreachable!(),
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+enum ExecutableCheckProduct {
+    ProviderDemands,
+    Modules,
+}
+
+enum ExecutableCheckOutput {
+    ProviderDemands(Vec<crate::ProviderDemand>),
+    Modules(ExecutableCheckedModuleSet),
 }
 
 #[cfg(test)]
@@ -209,13 +237,18 @@ struct ExecutableBodyCheckBatchItem {
     checked_functions: HashSet<GlobalDefId>,
 }
 
-fn executable_checked_module_set_inner(
+fn executable_check(
     db: &QueryDb<CompilerContext>,
-) -> ExecutableCheckedModuleSet {
+    product: ExecutableCheckProduct,
+) -> ExecutableCheckOutput {
     let parse_ok = db.query(SemanticModuleIdsQuery);
-    let graph = db.query_shared(ModuleGraphQuery);
+    let (entry_module, runtime_root_modules) = db.query(ExecutableRootModulesQuery);
+    let ExecutableFactSession {
+        mut modules,
+        reachability,
+        caches,
+    } = db.context().take_executable_fact_session();
     let mut non_function_signatures = None::<ProgramExecutableNonFunctionSignatures>;
-    let caches = ExecutableCheckCaches::default();
     let function_signature = |def_id: GlobalDefId| {
         if let Some(signature) = caches
             .reachability_function_signatures
@@ -242,7 +275,7 @@ fn executable_checked_module_set_inner(
                     .query(ModuleDefsQuery(def_id.module_id))
                     .defs
                     .get(def_id.def_id)
-                    .map(|def| def.name.clone())
+                    .map(|def| def.name)
                     .unwrap_or_default(),
                 signature,
                 interner: lowering.interner.clone(),
@@ -336,25 +369,12 @@ fn executable_checked_module_set_inner(
                     })
             })
     };
-    let named_function = |module_id, name: SymbolId| {
-        let defs = db.query_shared(FullModuleDefsQuery(module_id));
-        defs.defs.iter().find_map(|(def_id, def)| {
-            (def.kind == DefKind::Function && def.name == name)
-                .then_some(GlobalDefId { module_id, def_id })
-        })
-    };
-    let module_functions = |module_id| {
-        let defs = db.query_shared(FullModuleDefsQuery(module_id));
-        defs.defs
-            .iter()
-            .filter_map(|(def_id, def)| {
-                (def.kind == DefKind::Function).then_some(GlobalDefId { module_id, def_id })
-            })
-            .collect::<Vec<_>>()
-    };
-    let mut fact_by_id = HashMap::<ModuleId, ExecutableFactModuleState>::new();
-    let comptime_module_cache = RefCell::new(HashMap::<ModuleId, ComptimeModuleLowering>::new());
-    let mut reachability_state = IncrementalExecutableReachability::default();
+    let (root_functions, root_globals) =
+        executable_root_defs(db, entry_module, &runtime_root_modules, &parse_ok);
+    let parse_ok_set = parse_ok.iter().copied().collect::<HashSet<_>>();
+    modules.retain(|module_id, _| parse_ok_set.contains(module_id));
+    let mut fact_by_id = modules;
+    let mut reachability_state = reachability;
     let extension_lookup = QueryExecutableExtensionLookup::new(db);
     loop {
         let reachable_inputs = time_provider(
@@ -368,21 +388,23 @@ fn executable_checked_module_set_inner(
             || {
                 compute_executable_reachability_incremental_with_timings(
                     &mut reachability_state,
-                    &parse_ok,
-                    &graph,
-                    ExecutableRootDefs {
-                        named_function: &named_function,
-                        module_functions: &module_functions,
-                    },
-                    nia_executable_reachability::ExecutableSignatureIndex {
-                        function: &function_signature,
-                        struct_: &struct_signature,
-                        union: &union_signature,
-                        trait_: &trait_signature,
-                        trait_default_method: &trait_default_method,
+                    nia_executable_reachability::ExecutableReachabilityInput {
+                        parse_ok: &parse_ok,
+                        entry_module,
+                        root_defs: ExecutableRootDefs {
+                            functions: &root_functions,
+                            globals: &root_globals,
+                        },
+                        program_signatures: nia_executable_reachability::ExecutableSignatureIndex {
+                            function: &function_signature,
+                            struct_: &struct_signature,
+                            union: &union_signature,
+                            trait_: &trait_signature,
+                            trait_default_method: &trait_default_method,
+                        },
+                        modules: &reachable_inputs,
                     },
                     &extension_lookup,
-                    &reachable_inputs,
                     db.context().timings(),
                 )
             },
@@ -468,8 +490,8 @@ fn executable_checked_module_set_inner(
             let filter = nia_body_check::BodyCheckFilter::ReachableItems {
                 functions: &module_functions,
                 globals: &module_globals,
-                already_checked_functions: already_checked_functions,
-                already_checked_globals: already_checked_globals,
+                already_checked_functions,
+                already_checked_globals,
             };
             let has_reachable_body_items = !module_functions.is_empty()
                 || module_globals.iter().any(|def_id| {
@@ -536,24 +558,31 @@ fn executable_checked_module_set_inner(
                     )
                 };
                 time_module_provider(db, "executable_fact_check", module_id, || {
-                    body_check_with_filter_and_layouts_with_inputs_and_product(
+                    body_check_with_filter_and_layouts_with_inputs(
                         db,
-                        module_id,
-                        filter,
-                        Some(layouts.clone()),
-                        Some(&executable_program_layouts),
-                        ExecutableFactMode::executable(reachable_body_modules),
-                        Some(resolution_inputs),
-                        seed_interner,
-                        Some(&caches.global_initializers),
-                        Some(&comptime_module_cache),
-                        Some(&caches.body_function_signatures),
-                        nia_body_check::BodyCheckProduct::FactsOnly,
-                        None,
+                        ExecutableBodyCheckInput {
+                            module_id,
+                            filter,
+                            layouts: Some(layouts.clone()),
+                            program_layouts_override: Some(&executable_program_layouts),
+                            fact_mode: ExecutableFactMode::executable(reachable_body_modules),
+                            resolution_inputs: Some(resolution_inputs),
+                            seed_interner,
+                            global_initializer_cache: Some(&caches.global_initializers),
+                            comptime_module_cache: Some(&caches.comptime_modules),
+                            program_function_signature_cache: Some(
+                                &caches.body_function_signatures,
+                            ),
+                            product: nia_body_check::BodyCheckProduct::FactsOnly,
+                            prechecked: None,
+                        },
                     )
                 })
             };
             let checked_this_round = body_check.body_check.checked_functions.clone();
+            reachability_state
+                .reachability_mut()
+                .insert_functions(checked_this_round.iter().copied());
             let new_globals_len = module_globals.len();
             let module_path = db.query(ModulePathQuery(module_id));
             time_module_provider(
@@ -624,30 +653,57 @@ fn executable_checked_module_set_inner(
                 || {
                     extend_incremental_executable_reachability_from_checked_module_with_timings(
                         &mut reachability_state,
-                        &parse_ok,
-                        nia_executable_reachability::ExecutableSignatureIndex {
-                            function: &function_signature,
-                            struct_: &struct_signature,
-                            union: &union_signature,
-                            trait_: &trait_signature,
-                            trait_default_method: &trait_default_method,
+                        nia_executable_reachability::CheckedModuleReachabilityInput {
+                            parse_ok: &parse_ok,
+                            program_signatures:
+                                nia_executable_reachability::ExecutableSignatureIndex {
+                                    function: &function_signature,
+                                    struct_: &struct_signature,
+                                    union: &union_signature,
+                                    trait_: &trait_signature,
+                                    trait_default_method: &trait_default_method,
+                                },
+                            module: checked_inputs
+                                .iter()
+                                .copied()
+                                .find(|input| input.module_id == batch_item.module_id)
+                                .expect("just-checked module must have a reachable input"),
+                            checked_functions: &batch_item.checked_functions,
+                            modules_by_id: &checked_inputs_by_id,
                         },
                         &extension_lookup,
-                        checked_inputs
-                            .iter()
-                            .copied()
-                            .find(|input| input.module_id == batch_item.module_id)
-                            .expect("just-checked module must have a reachable input"),
-                        &batch_item.checked_functions,
-                        &checked_inputs_by_id,
                         db.context().timings(),
                     )
                 },
             );
         }
     }
+    if matches!(product, ExecutableCheckProduct::ProviderDemands) {
+        let reachability_by_module = reachability_state.reachability().by_module();
+        let mut demands = fact_by_id
+            .values()
+            .flat_map(|state| state.provider_demands.iter().cloned())
+            .collect::<HashSet<_>>();
+        demands.extend(executable_module_body_demands(db, &reachability_by_module));
+        db.context()
+            .store_executable_fact_session(ExecutableFactSession {
+                modules: fact_by_id,
+                reachability: reachability_state,
+                caches,
+            });
+        return ExecutableCheckOutput::ProviderDemands(demands.into_iter().collect());
+    }
     let reachability = reachability_state.into_reachability();
     let reachability_by_module = reachability.by_module();
+    if debug_executable_reachability_enabled() {
+        eprintln!(
+            "debug executable_reachability.final functions={} globals={} modules={} type_modules={}",
+            reachability.functions().len(),
+            reachability.globals().len(),
+            reachability.modules().len(),
+            reachability.type_modules().len(),
+        );
+    }
 
     let parse_ok_modules = parse_ok;
     let mut checked_modules_by_id = time_provider(
@@ -661,7 +717,7 @@ fn executable_checked_module_set_inner(
                 &reachability_by_module,
                 &mut fact_by_id,
                 &caches,
-                &comptime_module_cache,
+                &caches.comptime_modules,
             )
         },
     );
@@ -804,8 +860,88 @@ fn executable_checked_module_set_inner(
             }
         },
     );
-    db.context()
-        .store_executable_checked_modules(codegen_modules)
+    let module_body_demands = executable_module_body_demands(db, &reachability_by_module);
+    if let Some(module) = codegen_modules.first_mut() {
+        module.provider_demands.extend(module_body_demands);
+    }
+    ExecutableCheckOutput::Modules(
+        db.context()
+            .store_executable_checked_modules(codegen_modules),
+    )
+}
+
+fn executable_module_body_demands(
+    db: &QueryDb<CompilerContext>,
+    reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
+) -> Vec<crate::ProviderDemand> {
+    executable_reachable_body_modules(db, reachability_by_module)
+        .into_iter()
+        .map(|module_id| {
+            let module_path = db.query(ModulePathQuery(module_id));
+            crate::ProviderDemand {
+                source_path: module_path.clone(),
+                request: crate::ProviderRequest::ModuleBody { module_path },
+            }
+        })
+        .collect()
+}
+
+fn executable_root_defs(
+    db: &QueryDb<CompilerContext>,
+    entry: ModuleId,
+    runtime_root_modules: &[ModuleId],
+    parse_ok: &[ModuleId],
+) -> (Vec<GlobalDefId>, Vec<GlobalDefId>) {
+    match db.query(CompilerRuntimeQuery) {
+        RuntimeModel::Bare => {
+            let defs = db.query_shared(FullModuleDefsQuery(entry));
+            let mut functions = Vec::new();
+            let mut globals = Vec::new();
+            for (def_id, def) in defs.defs.iter().filter(|(_, def)| def.parent.is_none()) {
+                let def_id = GlobalDefId {
+                    module_id: entry,
+                    def_id,
+                };
+                match def.kind {
+                    DefKind::Function => functions.push(def_id),
+                    DefKind::Global => globals.push(def_id),
+                    _ => {}
+                }
+            }
+            (functions, globals)
+        }
+        RuntimeModel::FreestandingExecutable => {
+            let mut functions = named_top_level_function(db, entry, known::MAIN)
+                .into_iter()
+                .collect::<Vec<_>>();
+            let parse_ok = parse_ok.iter().copied().collect::<HashSet<_>>();
+            if let Some(start_module) = runtime_root_modules.iter().copied().find(|module_id| {
+                parse_ok.contains(module_id)
+                    && named_top_level_function(db, *module_id, known::START_ENTRY).is_some()
+            }) {
+                let defs = db.query_shared(FullModuleDefsQuery(start_module));
+                functions.extend(defs.defs.iter().filter_map(|(def_id, def)| {
+                    (def.kind == DefKind::Function && def.parent.is_none()).then_some(GlobalDefId {
+                        module_id: start_module,
+                        def_id,
+                    })
+                }));
+            }
+            (functions, Vec::new())
+        }
+    }
+}
+
+fn named_top_level_function(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    name: SymbolId,
+) -> Option<GlobalDefId> {
+    let defs = db.query_shared(FullModuleDefsQuery(module_id));
+    defs.defs.iter().find_map(|(def_id, def)| {
+        (def.kind == DefKind::Function && def.parent.is_none() && def.name == name)
+            .then_some(GlobalDefId { module_id, def_id })
+    })
 }
 
 fn executable_debug_function_names(
@@ -916,42 +1052,49 @@ fn final_executable_checked_modules(
                     inputs
                 })
             };
-            let prechecked =
-                fact_by_id
-                    .remove(&module_id)
-                    .map(|state| nia_body_check::PrecheckedBodyCheck {
+            let (prechecked, provider_demands) = match fact_by_id.remove(&module_id) {
+                Some(state) => (
+                    Some(nia_body_check::PrecheckedBodyCheck {
                         ir: state.body_ir,
                         facts: state.semantic_facts,
                         checked_functions: state.checked_functions,
+                        diagnostic_owners: state.diagnostic_owners,
                         diagnostics: state.diagnostics,
-                    });
+                    }),
+                    state.provider_demands,
+                ),
+                None => (None, HashSet::new()),
+            };
             let seed_interner = prechecked
                 .as_ref()
                 .map(|prechecked| prechecked.ir.interner.clone());
             let body_check = time_module_provider(db, "executable_body_check", module_id, || {
-                body_check_with_filter_and_layouts_with_inputs_and_product(
+                body_check_with_filter_and_layouts_with_inputs(
                     db,
-                    module_id,
-                    filter,
-                    Some(layouts.clone()),
-                    Some(&executable_program_layouts),
-                    ExecutableFactMode::executable(ReachableBodyModules::new(
-                        &reachable_body_modules,
-                    )),
-                    Some(resolution_inputs),
-                    seed_interner,
-                    Some(&caches.global_initializers),
-                    Some(comptime_module_cache),
-                    Some(&caches.body_function_signatures),
-                    nia_body_check::BodyCheckProduct::Full,
-                    prechecked,
+                    ExecutableBodyCheckInput {
+                        module_id,
+                        filter,
+                        layouts: Some(layouts.clone()),
+                        program_layouts_override: Some(&executable_program_layouts),
+                        fact_mode: ExecutableFactMode::executable(ReachableBodyModules::new(
+                            &reachable_body_modules,
+                        )),
+                        resolution_inputs: Some(resolution_inputs),
+                        seed_interner,
+                        global_initializer_cache: Some(&caches.global_initializers),
+                        comptime_module_cache: Some(comptime_module_cache),
+                        program_function_signature_cache: Some(&caches.body_function_signatures),
+                        product: nia_body_check::BodyCheckProduct::Full,
+                        prechecked,
+                    },
                 )
             });
             let checked_functions = body_check.body_check.checked_functions.clone();
             let flow_check = executable_flow_check(db, module_id, &checked_functions);
-            let module = executable_checked_module_with_body_and_flow_check(
+            let mut module = executable_checked_module_with_body_and_flow_check(
                 db, module_id, body_check, flow_check, layouts,
             );
+            module.provider_demands.extend(provider_demands);
             (module_id, module)
         })
         .collect()

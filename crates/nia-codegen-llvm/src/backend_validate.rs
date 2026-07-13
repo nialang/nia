@@ -29,6 +29,15 @@ type FunctionInstanceKey = (
     Vec<InternedTyId>,
     Vec<ConstGenericArg>,
 );
+
+#[derive(Clone, Copy)]
+struct FunctionInstanceRef<'a> {
+    def_id: GlobalDefId,
+    arg_module_id: ModuleId,
+    self_arg: Option<InternedTyId>,
+    args: &'a [InternedTyId],
+    const_args: &'a [ConstGenericArg],
+}
 type AggregateInstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>);
 type AggregateFieldsLookup = RefCell<HashMap<AggregateInstanceKey, Option<Vec<InternedTyId>>>>;
 
@@ -195,11 +204,13 @@ impl BackendValidator<'_> {
                         const_args,
                     } => {
                         self.validate_function_instance_ref(
-                            *def_id,
-                            *arg_module_id,
-                            *self_arg,
-                            args,
-                            const_args,
+                            FunctionInstanceRef {
+                                def_id: *def_id,
+                                arg_module_id: *arg_module_id,
+                                self_arg: *self_arg,
+                                args,
+                                const_args,
+                            },
                             vtable.span,
                             "backend IR vtable references missing function instance",
                         );

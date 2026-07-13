@@ -26,8 +26,7 @@ pub(super) use nia_mangle::mangle_symbol_id;
 pub(super) use nia_opt::NiaOptimizationLevel;
 pub(super) use nia_span::Span;
 pub(super) use nia_static_ir::{StaticFieldInit, StaticInit};
-pub(super) use nia_symbol::{SymbolId, known, stable_hash, symbol_text_or_unresolved};
-use nia_symbol_table::SymbolTable;
+pub(super) use nia_symbol::{SymbolId, known, stable_hash};
 pub(super) use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyKind};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -39,24 +38,6 @@ pub(super) fn sym(text: &str) -> SymbolId {
 
 pub(super) fn local_name(text: &str) -> LocalName {
     LocalName::named(sym(text))
-}
-
-pub(super) fn function_local_names(
-    body: &FunctionBody,
-) -> std::collections::HashMap<LocalId, String> {
-    let symbols = SymbolTable::new();
-    body.locals
-        .iter()
-        .map(|local| {
-            (
-                local.id,
-                match local.name {
-                    LocalName::Named(symbol) => symbol_text_or_unresolved(&symbols, symbol),
-                    name => name.internal_storage_name(),
-                },
-            )
-        })
-        .collect()
 }
 
 pub(super) fn has_internal_diagnostic(
@@ -80,26 +61,70 @@ pub(super) fn codegen_program_with_options(
     entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CodegenProgram {
-    let loaded = nia_loader_query::load_program_with_map(entry_path, nia_imports::ModuleMap::new());
-    nia_compiler_query::CompilerDatabase::new(
-        nia_compiler_query::CompileRequest::new(loaded).with_optimization(optimization),
+    codegen_program_request(
+        nia_loader_query::LoadRequest::new(entry_path)
+            .with_module_map(nia_imports::ModuleMap::new()),
+        optimization,
     )
-    .codegen_program()
 }
 
 pub(super) fn codegen_freestanding_executable_with_options(
     entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CodegenProgram {
-    let loaded = nia_loader_query::load_program_with_map_and_entry_runtime(
-        entry_path,
-        nia_imports::ModuleMap::new(),
-        nia_loader_query::EntryRuntime::Freestanding,
-    );
-    nia_compiler_query::CompilerDatabase::new(
-        nia_compiler_query::CompileRequest::new(loaded).with_optimization(optimization),
+    codegen_program_request(
+        nia_loader_query::LoadRequest::new(entry_path)
+            .with_module_map(nia_imports::ModuleMap::new())
+            .with_entry_runtime(nia_loader_query::EntryRuntime::Freestanding),
+        optimization,
     )
-    .codegen_program()
+}
+
+fn codegen_program_request(
+    request: nia_loader_query::LoadRequest,
+    optimization: NiaOptimizationLevel,
+) -> nia_compiler_query::CodegenProgram {
+    let loader = nia_loader_query::LoaderDatabase::new(request);
+    let mut loaded = loader.load_program();
+    let compiler = nia_compiler_query::CompilerDatabase::new(
+        nia_compiler_query::CompileRequest::new(loaded.clone()).with_optimization(optimization),
+    );
+    loop {
+        let provider_changes =
+            loader.add_provider_demands_collect_new(compiler.executable_provider_demands());
+        if !provider_changes.is_empty() {
+            let next_loaded = loader.load_program();
+            if loaded.graph != next_loaded.graph {
+                loaded = next_loaded;
+                compiler.update(
+                    nia_compiler_query::CompileRequest::new(loaded.clone())
+                        .with_optimization(optimization)
+                        .with_provider_changes(provider_changes),
+                );
+                continue;
+            }
+        }
+        let output = compiler.codegen_program();
+        let demands = output
+            .modules
+            .iter()
+            .flat_map(|module| module.provider_demands.iter().cloned())
+            .collect::<Vec<_>>();
+        let provider_changes = loader.add_provider_demands_collect_new(demands);
+        if provider_changes.is_empty() {
+            return output;
+        }
+        let next_loaded = loader.load_program();
+        if loaded.graph == next_loaded.graph {
+            return output;
+        }
+        loaded = next_loaded;
+        compiler.update(
+            nia_compiler_query::CompileRequest::new(loaded.clone())
+                .with_optimization(optimization)
+                .with_provider_changes(provider_changes),
+        );
+    }
 }
 
 pub(super) struct EmitSmokeCase {

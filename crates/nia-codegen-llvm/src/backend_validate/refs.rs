@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::GlobalDefId;
 use nia_span::Span;
 
-use super::{BackendValidator, backend_symbol_debug_name};
+use super::{BackendValidator, FunctionInstanceRef, backend_symbol_debug_name};
 
 impl BackendValidator<'_> {
     pub(super) fn validate_function_ref(&mut self, def_id: GlobalDefId, span: Span, message: &str) {
@@ -25,14 +25,17 @@ impl BackendValidator<'_> {
 
     pub(super) fn validate_function_instance_ref(
         &mut self,
-        def_id: GlobalDefId,
-        arg_module_id: ModuleId,
-        self_arg: Option<InternedTyId>,
-        args: &[InternedTyId],
-        const_args: &[nia_ty::ConstGenericArg],
+        instance: FunctionInstanceRef<'_>,
         span: Span,
         message: &str,
     ) {
+        let FunctionInstanceRef {
+            def_id,
+            arg_module_id,
+            self_arg,
+            args,
+            const_args,
+        } = instance;
         if let Some(self_arg) = self_arg {
             self.validate_type(self_arg, span);
         }

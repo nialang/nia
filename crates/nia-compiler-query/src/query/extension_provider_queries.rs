@@ -38,13 +38,6 @@ pub(super) struct ExtensionTraitImplsForTraitQueryValue {
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct ProgramTraitSolvingSignatures {
-    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
-    pub(super) trait_impl_index: nia_item_signatures::ProgramTraitImplIndex,
-    pub(super) invalid_trait_impl_method_ids: HashSet<GlobalDefId>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExtensionProviderSummaryQuery(pub(super) ModuleId);
 
@@ -118,21 +111,6 @@ impl QueryKey<CompilerContext> for ExtensionTraitImplsForTraitQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_trait_impls_for_trait)(db, self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramTraitSolvingSignaturesQuery;
-
-impl QueryKey<CompilerContext> for ProgramTraitSolvingSignaturesQuery {
-    type Value = Arc<ProgramTraitSolvingSignatures>;
-
-    fn name() -> &'static str {
-        "program_trait_solving_signatures"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_trait_solving_signatures)(db)
     }
 }
 

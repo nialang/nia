@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::DefId;
 use nia_ids::ModuleId;
@@ -70,7 +70,32 @@ impl ModulePublicSurface {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PublicSurfaces {
-    per_module: HashMap<ModuleId, ModulePublicSurface>,
+    per_module: HashMap<ModuleId, Arc<ModulePublicSurface>>,
+}
+
+pub trait PublicSurfaceLookup {
+    fn public_surface(&self, module_id: ModuleId) -> Option<Arc<ModulePublicSurface>>;
+
+    fn public_module(&self, module_id: ModuleId, name: &SymbolId) -> Option<ModuleId> {
+        self.public_surface(module_id)?.lookup_module(name)
+    }
+
+    fn public_value(&self, module_id: ModuleId, name: &SymbolId) -> Option<PublicItem> {
+        self.public_surface(module_id)?.lookup_value(name).cloned()
+    }
+
+    fn public_type(&self, module_id: ModuleId, name: &SymbolId) -> Option<PublicItem> {
+        self.public_surface(module_id)?.lookup_type(name).cloned()
+    }
+}
+
+impl<F> PublicSurfaceLookup for F
+where
+    F: Fn(ModuleId) -> Option<Arc<ModulePublicSurface>>,
+{
+    fn public_surface(&self, module_id: ModuleId) -> Option<Arc<ModulePublicSurface>> {
+        self(module_id)
+    }
 }
 
 impl PublicSurfaces {
@@ -79,15 +104,23 @@ impl PublicSurfaces {
     }
 
     pub fn insert(&mut self, surface: ModulePublicSurface) {
-        self.per_module.insert(surface.module_id, surface);
+        self.per_module.insert(surface.module_id, Arc::new(surface));
     }
 
     pub fn get(&self, module_id: ModuleId) -> Option<&ModulePublicSurface> {
-        self.per_module.get(&module_id)
+        self.per_module.get(&module_id).map(Arc::as_ref)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &ModulePublicSurface)> {
-        self.per_module.iter()
+        self.per_module
+            .iter()
+            .map(|(module_id, surface)| (module_id, surface.as_ref()))
+    }
+}
+
+impl PublicSurfaceLookup for PublicSurfaces {
+    fn public_surface(&self, module_id: ModuleId) -> Option<Arc<ModulePublicSurface>> {
+        self.per_module.get(&module_id).cloned()
     }
 }
 
@@ -110,6 +143,13 @@ pub struct ModuleUsingScope {
     pub unresolved_names: SymbolSet,
 }
 
+pub trait UsingScopeLookup {
+    fn using_module(&self, name: &SymbolId) -> Option<ModuleId>;
+    fn using_value(&self, name: &SymbolId) -> Option<UsingEntry>;
+    fn using_type(&self, name: &SymbolId) -> Option<UsingEntry>;
+    fn has_unresolved_using_name(&self, name: &SymbolId) -> bool;
+}
+
 impl ModuleUsingScope {
     pub fn lookup_module(&self, name: &SymbolId) -> Option<ModuleId> {
         self.modules.get(name).copied()
@@ -129,5 +169,23 @@ impl ModuleUsingScope {
 
     pub fn entries(&self) -> impl Iterator<Item = (&SymbolId, &UsingEntry)> {
         self.values.iter().chain(self.types.iter())
+    }
+}
+
+impl UsingScopeLookup for ModuleUsingScope {
+    fn using_module(&self, name: &SymbolId) -> Option<ModuleId> {
+        self.lookup_module(name)
+    }
+
+    fn using_value(&self, name: &SymbolId) -> Option<UsingEntry> {
+        self.lookup_value(name).cloned()
+    }
+
+    fn using_type(&self, name: &SymbolId) -> Option<UsingEntry> {
+        self.lookup_type(name).cloned()
+    }
+
+    fn has_unresolved_using_name(&self, name: &SymbolId) -> bool {
+        self.has_unresolved_name(name)
     }
 }

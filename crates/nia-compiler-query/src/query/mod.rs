@@ -5,10 +5,13 @@ use crate::{
 };
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_comptime_check::{ComptimeCheck, ComptimeModuleLowering};
-use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};
+use nia_defs::{
+    DefCollection, ModulePublicSurface, ModuleUsingScope, PublicSurfaceLookup, PublicSurfaces,
+    UsingScopeLookup,
+};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
-use nia_imports::ModuleGraph;
+use nia_imports::{ModuleGraph, ModuleGraphLookup, ModuleNode, ModuleNodeRef};
 use nia_item_signatures::{
     ItemSignatures, ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
     ProgramGlobalSignature, ProgramStructSignature, ProgramTraitSignature,
@@ -36,6 +39,7 @@ use nia_public_surface::{
 use nia_query::{QueryDb, QueryError, QueryFrame, QueryKey, QueryTrace};
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;
+use nia_symbol::SymbolId;
 use nia_target_config::TargetConfig;
 use nia_ty::{ArrayLenTy, TyKind};
 use nia_type_lower::TypeLowering;
@@ -107,6 +111,7 @@ pub struct CompileRequest {
     pub loaded: LoadedProgram,
     pub optimization: NiaOptimizationLevel,
     pub timings: TimingMode,
+    pub provider_changes: Vec<crate::ProviderDemand>,
 }
 
 impl CompileRequest {
@@ -115,6 +120,7 @@ impl CompileRequest {
             loaded,
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,
+            provider_changes: Vec::new(),
         }
     }
 
@@ -125,6 +131,14 @@ impl CompileRequest {
 
     pub fn with_timings(mut self, timings: TimingMode) -> Self {
         self.timings = timings;
+        self
+    }
+
+    pub fn with_provider_changes(
+        mut self,
+        provider_changes: impl IntoIterator<Item = crate::ProviderDemand>,
+    ) -> Self {
+        self.provider_changes = provider_changes.into_iter().collect();
         self
     }
 }
@@ -184,6 +198,13 @@ impl CompilerDatabase {
         }
     }
 
+    pub fn executable_provider_demands(&self) -> Vec<crate::ProviderDemand> {
+        let _permit = compiler_work_permit();
+        self.db
+            .try_query(ExecutableProviderDemandsQuery)
+            .unwrap_or_default()
+    }
+
     pub fn codegen_program(&self) -> CodegenProgram {
         let _permit = compiler_work_permit();
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -237,11 +258,88 @@ impl CompilerDatabase {
     }
 
     fn invalidate_inputs(&self, diff: CompilerInputDiff) -> CompilerInvalidation {
+        let reset_executable_facts = diff.executable_fact_inputs_changed
+            || diff.target_changed
+            || diff.runtime_changed
+            || diff.executable_roots_changed;
+        if reset_executable_facts {
+            self.db.context().clear_executable_fact_session();
+        } else if diff.graph_changed {
+            self.db
+                .context()
+                .retain_executable_facts_after_graph_growth(
+                    &diff.body_activated_modules,
+                    &diff.provider_changes,
+                );
+        }
         self.db.context().clear_executable_checked_module_sets();
         let mut invalidation = CompilerInvalidation::default();
+        if diff.graph_entry_changed {
+            invalidation.extend(self.db.invalidate(ModuleGraphEntryQuery));
+        }
+        for module_id in diff.changed_graph_modules {
+            invalidation.extend(self.db.invalidate(ModuleGraphNodeQuery(module_id)));
+        }
+        for module_id in diff.changed_graph_paths {
+            invalidation.extend(self.db.invalidate(ModuleGraphPathQuery(module_id)));
+        }
+        for module_id in diff.changed_graph_parents {
+            invalidation.extend(self.db.invalidate(ModuleGraphParentQuery(module_id)));
+        }
+        for (module_id, name) in diff.changed_graph_children {
+            invalidation.extend(self.db.invalidate(ModuleGraphChildQuery(module_id, name)));
+        }
+        for package in diff.changed_package_roots {
+            invalidation.extend(self.db.invalidate(ModulePackageRootQuery(package)));
+        }
         if diff.graph_changed {
             invalidation.extend(self.db.invalidate(ModuleGraphQuery));
             invalidation.extend(self.db.invalidate(SemanticModuleIdsQuery));
+        }
+        if diff.public_surfaces_changed {
+            invalidation.extend(self.db.invalidate(PublicSurfacesQuery));
+        }
+        for module_id in diff.changed_public_surface_modules {
+            invalidation.extend(self.db.invalidate(ModulePublicSurfaceQuery(module_id)));
+        }
+        for (module_id, name) in diff.changed_public_surface_module_names {
+            invalidation.extend(
+                self.db
+                    .invalidate(PublicSurfaceModuleQuery(module_id, name)),
+            );
+        }
+        for (module_id, name) in diff.changed_public_surface_value_names {
+            invalidation.extend(self.db.invalidate(PublicSurfaceValueQuery(module_id, name)));
+        }
+        for (module_id, name) in diff.changed_public_surface_type_names {
+            invalidation.extend(self.db.invalidate(PublicSurfaceTypeQuery(module_id, name)));
+        }
+        if diff.public_using_scopes_changed {
+            invalidation.extend(self.db.invalidate(PublicUsingScopesQuery));
+        }
+        for module_id in diff.changed_public_using_scope_modules {
+            invalidation.extend(self.db.invalidate(ModuleUsingScopeQuery(module_id)));
+        }
+        for (module_id, name) in diff.changed_using_scope_module_names {
+            invalidation.extend(self.db.invalidate(UsingScopeModuleQuery(module_id, name)));
+        }
+        for (module_id, name) in diff.changed_using_scope_value_names {
+            invalidation.extend(self.db.invalidate(UsingScopeValueQuery(module_id, name)));
+        }
+        for (module_id, name) in diff.changed_using_scope_type_names {
+            invalidation.extend(self.db.invalidate(UsingScopeTypeQuery(module_id, name)));
+        }
+        for (module_id, name) in diff.changed_using_scope_unresolved_names {
+            invalidation.extend(
+                self.db
+                    .invalidate(UsingScopeUnresolvedQuery(module_id, name)),
+            );
+        }
+        for owner in diff.changed_executable_value_ref_items {
+            invalidation.extend(self.db.invalidate(ExecutableValueRefItemQuery(owner)));
+        }
+        if diff.executable_roots_changed {
+            invalidation.extend(self.db.invalidate(ExecutableRootModulesQuery));
         }
         if diff.loaded_modules_changed {
             invalidation.extend(self.db.invalidate(LoadedModulesQuery));
@@ -575,11 +673,13 @@ fn compiler_database_with_providers(
     let timings = request.timings;
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
     let executable_checked_modules = Arc::new(RwLock::new(ExecutableCheckedModuleStore::default()));
+    let executable_fact_session = Arc::new(std::sync::Mutex::new(ExecutableFactSession::default()));
     let db = QueryDb::new_with_timings(
         CompilerContext {
             inputs: inputs.clone(),
             providers,
             executable_checked_modules,
+            executable_fact_session,
         },
         timings,
     );
@@ -656,6 +756,7 @@ struct CompilerContext {
     inputs: Arc<RwLock<CompilerInputs>>,
     providers: CompilerQueryProviders,
     executable_checked_modules: Arc<RwLock<ExecutableCheckedModuleStore>>,
+    executable_fact_session: Arc<std::sync::Mutex<ExecutableFactSession>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -681,15 +782,28 @@ struct ExecutableCheckedModuleSetData {
 #[derive(Debug, Clone)]
 struct CompilerInputs {
     graph: ModuleGraph,
+    entry_module: ModuleId,
+    runtime_root_modules: Vec<ModuleId>,
     symbols: nia_symbol_table::SymbolTable,
     modules: Vec<CompilerInputModule>,
     modules_by_id: HashMap<ModuleId, usize>,
     modules_by_source_identity: HashMap<SourceIdentity, usize>,
+    public_surfaces: PublicSurfacesValue,
+    public_using_scopes: PublicUsingScopesValue,
+    executable_value_ref_items: HashMap<GlobalDefId, ExecutableValueRefItemLocation>,
     diagnostics: Vec<ProgramDiagnostic>,
     target: TargetConfig,
     runtime: crate::RuntimeModel,
     optimization: OptimizationPolicy,
     timings: TimingMode,
+    provider_changes: Vec<crate::ProviderDemand>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExecutableValueRefItemLocation {
+    module_id: ModuleId,
+    item_index: usize,
+    owner_node_key: nia_node_id::VersionedNodeKey,
 }
 
 #[derive(Debug, Clone)]
@@ -726,10 +840,17 @@ impl CompilerInputs {
         let loaded = request.loaded;
         validate_loaded_module_identities(&loaded);
         let graph = loaded.graph;
+        let entry_module = graph.entry();
+        let runtime_root_modules = graph
+            .modules()
+            .filter(|node| graph.is_executable_root_module(node.id))
+            .map(|node| node.id)
+            .collect();
         let symbols = loaded.symbols;
         let target = loaded.target;
         let runtime = loaded.runtime;
         let diagnostics = loaded.diagnostics;
+        let provider_changes = request.provider_changes;
         let modules = loaded
             .modules
             .into_iter()
@@ -737,18 +858,129 @@ impl CompilerInputs {
             .collect::<Vec<_>>();
         let modules_by_id = index_input_modules(&modules);
         let modules_by_source_identity = index_input_module_identities(&modules);
+        let defs = modules
+            .iter()
+            .filter(|module| module.parse_errors.is_empty())
+            .map(|module| {
+                nia_defs::collect_module_defs_from_active_item_tree_with_symbols(
+                    module.id,
+                    &module.active_item_tree,
+                    &symbols,
+                )
+            })
+            .collect::<Vec<_>>();
+        let exports = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
+        let using_scopes = compute_using_scopes_from_surfaces_with_symbols(
+            &defs,
+            &graph,
+            &exports.surfaces,
+            &symbols,
+        );
+        let public_surfaces = Arc::new(PublicSurfacesQueryValue {
+            surfaces: exports.surfaces,
+            diagnostics: exports.diagnostics,
+        });
+        let public_using_scopes = Arc::new(PublicUsingScopesQueryValue {
+            using_scopes: using_scopes.using_scopes,
+            diagnostics: using_scopes.diagnostics,
+        });
+        let executable_value_ref_items = index_executable_value_ref_items(&modules, &defs);
         Self {
             graph,
+            entry_module,
+            runtime_root_modules,
             symbols,
             modules,
             modules_by_id,
             modules_by_source_identity,
+            public_surfaces,
+            public_using_scopes,
+            executable_value_ref_items,
             diagnostics,
             target,
             runtime,
             optimization: request.optimization.policy(),
             timings: request.timings,
+            provider_changes,
         }
+    }
+}
+
+fn index_executable_value_ref_items(
+    modules: &[CompilerInputModule],
+    defs_by_module: &[DefCollection],
+) -> HashMap<GlobalDefId, ExecutableValueRefItemLocation> {
+    let defs_by_id = defs_by_module
+        .iter()
+        .map(|defs| (defs.module_id, defs))
+        .collect::<HashMap<_, _>>();
+    let mut items = HashMap::new();
+    for module in modules {
+        let Some(defs) = defs_by_id.get(&module.id).copied() else {
+            continue;
+        };
+        for (item_index, item) in module.active_item_tree.items.iter().enumerate() {
+            index_executable_value_ref_item(module.id, item_index, item, defs, &mut items);
+        }
+    }
+    items
+}
+
+fn index_executable_value_ref_item(
+    module_id: ModuleId,
+    item_index: usize,
+    item: &nia_item_tree::ItemTreeNode,
+    defs: &DefCollection,
+    items: &mut HashMap<GlobalDefId, ExecutableValueRefItemLocation>,
+) {
+    let mut insert = |node_key: &nia_node_id::VersionedNodeKey| {
+        let Some(def_id) = defs.def_nodes.get(node_key) else {
+            return;
+        };
+        items.insert(
+            GlobalDefId { module_id, def_id },
+            ExecutableValueRefItemLocation {
+                module_id,
+                item_index,
+                owner_node_key: node_key.clone(),
+            },
+        );
+    };
+    match &item.kind {
+        nia_item_tree::ItemTreeNodeKind::Function(function)
+            if !function.is_comptime && function.body.is_some() =>
+        {
+            insert(&function.node_key);
+        }
+        nia_item_tree::ItemTreeNodeKind::Binding(binding)
+            if !binding.is_comptime && binding.value.is_some() =>
+        {
+            insert(&binding.node_key);
+        }
+        nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
+            for method in &item_trait.methods {
+                if method.function.is_comptime || method.function.body.is_none() {
+                    continue;
+                }
+                insert(&method.function.node_key);
+            }
+        }
+        nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
+            for method in &extend.methods {
+                if method.function.is_comptime || method.function.body.is_none() {
+                    continue;
+                }
+                insert(&method.function.node_key);
+            }
+            for associated_value in &extend.associated_values {
+                let binding = &associated_value.binding;
+                if binding.is_comptime || binding.value.is_none() {
+                    continue;
+                }
+                insert(&binding.node_key);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -768,6 +1000,45 @@ fn validate_loaded_module_identities(loaded: &LoadedProgram) {
 }
 
 impl CompilerContext {
+    fn take_executable_fact_session(&self) -> ExecutableFactSession {
+        std::mem::take(
+            &mut *self
+                .executable_fact_session
+                .lock()
+                .expect("executable fact session lock poisoned"),
+        )
+    }
+
+    fn store_executable_fact_session(&self, session: ExecutableFactSession) {
+        *self
+            .executable_fact_session
+            .lock()
+            .expect("executable fact session lock poisoned") = session;
+    }
+
+    fn clear_executable_fact_session(&self) {
+        *self
+            .executable_fact_session
+            .lock()
+            .expect("executable fact session lock poisoned") = ExecutableFactSession::default();
+    }
+
+    fn retain_executable_facts_after_graph_growth(
+        &self,
+        body_activated: &HashSet<ModuleId>,
+        provider_changes: &HashSet<crate::ProviderDemand>,
+    ) {
+        self.executable_fact_session
+            .lock()
+            .expect("executable fact session lock poisoned")
+            .retain_after_graph_growth(body_activated, provider_changes);
+    }
+
+    fn executable_root_modules(&self) -> (ModuleId, Vec<ModuleId>) {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        (inputs.entry_module, inputs.runtime_root_modules.clone())
+    }
+
     fn store_executable_checked_modules(
         &self,
         modules: Vec<CheckedModule>,
@@ -1013,6 +1284,186 @@ impl CompilerContext {
             .clone()
     }
 
+    fn module_graph_node(&self, module_id: ModuleId) -> Option<Arc<ModuleNode>> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .graph
+            .get(module_id)
+            .cloned()
+            .map(Arc::new)
+    }
+
+    fn module_graph_entry(&self) -> ModuleId {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .graph
+            .entry()
+    }
+
+    fn module_graph_path(&self, module_id: ModuleId) -> Option<nia_imports::ModulePath> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .graph
+            .get(module_id)
+            .map(|module| module.module_path.clone())
+    }
+
+    fn module_graph_parent(&self, module_id: ModuleId) -> Option<ModuleId> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .graph
+            .get(module_id)
+            .and_then(|module| module.parent)
+    }
+
+    fn module_graph_child(
+        &self,
+        module_id: ModuleId,
+        name: &SymbolId,
+    ) -> Option<(ModuleId, nia_ids::Visibility)> {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        let module = inputs.graph.get(module_id)?;
+        let target = module.children.get(name).copied()?;
+        let declaration = module
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == *name && declaration.target == target)?;
+        Some((target, declaration.visibility))
+    }
+
+    fn module_package_root(&self, package: &SymbolId) -> Option<ModuleId> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .graph
+            .package_root(package)
+    }
+
+    fn public_surfaces(&self) -> PublicSurfacesValue {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .public_surfaces
+            .clone()
+    }
+
+    fn public_surface_module(&self, module_id: ModuleId, name: &SymbolId) -> Option<ModuleId> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .public_surfaces
+            .surfaces
+            .get(module_id)?
+            .lookup_module(name)
+    }
+
+    fn public_surface_value(
+        &self,
+        module_id: ModuleId,
+        name: &SymbolId,
+    ) -> Option<nia_defs::PublicItem> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .public_surfaces
+            .surfaces
+            .get(module_id)?
+            .lookup_value(name)
+            .cloned()
+    }
+
+    fn public_surface_type(
+        &self,
+        module_id: ModuleId,
+        name: &SymbolId,
+    ) -> Option<nia_defs::PublicItem> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .public_surfaces
+            .surfaces
+            .get(module_id)?
+            .lookup_type(name)
+            .cloned()
+    }
+
+    fn public_using_scopes(&self) -> PublicUsingScopesValue {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .public_using_scopes
+            .clone()
+    }
+
+    fn executable_value_ref_item(
+        &self,
+        owner: GlobalDefId,
+    ) -> Option<Arc<ExecutableValueRefItemInput>> {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        let location = inputs.executable_value_ref_items.get(&owner)?;
+        let module = inputs.loaded_module(location.module_id)?;
+        module.active_item_tree.items.get(location.item_index)?;
+        Some(Arc::new(ExecutableValueRefItemInput {
+            active_item_tree: module.active_item_tree.clone(),
+            item_index: location.item_index,
+            owner_node_key: location.owner_node_key.clone(),
+        }))
+    }
+
+    fn using_scope_module(&self, module_id: ModuleId, name: &SymbolId) -> Option<ModuleId> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .public_using_scopes
+            .using_scopes
+            .get(&module_id)?
+            .lookup_module(name)
+    }
+
+    fn using_scope_value(
+        &self,
+        module_id: ModuleId,
+        name: &SymbolId,
+    ) -> Option<nia_defs::UsingEntry> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .public_using_scopes
+            .using_scopes
+            .get(&module_id)?
+            .lookup_value(name)
+            .cloned()
+    }
+
+    fn using_scope_type(
+        &self,
+        module_id: ModuleId,
+        name: &SymbolId,
+    ) -> Option<nia_defs::UsingEntry> {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .public_using_scopes
+            .using_scopes
+            .get(&module_id)?
+            .lookup_type(name)
+            .cloned()
+    }
+
+    fn using_scope_unresolved(&self, module_id: ModuleId, name: &SymbolId) -> bool {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .public_using_scopes
+            .using_scopes
+            .get(&module_id)
+            .is_some_and(|scope| scope.has_unresolved_name(name))
+    }
+
     fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {
         self.inputs
             .read()
@@ -1094,6 +1545,28 @@ fn index_input_module_identities(
 #[derive(Debug, Default)]
 struct CompilerInputDiff {
     graph_changed: bool,
+    graph_entry_changed: bool,
+    changed_graph_modules: HashSet<ModuleId>,
+    changed_graph_paths: HashSet<ModuleId>,
+    changed_graph_parents: HashSet<ModuleId>,
+    changed_graph_children: HashSet<(ModuleId, SymbolId)>,
+    changed_package_roots: HashSet<SymbolId>,
+    public_surfaces_changed: bool,
+    changed_public_surface_modules: HashSet<ModuleId>,
+    changed_public_surface_module_names: HashSet<(ModuleId, SymbolId)>,
+    changed_public_surface_value_names: HashSet<(ModuleId, SymbolId)>,
+    changed_public_surface_type_names: HashSet<(ModuleId, SymbolId)>,
+    public_using_scopes_changed: bool,
+    changed_public_using_scope_modules: HashSet<ModuleId>,
+    changed_using_scope_module_names: HashSet<(ModuleId, SymbolId)>,
+    changed_using_scope_value_names: HashSet<(ModuleId, SymbolId)>,
+    changed_using_scope_type_names: HashSet<(ModuleId, SymbolId)>,
+    changed_using_scope_unresolved_names: HashSet<(ModuleId, SymbolId)>,
+    changed_executable_value_ref_items: HashSet<GlobalDefId>,
+    executable_roots_changed: bool,
+    body_activated_modules: HashSet<ModuleId>,
+    provider_changes: HashSet<crate::ProviderDemand>,
+    executable_fact_inputs_changed: bool,
     loaded_modules_changed: bool,
     loaded_diagnostics_changed: bool,
     target_changed: bool,
@@ -1105,8 +1578,53 @@ struct CompilerInputDiff {
 impl CompilerInputDiff {
     fn between(old: &CompilerInputs, new: &CompilerInputs) -> Self {
         let changed_modules = changed_loaded_modules(old, new);
+        let (
+            changed_public_surface_module_names,
+            changed_public_surface_value_names,
+            changed_public_surface_type_names,
+        ) = changed_public_surface_names(old, new);
+        let (
+            changed_using_scope_module_names,
+            changed_using_scope_value_names,
+            changed_using_scope_type_names,
+            changed_using_scope_unresolved_names,
+        ) = changed_using_scope_names(old, new);
         Self {
             graph_changed: old.graph != new.graph,
+            graph_entry_changed: old.graph.entry() != new.graph.entry(),
+            changed_graph_modules: changed_graph_modules(old, new),
+            changed_graph_paths: changed_graph_paths(old, new),
+            changed_graph_parents: changed_graph_parents(old, new),
+            changed_graph_children: changed_graph_children(old, new),
+            changed_package_roots: changed_package_roots(old, new),
+            public_surfaces_changed: old.public_surfaces != new.public_surfaces,
+            changed_public_surface_modules: changed_public_surface_modules(old, new),
+            changed_public_surface_module_names,
+            changed_public_surface_value_names,
+            changed_public_surface_type_names,
+            public_using_scopes_changed: old.public_using_scopes != new.public_using_scopes,
+            changed_public_using_scope_modules: changed_public_using_scope_modules(old, new),
+            changed_using_scope_module_names,
+            changed_using_scope_value_names,
+            changed_using_scope_type_names,
+            changed_using_scope_unresolved_names,
+            changed_executable_value_ref_items: changed_executable_value_ref_items(old, new),
+            executable_roots_changed: old.entry_module != new.entry_module
+                || old.runtime_root_modules != new.runtime_root_modules,
+            body_activated_modules: new
+                .graph
+                .modules()
+                .filter(|node| {
+                    node.process_used_paths
+                        && old
+                            .graph
+                            .get(node.id)
+                            .is_some_and(|old| !old.process_used_paths)
+                })
+                .map(|node| node.id)
+                .collect(),
+            provider_changes: new.provider_changes.iter().cloned().collect(),
+            executable_fact_inputs_changed: executable_fact_inputs_changed(old, new),
             loaded_modules_changed: loaded_module_ids(old) != loaded_module_ids(new)
                 || loaded_module_identity_assignments(old)
                     != loaded_module_identity_assignments(new),
@@ -1117,6 +1635,359 @@ impl CompilerInputDiff {
             changed_modules,
         }
     }
+}
+
+fn executable_fact_inputs_changed(old: &CompilerInputs, new: &CompilerInputs) -> bool {
+    old.modules.iter().any(|old_module| {
+        let Some(new_module) = new.loaded_module_by_source_identity(&old_module.source_identity)
+        else {
+            return true;
+        };
+        old_module.id != new_module.id
+            || ChangedModuleInput::between_source_identity(Some(old_module), Some(new_module))
+                .is_some()
+    })
+}
+
+fn changed_executable_value_ref_items(
+    old: &CompilerInputs,
+    new: &CompilerInputs,
+) -> HashSet<GlobalDefId> {
+    old.executable_value_ref_items
+        .keys()
+        .chain(new.executable_value_ref_items.keys())
+        .copied()
+        .filter(|owner| executable_value_ref_item_changed(old, new, *owner))
+        .collect()
+}
+
+fn executable_value_ref_item_changed(
+    old: &CompilerInputs,
+    new: &CompilerInputs,
+    owner: GlobalDefId,
+) -> bool {
+    executable_value_ref_item_snapshot(old, owner) != executable_value_ref_item_snapshot(new, owner)
+}
+
+fn executable_value_ref_item_snapshot(
+    inputs: &CompilerInputs,
+    owner: GlobalDefId,
+) -> Option<(
+    &ExecutableValueRefItemLocation,
+    &nia_item_tree::ItemTreeNode,
+    &HashSet<Span>,
+)> {
+    let location = inputs.executable_value_ref_items.get(&owner)?;
+    let module = inputs.loaded_module(location.module_id)?;
+    Some((
+        location,
+        module.active_item_tree.items.get(location.item_index)?,
+        &module.active_item_tree.inactive_spans,
+    ))
+}
+
+fn changed_graph_modules(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<ModuleId> {
+    old.graph
+        .modules()
+        .map(|module| module.id)
+        .chain(new.graph.modules().map(|module| module.id))
+        .filter(|module_id| old.graph.get(*module_id) != new.graph.get(*module_id))
+        .collect()
+}
+
+fn changed_graph_paths(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<ModuleId> {
+    old.graph
+        .modules()
+        .map(|module| module.id)
+        .chain(new.graph.modules().map(|module| module.id))
+        .filter(|module_id| {
+            old.graph.get(*module_id).map(|module| &module.module_path)
+                != new.graph.get(*module_id).map(|module| &module.module_path)
+        })
+        .collect()
+}
+
+fn changed_graph_parents(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<ModuleId> {
+    old.graph
+        .modules()
+        .map(|module| module.id)
+        .chain(new.graph.modules().map(|module| module.id))
+        .filter(|module_id| {
+            old.graph.get(*module_id).and_then(|module| module.parent)
+                != new.graph.get(*module_id).and_then(|module| module.parent)
+        })
+        .collect()
+}
+
+fn changed_graph_children(
+    old: &CompilerInputs,
+    new: &CompilerInputs,
+) -> HashSet<(ModuleId, SymbolId)> {
+    let module_ids = old
+        .graph
+        .modules()
+        .map(|module| module.id)
+        .chain(new.graph.modules().map(|module| module.id))
+        .collect::<HashSet<_>>();
+    let mut changed = HashSet::new();
+    for module_id in module_ids {
+        let names = old
+            .graph
+            .get(module_id)
+            .into_iter()
+            .flat_map(|module| module.children.keys().copied())
+            .chain(
+                new.graph
+                    .get(module_id)
+                    .into_iter()
+                    .flat_map(|module| module.children.keys().copied()),
+            )
+            .collect::<HashSet<_>>();
+        for name in names {
+            let old_child = old
+                .graph
+                .get(module_id)
+                .and_then(|module| graph_child_declaration(module, name));
+            let new_child = new
+                .graph
+                .get(module_id)
+                .and_then(|module| graph_child_declaration(module, name));
+            if old_child != new_child {
+                changed.insert((module_id, name));
+            }
+        }
+    }
+    changed
+}
+
+fn graph_child_declaration(
+    module: &ModuleNode,
+    name: SymbolId,
+) -> Option<(ModuleId, nia_ids::Visibility)> {
+    let target = module.children.get(&name).copied()?;
+    let declaration = module
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == name && declaration.target == target)?;
+    Some((target, declaration.visibility))
+}
+
+fn changed_package_roots(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<SymbolId> {
+    old.graph
+        .modules()
+        .map(|module| module.module_path.package)
+        .chain(new.graph.modules().map(|module| module.module_path.package))
+        .filter(|package| old.graph.package_root(package) != new.graph.package_root(package))
+        .collect()
+}
+
+fn changed_public_surface_modules(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<ModuleId> {
+    old.public_surfaces
+        .surfaces
+        .iter()
+        .map(|(module_id, _)| *module_id)
+        .chain(
+            new.public_surfaces
+                .surfaces
+                .iter()
+                .map(|(module_id, _)| *module_id),
+        )
+        .filter(|module_id| {
+            old.public_surfaces.surfaces.get(*module_id)
+                != new.public_surfaces.surfaces.get(*module_id)
+        })
+        .collect()
+}
+
+type ChangedPublicSurfaceNames = (
+    HashSet<(ModuleId, SymbolId)>,
+    HashSet<(ModuleId, SymbolId)>,
+    HashSet<(ModuleId, SymbolId)>,
+);
+
+fn changed_public_surface_names(
+    old: &CompilerInputs,
+    new: &CompilerInputs,
+) -> ChangedPublicSurfaceNames {
+    let module_ids = old
+        .public_surfaces
+        .surfaces
+        .iter()
+        .map(|(module_id, _)| *module_id)
+        .chain(
+            new.public_surfaces
+                .surfaces
+                .iter()
+                .map(|(module_id, _)| *module_id),
+        )
+        .collect::<HashSet<_>>();
+    let mut changed_modules = HashSet::new();
+    let mut changed_values = HashSet::new();
+    let mut changed_types = HashSet::new();
+    for module_id in module_ids {
+        let old_surface = old.public_surfaces.surfaces.get(module_id);
+        let new_surface = new.public_surfaces.surfaces.get(module_id);
+        let module_names = old_surface
+            .into_iter()
+            .flat_map(|surface| surface.modules.keys().copied())
+            .chain(
+                new_surface
+                    .into_iter()
+                    .flat_map(|surface| surface.modules.keys().copied()),
+            )
+            .collect::<HashSet<_>>();
+        let value_names = old_surface
+            .into_iter()
+            .flat_map(|surface| surface.values.keys().copied())
+            .chain(
+                new_surface
+                    .into_iter()
+                    .flat_map(|surface| surface.values.keys().copied()),
+            )
+            .collect::<HashSet<_>>();
+        let type_names = old_surface
+            .into_iter()
+            .flat_map(|surface| surface.types.keys().copied())
+            .chain(
+                new_surface
+                    .into_iter()
+                    .flat_map(|surface| surface.types.keys().copied()),
+            )
+            .collect::<HashSet<_>>();
+        for name in module_names {
+            if old_surface.and_then(|surface| surface.lookup_module(&name))
+                != new_surface.and_then(|surface| surface.lookup_module(&name))
+            {
+                changed_modules.insert((module_id, name));
+            }
+        }
+        for name in value_names {
+            if old_surface.and_then(|surface| surface.lookup_value(&name))
+                != new_surface.and_then(|surface| surface.lookup_value(&name))
+            {
+                changed_values.insert((module_id, name));
+            }
+        }
+        for name in type_names {
+            if old_surface.and_then(|surface| surface.lookup_type(&name))
+                != new_surface.and_then(|surface| surface.lookup_type(&name))
+            {
+                changed_types.insert((module_id, name));
+            }
+        }
+    }
+    (changed_modules, changed_values, changed_types)
+}
+
+fn changed_public_using_scope_modules(
+    old: &CompilerInputs,
+    new: &CompilerInputs,
+) -> HashSet<ModuleId> {
+    old.public_using_scopes
+        .using_scopes
+        .keys()
+        .chain(new.public_using_scopes.using_scopes.keys())
+        .copied()
+        .filter(|module_id| {
+            old.public_using_scopes.using_scopes.get(module_id)
+                != new.public_using_scopes.using_scopes.get(module_id)
+        })
+        .collect()
+}
+
+type ChangedUsingScopeNames = (
+    HashSet<(ModuleId, SymbolId)>,
+    HashSet<(ModuleId, SymbolId)>,
+    HashSet<(ModuleId, SymbolId)>,
+    HashSet<(ModuleId, SymbolId)>,
+);
+
+fn changed_using_scope_names(old: &CompilerInputs, new: &CompilerInputs) -> ChangedUsingScopeNames {
+    let module_ids = old
+        .public_using_scopes
+        .using_scopes
+        .keys()
+        .chain(new.public_using_scopes.using_scopes.keys())
+        .copied()
+        .collect::<HashSet<_>>();
+    let mut changed_modules = HashSet::new();
+    let mut changed_values = HashSet::new();
+    let mut changed_types = HashSet::new();
+    let mut changed_unresolved = HashSet::new();
+    for module_id in module_ids {
+        let old_scope = old.public_using_scopes.using_scopes.get(&module_id);
+        let new_scope = new.public_using_scopes.using_scopes.get(&module_id);
+        let module_names = old_scope
+            .into_iter()
+            .flat_map(|scope| scope.modules.keys().copied())
+            .chain(
+                new_scope
+                    .into_iter()
+                    .flat_map(|scope| scope.modules.keys().copied()),
+            )
+            .collect::<HashSet<_>>();
+        let value_names = old_scope
+            .into_iter()
+            .flat_map(|scope| scope.values.keys().copied())
+            .chain(
+                new_scope
+                    .into_iter()
+                    .flat_map(|scope| scope.values.keys().copied()),
+            )
+            .collect::<HashSet<_>>();
+        let type_names = old_scope
+            .into_iter()
+            .flat_map(|scope| scope.types.keys().copied())
+            .chain(
+                new_scope
+                    .into_iter()
+                    .flat_map(|scope| scope.types.keys().copied()),
+            )
+            .collect::<HashSet<_>>();
+        let unresolved_names = old_scope
+            .into_iter()
+            .flat_map(|scope| scope.unresolved_names.iter().copied())
+            .chain(
+                new_scope
+                    .into_iter()
+                    .flat_map(|scope| scope.unresolved_names.iter().copied()),
+            )
+            .collect::<HashSet<_>>();
+        for name in module_names {
+            if old_scope.and_then(|scope| scope.lookup_module(&name))
+                != new_scope.and_then(|scope| scope.lookup_module(&name))
+            {
+                changed_modules.insert((module_id, name));
+            }
+        }
+        for name in value_names {
+            if old_scope.and_then(|scope| scope.lookup_value(&name))
+                != new_scope.and_then(|scope| scope.lookup_value(&name))
+            {
+                changed_values.insert((module_id, name));
+            }
+        }
+        for name in type_names {
+            if old_scope.and_then(|scope| scope.lookup_type(&name))
+                != new_scope.and_then(|scope| scope.lookup_type(&name))
+            {
+                changed_types.insert((module_id, name));
+            }
+        }
+        for name in unresolved_names {
+            if old_scope.is_some_and(|scope| scope.has_unresolved_name(&name))
+                != new_scope.is_some_and(|scope| scope.has_unresolved_name(&name))
+            {
+                changed_unresolved.insert((module_id, name));
+            }
+        }
+    }
+    (
+        changed_modules,
+        changed_values,
+        changed_types,
+        changed_unresolved,
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1375,16 +2246,28 @@ mod tests {
         SymbolId::from_stable_hash(stable_hash(text))
     }
 
-    fn backend_function_instance_matches_vtable_ref(
-        vtable_module: &nia_backend_ir::BackendModule,
-        instance_module: &nia_backend_ir::BackendModule,
-        instance: &nia_backend_ir::BackendFunctionInstance,
+    struct VtableFunctionInstanceRef<'a> {
+        module: &'a nia_backend_ir::BackendModule,
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
         self_arg: Option<InternedTyId>,
-        args: &[InternedTyId],
-        const_args: &[nia_ty::ConstGenericArg],
+        args: &'a [InternedTyId],
+        const_args: &'a [nia_ty::ConstGenericArg],
+    }
+
+    fn backend_function_instance_matches_vtable_ref(
+        vtable: VtableFunctionInstanceRef<'_>,
+        instance_module: &nia_backend_ir::BackendModule,
+        instance: &nia_backend_ir::BackendFunctionInstance,
     ) -> bool {
+        let VtableFunctionInstanceRef {
+            module: vtable_module,
+            def_id,
+            arg_module_id,
+            self_arg,
+            args,
+            const_args,
+        } = vtable;
         if instance.def_id != def_id || instance.arg_module_id != arg_module_id {
             return false;
         }
@@ -1583,6 +2466,9 @@ mod tests {
             providers: CompilerQueryProviders::default(),
             executable_checked_modules: Arc::new(RwLock::new(
                 ExecutableCheckedModuleStore::default(),
+            )),
+            executable_fact_session: Arc::new(std::sync::Mutex::new(
+                ExecutableFactSession::default(),
             )),
         })
     }
@@ -1810,6 +2696,24 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
+    fn additive_module_growth_preserves_existing_executable_fact_inputs() {
+        let entry = loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }");
+        let old = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
+            entry.clone(),
+        ])));
+        let new = CompilerInputs::new(CompileRequest::new(loaded_program_with_entry_child(
+            entry,
+            "provider",
+            loaded_module(ModuleId(1), "main/provider.nia", "pub fn value() i32 { 1 }"),
+        )));
+
+        let diff = CompilerInputDiff::between(&old, &new);
+
+        assert!(diff.loaded_modules_changed);
+        assert!(!diff.executable_fact_inputs_changed);
+    }
+
+    #[test]
     fn stable_source_identity_with_new_module_id_invalidates_old_key_and_recomputes_new_key() {
         let old = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
             loaded_module(
@@ -1981,6 +2885,289 @@ pub fn expensive_or_invalid() i32 {
             "checked_module_ids",
         );
         assert_query_executions_unchanged(&before_update, &after_second_check, "checked_module");
+    }
+
+    #[test]
+    fn provider_graph_growth_keeps_executable_roots_cached() {
+        let loaded = loaded_program_with_shallow_entry_child(
+            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
+            "provider",
+            loaded_module(ModuleId(1), "main/provider.nia", "pub fn value() i32 { 1 }"),
+        );
+        let database = CompilerDatabase::new(CompileRequest::new(loaded.clone()));
+        assert_eq!(
+            database.db.query(ExecutableRootModulesQuery),
+            (ModuleId(0), Vec::new())
+        );
+        let _ = database.db.query(TypeResolutionQuery(ModuleId(0)));
+
+        let mut grown = loaded;
+        assert!(grown.graph.mark_semantic_selected(ModuleId(1)));
+        let invalidation = database.update(CompileRequest::new(grown));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(invalidated.contains(&"module_graph"), "{invalidated:?}");
+        assert!(!invalidated.contains(&"type_resolution"), "{invalidated:?}");
+        assert!(
+            !invalidated.contains(&"executable_root_modules"),
+            "{invalidated:?}"
+        );
+        assert_eq!(
+            database.db.query(ExecutableRootModulesQuery),
+            (ModuleId(0), Vec::new())
+        );
+    }
+
+    #[test]
+    fn additive_provider_graph_growth_reuses_existing_executable_facts() {
+        let entry = loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }");
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                entry.clone(),
+            ])));
+
+        let _ = database.executable_provider_demands();
+        {
+            let session = database
+                .db
+                .context()
+                .executable_fact_session
+                .lock()
+                .expect("executable fact session lock poisoned");
+            assert!(session.modules.contains_key(&ModuleId(0)));
+            assert!(
+                session
+                    .caches
+                    .body_resolution_inputs
+                    .borrow()
+                    .contains_key(&ModuleId(0))
+            );
+        }
+
+        database.update(CompileRequest::new(loaded_program_with_entry_child(
+            entry,
+            "provider",
+            loaded_module(ModuleId(1), "main/provider.nia", "pub fn value() i32 { 1 }"),
+        )));
+        let session = database
+            .db
+            .context()
+            .executable_fact_session
+            .lock()
+            .expect("executable fact session lock poisoned");
+        assert!(session.modules.contains_key(&ModuleId(0)));
+        assert!(
+            session
+                .caches
+                .body_resolution_inputs
+                .borrow()
+                .contains_key(&ModuleId(0))
+        );
+    }
+
+    #[test]
+    fn provider_changes_discard_affected_executable_fact_caches() {
+        let entry = loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }");
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                entry.clone(),
+            ])));
+        let _ = database.executable_provider_demands();
+        let provider_changes = vec![crate::ProviderDemand {
+            source_path: SourcePath::new("main.nia"),
+            request: crate::ProviderRequest::Method {
+                target_type_name: None,
+                method_name: SymbolId::default(),
+            },
+        }];
+        {
+            let mut session = database
+                .db
+                .context()
+                .executable_fact_session
+                .lock()
+                .expect("executable fact session lock poisoned");
+            let state = session
+                .modules
+                .get_mut(&ModuleId(0))
+                .expect("entry executable facts");
+            state
+                .unowned_provider_demands
+                .insert(provider_changes[0].clone());
+            state.provider_demands.insert(provider_changes[0].clone());
+        }
+
+        database.update(
+            CompileRequest::new(loaded_program_with_entry_child(
+                entry,
+                "provider",
+                loaded_module(ModuleId(1), "main/provider.nia", "pub fn value() i32 { 1 }"),
+            ))
+            .with_provider_changes(provider_changes),
+        );
+
+        let session = database
+            .db
+            .context()
+            .executable_fact_session
+            .lock()
+            .expect("executable fact session lock poisoned");
+        assert!(!session.modules.contains_key(&ModuleId(0)));
+        assert!(
+            !session
+                .caches
+                .body_resolution_inputs
+                .borrow()
+                .contains_key(&ModuleId(0))
+        );
+    }
+
+    #[test]
+    fn semantic_provider_activation_preserves_resolved_caller_facts() {
+        let entry = loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }");
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                entry.clone(),
+            ])));
+        let _ = database.executable_provider_demands();
+        let provider_change = crate::ProviderDemand {
+            source_path: SourcePath::new("main.nia"),
+            request: crate::ProviderRequest::ModuleSemantic {
+                module_id: ModuleId(1),
+            },
+        };
+        let checked_function = {
+            let mut session = database
+                .db
+                .context()
+                .executable_fact_session
+                .lock()
+                .expect("executable fact session lock poisoned");
+            let state = session
+                .modules
+                .get_mut(&ModuleId(0))
+                .expect("entry executable facts");
+            let checked_function = *state
+                .checked_functions
+                .iter()
+                .next()
+                .expect("checked entry function");
+            state
+                .provider_demands_by_function
+                .entry(checked_function)
+                .or_default()
+                .insert(provider_change.clone());
+            state.provider_demands.insert(provider_change.clone());
+            checked_function
+        };
+
+        database.update(
+            CompileRequest::new(loaded_program_with_entry_child(
+                entry,
+                "provider",
+                loaded_module(ModuleId(1), "main/provider.nia", "pub fn value() i32 { 1 }"),
+            ))
+            .with_provider_changes([provider_change]),
+        );
+
+        let session = database
+            .db
+            .context()
+            .executable_fact_session
+            .lock()
+            .expect("executable fact session lock poisoned");
+        let state = session
+            .modules
+            .get(&ModuleId(0))
+            .expect("preserved entry executable facts");
+        assert!(state.checked_functions.contains(&checked_function));
+        assert!(
+            session
+                .caches
+                .body_resolution_inputs
+                .borrow()
+                .contains_key(&ModuleId(0))
+        );
+    }
+
+    #[test]
+    fn method_provider_change_removes_only_affected_function_diagnostics() {
+        let entry = loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "struct Value {} fn helper() i32 { 1 } fn main(value: Value) i32 { value.missing() }",
+        );
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                entry.clone(),
+            ])));
+        let provider_changes = database
+            .executable_provider_demands()
+            .into_iter()
+            .filter(|demand| matches!(demand.request, crate::ProviderRequest::Method { .. }))
+            .collect::<Vec<_>>();
+        assert!(!provider_changes.is_empty());
+        let (affected_function, unaffected_function) = {
+            let session = database
+                .db
+                .context()
+                .executable_fact_session
+                .lock()
+                .expect("executable fact session lock poisoned");
+            let state = session.modules.get(&ModuleId(0)).expect("entry facts");
+            assert!(!state.diagnostics.is_empty());
+            let affected = *state
+                .provider_demands_by_function
+                .iter()
+                .find(|(_, demands)| {
+                    demands
+                        .iter()
+                        .any(|demand| provider_changes.contains(demand))
+                })
+                .map(|(function, _)| function)
+                .expect("function-owned method demand");
+            let unaffected = *state
+                .checked_functions
+                .iter()
+                .find(|function| **function != affected)
+                .expect("unaffected helper function");
+            (affected, unaffected)
+        };
+
+        database.update(
+            CompileRequest::new(loaded_program_with_entry_child(
+                entry,
+                "provider",
+                loaded_module(ModuleId(1), "main/provider.nia", "pub fn value() i32 { 1 }"),
+            ))
+            .with_provider_changes(provider_changes),
+        );
+
+        let session = database
+            .db
+            .context()
+            .executable_fact_session
+            .lock()
+            .expect("executable fact session lock poisoned");
+        let state = session
+            .modules
+            .get(&ModuleId(0))
+            .expect("partially retained entry facts");
+        assert!(!state.checked_functions.contains(&affected_function));
+        assert!(state.checked_functions.contains(&unaffected_function));
+        assert!(state.diagnostics.is_empty(), "{:?}", state.diagnostics);
+        assert_eq!(state.diagnostic_owners.len(), state.diagnostics.len());
+        assert!(
+            session
+                .caches
+                .body_resolution_inputs
+                .borrow()
+                .contains_key(&ModuleId(0))
+        );
     }
 
     #[test]
@@ -2187,7 +3374,7 @@ pub fn expensive_or_invalid() i32 {
         assert_query_executions_unchanged(
             &before_second_check,
             &after_second_check,
-            "program_trait_solving_signatures",
+            "extension_provider_discovery_index",
         );
     }
 
@@ -2229,10 +3416,6 @@ pub fn expensive_or_invalid() i32 {
         );
         assert!(
             !invalidated.contains(&"extension_methods"),
-            "{invalidated:?}"
-        );
-        assert!(
-            invalidated.contains(&"program_backend_signatures"),
             "{invalidated:?}"
         );
         assert!(
@@ -2323,9 +3506,9 @@ pub fn expensive_or_invalid() i32 {
 
         assert!(invalidated.contains(&"loaded_modules"), "{invalidated:?}");
         assert!(invalidated.contains(&"checked_module"), "{invalidated:?}");
-        assert!(invalidated.contains(&"public_surfaces"), "{invalidated:?}");
+        assert!(!invalidated.contains(&"public_surfaces"), "{invalidated:?}");
         assert!(
-            invalidated.contains(&"public_using_scopes"),
+            !invalidated.contains(&"public_using_scopes"),
             "{invalidated:?}"
         );
         assert!(invalidated.contains(&"module_path"), "{invalidated:?}");
@@ -2358,12 +3541,12 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn compiler_query_providers_can_override_query_execution() {
-        fn no_semantic_modules(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
+        fn no_parse_ok_modules(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
             Vec::new()
         }
 
         let providers = CompilerQueryProviders {
-            semantic_module_ids: no_semantic_modules,
+            parse_ok_module_ids: no_parse_ok_modules,
             ..CompilerQueryProviders::default()
         };
         let checked = compiler_database_with_providers(
@@ -2609,7 +3792,7 @@ extend Value : Ops {
     }
 
     #[test]
-    fn extension_provider_module_ids_reuse_trait_signature_module_ids() {
+    fn extension_provider_module_ids_use_parse_ok_provider_summaries() {
         let loaded = loaded_program_with_modules(vec![
             loaded_module(
                 ModuleId(0),
@@ -2646,67 +3829,47 @@ extend Value : Ops {
         assert!(trace_has_dependency(
             &trace,
             "extension_provider_discovery_index",
-            "program_signature_module_ids"
+            "parse_ok_module_ids"
         ));
         assert!(!trace_has_dependency(
             &trace,
             "extension_provider_discovery_index",
             "semantic_module_ids"
         ));
-        for skipped in ["ModuleId(1)", "ModuleId(2)", "ModuleId(3)"] {
-            assert!(
-                !trace.queries.iter().any(|query| {
-                    query.frame.name == "extension_provider_summary"
-                        && query.frame.description.contains(skipped)
-                }),
-                "pure non-provider module {skipped} should not build provider summary: {trace:?}"
-            );
-        }
+        assert!(trace_has_dependency(
+            &trace,
+            "extension_provider_discovery_index",
+            "extension_provider_module_eligibility"
+        ));
     }
 
     #[test]
-    fn program_codegen_signature_queries_use_precise_module_signature_queries() {
+    fn program_type_alias_signature_uses_precise_module_facts() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "struct S { value: i32 } trait T { fn get(self) i32; } fn helper() i32 { 1 }",
+            "struct S { value: i32 } type Alias = S; fn helper() i32 { 1 }",
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(ProgramVisibleTypeSignaturesQuery);
-        let _ = db.query(ProgramBackendSignaturesQuery);
+        let defs = db.query(ModuleDefsQuery(ModuleId(0)));
+        let alias_id = defs.module_scope.types.get(&sym("Alias")).unwrap();
+        let _ = db.query(ProgramTypeAliasSignatureQuery(GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: alias_id,
+        }));
         let trace = db.query_trace();
 
-        for query in [
-            "program_visible_type_signatures",
-            "program_backend_signatures",
-        ] {
-            assert!(!trace.dependencies.iter().any(|dependency| {
-                dependency.from.name == query
-                    && matches!(
-                        dependency.to.name,
-                        "item_signatures" | "declaration_type_lowering"
-                    )
-            }));
-        }
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_backend_signatures"
-                && dependency.to.name == "program_signature_module_ids"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_backend_signatures"
-                && dependency.to.name == "module_program_signature_facts"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "module_program_signature_facts"
-                && dependency.to.name == "signature_item_signatures"
-        }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
-            matches!(
-                dependency.from.name,
-                "program_executable_reachability_signatures" | "program_executable_signatures"
-            )
-        }));
+        assert!(trace_has_dependency(
+            &trace,
+            "program_type_alias_signature",
+            "module_program_signature_facts"
+        ));
+        assert!(!trace_has_dependency(
+            &trace,
+            "program_type_alias_signature",
+            "program_signature_module_ids"
+        ));
     }
 
     #[test]
@@ -2813,7 +3976,7 @@ extend Value : Ops {
     }
 
     #[test]
-    fn public_surface_queries_split_exports_from_using_scopes() {
+    fn public_surface_snapshots_are_independent_query_inputs() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -2822,22 +3985,63 @@ extend Value : Ops {
         let db = query_db(loaded);
 
         let _ = db.query(PublicSurfacesQuery);
+        let _ = db.query(ModulePublicSurfaceQuery(ModuleId(0)));
         let _ = db.query(ModuleUsingScopeQuery(ModuleId(0)));
         let trace = db.query_trace();
 
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "defs_by_module" && dependency.to.name == "module_defs"
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "public_surfaces" && dependency.to.name == "module_defs"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "public_surfaces" && dependency.to.name == "defs_by_module"
-        }));
-        assert!(trace.dependencies.iter().any(|dependency| {
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "public_using_scopes" && dependency.to.name == "public_surfaces"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "module_using_scope"
                 && dependency.to.name == "public_using_scopes"
         }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "module_public_surface"
+                && dependency.to.name == "public_surfaces"
+        }));
+    }
+
+    #[test]
+    fn executable_value_refs_resolve_only_the_requested_body_item() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "fn helper() i32 { 1 } fn main() i32 { helper() }",
+        )]);
+        let db = query_db(loaded);
+        let defs = db.query(ModuleDefsQuery(ModuleId(0)));
+        let main = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
+        };
+        let helper = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.values.get(&sym("helper")).unwrap(),
+        };
+
+        let edges = db.query(ExecutableValueRefEdgesQuery(main));
+        let trace = db.query_trace();
+
+        assert!(edges.functions.contains(&helper), "{:?}", edges.functions);
+        assert!(trace_has_dependency(
+            &trace,
+            "executable_value_ref_edges",
+            "executable_value_ref_item"
+        ));
+        assert!(!trace_has_dependency(
+            &trace,
+            "executable_value_ref_edges",
+            "value_resolution"
+        ));
+        assert!(!trace_has_dependency(
+            &trace,
+            "executable_value_ref_edges",
+            "full_active_module_item_tree"
+        ));
     }
 
     #[test]
@@ -2923,7 +4127,7 @@ extend Value : Ops {
         assert!(trace_has_dependency(
             &trace,
             "extension_provider_discovery_index",
-            "program_signature_module_ids"
+            "parse_ok_module_ids"
         ));
         assert!(trace_has_dependency(
             &trace,
@@ -2985,7 +4189,8 @@ extend Value : Ops {
                 dependency.from.name == query && dependency.to.name == "program_type_normalizations"
             }));
         }
-        for query in ["extension_method_index"] {
+        {
+            let query = "extension_method_index";
             assert!(trace.dependencies.iter().any(|dependency| {
                 dependency.from.name == query
                     && dependency.to.name == "extension_provider_module_facts"
@@ -3468,10 +4673,12 @@ extend Used {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "program_type_normalizations"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "visible_extensions"
-                && dependency.to.name == "program_visible_type_signatures"
-        }));
+        assert!(
+            !trace
+                .dependencies
+                .iter()
+                .any(|dependency| dependency.to.name == "program_visible_type_signatures")
+        );
         assert!(!depends_on_body_signature_query(
             &trace,
             "visible_extensions"
@@ -3533,7 +4740,7 @@ extend Used {
     }
 
     #[test]
-    fn monomorphization_uses_trait_solving_signature_index() {
+    fn monomorphization_avoids_removed_program_trait_signature_product() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -3544,7 +4751,7 @@ extend Used {
         let _ = db.query(MonomorphizationQuery);
         let trace = db.query_trace();
 
-        assert!(trace.dependencies.iter().any(|dependency| {
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "monomorphization"
                 && dependency.to.name == "program_trait_solving_signatures"
         }));
@@ -4160,7 +5367,7 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
-    fn backend_lowering_uses_checked_module_body_ir() {
+    fn backend_lowering_uses_executable_checked_module_body_ir() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -4172,17 +5379,15 @@ extend i32 : ParseFrom[Input] {
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "backend_lowering" && dependency.to.name == "checked_module_ids"
+            dependency.from.name == "backend_lowering"
+                && dependency.to.name == "executable_checked_module_set"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "full_active_module_item_tree"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "checked_module" && dependency.to.name == "body_check"
-        }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "checked_module" && dependency.to.name == "item_signatures"
+            dependency.from.name == "backend_lowering" && dependency.to.name == "checked_module_ids"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
@@ -4192,7 +5397,7 @@ extend i32 : ParseFrom[Input] {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "program_full_defs_by_id"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
+        assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "program_backend_signatures"
         }));
@@ -4265,6 +5470,38 @@ fn main() i32 {
             dependency.from.name == "executable_checked_module_set"
                 && matches!(dependency.to.name, "comptime" | "comptime_enum_values")
         }));
+    }
+
+    #[test]
+    fn executable_full_lowering_reuses_explicit_and_inferred_comptime_types() {
+        let mut loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            r#"
+comptime explicit: usize = 19usize;
+comptime inferred = 4usize;
+
+fn main() usize {
+    explicit + inferred
+}
+"#,
+        )]);
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let modules = db.query(ExecutableCheckedModulesQuery);
+        let module = modules
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry module should be executable-reachable");
+
+        assert!(
+            module.body_diagnostics.is_empty(),
+            "prechecked comptime types must remain available during full body lowering: {:?}",
+            module.body_diagnostics
+        );
+        assert_eq!(module.semantic_facts.comptime_types.len(), 2);
+        assert_eq!(module.body_ir.function_bodies.len(), 1);
     }
 
     #[test]
@@ -5328,8 +6565,7 @@ fn main() i32 {
                     },
                 )
             })
-            .filter(|def_id| !module.body_ir.function_bodies.contains_key(def_id))
-            .next()
+            .find(|def_id| !module.body_ir.function_bodies.contains_key(def_id))
             .expect("unmatched Iterator witness method");
 
         assert!(
@@ -5880,14 +7116,16 @@ extend Page : Allocator {
                 })
                 .filter(|(instance_module, instance)| {
                     backend_function_instance_matches_vtable_ref(
-                        vtable_module,
-                        *instance_module,
+                        VtableFunctionInstanceRef {
+                            module: vtable_module,
+                            def_id,
+                            arg_module_id,
+                            self_arg,
+                            args: &args,
+                            const_args: &const_args,
+                        },
+                        instance_module,
                         instance,
-                        def_id,
-                        arg_module_id,
-                        self_arg,
-                        &args,
-                        &const_args,
                     )
                 })
                 .count();
@@ -6551,7 +7789,7 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn invalidates_semantic_queries_after_public_surface_dependency_changes() {
+    fn direct_module_defs_invalidation_stops_at_snapshot_boundary() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -6568,17 +7806,16 @@ pub fn expensive_or_invalid() i32 {
             .collect::<Vec<_>>();
 
         assert!(invalidated.contains(&"module_defs"), "{invalidated:?}");
-        assert!(invalidated.contains(&"defs_by_module"), "{invalidated:?}");
-        assert!(invalidated.contains(&"public_surfaces"), "{invalidated:?}");
+        assert!(!invalidated.contains(&"public_surfaces"), "{invalidated:?}");
         assert!(
-            invalidated.contains(&"public_using_scopes"),
+            !invalidated.contains(&"public_using_scopes"),
             "{invalidated:?}"
         );
         assert!(
-            invalidated.contains(&"module_using_scope"),
+            !invalidated.contains(&"module_using_scope"),
             "{invalidated:?}"
         );
-        assert!(invalidated.contains(&"type_resolution"), "{invalidated:?}");
+        assert!(!invalidated.contains(&"type_resolution"), "{invalidated:?}");
 
         let _ = db.query(TypeResolutionQuery(ModuleId(0)));
     }
