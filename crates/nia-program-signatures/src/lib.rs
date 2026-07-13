@@ -205,7 +205,7 @@ impl ProgramTraitMethodIndex {
         for (trait_id, signature) in traits {
             for method in &signature.signature.methods {
                 trait_ids_by_method_name
-                    .entry(method.name.clone())
+                    .entry(method.name)
                     .or_default()
                     .push(trait_id);
                 trait_id_by_method_id.insert(

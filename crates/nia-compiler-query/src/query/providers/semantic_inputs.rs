@@ -75,12 +75,12 @@ pub(super) fn provide_value_resolution(
     module_id: ModuleId,
 ) -> ValueResolution {
     time_module_provider(db, "value_resolution", module_id, || {
-        let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+        let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
         let defs = db.query_shared(FullModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
-        let graph = db.query_shared(ModuleGraphQuery);
-        let public_surfaces = db.query(PublicSurfacesQuery);
-        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
+        let graph = QueryModuleGraphLookup::new(db);
+        let public_surfaces = QueryPublicSurfaceLookup::new(db);
+        let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
         let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
         let symbols = db.context().symbols();
@@ -91,7 +91,7 @@ pub(super) fn provide_value_resolution(
                 defs: Some(&program_defs),
                 graph: Some(&graph),
             },
-            &public_surfaces.surfaces,
+            &public_surfaces,
             &using_scope,
             Some(&associated_values),
             Some(&symbols),
@@ -103,7 +103,7 @@ pub(super) fn provide_local_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> LocalResolution {
-    let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query_shared(FullModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let symbols = db.context().symbols();
@@ -125,15 +125,15 @@ pub(super) fn provide_semantic_use_table(
     let locals = db.query(LocalResolutionQuery(module_id));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
-    let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let needed_const_exprs =
         needed_const_exprs_for_active_item_tree(&active_item_tree, &type_lowering);
     let const_expr_value_resolution = if needed_const_exprs.is_empty() {
         None
     } else {
         let defs = db.query_shared(FullModuleDefsQuery(module_id));
-        let public_surfaces = db.query(PublicSurfacesQuery);
-        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
+        let public_surfaces = QueryPublicSurfaceLookup::new(db);
+        let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
         let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
         let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
@@ -146,37 +146,51 @@ pub(super) fn provide_semantic_use_table(
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
-                    graph: Some(&db.query_shared(ModuleGraphQuery)),
+                    graph: Some(&QueryModuleGraphLookup::new(db)),
                 },
-                &public_surfaces.surfaces,
+                &public_surfaces,
                 &using_scope,
                 Some(&associated_values),
                 Some(&symbols),
             ),
         )
     };
-    semantic_use_table_from_resolution_inputs_with_const_expr_values(
+    semantic_use_table_from_resolution_inputs_with_const_expr_values(SemanticUseInputs {
         module_id,
-        &active_item_tree,
-        &values,
-        const_expr_value_resolution.as_ref(),
-        Some(&needed_const_exprs),
-        &locals,
-        &type_resolution,
-        &type_lowering,
-    )
+        active_item_tree: &active_item_tree,
+        values: &values,
+        const_expr_values: const_expr_value_resolution.as_ref(),
+        const_expr_value_ids: Some(&needed_const_exprs),
+        locals: &locals,
+        type_resolution: &type_resolution,
+        type_lowering: &type_lowering,
+    })
+}
+
+pub(super) struct SemanticUseInputs<'a> {
+    pub module_id: ModuleId,
+    pub active_item_tree: &'a ActiveModuleItemTree,
+    pub values: &'a ValueResolution,
+    pub const_expr_values: Option<&'a ValueResolution>,
+    pub const_expr_value_ids: Option<&'a HashSet<GlobalConstExprId>>,
+    pub locals: &'a LocalResolution,
+    pub type_resolution: &'a TypeResolution,
+    pub type_lowering: &'a TypeLowering,
 }
 
 pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
-    module_id: ModuleId,
-    active_item_tree: &ActiveModuleItemTree,
-    values: &ValueResolution,
-    const_expr_value_resolution: Option<&ValueResolution>,
-    const_expr_value_resolution_ids: Option<&HashSet<GlobalConstExprId>>,
-    locals: &LocalResolution,
-    type_resolution: &TypeResolution,
-    type_lowering: &TypeLowering,
+    input: SemanticUseInputs<'_>,
 ) -> nia_sema_ir::SemanticUseTable {
+    let SemanticUseInputs {
+        module_id,
+        active_item_tree,
+        values,
+        const_expr_values: const_expr_value_resolution,
+        const_expr_value_ids: const_expr_value_resolution_ids,
+        locals,
+        type_resolution,
+        type_lowering,
+    } = input;
     let mut builder = nia_sema_ir::SemanticUseTable::builder();
 
     for (key, local_use) in &locals.node_uses {
@@ -210,7 +224,7 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
         type_resolution
             .node_const_generic_names
             .iter()
-            .map(|(key, name)| (key.clone(), name.clone())),
+            .map(|(key, name)| (key.clone(), *name)),
     );
     if let Some(const_expr_value_resolution) = const_expr_value_resolution {
         let const_expr_nodes =
@@ -285,7 +299,7 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
             .map(|(key, local_id)| (key.clone(), *local_id)),
     );
     builder.extend_node_type_uses(
-        type_lowering.versioned_type_uses_from_active_item_tree(&active_item_tree),
+        type_lowering.versioned_type_uses_from_active_item_tree(active_item_tree),
     );
     builder.finish()
 }
@@ -402,7 +416,7 @@ impl AssociatedComptimeProjectionCollector<'_> {
                 trait_id,
                 trait_args,
                 trait_const_args,
-                name: name.clone(),
+                name: *name,
             },
         ));
     }

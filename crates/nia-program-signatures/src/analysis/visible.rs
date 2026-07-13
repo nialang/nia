@@ -6,7 +6,7 @@ use std::{
 
 use nia_defs::{
     AssociatedTypeBindingSignature, DefCollection, ExtensionAssociatedValues, ExtensionMethods,
-    PublicNamespace, PublicSurfaces, VisibleExtensionAssociatedValue, VisibleExtensionMethod,
+    PublicNamespace, PublicSurfaceLookup, VisibleExtensionAssociatedValue, VisibleExtensionMethod,
     VisibleExtensionMethods, WhereBoundSignature, WherePredicateSignature,
 };
 use nia_ids::{GlobalDefId, TraitId, Visibility};
@@ -34,12 +34,25 @@ pub trait ProgramDefsResolver {
     fn defs(&self, module_id: nia_ids::ModuleId) -> Option<Arc<DefCollection>>;
 }
 
+pub trait ProgramUsingScopeResolver {
+    fn using_scope(&self, module_id: nia_ids::ModuleId) -> Option<Arc<nia_defs::ModuleUsingScope>>;
+}
+
+impl<F> ProgramUsingScopeResolver for F
+where
+    F: Fn(nia_ids::ModuleId) -> Option<Arc<nia_defs::ModuleUsingScope>>,
+{
+    fn using_scope(&self, module_id: nia_ids::ModuleId) -> Option<Arc<nia_defs::ModuleUsingScope>> {
+        self(module_id)
+    }
+}
+
 pub struct VisibleExtensionsInput<'a> {
     pub module_id: nia_ids::ModuleId,
-    pub graph: &'a nia_imports::ModuleGraph,
+    pub graph: &'a dyn nia_imports::ModuleGraphLookup,
     pub using_scope: &'a nia_defs::ModuleUsingScope,
-    pub using_scopes: &'a HashMap<nia_ids::ModuleId, nia_defs::ModuleUsingScope>,
-    pub public_surfaces: &'a PublicSurfaces,
+    pub using_scopes: &'a dyn ProgramUsingScopeResolver,
+    pub public_surfaces: &'a dyn PublicSurfaceLookup,
     pub defs: &'a dyn ProgramDefsResolver,
     pub normalizations: TypeNormalizationResolver<'a>,
     pub visible_type_signatures: VisibleTypeSignatures<'a>,
@@ -50,9 +63,9 @@ pub struct VisibleExtensionsInput<'a> {
     pub visible_modules: Option<&'a [nia_ids::ModuleId]>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct VisibleTypeSignatures<'a> {
-    pub type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
+    pub type_alias: &'a dyn Fn(GlobalDefId) -> Option<ProgramTypeAliasSignature>,
 }
 
 struct VisibleExtensionResolverCache<'a> {
@@ -146,9 +159,9 @@ pub fn visible_extensions_for_module(
         imported_visible_modules.iter().copied(),
         extension_visibility_allows,
         |method| {
-            if !resolver_cache
+            if resolver_cache
                 .defs(method.def_id.module_id)
-                .is_some_and(|defs| defs.defs.get(method.def_id.def_id).is_some())
+                .is_none_or(|defs| defs.defs.get(method.def_id.def_id).is_none())
             {
                 return;
             }
@@ -176,7 +189,7 @@ pub fn visible_extensions_for_module(
                 method.impl_id,
                 target_ty,
                 VisibleExtensionMethod {
-                    name: method.name.clone(),
+                    name: method.name,
                     def_id: method.def_id,
                     impl_id: method.impl_id,
                     effective_generics: method.effective_generics.clone(),
@@ -212,9 +225,9 @@ pub fn visible_extensions_for_module(
         imported_visible_modules.iter().copied(),
         extension_visibility_allows,
         |value| {
-            if !resolver_cache
+            if resolver_cache
                 .defs(value.def_id.module_id)
-                .is_some_and(|defs| defs.defs.get(value.def_id.def_id).is_some())
+                .is_none_or(|defs| defs.defs.get(value.def_id.def_id).is_none())
             {
                 return;
             }
@@ -232,7 +245,7 @@ pub fn visible_extensions_for_module(
                 value.impl_id,
                 target_ty,
                 VisibleExtensionAssociatedValue {
-                    name: value.name.clone(),
+                    name: value.name,
                     def_id: value.def_id,
                 },
             );
@@ -304,9 +317,9 @@ pub fn visible_trait_impls_for_module(
 
 pub struct VisibleExtensionProviderModulesInput<'a> {
     pub module_id: nia_ids::ModuleId,
-    pub graph: &'a nia_imports::ModuleGraph,
+    pub graph: &'a dyn nia_imports::ModuleGraphLookup,
     pub using_scope: &'a nia_defs::ModuleUsingScope,
-    pub using_scopes: &'a HashMap<nia_ids::ModuleId, nia_defs::ModuleUsingScope>,
+    pub using_scopes: &'a dyn ProgramUsingScopeResolver,
     pub defs: &'a dyn ProgramDefsResolver,
     pub normalizations: TypeNormalizationResolver<'a>,
     pub visible_type_signatures: VisibleTypeSignatures<'a>,
@@ -346,7 +359,7 @@ fn trait_id_is_visible(
     current_module: nia_ids::ModuleId,
     imported_modules: &[nia_ids::ModuleId],
     trait_id: TraitId,
-    public_surfaces: &PublicSurfaces,
+    public_surfaces: &dyn PublicSurfaceLookup,
     resolver_cache: &mut VisibleExtensionResolverCache<'_>,
 ) -> bool {
     let TraitId::Source(trait_id) = trait_id else {
@@ -368,17 +381,19 @@ fn trait_id_is_visible(
 }
 
 fn public_surface_exports_type(
-    public_surfaces: &PublicSurfaces,
+    public_surfaces: &dyn PublicSurfaceLookup,
     module_id: nia_ids::ModuleId,
     def_id: GlobalDefId,
 ) -> bool {
-    public_surfaces.get(module_id).is_some_and(|surface| {
-        surface.types.values().any(|item| {
-            item.target_module == def_id.module_id
-                && item.target_def_id == def_id.def_id
-                && item.namespace == PublicNamespace::Type
+    public_surfaces
+        .public_surface(module_id)
+        .is_some_and(|surface| {
+            surface.types.values().any(|item| {
+                item.target_module == def_id.module_id
+                    && item.target_def_id == def_id.def_id
+                    && item.namespace == PublicNamespace::Type
+            })
         })
-    })
 }
 
 fn import_where_predicates(
@@ -399,7 +414,7 @@ fn import_where_predicates(
                         .associated_type_bindings
                         .iter()
                         .map(|binding| AssociatedTypeBindingSignature {
-                            name: binding.name.clone(),
+                            name: binding.name,
                             ty: import_type_into(target_interner, source_interner, binding.ty),
                             span: binding.span,
                         })
@@ -445,14 +460,14 @@ fn declared_module_closure_inner(
             if visible == context.module_id || !seen.insert(visible) {
                 continue;
             }
-            if let Some(using_scope) = context.using_scopes.get(&visible) {
-                enqueue_using_scope_modules(using_scope, &mut queue);
+            if let Some(using_scope) = context.using_scopes.using_scope(visible) {
+                enqueue_using_scope_modules(&using_scope, &mut queue);
                 if include_item_target_modules {
-                    enqueue_using_scope_item_target_modules(using_scope, &mut queue);
+                    enqueue_using_scope_item_target_modules(&using_scope, &mut queue);
                 }
                 collect_public_inherent_extension_provider_targets_for_using_scope(
                     context,
-                    using_scope,
+                    &using_scope,
                     &mut pending_provider_targets,
                 );
             }
@@ -500,9 +515,9 @@ fn enqueue_using_scope_item_target_modules(
 
 struct VisibilityClosureContext<'a> {
     module_id: nia_ids::ModuleId,
-    graph: &'a nia_imports::ModuleGraph,
+    graph: &'a dyn nia_imports::ModuleGraphLookup,
     using_scope: &'a nia_defs::ModuleUsingScope,
-    using_scopes: &'a HashMap<nia_ids::ModuleId, nia_defs::ModuleUsingScope>,
+    using_scopes: &'a dyn ProgramUsingScopeResolver,
     defs: &'a dyn ProgramDefsResolver,
     normalizations: TypeNormalizationResolver<'a>,
     visible_type_signatures: VisibleTypeSignatures<'a>,
@@ -573,7 +588,7 @@ fn nominal_def_id_for_public_type(
         return None;
     }
     let normalization = normalizations(def_id.module_id)?;
-    let alias = visible_type_signatures.type_aliases.get(&def_id)?;
+    let alias = (visible_type_signatures.type_alias)(def_id)?;
     let normalized = normalization.normalize(alias.signature.target);
     match normalization.interner.get(normalized) {
         Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),

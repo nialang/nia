@@ -8,14 +8,18 @@ mod used_paths;
 #[cfg(test)]
 mod tests;
 
-use nia_compiler_query::LoadedProgram;
-use nia_imports::ModuleMap;
+use nia_compiler_query::{LoadedProgram, ProviderDemand};
+use nia_imports::{ModuleGraph, ModuleMap};
 use nia_query::QueryDb;
-use nia_source::{SourceDatabase, SourceFile, SourcePath};
+use nia_source::{SourceDatabase, SourceFile, SourceIdentity, SourcePath, SourceVersion};
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
 use queries::{LoadedProgramQuery, SourceTextQuery};
-use std::{path::Path, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::{Arc, RwLock},
+};
 
 pub fn load_program(entry_path: impl Into<String>) -> LoadedProgram {
     load_program_with_map(entry_path, ModuleMap::default())
@@ -53,6 +57,10 @@ pub struct LoaderDatabase {
 impl LoaderDatabase {
     pub fn new(request: LoadRequest) -> Self {
         let entry_path = SourcePath::new(request.entry_path);
+        let package_roots_with_used_paths = request
+            .package_root_used_paths
+            .then(|| request.module_map.entries().map(|(name, _)| name).collect())
+            .unwrap_or_default();
         let module_map = effective_module_map(&entry_path, request.module_map);
         let sources = request.sources;
         let symbols = SymbolTable::new();
@@ -63,7 +71,9 @@ impl LoaderDatabase {
             symbols,
             target: request.target,
             entry_runtime: request.entry_runtime,
-            package_root_used_paths: request.package_root_used_paths,
+            package_roots_with_used_paths,
+            provider_demands: Arc::new(RwLock::new(HashSet::new())),
+            graph_state: Arc::new(RwLock::new(LoaderGraphState::default())),
         });
         Self { db, sources }
     }
@@ -79,17 +89,61 @@ impl LoaderDatabase {
     pub fn set_source(&self, path: impl Into<String>, text: impl Into<Arc<str>>) -> SourceFile {
         let path = SourcePath::new(path.into());
         let file = self.sources.set_source(path.clone(), text);
+        self.reset_graph_state();
         self.db.invalidate(SourceTextQuery(path));
         file
     }
 
     pub fn invalidate_source(&self, path: impl Into<String>) -> nia_query::QueryInvalidation {
+        self.reset_graph_state();
         self.db
             .invalidate(SourceTextQuery(SourcePath::new(path.into())))
     }
 
     pub fn query_trace(&self) -> nia_query::QueryTrace {
         self.db.query_trace()
+    }
+
+    pub fn add_provider_demands(&self, demands: impl IntoIterator<Item = ProviderDemand>) -> bool {
+        !self.add_provider_demands_collect_new(demands).is_empty()
+    }
+
+    pub fn add_provider_demands_collect_new(
+        &self,
+        demands: impl IntoIterator<Item = ProviderDemand>,
+    ) -> Vec<ProviderDemand> {
+        let mut stored = self
+            .db
+            .context()
+            .provider_demands
+            .write()
+            .expect("loader provider demand lock poisoned");
+        let mut added = Vec::new();
+        for demand in demands {
+            if stored.insert(demand.clone()) {
+                added.push(demand);
+            }
+        }
+        drop(stored);
+        if !added.is_empty() {
+            self.db.invalidate(graph::ModuleGraphQuery);
+        }
+        added
+    }
+
+    fn reset_graph_state(&self) {
+        self.db
+            .context()
+            .provider_demands
+            .write()
+            .expect("loader provider demand lock poisoned")
+            .clear();
+        *self
+            .db
+            .context()
+            .graph_state
+            .write()
+            .expect("loader graph state lock poisoned") = LoaderGraphState::default();
     }
 }
 
@@ -175,7 +229,9 @@ fn load_program_trace(
         symbols: SymbolTable::new(),
         target: TargetConfig::host(),
         entry_runtime: EntryRuntime::None,
-        package_root_used_paths: false,
+        package_roots_with_used_paths: HashSet::new(),
+        provider_demands: Arc::new(RwLock::new(HashSet::new())),
+        graph_state: Arc::new(RwLock::new(LoaderGraphState::default())),
     });
     let _ = db.query(LoadedProgramQuery);
     db.query_trace()
@@ -208,5 +264,14 @@ pub(crate) struct LoaderContext {
     pub(crate) symbols: SymbolTable,
     pub(crate) target: TargetConfig,
     pub(crate) entry_runtime: EntryRuntime,
-    pub(crate) package_root_used_paths: bool,
+    pub(crate) package_roots_with_used_paths: HashSet<nia_symbol::SymbolId>,
+    pub(crate) provider_demands: Arc<RwLock<HashSet<ProviderDemand>>>,
+    pub(crate) graph_state: Arc<RwLock<LoaderGraphState>>,
+}
+
+#[derive(Default)]
+pub(crate) struct LoaderGraphState {
+    pub(crate) graph: Option<ModuleGraph>,
+    pub(crate) applied_provider_demands: HashSet<ProviderDemand>,
+    pub(crate) source_versions: HashMap<SourceIdentity, Option<SourceVersion>>,
 }

@@ -28,6 +28,27 @@ use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, PrimitiveTy, TyInterner, TyKind};
 
 type InstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>);
+type AggregateInstanceArgs = (Vec<InternedTyId>, Vec<ConstGenericArg>);
+type AggregateInstanceMap<T> = HashMap<GlobalDefId, HashMap<AggregateInstanceArgs, T>>;
+type AggregateInstancesByDef<T> =
+    HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, Vec<ConstGenericArg>, T)>>;
+type FunctionInstanceArgs = (
+    Option<InternedTyId>,
+    Vec<InternedTyId>,
+    Vec<ConstGenericArg>,
+);
+type FunctionInstanceMap<'ctx> =
+    HashMap<(GlobalDefId, ModuleId), HashMap<FunctionInstanceArgs, FunctionValue<'ctx>>>;
+type FunctionInstancesByDef<'ctx> = HashMap<
+    GlobalDefId,
+    Vec<(
+        ModuleId,
+        Option<InternedTyId>,
+        Vec<InternedTyId>,
+        Vec<ConstGenericArg>,
+        FunctionValue<'ctx>,
+    )>,
+>;
 type FunctionInstanceKey = (
     GlobalDefId,
     ModuleId,
@@ -71,38 +92,15 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) module: nia_llvm::module::Module<'ctx>,
     pub(super) structs: HashMap<GlobalDefId, StructType<'ctx>>,
     pub(super) unions: HashMap<GlobalDefId, StructType<'ctx>>,
-    pub(super) struct_instances:
-        HashMap<GlobalDefId, HashMap<(Vec<InternedTyId>, Vec<ConstGenericArg>), StructType<'ctx>>>,
-    pub(super) struct_instances_by_def:
-        HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, Vec<ConstGenericArg>, StructType<'ctx>)>>,
-    pub(super) union_instances:
-        HashMap<GlobalDefId, HashMap<(Vec<InternedTyId>, Vec<ConstGenericArg>), StructType<'ctx>>>,
-    pub(super) union_instances_by_def:
-        HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, Vec<ConstGenericArg>, StructType<'ctx>)>>,
+    pub(super) struct_instances: AggregateInstanceMap<StructType<'ctx>>,
+    pub(super) struct_instances_by_def: AggregateInstancesByDef<StructType<'ctx>>,
+    pub(super) union_instances: AggregateInstanceMap<StructType<'ctx>>,
+    pub(super) union_instances_by_def: AggregateInstancesByDef<StructType<'ctx>>,
     struct_instance_type_lookups: InstanceTypeLookup<'ctx>,
     union_instance_type_lookups: InstanceTypeLookup<'ctx>,
     pub(super) functions: HashMap<GlobalDefId, FunctionValue<'ctx>>,
-    pub(super) function_instances: HashMap<
-        (GlobalDefId, ModuleId),
-        HashMap<
-            (
-                Option<InternedTyId>,
-                Vec<InternedTyId>,
-                Vec<ConstGenericArg>,
-            ),
-            FunctionValue<'ctx>,
-        >,
-    >,
-    pub(super) function_instances_by_def: HashMap<
-        GlobalDefId,
-        Vec<(
-            ModuleId,
-            Option<InternedTyId>,
-            Vec<InternedTyId>,
-            Vec<ConstGenericArg>,
-            FunctionValue<'ctx>,
-        )>,
-    >,
+    pub(super) function_instances: FunctionInstanceMap<'ctx>,
+    pub(super) function_instances_by_def: FunctionInstancesByDef<'ctx>,
     function_instance_value_lookups: FunctionInstanceLookup<'ctx>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     pub(super) global_instances: HashMap<GlobalInstanceKey, GlobalValue<'ctx>>,

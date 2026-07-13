@@ -17,6 +17,12 @@ struct TraitObjectImplMethodMatch {
     trait_args: Vec<InternedTyId>,
 }
 
+struct TraitObjectTraitRef {
+    trait_id: TraitId,
+    args: Vec<InternedTyId>,
+    const_args: Vec<nia_ty::ConstGenericArg>,
+}
+
 struct ObjectSafetyCheck<'a> {
     span: Span,
     // A synthetic `Self` marker lets object-safety checks detect uses of
@@ -310,7 +316,7 @@ impl<'a> BodyChecker<'a> {
             trait_impl_index: self.program_trait_impl_index,
             layouts: Some(self.layouts),
             local_module_id: self.defs.module_id,
-            local_enums: &self.signatures.enums,
+            local_enums: self.signatures.enums,
             program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&|module_id, impl_id| {
@@ -332,6 +338,7 @@ impl<'a> BodyChecker<'a> {
             })
         };
         if !proven {
+            self.record_trait_provider_demand(trait_id);
             return false;
         }
         associated_type_bindings.iter().all(|binding| {
@@ -1075,60 +1082,61 @@ impl<'a> BodyChecker<'a> {
         target_const_args: &[nia_ty::ConstGenericArg],
     ) -> bool {
         self.trait_object_has_supertrait_inner(
-            source_trait,
-            source_args,
-            source_const_args,
-            target_trait,
-            target_args,
-            target_const_args,
+            TraitObjectTraitRef {
+                trait_id: source_trait,
+                args: source_args.to_vec(),
+                const_args: source_const_args.to_vec(),
+            },
+            &TraitObjectTraitRef {
+                trait_id: target_trait,
+                args: target_args.to_vec(),
+                const_args: target_const_args.to_vec(),
+            },
             &mut Vec::new(),
         )
     }
 
     fn trait_object_has_supertrait_inner(
         &mut self,
-        source_trait: TraitId,
-        source_args: &[InternedTyId],
-        source_const_args: &[nia_ty::ConstGenericArg],
-        target_trait: TraitId,
-        target_args: &[InternedTyId],
-        target_const_args: &[nia_ty::ConstGenericArg],
+        source: TraitObjectTraitRef,
+        target: &TraitObjectTraitRef,
         visited: &mut Vec<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
     ) -> bool {
-        if source_trait == target_trait
-            && source_args.len() == target_args.len()
-            && self.const_generic_arg_slices_match(source_const_args, target_const_args)
-            && source_args
+        if source.trait_id == target.trait_id
+            && source.args.len() == target.args.len()
+            && self.const_generic_arg_slices_match(&source.const_args, &target.const_args)
+            && source
+                .args
                 .iter()
-                .zip(target_args.iter())
+                .zip(target.args.iter())
                 .all(|(source, target)| self.types_match(*source, *target))
         {
             return true;
         }
         if visited.iter().any(|(trait_id, args, const_args)| {
-            *trait_id == source_trait && args == source_args && const_args == source_const_args
+            *trait_id == source.trait_id && args == &source.args && const_args == &source.const_args
         }) {
             return false;
         }
         visited.push((
-            source_trait,
-            source_args.to_vec(),
-            source_const_args.to_vec(),
+            source.trait_id,
+            source.args.clone(),
+            source.const_args.clone(),
         ));
-        match source_trait {
+        match source.trait_id {
             TraitId::Builtin(trait_id) => trait_id.supertraits().iter().any(|supertrait| {
                 let supertrait_args = if supertrait.preserves_trait_args {
-                    source_args.to_vec()
+                    source.args.clone()
                 } else {
                     Vec::new()
                 };
                 self.trait_object_has_supertrait_inner(
-                    TraitId::Builtin(supertrait.trait_id),
-                    &supertrait_args,
-                    &[],
-                    target_trait,
-                    target_args,
-                    target_const_args,
+                    TraitObjectTraitRef {
+                        trait_id: TraitId::Builtin(supertrait.trait_id),
+                        args: supertrait_args,
+                        const_args: Vec::new(),
+                    },
+                    target,
                     visited,
                 )
             }),
@@ -1139,8 +1147,8 @@ impl<'a> BodyChecker<'a> {
                 let (substitutions, const_substitutions) = self
                     .generic_substitutions_and_consts_for_def(
                         source_trait_id,
-                        source_args,
-                        source_const_args,
+                        &source.args,
+                        &source.const_args,
                     );
                 signature.supertraits.iter().any(|supertrait| {
                     let supertrait = self.substitute_generics_and_consts(
@@ -1155,22 +1163,22 @@ impl<'a> BodyChecker<'a> {
                             args,
                             const_args,
                         }) => self.trait_object_has_supertrait_inner(
-                            TraitId::Source(def_id),
-                            &args,
-                            &const_args,
-                            target_trait,
-                            target_args,
-                            target_const_args,
+                            TraitObjectTraitRef {
+                                trait_id: TraitId::Source(def_id),
+                                args,
+                                const_args,
+                            },
+                            target,
                             visited,
                         ),
                         Some(TyKind::BuiltinTrait { trait_id, args }) => self
                             .trait_object_has_supertrait_inner(
-                                TraitId::Builtin(trait_id),
-                                &args,
-                                &[],
-                                target_trait,
-                                target_args,
-                                target_const_args,
+                                TraitObjectTraitRef {
+                                    trait_id: TraitId::Builtin(trait_id),
+                                    args,
+                                    const_args: Vec::new(),
+                                },
+                                target,
                                 visited,
                             ),
                         _ => false,

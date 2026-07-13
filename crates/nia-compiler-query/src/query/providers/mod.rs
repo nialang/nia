@@ -2,7 +2,7 @@
 use super::*;
 use nia_defs::DefKind;
 use nia_executable_reachability::{
-    ExecutableExtensionLookup, ExecutableRootDefs, IncrementalExecutableReachability,
+    ExecutableExtensionLookup, ExecutableRootDefs,
     compute_executable_reachability_incremental_with_timings,
     extend_incremental_executable_reachability_from_checked_module_with_timings,
     filter_semantic_facts_for_reachable_items,
@@ -37,14 +37,16 @@ pub(in crate::query) use self::body_check_flow::{
 };
 use self::body_executable::*;
 pub(in crate::query) use self::body_executable::{
-    ExecutableValueRefIndex, provide_executable_value_ref_index,
+    ExecutableValueRefEdges, provide_executable_value_ref_edges,
 };
 use self::body_signature_lookup::*;
 use self::codegen::*;
 use self::comptime::*;
-pub(in crate::query) use self::executable_reachability::provide_executable_checked_module_set;
 #[cfg(test)]
 pub(in crate::query) use self::executable_reachability::provide_executable_checked_modules;
+pub(in crate::query) use self::executable_reachability::{
+    provide_executable_checked_module_set, provide_executable_provider_demands,
+};
 use self::extension_providers::*;
 use self::frontend::*;
 use self::layout_roots::*;
@@ -58,6 +60,106 @@ use self::signature_comptime::{
     with_type_signature_comptime_input,
 };
 
+pub(super) struct QueryPublicSurfaceLookup<'a> {
+    db: &'a QueryDb<CompilerContext>,
+}
+
+impl<'a> QueryPublicSurfaceLookup<'a> {
+    pub(super) fn new(db: &'a QueryDb<CompilerContext>) -> Self {
+        Self { db }
+    }
+}
+
+impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
+    fn public_surface(&self, module_id: ModuleId) -> Option<Arc<ModulePublicSurface>> {
+        self.db.query(ModulePublicSurfaceQuery(module_id))
+    }
+
+    fn public_module(&self, module_id: ModuleId, name: &SymbolId) -> Option<ModuleId> {
+        self.db.query(PublicSurfaceModuleQuery(module_id, *name))
+    }
+
+    fn public_value(&self, module_id: ModuleId, name: &SymbolId) -> Option<nia_defs::PublicItem> {
+        self.db.query(PublicSurfaceValueQuery(module_id, *name))
+    }
+
+    fn public_type(&self, module_id: ModuleId, name: &SymbolId) -> Option<nia_defs::PublicItem> {
+        self.db.query(PublicSurfaceTypeQuery(module_id, *name))
+    }
+}
+
+pub(super) struct QueryUsingScopeLookup<'a> {
+    db: &'a QueryDb<CompilerContext>,
+    module_id: ModuleId,
+}
+
+impl<'a> QueryUsingScopeLookup<'a> {
+    pub(super) fn new(db: &'a QueryDb<CompilerContext>, module_id: ModuleId) -> Self {
+        Self { db, module_id }
+    }
+}
+
+impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
+    fn using_module(&self, name: &SymbolId) -> Option<ModuleId> {
+        self.db.query(UsingScopeModuleQuery(self.module_id, *name))
+    }
+
+    fn using_value(&self, name: &SymbolId) -> Option<nia_defs::UsingEntry> {
+        self.db.query(UsingScopeValueQuery(self.module_id, *name))
+    }
+
+    fn using_type(&self, name: &SymbolId) -> Option<nia_defs::UsingEntry> {
+        self.db.query(UsingScopeTypeQuery(self.module_id, *name))
+    }
+
+    fn has_unresolved_using_name(&self, name: &SymbolId) -> bool {
+        self.db
+            .query(UsingScopeUnresolvedQuery(self.module_id, *name))
+    }
+}
+
+pub(super) struct QueryModuleGraphLookup<'a> {
+    db: &'a QueryDb<CompilerContext>,
+}
+
+impl<'a> QueryModuleGraphLookup<'a> {
+    pub(super) fn new(db: &'a QueryDb<CompilerContext>) -> Self {
+        Self { db }
+    }
+}
+
+impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
+    fn module(&self, module_id: ModuleId) -> Option<ModuleNodeRef<'_>> {
+        self.db
+            .query(ModuleGraphNodeQuery(module_id))
+            .map(ModuleNodeRef::Shared)
+    }
+
+    fn entry_module(&self) -> ModuleId {
+        self.db.query(ModuleGraphEntryQuery)
+    }
+
+    fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId> {
+        self.db.query(ModulePackageRootQuery(*package))
+    }
+
+    fn module_path(&self, module_id: ModuleId) -> Option<nia_imports::ModulePath> {
+        self.db.query(ModuleGraphPathQuery(module_id))
+    }
+
+    fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
+        self.db.query(ModuleGraphParentQuery(module_id))
+    }
+
+    fn child_declaration(
+        &self,
+        module_id: ModuleId,
+        name: &SymbolId,
+    ) -> Option<(ModuleId, nia_ids::Visibility)> {
+        self.db.query(ModuleGraphChildQuery(module_id, *name))
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct CompilerQueryProviders {
     pub(super) checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgram,
@@ -69,13 +171,15 @@ pub(super) struct CompilerQueryProviders {
     pub(super) module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
     pub(super) active_module_item_tree:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
-    pub(super) full_module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
+    pub(super) full_module_item_tree:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> Arc<ModuleItemTree>,
     pub(super) full_active_module_item_tree:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> Arc<ActiveModuleItemTree>,
     pub(super) module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
     pub(super) full_module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
-    pub(super) defs_by_module: fn(&QueryDb<CompilerContext>) -> Vec<DefCollection>,
     pub(super) public_surfaces: fn(&QueryDb<CompilerContext>) -> PublicSurfacesValue,
+    pub(super) module_public_surface:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> Option<Arc<ModulePublicSurface>>,
     pub(super) public_using_scopes: fn(&QueryDb<CompilerContext>) -> PublicUsingScopesValue,
     pub(super) module_using_scope: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleUsingScope,
     pub(super) type_exposure_index: fn(&QueryDb<CompilerContext>) -> TypeExposureIndexValue,
@@ -133,14 +237,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionTraitSolvingModuleFactsValue,
     pub(super) extension_trait_impls_for_trait:
         fn(&QueryDb<CompilerContext>, nia_ty::TraitId) -> ExtensionTraitImplsForTraitValue,
-    pub(super) program_trait_solving_signatures:
-        fn(&QueryDb<CompilerContext>) -> Arc<ProgramTraitSolvingSignatures>,
     pub(super) program_trait_method_index:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramTraitMethodIndex>,
-    pub(super) program_visible_type_signatures:
-        fn(&QueryDb<CompilerContext>) -> Arc<ProgramVisibleTypeSignatures>,
-    pub(super) program_backend_signatures:
-        fn(&QueryDb<CompilerContext>) -> Arc<ProgramBackendSignatures>,
     pub(super) program_abi_signatures:
         fn(&QueryDb<CompilerContext>) -> Arc<ProgramAbiSignaturesValue>,
     pub(super) extension_provider_module_facts:
@@ -217,8 +315,8 @@ impl Default for CompilerQueryProviders {
             full_active_module_item_tree: provide_full_active_module_item_tree,
             module_defs: provide_module_defs,
             full_module_defs: provide_full_module_defs,
-            defs_by_module: provide_defs_by_module,
             public_surfaces: provide_public_surfaces,
+            module_public_surface: provide_module_public_surface,
             public_using_scopes: provide_public_using_scopes,
             module_using_scope: provide_module_using_scope,
             type_exposure_index: provide_type_exposure_index,
@@ -249,10 +347,7 @@ impl Default for CompilerQueryProviders {
             extension_signature_module_input: provide_extension_signature_module_input,
             extension_trait_solving_module_facts: provide_extension_trait_solving_module_facts,
             extension_trait_impls_for_trait: provide_extension_trait_impls_for_trait,
-            program_trait_solving_signatures: provide_program_trait_solving_signatures,
             program_trait_method_index: provide_program_trait_method_index,
-            program_visible_type_signatures: provide_program_visible_type_signatures,
-            program_backend_signatures: provide_program_backend_signatures,
             program_abi_signatures: provide_program_abi_signatures,
             extension_provider_module_facts: provide_extension_provider_module_facts,
             extension_provider_validation_facts: provide_extension_provider_validation_facts,

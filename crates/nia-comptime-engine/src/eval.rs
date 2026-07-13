@@ -933,7 +933,7 @@ fn early_pattern_matches(
         } => {
             bindings.push(ComptimeSwitchBinding {
                 span: *span,
-                name: name.clone(),
+                name: *name,
                 local_id: *local_id,
                 value: target.clone(),
             });
@@ -1014,7 +1014,7 @@ fn resolved_pattern_matches(
         } => {
             bindings.push(ComptimeSwitchBinding {
                 span: *span,
-                name: name.clone(),
+                name: *name,
                 local_id: Some(*local_id),
                 value: target.clone(),
             });
@@ -1542,10 +1542,7 @@ fn eval_struct_literal_flow(
     }
     let mut values = BTreeMap::new();
     for field in fields {
-        values.insert(
-            field.name.clone(),
-            eval_value_or_return_flow!(&field.value, env),
-        );
+        values.insert(field.name, eval_value_or_return_flow!(&field.value, env));
     }
     Ok(ComptimeEvalFlow::Value(ComptimeValue::Struct(values)))
 }
@@ -1573,7 +1570,7 @@ fn eval_resolved_struct_literal_flow(
     let mut values = BTreeMap::new();
     for field in fields {
         values.insert(
-            field.name_symbol().clone(),
+            *field.name_symbol(),
             eval_resolved_value_or_return_flow!(field.value(), env),
         );
     }
@@ -1684,16 +1681,29 @@ pub fn eval_resolved_comptime_array_len_expr(
     )
 }
 
-fn eval_comptime_function_call(
+struct EarlyComptimeCall<'a> {
     span: Span,
     function_module_id: ModuleId,
-    params: &[EarlyComptimeParam],
-    body: &EarlyComptimeBlock,
+    params: &'a [EarlyComptimeParam],
+    body: &'a EarlyComptimeBlock,
     type_substitutions: Vec<(SymbolId, InternedTyId)>,
     const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
     args: Vec<ComptimeValue>,
+}
+
+fn eval_comptime_function_call(
+    call: EarlyComptimeCall<'_>,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
+    let EarlyComptimeCall {
+        span,
+        function_module_id,
+        params,
+        body,
+        type_substitutions,
+        const_substitutions,
+        args,
+    } = call;
     if let ArityCheck::Mismatch { actual, .. } = check_exact_arity(params.len(), args.len()) {
         return Err(ComptimeError {
             span,
@@ -1747,27 +1757,42 @@ pub fn eval_early_comptime_function_call(
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     eval_comptime_function_call(
-        span,
-        function_module_id,
-        &function.params,
-        &function.body,
-        type_substitutions,
-        Vec::new(),
-        args,
+        EarlyComptimeCall {
+            span,
+            function_module_id,
+            params: &function.params,
+            body: &function.body,
+            type_substitutions,
+            const_substitutions: Vec::new(),
+            args,
+        },
         env,
     )
 }
 
+pub struct ResolvedComptimeCallInput<'a> {
+    pub span: Span,
+    pub function_id: GlobalDefId,
+    pub function_module_id: ModuleId,
+    pub function: &'a ResolvedComptimeFunction,
+    pub type_substitutions: Vec<(SymbolId, InternedTyId)>,
+    pub const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
+    pub args: Vec<ComptimeValue>,
+}
+
 pub fn eval_resolved_comptime_function_call(
-    span: Span,
-    function_id: GlobalDefId,
-    function_module_id: ModuleId,
-    function: &ResolvedComptimeFunction,
-    type_substitutions: Vec<(SymbolId, InternedTyId)>,
-    const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
-    args: Vec<ComptimeValue>,
+    input: ResolvedComptimeCallInput<'_>,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
+    let ResolvedComptimeCallInput {
+        span,
+        function_id,
+        function_module_id,
+        function,
+        type_substitutions,
+        const_substitutions,
+        args,
+    } = input;
     eval_resolved_comptime_function_call_inner(
         ResolvedComptimeCall {
             span,
@@ -2172,10 +2197,7 @@ fn eval_assign_target_root_value(
             };
             env.resolve_name(
                 *target_span,
-                &EarlyComptimeName::resolved(
-                    name.clone(),
-                    ComptimeNameResolution::Local(*local_id),
-                ),
+                &EarlyComptimeName::resolved(*name, ComptimeNameResolution::Local(*local_id)),
             )
         }
     }
@@ -2381,7 +2403,7 @@ fn write_assign_path_value(
                 ),
             })?;
             let updated = write_assign_path_value(span, current, tail, value, env)?;
-            fields.insert(name.clone(), updated);
+            fields.insert(*name, updated);
             Ok(ComptimeValue::Struct(fields))
         }
         EarlyComptimeAssignPathElem::Index {
@@ -2438,7 +2460,7 @@ fn write_resolved_assign_path_value(
                 ),
             })?;
             let updated = write_resolved_assign_path_value(span, current, tail, value, env)?;
-            fields.insert(name.clone(), updated);
+            fields.insert(*name, updated);
             Ok(ComptimeValue::Struct(fields))
         }
         ResolvedComptimeAssignPathElemKind::Index {

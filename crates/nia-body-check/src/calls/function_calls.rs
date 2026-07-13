@@ -648,7 +648,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 for (generic, ty) in candidate {
                     if !substitutions.contains_key(generic) {
-                        substitutions.insert(generic.clone(), *ty);
+                        substitutions.insert(*generic, *ty);
                         changed = true;
                     }
                 }
@@ -1232,7 +1232,7 @@ impl<'a> BodyChecker<'a> {
                 ));
             }
         } else {
-            substitutions.insert(name.clone(), arg);
+            substitutions.insert(*name, arg);
         }
     }
 
@@ -1258,7 +1258,7 @@ fn type_generic_names(signature: &FunctionSignature) -> Vec<SymbolId> {
         .generic_params
         .iter()
         .filter_map(|param| match param.kind {
-            GenericParamSignatureKind::Type => Some(param.name.clone()),
+            GenericParamSignatureKind::Type => Some(param.name),
             GenericParamSignatureKind::Comptime { .. } => None,
         })
         .collect()

@@ -275,14 +275,16 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                         },
                     );
                     semantic_use_table_from_resolution_inputs_with_const_expr_values(
-                        module_id,
-                        &filtered_active_item_tree,
-                        &filtered_values,
-                        Some(&const_expr_value_resolution),
-                        Some(&needed_const_exprs),
-                        &filtered_locals,
-                        context.type_resolution,
-                        context.lowered,
+                        SemanticUseInputs {
+                            module_id,
+                            active_item_tree: &filtered_active_item_tree,
+                            values: &filtered_values,
+                            const_expr_values: Some(&const_expr_value_resolution),
+                            const_expr_value_ids: Some(&needed_const_exprs),
+                            locals: &filtered_locals,
+                            type_resolution: context.type_resolution,
+                            type_lowering: context.lowered,
+                        },
                     )
                 },
             );
@@ -302,7 +304,7 @@ pub(super) fn full_body_check_resolution_inputs(
 ) -> BodyCheckResolutionInputs {
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
-    let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query_shared(FullModuleDefsQuery(module_id));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
     let lowered = db.query(TypeLoweringQuery(module_id));

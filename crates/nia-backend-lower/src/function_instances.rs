@@ -364,9 +364,7 @@ impl<'a> ModuleLowerer<'a> {
         {
             functions_by_def.insert(def_id, function);
         }
-        functions_by_def
-            .get(&def_id)
-            .map(|function| function.name.clone())
+        functions_by_def.get(&def_id).map(|function| function.name)
     }
 
     fn lower_planned_function_instance(
@@ -411,21 +409,21 @@ impl<'a> ModuleLowerer<'a> {
             &const_substitutions,
         );
         let function_body = base.function_body.clone().map(|body| {
-            self.instantiate_function_body_with_self_and_const_substitutions(
-                def_id,
-                arg_module_id,
-                true,
-                args.len(),
+            self.instantiate_function_body(crate::instantiate::FunctionBodyInstantiation {
+                function: def_id,
+                module_id: arg_module_id,
+                is_instance: true,
+                type_arg_count: args.len(),
                 body,
                 self_arg,
-                &substitutions,
-                &const_substitutions,
-            )
+                substitutions: &substitutions,
+                const_substitutions: &const_substitutions,
+            })
         });
         let discovered_body = function_body.clone();
         instances.push(BackendFunctionInstance {
             def_id,
-            name: base.name.clone(),
+            name: base.name,
             arg_module_id,
             self_arg,
             args,
@@ -482,10 +480,10 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .map(|generic| {
                 (
-                    generic.clone(),
+                    *generic,
                     self.type_context
                         .interner
-                        .intern(TyKind::GenericParam(generic.clone())),
+                        .intern(TyKind::GenericParam(*generic)),
                 )
             })
             .collect::<SymbolMap<_>>();
@@ -497,14 +495,16 @@ impl<'a> ModuleLowerer<'a> {
             .map(|body| self.template_param_locals(def_id, &signature.signature.params, body))
             .unwrap_or_default();
         let function_body = raw_function_body.map(|body| {
-            self.instantiate_function_body(
-                def_id,
-                self.input.module_id,
-                true,
-                0,
+            self.instantiate_function_body(crate::instantiate::FunctionBodyInstantiation {
+                function: def_id,
+                module_id: self.input.module_id,
+                is_instance: true,
+                type_arg_count: 0,
                 body,
-                &identity_substitutions,
-            )
+                self_arg: None,
+                substitutions: &identity_substitutions,
+                const_substitutions: &SymbolMap::default(),
+            })
         });
         Some(BackendFunction {
             def_id,

@@ -128,7 +128,8 @@ pub(super) fn codegen_program_from_output(
     output: crate::DriverOutput<crate::CodegenProgram>,
 ) -> crate::CodegenProgram {
     match output.result {
-        Ok(program) | Err(crate::DriverError::CodegenProgramDiagnostics(program)) => program,
+        Ok(program) => program,
+        Err(crate::DriverError::CodegenProgramDiagnostics(program)) => *program,
         Err(error) => panic!("unexpected driver error: {error:?}"),
     }
 }

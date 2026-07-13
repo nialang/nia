@@ -277,7 +277,7 @@ impl<'a> BodyChecker<'a> {
             nia_ast::PatternKind::Pointer(_) | nia_ast::PatternKind::MutPointer(_) => {
                 let input_ty = self.pattern_input_ty(pattern, binding_ty);
                 let value = self.lower_expr_with_ty(value, Some(input_ty));
-                self.lower_binding_pointer_pattern_initializer(pattern, value, binding_ty)
+                self.lower_binding_pointer_pattern_initializer(pattern, value)
             }
             _ => self.lower_expr_with_ty(value, Some(binding_ty)),
         }
@@ -287,7 +287,6 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         pattern: &nia_ast::Pattern,
         value: TypedExpr,
-        binding_ty: InternedTyId,
     ) -> TypedExpr {
         match &pattern.kind {
             nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
@@ -303,7 +302,7 @@ impl<'a> BodyChecker<'a> {
                         expr: Box::new(value),
                     },
                 };
-                self.lower_binding_pointer_pattern_initializer(inner, deref, binding_ty)
+                self.lower_binding_pointer_pattern_initializer(inner, deref)
             }
             _ => value,
         }
@@ -2201,7 +2200,7 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .zip(args.iter().skip(generics.len()))
         {
-            substitutions.entry(generic.clone()).or_insert(*arg);
+            substitutions.entry(*generic).or_insert(*arg);
         }
         substitutions
     }
@@ -2342,7 +2341,7 @@ impl<'a> BodyChecker<'a> {
                     .lowered_call_param_tys(ResolvedCall::TraitMethod {
                         trait_id,
                         method_id,
-                        method_name: method_name.clone(),
+                        method_name,
                         self_ty,
                         trait_args: trait_args.clone(),
                         args: args.clone(),

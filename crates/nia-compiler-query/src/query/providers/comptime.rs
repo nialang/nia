@@ -5,7 +5,7 @@ pub(super) fn provide_comptime_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ComptimeModuleLowering {
-    let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.query_shared(FullModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
@@ -36,7 +36,8 @@ pub(super) fn provide_comptime(
         let enum_values = db.query(ComptimeEnumValuesQuery(module_id));
         let values = db.query(ComptimeValuesQuery(module_id));
         let typed_facts = db.query(ComptimeTypedFactsQuery(module_id));
-        let comptime = with_comptime_input(db, module_id, |input, module| {
+
+        with_comptime_input(db, module_id, |input, module| {
             let mut comptime = nia_comptime_check::check_module_comptime_with_all_phases(
                 input,
                 array_lengths,
@@ -46,8 +47,7 @@ pub(super) fn provide_comptime(
             );
             comptime.diagnostics.extend(module.diagnostics.clone());
             comptime
-        });
-        comptime
+        })
     })
 }
 

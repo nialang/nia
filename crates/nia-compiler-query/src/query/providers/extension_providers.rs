@@ -40,9 +40,11 @@ pub(super) fn provide_extension_provider_discovery_index(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionProviderDiscoveryIndexValue {
     let timings = db.context().timings();
-    let trait_modules = db.query(ProgramSignatureModuleIdsQuery(
-        nia_item_tree::SignatureItemSet::Traits,
-    ));
+    let trait_modules = db
+        .query(ParseOkModuleIdsQuery)
+        .into_iter()
+        .filter(|module_id| db.query(ExtensionProviderModuleEligibilityQuery(*module_id)))
+        .collect::<Vec<_>>();
     time_provider(timings, "extension_provider_discovery_index", || {
         let mut provider_modules = Vec::new();
         let mut nominal_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
@@ -209,35 +211,6 @@ fn trait_id_index_name(
             .get(def_id.def_id)
             .map(|def| def.name),
     }
-}
-
-pub(super) fn provide_program_trait_solving_signatures(
-    db: &QueryDb<CompilerContext>,
-) -> Arc<ProgramTraitSolvingSignatures> {
-    time_provider(
-        db.context().timings(),
-        "program_trait_solving_signatures",
-        || {
-            let facts = db.query_many(
-                db.query(ExtensionProviderModuleIdsQuery)
-                    .into_iter()
-                    .map(ExtensionTraitSolvingModuleFactsQuery),
-            );
-            let mut trait_impls = Vec::new();
-            let mut invalid_trait_impl_method_ids = HashSet::new();
-            for facts in &facts {
-                trait_impls.extend(facts.trait_impls.iter().cloned());
-                invalid_trait_impl_method_ids
-                    .extend(facts.invalid_trait_impl_method_ids.iter().copied());
-            }
-            let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
-            Arc::new(ProgramTraitSolvingSignatures {
-                trait_impls,
-                trait_impl_index,
-                invalid_trait_impl_method_ids,
-            })
-        },
-    )
 }
 
 pub(super) fn provide_extension_provider_module_facts(
@@ -563,9 +536,9 @@ fn visible_modules_for_module(
     module_id: ModuleId,
     compute: fn(nia_program_signatures::VisibleExtensionProviderModulesInput<'_>) -> Vec<ModuleId>,
 ) -> Vec<ModuleId> {
-    let graph = db.query_shared(ModuleGraphQuery);
+    let graph = QueryModuleGraphLookup::new(db);
     let defs = SharedProgramDefsResolver::new(db);
-    let public_using_scopes = db.query(PublicUsingScopesQuery);
+    let using_scopes = |module_id| Some(Arc::new(db.query(ModuleUsingScopeQuery(module_id))));
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
     let extension_method_normalization = |module_id| {
         Some(db.query(SignatureTypeNormalizationQuery(
@@ -573,7 +546,7 @@ fn visible_modules_for_module(
             nia_item_tree::SignatureItemSet::Traits,
         )))
     };
-    let visible_type_signatures = db.query(ProgramVisibleTypeSignaturesQuery);
+    let type_alias = |def_id| db.query(ProgramTypeAliasSignatureQuery(def_id));
     let nominal_extension_providers = |target_def_ids: &[GlobalDefId]| {
         db.query(ExtensionProviderNominalModulesForTargetsQuery(
             ExtensionProviderNominalTargets::new(target_def_ids.to_vec()),
@@ -587,11 +560,11 @@ fn visible_modules_for_module(
             module_id,
             graph: &graph,
             using_scope: &using_scope,
-            using_scopes: &public_using_scopes.using_scopes,
+            using_scopes: &using_scopes,
             defs: &defs,
             normalizations: &extension_method_normalization,
             visible_type_signatures: VisibleTypeSignatures {
-                type_aliases: &visible_type_signatures.type_aliases,
+                type_alias: &type_alias,
             },
             nominal_extension_providers: &nominal_extension_providers,
         },
@@ -608,10 +581,10 @@ pub(super) fn provide_visible_extensions(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> VisibleExtensionsValue {
-    let graph = db.query_shared(ModuleGraphQuery);
+    let graph = QueryModuleGraphLookup::new(db);
     let defs = SharedProgramDefsResolver::new(db);
-    let public_surfaces = db.query(PublicSurfacesQuery);
-    let public_using_scopes = db.query(PublicUsingScopesQuery);
+    let public_surfaces = QueryPublicSurfaceLookup::new(db);
+    let using_scopes = |module_id| Some(Arc::new(db.query(ModuleUsingScopeQuery(module_id))));
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
     let extension_method_normalization = |module_id| {
         Some(db.query(SignatureTypeNormalizationQuery(
@@ -619,7 +592,7 @@ pub(super) fn provide_visible_extensions(
             nia_item_tree::SignatureItemSet::Traits,
         )))
     };
-    let visible_type_signatures = db.query(ProgramVisibleTypeSignaturesQuery);
+    let type_alias = |def_id| db.query(ProgramTypeAliasSignatureQuery(def_id));
     let nominal_extension_providers = |target_def_ids: &[GlobalDefId]| {
         db.query(ExtensionProviderNominalModulesForTargetsQuery(
             ExtensionProviderNominalTargets::new(target_def_ids.to_vec()),
@@ -640,12 +613,12 @@ pub(super) fn provide_visible_extensions(
         module_id,
         graph: &graph,
         using_scope: &using_scope,
-        using_scopes: &public_using_scopes.using_scopes,
-        public_surfaces: &public_surfaces.surfaces,
+        using_scopes: &using_scopes,
+        public_surfaces: &public_surfaces,
         defs: &defs,
         normalizations: &extension_method_normalization,
         visible_type_signatures: VisibleTypeSignatures {
-            type_aliases: &visible_type_signatures.type_aliases,
+            type_alias: &type_alias,
         },
         extensions: &extension_methods,
         associated_values: &associated_values,
@@ -659,10 +632,10 @@ pub(super) fn provide_visible_trait_impls(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> VisibleTraitImplsValue {
-    let graph = db.query_shared(ModuleGraphQuery);
+    let graph = QueryModuleGraphLookup::new(db);
     let defs = SharedProgramDefsResolver::new(db);
-    let public_surfaces = db.query(PublicSurfacesQuery);
-    let public_using_scopes = db.query(PublicUsingScopesQuery);
+    let public_surfaces = QueryPublicSurfaceLookup::new(db);
+    let using_scopes = |module_id| Some(Arc::new(db.query(ModuleUsingScopeQuery(module_id))));
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
     let extension_method_normalization = |module_id| {
         Some(db.query(SignatureTypeNormalizationQuery(
@@ -670,7 +643,7 @@ pub(super) fn provide_visible_trait_impls(
             nia_item_tree::SignatureItemSet::Traits,
         )))
     };
-    let visible_type_signatures = db.query(ProgramVisibleTypeSignaturesQuery);
+    let type_alias = |def_id| db.query(ProgramTypeAliasSignatureQuery(def_id));
     let nominal_extension_providers = |target_def_ids: &[GlobalDefId]| {
         db.query(ExtensionProviderNominalModulesForTargetsQuery(
             ExtensionProviderNominalTargets::new(target_def_ids.to_vec()),
@@ -693,12 +666,12 @@ pub(super) fn provide_visible_trait_impls(
         module_id,
         graph: &graph,
         using_scope: &using_scope,
-        using_scopes: &public_using_scopes.using_scopes,
-        public_surfaces: &public_surfaces.surfaces,
+        using_scopes: &using_scopes,
+        public_surfaces: &public_surfaces,
         defs: &defs,
         normalizations: &extension_method_normalization,
         visible_type_signatures: VisibleTypeSignatures {
-            type_aliases: &visible_type_signatures.type_aliases,
+            type_alias: &type_alias,
         },
         extensions: &nia_defs::ExtensionMethods::default(),
         associated_values: &nia_defs::ExtensionAssociatedValues::default(),

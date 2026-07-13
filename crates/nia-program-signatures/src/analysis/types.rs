@@ -103,15 +103,25 @@ pub(super) fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> Func
         .trait_generics
         .iter()
         .zip(input.trait_args)
-        .map(|(generic, arg)| (generic.clone(), *arg))
+        .map(|(generic, arg)| (*generic, *arg))
         .collect::<SymbolMap<_>>();
     let const_substitutions = const_substitutions_from_self_describing_args(input.trait_const_args);
+    let target = TypeSubstitutionTarget {
+        projection: Some(ProjectionImplContext {
+            trait_id: input.trait_id,
+            trait_args: input.trait_args,
+            trait_const_args: input.trait_const_args,
+            self_ty: input.self_ty,
+            associated_types: &input.impl_signature.associated_types,
+        }),
+        self_ty: Some(input.self_ty),
+    };
     let mut signature = input.signature.clone();
     signature.params = signature
         .params
         .iter()
         .map(|param| ParamSignature {
-            name: param.name.clone(),
+            name: param.name,
             receiver: param.receiver,
             ty: substitute_imported_type(
                 input.target_interner,
@@ -120,14 +130,7 @@ pub(super) fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> Func
                 param.ty,
                 &substitutions,
                 &const_substitutions,
-                Some(ProjectionImplContext {
-                    trait_id: input.trait_id,
-                    trait_args: input.trait_args,
-                    trait_const_args: input.trait_const_args,
-                    self_ty: input.self_ty,
-                    associated_types: &input.impl_signature.associated_types,
-                }),
-                Some(input.self_ty),
+                target,
             ),
             span: param.span,
         })
@@ -139,14 +142,7 @@ pub(super) fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> Func
         signature.return_type,
         &substitutions,
         &const_substitutions,
-        Some(ProjectionImplContext {
-            trait_id: input.trait_id,
-            trait_args: input.trait_args,
-            trait_const_args: input.trait_const_args,
-            self_ty: input.self_ty,
-            associated_types: &input.impl_signature.associated_types,
-        }),
-        Some(input.self_ty),
+        target,
     );
     signature
 }
@@ -156,19 +152,22 @@ pub(super) fn normalize_impl_method_signature(
 ) -> FunctionSignature {
     let substitutions = SymbolMap::default();
     let const_substitutions = SymbolMap::default();
-    let context = Some(ProjectionImplContext {
-        trait_id: input.trait_id,
-        trait_args: input.trait_args,
-        trait_const_args: input.trait_const_args,
-        self_ty: input.self_ty,
-        associated_types: &input.impl_signature.associated_types,
-    });
+    let target = TypeSubstitutionTarget {
+        projection: Some(ProjectionImplContext {
+            trait_id: input.trait_id,
+            trait_args: input.trait_args,
+            trait_const_args: input.trait_const_args,
+            self_ty: input.self_ty,
+            associated_types: &input.impl_signature.associated_types,
+        }),
+        self_ty: Some(input.self_ty),
+    };
     let mut signature = input.signature.clone();
     signature.params = signature
         .params
         .iter()
         .map(|param| ParamSignature {
-            name: param.name.clone(),
+            name: param.name,
             receiver: param.receiver,
             ty: substitute_imported_type(
                 input.target_interner,
@@ -177,8 +176,7 @@ pub(super) fn normalize_impl_method_signature(
                 param.ty,
                 &substitutions,
                 &const_substitutions,
-                context,
-                Some(input.self_ty),
+                target,
             ),
             span: param.span,
         })
@@ -190,8 +188,7 @@ pub(super) fn normalize_impl_method_signature(
         signature.return_type,
         &substitutions,
         &const_substitutions,
-        context,
-        Some(input.self_ty),
+        target,
     );
     signature
 }
@@ -233,6 +230,12 @@ pub(super) struct ProjectionImplContext<'a> {
     pub(super) associated_types: &'a [nia_item_signatures::TraitImplAssociatedTypeSignature],
 }
 
+#[derive(Clone, Copy, Default)]
+pub(super) struct TypeSubstitutionTarget<'a> {
+    pub(super) projection: Option<ProjectionImplContext<'a>>,
+    pub(super) self_ty: Option<nia_ids::InternedTyId>,
+}
+
 pub(super) fn substitute_imported_type(
     target_interner: &mut TyInterner,
     module: &ExtensionModuleInput<'_>,
@@ -240,9 +243,12 @@ pub(super) fn substitute_imported_type(
     ty: nia_ids::InternedTyId,
     substitutions: &SymbolMap<nia_ids::InternedTyId>,
     const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
-    projection_context: Option<ProjectionImplContext<'_>>,
-    self_substitution: Option<nia_ids::InternedTyId>,
+    target: TypeSubstitutionTarget<'_>,
 ) -> nia_ids::InternedTyId {
+    let TypeSubstitutionTarget {
+        projection: projection_context,
+        self_ty: self_substitution,
+    } = target;
     match source_interner.get(ty) {
         Some(TyKind::GenericParam(name)) => substitutions
             .get(name)
@@ -259,8 +265,10 @@ pub(super) fn substitute_imported_type(
                 *elem,
                 substitutions,
                 const_substitutions,
-                projection_context,
-                self_substitution,
+                TypeSubstitutionTarget {
+                    projection: projection_context,
+                    self_ty: self_substitution,
+                },
             );
             target_interner.intern(TyKind::Pointer { is_readonly, elem })
         }
@@ -273,8 +281,10 @@ pub(super) fn substitute_imported_type(
                 *elem,
                 substitutions,
                 const_substitutions,
-                projection_context,
-                self_substitution,
+                TypeSubstitutionTarget {
+                    projection: projection_context,
+                    self_ty: self_substitution,
+                },
             );
             target_interner.intern(TyKind::VolatilePointer { is_readonly, elem })
         }
@@ -287,8 +297,10 @@ pub(super) fn substitute_imported_type(
                 *elem,
                 substitutions,
                 const_substitutions,
-                projection_context,
-                self_substitution,
+                TypeSubstitutionTarget {
+                    projection: projection_context,
+                    self_ty: self_substitution,
+                },
             );
             target_interner.intern(TyKind::Slice { is_readonly, elem })
         }
@@ -300,8 +312,10 @@ pub(super) fn substitute_imported_type(
                 *elem,
                 substitutions,
                 const_substitutions,
-                projection_context,
-                self_substitution,
+                TypeSubstitutionTarget {
+                    projection: projection_context,
+                    self_ty: self_substitution,
+                },
             );
             target_interner.intern(TyKind::SlicePointee { elem })
         }
@@ -314,8 +328,10 @@ pub(super) fn substitute_imported_type(
                 *elem,
                 substitutions,
                 const_substitutions,
-                projection_context,
-                self_substitution,
+                TypeSubstitutionTarget {
+                    projection: projection_context,
+                    self_ty: self_substitution,
+                },
             );
             target_interner.intern(TyKind::Array { len, elem })
         }
@@ -328,8 +344,10 @@ pub(super) fn substitute_imported_type(
                     bound,
                     substitutions,
                     const_substitutions,
-                    projection_context,
-                    self_substitution,
+                    TypeSubstitutionTarget {
+                        projection: projection_context,
+                        self_ty: self_substitution,
+                    },
                 )
             });
             target_interner.intern(TyKind::Range { kind: *kind, bound })
@@ -342,8 +360,10 @@ pub(super) fn substitute_imported_type(
                 *elem,
                 substitutions,
                 const_substitutions,
-                projection_context,
-                self_substitution,
+                TypeSubstitutionTarget {
+                    projection: projection_context,
+                    self_ty: self_substitution,
+                },
             );
             target_interner.intern(TyKind::Optional { elem })
         }
@@ -355,8 +375,10 @@ pub(super) fn substitute_imported_type(
                 *error,
                 substitutions,
                 const_substitutions,
-                projection_context,
-                self_substitution,
+                TypeSubstitutionTarget {
+                    projection: projection_context,
+                    self_ty: self_substitution,
+                },
             );
             let value = substitute_imported_type(
                 target_interner,
@@ -365,8 +387,10 @@ pub(super) fn substitute_imported_type(
                 *value,
                 substitutions,
                 const_substitutions,
-                projection_context,
-                self_substitution,
+                TypeSubstitutionTarget {
+                    projection: projection_context,
+                    self_ty: self_substitution,
+                },
             );
             target_interner.intern(TyKind::ErrorUnion { error, value })
         }
@@ -385,8 +409,10 @@ pub(super) fn substitute_imported_type(
                         *param,
                         substitutions,
                         const_substitutions,
-                        projection_context,
-                        self_substitution,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
                     )
                 })
                 .collect();
@@ -397,8 +423,10 @@ pub(super) fn substitute_imported_type(
                 *return_type,
                 substitutions,
                 const_substitutions,
-                projection_context,
-                self_substitution,
+                TypeSubstitutionTarget {
+                    projection: projection_context,
+                    self_ty: self_substitution,
+                },
             );
             target_interner.intern(TyKind::FunctionPointer {
                 params,
@@ -421,8 +449,10 @@ pub(super) fn substitute_imported_type(
                         *arg,
                         substitutions,
                         const_substitutions,
-                        projection_context,
-                        self_substitution,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
                     )
                 })
                 .collect();
@@ -436,8 +466,10 @@ pub(super) fn substitute_imported_type(
                         arg,
                         substitutions,
                         const_substitutions,
-                        projection_context,
-                        self_substitution,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
                     )
                 })
                 .collect();
@@ -458,8 +490,10 @@ pub(super) fn substitute_imported_type(
                         *arg,
                         substitutions,
                         const_substitutions,
-                        projection_context,
-                        self_substitution,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
                     )
                 })
                 .collect();
@@ -486,8 +520,10 @@ pub(super) fn substitute_imported_type(
                         *arg,
                         substitutions,
                         const_substitutions,
-                        projection_context,
-                        self_substitution,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
                     )
                 })
                 .collect();
@@ -501,8 +537,10 @@ pub(super) fn substitute_imported_type(
                         arg,
                         substitutions,
                         const_substitutions,
-                        projection_context,
-                        self_substitution,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
                     )
                 })
                 .collect();
@@ -521,8 +559,10 @@ pub(super) fn substitute_imported_type(
                                 *arg,
                                 substitutions,
                                 const_substitutions,
-                                projection_context,
-                                self_substitution,
+                                TypeSubstitutionTarget {
+                                    projection: projection_context,
+                                    self_ty: self_substitution,
+                                },
                             )
                         })
                         .collect(),
@@ -537,12 +577,14 @@ pub(super) fn substitute_imported_type(
                                 arg,
                                 substitutions,
                                 const_substitutions,
-                                projection_context,
-                                self_substitution,
+                                TypeSubstitutionTarget {
+                                    projection: projection_context,
+                                    self_ty: self_substitution,
+                                },
                             )
                         })
                         .collect(),
-                    name: binding.name.clone(),
+                    name: binding.name,
                     ty: substitute_imported_type(
                         target_interner,
                         module,
@@ -550,8 +592,10 @@ pub(super) fn substitute_imported_type(
                         binding.ty,
                         substitutions,
                         const_substitutions,
-                        projection_context,
-                        self_substitution,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
                     ),
                 })
                 .collect();
@@ -579,8 +623,10 @@ pub(super) fn substitute_imported_type(
                         *arg,
                         substitutions,
                         const_substitutions,
-                        projection_context,
-                        self_substitution,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
                     )
                 })
                 .collect();
@@ -594,8 +640,10 @@ pub(super) fn substitute_imported_type(
                         arg,
                         substitutions,
                         const_substitutions,
-                        projection_context,
-                        self_substitution,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
                     )
                 })
                 .collect();
@@ -614,8 +662,10 @@ pub(super) fn substitute_imported_type(
                                 *arg,
                                 substitutions,
                                 const_substitutions,
-                                projection_context,
-                                self_substitution,
+                                TypeSubstitutionTarget {
+                                    projection: projection_context,
+                                    self_ty: self_substitution,
+                                },
                             )
                         })
                         .collect(),
@@ -630,12 +680,14 @@ pub(super) fn substitute_imported_type(
                                 arg,
                                 substitutions,
                                 const_substitutions,
-                                projection_context,
-                                self_substitution,
+                                TypeSubstitutionTarget {
+                                    projection: projection_context,
+                                    self_ty: self_substitution,
+                                },
                             )
                         })
                         .collect(),
-                    name: binding.name.clone(),
+                    name: binding.name,
                     ty: substitute_imported_type(
                         target_interner,
                         module,
@@ -643,8 +695,10 @@ pub(super) fn substitute_imported_type(
                         binding.ty,
                         substitutions,
                         const_substitutions,
-                        projection_context,
-                        self_substitution,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
                     ),
                 })
                 .collect();
@@ -669,8 +723,10 @@ pub(super) fn substitute_imported_type(
                 *self_ty,
                 substitutions,
                 const_substitutions,
-                projection_context,
-                self_substitution,
+                TypeSubstitutionTarget {
+                    projection: projection_context,
+                    self_ty: self_substitution,
+                },
             );
             let trait_args = trait_args
                 .iter()
@@ -682,8 +738,10 @@ pub(super) fn substitute_imported_type(
                         *arg,
                         substitutions,
                         const_substitutions,
-                        projection_context,
-                        self_substitution,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
                     )
                 })
                 .collect::<Vec<_>>();
@@ -697,8 +755,10 @@ pub(super) fn substitute_imported_type(
                         arg,
                         substitutions,
                         const_substitutions,
-                        projection_context,
-                        self_substitution,
+                        TypeSubstitutionTarget {
+                            projection: projection_context,
+                            self_ty: self_substitution,
+                        },
                     )
                 })
                 .collect::<Vec<_>>();
@@ -720,7 +780,7 @@ pub(super) fn substitute_imported_type(
                 trait_id: *trait_id,
                 trait_args,
                 trait_const_args,
-                name: name.clone(),
+                name: *name,
             })
         }
         Some(
@@ -736,7 +796,7 @@ pub(super) fn const_substitutions_from_self_describing_args(
     const_args
         .iter()
         .filter_map(|arg| match &arg.value {
-            nia_ty::ConstGenericValue::GenericParam(name) => Some((name.clone(), arg.clone())),
+            nia_ty::ConstGenericValue::GenericParam(name) => Some((*name, arg.clone())),
             _ => None,
         })
         .collect()
@@ -749,8 +809,7 @@ fn substitute_imported_const_arg(
     arg: &nia_ty::ConstGenericArg,
     substitutions: &SymbolMap<nia_ids::InternedTyId>,
     const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
-    projection_context: Option<ProjectionImplContext<'_>>,
-    self_substitution: Option<nia_ids::InternedTyId>,
+    target: TypeSubstitutionTarget<'_>,
 ) -> nia_ty::ConstGenericArg {
     if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
         && let Some(substituted) = const_substitutions.get(name)
@@ -765,8 +824,7 @@ fn substitute_imported_const_arg(
             arg.ty,
             substitutions,
             const_substitutions,
-            projection_context,
-            self_substitution,
+            target,
         ),
         value: arg.value.clone(),
     }
@@ -793,7 +851,7 @@ fn array_len_from_const_arg(arg: &nia_ty::ConstGenericArg) -> Option<nia_ty::Arr
             .ok()
             .map(nia_ty::ArrayLenTy::ConstValue),
         nia_ty::ConstGenericValue::GenericParam(name) => {
-            Some(nia_ty::ArrayLenTy::GenericParam(name.clone()))
+            Some(nia_ty::ArrayLenTy::GenericParam(*name))
         }
         nia_ty::ConstGenericValue::ConstExpr(id) => Some(nia_ty::ArrayLenTy::ConstExpr(*id)),
         nia_ty::ConstGenericValue::Bool(_) | nia_ty::ConstGenericValue::Char(_) => None,

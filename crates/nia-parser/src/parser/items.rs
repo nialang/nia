@@ -653,8 +653,8 @@ impl Parser {
                 TokenKind::Bool | TokenKind::Char | TokenKind::Never | TokenKind::Void
             ) {
             let token = self.bump();
-            let name = self.token_name(&token)?;
-            name
+
+            self.token_name(&token)?
         } else {
             self.expect_name(TokenKind::Ident, "expected type alias name")?
         };

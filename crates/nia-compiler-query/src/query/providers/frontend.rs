@@ -50,20 +50,16 @@ pub(super) fn provide_active_module_item_tree(
 pub(super) fn provide_full_module_item_tree(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ModuleItemTree {
+) -> Arc<ModuleItemTree> {
     db.query(FullModuleItemTreeInputQuery(module_id))
-        .as_ref()
-        .clone()
 }
 
 pub(super) fn provide_full_active_module_item_tree(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ActiveModuleItemTree {
-    let _raw_item_tree = db.query_shared(FullModuleItemTreeQuery(module_id));
+) -> Arc<ActiveModuleItemTree> {
+    let _raw_item_tree = db.query(FullModuleItemTreeQuery(module_id));
     db.query(FullActiveModuleItemTreeInputQuery(module_id))
-        .as_ref()
-        .clone()
 }
 
 pub(super) fn provide_module_defs(
@@ -81,50 +77,39 @@ pub(super) fn provide_full_module_defs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> DefCollection {
-    let item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+    let item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let symbols = db.context().symbols();
     nia_defs::collect_module_defs_from_active_item_tree_with_symbols(
         module_id, &item_tree, &symbols,
     )
 }
 
-pub(super) fn provide_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<DefCollection> {
-    db.query_many(
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(ModuleDefsQuery),
-    )
+fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<Arc<DefCollection>> {
+    db.query(ParseOkModuleIdsQuery)
+        .into_iter()
+        .map(|module_id| db.query_shared(ModuleDefsQuery(module_id)))
+        .collect()
 }
 
 pub(super) fn provide_public_surfaces(db: &QueryDb<CompilerContext>) -> PublicSurfacesValue {
     time_provider(db.context().timings(), "public_surfaces", || {
-        let defs = db.query(DefsByModuleQuery);
-        let graph = db.query_shared(ModuleGraphQuery);
-        let symbols = db.context().symbols();
-        let exports = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
-        Arc::new(PublicSurfacesQueryValue {
-            surfaces: exports.surfaces,
-            diagnostics: exports.diagnostics,
-        })
+        db.context().public_surfaces()
     })
+}
+
+pub(super) fn provide_module_public_surface(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> Option<Arc<ModulePublicSurface>> {
+    db.context()
+        .public_surfaces()
+        .surfaces
+        .public_surface(module_id)
 }
 
 pub(super) fn provide_public_using_scopes(db: &QueryDb<CompilerContext>) -> PublicUsingScopesValue {
     time_provider(db.context().timings(), "public_using_scopes", || {
-        let defs = db.query(DefsByModuleQuery);
-        let graph = db.query_shared(ModuleGraphQuery);
-        let surfaces = db.query(PublicSurfacesQuery);
-        let symbols = db.context().symbols();
-        let scopes = compute_using_scopes_from_surfaces_with_symbols(
-            &defs,
-            &graph,
-            &surfaces.surfaces,
-            &symbols,
-        );
-        Arc::new(PublicUsingScopesQueryValue {
-            using_scopes: scopes.using_scopes,
-            diagnostics: scopes.diagnostics,
-        })
+        db.context().public_using_scopes()
     })
 }
 
@@ -132,7 +117,8 @@ pub(super) fn provide_module_using_scope(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ModuleUsingScope {
-    db.query(PublicUsingScopesQuery)
+    db.context()
+        .public_using_scopes()
         .using_scopes
         .get(&module_id)
         .cloned()
@@ -141,7 +127,7 @@ pub(super) fn provide_module_using_scope(
 
 pub(super) fn provide_type_exposure_index(db: &QueryDb<CompilerContext>) -> TypeExposureIndexValue {
     time_provider(db.context().timings(), "type_exposure_index", || {
-        let defs = db.query(DefsByModuleQuery);
+        let defs = shared_defs_by_module(db);
         let public_surfaces = db.query(PublicSurfacesQuery);
         let public_using_scopes = db.query(PublicUsingScopesQuery);
         Arc::new(TypeExposureIndex::from_defs_surfaces_and_using_scopes(
@@ -157,12 +143,12 @@ pub(super) fn provide_type_resolution(
     module_id: ModuleId,
 ) -> TypeResolution {
     time_module_provider(db, "type_resolution", module_id, || {
-        let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+        let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
         let defs = db.query_shared(FullModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
-        let graph = db.query_shared(ModuleGraphQuery);
-        let public_surfaces = db.query(PublicSurfacesQuery);
-        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
+        let graph = QueryModuleGraphLookup::new(db);
+        let public_surfaces = QueryPublicSurfaceLookup::new(db);
+        let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let symbols = db.context().symbols();
         nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols(
             &active_item_tree,
@@ -171,7 +157,7 @@ pub(super) fn provide_type_resolution(
                 defs: Some(&program_defs),
                 graph: Some(&graph),
             },
-            &public_surfaces.surfaces,
+            &public_surfaces,
             &using_scope,
             &symbols,
         )
@@ -186,9 +172,9 @@ pub(super) fn provide_declaration_type_resolution(
         let active_item_tree = db.query_shared(DeclarationActiveModuleItemTreeQuery(module_id));
         let defs = db.query_shared(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
-        let graph = db.query_shared(ModuleGraphQuery);
-        let public_surfaces = db.query(PublicSurfacesQuery);
-        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
+        let graph = QueryModuleGraphLookup::new(db);
+        let public_surfaces = QueryPublicSurfaceLookup::new(db);
+        let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let symbols = db.context().symbols();
         nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols(
             &active_item_tree,
@@ -197,7 +183,7 @@ pub(super) fn provide_declaration_type_resolution(
                 defs: Some(&program_defs),
                 graph: Some(&graph),
             },
-            &public_surfaces.surfaces,
+            &public_surfaces,
             &using_scope,
             &symbols,
         )
@@ -213,9 +199,9 @@ pub(super) fn provide_signature_type_resolution(
         let active_item_tree = db.query_shared(SignatureItemTreeQuery(module_id, set));
         let defs = db.query_shared(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
-        let graph = db.query_shared(ModuleGraphQuery);
-        let public_surfaces = db.query(PublicSurfacesQuery);
-        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
+        let graph = QueryModuleGraphLookup::new(db);
+        let public_surfaces = QueryPublicSurfaceLookup::new(db);
+        let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let symbols = db.context().symbols();
         nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols(
             &active_item_tree,
@@ -224,7 +210,7 @@ pub(super) fn provide_signature_type_resolution(
                 defs: Some(&program_defs),
                 graph: Some(&graph),
             },
-            &public_surfaces.surfaces,
+            &public_surfaces,
             &using_scope,
             &symbols,
         )
@@ -239,9 +225,9 @@ pub(super) fn provide_signature_comptime_type_resolution(
         let active_item_tree = db.query(SignatureComptimeItemTreeQuery(module_id));
         let defs = db.query_shared(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
-        let graph = db.query_shared(ModuleGraphQuery);
-        let public_surfaces = db.query(PublicSurfacesQuery);
-        let using_scope = db.query(ModuleUsingScopeQuery(module_id));
+        let graph = QueryModuleGraphLookup::new(db);
+        let public_surfaces = QueryPublicSurfaceLookup::new(db);
+        let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let symbols = db.context().symbols();
         nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols(
             &active_item_tree,
@@ -250,7 +236,7 @@ pub(super) fn provide_signature_comptime_type_resolution(
                 defs: Some(&program_defs),
                 graph: Some(&graph),
             },
-            &public_surfaces.surfaces,
+            &public_surfaces,
             &using_scope,
             &symbols,
         )
@@ -261,7 +247,7 @@ pub(super) fn provide_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeLowering {
-    let active_item_tree = db.query_shared(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
     let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();

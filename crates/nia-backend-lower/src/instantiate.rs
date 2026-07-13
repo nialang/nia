@@ -29,6 +29,17 @@ struct ProjectionInstantiationKey {
     name: SymbolId,
 }
 
+pub(crate) struct FunctionBodyInstantiation<'a> {
+    pub(crate) function: nia_ids::GlobalDefId,
+    pub(crate) module_id: ModuleId,
+    pub(crate) is_instance: bool,
+    pub(crate) type_arg_count: usize,
+    pub(crate) body: FunctionBody,
+    pub(crate) self_arg: Option<InternedTyId>,
+    pub(crate) substitutions: &'a SymbolMap<InternedTyId>,
+    pub(crate) const_substitutions: &'a SymbolMap<nia_ty::ConstGenericArg>,
+}
+
 fn array_len_from_const_arg(arg: &nia_ty::ConstGenericArg) -> Option<nia_ty::ArrayLenTy> {
     match &arg.value {
         nia_ty::ConstGenericValue::Int(value) => value
@@ -37,7 +48,7 @@ fn array_len_from_const_arg(arg: &nia_ty::ConstGenericArg) -> Option<nia_ty::Arr
             .ok()
             .map(nia_ty::ArrayLenTy::ConstValue),
         nia_ty::ConstGenericValue::GenericParam(name) => {
-            Some(nia_ty::ArrayLenTy::GenericParam(name.clone()))
+            Some(nia_ty::ArrayLenTy::GenericParam(*name))
         }
         nia_ty::ConstGenericValue::ConstExpr(id) => Some(nia_ty::ArrayLenTy::ConstExpr(*id)),
         nia_ty::ConstGenericValue::Bool(_) | nia_ty::ConstGenericValue::Char(_) => None,
@@ -186,13 +197,13 @@ impl<'a> ModuleLowerer<'a> {
             match generic.kind {
                 nia_ast::GenericParamKind::Type => {
                     if let Some(arg) = args.get(type_index).copied() {
-                        substitutions.insert(generic.name.clone(), arg);
+                        substitutions.insert(generic.name, arg);
                     }
                     type_index += 1;
                 }
                 nia_ast::GenericParamKind::Comptime { .. } => {
                     if let Some(arg) = const_args.get(const_index).cloned() {
-                        const_substitutions.insert(generic.name.clone(), arg);
+                        const_substitutions.insert(generic.name, arg);
                     }
                     const_index += 1;
                 }
@@ -216,7 +227,7 @@ impl<'a> ModuleLowerer<'a> {
                 nia_ast::GenericParamKind::Type => {}
                 nia_ast::GenericParamKind::Comptime { .. } => {
                     if let Some(arg) = const_args.get(const_index).cloned() {
-                        const_substitutions.insert(generic.name.clone(), arg);
+                        const_substitutions.insert(generic.name, arg);
                     }
                     const_index += 1;
                 }
@@ -439,7 +450,7 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .map(|param| BackendParam {
                 local_id: param.local_id,
-                name: param.name.clone(),
+                name: param.name,
                 receiver: param.receiver,
                 passing_ty: self.instantiate_ty_with_id(param.passing_ty, substitutions),
                 local_ty: self.instantiate_ty_with_id(param.local_ty, substitutions),
@@ -450,57 +461,18 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn instantiate_function_body(
         &mut self,
-        function: nia_ids::GlobalDefId,
-        instantiation_module_id: ModuleId,
-        is_instance: bool,
-        type_arg_count: usize,
-        body: FunctionBody,
-        substitutions: &SymbolMap<InternedTyId>,
+        input: FunctionBodyInstantiation<'_>,
     ) -> FunctionBody {
-        self.instantiate_function_body_with_const_substitutions(
+        let FunctionBodyInstantiation {
             function,
-            instantiation_module_id,
+            module_id: instantiation_module_id,
             is_instance,
             type_arg_count,
             body,
-            substitutions,
-            &SymbolMap::default(),
-        )
-    }
-
-    pub(crate) fn instantiate_function_body_with_const_substitutions(
-        &mut self,
-        function: nia_ids::GlobalDefId,
-        instantiation_module_id: ModuleId,
-        is_instance: bool,
-        type_arg_count: usize,
-        body: FunctionBody,
-        substitutions: &SymbolMap<InternedTyId>,
-        const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
-    ) -> FunctionBody {
-        self.instantiate_function_body_with_self_and_const_substitutions(
-            function,
-            instantiation_module_id,
-            is_instance,
-            type_arg_count,
-            body,
-            None,
+            self_arg,
             substitutions,
             const_substitutions,
-        )
-    }
-
-    pub(crate) fn instantiate_function_body_with_self_and_const_substitutions(
-        &mut self,
-        function: nia_ids::GlobalDefId,
-        instantiation_module_id: ModuleId,
-        is_instance: bool,
-        type_arg_count: usize,
-        body: FunctionBody,
-        self_arg: Option<InternedTyId>,
-        substitutions: &SymbolMap<InternedTyId>,
-        const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
-    ) -> FunctionBody {
+        } = input;
         let instantiation_snapshot = self.instantiation.take_snapshot();
         let body_interner = self.type_context.function_body_interner(function.module_id);
         let substitutions = self.intern_type_and_const_substitutions_with_self(
@@ -625,7 +597,7 @@ impl<'a> ModuleLowerer<'a> {
                             .iter()
                             .map(
                                 |binding| nia_item_signatures::AssociatedTypeBindingSignature {
-                                    name: binding.name.clone(),
+                                    name: binding.name,
                                     ty: self.import_type_from_known_interner(
                                         source_interner,
                                         binding.ty,
@@ -659,7 +631,7 @@ impl<'a> ModuleLowerer<'a> {
                         .iter()
                         .map(
                             |binding| nia_item_signatures::AssociatedTypeBindingSignature {
-                                name: binding.name.clone(),
+                                name: binding.name,
                                 ty: self.instantiate_ty(binding.ty, substitutions),
                                 span: binding.span,
                             },
@@ -1095,7 +1067,7 @@ impl<'a> ModuleLowerer<'a> {
                                 )
                             })
                             .collect(),
-                        name: binding.name.clone(),
+                        name: binding.name,
                         ty: self.instantiate_ty_with_id_inner(
                             binding.ty,
                             substitutions,
@@ -1162,7 +1134,7 @@ impl<'a> ModuleLowerer<'a> {
                                 )
                             })
                             .collect(),
-                        name: binding.name.clone(),
+                        name: binding.name,
                         ty: self.instantiate_ty_with_id_inner(
                             binding.ty,
                             substitutions,
@@ -1215,25 +1187,21 @@ impl<'a> ModuleLowerer<'a> {
                     trait_id,
                     trait_args: trait_args.clone(),
                     trait_const_args: trait_const_args.clone(),
-                    name: name.clone(),
+                    name,
                 };
                 let projection = self.type_context.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args: trait_args.clone(),
                     trait_const_args: trait_const_args.clone(),
-                    name: name.clone(),
+                    name,
                 });
                 if !active_projections.insert(projection_key.clone()) {
                     return projection;
                 }
                 let resolved = self
                     .resolve_associated_type_projection(
-                        self_ty,
-                        trait_id,
-                        &trait_args,
-                        &trait_const_args,
-                        &name,
+                        &projection_key,
                         substitutions,
                         active_projections,
                     )
@@ -1279,14 +1247,14 @@ impl<'a> ModuleLowerer<'a> {
         let self_arg = self_arg.map(|ty| self.import_instance_arg_type(ty));
         let mut substitutions = substitutions
             .iter()
-            .map(|(name, ty)| (name.clone(), self.import_instance_arg_type(*ty)))
+            .map(|(name, ty)| (*name, self.import_instance_arg_type(*ty)))
             .collect::<Vec<_>>();
-        substitutions.sort_by(|left, right| left.0.cmp(&right.0));
+        substitutions.sort_by_key(|left| left.0);
         let mut const_substitutions = const_substitutions
             .iter()
-            .map(|(name, arg)| (name.clone(), self.import_const_generic_arg(arg)))
+            .map(|(name, arg)| (*name, self.import_const_generic_arg(arg)))
             .collect::<Vec<_>>();
-        const_substitutions.sort_by(|left, right| left.0.cmp(&right.0));
+        const_substitutions.sort_by_key(|left| left.0);
         self.type_context
             .intern_type_substitutions(self_arg, substitutions, const_substitutions)
     }
@@ -1432,11 +1400,7 @@ impl<'a> ModuleLowerer<'a> {
 
     fn resolve_associated_type_projection(
         &mut self,
-        self_ty: InternedTyId,
-        trait_id: nia_ty::TraitId,
-        trait_args: &[InternedTyId],
-        trait_const_args: &[nia_ty::ConstGenericArg],
-        name: &SymbolId,
+        projection: &ProjectionInstantiationKey,
         substitutions: TypeSubstitutionId,
         active_projections: &mut HashSet<ProjectionInstantiationKey>,
     ) -> Option<InternedTyId> {
@@ -1459,7 +1423,13 @@ impl<'a> ModuleLowerer<'a> {
             &[],
             &associated_type_assumptions,
         );
-        solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
+        solver.resolve_associated_type(
+            projection.self_ty,
+            projection.trait_id,
+            &projection.trait_args,
+            &projection.trait_const_args,
+            &projection.name,
+        )
     }
 
     fn current_associated_type_assumptions(
@@ -1560,7 +1530,7 @@ impl<'a> ModuleLowerer<'a> {
                 if let Some(existing) = substitutions.get(&name).copied() {
                     self.types_match(existing, actual)
                 } else {
-                    substitutions.insert(name.clone(), actual);
+                    substitutions.insert(name, actual);
                     true
                 }
             }

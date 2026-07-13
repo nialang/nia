@@ -337,6 +337,7 @@ fn emit_exe_std_fs_file_close_marks_handle_closed() {
         &main,
         r#"
 using std::fs;
+using std::io;
 using std::process;
 
 pub fn main(init: process::Init) process::ExitCode!void {

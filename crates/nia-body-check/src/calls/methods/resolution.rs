@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use nia_symbol::ToSymbolId;
 
 struct DynamicTraitMethodSearch<'a> {
     candidates: &'a mut Vec<DynamicTraitMethodCandidate>,
@@ -14,7 +15,81 @@ struct DynamicTraitMethodSearch<'a> {
     visiting: &'a mut Vec<TraitId>,
 }
 
+struct TraitMethodCandidateSource<'a> {
+    trait_id: GlobalDefId,
+    trait_args: Vec<InternedTyId>,
+    trait_const_args: Vec<ConstGenericArg>,
+    self_ty: InternedTyId,
+    name: &'a SymbolId,
+    signature: &'a nia_item_signatures::TraitSignature,
+    is_assumed: bool,
+}
+
 impl<'a> BodyChecker<'a> {
+    fn record_provider_demand(&self, demand: crate::ProviderDemand) {
+        self.provider_demands.borrow_mut().insert(demand.clone());
+        if let Some(function) = self.current_def_id {
+            self.provider_demands_by_function
+                .borrow_mut()
+                .entry(function)
+                .or_default()
+                .insert(demand);
+        }
+    }
+
+    pub(in crate::calls) fn record_method_provider_demand(
+        &mut self,
+        receiver_ty: InternedTyId,
+        method_name: SymbolId,
+    ) {
+        let target_type_name = self
+            .receiver_base_type(receiver_ty)
+            .and_then(|base| self.definition_name(base.def_id));
+        self.record_provider_demand(crate::ProviderDemand {
+            source_path: self.source_path.clone(),
+            request: crate::ProviderRequest::Method {
+                target_type_name,
+                method_name,
+            },
+        });
+    }
+
+    pub(crate) fn record_trait_provider_demand(&self, trait_id: TraitId) {
+        let trait_name = match trait_id {
+            TraitId::Source(def_id) => {
+                let Some(name) = self.definition_name(def_id) else {
+                    return;
+                };
+                name
+            }
+            TraitId::Builtin(builtin) => builtin.symbol_id(),
+        };
+        self.record_provider_demand(crate::ProviderDemand {
+            source_path: self.source_path.clone(),
+            request: crate::ProviderRequest::TraitImpl { trait_name },
+        });
+    }
+
+    pub(in crate::calls) fn record_semantic_provider_module(&self, module_id: nia_ids::ModuleId) {
+        if module_id == self.defs.module_id {
+            return;
+        }
+        self.record_provider_demand(crate::ProviderDemand {
+            source_path: self.source_path.clone(),
+            request: crate::ProviderRequest::ModuleSemantic { module_id },
+        });
+    }
+
+    fn definition_name(&self, def_id: GlobalDefId) -> Option<SymbolId> {
+        if def_id.module_id == self.defs.module_id {
+            return self.defs.defs.get(def_id.def_id).map(|def| def.name);
+        }
+        self.program
+            .defs
+            .and_then(|defs| defs(def_id.module_id))
+            .and_then(|defs| defs.defs.get(def_id.def_id).map(|def| def.name))
+    }
+
     fn ensure_callable_extension_methods_named(&mut self, name: &SymbolId) {
         if self.callable_extension_methods_by_name.contains_key(name) {
             return;
@@ -59,7 +134,7 @@ impl<'a> BodyChecker<'a> {
             methods.push(crate::CallableExtensionMethod {
                 target_ty: lookup.target_ty,
                 method: VisibleExtensionMethod {
-                    name: method.name.clone(),
+                    name: method.name,
                     def_id: method.def_id,
                     impl_id: method.impl_id,
                     effective_generics: lookup.effective_generics.clone(),
@@ -89,7 +164,7 @@ impl<'a> BodyChecker<'a> {
             }
         }
         self.callable_extension_methods_by_name
-            .insert(name.clone(), indexed);
+            .insert(*name, indexed);
     }
 
     pub(in crate::calls) fn method_candidates_for_target(
@@ -463,13 +538,15 @@ impl<'a> BodyChecker<'a> {
             let trait_const_args = goal.trait_const_args;
             self.push_trait_method_candidates(
                 &mut candidates,
-                trait_id,
-                trait_args,
-                trait_const_args,
-                self_ty,
-                name,
-                &trait_signature,
-                true,
+                TraitMethodCandidateSource {
+                    trait_id,
+                    trait_args,
+                    trait_const_args,
+                    self_ty,
+                    name,
+                    signature: &trait_signature,
+                    is_assumed: true,
+                },
             );
         }
         candidates
@@ -501,13 +578,15 @@ impl<'a> BodyChecker<'a> {
             let trait_const_args = goal.trait_const_args;
             self.push_trait_method_candidates(
                 &mut candidates,
-                trait_id,
-                trait_args,
-                trait_const_args,
-                self_ty,
-                name,
-                &trait_signature,
-                true,
+                TraitMethodCandidateSource {
+                    trait_id,
+                    trait_args,
+                    trait_const_args,
+                    self_ty,
+                    name,
+                    signature: &trait_signature,
+                    is_assumed: true,
+                },
             );
         }
         if !candidates.is_empty() {
@@ -543,13 +622,15 @@ impl<'a> BodyChecker<'a> {
             {
                 self.push_trait_method_candidates(
                     candidates,
-                    trait_id,
-                    trait_args,
-                    trait_const_args,
-                    self_ty,
-                    name,
-                    &trait_signature,
-                    false,
+                    TraitMethodCandidateSource {
+                        trait_id,
+                        trait_args,
+                        trait_const_args,
+                        self_ty,
+                        name,
+                        signature: &trait_signature,
+                        is_assumed: false,
+                    },
                 );
             }
         }
@@ -562,8 +643,7 @@ impl<'a> BodyChecker<'a> {
         let trait_ids = self
             .program_signature_scope
             .trait_ids_with_method_named(name);
-        self.traits_by_method_name
-            .insert(name.clone(), trait_ids.clone());
+        self.traits_by_method_name.insert(*name, trait_ids.clone());
         trait_ids
     }
 
@@ -701,14 +781,17 @@ impl<'a> BodyChecker<'a> {
     fn push_trait_method_candidates(
         &mut self,
         candidates: &mut Vec<TraitMethodCandidate>,
-        trait_id: GlobalDefId,
-        trait_args: Vec<InternedTyId>,
-        trait_const_args: Vec<ConstGenericArg>,
-        self_ty: InternedTyId,
-        name: &SymbolId,
-        trait_signature: &nia_item_signatures::TraitSignature,
-        is_assumed: bool,
+        source: TraitMethodCandidateSource<'_>,
     ) {
+        let TraitMethodCandidateSource {
+            trait_id,
+            trait_args,
+            trait_const_args,
+            self_ty,
+            name,
+            signature: trait_signature,
+            is_assumed,
+        } = source;
         for method in &trait_signature.methods {
             if &method.name == name {
                 let method_id = GlobalDefId {
@@ -775,13 +858,15 @@ impl<'a> BodyChecker<'a> {
             };
             self.push_trait_method_candidates(
                 candidates,
-                supertrait_id,
-                supertrait_args,
-                supertrait_const_args,
-                self_ty,
-                name,
-                &supertrait_signature,
-                is_assumed,
+                TraitMethodCandidateSource {
+                    trait_id: supertrait_id,
+                    trait_args: supertrait_args,
+                    trait_const_args: supertrait_const_args,
+                    self_ty,
+                    name,
+                    signature: &supertrait_signature,
+                    is_assumed,
+                },
             );
         }
     }
@@ -1884,7 +1969,7 @@ impl<'a> BodyChecker<'a> {
         if let Some(existing) = const_substitutions.get(name) {
             existing == &arg
         } else {
-            const_substitutions.insert(name.clone(), arg);
+            const_substitutions.insert(*name, arg);
             true
         }
     }
@@ -1902,9 +1987,7 @@ impl<'a> BodyChecker<'a> {
                     nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
                 })
             }
-            ArrayLenTy::GenericParam(name) => {
-                Some(nia_ty::ConstGenericValue::GenericParam(name.clone()))
-            }
+            ArrayLenTy::GenericParam(name) => Some(nia_ty::ConstGenericValue::GenericParam(*name)),
             ArrayLenTy::Infer | ArrayLenTy::Builtin { .. } => None,
         }
     }
@@ -1960,7 +2043,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 for (generic, ty) in candidate {
                     if !substitutions.contains_key(generic) {
-                        substitutions.insert(generic.clone(), *ty);
+                        substitutions.insert(*generic, *ty);
                         changed = true;
                     }
                 }

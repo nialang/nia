@@ -320,6 +320,9 @@ impl<'a> BodyChecker<'a> {
             associated_type_bindings: Vec::new(),
         };
         let resolution = self.resolve_trait_obligation(&obligations, &required);
+        if matches!(resolution, TraitResolution::Unsatisfied) {
+            self.record_trait_provider_demand(trait_id);
+        }
         self.trait_obligation_resolution_cache
             .insert(key, resolution.clone());
         resolution
@@ -377,16 +380,12 @@ impl<'a> BodyChecker<'a> {
         }
         let mut obligations = Vec::new();
         self.push_method_owner_trait_obligations(def_id, &mut obligations);
-        if let Some(signature) = self.signatures.functions.get(&def_id).cloned() {
-            if self
+        if let Some(signature) = self.signatures.functions.get(&def_id).cloned()
+            && self
                 .program_signature_scope
                 .includes_function(self.global_def_id(def_id))
-            {
-                self.push_where_predicate_obligations(
-                    &mut obligations,
-                    &signature.where_predicates,
-                );
-            }
+        {
+            self.push_where_predicate_obligations(&mut obligations, &signature.where_predicates);
         }
         self.def_trait_obligations_cache
             .insert(def_id, obligations.clone());
@@ -553,7 +552,7 @@ impl<'a> BodyChecker<'a> {
                         .iter()
                         .map(
                             |binding| nia_item_signatures::AssociatedTypeBindingSignature {
-                                name: binding.name.clone(),
+                                name: binding.name,
                                 ty: self.substitute_generics_and_consts(
                                     binding.ty,
                                     substitutions,
@@ -1060,7 +1059,7 @@ impl<'a> BodyChecker<'a> {
                         associated_type_bindings: associated_type_bindings
                             .iter()
                             .map(|binding| TraitObligationAssociatedTypeBinding {
-                                name: binding.name.clone(),
+                                name: binding.name,
                                 ty: binding.ty,
                             })
                             .collect(),
@@ -1079,7 +1078,7 @@ impl<'a> BodyChecker<'a> {
                         .associated_types
                         .iter()
                         .map(|associated_type| TraitObligationAssociatedTypeBinding {
-                            name: associated_type.name.clone(),
+                            name: associated_type.name,
                             ty: associated_type.ty,
                         })
                         .collect(),
@@ -1218,7 +1217,7 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .map(
                 |associated_type| nia_item_signatures::TraitImplAssociatedTypeSignature {
-                    name: associated_type.name.clone(),
+                    name: associated_type.name,
                     ty: self.import_type_from(source, associated_type.ty),
                     span: associated_type.span,
                 },
@@ -1247,7 +1246,7 @@ impl<'a> BodyChecker<'a> {
                     .associated_type_bindings
                     .iter()
                     .map(|binding| TraitObligationAssociatedTypeBinding {
-                        name: binding.name.clone(),
+                        name: binding.name,
                         ty: binding.ty,
                     })
                     .collect(),
@@ -1880,7 +1879,7 @@ impl<'a> BodyChecker<'a> {
             trait_impl_index: self.program_trait_impl_index,
             layouts: Some(self.layouts),
             local_module_id: self.defs.module_id,
-            local_enums: &self.signatures.enums,
+            local_enums: self.signatures.enums,
             program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
             impl_is_visible: None,
@@ -1917,7 +1916,7 @@ impl<'a> BodyChecker<'a> {
                             trait_args: obligation.trait_args.clone(),
                             trait_const_args: obligation.trait_const_args.clone(),
                         },
-                        name: binding.name.clone(),
+                        name: binding.name,
                         ty: binding.ty,
                     }
                 })

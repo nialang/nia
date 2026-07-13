@@ -10,7 +10,6 @@ nia-defs.workspace = true
 nia-executable-facts.workspace = true
 nia-hash.workspace = true
 nia-ids.workspace = true
-nia-imports.workspace = true
 nia-item-signatures.workspace = true
 nia-sema-ir.workspace = true
 nia-span.workspace = true

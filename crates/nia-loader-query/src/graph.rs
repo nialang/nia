@@ -2,11 +2,10 @@
 pub(crate) struct ModuleGraphQuery;
 
 use crate::provider_loading::{
-    add_public_reexport_extension_provider_modules, add_public_reexport_source_module,
-    module_defines_extensions, process_loaded_provider_request, process_provider_request,
+    add_public_reexport_source_module, module_defines_extensions, process_provider_request,
     process_reexport_provider_request,
 };
-use crate::queries::module_declarations_query;
+use crate::queries::{SourceTextQuery, module_declarations_query};
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
 use crate::{EntryRuntime, LoaderContext, default_std_module_path};
 use nia_diagnostic::Diagnostic;
@@ -14,9 +13,9 @@ use nia_imports::{
     ModuleGraph, ModuleNode, ResolvedModuleDeclaration, module_declaration_visibility_allows,
 };
 use nia_query::{QueryDb, QueryKey};
+use nia_source::{SourceIdentity, SourceVersion};
 use nia_span::Span;
 use nia_symbol::{SymbolId, known};
-use std::collections::BTreeSet;
 
 impl QueryKey<LoaderContext> for ModuleGraphQuery {
     type Value = ModuleGraph;
@@ -26,13 +25,82 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let mut graph = ModuleGraph::with_symbol_text(
-            db.context().entry_path.clone(),
-            std::sync::Arc::new(db.context().symbols.clone()),
-        );
-        inject_entry_runtime(db, &mut graph);
-        let mut index = 0;
-        let mut pending_provider_requests = BTreeSet::new();
+        let provider_demands = db
+            .context()
+            .provider_demands
+            .read()
+            .expect("loader provider demand lock poisoned")
+            .clone();
+        let (mut seed, mut applied_provider_demands, source_versions) = {
+            let state = db
+                .context()
+                .graph_state
+                .read()
+                .expect("loader graph state lock poisoned");
+            (
+                state.graph.clone(),
+                state.applied_provider_demands.clone(),
+                state.source_versions.clone(),
+            )
+        };
+        if seed
+            .as_ref()
+            .is_some_and(|graph| graph_source_versions(db, graph) != source_versions)
+        {
+            seed = None;
+            applied_provider_demands.clear();
+        }
+        let new_provider_demands = provider_demands
+            .difference(&applied_provider_demands)
+            .cloned()
+            .collect::<Vec<_>>();
+        let (mut graph, mut index) = match seed {
+            Some(mut graph) => {
+                let existing_modules = graph.modules().count();
+                for demand in &new_provider_demands {
+                    match &demand.request {
+                        nia_compiler_query::ProviderRequest::ModuleSemantic { module_id } => {
+                            graph.mark_semantic_selected(*module_id);
+                        }
+                        nia_compiler_query::ProviderRequest::ModuleBody { module_path } => {
+                            if let Some(module_id) = graph.module_id_for_path(module_path.as_str())
+                                && let Err(diagnostic) =
+                                    mark_process_used_paths_and_process(db, &mut graph, module_id)
+                            {
+                                graph.push_diagnostic(module_path.clone(), diagnostic);
+                            }
+                        }
+                        nia_compiler_query::ProviderRequest::Method { .. }
+                        | nia_compiler_query::ProviderRequest::TraitImpl { .. } => {}
+                    }
+                }
+                for module_index in 0..existing_modules {
+                    let Some(node) = graph
+                        .get(nia_imports::ModuleId(module_index as u32))
+                        .cloned()
+                    else {
+                        continue;
+                    };
+                    let declarations = db.query(module_declarations_query(db, node.path.clone()));
+                    apply_provider_demands(
+                        db,
+                        &mut graph,
+                        &node,
+                        &declarations.explicit_imports,
+                        &new_provider_demands,
+                    );
+                }
+                (graph, existing_modules)
+            }
+            None => {
+                let mut graph = ModuleGraph::with_symbol_text(
+                    db.context().entry_path.clone(),
+                    std::sync::Arc::new(db.context().symbols.clone()),
+                );
+                inject_entry_runtime(db, &mut graph);
+                (graph, 0)
+            }
+        };
         loop {
             while index < graph.modules().count() {
                 let Some(node) = graph.get(nia_imports::ModuleId(index as u32)).cloned() else {
@@ -46,65 +114,110 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
                         graph.intern_package_root(&package, path.clone());
                     }
                 }
-                if should_eager_add_declarations(db.context(), &node)
-                    && let Err(diagnostic) = add_declared_module_children(db, &mut graph, node.id)
-                {
-                    graph.push_diagnostic(node.path.clone(), diagnostic);
+                if should_eager_add_declarations(db.context(), &node) {
+                    let result = add_declared_module_children(db, &mut graph, node.id);
+                    if let Err(diagnostic) = result {
+                        graph.push_diagnostic(node.path.clone(), diagnostic);
+                    }
                 }
                 if should_process_used_module_paths(db.context(), &graph, &node) {
-                    for path in declarations.used_module_paths {
-                        let processing = path.processing();
-                        if node.module_path.is_entry_package()
-                            && processing.is_replayable_provider_request()
-                        {
-                            pending_provider_requests.insert(processing);
-                        }
-                        if let Err(diagnostic) =
-                            add_used_module_path(db, &mut graph, node.id, &path)
+                    for path in &declarations.used_module_paths {
+                        if let Err(diagnostic) = add_used_module_path(db, &mut graph, node.id, path)
                         {
                             graph.push_diagnostic(node.path.clone(), diagnostic);
                         }
                     }
                 }
+                apply_provider_demands(
+                    db,
+                    &mut graph,
+                    &node,
+                    &declarations.explicit_imports,
+                    &new_provider_demands,
+                );
                 index += 1;
             }
-
-            let module_count = graph.modules().count();
-            if let Err(diagnostic) =
-                replay_pending_provider_requests(db, &mut graph, &pending_provider_requests)
-            {
-                graph.push_diagnostic(db.context().entry_path.clone(), diagnostic);
-            }
-            if graph.modules().count() == module_count {
+            if index == graph.modules().count() {
                 break;
             }
         }
+        let mut state = db
+            .context()
+            .graph_state
+            .write()
+            .expect("loader graph state lock poisoned");
+        state.graph = Some(graph.clone());
+        state.applied_provider_demands = provider_demands;
+        state.source_versions = graph_source_versions(db, &graph);
         graph
     }
 }
 
-fn replay_pending_provider_requests(
+fn graph_source_versions(
+    db: &QueryDb<LoaderContext>,
+    graph: &ModuleGraph,
+) -> std::collections::HashMap<SourceIdentity, Option<SourceVersion>> {
+    graph
+        .modules()
+        .map(|node| {
+            let source = db.query_shared(SourceTextQuery(node.path.clone()));
+            (
+                node.path.identity(),
+                source.file.as_ref().map(nia_source::SourceFile::version),
+            )
+        })
+        .collect()
+}
+
+fn apply_provider_demands(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
-    pending_provider_requests: &BTreeSet<UsedModulePathProcessing>,
-) -> Result<(), Diagnostic> {
-    if pending_provider_requests.is_empty() {
-        return Ok(());
-    }
-    let module_ids = graph
-        .modules()
-        .filter(|node| !node.module_path.is_package_root())
-        .map(|node| node.id)
+    node: &ModuleNode,
+    imports: &[crate::used_paths::ExplicitUsingImport],
+    provider_demands: &[nia_compiler_query::ProviderDemand],
+) {
+    let demands = provider_demands
+        .iter()
+        .filter(|demand| demand.source_path.identity() == node.path.identity())
+        .cloned()
         .collect::<Vec<_>>();
-    for request in pending_provider_requests {
-        process_loaded_provider_request(db, graph, &module_ids, request)?;
+    for demand in demands {
+        if let nia_compiler_query::ProviderRequest::ModuleSemantic { module_id } = demand.request {
+            graph.mark_semantic_selected(module_id);
+            continue;
+        }
+        for import in imports {
+            let processing = match demand.request {
+                nia_compiler_query::ProviderRequest::Method {
+                    target_type_name,
+                    method_name,
+                } => UsedModulePathProcessing::IfProvidesTraitMethod {
+                    target_type_name,
+                    associated_name: method_name,
+                },
+                nia_compiler_query::ProviderRequest::TraitImpl { trait_name } => {
+                    UsedModulePathProcessing::IfProvidesTraitImpl { trait_name }
+                }
+                nia_compiler_query::ProviderRequest::ModuleSemantic { .. } => continue,
+                nia_compiler_query::ProviderRequest::ModuleBody { .. } => continue,
+            };
+            let path =
+                import
+                    .path
+                    .with_appended_segments_with_processing_mode(&[], false, processing);
+            if let Err(diagnostic) = add_used_module_path(db, graph, node.id, &path) {
+                graph.push_diagnostic(node.path.clone(), diagnostic);
+            }
+        }
     }
-    Ok(())
 }
 
 fn should_eager_add_declarations(context: &LoaderContext, node: &ModuleNode) -> bool {
     node.process_declared_children
-        || (context.package_root_used_paths && node.module_path.is_package_root())
+        || (node.module_path.is_package_root()
+            && context
+                .package_roots_with_used_paths
+                .contains(&node.module_path.package))
         || node.module_path.is_std_start_module()
 }
 
@@ -115,7 +228,9 @@ fn should_process_used_module_paths(
 ) -> bool {
     node.process_used_paths
         && (!node.module_path.is_package_root()
-            || context.package_root_used_paths
+            || context
+                .package_roots_with_used_paths
+                .contains(&node.module_path.package)
             || !node.module_path.is_std_package()
             || graph.std_package_facade_active())
 }
@@ -262,20 +377,6 @@ pub(crate) fn add_visible_declared_module_path(
             let Some(reexport_source) =
                 add_public_reexport_source_module(db, graph, current, segment)?
             else {
-                if processing == UsedModulePathProcessing::IfSelectedItem
-                    && !is_terminal
-                    && let Some(associated_name) = segments.get(index + 1)
-                    && let Some(parent_facade) = graph.get(current).and_then(|node| node.parent)
-                {
-                    add_public_reexport_extension_provider_modules(
-                        db,
-                        graph,
-                        parent_facade,
-                        segment,
-                        segment,
-                        associated_name,
-                    )?;
-                }
                 if processing.should_process_module() {
                     mark_process_used_paths_and_process(db, graph, current)?;
                 }
@@ -284,27 +385,20 @@ pub(crate) fn add_visible_declared_module_path(
             if processing == UsedModulePathProcessing::Always && !is_terminal {
                 mark_process_used_paths_and_process(db, graph, current)?;
             }
-            if processing == UsedModulePathProcessing::IfSelectedItem
-                && !is_terminal
-                && let Some(associated_name) = segments.get(index + 1)
-            {
-                add_public_reexport_extension_provider_modules(
-                    db,
-                    graph,
-                    reexport_facade,
-                    segment,
-                    segment,
-                    associated_name,
-                )?;
-            }
             process_reexport_provider_request(db, graph, reexport_facade, segment, &processing)?;
             current = reexport_source;
             if processing == UsedModulePathProcessing::IfSelectedItem && is_terminal {
                 mark_process_used_paths_and_process(db, graph, current)?;
             }
+            if is_terminal {
+                process_provider_request(db, graph, current, &processing)?;
+            }
             continue;
         };
         current = next;
+        if processing.is_provider_demand() {
+            process_provider_request(db, graph, current, &processing)?;
+        }
         if processing == UsedModulePathProcessing::IfSelectedItem
             && is_terminal
             && module_defines_extensions(db, graph, current)
@@ -317,7 +411,7 @@ pub(crate) fn add_visible_declared_module_path(
         {
             mark_process_used_paths_and_process(db, graph, current)?;
         }
-        if is_terminal {
+        if is_terminal && !processing.is_provider_demand() {
             process_provider_request(db, graph, current, &processing)?;
         }
     }
@@ -432,17 +526,20 @@ fn inject_entry_runtime(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
                     .map(|path| graph.intern_std_package_root(path.clone()))
             });
             let Some(std_root) = std_root else { return };
-            if let Err(diagnostic) = graph.intern_declared_child(
+            match graph.intern_declared_child(
                 std_root,
                 &known::START,
                 nia_imports::Visibility::PublicPkg,
                 Span::default(),
             ) {
-                let path = graph
-                    .get(std_root)
-                    .map(|node| node.path.clone())
-                    .unwrap_or_else(default_std_module_path);
-                graph.push_diagnostic(path, diagnostic);
+                Ok(start_root) => graph.mark_executable_root_subtree(start_root),
+                Err(diagnostic) => {
+                    let path = graph
+                        .get(std_root)
+                        .map(|node| node.path.clone())
+                        .unwrap_or_else(default_std_module_path);
+                    graph.push_diagnostic(path, diagnostic);
+                }
             }
         }
     }

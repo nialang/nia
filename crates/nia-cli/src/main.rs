@@ -1192,13 +1192,13 @@ fn run_emit_exe(
     });
     match output.result {
         Ok(artifact) => {
-            if let Some(cache) = cache_entry {
-                if let Err(error) = time_summary_stage(timings, "emit_exe_cache_publish", || {
+            if let Some(cache) = cache_entry
+                && let Err(error) = time_summary_stage(timings, "emit_exe_cache_publish", || {
                     nia_driver::publish_executable_artifact_cache(&artifact.path, &cache)
-                }) {
-                    eprintln!("{error}");
-                    return ExitCode::FAILURE;
-                }
+                })
+            {
+                eprintln!("{error}");
+                return ExitCode::FAILURE;
             }
             ExitCode::SUCCESS
         }

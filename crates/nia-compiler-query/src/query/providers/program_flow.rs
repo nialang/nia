@@ -60,7 +60,7 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
             "codegen_program.checked_diagnostics",
             || checked_module_diagnostics(db, &modules),
         ));
-        if !diagnostics.is_empty() {
+        if crate::has_error_diagnostics(&diagnostics) {
             return CodegenProgram {
                 graph,
                 optimization,
@@ -78,7 +78,7 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
             "codegen_program.monomorphization_diagnostics",
             || monomorphization_diagnostics(&modules, &monomorphization),
         ));
-        if !diagnostics.is_empty() {
+        if crate::has_error_diagnostics(&diagnostics) {
             return CodegenProgram {
                 graph,
                 optimization,

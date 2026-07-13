@@ -94,11 +94,6 @@ impl QueryKey<CompilerContext> for ModuleAbiSignatureFactsQuery {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct ProgramVisibleTypeSignatures {
-    pub(super) type_aliases: HashMap<GlobalDefId, ProgramTypeAliasSignature>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramExecutableNonFunctionSignatures {
     pub(super) globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
     pub(super) comptimes: HashMap<GlobalDefId, ProgramComptimeSignature>,
@@ -110,18 +105,6 @@ pub(super) struct ProgramExecutableNonFunctionSignatures {
     pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
     pub(super) trait_impl_index: nia_item_signatures::ProgramTraitImplIndex,
     pub(super) trait_method_index: nia_program_signatures::ProgramTraitMethodIndex,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct ProgramBackendSignatures {
-    pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
-    pub(super) structs: HashMap<GlobalDefId, ProgramStructSignature>,
-    pub(super) unions: HashMap<GlobalDefId, ProgramUnionSignature>,
-    pub(super) enums: HashMap<GlobalDefId, ProgramEnumSignature>,
-    pub(super) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
-    pub(super) type_aliases: HashMap<GlobalDefId, ProgramTypeAliasSignature>,
-    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
-    pub(super) trait_impl_index: nia_item_signatures::ProgramTraitImplIndex,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -168,21 +151,6 @@ impl ProgramExecutableNonFunctionSignatures {
     }
 }
 
-impl ProgramBackendSignatures {
-    pub(super) fn codegen_maps(&self) -> ProgramCodegenSignatures<'_> {
-        ProgramCodegenSignatures {
-            functions: &self.functions,
-            structs: &self.structs,
-            unions: &self.unions,
-            enums: &self.enums,
-            traits: &self.traits,
-            type_aliases: &self.type_aliases,
-            trait_impls: &self.trait_impls,
-            trait_impl_index: &self.trait_impl_index,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramTraitMethodIndexQuery;
 
@@ -199,32 +167,27 @@ impl QueryKey<CompilerContext> for ProgramTraitMethodIndexQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramVisibleTypeSignaturesQuery;
+pub(super) struct ProgramTypeAliasSignatureQuery(pub(super) GlobalDefId);
 
-impl QueryKey<CompilerContext> for ProgramVisibleTypeSignaturesQuery {
-    type Value = Arc<ProgramVisibleTypeSignatures>;
+impl QueryKey<CompilerContext> for ProgramTypeAliasSignatureQuery {
+    type Value = Option<ProgramTypeAliasSignature>;
 
     fn name() -> &'static str {
-        "program_visible_type_signatures"
+        "program_type_alias_signature"
+    }
+
+    fn description(&self) -> String {
+        format!("program_type_alias_signature({:?})", self.0)
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_visible_type_signatures)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramBackendSignaturesQuery;
-
-impl QueryKey<CompilerContext> for ProgramBackendSignaturesQuery {
-    type Value = Arc<ProgramBackendSignatures>;
-
-    fn name() -> &'static str {
-        "program_backend_signatures"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.program_backend_signatures)(db)
+        db.query(ModuleProgramSignatureFactsQuery(
+            self.0.module_id,
+            nia_item_tree::SignatureItemSet::Types,
+        ))
+        .type_aliases
+        .get(&self.0)
+        .cloned()
     }
 }
 

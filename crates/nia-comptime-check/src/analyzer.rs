@@ -659,7 +659,7 @@ impl Analyzer<'_> {
                 };
                 let field_set: FieldSetCheck<SymbolId> = check_value_field_set(
                     values.keys().cloned(),
-                    fields.iter().map(|field| field.name.clone()),
+                    fields.iter().map(|field| field.name),
                 );
                 for field in fields {
                     if let Some(value) = values.get(&field.name) {
@@ -714,7 +714,7 @@ impl Analyzer<'_> {
                     for field in fields {
                         if let Some(value) = values.remove(&field.name) {
                             values.insert(
-                                field.name.clone(),
+                                field.name,
                                 self.normalize_typed_comptime_value(value, &field.ty),
                             );
                         }

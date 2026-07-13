@@ -591,6 +591,15 @@ struct ReachableAggregateRoots {
     unions: Vec<GlobalDefId>,
 }
 
+struct ReachableAggregateInputs<'a> {
+    globals: &'a [BackendGlobal],
+    functions: &'a [BackendFunction],
+    function_instances: &'a [BackendFunctionInstance],
+    struct_instances: &'a [nia_backend_ir::BackendStructInstance],
+    union_instances: &'a [nia_backend_ir::BackendUnionInstance],
+    trait_object_vtables: &'a [BackendTraitObjectVtable],
+}
+
 impl ReachableAggregateRoots {
     fn add_backend_function(
         &mut self,
@@ -1113,12 +1122,14 @@ impl<'a> ModuleLowerer<'a> {
         self.complete_reachable_aggregates(
             &mut structs,
             &mut unions,
-            &globals,
-            &functions,
-            &function_instances,
-            &struct_instances,
-            &union_instances,
-            &trait_object_vtables,
+            ReachableAggregateInputs {
+                globals: &globals,
+                functions: &functions,
+                function_instances: &function_instances,
+                struct_instances: &struct_instances,
+                union_instances: &union_instances,
+                trait_object_vtables: &trait_object_vtables,
+            },
         );
 
         let mut backend_layouts =
@@ -1458,12 +1469,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         structs: &mut Vec<BackendStruct>,
         unions: &mut Vec<BackendUnion>,
-        globals: &[BackendGlobal],
-        functions: &[BackendFunction],
-        function_instances: &[BackendFunctionInstance],
-        struct_instances: &[nia_backend_ir::BackendStructInstance],
-        union_instances: &[nia_backend_ir::BackendUnionInstance],
-        trait_object_vtables: &[BackendTraitObjectVtable],
+        input: ReachableAggregateInputs<'_>,
     ) {
         if !matches!(
             self.input.roots,
@@ -1472,19 +1478,19 @@ impl<'a> ModuleLowerer<'a> {
             return;
         }
         let mut roots = ReachableAggregateRoots::default();
-        for global in globals {
+        for global in input.globals {
             roots.add_ty(self, global.ty);
             if let Some(init) = &global.init {
                 roots.add_static_init(self, init);
             }
         }
-        for function in functions {
+        for function in input.functions {
             roots.add_backend_function(self, function);
         }
-        for instance in function_instances {
+        for instance in input.function_instances {
             roots.add_backend_function_instance(self, instance);
         }
-        for instance in struct_instances {
+        for instance in input.struct_instances {
             roots.add_struct(instance.def_id);
             for arg in &instance.args {
                 roots.add_ty(self, *arg);
@@ -1493,7 +1499,7 @@ impl<'a> ModuleLowerer<'a> {
                 roots.add_ty(self, field.ty);
             }
         }
-        for instance in union_instances {
+        for instance in input.union_instances {
             roots.add_union(instance.def_id);
             for arg in &instance.args {
                 roots.add_ty(self, *arg);
@@ -1502,7 +1508,7 @@ impl<'a> ModuleLowerer<'a> {
                 roots.add_ty(self, field.ty);
             }
         }
-        for vtable in trait_object_vtables {
+        for vtable in input.trait_object_vtables {
             roots.add_ty(self, vtable.key.self_ty);
             roots.add_ty(self, vtable.key.object_ty);
             for arg in &vtable.trait_args {
@@ -2509,7 +2515,7 @@ fn index_extension_trait_method_candidates(
             candidates
                 .entry(ExtensionTraitMethodKey {
                     trait_id,
-                    method_name: method.name.clone(),
+                    method_name: method.name,
                     trait_arg_count: method.trait_args.len(),
                 })
                 .or_default()
@@ -2563,7 +2569,7 @@ fn index_program_extension_trait_method_candidates(
         candidates
             .entry(ExtensionTraitMethodKey {
                 trait_id,
-                method_name: method.name.clone(),
+                method_name: method.name,
                 trait_arg_count: method.trait_args.len(),
             })
             .or_default()

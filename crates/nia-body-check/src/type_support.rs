@@ -315,14 +315,14 @@ impl<'a> BodyChecker<'a> {
                     trait_id,
                     trait_args: trait_args.clone(),
                     trait_const_args: trait_const_args.clone(),
-                    name: name.clone(),
+                    name,
                 };
                 let projection = self.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args: trait_args.clone(),
                     trait_const_args: trait_const_args.clone(),
-                    name: name.clone(),
+                    name,
                 });
                 if !active_projections.insert(key.clone()) {
                     return projection;
@@ -373,7 +373,7 @@ impl<'a> BodyChecker<'a> {
             trait_impl_index: self.program_trait_impl_index,
             layouts: Some(self.layouts),
             local_module_id: self.defs.module_id,
-            local_enums: &self.signatures.enums,
+            local_enums: self.signatures.enums,
             program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&|module_id, impl_id| {
@@ -409,7 +409,7 @@ impl<'a> BodyChecker<'a> {
             trait_impl_index: self.program_trait_impl_index,
             layouts: Some(self.layouts),
             local_module_id: self.defs.module_id,
-            local_enums: &self.signatures.enums,
+            local_enums: self.signatures.enums,
             program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
             impl_is_visible: Some(&|module_id, impl_id| {
@@ -1211,6 +1211,8 @@ impl<'a> BodyChecker<'a> {
             extension_methods_by_id: self.extension_methods_by_id.clone(),
             extension_method_lookup_cache: self.extension_method_lookup_cache.clone(),
             callable_extension_methods_by_name: SymbolMap::default(),
+            provider_demands: self.provider_demands.clone(),
+            provider_demands_by_function: self.provider_demands_by_function.clone(),
             node_expr_types: HashMap::new(),
             node_bracket_suffix_resolutions: HashMap::new(),
             node_pointer_array_to_slice_coercions: HashMap::new(),
@@ -1239,6 +1241,7 @@ impl<'a> BodyChecker<'a> {
                 self.program_type_normalizations.borrow().clone(),
             ),
             diagnostics: Vec::new(),
+            diagnostic_owners: Vec::new(),
             timing: self.timing,
             timing_module_id: self.timing_module_id,
             current_return: self.current_return,
@@ -1361,8 +1364,8 @@ impl<'a> BodyChecker<'a> {
             .type_lowering
             .ty_for_key(&ty.node_key)
             .unwrap_or_else(|| self.error());
-        let lowered_ty = self.import_lowered_type_to_working_interner(lowered_ty);
-        lowered_ty
+
+        self.import_lowered_type_to_working_interner(lowered_ty)
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {

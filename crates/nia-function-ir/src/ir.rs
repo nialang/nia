@@ -62,7 +62,7 @@ pub enum FunctionOp {
         value: FunctionExpr,
         span: Span,
     },
-    MemoryIntrinsic(FunctionMemoryIntrinsic),
+    MemoryIntrinsic(Box<FunctionMemoryIntrinsic>),
     Expr(FunctionExpr),
     Defer(FunctionDeferBody),
 }

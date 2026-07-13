@@ -441,13 +441,15 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
             });
         };
         let value = nia_comptime_engine::eval_resolved_comptime_function_call(
-            span,
-            function_id,
-            function_id.module_id,
-            &function,
-            instantiation.type_substitutions.into_iter().collect(),
-            instantiation.const_substitutions.into_iter().collect(),
-            args,
+            nia_comptime_engine::ResolvedComptimeCallInput {
+                span,
+                function_id,
+                function_module_id: function_id.module_id,
+                function: &function,
+                type_substitutions: instantiation.type_substitutions.into_iter().collect(),
+                const_substitutions: instantiation.const_substitutions.into_iter().collect(),
+                args,
+            },
             self,
         )?;
         let return_ty = ComptimeValueType::Runtime(return_ty);

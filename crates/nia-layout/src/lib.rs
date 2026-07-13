@@ -1347,7 +1347,7 @@ fn import_fields(
         .iter()
         .map(|field| FieldSignature {
             def_id: field.def_id,
-            name: field.name.clone(),
+            name: field.name,
             ty: nia_ty::import_type_into(target, source, field.ty),
             span: field.span,
         })
@@ -1546,7 +1546,7 @@ fn array_len_from_const_arg(arg: &ConstGenericArg) -> Option<ArrayLenTy> {
         ConstGenericValue::Int(value) => {
             u64::try_from(value.bits()).ok().map(ArrayLenTy::ConstValue)
         }
-        ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(name.clone())),
+        ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(*name)),
         ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(*id)),
         ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => None,
     }

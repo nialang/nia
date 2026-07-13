@@ -271,6 +271,9 @@ pub fn executable_module_refs_from_semantic_facts(
     for (def_id, facts) in &module.semantic_facts.function_facts {
         let function_refs = refs.functions.entry(*def_id).or_default();
         collect_local_static_globals_owned_by_function(module, *def_id, function_refs);
+        function_refs
+            .generic_instantiations
+            .extend(facts.generic_instantiations.iter().cloned());
         for call in facts.node_resolved_calls.values() {
             collect_resolved_call_refs(module, call, function_refs);
         }
@@ -1057,6 +1060,7 @@ pub fn filter_semantic_facts_for_reachable_items(
             .into_iter()
             .filter(|(def_id, _)| reachable_globals.contains(def_id))
             .collect(),
+        comptime_types: facts.comptime_types,
         ..Default::default()
     };
     reachable_facts.generic_instantiations.extend(

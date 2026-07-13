@@ -8,6 +8,7 @@ pub(pkg) module term;
 pub(pkg) module types;
 
 using pkg::process::args;
+using pkg::process::child;
 using pkg::process::command;
 using pkg::process::env;
 using pkg::process::exit;

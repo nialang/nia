@@ -830,7 +830,7 @@ impl<'a> LocalResolver<'a> {
                     span,
                     "local static was not registered by definition collection",
                 )
-                .debug("name", binding.name.clone())
+                .debug("name", binding.name)
                 .debug("node_key", binding.node_key.clone())
                 .finish(),
             );
@@ -1322,10 +1322,7 @@ impl<'a> LocalResolver<'a> {
         duplicate_message: &'static str,
     ) -> Option<ScopedLocal> {
         let binding_name = LocalBindingName::named(*name);
-        let id = match self.local_definition_id(binding_name, kind, span, &node_key) {
-            Some(id) => id,
-            None => return None,
-        };
+        let id = self.local_definition_id(binding_name, kind, span, &node_key)?;
         let debug_node_key = node_key.clone();
         self.node_local_defs.insert(node_key, id);
         let display_name = self.symbol_name(*name);
@@ -1365,7 +1362,7 @@ impl<'a> LocalResolver<'a> {
             return None;
         }
         let local = ScopedLocal { id, span };
-        scope.locals.insert(name.clone(), local);
+        scope.locals.insert(*name, local);
         Some(local)
     }
 
@@ -1441,9 +1438,7 @@ impl<'a> LocalResolver<'a> {
             let _ = existing.span;
             return;
         }
-        scope
-            .statics
-            .insert(name.clone(), ScopedStatic { id, span });
+        scope.statics.insert(*name, ScopedStatic { id, span });
     }
 
     fn record_use(&mut self, node_key: VersionedNodeKey, use_kind: LocalUse) {

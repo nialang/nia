@@ -1,6 +1,6 @@
 use super::*;
 use crate::queries::{LoadedModuleQuery, provider_summary_query};
-use nia_compiler_query::{RuntimeModel, has_error_diagnostics};
+use nia_compiler_query::{ProviderDemand, RuntimeModel, has_error_diagnostics};
 use nia_imports::ModuleNode;
 use nia_item_tree::ItemTreeNodeKind;
 use nia_symbol::{SymbolId, stable_hash};
@@ -29,7 +29,9 @@ fn test_loader_context(
         symbols: SymbolTable::new(),
         target: TargetConfig::host(),
         entry_runtime: EntryRuntime::None,
-        package_root_used_paths: false,
+        package_roots_with_used_paths: HashSet::new(),
+        provider_demands: Arc::new(RwLock::new(HashSet::new())),
+        graph_state: Arc::new(RwLock::new(crate::LoaderGraphState::default())),
     }
 }
 
@@ -310,6 +312,39 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn query_loader_counts_package_facade_scope_as_import_usage() {
+    let root = temp_dir("query_loader_counts_package_facade_scope_as_import_usage");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std;
+
+fn main() i32 {
+    let mut sum = 0;
+    for i in 1usize..4usize {
+        sum += i as i32;
+    }
+    sum
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&program);
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .all(|diagnostic| !diagnostic.is_warning()),
+        "{:?}",
+        program.diagnostics
+    );
+    assert_module_loaded(&program, "lib/std/iter.nia");
+}
+
+#[test]
 fn query_loader_does_not_warn_for_used_narrow_explicit_import() {
     let root = temp_dir("query_loader_does_not_warn_for_used_narrow_explicit_import");
     let main_path = root.join("main.nia");
@@ -539,20 +574,7 @@ fn query_loader_loads_std_package_root_children_on_demand() {
         "process should record the selected types child: {process:?}"
     );
     let process_types = module_by_suffix(&program, "lib/std/process/types.nia");
-    let process_init = module_by_suffix(&program, "lib/std/process/init.nia");
-    let process_args = module_by_suffix(&program, "lib/std/process/args.nia");
-    let process_env = module_by_suffix(&program, "lib/std/process/env.nia");
-    let slice = module_by_suffix(&program, "lib/std/slice.nia");
-    let iter = module_by_suffix(&program, "lib/std/iter.nia");
     assert!(process_types.process_used_paths);
-    assert!(process_init.process_used_paths);
-    assert!(process_args.process_used_paths);
-    assert!(process_env.process_used_paths);
-    assert!(slice.process_used_paths);
-    assert!(iter.process_used_paths);
-    assert_module_loaded(&program, "lib/std/process/init.nia");
-    assert_module_loaded(&program, "lib/std/process/args.nia");
-    assert_module_loaded(&program, "lib/std/process/env.nia");
     assert_module_loaded(&program, "lib/std/process/types.nia");
     assert_module_not_loaded(&program, "lib/std/process/command.nia");
     assert_module_loaded(&program, "lib/std/start/freestanding/linux/x86_64.nia");
@@ -601,7 +623,8 @@ hasher.finish()
 "#,
     );
 
-    let program = load_program(main_path.to_string_lossy().into_owned());
+    let program =
+        load_program_with_provider_demand(&main_path, ModuleMap::default(), Some("usize"), "hash");
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/hash.nia");
@@ -626,12 +649,49 @@ file.writer(state, buffer)
 "#,
     );
 
-    let program = load_program(main_path.to_string_lossy().into_owned());
+    let program =
+        load_program_with_provider_demand(&main_path, ModuleMap::default(), Some("File"), "writer");
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/io/file_adapter.nia");
-    assert_module_loaded(&program, "lib/std/fs/file.nia");
     assert_module_loaded(&program, "lib/std/fs/types.nia");
+}
+
+#[test]
+fn query_loader_forwards_provider_requests_to_the_selected_reexport_source() {
+    let root = temp_dir("query_loader_forwards_provider_requests_to_the_selected_reexport_source");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::collections::ArrayList;
+
+fn main() usize {
+let list = ArrayList[i32]::init();
+_ = list;
+0
+}
+"#,
+    );
+
+    let program = load_program_with_provider_demand(
+        &main_path,
+        ModuleMap::default(),
+        Some("ArrayList"),
+        "init",
+    );
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/collections.nia");
+    assert_module_loaded(&program, "lib/std/collections/array_list.nia");
+    assert_module_loaded(&program, "lib/std/collections/array_list/list.nia");
+    assert!(
+        !program
+            .modules
+            .iter()
+            .any(|module| module.path.as_str().contains("/collections/hash_map")),
+        "following the selected ArrayList provider chain must not load the HashMap subtree"
+    );
 }
 
 #[test]
@@ -653,14 +713,13 @@ build::Build::init(init, allocator, path, path, path, path, 1usize)
 "#,
     );
 
-    let program = load_program(main_path.to_string_lossy().into_owned());
+    let program =
+        load_program_with_provider_demand(&main_path, ModuleMap::default(), Some("Build"), "init");
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/build.nia");
     assert_module_loaded(&program, "lib/std/build/core.nia");
     assert_module_loaded(&program, "lib/std/build/types.nia");
-    assert_module_loaded(&program, "lib/std/fmt/template.nia");
-    assert_module_loaded(&program, "lib/std/io/file_adapter.nia");
 }
 
 #[test]
@@ -675,6 +734,98 @@ using dep::facade;
 
 fn main(value: facade::Widget) i32 {
 value.score()
+}
+"#,
+    );
+    write(&pkg_root, "pub module facade;");
+    fs::create_dir_all(root.join("pkg").join("facade")).expect("create package dir");
+    write(
+        &root.join("pkg/facade.nia"),
+        r#"
+pub(pkg) module providers;
+pub(pkg) module types;
+
+using self::providers;
+pub using types::Widget;
+"#,
+    );
+    write(
+        &root.join("pkg/facade/types.nia"),
+        r#"pub struct Widget { value: i32 }"#,
+    );
+    write(
+        &root.join("pkg/facade/providers.nia"),
+        r#"
+using self::types;
+
+extend types::Widget {
+pub fn score(&self) i32 {
+    self.value
+}
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
+
+    let source_path = SourcePath::new(main_path.to_string_lossy());
+    let database = LoaderDatabase::new(
+        LoadRequest::new(main_path.to_string_lossy().into_owned()).with_module_map(module_map),
+    );
+    let initial = database.load_program();
+    let initial_module_ids = initial
+        .graph
+        .modules()
+        .map(|node| (node.path.identity(), node.id))
+        .collect::<HashMap<_, _>>();
+    database.add_provider_demands([ProviderDemand {
+        source_path,
+        request: nia_compiler_query::ProviderRequest::Method {
+            target_type_name: Some(sym("Widget")),
+            method_name: sym("score"),
+        },
+    }]);
+    let program = database.load_program();
+
+    assert_no_error_diagnostics(&program);
+    for (identity, initial_id) in initial_module_ids {
+        assert_eq!(
+            program.graph.module_id_for_source_identity(&identity),
+            Some(initial_id),
+            "provider graph growth changed the module id for {}",
+            identity.normalized_path()
+        );
+    }
+    assert_module_loaded(
+        &program,
+        root.join("pkg/facade.nia").to_string_lossy().as_ref(),
+    );
+    assert_module_loaded(
+        &program,
+        root.join("pkg/facade/types.nia").to_string_lossy().as_ref(),
+    );
+    assert_module_loaded(
+        &program,
+        root.join("pkg/facade/providers.nia")
+            .to_string_lossy()
+            .as_ref(),
+    );
+}
+
+#[test]
+fn query_loader_does_not_load_a_declared_provider_without_an_explicit_using_edge() {
+    let root =
+        temp_dir("query_loader_does_not_load_a_declared_provider_without_an_explicit_using_edge");
+    let main_path = root.join("main.nia");
+    let pkg_root = root.join("pkg.nia");
+    write(
+        &main_path,
+        r#"
+using dep::facade;
+
+fn main(value: facade::Widget) i32 {
+_ = value;
+0
 }
 "#,
     );
@@ -705,25 +856,19 @@ pub fn score(&self) i32 {
 }
 "#,
     );
+    let provider_path = root.join("pkg/facade/providers.nia");
     let mut module_map = ModuleMap::new();
     module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
 
     let program = load_program_with_map(main_path.to_string_lossy().into_owned(), module_map);
 
     assert_no_error_diagnostics(&program);
-    assert_module_loaded(
-        &program,
-        root.join("pkg/facade.nia").to_string_lossy().as_ref(),
-    );
-    assert_module_loaded(
-        &program,
-        root.join("pkg/facade/types.nia").to_string_lossy().as_ref(),
-    );
-    assert_module_loaded(
-        &program,
-        root.join("pkg/facade/providers.nia")
-            .to_string_lossy()
-            .as_ref(),
+    assert!(
+        !program
+            .modules
+            .iter()
+            .any(|module| module.path.as_str() == provider_path.to_string_lossy()),
+        "declaring a provider child must not make it visible without an explicit using edge"
     );
 }
 
@@ -963,6 +1108,7 @@ fn second(value: facade::Widget) i32 {
 pub(pkg) module providers;
 pub(pkg) module types;
 
+using self::providers;
 pub using types::Widget;
 "#,
     );
@@ -989,6 +1135,17 @@ extend types::Widget {
         module_map,
         SourceDatabase::new(),
     ));
+    db.context()
+        .provider_demands
+        .write()
+        .expect("loader provider demand lock poisoned")
+        .insert(ProviderDemand {
+            source_path: entry_path,
+            request: nia_compiler_query::ProviderRequest::Method {
+                target_type_name: Some(sym("Widget")),
+                method_name: sym("score"),
+            },
+        });
     let program = db.query(LoadedProgramQuery);
 
     assert_no_error_diagnostics(&program);
@@ -1137,6 +1294,26 @@ fn temp_dir(name: &str) -> PathBuf {
 
 fn write(path: &Path, source: &str) {
     fs::write(path, source).expect("write source");
+}
+
+fn load_program_with_provider_demand(
+    entry_path: &Path,
+    module_map: ModuleMap,
+    target_type_name: Option<&str>,
+    method_name: &str,
+) -> LoadedProgram {
+    let source_path = SourcePath::new(entry_path.to_string_lossy());
+    let database = LoaderDatabase::new(
+        LoadRequest::new(entry_path.to_string_lossy().into_owned()).with_module_map(module_map),
+    );
+    database.add_provider_demands([ProviderDemand {
+        source_path,
+        request: nia_compiler_query::ProviderRequest::Method {
+            target_type_name: target_type_name.map(sym),
+            method_name: sym(method_name),
+        },
+    }]);
+    database.load_program()
 }
 
 fn assert_module_loaded(program: &LoadedProgram, suffix: &str) {

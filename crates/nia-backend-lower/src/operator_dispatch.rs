@@ -85,7 +85,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionOp::Expr(self.resolve_builtin_operator_calls_in_expr(expr))
             }
             FunctionOp::MemoryIntrinsic(memory) => {
-                FunctionOp::MemoryIntrinsic(nia_function_ir::FunctionMemoryIntrinsic {
+                FunctionOp::MemoryIntrinsic(Box::new(nia_function_ir::FunctionMemoryIntrinsic {
                     span: memory.span,
                     op: memory.op,
                     elem_ty: memory.elem_ty,
@@ -102,7 +102,7 @@ impl<'a> ModuleLowerer<'a> {
                             )
                         }
                     },
-                })
+                }))
             }
             FunctionOp::Defer(body) => {
                 FunctionOp::Defer(self.resolve_builtin_operator_calls_in_defer_body(body))

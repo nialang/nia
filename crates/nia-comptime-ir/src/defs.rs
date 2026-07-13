@@ -811,7 +811,7 @@ impl ResolvedComptimeSwitchArmBody {
 
     pub fn stmt(stmt: ResolvedComptimeStmt) -> Self {
         Self {
-            kind: ResolvedComptimeSwitchArmBodyKind::Stmt(stmt),
+            kind: ResolvedComptimeSwitchArmBodyKind::Stmt(Box::new(stmt)),
         }
     }
 
@@ -829,7 +829,7 @@ impl ResolvedComptimeSwitchArmBody {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolvedComptimeSwitchArmBodyKind {
     Expr(ResolvedComptimeExpr),
-    Stmt(ResolvedComptimeStmt),
+    Stmt(Box<ResolvedComptimeStmt>),
     Block(ResolvedComptimeBlock),
 }
 
@@ -1120,7 +1120,7 @@ pub enum EarlyComptimeStmtKind {
         then_branch: EarlyComptimeBlock,
         else_branch: Option<EarlyComptimeBlock>,
     },
-    ForIn(EarlyComptimeForIn),
+    ForIn(Box<EarlyComptimeForIn>),
     While {
         cond: EarlyComptimeExpr,
         body: EarlyComptimeBlock,
@@ -1235,7 +1235,7 @@ pub enum EarlyComptimePattern {
 #[derive(Debug, Clone, PartialEq)]
 pub enum EarlyComptimeSwitchArmBody {
     Expr(EarlyComptimeExpr),
-    Stmt(EarlyComptimeStmt),
+    Stmt(Box<EarlyComptimeStmt>),
     Block(EarlyComptimeBlock),
 }
 

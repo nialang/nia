@@ -441,11 +441,8 @@ impl<'a> BodyChecker<'a> {
         lhs: &Expr,
         name: &SymbolId,
     ) -> Option<InternedTyId> {
-        let expr = ResolvedComptimeExpr::field(
-            lhs.span,
-            self.lower_comptime_expr(lhs).ok()?,
-            name.clone(),
-        );
+        let expr =
+            ResolvedComptimeExpr::field(lhs.span, self.lower_comptime_expr(lhs).ok()?, *name);
         match self.comptime_expr_type_for_ir_with_expected(&expr, None)? {
             ComptimeValueType::Runtime(ty) => Some(ty),
             _ => Some(self.interner.intern(TyKind::ComptimeOnly)),
@@ -781,7 +778,7 @@ impl<'a> BodyChecker<'a> {
             scope
                 .variants
                 .entries()
-                .map(|(name, def_id)| (name.clone(), def_id))
+                .map(|(name, def_id)| (*name, def_id))
                 .collect(),
         )
     }
@@ -827,7 +824,7 @@ impl<'a> BodyChecker<'a> {
             .signature
             .variants
             .iter()
-            .map(|variant| (variant.name.clone(), variant.def_id))
+            .map(|variant| (variant.name, variant.def_id))
             .collect();
         let missing: Vec<String> = names_and_defs
             .iter()
@@ -1035,13 +1032,15 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
             });
         };
         nia_comptime_engine::eval_resolved_comptime_function_call(
-            span,
-            function_id,
-            function_id.module_id,
-            &function,
-            instantiation.type_substitutions.into_iter().collect(),
-            instantiation.const_substitutions.into_iter().collect(),
-            args,
+            nia_comptime_engine::ResolvedComptimeCallInput {
+                span,
+                function_id,
+                function_module_id: function_id.module_id,
+                function: &function,
+                type_substitutions: instantiation.type_substitutions.into_iter().collect(),
+                const_substitutions: instantiation.const_substitutions.into_iter().collect(),
+                args,
+            },
             self,
         )
     }
@@ -1157,7 +1156,7 @@ impl<'a> BodyChecker<'a> {
             self.semantic_uses
                 .node_const_generic_uses
                 .iter()
-                .map(|(key, name)| (key.clone(), name.clone())),
+                .map(|(key, name)| (key.clone(), *name)),
         );
         builder.extend_node_type_uses(
             self.semantic_uses
@@ -1219,8 +1218,8 @@ impl<'a> BodyChecker<'a> {
                     trait_impls_for_module: Some(&trait_impls_for_module),
                     visible_extensions: self.program.visible_extensions,
                 },
-                typed_values: &self.comptime.typed_values,
-                array_lengths: &self.comptime.array_lengths,
+                typed_values: self.comptime.typed_values,
+                array_lengths: self.comptime.array_lengths,
                 frames: &frames,
             },
             span,
@@ -1282,8 +1281,8 @@ impl<'a> BodyChecker<'a> {
                 trait_impls_for_module: Some(&trait_impls_for_module),
                 visible_extensions: self.program.visible_extensions,
             },
-            typed_values: &self.comptime.typed_values,
-            array_lengths: &self.comptime.array_lengths,
+            typed_values: self.comptime.typed_values,
+            array_lengths: self.comptime.array_lengths,
             frames: &frames,
         };
         let ty = nia_comptime_check::infer_resolved_comptime_expr_type(input, expr, expected)?;
@@ -1344,13 +1343,13 @@ impl<'a> BodyChecker<'a> {
             .comptime_call_locals
             .iter()
             .flat_map(|frame| frame.type_substitutions.iter())
-            .map(|(name, ty)| (name.clone(), *ty))
+            .map(|(name, ty)| (*name, *ty))
             .collect::<SymbolMap<_>>();
         let const_substitutions = self
             .comptime_call_locals
             .iter()
             .flat_map(|frame| frame.const_substitutions.iter())
-            .map(|(name, arg)| (name.clone(), arg.clone()))
+            .map(|(name, arg)| (*name, arg.clone()))
             .collect::<SymbolMap<_>>();
         self.substitute_generics_and_consts(ty, &substitutions, &const_substitutions)
     }

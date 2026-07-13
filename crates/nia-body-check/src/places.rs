@@ -3,7 +3,7 @@ use crate::BodyChecker;
 use nia_ast::{Expr, ExprKind, IndexArg, SliceRange, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::InternedTyId;
+use nia_ids::{BuiltinTraitMethod, InternedTyId};
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_sema_ir::BracketSuffixResolution;
 use nia_span::Span;
@@ -70,6 +70,11 @@ impl<'a> BodyChecker<'a> {
                 let Some(inner_ty) = self.expr_ty(inner) else {
                     return ty;
                 };
+                self.record_builtin_trait_method_ref(
+                    BuiltinTraitMethod::DerefMut,
+                    inner_ty,
+                    Vec::new(),
+                );
                 let target = self.interner.intern(TyKind::Projection {
                     self_ty: inner_ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::DerefMut),
@@ -89,6 +94,11 @@ impl<'a> BodyChecker<'a> {
                 let Some(index_ty) = self.expr_ty(index) else {
                     return ty;
                 };
+                self.record_builtin_trait_method_ref(
+                    BuiltinTraitMethod::IndexMut,
+                    lhs_ty,
+                    vec![index_ty],
+                );
                 let output = self.interner.intern(TyKind::Projection {
                     self_ty: lhs_ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::IndexMut),
@@ -108,6 +118,11 @@ impl<'a> BodyChecker<'a> {
                 let Some(index_ty) = self.expr_ty(index) else {
                     return ty;
                 };
+                self.record_builtin_trait_method_ref(
+                    BuiltinTraitMethod::IndexMut,
+                    lhs_ty,
+                    vec![index_ty],
+                );
                 let output = self.interner.intern(TyKind::Projection {
                     self_ty: lhs_ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::IndexMut),
@@ -414,6 +429,11 @@ impl<'a> BodyChecker<'a> {
                 TraitId::Builtin(BuiltinTrait::Slice),
                 vec![range_ty],
             ) {
+                self.record_builtin_trait_method_ref(
+                    BuiltinTraitMethod::Slice,
+                    lhs_ty,
+                    vec![range_ty],
+                );
                 let output = self.interner.intern(TyKind::Projection {
                     self_ty: lhs_ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::Slice),
@@ -441,6 +461,11 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(BuiltinTrait::SliceMut),
             vec![range_ty],
         ) {
+            self.record_builtin_trait_method_ref(
+                BuiltinTraitMethod::SliceMut,
+                lhs_ty,
+                vec![range_ty],
+            );
             let output = self.interner.intern(TyKind::Projection {
                 self_ty: lhs_ty,
                 trait_id: TraitId::Builtin(BuiltinTrait::SliceMut),
@@ -490,6 +515,7 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         }
+        self.record_builtin_trait_method_ref(BuiltinTraitMethod::Index, lhs_ty, trait_args.clone());
         let output = self.interner.intern(TyKind::Projection {
             self_ty: lhs_ty,
             trait_id: TraitId::Builtin(BuiltinTrait::Index),
@@ -526,6 +552,11 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         }
+        self.record_builtin_trait_method_ref(
+            BuiltinTraitMethod::IndexMut,
+            lhs_ty,
+            trait_args.clone(),
+        );
         let output = self.interner.intern(TyKind::Projection {
             self_ty: lhs_ty,
             trait_id: TraitId::Builtin(BuiltinTrait::IndexMut),
@@ -645,6 +676,7 @@ impl<'a> BodyChecker<'a> {
             }
             TyKind::Error => self.error(),
             _ if has_deref => {
+                self.record_builtin_trait_method_ref(BuiltinTraitMethod::Deref, ty, Vec::new());
                 let target = self.interner.intern(TyKind::Projection {
                     self_ty: ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::Deref),
@@ -692,6 +724,7 @@ impl<'a> BodyChecker<'a> {
             }
             TyKind::Error => self.error(),
             _ if has_deref => {
+                self.record_builtin_trait_method_ref(BuiltinTraitMethod::DerefMut, ty, Vec::new());
                 let target = self.interner.intern(TyKind::Projection {
                     self_ty: ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::DerefMut),

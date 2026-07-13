@@ -18,6 +18,7 @@ use nia_value_resolve::ValueNameResolution;
 struct BuiltinOperatorFinish<'a> {
     span: Span,
     trait_id: BuiltinTrait,
+    op: BuiltinOperatorOp,
     lhs: &'a Expr,
     lhs_actual: InternedTyId,
     rhs: &'a Expr,
@@ -389,7 +390,7 @@ impl<'a> BodyChecker<'a> {
                 trait_id,
                 trait_args: trait_args.clone(),
                 trait_const_args: trait_const_args.clone(),
-                name: name.clone(),
+                name: *name,
             },
         );
         if !self.current_context_proves_trait_obligation_with_const_args(
@@ -1116,6 +1117,7 @@ impl<'a> BodyChecker<'a> {
         if let Some(expected) = expected {
             self.expect_type(span, expected, lhs_ty, "binary operator");
         }
+        self.record_builtin_operator_method(BuiltinOperatorOp::Binary(op), lhs_ty, vec![rhs_ty]);
         lhs_ty
     }
 
@@ -1142,6 +1144,7 @@ impl<'a> BodyChecker<'a> {
             return self.finish_builtin_operator_expr(BuiltinOperatorFinish {
                 span,
                 trait_id,
+                op: BuiltinOperatorOp::Binary(op),
                 lhs,
                 lhs_actual,
                 rhs,
@@ -1174,6 +1177,7 @@ impl<'a> BodyChecker<'a> {
         self.finish_builtin_operator_expr(BuiltinOperatorFinish {
             span,
             trait_id,
+            op: BuiltinOperatorOp::Binary(op),
             lhs,
             lhs_actual,
             rhs,
@@ -1202,6 +1206,7 @@ impl<'a> BodyChecker<'a> {
                 ),
             ));
         }
+        self.record_builtin_operator_method(finish.op, lhs_ty, trait_args.clone());
 
         let output = if builtin_trait_output_is_boolean(finish.trait_id) {
             self.vector_bool_mask(lhs_ty).unwrap_or_else(|| self.bool())
@@ -1247,6 +1252,7 @@ impl<'a> BodyChecker<'a> {
                 ),
             ));
         }
+        self.record_builtin_operator_method(BuiltinOperatorOp::Unary(op), inner_ty, Vec::new());
         if builtin_trait_output_is_boolean(trait_id) {
             return self
                 .vector_bool_mask(inner_ty)
@@ -1260,6 +1266,19 @@ impl<'a> BodyChecker<'a> {
             name: known::OUTPUT,
         });
         self.normalize_projection(output)
+    }
+
+    fn record_builtin_operator_method(
+        &mut self,
+        op: BuiltinOperatorOp,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+    ) {
+        let (Some(trait_id), Some(method)) = (op.trait_id(), op.method()) else {
+            return;
+        };
+        debug_assert_eq!(method.trait_id(), trait_id);
+        self.record_builtin_trait_method_ref(method, self_ty, trait_args);
     }
 
     pub(crate) fn can_expected_type_drive_builtin_operator(

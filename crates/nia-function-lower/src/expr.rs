@@ -466,13 +466,13 @@ impl FunctionLowerer {
                 )
             }
         };
-        FunctionOp::MemoryIntrinsic(FunctionMemoryIntrinsic {
+        FunctionOp::MemoryIntrinsic(Box::new(FunctionMemoryIntrinsic {
             span: memory.dest.span,
             op,
             elem_ty: memory.elem_ty,
             dest,
             source,
-        })
+        }))
     }
 
     fn lower_atomic(
