@@ -395,6 +395,13 @@ only when its private mutation/import path is deleted. Temporary snapshots
 exist only at the boundary between the migrated prefix and the next unmigrated
 domain; there is no permanent module-local/session-global API choice.
 
+Trait solving no longer creates a frozen clone of its mutable working interner
+for enum classification. The solver holds enum metadata and classifies nominal
+types directly through the same interner it mutates, so types appended during
+solving remain visible. This is the first trait/body migration slice, not the
+completion of that domain: body and comptime checking still own working
+interner snapshots and still import cross-module signature types.
+
 ### 3.6 `nia-diagnostic`
 
 Defines diagnostics and source rendering. It owns user-facing diagnostic display
