@@ -323,7 +323,14 @@ impl Analyzer<'_> {
         ty: InternedTyId,
         target_module_id: ModuleId,
     ) -> Result<InternedTyId, ComptimeError> {
-        let source_interner = self.active_interner_for_type(ty).clone();
+        if self
+            .working_interners
+            .get(&target_module_id)
+            .is_some_and(|target| target.get(ty).is_some())
+        {
+            return Ok(ty);
+        }
+        let source_interner = self.active_interner_for_type(ty);
         let target = self
             .working_interners
             .get_mut(&target_module_id)
@@ -336,10 +343,14 @@ impl Analyzer<'_> {
         ty: InternedTyId,
         target_module_id: ModuleId,
     ) -> Option<InternedTyId> {
-        if self.type_owner(ty).module_id() == target_module_id {
+        if self
+            .working_interners
+            .get(&target_module_id)
+            .is_some_and(|target| target.get(ty).is_some())
+        {
             return Some(ty);
         }
-        let source_interner = self.active_interner_for_type(ty).clone();
+        let source_interner = self.active_interner_for_type(ty);
         let target = self.working_interners.get_mut(&target_module_id)?;
         Some(import_type_into(target, &source_interner, ty))
     }
