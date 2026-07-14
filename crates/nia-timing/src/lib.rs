@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    cell::RefCell,
+    alloc::{GlobalAlloc, Layout},
+    cell::{Cell, RefCell},
     cmp::Reverse,
     collections::HashMap,
     fmt::Write as _,
@@ -14,6 +15,166 @@ use std::{
 
 const TIMING_REPORT_ENTRY_LIMIT: usize = 64;
 const THREAD_TIMING_BAG_FLUSH_LIMIT: usize = 2048;
+
+static ALLOCATION_TRACKING_ENABLED: AtomicBool = AtomicBool::new(false);
+static ALLOCATION_INSTRUMENTATION_AVAILABLE: AtomicBool = AtomicBool::new(false);
+static ALLOCATION_CALLS: AtomicU64 = AtomicU64::new(0);
+static DEALLOCATION_CALLS: AtomicU64 = AtomicU64::new(0);
+static REALLOCATION_CALLS: AtomicU64 = AtomicU64::new(0);
+static ALLOCATED_BYTES: AtomicU64 = AtomicU64::new(0);
+static DEALLOCATED_BYTES: AtomicU64 = AtomicU64::new(0);
+static QUERY_VALUE_CLONE_BYTES: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    static THREAD_ALLOCATED_BYTES: Cell<u64> = const { Cell::new(0) };
+}
+
+pub struct CountingAllocator<A> {
+    inner: A,
+}
+
+impl<A> CountingAllocator<A> {
+    pub const fn new(inner: A) -> Self {
+        Self { inner }
+    }
+}
+
+// SAFETY: every allocation operation is delegated to `A` with the original
+// pointer and layout. The wrapper only records successful operations in atomic
+// counters and does not allocate while doing so.
+unsafe impl<A: GlobalAlloc> GlobalAlloc for CountingAllocator<A> {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: the caller upholds `GlobalAlloc::alloc`'s contract, which is
+        // forwarded unchanged to the wrapped allocator.
+        let pointer = unsafe { self.inner.alloc(layout) };
+        if !pointer.is_null() {
+            record_allocation(layout.size());
+        }
+        pointer
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: the caller upholds `GlobalAlloc::alloc_zeroed`'s contract,
+        // which is forwarded unchanged to the wrapped allocator.
+        let pointer = unsafe { self.inner.alloc_zeroed(layout) };
+        if !pointer.is_null() {
+            record_allocation(layout.size());
+        }
+        pointer
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        record_deallocation(layout.size());
+        // SAFETY: the caller guarantees that `pointer` and `layout` identify a
+        // live allocation owned by the wrapped allocator.
+        unsafe { self.inner.dealloc(pointer, layout) };
+    }
+
+    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: the caller upholds `GlobalAlloc::realloc`'s contract, which
+        // is forwarded unchanged to the wrapped allocator.
+        let new_pointer = unsafe { self.inner.realloc(pointer, layout, new_size) };
+        if !new_pointer.is_null() {
+            record_reallocation(layout.size(), new_size);
+        }
+        new_pointer
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AllocationMeasurement {
+    allocation_calls: u64,
+    deallocation_calls: u64,
+    reallocation_calls: u64,
+    allocated_bytes: u64,
+    deallocated_bytes: u64,
+    query_value_clone_bytes: u64,
+}
+
+/// Registers that this process installed [`CountingAllocator`] globally.
+///
+/// A binary must call this once during startup. Detail timing omits allocation
+/// counters until the instrumentation has been registered.
+pub fn register_allocation_instrumentation() {
+    ALLOCATION_INSTRUMENTATION_AVAILABLE.store(true, Ordering::Release);
+}
+
+fn start_allocation_tracking() -> bool {
+    if !ALLOCATION_INSTRUMENTATION_AVAILABLE.load(Ordering::Acquire) {
+        return false;
+    }
+    ALLOCATION_TRACKING_ENABLED.store(false, Ordering::Release);
+    ALLOCATION_CALLS.store(0, Ordering::Relaxed);
+    DEALLOCATION_CALLS.store(0, Ordering::Relaxed);
+    REALLOCATION_CALLS.store(0, Ordering::Relaxed);
+    ALLOCATED_BYTES.store(0, Ordering::Relaxed);
+    DEALLOCATED_BYTES.store(0, Ordering::Relaxed);
+    QUERY_VALUE_CLONE_BYTES.store(0, Ordering::Relaxed);
+    ALLOCATION_TRACKING_ENABLED.store(true, Ordering::Release);
+    true
+}
+
+fn finish_allocation_tracking() -> AllocationMeasurement {
+    ALLOCATION_TRACKING_ENABLED.store(false, Ordering::Release);
+    AllocationMeasurement {
+        allocation_calls: ALLOCATION_CALLS.load(Ordering::Relaxed),
+        deallocation_calls: DEALLOCATION_CALLS.load(Ordering::Relaxed),
+        reallocation_calls: REALLOCATION_CALLS.load(Ordering::Relaxed),
+        allocated_bytes: ALLOCATED_BYTES.load(Ordering::Relaxed),
+        deallocated_bytes: DEALLOCATED_BYTES.load(Ordering::Relaxed),
+        query_value_clone_bytes: QUERY_VALUE_CLONE_BYTES.load(Ordering::Relaxed),
+    }
+}
+
+fn record_allocation(size: usize) {
+    if !ALLOCATION_TRACKING_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    ALLOCATION_CALLS.fetch_add(1, Ordering::Relaxed);
+    ALLOCATED_BYTES.fetch_add(size as u64, Ordering::Relaxed);
+    record_thread_allocated_bytes(size);
+}
+
+fn record_deallocation(size: usize) {
+    if !ALLOCATION_TRACKING_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    DEALLOCATION_CALLS.fetch_add(1, Ordering::Relaxed);
+    DEALLOCATED_BYTES.fetch_add(size as u64, Ordering::Relaxed);
+}
+
+fn record_reallocation(old_size: usize, new_size: usize) {
+    if !ALLOCATION_TRACKING_ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
+    REALLOCATION_CALLS.fetch_add(1, Ordering::Relaxed);
+    ALLOCATED_BYTES.fetch_add(new_size as u64, Ordering::Relaxed);
+    DEALLOCATED_BYTES.fetch_add(old_size as u64, Ordering::Relaxed);
+    record_thread_allocated_bytes(new_size);
+}
+
+fn record_thread_allocated_bytes(size: usize) {
+    let _ = THREAD_ALLOCATED_BYTES.try_with(|bytes| {
+        bytes.set(bytes.get().wrapping_add(size as u64));
+    });
+}
+
+fn thread_allocated_bytes() -> u64 {
+    THREAD_ALLOCATED_BYTES
+        .try_with(Cell::get)
+        .unwrap_or_default()
+}
+
+pub fn track_query_value_clone<T>(enabled: bool, clone: impl FnOnce() -> T) -> T {
+    if !enabled || !ALLOCATION_TRACKING_ENABLED.load(Ordering::Relaxed) {
+        return clone();
+    }
+    let allocated_before = thread_allocated_bytes();
+    let value = clone();
+    let allocated = thread_allocated_bytes().wrapping_sub(allocated_before);
+    QUERY_VALUE_CLONE_BYTES.fetch_add(allocated, Ordering::Relaxed);
+    value
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimingMode {
@@ -332,6 +493,7 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
                 .expect("timing collector state poisoned");
         }
         let session = Arc::new(TimingSession::new(options.trace, options.format));
+        session.start_allocation_tracking(options.mode.detail());
         state.active = Some(ActiveTimingCollector {
             owner: current_thread,
             session: Arc::clone(&session),
@@ -345,6 +507,7 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
 
     impl Drop for TimingCollectionGuard {
         fn drop(&mut self) {
+            let allocation = self.session.finish_allocation_tracking();
             self.session.finish();
             flush_local_timing_bag_for_session(self.session.id);
 
@@ -360,12 +523,15 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
             finished.notify_all();
             drop(state);
 
-            let (report, trace_events) = self
+            let (mut report, trace_events) = self
                 .session
                 .collector
                 .lock()
                 .expect("timing collector poisoned")
                 .drain();
+            if let Some(allocation) = allocation {
+                report.add_allocation_counters(allocation);
+            }
             if let Some(events) = trace_events {
                 for event in events {
                     print_event(&event);
@@ -429,6 +595,7 @@ struct TimingSession {
     format: TimingFormat,
     started_at: Instant,
     started_usage: Option<ProcessUsage>,
+    allocation_tracking: AtomicBool,
     active: AtomicBool,
     collector: Mutex<TimingCollector>,
 }
@@ -441,6 +608,7 @@ impl TimingSession {
             format,
             started_at: Instant::now(),
             started_usage: process_usage(),
+            allocation_tracking: AtomicBool::new(false),
             active: AtomicBool::new(true),
             collector: Mutex::new(TimingCollector::new(trace)),
         }
@@ -448,6 +616,19 @@ impl TimingSession {
 
     fn is_active(&self) -> bool {
         self.active.load(Ordering::Acquire)
+    }
+
+    fn start_allocation_tracking(&self, enabled: bool) {
+        if !enabled || !start_allocation_tracking() {
+            return;
+        }
+        self.allocation_tracking.store(true, Ordering::Release);
+    }
+
+    fn finish_allocation_tracking(&self) -> Option<AllocationMeasurement> {
+        self.allocation_tracking
+            .swap(false, Ordering::AcqRel)
+            .then(finish_allocation_tracking)
     }
 
     fn finish(&self) {
@@ -823,6 +1004,37 @@ impl TimingReport {
     fn is_empty(&self) -> bool {
         self.entries.is_empty() && self.counters.is_empty()
     }
+
+    fn add_allocation_counters(&mut self, measurement: AllocationMeasurement) {
+        self.counters.extend([
+            TimingCounter {
+                name: "allocator.alloc_calls".to_string(),
+                value: measurement.allocation_calls,
+            },
+            TimingCounter {
+                name: "allocator.allocated_bytes".to_string(),
+                value: measurement.allocated_bytes,
+            },
+            TimingCounter {
+                name: "allocator.dealloc_calls".to_string(),
+                value: measurement.deallocation_calls,
+            },
+            TimingCounter {
+                name: "allocator.deallocated_bytes".to_string(),
+                value: measurement.deallocated_bytes,
+            },
+            TimingCounter {
+                name: "allocator.realloc_calls".to_string(),
+                value: measurement.reallocation_calls,
+            },
+            TimingCounter {
+                name: "query.value_clone_bytes".to_string(),
+                value: measurement.query_value_clone_bytes,
+            },
+        ]);
+        self.counters
+            .sort_by(|left, right| left.name.cmp(&right.name));
+    }
 }
 
 fn print_report(report: &TimingReport, format: TimingFormat, process: ProcessMeasurement) {
@@ -976,6 +1188,33 @@ mod tests {
         assert!(!TimingMode::Summary.includes(TimingLevel::Detail));
         assert!(TimingMode::Detail.includes(TimingLevel::Summary));
         assert!(TimingMode::Detail.includes(TimingLevel::Detail));
+    }
+
+    #[test]
+    fn allocation_tracking_records_only_the_active_interval() {
+        let _lock = collector_test_lock();
+        register_allocation_instrumentation();
+        record_allocation(100);
+        assert!(start_allocation_tracking());
+        record_allocation(16);
+        record_allocation(32);
+        track_query_value_clone(true, || record_allocation(24));
+        record_reallocation(32, 64);
+        record_deallocation(16);
+        let measurement = finish_allocation_tracking();
+        record_allocation(200);
+
+        assert_eq!(
+            measurement,
+            AllocationMeasurement {
+                allocation_calls: 3,
+                deallocation_calls: 1,
+                reallocation_calls: 1,
+                allocated_bytes: 136,
+                deallocated_bytes: 48,
+                query_value_clone_bytes: 24,
+            }
+        );
     }
 
     #[test]

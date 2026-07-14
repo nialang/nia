@@ -133,6 +133,19 @@ def linux_cpu_quota() -> float | None:
     return None
 
 
+def linux_cpu_model() -> str | None:
+    cpuinfo = read_text(Path("/proc/cpuinfo"))
+    if cpuinfo is None:
+        return None
+    for line in cpuinfo.splitlines():
+        if not line.startswith(("model name", "Hardware")):
+            continue
+        _, separator, value = line.partition(":")
+        if separator and value.strip():
+            return value.strip()
+    return None
+
+
 def machine_metadata() -> dict[str, Any]:
     affinity = None
     if hasattr(os, "sched_getaffinity"):
@@ -142,8 +155,10 @@ def machine_metadata() -> dict[str, Any]:
     cpu_quota = linux_cpu_quota()
     cpu_limits = [value for value in (affinity, cpu_quota) if value]
     return {
+        "system": platform.system(),
         "platform": platform.platform(),
         "architecture": platform.machine(),
+        "cpu_model": linux_cpu_model(),
         "logical_cpus": os.cpu_count(),
         "affinity_cpus": affinity,
         "cgroup_cpu_quota": cpu_quota,
@@ -173,6 +188,16 @@ def normalize_report_paths(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: normalize_report_paths(item) for key, item in value.items()}
     return value
+
+
+def require_allocation_instrumentation(report: dict[str, Any]) -> None:
+    counters = report.get("counters", {})
+    if not isinstance(counters, dict) or "allocator.allocated_bytes" not in counters:
+        raise RuntimeError(
+            "compiler timing report has no allocation counters; performance "
+            "baselines require nia-cli built with `cargo build --release "
+            "-p nia-cli --features perf-alloc`"
+        )
 
 
 def command_label(value: str) -> str:
@@ -205,6 +230,7 @@ def run_workload(compiler: Path, name: str, args: list[str]) -> dict[str, Any]:
         sys.stderr.write(result.stderr)
         raise RuntimeError(f"workload {name!r} failed with status {result.returncode}")
     report = normalize_report_paths(timing_json(result.stderr))
+    require_allocation_instrumentation(report)
     report["name"] = name
     try:
         compiler_label = str(compiler.relative_to(ROOT))
@@ -235,7 +261,15 @@ def main() -> int:
     compiler = args.compiler.resolve()
     if not args.no_build and compiler == DEFAULT_COMPILER.resolve():
         subprocess.run(
-            ["cargo", "build", "--release", "-p", "nia-cli"],
+            [
+                "cargo",
+                "build",
+                "--release",
+                "-p",
+                "nia-cli",
+                "--features",
+                "perf-alloc",
+            ],
             cwd=ROOT,
             check=True,
         )
@@ -252,7 +286,10 @@ def main() -> int:
         for iteration in range(args.repeat):
             for name in selected:
                 print(f"perf: iteration {iteration + 1}/{args.repeat} {name}", file=sys.stderr)
-                report = run_workload(compiler, name, available[name])
+                try:
+                    report = run_workload(compiler, name, available[name])
+                except (RuntimeError, ValueError) as error:
+                    raise SystemExit(f"error: {error}") from None
                 report["iteration"] = iteration
                 results.append(report)
 
