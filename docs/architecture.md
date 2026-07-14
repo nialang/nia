@@ -17,8 +17,9 @@ produces immutable tables that dependent queries consume explicitly.
 Primary goals:
 
 - keep syntax, name resolution, typing, layout, lowering, and codegen separate;
-- avoid a global mutable semantic context;
-- pass data through stable ids, immutable tables, and diagnostic lists;
+- centralize compilation identity and semantic storage without giving analysis
+  crates unrestricted access to mutable global state;
+- pass data through typed ids, immutable tables, and diagnostic lists;
 - keep AST as syntax, not as the long-term semantic storage format;
 - use `ModuleId`, `DefId`, `LocalId`, `TyId`, and `GlobalDefId` for identity;
 - make every phase independently testable;
@@ -31,7 +32,8 @@ Forbidden shapes:
   code;
 - long-lived references between AST nodes;
 - string concatenation as the only symbol identity;
-- all phases mutating one shared world table;
+- analysis phases mutating unrelated entries in a shared world table instead of
+  going through typed store and query APIs;
 - bypassing existing phases for temporary features by reinterpreting AST in the
   backend.
 
@@ -338,18 +340,55 @@ stored in side tables keyed by `NodeKey`, `DefId`, `LocalId`, or `TyId`.
 
 ### 3.4 `nia-ids`
 
-Defines stable cross-phase ids:
+Defines typed cross-phase ids:
 
 - `ModuleId`;
 - `DefId`;
 - `LocalId`;
-- `TyId`;
+- the current module-interner `InternedTyId`;
 - `GlobalDefId`.
 
 It stores no semantic tables and has no filesystem, parser, or diagnostic
 responsibility.
 
-### 3.5 `nia-diagnostic`
+### 3.5 Semantic Identity Lifecycle
+
+Nia's target type identity is one `TyId` index space owned by a compilation
+session. It follows these rules:
+
+- `TyId` is a typed, session-local index, not a module id and not a stable
+  cross-process key. Primitive and structural types have no source-module owner;
+  nominal `TyKind` data refers to its definition identity explicitly.
+- Type slots are immutable and append-only for the session lifetime. A source
+  revision may intern new types but never changes the meaning of an existing
+  index and never reuses a removed index. Old unreachable entries are reclaimed
+  when the session is dropped, not during ordinary incremental updates.
+- A runtime store identity distinguishes handles from different compiler
+  sessions. Store APIs reject a handle from another store. This is the dynamic
+  stale-handle boundary for owned query products until all internal products can
+  be tied to the session lifetime statically.
+- Revision invalidation applies to facts that map syntax and definitions to
+  types. It does not renumber the type store. Rebuilding every type handle on
+  each revision would discard the identity stability needed by incremental
+  queries.
+- Persistent caches use a separate canonical `StableTyKey` derived from stable
+  definition/source identity and structural type data. A stable key is converted
+  to a session-local `TyId` at the cache boundary; it is not the compiler's hot
+  path handle.
+- Query execution may append through a typed store API, but analysis crates do
+  not receive general mutable access to the semantic context. The store owns
+  synchronization, canonicalization, and any future sharding policy.
+
+The current `InternedTyId = TyInternerId + TyInternerIndex` implementation does
+not yet satisfy this contract: `TyInternerId` is derived from `ModuleId`, and
+query products carry cloned interner snapshots. Migration proceeds by making
+type lowering write the session store, then moving normalization, traits/body,
+layout, monomorphization, backend lowering, and codegen in that order. A domain
+is migrated only when its snapshot/import path is deleted. Temporary adapters
+exist only at the boundary between the migrated prefix and the next unmigrated
+domain; there is no permanent module-local/session-global API choice.
+
+### 3.6 `nia-diagnostic`
 
 Defines diagnostics and source rendering. It owns user-facing diagnostic display
 but not semantic policy. Semantic crates create diagnostics; this crate renders
@@ -504,14 +543,16 @@ them into canonical type ids.
 
 ### 6.2 `nia-ty`
 
-Defines the compiler type model and `TyInterner`. Type identities used by later
-phases are interned as `TyId`.
+Defines the compiler type model and the current module-local `TyInterner`.
+During the type-identity migration it will own the compilation-session type
+store described in section 3.5; later phases will consume `TyId` without an
+interner snapshot.
 
 ### 6.3 `nia-type-lower`
 
-Lowers active item-tree type references into `TyId`s. It handles primitive
-types, pointers, arrays, slices, function pointer types, nominal types,
-generics, enum backing types, and inferred array lengths.
+Lowers active item-tree type references into interned type ids. It handles
+primitive types, pointers, arrays, slices, function pointer types, nominal
+types, generics, enum backing types, and inferred array lengths.
 
 It also validates type-level restrictions such as invalid use of `void` or `never`
 in value positions.
