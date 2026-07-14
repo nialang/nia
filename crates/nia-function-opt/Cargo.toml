@@ -15,6 +15,7 @@ nia-opt.workspace = true
 [dev-dependencies]
 nia-span.workspace = true
 nia-symbol.workspace = true
+nia-ty.workspace = true
 
 [lib]
 path = "src/lib.rs"

@@ -592,8 +592,10 @@ mod tests {
     }
 
     fn test_ty(index: u32) -> InternedTyId {
+        static INTERNER: std::sync::OnceLock<nia_ty::TyInterner> = std::sync::OnceLock::new();
+        let interner = INTERNER.get_or_init(|| nia_ty::TyInterner::new(ModuleId(0)));
         InternedTyId::new(
-            nia_ids::TyInternerId::for_module(ModuleId(0)),
+            interner.interner_id(),
             TyInternerIndex::from_interner_index(index),
         )
     }

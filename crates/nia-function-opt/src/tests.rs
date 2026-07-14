@@ -41,10 +41,16 @@ fn test_body_with_scopes(scopes: Vec<FunctionScope>, blocks: Vec<FunctionBlock>)
 }
 
 fn test_ty() -> nia_ids::InternedTyId {
-    nia_ids::InternedTyId::new(
-        nia_ids::TyInternerId::for_module(nia_ids::ModuleId(0)),
-        nia_ids::TyInternerIndex::from_interner_index(0),
-    )
+    test_interner().error()
+}
+
+fn test_other_ty() -> nia_ids::InternedTyId {
+    test_interner().primitive(nia_ty::PrimitiveTy::I8)
+}
+
+fn test_interner() -> &'static nia_ty::TyInterner {
+    static INTERNER: std::sync::OnceLock<nia_ty::TyInterner> = std::sync::OnceLock::new();
+    INTERNER.get_or_init(|| nia_ty::TyInterner::new(nia_ids::ModuleId(0)))
 }
 
 fn sym(text: &str) -> SymbolId {

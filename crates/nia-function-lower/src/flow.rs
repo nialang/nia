@@ -730,7 +730,8 @@ impl FunctionLowerer {
             ty: optional_item_ty,
             kind: FunctionExprKind::Local(next_local),
         };
-        let header = FunctionForHeader::Condition(self.optional_some_condition(span, &next_expr));
+        let header =
+            FunctionForHeader::Condition(Box::new(self.optional_some_condition(span, &next_expr)));
         let body_entry = self.alloc_block();
         let continue_target = self.alloc_block();
         let break_target = self.alloc_block();
@@ -878,13 +879,13 @@ impl FunctionLowerer {
 
         let mut header_ops = Vec::new();
         let mut header_current = loop_header;
-        let header = FunctionForHeader::Condition(self.lower_value_expr(
+        let header = FunctionForHeader::Condition(Box::new(self.lower_value_expr(
             &while_stmt.cond,
             scope,
             &mut header_current,
             &mut header_ops,
             blocks,
-        ));
+        )));
         let body_entry = self.alloc_block();
         let continue_target = loop_header;
         let break_target = self.alloc_block();

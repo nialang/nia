@@ -2065,14 +2065,9 @@ fn wrap[T](value: T) T { value }
     #[test]
     fn ordered_type_substitutions_reuse_existing_ids() {
         let mut collector = empty_collector();
-        let i32_ty = InternedTyId::new(
-            TyInternerId::for_module(ModuleId(0)),
-            nia_ids::TyInternerIndex::from_interner_index(1),
-        );
-        let bool_ty = InternedTyId::new(
-            TyInternerId::for_module(ModuleId(0)),
-            nia_ids::TyInternerIndex::from_interner_index(2),
-        );
+        let interner = TyInterner::new(ModuleId(0));
+        let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
+        let bool_ty = interner.primitive(nia_ty::PrimitiveTy::Bool);
 
         let first = collector
             .intern_ordered_type_substitutions(None, vec![(sym("T"), i32_ty), (sym("U"), bool_ty)]);

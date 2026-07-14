@@ -4,10 +4,7 @@ use super::common::*;
 #[test]
 fn lowers_body_to_entry_block_with_tail() {
     let span = Span::default();
-    let ty = InternedTyId::new(
-        nia_ids::TyInternerId::for_module(ModuleId(0)),
-        TyInternerIndex::from_interner_index(0),
-    );
+    let ty = test_ty();
     let body = TypedBody {
         span,
         locals: vec![TypedLocal {
@@ -40,10 +37,7 @@ fn lowers_body_to_entry_block_with_tail() {
 #[test]
 fn non_terminal_ops_branch_to_tail_block() {
     let span = Span::default();
-    let ty = InternedTyId::new(
-        nia_ids::TyInternerId::for_module(ModuleId(0)),
-        TyInternerIndex::from_interner_index(0),
-    );
+    let ty = test_ty();
     let expr = TypedExpr {
         span,
         ty,
@@ -310,10 +304,7 @@ fn address_of_slice_lowers_to_slice_value_not_place() {
 #[test]
 fn return_terminates_block_before_later_statements() {
     let span = Span::default();
-    let ty = InternedTyId::new(
-        nia_ids::TyInternerId::for_module(ModuleId(0)),
-        TyInternerIndex::from_interner_index(0),
-    );
+    let ty = test_ty();
     let expr = TypedExpr {
         span,
         ty,

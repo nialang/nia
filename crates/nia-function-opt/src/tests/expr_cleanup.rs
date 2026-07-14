@@ -33,10 +33,7 @@ fn removes_same_type_cast_wrappers_recursively() {
 fn preserves_casts_that_change_type() {
     let span = Span::default();
     let source_ty = test_ty();
-    let target_ty = nia_ids::InternedTyId::new(
-        nia_ids::TyInternerId::for_module(nia_ids::ModuleId(0)),
-        nia_ids::TyInternerIndex::from_interner_index(1),
-    );
+    let target_ty = test_other_ty();
     let mut expr = FunctionExpr {
         span,
         ty: target_ty,

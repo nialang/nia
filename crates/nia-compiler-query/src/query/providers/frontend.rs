@@ -256,6 +256,7 @@ pub(super) fn provide_type_lowering(
         &active_item_tree,
         &type_resolution,
         nia_type_lower::TypeLoweringContext::from_program_defs(
+            db.context().type_store(),
             nia_type_lower::ProgramDefsContext {
                 defs: Some(&program_defs),
             },
@@ -277,6 +278,7 @@ pub(super) fn provide_declaration_type_lowering(
         &active_item_tree,
         &type_resolution,
         nia_type_lower::TypeLoweringContext::from_program_defs(
+            db.context().type_store(),
             nia_type_lower::ProgramDefsContext {
                 defs: Some(&program_defs),
             },
@@ -299,6 +301,7 @@ pub(super) fn provide_signature_type_lowering(
         &active_item_tree,
         &type_resolution,
         nia_type_lower::TypeLoweringContext::from_program_defs(
+            db.context().type_store(),
             nia_type_lower::ProgramDefsContext {
                 defs: Some(&program_defs),
             },
@@ -320,6 +323,7 @@ pub(super) fn provide_signature_comptime_type_lowering(
         &active_item_tree,
         &type_resolution,
         nia_type_lower::TypeLoweringContext::from_program_defs(
+            db.context().type_store(),
             nia_type_lower::ProgramDefsContext {
                 defs: Some(&program_defs),
             },

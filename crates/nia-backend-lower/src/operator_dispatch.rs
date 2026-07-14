@@ -208,9 +208,9 @@ impl<'a> ModuleLowerer<'a> {
     ) -> FunctionForHeader {
         match header {
             FunctionForHeader::Infinite => FunctionForHeader::Infinite,
-            FunctionForHeader::Condition(expr) => {
-                FunctionForHeader::Condition(self.resolve_builtin_operator_calls_in_expr(expr))
-            }
+            FunctionForHeader::Condition(expr) => FunctionForHeader::Condition(Box::new(
+                self.resolve_builtin_operator_calls_in_expr(*expr),
+            )),
         }
     }
 

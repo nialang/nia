@@ -202,20 +202,26 @@ impl std::fmt::Debug for ProgramDefsContext<'_> {
 
 #[derive(Clone, Copy)]
 pub struct TypeLoweringContext<'a> {
+    pub type_store: &'a nia_ty::TypeStore,
     pub program_defs: ProgramDefsContext<'a>,
     pub symbols: Option<&'a dyn SymbolText>,
 }
 
 impl<'a> TypeLoweringContext<'a> {
-    pub fn empty() -> Self {
+    pub fn empty(type_store: &'a nia_ty::TypeStore) -> Self {
         Self {
+            type_store,
             program_defs: ProgramDefsContext::empty(),
             symbols: None,
         }
     }
 
-    pub fn from_program_defs(program_defs: ProgramDefsContext<'a>) -> Self {
+    pub fn from_program_defs(
+        type_store: &'a nia_ty::TypeStore,
+        program_defs: ProgramDefsContext<'a>,
+    ) -> Self {
         Self {
+            type_store,
             program_defs,
             symbols: None,
         }
@@ -230,6 +236,7 @@ impl<'a> TypeLoweringContext<'a> {
 impl std::fmt::Debug for TypeLoweringContext<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TypeLoweringContext")
+            .field("type_store", &self.type_store.id())
             .field("program_defs", &self.program_defs)
             .field("symbols", &self.symbols.is_some())
             .finish()
@@ -267,11 +274,12 @@ pub fn lower_module_types_with_defs(
     resolved: &TypeResolution,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeLowering {
+    let type_store = nia_ty::TypeStore::new();
     lower_module_types_with_context(
         module_id,
         module,
         resolved,
-        TypeLoweringContext::from_program_defs(program_defs),
+        TypeLoweringContext::from_program_defs(&type_store, program_defs),
     )
 }
 
@@ -304,11 +312,12 @@ pub fn lower_module_types_from_active_item_tree(
     resolved: &TypeResolution,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeLowering {
+    let type_store = nia_ty::TypeStore::new();
     lower_module_types_from_active_item_tree_with_context(
         module_id,
         item_tree,
         resolved,
-        TypeLoweringContext::from_program_defs(program_defs),
+        TypeLoweringContext::from_program_defs(&type_store, program_defs),
     )
 }
 
@@ -333,11 +342,12 @@ pub fn lower_module_declaration_types_from_active_item_tree(
     resolved: &TypeResolution,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeLowering {
+    let type_store = nia_ty::TypeStore::new();
     lower_module_declaration_types_from_active_item_tree_with_context(
         module_id,
         item_tree,
         resolved,
-        TypeLoweringContext::from_program_defs(program_defs),
+        TypeLoweringContext::from_program_defs(&type_store, program_defs),
     )
 }
 
@@ -362,11 +372,12 @@ pub fn lower_module_types_from_item_tree_with_defs(
     resolved: &TypeResolution,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeLowering {
+    let type_store = nia_ty::TypeStore::new();
     lower_module_types_from_item_tree_with_context(
         module_id,
         item_tree,
         resolved,
-        TypeLoweringContext::from_program_defs(program_defs),
+        TypeLoweringContext::from_program_defs(&type_store, program_defs),
     )
 }
 
@@ -392,33 +403,37 @@ fn lower_module_types_from_items(
     context: TypeLoweringContext<'_>,
     mode: TypeLowerMode,
 ) -> TypeLowering {
-    let mut lowerer = TypeLowerer {
-        module_id,
-        resolved,
-        program_defs: context.program_defs,
-        symbols: context.symbols,
-        defs_cache: HashMap::new(),
-        interner: TyInterner::new(module_id),
-        type_uses: HashMap::new(),
-        const_exprs: HashMap::new(),
-        const_expr_summaries: HashMap::new(),
-        diagnostics: Vec::new(),
-        generic_stack: Vec::new(),
-        self_type_stack: Vec::new(),
-        associated_type_scope_stack: Vec::new(),
-        next_const_expr_id: 0,
-        mode,
-    };
-    for item in items {
-        lowerer.visit_item_tree_node(item);
-    }
-    TypeLowering {
-        interner: lowerer.interner,
-        type_uses: lowerer.type_uses,
-        const_exprs: lowerer.const_exprs,
-        const_expr_summaries: lowerer.const_expr_summaries,
-        diagnostics: lowerer.diagnostics,
-    }
+    context
+        .type_store
+        .with_module_interner_for_lowering(module_id, |interner| {
+            let mut lowerer = TypeLowerer {
+                module_id,
+                resolved,
+                program_defs: context.program_defs,
+                symbols: context.symbols,
+                defs_cache: HashMap::new(),
+                interner,
+                type_uses: HashMap::new(),
+                const_exprs: HashMap::new(),
+                const_expr_summaries: HashMap::new(),
+                diagnostics: Vec::new(),
+                generic_stack: Vec::new(),
+                self_type_stack: Vec::new(),
+                associated_type_scope_stack: Vec::new(),
+                next_const_expr_id: 0,
+                mode,
+            };
+            for item in items {
+                lowerer.visit_item_tree_node(item);
+            }
+            TypeLowering {
+                interner: lowerer.interner.clone(),
+                type_uses: lowerer.type_uses,
+                const_exprs: lowerer.const_exprs,
+                const_expr_summaries: lowerer.const_expr_summaries,
+                diagnostics: lowerer.diagnostics,
+            }
+        })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -427,13 +442,13 @@ enum TypeLowerMode {
     Declarations,
 }
 
-struct TypeLowerer<'a> {
+struct TypeLowerer<'a, 'store> {
     module_id: ModuleId,
     resolved: &'a TypeResolution,
     program_defs: ProgramDefsContext<'a>,
     symbols: Option<&'a dyn SymbolText>,
     defs_cache: HashMap<ModuleId, Option<Arc<DefCollection>>>,
-    interner: TyInterner,
+    interner: &'store mut TyInterner,
     type_uses: HashMap<NodeSite, InternedTyId>,
     const_exprs: HashMap<GlobalConstExprId, Expr>,
     const_expr_summaries: HashMap<GlobalConstExprId, ConstExprSummary>,
@@ -481,7 +496,7 @@ struct TraitObjectArgs {
     associated_type_bindings: Vec<AssociatedTypeBindingTy>,
 }
 
-impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
+impl<'ast> Visitor<'ast> for TypeLowerer<'_, '_> {
     fn visit_item(&mut self, item: &'ast Item) {
         match &item.kind {
             ItemKind::Struct(item_struct) => {
@@ -718,7 +733,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
     }
 }
 
-impl TypeLowerer<'_> {
+impl TypeLowerer<'_, '_> {
     fn visit_item_tree_node(&mut self, item: &ItemTreeNode) {
         match &item.kind {
             ItemTreeNodeKind::Struct(item_struct) => {
@@ -889,7 +904,7 @@ impl TypeLowerer<'_> {
     }
 }
 
-impl<'a> TypeLowerer<'a> {
+impl<'a> TypeLowerer<'a, '_> {
     fn lower_type_in_context(&mut self, ty: &TypeRef, context: TypeContext) -> InternedTyId {
         let lowered = self.lower_type(ty, context);
         self.type_uses.insert(ty.node_key.site().clone(), lowered);
@@ -2195,7 +2210,7 @@ fn layout_builtin_for_symbol(name: SymbolId) -> Option<LayoutBuiltin> {
     }
 }
 
-impl TypeLowerer<'_> {
+impl TypeLowerer<'_, '_> {
     fn lower_primitive_type(&mut self, primitive: PrimitiveTypeSpelling) -> InternedTyId {
         match primitive {
             PrimitiveTypeSpelling::Scalar(primitive) => self.interner.primitive(primitive),
@@ -2691,13 +2706,17 @@ fn duplicate(source: &Source[Item = i32, Item = bool]) void {}
         );
         let program_defs = HashMap::from([(ModuleId(0), Arc::new(defs.clone()))]);
         let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
+        let type_store = nia_ty::TypeStore::new();
         let lowered = lower_module_types_with_context(
             ModuleId(0),
             &module,
             &resolved,
-            TypeLoweringContext::from_program_defs(ProgramDefsContext {
-                defs: Some(&program_defs_by_module),
-            })
+            TypeLoweringContext::from_program_defs(
+                &type_store,
+                ProgramDefsContext {
+                    defs: Some(&program_defs_by_module),
+                },
+            )
             .with_symbols(&symbols),
         );
         assert!(
@@ -2791,6 +2810,62 @@ fn selected(value: i32) void {}
             lowered.interner.get(*ty),
             Some(TyKind::Primitive(PrimitiveTy::I32))
         )));
+    }
+
+    #[test]
+    fn lowering_variants_share_one_append_only_store_shard() {
+        let (module, errors) = parse_module(
+            r#"
+struct Pair {
+    left: i32,
+    right: i32,
+}
+
+fn first(pair: &Pair) i32 {
+    pair.left
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let module_id = ModuleId(0);
+        let tree = ModuleItemTree::from_module(&module);
+        let active = tree.active_items(&mut BoolResolver(false)).unwrap();
+        let defs = collect_module_defs_from_active_item_tree(module_id, &active);
+        let resolved = resolve_module_types_from_active_item_tree(
+            &active,
+            &defs,
+            TypeResolveProgramDefsContext::empty(),
+            &nia_defs::PublicSurfaces::default(),
+            &nia_defs::ModuleUsingScope::default(),
+        );
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let store = nia_ty::TypeStore::new();
+        let declarations = lower_module_declaration_types_from_active_item_tree_with_context(
+            module_id,
+            &active,
+            &resolved,
+            TypeLoweringContext::empty(&store),
+        );
+        let full = lower_module_types_from_active_item_tree_with_context(
+            module_id,
+            &active,
+            &resolved,
+            TypeLoweringContext::empty(&store),
+        );
+
+        assert_eq!(declarations.interner.interner_id().store_id(), store.id());
+        assert_eq!(
+            full.interner.interner_id(),
+            declarations.interner.interner_id()
+        );
+        assert!(declarations.interner.is_prefix_of(&full.interner));
+        for (ty, kind) in declarations.interner.iter() {
+            assert_eq!(full.interner.get(ty), Some(kind));
+        }
     }
 
     struct BoolResolver(bool);

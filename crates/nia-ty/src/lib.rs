@@ -1,11 +1,71 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_hash::FastHashSet;
+use nia_hash::{FastHashMap, FastHashSet};
 pub use nia_ids::{BuiltinTrait, BuiltinType, LayoutBuiltin, TraitId};
 use nia_ids::{
     GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerId, TyInternerIndex,
+    TypeStoreId,
 };
 use nia_span::Span;
 use nia_symbol::SymbolId;
+use std::sync::{Arc, Mutex, RwLock};
+
+#[derive(Debug)]
+pub struct TypeStore {
+    id: TypeStoreId,
+    modules: RwLock<FastHashMap<ModuleId, Arc<Mutex<TyInterner>>>>,
+}
+
+impl Default for TypeStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TypeStore {
+    pub fn new() -> Self {
+        Self {
+            id: TypeStoreId::fresh(),
+            modules: RwLock::new(FastHashMap::default()),
+        }
+    }
+
+    pub fn id(&self) -> TypeStoreId {
+        self.id
+    }
+
+    #[doc(hidden)]
+    pub fn with_module_interner_for_lowering<T>(
+        &self,
+        module_id: ModuleId,
+        f: impl FnOnce(&mut TyInterner) -> T,
+    ) -> T {
+        let interner = self.module_interner(module_id);
+        let mut interner = interner.lock().expect("type store module lock poisoned");
+        f(&mut interner)
+    }
+
+    #[doc(hidden)]
+    pub fn module_snapshot(&self, module_id: ModuleId) -> TyInterner {
+        self.with_module_interner_for_lowering(module_id, |interner| interner.clone())
+    }
+
+    fn module_interner(&self, module_id: ModuleId) -> Arc<Mutex<TyInterner>> {
+        if let Some(interner) = self
+            .modules
+            .read()
+            .expect("type store lock poisoned")
+            .get(&module_id)
+        {
+            return Arc::clone(interner);
+        }
+        let mut modules = self.modules.write().expect("type store lock poisoned");
+        Arc::clone(modules.entry(module_id).or_insert_with(|| {
+            Arc::new(Mutex::new(TyInterner::with_id(TyInternerId::new(
+                self.id, module_id,
+            ))))
+        }))
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TyKind {
@@ -243,7 +303,7 @@ impl Default for TyInterner {
 
 impl TyInterner {
     pub fn new(module_id: ModuleId) -> Self {
-        Self::with_id(TyInternerId::for_module(module_id))
+        Self::with_id(TyInternerId::new(TypeStoreId::fresh(), module_id))
     }
 
     pub fn with_id(interner_id: TyInternerId) -> Self {
@@ -1149,6 +1209,54 @@ mod tests {
             let id = interner.primitive(primitive);
             assert_eq!(interner.get(id), Some(&TyKind::Primitive(primitive)));
         }
+    }
+
+    #[test]
+    fn type_store_identity_rejects_foreign_session_handles() {
+        let first = TypeStore::new();
+        let second = TypeStore::new();
+        let first_interner = first.module_snapshot(ModuleId(7));
+        let second_interner = second.module_snapshot(ModuleId(7));
+        let first_i32 = first_interner.primitive(PrimitiveTy::I32);
+        let second_i32 = second_interner.primitive(PrimitiveTy::I32);
+
+        assert_ne!(first.id(), second.id());
+        assert_ne!(first_interner.interner_id(), second_interner.interner_id());
+        assert_ne!(first_i32, second_i32);
+        assert_eq!(second_interner.get(first_i32), None);
+        assert_eq!(first_interner.get(second_i32), None);
+    }
+
+    #[test]
+    fn store_scoped_type_handle_stays_compact_during_migration() {
+        assert!(std::mem::size_of::<InternedTyId>() <= 2 * std::mem::size_of::<u64>());
+    }
+
+    #[test]
+    fn type_store_module_slots_are_append_only_across_transactions() {
+        let store = TypeStore::new();
+        let module_id = ModuleId(3);
+        let pointer = store.with_module_interner_for_lowering(module_id, |interner| {
+            let elem = interner.primitive(PrimitiveTy::U8);
+            interner.intern(TyKind::Pointer {
+                is_readonly: true,
+                elem,
+            })
+        });
+        let before = store.module_snapshot(module_id);
+        let slice = store.with_module_interner_for_lowering(module_id, |interner| {
+            let elem = interner.primitive(PrimitiveTy::U8);
+            interner.intern(TyKind::Slice {
+                is_readonly: true,
+                elem,
+            })
+        });
+        let after = store.module_snapshot(module_id);
+
+        assert!(before.is_prefix_of(&after));
+        assert_eq!(before.get(pointer), after.get(pointer));
+        assert_eq!(before.get(slice), None);
+        assert!(matches!(after.get(slice), Some(TyKind::Slice { .. })));
     }
 
     #[test]

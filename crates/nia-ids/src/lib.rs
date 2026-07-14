@@ -30,15 +30,38 @@ pub struct LocalId(pub u32);
 pub struct TyInternerIndex(u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TyInternerId(pub u32);
+pub struct TypeStoreId(u32);
+
+impl TypeStoreId {
+    #[doc(hidden)]
+    pub fn fresh() -> Self {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        static NEXT_TYPE_STORE_ID: AtomicU32 = AtomicU32::new(1);
+        let index = NEXT_TYPE_STORE_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |index| {
+                index.checked_add(1)
+            })
+            .expect("type store identity space exhausted");
+        Self(index)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TyInternerId(u64);
 
 impl TyInternerId {
-    pub const fn for_module(module_id: ModuleId) -> Self {
-        Self(module_id.0)
+    #[doc(hidden)]
+    pub const fn new(store_id: TypeStoreId, module_id: ModuleId) -> Self {
+        Self(((store_id.0 as u64) << u32::BITS) | module_id.0 as u64)
+    }
+
+    pub const fn store_id(self) -> TypeStoreId {
+        TypeStoreId((self.0 >> u32::BITS) as u32)
     }
 
     pub const fn module_id(self) -> ModuleId {
-        ModuleId(self.0)
+        ModuleId(self.0 as u32)
     }
 }
 

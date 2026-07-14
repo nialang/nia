@@ -176,7 +176,7 @@ impl<'a> ModuleLowerer<'a> {
         match header {
             FunctionForHeader::Infinite => FunctionForHeader::Infinite,
             FunctionForHeader::Condition(expr) => {
-                FunctionForHeader::Condition(self.instantiate_expr(expr, substitutions))
+                FunctionForHeader::Condition(Box::new(self.instantiate_expr(*expr, substitutions)))
             }
         }
     }

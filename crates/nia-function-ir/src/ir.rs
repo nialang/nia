@@ -197,7 +197,7 @@ impl FunctionErrorUnionTag {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionForHeader {
     Infinite,
-    Condition(FunctionExpr),
+    Condition(Box<FunctionExpr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
