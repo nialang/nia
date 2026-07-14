@@ -482,12 +482,14 @@ fn compiler_database_with_providers(
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
     let executable_checked_modules = Arc::new(RwLock::new(ExecutableCheckedModuleStore::default()));
     let executable_fact_session = Arc::new(std::sync::Mutex::new(ExecutableFactSession::default()));
+    let type_store = Arc::new(nia_ty::TypeStore::new());
     let db = QueryDb::new_with_timings(
         CompilerContext {
             inputs: inputs.clone(),
             providers,
             executable_checked_modules,
             executable_fact_session,
+            type_store,
         },
         timings,
     );
@@ -565,6 +567,7 @@ struct CompilerContext {
     providers: CompilerQueryProviders,
     executable_checked_modules: Arc<RwLock<ExecutableCheckedModuleStore>>,
     executable_fact_session: Arc<std::sync::Mutex<ExecutableFactSession>>,
+    type_store: Arc<nia_ty::TypeStore>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -808,6 +811,10 @@ fn validate_loaded_module_identities(loaded: &LoadedProgram) {
 }
 
 impl CompilerContext {
+    fn type_store(&self) -> &nia_ty::TypeStore {
+        &self.type_store
+    }
+
     fn take_executable_fact_session(&self) -> ExecutableFactSession {
         std::mem::take(
             &mut *self
@@ -2278,6 +2285,7 @@ mod tests {
             executable_fact_session: Arc::new(std::sync::Mutex::new(
                 ExecutableFactSession::default(),
             )),
+            type_store: Arc::new(nia_ty::TypeStore::new()),
         })
     }
 
@@ -3038,6 +3046,65 @@ pub fn expensive_or_invalid() i32 {
             query_cache_hits(&after_second_check, "item_signatures")
                 > query_cache_hits(&before_second_check, "item_signatures"),
         );
+    }
+
+    #[test]
+    fn type_store_preserves_published_slots_across_database_updates() {
+        let module_id = ModuleId(0);
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module_with_revision(
+                    module_id,
+                    "main.nia",
+                    "pub struct S { value: i32 }",
+                    SourceRevision(0),
+                ),
+            ])));
+        let first = database.db.query(TypeLoweringQuery(module_id));
+        let first_i32 = first.interner.primitive(nia_ty::PrimitiveTy::I32);
+
+        database.update(CompileRequest::new(loaded_program_with_modules(vec![
+            loaded_module_with_revision(
+                module_id,
+                "main.nia",
+                "pub struct S { value: i32, flag: &bool }",
+                SourceRevision(1),
+            ),
+        ])));
+        let second = database.db.query(TypeLoweringQuery(module_id));
+
+        assert_eq!(first.interner.interner_id(), second.interner.interner_id());
+        assert!(first.interner.is_prefix_of(&second.interner));
+        assert_eq!(
+            second.interner.get(first_i32),
+            Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))
+        );
+        assert!(second.interner.len() > first.interner.len());
+    }
+
+    #[test]
+    fn type_store_isolates_compiler_database_handle_identity() {
+        let loaded = || {
+            loaded_program_with_modules(vec![loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "pub struct S { value: i32 }",
+            )])
+        };
+        let first = CompilerDatabase::new(CompileRequest::new(loaded()));
+        let second = CompilerDatabase::new(CompileRequest::new(loaded()));
+        let first_types = first.db.query(TypeLoweringQuery(ModuleId(0)));
+        let second_types = second.db.query(TypeLoweringQuery(ModuleId(0)));
+        let first_i32 = first_types.interner.primitive(nia_ty::PrimitiveTy::I32);
+        let second_i32 = second_types.interner.primitive(nia_ty::PrimitiveTy::I32);
+
+        assert_ne!(
+            first_types.interner.interner_id().store_id(),
+            second_types.interner.interner_id().store_id()
+        );
+        assert_ne!(first_i32, second_i32);
+        assert_eq!(first_types.interner.get(second_i32), None);
+        assert_eq!(second_types.interner.get(first_i32), None);
     }
 
     #[test]

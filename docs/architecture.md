@@ -379,14 +379,17 @@ session. It follows these rules:
   not receive general mutable access to the semantic context. The store owns
   synchronization, canonicalization, and any future sharding policy.
 
-The current `InternedTyId = TyInternerId + TyInternerIndex` implementation does
-not yet satisfy this contract: `TyInternerId` is derived from `ModuleId`, and
-query products carry cloned interner snapshots. Migration proceeds by making
-type lowering write the session store, then moving normalization, traits/body,
-layout, monomorphization, backend lowering, and codegen in that order. A domain
-is migrated only when its snapshot/import path is deleted. Temporary adapters
-exist only at the boundary between the migrated prefix and the next unmigrated
-domain; there is no permanent module-local/session-global API choice.
+The migration has established a compilation-owned `TypeStore`: a
+`TyInternerId` now contains a unique `TypeStoreId` as well as its temporary
+module shard, and every type-lowering variant appends through the same store.
+This prevents handles from separate compiler sessions with equal `ModuleId`s
+from comparing equal. It does not yet satisfy the final contract because the
+module shard remains part of the handle and query products still carry cloned
+interner snapshots. Migration next moves normalization, then traits/body,
+layout, monomorphization, backend lowering, and codegen. A domain is migrated
+only when its snapshot/import path is deleted. Temporary adapters exist only at
+the boundary between the migrated prefix and the next unmigrated domain; there
+is no permanent module-local/session-global API choice.
 
 ### 3.6 `nia-diagnostic`
 

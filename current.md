@@ -268,7 +268,7 @@ Nia 应采用一个单一模型，而不是并列的“typed query 系统”和�
 
 ### 7.1 Nia 的 module-local interner 是当前最深的架构债务
 
-`InternedTyId` 包含 `TyInternerId + TyInternerIndex`，而 `TyInternerId::for_module` 直接来源于 `ModuleId`。`TyInterner` 本身是可 clone 的 Vec/hash interner。多个阶段持有各自 interner，跨模块或跨阶段时通过 `try_import_type_into` 按 `TyKind` 递归重建类型。
+Phase B 开始前，`InternedTyId` 包含 `TyInternerId + TyInternerIndex`，而 `TyInternerId::for_module` 直接来源于 `ModuleId`。第一实现切片已经删除 `for_module`，改为 `TypeStoreId + ModuleId`，因此相同 `ModuleId` 的不同 compiler session 不再产生可误认的 handle；但 module shard 和 `TyInternerIndex` 仍存在，尚未成为最终统一 `TyId`。`TyInterner` 本身仍是可 clone 的 Vec/hash interner。多个后续阶段持有各自 interner，跨模块或跨阶段时仍通过 `try_import_type_into` 按 `TyKind` 递归重建类型。
 
 实际代码中广泛存在：
 
@@ -319,7 +319,7 @@ Phase B 开始时进一步核对现有创建路径后，需要把 identity contr
 5. type store 集中 ownership、canonicalization 与同步策略，但算法 crate 只能通过 typed API 查询/intern，不能获得可任意修改其他语义状态的 global world table。
 6. 迁移从 type lowering 开始，依次经过 normalize、trait/body、layout、mono/backend；每个域迁移完成时删除该域的 snapshot/import 路径。adapter 只存在于“已迁移前缀 -> 下一个未迁移域”的单一边界，不提供 module-local/session-global 两套公开选择。
 
-这也排除了一个表面简单的方案：只给当前 `TyInternerId(ModuleId)` 叠加 revision generation。declaration/full/signature type lowering 目前会分别从零构建同 module interner，正是依赖相同 module-derived id 和 prefix 假设才可互用；先强化 id 而不先统一 store，只会把隐式耦合变成大面积不兼容，不能建立正确身份。规范已同步到 `docs/architecture.md`；实现完成前仍不得把 Phase B 标为完成。
+这也排除了一个表面简单的方案：只给旧 `TyInternerId(ModuleId)` 叠加 revision generation。declaration/full/signature type lowering 原先会分别从零构建同 module interner，正是依赖相同 module-derived id 和 prefix 假设才可互用；先强化 id 而不先统一 ownership，只会把隐式耦合变成大面积不兼容。当前实现先让 `CompilerContext` 持有唯一 `TypeStore`，四类 type lowering 在同一 store 的 module shard 内串行 canonicalize/append，再返回 snapshot 供未迁移下游使用；这样 store identity 与 append-only 规则已经真实生效，而不是 generation wrapper。规范已同步到 `docs/architecture.md`；统一 index 和 snapshot 删除完成前仍不得把 Phase B 标为完成。
 
 ### 7.4 Definition 稳定性
 
@@ -947,7 +947,7 @@ Acceptance：基准命令不依赖隐藏环境变量，结果写 machine-readabl
 
 Acceptance：生产代码中不再出现跨 interner type import；backend product 不再内嵌 interner snapshot；同一类型 handle 可在一个 compilation session 的 module/stage 间直接比较；stale/local/stable identity 规则有自动化验证。
 
-进展（2026-07-14）：已完成第一步 identity/ownership contract，明确 session-local append-only `TyId`、store identity stale check、独立 `StableTyKey`、revision 不重编号以及单边界迁移规则。实现尚未开始：当前 `InternedTyId` 仍编码 module-derived interner id，type lowering 仍各自创建 interner，snapshot/import API 也仍存在；下一切片必须先建立 session-owned store 并把全部 type-lowering variants 一次迁入，不能用 type alias 或 generation wrapper 假装完成。
+进展（2026-07-14）：identity/ownership contract 与第一实现切片已完成。`CompilerContext` 现在持有 compilation-owned `TypeStore`；declaration/full/signature/signature-comptime type lowering 全部在同一 append-only module shard 中 intern；`TyInternerId::for_module` 已删除，store identity 会拒绝不同 compiler session 的 foreign handle；自动化测试覆盖跨 update prefix/旧 slot 不变和跨 database 隔离。过渡期 shard identity 紧凑编码为 64-bit，`InternedTyId` 为 16 bytes；该尺寸暴露的 `FunctionForHeader` 大小悬殊已通过只对 recursive condition 增加 ownership indirection 修正，没有 Clippy allow。相对上一 baseline 的单次六 workload smoke 全部通过 guard：ArrayList wall -2.7% / RSS +0.5% / allocated bytes +1.4%，emit-exe wall -0.4% / RSS +1.4% / allocated bytes +2.4%；这些单样本只用于排除明显回退，不宣称性能收益。Phase B 仍在进行中：当前 handle 仍包含临时 module shard，`TypeLowering` 仍为未迁移下游携带 snapshot，跨 interner import 也仍存在。下一切片迁移 normalization 到同一 store，并在该域删除自行 clone/mutate interner 的路径；不能用 type alias 或永久 adapter 假装统一 `TyId` 已完成。
 
 ### 阶段 C（P0）：重做 query value/storage 契约
 

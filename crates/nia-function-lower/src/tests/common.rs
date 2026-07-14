@@ -11,7 +11,7 @@ pub(super) use nia_function_ir::{
     FunctionExprKind, FunctionForHeader, FunctionLocalKind, FunctionOp, FunctionPlaceBase,
     FunctionScope, FunctionScopeId, FunctionTerminator, FunctionTryKind,
 };
-pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId, TyInternerIndex};
+pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId};
 pub(super) use nia_span::Span;
 pub(super) use nia_symbol::{SymbolId, stable_hash};
 pub(super) use nia_ty::{PrimitiveTy, TyInterner, TyKind};
@@ -31,10 +31,10 @@ pub(super) fn only_next_target(
 }
 
 pub(super) fn test_ty() -> InternedTyId {
-    InternedTyId::new(
-        nia_ids::TyInternerId::for_module(ModuleId(0)),
-        TyInternerIndex::from_interner_index(0),
-    )
+    static INTERNER: std::sync::OnceLock<TyInterner> = std::sync::OnceLock::new();
+    INTERNER
+        .get_or_init(|| TyInterner::new(ModuleId(0)))
+        .error()
 }
 
 pub(super) fn sym(text: &str) -> SymbolId {

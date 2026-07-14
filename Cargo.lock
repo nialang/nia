@@ -505,6 +505,7 @@ dependencies = [
  "nia-opt",
  "nia-span",
  "nia-symbol",
+ "nia-ty",
 ]
 
 [[package]]
