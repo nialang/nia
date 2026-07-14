@@ -3,7 +3,17 @@ use std::process::Command;
 
 mod support;
 
-use support::{CommandExt, CommandStatusExt, build_command_output_timeout, temp_dir};
+use support::{CommandExt, CommandStatusExt, temp_dir};
+
+trait BuildCommandExt {
+    fn build_output_timeout(&mut self, context: &str) -> std::process::Output;
+}
+
+impl BuildCommandExt for Command {
+    fn build_output_timeout(&mut self, context: &str) -> std::process::Output {
+        self.output_timeout_with_resource(context, nia_test_support::build_permit())
+    }
+}
 
 #[test]
 fn readme_nia_examples_check_as_freestanding_programs() {
@@ -348,14 +358,12 @@ pub fn build(b: &mut build::Build) build::Error!void {
     )
     .expect("write build script");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("--timings")
-            .arg("--root")
-            .arg(&root),
-        "run nia build with timings",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--timings")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build with timings");
 
     assert!(
         output.status.success(),
@@ -413,14 +421,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write main source");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("--timings")
-            .arg("--root")
-            .arg(root.join("src").join("nested")),
-        "run nia build",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--timings")
+        .arg("--root")
+        .arg(root.join("src").join("nested"))
+        .build_output_timeout("run nia build");
 
     assert!(
         output.status.success(),
@@ -454,14 +460,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
         Command::new(root.join(".nia-build/app")).status_timeout("run emitted build target");
     assert_eq!(status.code(), Some(0));
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("check")
-            .arg("--root")
-            .arg(&root),
-        "run nia build check",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("check")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build check");
 
     assert!(
         output.status.success(),
@@ -477,6 +481,7 @@ fn build_command_runs_step_dependencies_once_before_dependant() {
         root.join("build.nia"),
         r#"
 using std::build;
+using std::fmt;
 using std::io;
 
 fn prepare(b: &mut build::Build) build::Error!void {
@@ -519,14 +524,12 @@ pub fn build(b: &mut build::Build) build::Error!void {
     )
     .expect("write build script");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("check")
-            .arg("--root")
-            .arg(&root),
-        "run nia build check with dependencies",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("check")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build check with dependencies");
 
     assert!(
         output.status.success(),
@@ -545,6 +548,7 @@ fn build_command_runs_executable_artifact_step_as_dependency() {
         r#"
 using std::build;
 using std::fs;
+using std::fmt;
 using std::io;
 
 fn verify(b: &mut build::Build) build::Error!void {
@@ -584,14 +588,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write main source");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("verify")
-            .arg("--root")
-            .arg(&root),
-        "run nia build verify with executable dependency",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("verify")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build verify with executable dependency");
 
     assert!(
         output.status.success(),
@@ -641,13 +643,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write main source");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("--root")
-            .arg(&root),
-        "run nia build with configured output name",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build with configured output name");
 
     assert!(
         output.status.success(),
@@ -697,13 +697,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write main source");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("--root")
-            .arg(&root),
-        "run nia build with configured module optimization",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build with configured module optimization");
 
     assert!(
         output.status.success(),
@@ -770,13 +768,11 @@ pub fn main(init: process::Init) process::ExitCode!void {
     )
     .expect("write main source");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("--root")
-            .arg(&root),
-        "run nia build with configured module imports",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build with configured module imports");
 
     assert!(
         output.status.success(),
@@ -819,14 +815,12 @@ pub fn build(b: &mut build::Build) build::Error!void {
     )
     .expect("write build script");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("first")
-            .arg("--root")
-            .arg(&root),
-        "run nia build first with dependency cycle",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("first")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build first with dependency cycle");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -856,14 +850,12 @@ pub fn build(b: &mut build::Build) build::Error!void {
     )
     .expect("write build script");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("missing")
-            .arg("--root")
-            .arg(&root),
-        "run nia build missing",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("missing")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build missing");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -894,13 +886,11 @@ pub fn build(b: &mut build::Build) build::Error!void {
     )
     .expect("write build script");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("--root")
-            .arg(&root),
-        "run nia build without explicit default step",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build without explicit default step");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -933,13 +923,11 @@ pub fn build(b: &mut build::Build) build::Error!void {
     )
     .expect("write build script");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("--root")
-            .arg(&root),
-        "run nia build duplicate target",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build duplicate target");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -968,13 +956,11 @@ pub fn build(b: &mut build::Build) build::Error!void {
     )
     .expect("write build script");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("--root")
-            .arg(&root),
-        "run nia build invalid target",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build invalid target");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1006,13 +992,11 @@ pub fn build(b: &mut build::Build) build::Error!void {
     )
     .expect("write build script");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("--root")
-            .arg(&root),
-        "run nia build invalid executable output name",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build invalid executable output name");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1043,13 +1027,11 @@ pub fn build(b: &mut build::Build) build::Error!void {
     )
     .expect("write build script");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("--root")
-            .arg(&root),
-        "run nia build bare executable artifact",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build bare executable artifact");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1061,13 +1043,11 @@ pub fn build(b: &mut build::Build) build::Error!void {
 fn build_command_reports_missing_build_script() {
     let root = temp_dir("build_command_reports_missing_build_script");
 
-    let output = build_command_output_timeout(
-        Command::new(env!("CARGO_BIN_EXE_nia"))
-            .arg("build")
-            .arg("--root")
-            .arg(&root),
-        "run nia build without build script",
-    );
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("build")
+        .arg("--root")
+        .arg(&root)
+        .build_output_timeout("run nia build without build script");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);

@@ -607,6 +607,27 @@ fn main() void {
 }
 
 #[test]
+fn query_loader_loads_iterator_provider_for_for_in_iterator_values() {
+    let root = temp_dir("query_loader_loads_iterator_provider_for_for_in_iterator_values");
+    let main_path = root.join("main.nia");
+    write(
+        &main_path,
+        r#"
+using std::process;
+
+fn main(init: process::Init) void {
+    for _ in init.env().iter() {}
+}
+"#,
+    );
+
+    let program = load_program(main_path.to_string_lossy().into_owned());
+
+    assert_no_error_diagnostics(&program);
+    assert_module_loaded(&program, "lib/std/process/env.nia");
+}
+
+#[test]
 fn query_loader_loads_facade_trait_impl_provider_for_used_trait_method() {
     let root = temp_dir("query_loader_loads_facade_trait_impl_provider_for_used_trait_method");
     let main_path = root.join("main.nia");

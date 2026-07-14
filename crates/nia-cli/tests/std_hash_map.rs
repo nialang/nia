@@ -483,7 +483,7 @@ fn run(init: process::Init) mem::Error!void {
     if ?value = map.get(&42) { if value.* != 10 {
             return mem::Error::Invalid!;
         } } or null { return mem::Error::Invalid!; }
-    for entry in map.iter_mut() {
+    for mut entry in map.iter_mut() {
         if entry.key().* == 42 {
             entry.value_mut().* = entry.value().* + 2;
         }

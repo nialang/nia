@@ -9,6 +9,7 @@ members = [
     "crates/nia-diagnostic",
     "crates/nia-ice",
     "crates/nia-timing",
+    "crates/nia-test-support",
     "crates/nia-hash",
     "crates/nia-symbol",
     "crates/nia-symbol-table",
@@ -81,6 +82,7 @@ nia-ids = { path = "crates/nia-ids" }
 nia-diagnostic = { path = "crates/nia-diagnostic" }
 nia-ice = { path = "crates/nia-ice" }
 nia-timing = { path = "crates/nia-timing" }
+nia-test-support = { path = "crates/nia-test-support" }
 nia-hash = { path = "crates/nia-hash" }
 nia-symbol = { path = "crates/nia-symbol" }
 nia-symbol-table = { path = "crates/nia-symbol-table" }

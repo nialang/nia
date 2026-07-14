@@ -4,40 +4,38 @@ use std::{
     io::Read,
     path::PathBuf,
     process::{Command, ExitStatus, Output, Stdio},
-    sync::{
-        Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::atomic::{AtomicUsize, Ordering},
     thread,
     time::{Duration, Instant},
 };
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
-#[allow(dead_code)]
-static BUILD_COMMAND_LOCK: Mutex<()> = Mutex::new(());
 
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(420);
-const COMMAND_TIMEOUT_ENV: &str = "NIA_TEST_COMMAND_TIMEOUT_SECS";
-const COMPILER_CHECK_LIMIT_ENV: &str = "NIA_COMPILER_CHECK_LIMIT";
 
 pub(crate) trait CommandExt {
     fn output_timeout(&mut self, context: &str) -> Output;
+    fn output_timeout_with_resource(
+        &mut self,
+        context: &str,
+        permit: nia_test_support::ResourcePermit<'static>,
+    ) -> Output;
 }
 
 pub(crate) trait CommandStatusExt {
     fn status_timeout(&mut self, context: &str) -> ExitStatus;
 }
 
-#[allow(dead_code)]
-pub(crate) fn build_command_output_timeout(command: &mut Command, context: &str) -> Output {
-    let _guard = BUILD_COMMAND_LOCK
-        .lock()
-        .expect("build command test lock poisoned");
-    command.output_timeout(context)
-}
-
 impl CommandExt for Command {
     fn output_timeout(&mut self, context: &str) -> Output {
+        self.output_timeout_with_resource(context, nia_test_support::compiler_permit())
+    }
+
+    fn output_timeout_with_resource(
+        &mut self,
+        context: &str,
+        _permit: nia_test_support::ResourcePermit<'static>,
+    ) -> Output {
         self.stdout(Stdio::piped()).stderr(Stdio::piped());
         prepare_command(self);
 
@@ -80,6 +78,7 @@ impl CommandExt for Command {
 
 impl CommandStatusExt for Command {
     fn status_timeout(&mut self, context: &str) -> ExitStatus {
+        let _permit = nia_test_support::compiler_permit();
         self.stdout(Stdio::null()).stderr(Stdio::null());
         prepare_command(self);
 
@@ -110,28 +109,15 @@ fn join_reader(
 }
 
 fn command_timeout() -> Duration {
-    std::env::var(COMMAND_TIMEOUT_ENV)
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|seconds| *seconds > 0)
-        .map(Duration::from_secs)
-        .unwrap_or(DEFAULT_COMMAND_TIMEOUT)
+    DEFAULT_COMMAND_TIMEOUT
 }
 
 fn prepare_command(command: &mut Command) {
-    command.env(COMPILER_CHECK_LIMIT_ENV, compiler_check_limit());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt as _;
         command.process_group(0);
     }
-}
-
-fn compiler_check_limit() -> String {
-    std::env::var(COMPILER_CHECK_LIMIT_ENV)
-        .ok()
-        .filter(|value| value.parse::<usize>().is_ok_and(|limit| limit > 0))
-        .unwrap_or_else(|| "1".to_string())
 }
 
 fn wait_child_timeout(

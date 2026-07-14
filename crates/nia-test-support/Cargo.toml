@@ -1,0 +1,10 @@
+[package]
+name = "nia-test-support"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"

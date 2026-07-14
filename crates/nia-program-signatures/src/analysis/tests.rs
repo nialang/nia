@@ -101,8 +101,8 @@ fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave()
     using_scope
         .types
         .insert(sym("Other"), using_type_entry(other));
-    let using_scopes = HashMap::new();
-    let empty_aliases = HashMap::<GlobalDefId, ProgramTypeAliasSignature>::new();
+    let using_scopes = |_module_id| None::<Arc<ModuleUsingScope>>;
+    let type_alias = |_def_id| None::<ProgramTypeAliasSignature>;
     let empty_normalization = TypeNormalization {
         interner: TyInterner::new(entry),
         normalized: HashMap::new(),
@@ -138,7 +138,7 @@ fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave()
         defs: &defs,
         normalizations: &normalizations,
         visible_type_signatures: VisibleTypeSignatures {
-            type_aliases: &empty_aliases,
+            type_alias: &type_alias,
         },
         nominal_extension_providers: &nominal_extension_providers,
     });
@@ -151,5 +151,4 @@ fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave()
         "provider targets in one visibility-closure wave should be batched"
     );
     assert_eq!(calls[0], vec![other, used]);
-    assert!(using_scopes.is_empty());
 }

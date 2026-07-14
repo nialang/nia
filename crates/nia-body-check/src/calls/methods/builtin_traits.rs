@@ -215,7 +215,7 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         };
         if matches!(method.receiver_kind(), ReceiverKind::Ref) {
-            self.check_receiver_match(call.receiver, call.receiver_ty, ReceiverKind::Ref);
+            self.check_receiver_match(call.receiver, call.actual_receiver_ty, ReceiverKind::Ref);
         }
         if !self.current_context_proves_trait_obligation(
             call.receiver_ty,
@@ -318,7 +318,7 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         };
         if matches!(method.receiver_kind(), ReceiverKind::Ref) {
-            self.check_receiver_match(call.receiver, call.receiver_ty, ReceiverKind::Ref);
+            self.check_receiver_match(call.receiver, call.actual_receiver_ty, ReceiverKind::Ref);
         }
         let self_ty = if matches!(trait_id, BuiltinTrait::Iterator) {
             self.trait_receiver_self_ty(call.receiver_ty)

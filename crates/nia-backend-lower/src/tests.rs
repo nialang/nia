@@ -392,7 +392,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
         comptime_signatures: &signatures,
         normalization: &normalization,
-        seed_interner: None,
+        seed: None,
         target: &target,
         comptime: body_comptime,
         comptime_module: &comptime_module.module,

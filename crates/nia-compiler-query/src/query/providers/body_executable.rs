@@ -644,7 +644,7 @@ pub(super) fn body_check_with_filter_and_layouts(
                 None => ExecutableFactMode::full(),
             },
             resolution_inputs: None,
-            seed_interner: None,
+            seed: None,
             global_initializer_cache: None,
             comptime_module_cache: None,
             program_function_signature_cache: None,
@@ -662,7 +662,7 @@ pub(super) struct ExecutableBodyCheckInput<'a> {
     pub program_layouts_override: Option<&'a dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
     pub fact_mode: ExecutableFactMode<'a>,
     pub resolution_inputs: Option<BodyCheckResolutionInputs>,
-    pub seed_interner: Option<nia_ty::TyInterner>,
+    pub seed: Option<nia_body_check::BodyCheckSeed<'a>>,
     pub global_initializer_cache:
         Option<&'a RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>>,
     pub comptime_module_cache: Option<&'a RefCell<HashMap<ModuleId, ComptimeModuleLowering>>>,
@@ -683,7 +683,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         program_layouts_override,
         fact_mode,
         resolution_inputs,
-        seed_interner,
+        seed,
         global_initializer_cache,
         comptime_module_cache,
         program_function_signature_cache,
@@ -1185,7 +1185,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     ),
                     comptime_signatures: &signatures,
                     normalization: &normalization,
-                    seed_interner: seed_interner.clone(),
+                    seed,
                     target: &db.query(CompilerTargetQuery),
                     comptime: body_comptime,
                     comptime_module,
@@ -1890,6 +1890,16 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
             Some(&associated_values),
             Some(&symbols),
         );
+        let locals =
+            nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
+                &active_item_tree,
+                &item_input.active_item_tree,
+                &defs,
+                &values,
+                None,
+                &nia_node_id::NodeOriginTable::default(),
+                &symbols,
+            );
         let mut index = ExecutableValueRefIndex::default();
         collect_executable_value_ref_index_for_items(
             db,
@@ -1897,6 +1907,7 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
             &active_item_tree.items,
             &defs,
             &values,
+            &locals,
             &mut index,
         );
         index
@@ -1936,18 +1947,19 @@ fn collect_executable_value_ref_index_for_items(
     items: &[nia_item_tree::ItemTreeNode],
     defs: &DefCollection,
     values: &ValueResolution,
+    locals: &LocalResolution,
     index: &mut ExecutableValueRefIndex,
 ) {
     for item in items {
         match &item.kind {
             nia_item_tree::ItemTreeNodeKind::Function(function) => {
                 collect_executable_value_ref_index_for_function(
-                    db, module_id, defs, values, function, index,
+                    db, module_id, defs, values, locals, function, index,
                 );
             }
             nia_item_tree::ItemTreeNodeKind::Binding(binding) => {
                 collect_executable_value_ref_index_for_binding(
-                    db, module_id, defs, values, binding, index,
+                    db, module_id, defs, values, locals, binding, index,
                 );
             }
             nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
@@ -1957,6 +1969,7 @@ fn collect_executable_value_ref_index_for_items(
                         module_id,
                         defs,
                         values,
+                        locals,
                         &method.function,
                         index,
                     );
@@ -1969,6 +1982,7 @@ fn collect_executable_value_ref_index_for_items(
                         module_id,
                         defs,
                         values,
+                        locals,
                         &associated_value.binding,
                         index,
                     );
@@ -1979,6 +1993,7 @@ fn collect_executable_value_ref_index_for_items(
                         module_id,
                         defs,
                         values,
+                        locals,
                         &method.function,
                         index,
                     );
@@ -1999,6 +2014,7 @@ fn collect_executable_value_ref_index_for_function(
     module_id: ModuleId,
     defs: &DefCollection,
     values: &ValueResolution,
+    locals: &LocalResolution,
     function: &FunctionItem,
     index: &mut ExecutableValueRefIndex,
 ) {
@@ -2010,7 +2026,9 @@ fn collect_executable_value_ref_index_for_function(
     };
     let owner = GlobalDefId { module_id, def_id };
     let edges = index.functions.entry(owner).or_default();
-    collect_executable_value_ref_edges_from_function(db, module_id, function, values, edges);
+    collect_executable_value_ref_edges_from_function(
+        db, module_id, function, values, locals, edges,
+    );
 }
 
 fn collect_executable_value_ref_index_for_binding(
@@ -2018,6 +2036,7 @@ fn collect_executable_value_ref_index_for_binding(
     module_id: ModuleId,
     defs: &DefCollection,
     values: &ValueResolution,
+    locals: &LocalResolution,
     binding: &BindingItem,
     index: &mut ExecutableValueRefIndex,
 ) {
@@ -2029,7 +2048,7 @@ fn collect_executable_value_ref_index_for_binding(
     };
     let owner = GlobalDefId { module_id, def_id };
     let edges = index.globals.entry(owner).or_default();
-    collect_executable_value_ref_edges_from_binding(db, module_id, binding, values, edges);
+    collect_executable_value_ref_edges_from_binding(db, module_id, binding, values, locals, edges);
 }
 
 fn collect_executable_value_ref_edges_from_function(
@@ -2037,9 +2056,10 @@ fn collect_executable_value_ref_edges_from_function(
     module_id: ModuleId,
     function: &FunctionItem,
     values: &ValueResolution,
+    locals: &LocalResolution,
     edges: &mut ExecutableValueRefEdges,
 ) {
-    let mut collector = ExecutableValueRefCollector::new(db, module_id, values, edges);
+    let mut collector = ExecutableValueRefCollector::new(db, module_id, values, locals, edges);
     nia_ast_walk::Visitor::visit_function(&mut collector, function);
 }
 
@@ -2048,9 +2068,10 @@ fn collect_executable_value_ref_edges_from_binding(
     module_id: ModuleId,
     binding: &BindingItem,
     values: &ValueResolution,
+    locals: &LocalResolution,
     edges: &mut ExecutableValueRefEdges,
 ) {
-    let mut collector = ExecutableValueRefCollector::new(db, module_id, values, edges);
+    let mut collector = ExecutableValueRefCollector::new(db, module_id, values, locals, edges);
     if let Some(ty) = &binding.ty {
         nia_ast_walk::Visitor::visit_type(&mut collector, ty);
     }
@@ -2063,6 +2084,7 @@ struct ExecutableValueRefCollector<'a> {
     db: &'a QueryDb<CompilerContext>,
     module_id: ModuleId,
     values: &'a ValueResolution,
+    locals: &'a LocalResolution,
     edges: &'a mut ExecutableValueRefEdges,
 }
 
@@ -2071,12 +2093,14 @@ impl<'a> ExecutableValueRefCollector<'a> {
         db: &'a QueryDb<CompilerContext>,
         module_id: ModuleId,
         values: &'a ValueResolution,
+        locals: &'a LocalResolution,
         edges: &'a mut ExecutableValueRefEdges,
     ) -> Self {
         Self {
             db,
             module_id,
             values,
+            locals,
             edges,
         }
     }
@@ -2088,6 +2112,7 @@ impl<'ast> nia_ast_walk::Visitor<'ast> for ExecutableValueRefCollector<'_> {
             self.db,
             self.module_id,
             self.values,
+            self.locals,
             self.edges,
             &expr.node_key,
         );
@@ -2099,6 +2124,7 @@ impl<'ast> nia_ast_walk::Visitor<'ast> for ExecutableValueRefCollector<'_> {
             self.db,
             self.module_id,
             self.values,
+            self.locals,
             self.edges,
             &ty.node_key,
         );
@@ -2110,9 +2136,22 @@ fn collect_executable_value_ref_edge_for_key(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     values: &ValueResolution,
+    locals: &LocalResolution,
     edges: &mut ExecutableValueRefEdges,
     key: &nia_node_id::VersionedNodeKey,
 ) {
+    match locals.node_uses.get(key) {
+        Some(nia_local_resolve::LocalUse::Static(global_id)) => {
+            edges.insert_edge(db, *global_id);
+            return;
+        }
+        Some(nia_local_resolve::LocalUse::Local(_)) => return,
+        Some(nia_local_resolve::LocalUse::ModuleValue)
+        | Some(nia_local_resolve::LocalUse::Module)
+        | Some(nia_local_resolve::LocalUse::TypePrefix)
+        | Some(nia_local_resolve::LocalUse::Unresolved)
+        | None => {}
+    }
     if let Some(global_id) = values
         .node_names
         .get(key)

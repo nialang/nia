@@ -889,6 +889,48 @@ fn main() i32 {
 }
 
 #[test]
+fn rejects_string_array_values_without_an_explicit_address() {
+    let checked = pipeline(
+        r#"
+fn take_text(text: &[char]) usize {
+    text.len()
+}
+
+fn take_bytes(bytes: &[u8]) usize {
+    bytes.len()
+}
+
+fn main() usize {
+    let text = "nia";
+    let bytes = b"nia";
+    take_text("nia") + take_text(text) + take_bytes(b"nia") + take_bytes(bytes)
+}
+"#,
+    );
+    let messages = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message.contains("expected &[char], got [3]char"))
+            .count(),
+        2,
+        "{messages:?}"
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message.contains("expected &[u8], got [3]u8"))
+            .count(),
+        2,
+        "{messages:?}"
+    );
+}
+
+#[test]
 fn coerces_mutable_references_and_slices_to_readonly_expected_types() {
     let checked = pipeline(
         r#"

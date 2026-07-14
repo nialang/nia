@@ -362,8 +362,8 @@ String literals:
 "hello\n"
 ```
 
-String literals are read-only pointers to fixed-length Unicode scalar arrays.
-`"..."` has type `&[N]char`.
+String literals are fixed-length Unicode scalar arrays. `"..."` has type
+`[N]char`.
 
 Byte string literals:
 
@@ -372,9 +372,8 @@ b"nia"
 b"nia\0"
 ```
 
-Byte string literals are read-only pointers to fixed-length byte arrays.
-`b"..."` has type `&[N]u8`. NUL-terminated byte sequences are written
-explicitly, for example `b"nia\0"`.
+Byte string literals are fixed-length byte arrays. `b"..."` has type `[N]u8`.
+NUL-terminated byte sequences are written explicitly, for example `b"nia\0"`.
 
 Adjacent quoted string literals with the same prefix are concatenated into one
 literal:
@@ -391,27 +390,20 @@ concatenation. Mixed literal families are invalid:
 "hello" b"world" // invalid
 ```
 
-In an expected slice context, string-family literal pointers may coerce to
-slices:
+String-family array values do not implicitly decay to slices. Take an explicit
+address when a slice is expected; the resulting pointer-to-array uses the
+ordinary pointer-array-to-slice coercion:
 
 ```nia
-let text: &[char] = "nia";
-let bytes: &[u8] = b"nia";
+let text: &[char] = &"nia";
+let bytes: &[u8] = &b"nia";
 ```
 
-This is the ordinary pointer-array-to-slice coercion. It does not make ordinary
-array values decay into slices.
+The same rule applies to named arrays:
 
 ```nia
-fn dangling() &[u8] {
-    b"nia" // valid: literal storage is static and read-only
-}
-
 let stable = b"nia";
-
-fn stable_bytes() &[u8] {
-    stable
-}
+let stable_bytes: &[u8] = &stable;
 ```
 
 Multiline string literals use consecutive lines beginning with `\\`. Byte
@@ -430,8 +422,8 @@ For multiline strings, indentation before the delimiter is ignored, the delimite
 itself is not part of the string, and the text after the delimiter is copied as
 is. Adjacent lines are joined with `\n`; no extra newline is appended after the
 last line. Escape sequences are not interpreted inside multiline string lines.
-The prefix selects the same type family as the quoted form: `&[N]char` or
-`&[N]u8`.
+The prefix selects the same type family as the quoted form: `[N]char` or
+`[N]u8`.
 
 Multiline string literals do not participate in adjacent literal concatenation.
 Use adjacent quoted literals when a long single-line literal should be split
@@ -2895,12 +2887,12 @@ When calling C string APIs, use `b"...\0"` and pass an explicit pointer to the
 first byte:
 
 ```nia
-foreign_log(b"hello\n\0".ptr());
+foreign_log((&b"hello\n\0").ptr());
 ```
 
-String and byte string literals are read-only pointers to static arrays, not
-element pointers. There is no implicit `&[N]u8` to `&u8` decay; take the first
-element address explicitly with `ptr()` when an ABI requires `&u8`.
+String and byte string literals are array values, not pointers. There is no
+implicit `[N]u8` to `&u8` decay; take an explicit address and then use `ptr()`
+when an ABI requires an element pointer.
 
 ### 13.1 Internal Symbol Names
 

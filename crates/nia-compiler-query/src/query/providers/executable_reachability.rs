@@ -517,9 +517,12 @@ fn executable_check(
                     Some(reachable_body_modules),
                 )
             };
-            let seed_interner = fact_by_id
+            let seed = fact_by_id
                 .get(&module_id)
-                .map(|state| state.body_ir.interner.clone());
+                .map(|state| nia_body_check::BodyCheckSeed {
+                    interner: &state.body_ir.interner,
+                    facts: &state.semantic_facts,
+                });
             let body_check = {
                 let resolution_inputs = {
                     let cached = caches
@@ -567,7 +570,7 @@ fn executable_check(
                             program_layouts_override: Some(&executable_program_layouts),
                             fact_mode: ExecutableFactMode::executable(reachable_body_modules),
                             resolution_inputs: Some(resolution_inputs),
-                            seed_interner,
+                            seed,
                             global_initializer_cache: Some(&caches.global_initializers),
                             comptime_module_cache: Some(&caches.comptime_modules),
                             program_function_signature_cache: Some(
@@ -1065,9 +1068,6 @@ fn final_executable_checked_modules(
                 ),
                 None => (None, HashSet::new()),
             };
-            let seed_interner = prechecked
-                .as_ref()
-                .map(|prechecked| prechecked.ir.interner.clone());
             let body_check = time_module_provider(db, "executable_body_check", module_id, || {
                 body_check_with_filter_and_layouts_with_inputs(
                     db,
@@ -1080,7 +1080,7 @@ fn final_executable_checked_modules(
                             &reachable_body_modules,
                         )),
                         resolution_inputs: Some(resolution_inputs),
-                        seed_interner,
+                        seed: None,
                         global_initializer_cache: Some(&caches.global_initializers),
                         comptime_module_cache: Some(comptime_module_cache),
                         program_function_signature_cache: Some(&caches.body_function_signatures),

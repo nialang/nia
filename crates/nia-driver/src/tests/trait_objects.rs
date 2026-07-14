@@ -102,6 +102,7 @@ fn main() i32 {
 
 #[test]
 fn in_memory_executable_preserves_trait_object_witnesses_with_module_map() {
+    let _permit = nia_test_support::compiler_permit();
     let root = temp_dir("in_memory_executable_preserves_trait_object_witnesses_with_module_map");
     write(
         &root.join("build.nia"),

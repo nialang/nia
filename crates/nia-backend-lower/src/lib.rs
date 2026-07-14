@@ -512,7 +512,7 @@ pub(crate) struct ExtensionTraitMethodCandidate {
 pub(crate) struct ExtensionMethodSource {
     target_ty: InternedTyId,
     where_predicates: Vec<WherePredicateSignature>,
-    interner_id: TyInternerId,
+    interner: nia_ty::TyInterner,
 }
 
 pub(crate) struct BackendLowerShared {
@@ -2374,7 +2374,7 @@ fn index_local_extension_method_sources_by_def(
                     ExtensionMethodSource {
                         target_ty: target.target_ty,
                         where_predicates: method.where_predicates.clone(),
-                        interner_id: interner.interner_id(),
+                        interner: interner.clone(),
                     },
                 );
             }
@@ -2399,7 +2399,7 @@ fn index_program_extension_method_sources_by_def(
             ExtensionMethodSource {
                 target_ty: method.target_ty,
                 where_predicates: method.where_predicates.clone(),
-                interner_id: type_normalization.interner.interner_id(),
+                interner: type_normalization.interner.clone(),
             },
         );
     }

@@ -33,7 +33,7 @@ fn run(init: Init) mem::Error!void {
     let mut capacity = values.capacity();
 
     debug::print(
-        "array_list len={} capacity={} values={} total={}\n",
+        &"array_list len={} capacity={} values={} total={}\n",
         &[&len, &capacity, &values, &total],
     );
 

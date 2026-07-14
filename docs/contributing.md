@@ -39,6 +39,19 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
+The workspace config admits at most two libtest cases at once, following the
+same `RUST_TEST_THREADS` mechanism used by Rust's bootstrap. Compiler-heavy
+phases additionally share a cross-process budget derived from the effective CPU
+count and the smaller of system and cgroup memory limits. Build commands are
+charged at twice the weight of ordinary compiler work. Machine categories do
+not select separate test paths: WSL uses the Linux VM's visible resources,
+containers and constrained rental hosts use their cgroup limits, and bare Linux
+hosts use system resources. If memory cannot be detected, compiler-heavy tests
+run serially. This keeps the default command conservative without private
+environment variables; high-capacity machines may override the standard
+`RUST_TEST_THREADS` setting when they intentionally want more libtest
+concurrency.
+
 Do not add `allow` or `expect` attributes to bypass lints. Fix the code instead.
 
 Tests should reflect the current language. A removed spelling may be tested as a
@@ -57,9 +70,6 @@ the tree are grouped here so their role stays explicit:
 - `NIA_QUERY_THREADS`: developer tuning knob for query worker parallelism.
 - `NIA_DEBUG_EXEC_REACHABILITY`: developer debug output for executable
   reachability.
-- `NIA_COMPILER_CHECK_LIMIT`: test/development guard for limiting expensive
-  compiler checks.
-- `NIA_TEST_COMMAND_TIMEOUT_SECS`: CLI integration-test timeout override.
 - `NO_COLOR`: standard terminal convention respected by CLI help rendering.
 - `LLVM_SYS_221_PREFIX`: `llvm-sys` build-time override for non-standard LLVM
   installations.

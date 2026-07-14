@@ -233,6 +233,7 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
         }
         if let StmtKind::ForIn(_) = &stmt.kind {
             self.collect_implicit_trait_provider(nia_ids::BuiltinTrait::Iterable.symbol_id());
+            self.collect_implicit_trait_provider(nia_ids::BuiltinTrait::Iterator.symbol_id());
             walk_stmt(self, stmt);
             return;
         }
@@ -240,14 +241,14 @@ impl<'ast> Visitor<'ast> for QualifiedPathModuleCollector<'_> {
     }
 
     fn visit_expr(&mut self, expr: &'ast Expr) {
-        if let ExprKind::Call { callee, args } = &expr.kind {
-            if let Some(segments) = expr_qualified_segments(callee) {
-                self.collect_path_segments(segments);
-                for arg in args {
-                    self.visit_expr(arg);
-                }
-                return;
+        if let ExprKind::Call { callee, args } = &expr.kind
+            && let Some(segments) = expr_qualified_segments(callee)
+        {
+            self.collect_path_segments(segments);
+            for arg in args {
+                self.visit_expr(arg);
             }
+            return;
         }
         if let Some(segments) = expr_qualified_segments(expr) {
             self.collect_path_segments(segments);

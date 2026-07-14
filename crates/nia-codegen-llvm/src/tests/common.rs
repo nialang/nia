@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub(super) use crate::{
-    LlvmCodegenOptions, catch_llvm_codegen_ice, emit_llvm_ir, emit_llvm_ir_with_options,
-    emit_native_objects,
+    LlvmCodegenOptions, LlvmCodegenOutput, LlvmObjectOutput, catch_llvm_codegen_ice,
 };
 pub(super) use nia_backend_ir::{
     BackendComptimeFacts, BackendEnum, BackendEnumVariant, BackendField, BackendFunction,
@@ -84,6 +83,7 @@ fn codegen_program_request(
     request: nia_loader_query::LoadRequest,
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CodegenProgram {
+    let _permit = nia_test_support::compiler_permit();
     let loader = nia_loader_query::LoaderDatabase::new(request);
     let mut loaded = loader.load_program();
     let compiler = nia_compiler_query::CompilerDatabase::new(
@@ -125,6 +125,27 @@ fn codegen_program_request(
                 .with_provider_changes(provider_changes),
         );
     }
+}
+
+pub(super) fn emit_llvm_ir(program: &BackendProgram) -> LlvmCodegenOutput {
+    let _permit = nia_test_support::compiler_permit();
+    crate::emit_llvm_ir(program)
+}
+
+pub(super) fn emit_llvm_ir_with_options(
+    program: &BackendProgram,
+    options: LlvmCodegenOptions,
+) -> LlvmCodegenOutput {
+    let _permit = nia_test_support::compiler_permit();
+    crate::emit_llvm_ir_with_options(program, options)
+}
+
+pub(super) fn emit_native_objects(
+    program: &BackendProgram,
+    options: LlvmCodegenOptions,
+) -> LlvmObjectOutput {
+    let _permit = nia_test_support::compiler_permit();
+    crate::emit_native_objects(program, options)
 }
 
 pub(super) struct EmitSmokeCase {

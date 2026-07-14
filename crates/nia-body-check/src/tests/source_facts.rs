@@ -2,6 +2,29 @@
 use super::common::*;
 
 #[test]
+fn records_function_global_value_dependencies() {
+    let checked = pipeline(
+        r#"
+static mut calls: i32 = 0;
+
+fn main() i32 {
+    calls += 1;
+    calls
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let global_uses = checked
+        .facts
+        .function_facts
+        .values()
+        .flat_map(|facts| facts.global_value_uses.iter())
+        .collect::<Vec<_>>();
+    assert_eq!(global_uses.len(), 1, "{global_uses:?}");
+}
+
+#[test]
 fn records_body_facts_by_source_versioned_node_keys() {
     let version = SourceVersion {
         id: SourceId(7),
@@ -111,7 +134,7 @@ fn main() i32 {
         signatures: BodyLocalSignatures::from_item_signatures(&signatures),
         comptime_signatures: &signatures,
         normalization: &normalization,
-        seed_interner: None,
+        seed: None,
         target: &target,
         comptime,
         comptime_module: &comptime_module.module,
@@ -273,7 +296,7 @@ fn main() i32 {
         signatures: BodyLocalSignatures::from_item_signatures(&signatures),
         comptime_signatures: &signatures,
         normalization: &normalization,
-        seed_interner: None,
+        seed: None,
         target: &target,
         comptime,
         comptime_module: &comptime_module.module,

@@ -1310,129 +1310,125 @@ fn insert_trait_and_supertrait_methods(
     trait_args: &[InternedTyId],
     interner: TyInterner,
 ) {
-    insert_trait_and_supertrait_methods_inner(
+    TraitMethodExpansion {
         program_signatures,
         traits,
         module_id,
-        trait_id,
-        self_ty,
-        trait_args,
-        interner,
-        &mut HashSet::new(),
-    );
+        active_traits: HashSet::new(),
+    }
+    .insert(trait_id, self_ty, trait_args, interner);
 }
 
-fn insert_trait_and_supertrait_methods_inner(
-    program_signatures: ExecutableSignatureIndex<'_>,
-    traits: &mut ReachableTraitRefs,
+struct TraitMethodExpansion<'a, 'b> {
+    program_signatures: ExecutableSignatureIndex<'a>,
+    traits: &'b mut ReachableTraitRefs,
     module_id: ModuleId,
-    trait_id: TraitId,
-    self_ty: InternedTyId,
-    trait_args: &[InternedTyId],
-    interner: TyInterner,
-    active_traits: &mut HashSet<TraitId>,
-) {
-    if !active_traits.insert(trait_id) {
-        return;
-    }
-    match trait_id {
-        TraitId::Builtin(builtin_trait) => {
-            traits.insert_methods_with_interner(
-                module_id,
-                trait_id,
-                builtin_trait
-                    .required_methods()
-                    .iter()
-                    .filter_map(|method| builtin_trait_method_symbol(*method))
-                    .map(|name| ReachableTraitMethodName { name }),
-                self_ty,
-                trait_args,
-                interner.clone(),
-            );
-            for supertrait in builtin_trait.supertraits() {
-                let supertrait_args = if supertrait.preserves_trait_args {
-                    trait_args
-                } else {
-                    &[]
-                };
-                insert_trait_and_supertrait_methods_inner(
-                    program_signatures,
-                    traits,
-                    module_id,
-                    TraitId::Builtin(supertrait.trait_id),
+    active_traits: HashSet<TraitId>,
+}
+
+impl TraitMethodExpansion<'_, '_> {
+    fn insert(
+        &mut self,
+        trait_id: TraitId,
+        self_ty: InternedTyId,
+        trait_args: &[InternedTyId],
+        interner: TyInterner,
+    ) {
+        if !self.active_traits.insert(trait_id) {
+            return;
+        }
+        match trait_id {
+            TraitId::Builtin(builtin_trait) => {
+                self.traits.insert_methods_with_interner(
+                    self.module_id,
+                    trait_id,
+                    builtin_trait
+                        .required_methods()
+                        .iter()
+                        .filter_map(|method| builtin_trait_method_symbol(*method))
+                        .map(|name| ReachableTraitMethodName { name }),
                     self_ty,
-                    supertrait_args,
+                    trait_args,
                     interner.clone(),
-                    active_traits,
                 );
+                for supertrait in builtin_trait.supertraits() {
+                    let supertrait_args = if supertrait.preserves_trait_args {
+                        trait_args
+                    } else {
+                        &[]
+                    };
+                    self.insert(
+                        TraitId::Builtin(supertrait.trait_id),
+                        self_ty,
+                        supertrait_args,
+                        interner.clone(),
+                    );
+                }
+            }
+            TraitId::Source(trait_def) => {
+                let Some(trait_signature) = (self.program_signatures.trait_)(trait_def) else {
+                    self.active_traits.remove(&trait_id);
+                    return;
+                };
+                self.traits.insert_methods_with_interner(
+                    self.module_id,
+                    trait_id,
+                    trait_signature
+                        .signature
+                        .methods
+                        .iter()
+                        .map(|method| ReachableTraitMethodName { name: method.name }),
+                    self_ty,
+                    trait_args,
+                    interner.clone(),
+                );
+                for supertrait in &trait_signature.signature.supertraits {
+                    let mut supertrait_interner = trait_signature.interner.clone();
+                    let Ok(imported_self_ty) =
+                        nia_ty::try_import_type_into(&mut supertrait_interner, &interner, self_ty)
+                    else {
+                        continue;
+                    };
+                    let imported_trait_args = trait_args
+                        .iter()
+                        .map(|arg| {
+                            nia_ty::try_import_type_into(&mut supertrait_interner, &interner, *arg)
+                                .ok()
+                        })
+                        .collect::<Option<Vec<_>>>();
+                    let Some(imported_trait_args) = imported_trait_args else {
+                        continue;
+                    };
+                    let substitutions = trait_signature
+                        .signature
+                        .generics
+                        .iter()
+                        .copied()
+                        .zip(imported_trait_args)
+                        .collect::<SymbolMap<_>>();
+                    let substitutions =
+                        TypeSubstitutions::local(Some(imported_self_ty), &substitutions);
+                    let Some(supertrait_ty) =
+                        substitute_ty(&mut supertrait_interner, supertrait.ty, &substitutions)
+                    else {
+                        continue;
+                    };
+                    let Some((supertrait_id, supertrait_args)) =
+                        trait_id_and_args(&supertrait_interner, supertrait_ty)
+                    else {
+                        continue;
+                    };
+                    self.insert(
+                        supertrait_id,
+                        imported_self_ty,
+                        &supertrait_args,
+                        supertrait_interner,
+                    );
+                }
             }
         }
-        TraitId::Source(trait_def) => {
-            let Some(trait_signature) = (program_signatures.trait_)(trait_def) else {
-                active_traits.remove(&trait_id);
-                return;
-            };
-            traits.insert_methods_with_interner(
-                module_id,
-                trait_id,
-                trait_signature
-                    .signature
-                    .methods
-                    .iter()
-                    .map(|method| ReachableTraitMethodName { name: method.name }),
-                self_ty,
-                trait_args,
-                interner.clone(),
-            );
-            for supertrait in &trait_signature.signature.supertraits {
-                let mut supertrait_interner = trait_signature.interner.clone();
-                let Ok(imported_self_ty) =
-                    nia_ty::try_import_type_into(&mut supertrait_interner, &interner, self_ty)
-                else {
-                    continue;
-                };
-                let imported_trait_args = trait_args
-                    .iter()
-                    .map(|arg| {
-                        nia_ty::try_import_type_into(&mut supertrait_interner, &interner, *arg).ok()
-                    })
-                    .collect::<Option<Vec<_>>>();
-                let Some(imported_trait_args) = imported_trait_args else {
-                    continue;
-                };
-                let substitutions = trait_signature
-                    .signature
-                    .generics
-                    .iter()
-                    .copied()
-                    .zip(imported_trait_args)
-                    .collect::<SymbolMap<_>>();
-                let substitutions =
-                    TypeSubstitutions::local(Some(imported_self_ty), &substitutions);
-                let Some(supertrait_ty) =
-                    substitute_ty(&mut supertrait_interner, supertrait.ty, &substitutions)
-                else {
-                    continue;
-                };
-                let Some((supertrait_id, supertrait_args)) =
-                    trait_id_and_args(&supertrait_interner, supertrait_ty)
-                else {
-                    continue;
-                };
-                insert_trait_and_supertrait_methods_inner(
-                    program_signatures,
-                    traits,
-                    module_id,
-                    supertrait_id,
-                    imported_self_ty,
-                    &supertrait_args,
-                    supertrait_interner,
-                    active_traits,
-                );
-            }
-        }
+        self.active_traits.remove(&trait_id);
     }
-    active_traits.remove(&trait_id);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

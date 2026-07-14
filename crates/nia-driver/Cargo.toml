@@ -21,6 +21,7 @@ nia-symbol.workspace = true
 nia-target-config.workspace = true
 
 [dev-dependencies]
+nia-test-support.workspace = true
 nia-ast.workspace = true
 nia-backend-ir.workspace = true
 nia-body-ir.workspace = true

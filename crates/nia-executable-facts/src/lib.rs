@@ -272,6 +272,9 @@ pub fn executable_module_refs_from_semantic_facts(
         let function_refs = refs.functions.entry(*def_id).or_default();
         collect_local_static_globals_owned_by_function(module, *def_id, function_refs);
         function_refs
+            .globals
+            .extend(facts.global_value_uses.iter().copied());
+        function_refs
             .generic_instantiations
             .extend(facts.generic_instantiations.iter().cloned());
         for call in facts.node_resolved_calls.values() {

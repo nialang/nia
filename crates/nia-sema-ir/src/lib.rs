@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nia_ast::{BinaryOp, UnaryOp};
 use nia_ids::{
@@ -489,6 +489,7 @@ impl SemanticFacts {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FunctionSemanticFacts {
     pub local_types: HashMap<LocalId, InternedTyId>,
+    pub global_value_uses: HashSet<GlobalDefId>,
     pub generic_instantiations: Vec<GenericInstantiation>,
     pub node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
     pub node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,

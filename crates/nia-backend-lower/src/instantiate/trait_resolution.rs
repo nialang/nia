@@ -385,7 +385,7 @@ impl<'a> ModuleLowerer<'a> {
         {
             sources.push((
                 signature.where_predicates.clone(),
-                self.input.body_ir.interner.clone(),
+                self.input.type_lowering.interner.clone(),
             ));
             return sources;
         }
@@ -406,19 +406,10 @@ impl<'a> ModuleLowerer<'a> {
         nia_ty::TyInterner,
     )> {
         let source = self.extension_method_source(current)?;
-        let interner = self
-            .type_context
-            .input_interner_by_id(source.interner_id)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Nia ICE: missing backend extension method source interner {:?}",
-                    source.interner_id
-                )
-            })
-            .clone();
+        let interner = source.interner.clone();
         let (target_interner, target_ty) = self
             .normalized_program_type_source_for_module(
-                source.interner_id.module_id(),
+                interner.interner_id().module_id(),
                 &interner,
                 source.target_ty,
             )
@@ -499,16 +490,7 @@ impl<'a> ModuleLowerer<'a> {
         nia_ty::TyInterner,
     )> {
         if let Some(source) = self.extension_method_source(current) {
-            let interner = self
-                .type_context
-                .input_interner_by_id(source.interner_id)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Nia ICE: missing backend extension method source interner {:?}",
-                        source.interner_id
-                    )
-                });
-            return Some((source.where_predicates.clone(), interner.clone()));
+            return Some((source.where_predicates.clone(), source.interner.clone()));
         }
         let program_index = self.trait_impl_index_for_method(current)?;
         self.input.trait_impls.get(program_index).map(|signature| {

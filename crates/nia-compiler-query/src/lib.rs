@@ -32,7 +32,7 @@ pub use nia_body_check::{ProviderDemand, ProviderRequest};
 
 pub use nia_backend_lower::BackendOptimizationChange;
 pub use nia_timing::TimingMode;
-pub use query::{CompileRequest, CompilerDatabase, compiler_work_permit};
+pub use query::{CompileRequest, CompilerDatabase};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedProgram {
