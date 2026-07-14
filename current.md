@@ -310,6 +310,17 @@ Zig 的 `InternPool.Index`、`Nav.Index`、`TrackedInst.Index` 等是 `Zcu` 内�
 
 这不等于引入 `'tcx` 到所有 public API。Nia 可以选择 Zig 风格的显式 index + owner，或 arena handle + session token。重要的是统一身份，而不是语法形式。
 
+Phase B 开始时进一步核对现有创建路径后，需要把 identity contract 收紧为以下规则：
+
+1. `TyId` 是 compilation-session local typed index，不携带 module owner；primitive/structural type 本来没有源码模块归属，nominal type 通过 `TyKind` 内的 stable definition identity 表达来源。
+2. session type store append-only，已发布 slot 在 session 生命周期内 immutable 且永不复用。revision 改变 syntax/def -> type 的 fact，不重编号整个 type store；否则 incremental query 无法保留稳定 handle。
+3. 不同 compiler session 由 store identity 隔离，store API 必须拒绝 foreign handle。当前 owned query product 尚不能用 Rust lifetime 静态限制时，以该检查作为 stale-handle 边界；session drop 后 handle 不具备可解释性。
+4. 跨进程/跨 session 使用独立 `StableTyKey`：它由 stable definition/source identity 与结构数据 canonicalize，只在 persistence 边界映射为 local `TyId`，不能替代热路径 index。
+5. type store 集中 ownership、canonicalization 与同步策略，但算法 crate 只能通过 typed API 查询/intern，不能获得可任意修改其他语义状态的 global world table。
+6. 迁移从 type lowering 开始，依次经过 normalize、trait/body、layout、mono/backend；每个域迁移完成时删除该域的 snapshot/import 路径。adapter 只存在于“已迁移前缀 -> 下一个未迁移域”的单一边界，不提供 module-local/session-global 两套公开选择。
+
+这也排除了一个表面简单的方案：只给当前 `TyInternerId(ModuleId)` 叠加 revision generation。declaration/full/signature type lowering 目前会分别从零构建同 module interner，正是依赖相同 module-derived id 和 prefix 假设才可互用；先强化 id 而不先统一 store，只会把隐式耦合变成大面积不兼容，不能建立正确身份。规范已同步到 `docs/architecture.md`；实现完成前仍不得把 Phase B 标为完成。
+
 ### 7.4 Definition 稳定性
 
 Nia 的 `ModuleId(u32)`、`DefId(u64)`、`SourceId(u32)` 当前主要是装载/收集过程中的编号。源码中没有与 Rust `StableCrateId + DefPathHash` 或 Zig `TrackedInst` 等价的完整跨 revision identity 层。
@@ -935,6 +946,8 @@ Acceptance：基准命令不依赖隐藏环境变量，结果写 machine-readabl
 6. 最终删除 `ProgramFunctionBodyInterners`、working interner copies 和跨 interner recursive import。
 
 Acceptance：生产代码中不再出现跨 interner type import；backend product 不再内嵌 interner snapshot；同一类型 handle 可在一个 compilation session 的 module/stage 间直接比较；stale/local/stable identity 规则有自动化验证。
+
+进展（2026-07-14）：已完成第一步 identity/ownership contract，明确 session-local append-only `TyId`、store identity stale check、独立 `StableTyKey`、revision 不重编号以及单边界迁移规则。实现尚未开始：当前 `InternedTyId` 仍编码 module-derived interner id，type lowering 仍各自创建 interner，snapshot/import API 也仍存在；下一切片必须先建立 session-owned store 并把全部 type-lowering variants 一次迁入，不能用 type alias 或 generation wrapper 假装完成。
 
 ### 阶段 C（P0）：重做 query value/storage 契约
 
