@@ -221,6 +221,7 @@ fn help_and_version_use_nia_command_name() {
         "{help_stdout}"
     );
     assert!(help_stdout.contains("--timings"), "{help_stdout}");
+    assert!(help_stdout.contains("--timings-format"), "{help_stdout}");
     assert!(help_stdout.contains("--timing-trace"), "{help_stdout}");
     for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"] {
         assert!(help_stdout.contains(level), "{help_stdout}");
@@ -251,6 +252,7 @@ fn help_and_version_use_nia_command_name() {
         "{check_stdout}"
     );
     assert!(check_stdout.contains("--timings"), "{check_stdout}");
+    assert!(check_stdout.contains("--timings-format"), "{check_stdout}");
     assert!(check_stdout.contains("--timing-trace"), "{check_stdout}");
     assert!(
         check_stdout.contains("Timing reports are written to stderr"),
@@ -311,6 +313,7 @@ fn help_and_version_use_nia_command_name() {
     assert!(emit_stdout.contains("--link-arg <arg>"), "{emit_stdout}");
     assert!(emit_stdout.contains("--opt-report"), "{emit_stdout}");
     assert!(emit_stdout.contains("--timings"), "{emit_stdout}");
+    assert!(emit_stdout.contains("--timings-format"), "{emit_stdout}");
     assert!(emit_stdout.contains("--timing-trace"), "{emit_stdout}");
     assert!(
         emit_stdout
@@ -1144,6 +1147,29 @@ fn main() i32 {
     let stderr = String::from_utf8_lossy(&traced.stderr);
     assert!(stderr.contains("timing check:"), "{stderr}");
     assert!(stderr.contains("timing summary stage check:"), "{stderr}");
+
+    let json = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("--timings=detail")
+        .arg("--timings-format=json")
+        .arg("check")
+        .arg(&main)
+        .output_timeout("run nia check with JSON timings");
+    assert!(
+        json.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&json.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&json.stderr);
+    let report = stderr
+        .lines()
+        .find(|line| line.starts_with("{\"schema_version\":1,"))
+        .expect("missing JSON timing report");
+    assert!(report.contains("\"max_rss_bytes\":"), "{report}");
+    assert!(report.contains("\"query.executions\":"), "{report}");
+    assert!(
+        report.contains("\"driver.provider_demand_rounds\":"),
+        "{report}"
+    );
 }
 
 #[test]
@@ -1161,6 +1187,20 @@ fn invalid_timings_option_reports_expected_modes() {
         "{stderr}"
     );
     assert!(stderr.contains("--timings=detail"), "{stderr}");
+}
+
+#[test]
+fn invalid_timings_format_reports_expected_formats() {
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("--timings-format=csv")
+        .arg("check")
+        .arg("main.nia")
+        .output_timeout("run nia with invalid timings format");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unknown timings format `csv`"), "{stderr}");
+    assert!(stderr.contains("expected text or json"), "{stderr}");
 }
 
 #[test]

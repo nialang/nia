@@ -3,6 +3,7 @@ use std::{
     cell::RefCell,
     cmp::Reverse,
     collections::HashMap,
+    fmt::Write as _,
     sync::{
         Arc, Condvar, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -26,6 +27,7 @@ pub enum TimingMode {
 pub struct TimingOptions {
     pub mode: TimingMode,
     pub trace: TimingTrace,
+    pub format: TimingFormat,
 }
 
 impl TimingOptions {
@@ -33,11 +35,17 @@ impl TimingOptions {
         Self {
             mode,
             trace: TimingTrace::Off,
+            format: TimingFormat::Text,
         }
     }
 
     pub fn with_trace(mut self, trace: TimingTrace) -> Self {
         self.trace = trace;
+        self
+    }
+
+    pub fn with_format(mut self, format: TimingFormat) -> Self {
+        self.format = format;
         self
     }
 }
@@ -47,6 +55,92 @@ pub enum TimingTrace {
     #[default]
     Off,
     Events,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TimingFormat {
+    #[default]
+    Text,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProcessUsage {
+    user: Duration,
+    system: Duration,
+    max_rss_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProcessMeasurement {
+    wall: Duration,
+    user: Option<Duration>,
+    system: Option<Duration>,
+    max_rss_bytes: Option<u64>,
+}
+
+impl ProcessMeasurement {
+    fn finish(started_at: Instant, started_usage: Option<ProcessUsage>) -> Self {
+        let finished_usage = process_usage();
+        Self {
+            wall: started_at.elapsed(),
+            user: started_usage
+                .zip(finished_usage)
+                .map(|(start, finish)| finish.user.saturating_sub(start.user)),
+            system: started_usage
+                .zip(finished_usage)
+                .map(|(start, finish)| finish.system.saturating_sub(start.system)),
+            max_rss_bytes: finished_usage.and_then(|usage| usage.max_rss_bytes),
+        }
+    }
+
+    fn cpu_utilization_percent(self) -> Option<f64> {
+        let cpu = self.user? + self.system?;
+        let wall = self.wall.as_secs_f64();
+        (wall > 0.0).then(|| cpu.as_secs_f64() * 100.0 / wall)
+    }
+}
+
+#[cfg(unix)]
+fn process_usage() -> Option<ProcessUsage> {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+    // SAFETY: `getrusage` initializes the pointed-to `rusage` on success, and
+    // the pointer is valid for the duration of the call.
+    let status = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
+    if status != 0 {
+        return None;
+    }
+    // SAFETY: a successful `getrusage` call initialized `usage` above.
+    let usage = unsafe { usage.assume_init() };
+    Some(ProcessUsage {
+        user: timeval_duration(usage.ru_utime),
+        system: timeval_duration(usage.ru_stime),
+        max_rss_bytes: max_rss_bytes(usage.ru_maxrss),
+    })
+}
+
+#[cfg(unix)]
+fn timeval_duration(value: libc::timeval) -> Duration {
+    let seconds = u64::try_from(value.tv_sec).unwrap_or_default();
+    let micros = u32::try_from(value.tv_usec)
+        .unwrap_or_default()
+        .min(999_999);
+    Duration::new(seconds, micros * 1_000)
+}
+
+#[cfg(all(unix, any(target_os = "macos", target_os = "ios")))]
+fn max_rss_bytes(value: libc::c_long) -> Option<u64> {
+    u64::try_from(value).ok()
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
+fn max_rss_bytes(value: libc::c_long) -> Option<u64> {
+    u64::try_from(value).ok()?.checked_mul(1024)
+}
+
+#[cfg(not(unix))]
+fn process_usage() -> Option<ProcessUsage> {
+    None
 }
 
 impl TimingMode {
@@ -146,6 +240,18 @@ pub fn emit_query_note(name: impl Into<String>, detail: impl Into<String>) {
     emit_note(TimingEventKind::Query, name.into(), detail.into());
 }
 
+pub fn emit_counter(name: impl Into<String>, value: u64) {
+    let event = TimingEvent {
+        kind: TimingEventKind::Counter,
+        name: name.into(),
+        data: TimingEventData::Counter(value),
+    };
+    match record_timing_event(event) {
+        Ok(()) => {}
+        Err(event) => print_event(&event),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimingMeasurement {
     pub total: Duration,
@@ -225,7 +331,7 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
                 .wait(state)
                 .expect("timing collector state poisoned");
         }
-        let session = Arc::new(TimingSession::new(options.trace));
+        let session = Arc::new(TimingSession::new(options.trace, options.format));
         state.active = Some(ActiveTimingCollector {
             owner: current_thread,
             session: Arc::clone(&session),
@@ -265,7 +371,11 @@ pub fn collect_to_stderr<T>(options: TimingOptions, f: impl FnOnce() -> T) -> T 
                     print_event(&event);
                 }
             }
-            print_report(&report);
+            print_report(
+                &report,
+                self.session.format,
+                ProcessMeasurement::finish(self.session.started_at, self.session.started_usage),
+            );
         }
     }
 
@@ -284,12 +394,14 @@ struct TimingEvent {
 enum TimingEventData {
     Measurement(TimingMeasurement),
     Note(String),
+    Counter(u64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum TimingEventKind {
     Stage,
     Query,
+    Counter,
 }
 
 #[derive(Debug, Default)]
@@ -314,15 +426,21 @@ fn timing_collector_state() -> &'static (Mutex<TimingCollectorState>, Condvar) {
 struct TimingSession {
     id: u64,
     trace: TimingTrace,
+    format: TimingFormat,
+    started_at: Instant,
+    started_usage: Option<ProcessUsage>,
     active: AtomicBool,
     collector: Mutex<TimingCollector>,
 }
 
 impl TimingSession {
-    fn new(trace: TimingTrace) -> Self {
+    fn new(trace: TimingTrace, format: TimingFormat) -> Self {
         Self {
             id: next_timing_session_id(),
             trace,
+            format,
+            started_at: Instant::now(),
+            started_usage: process_usage(),
             active: AtomicBool::new(true),
             collector: Mutex::new(TimingCollector::new(trace)),
         }
@@ -494,6 +612,10 @@ fn format_event(event: &TimingEvent) -> String {
         (TimingEventKind::Query, TimingEventData::Note(detail)) => {
             format!("query timing {}: {}", event.name, detail)
         }
+        (TimingEventKind::Counter, TimingEventData::Counter(value)) => {
+            format!("timing counter {}: {value}", event.name)
+        }
+        _ => unreachable!("timing event kind and data must agree"),
     }
 }
 
@@ -512,6 +634,7 @@ fn format_measurement_event(prefix: &str, name: &str, measurement: TimingMeasure
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TimingReport {
     entries: Vec<TimingReportEntry>,
+    counters: Vec<TimingCounter>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -523,9 +646,16 @@ struct TimingReportEntry {
     max: Duration,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TimingCounter {
+    name: String,
+    value: u64,
+}
+
 #[derive(Debug)]
 struct TimingCollector {
     report: TimingReportBuilder,
+    counters: HashMap<String, u64>,
     trace_events: Option<Vec<TimingEvent>>,
 }
 
@@ -533,6 +663,7 @@ impl TimingCollector {
     fn new(trace: TimingTrace) -> Self {
         Self {
             report: TimingReportBuilder::default(),
+            counters: HashMap::new(),
             trace_events: matches!(trace, TimingTrace::Events).then(Vec::new),
         }
     }
@@ -544,6 +675,9 @@ impl TimingCollector {
             }
             TimingEventData::Note(detail) => {
                 self.emit_note(event.kind, event.name, detail);
+            }
+            TimingEventData::Counter(value) => {
+                self.emit_counter(event.name, value);
             }
         }
     }
@@ -574,8 +708,22 @@ impl TimingCollector {
         }
     }
 
+    fn emit_counter(&mut self, name: String, value: u64) {
+        if let Some(events) = &mut self.trace_events {
+            events.push(TimingEvent {
+                kind: TimingEventKind::Counter,
+                name: name.clone(),
+                data: TimingEventData::Counter(value),
+            });
+        }
+        *self.counters.entry(name).or_default() += value;
+    }
+
     fn merge(&mut self, mut other: TimingCollector) {
         self.report.merge(std::mem::take(&mut other.report));
+        for (name, value) in other.counters.drain() {
+            *self.counters.entry(name).or_default() += value;
+        }
         if let (Some(events), Some(other_events)) =
             (&mut self.trace_events, other.trace_events.take())
         {
@@ -584,10 +732,27 @@ impl TimingCollector {
     }
 
     fn drain(&mut self) -> (TimingReport, Option<Vec<TimingEvent>>) {
-        (
-            std::mem::take(&mut self.report).finish(),
-            self.trace_events.take(),
-        )
+        let entries = std::mem::take(&mut self.report).finish_entries();
+        let value_clones = entries
+            .iter()
+            .filter(|entry| {
+                entry.name.starts_with("query.clone.cache_hit[")
+                    || entry.name.starts_with("query.clone.store[")
+            })
+            .map(|entry| entry.count as u64)
+            .sum::<u64>();
+        if value_clones != 0 {
+            *self
+                .counters
+                .entry("query.value_clones".to_string())
+                .or_default() += value_clones;
+        }
+        let mut counters = std::mem::take(&mut self.counters)
+            .into_iter()
+            .map(|(name, value)| TimingCounter { name, value })
+            .collect::<Vec<_>>();
+        counters.sort_by(|left, right| left.name.cmp(&right.name));
+        (TimingReport { entries, counters }, self.trace_events.take())
     }
 }
 
@@ -627,7 +792,7 @@ impl TimingReportBuilder {
         }
     }
 
-    fn finish(self) -> TimingReport {
+    fn finish_entries(self) -> Vec<TimingReportEntry> {
         let mut entries = self.entries_by_key.into_values().collect::<Vec<_>>();
         entries.sort_by(|left, right| {
             right
@@ -635,7 +800,7 @@ impl TimingReportBuilder {
                 .cmp(&left.total)
                 .then_with(|| left.name.cmp(&right.name))
         });
-        TimingReport { entries }
+        entries
     }
 }
 
@@ -649,15 +814,25 @@ impl TimingReport {
             };
             builder.record(event.kind, event.name.clone(), *measurement);
         }
-        builder.finish()
+        TimingReport {
+            entries: builder.finish_entries(),
+            counters: Vec::new(),
+        }
     }
 
     fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.is_empty() && self.counters.is_empty()
     }
 }
 
-fn print_report(report: &TimingReport) {
+fn print_report(report: &TimingReport, format: TimingFormat, process: ProcessMeasurement) {
+    match format {
+        TimingFormat::Text => print_text_report(report),
+        TimingFormat::Json => eprintln!("{}", format_json_report(report, process)),
+    }
+}
+
+fn print_text_report(report: &TimingReport) {
     if report.is_empty() {
         return;
     }
@@ -671,12 +846,16 @@ fn print_report(report: &TimingReport) {
             report.entries.len() - TIMING_REPORT_ENTRY_LIMIT
         );
     }
+    for counter in &report.counters {
+        eprintln!("timing summary counter {}: {}", counter.name, counter.value);
+    }
 }
 
 fn format_report_entry(entry: &TimingReportEntry) -> String {
     let prefix = match entry.kind {
         TimingEventKind::Stage => "timing summary stage",
         TimingEventKind::Query => "timing summary query",
+        TimingEventKind::Counter => unreachable!("counters are not timing entries"),
     };
     format!(
         "{prefix} {}: total={:.3}s count={} max={:.3}s",
@@ -685,6 +864,96 @@ fn format_report_entry(entry: &TimingReportEntry) -> String {
         entry.count,
         entry.max.as_secs_f64()
     )
+}
+
+fn format_json_report(report: &TimingReport, process: ProcessMeasurement) -> String {
+    let mut output = String::new();
+    output.push_str("{\"schema_version\":1,\"process\":{");
+    push_json_duration(&mut output, "wall_seconds", Some(process.wall));
+    output.push(',');
+    push_json_duration(&mut output, "user_seconds", process.user);
+    output.push(',');
+    push_json_duration(&mut output, "system_seconds", process.system);
+    output.push_str(",\"max_rss_bytes\":");
+    push_json_optional_u64(&mut output, process.max_rss_bytes);
+    output.push_str(",\"cpu_utilization_percent\":");
+    push_json_optional_f64(&mut output, process.cpu_utilization_percent());
+    output.push_str("},\"timings\":[");
+    for (index, entry) in report.entries.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        output.push_str("{\"kind\":");
+        push_json_string(
+            &mut output,
+            match entry.kind {
+                TimingEventKind::Stage => "stage",
+                TimingEventKind::Query => "query",
+                TimingEventKind::Counter => unreachable!("counters are not timing entries"),
+            },
+        );
+        output.push_str(",\"name\":");
+        push_json_string(&mut output, &entry.name);
+        write!(
+            output,
+            ",\"count\":{},\"total_seconds\":{:.9},\"max_seconds\":{:.9}}}",
+            entry.count,
+            entry.total.as_secs_f64(),
+            entry.max.as_secs_f64(),
+        )
+        .expect("writing JSON to a string cannot fail");
+    }
+    output.push_str("],\"counters\":{");
+    for (index, counter) in report.counters.iter().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        push_json_string(&mut output, &counter.name);
+        write!(output, ":{}", counter.value).expect("writing JSON to a string cannot fail");
+    }
+    output.push_str("}}");
+    output
+}
+
+fn push_json_duration(output: &mut String, name: &str, value: Option<Duration>) {
+    push_json_string(output, name);
+    output.push(':');
+    push_json_optional_f64(output, value.map(|duration| duration.as_secs_f64()));
+}
+
+fn push_json_optional_u64(output: &mut String, value: Option<u64>) {
+    match value {
+        Some(value) => write!(output, "{value}").expect("writing JSON to a string cannot fail"),
+        None => output.push_str("null"),
+    }
+}
+
+fn push_json_optional_f64(output: &mut String, value: Option<f64>) {
+    match value {
+        Some(value) => write!(output, "{value:.9}").expect("writing JSON to a string cannot fail"),
+        None => output.push_str("null"),
+    }
+}
+
+fn push_json_string(output: &mut String, value: &str) {
+    output.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\u{08}' => output.push_str("\\b"),
+            '\u{0c}' => output.push_str("\\f"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            character if character <= '\u{1f}' => {
+                write!(output, "\\u{:04x}", character as u32)
+                    .expect("writing JSON to a string cannot fail");
+            }
+            character => output.push(character),
+        }
+    }
+    output.push('"');
 }
 
 #[cfg(test)]
@@ -772,6 +1041,8 @@ mod tests {
             "checked_module".to_string(),
             "items=4".to_string(),
         );
+        collector.emit_counter("query.executions".to_string(), 3);
+        collector.emit_counter("query.executions".to_string(), 4);
 
         let (report, trace_events) = collector.drain();
         assert!(trace_events.is_none());
@@ -783,6 +1054,13 @@ mod tests {
                 count: 2,
                 total: Duration::from_millis(7),
                 max: Duration::from_millis(5),
+            }]
+        );
+        assert_eq!(
+            report.counters,
+            vec![TimingCounter {
+                name: "query.executions".to_string(),
+                value: 7,
             }]
         );
     }
@@ -809,7 +1087,7 @@ mod tests {
 
     #[test]
     fn thread_bag_flushes_measurements_and_trace_into_session() {
-        let session = Arc::new(TimingSession::new(TimingTrace::Events));
+        let session = Arc::new(TimingSession::new(TimingTrace::Events, TimingFormat::Text));
         let mut bag = ThreadTimingBag::new(Arc::clone(&session));
         bag.record(TimingEvent {
             kind: TimingEventKind::Query,
@@ -926,6 +1204,40 @@ mod tests {
             }),
             "timing summary query checked_module: total=0.007s count=2 max=0.005s"
         );
+    }
+
+    #[test]
+    fn json_report_contains_process_timings_entries_and_counters() {
+        let report = TimingReport {
+            entries: vec![TimingReportEntry {
+                kind: TimingEventKind::Query,
+                name: "query\nname".to_string(),
+                count: 2,
+                total: Duration::from_millis(7),
+                max: Duration::from_millis(5),
+            }],
+            counters: vec![TimingCounter {
+                name: "query.executions".to_string(),
+                value: 4,
+            }],
+        };
+        let json = format_json_report(
+            &report,
+            ProcessMeasurement {
+                wall: Duration::from_secs(2),
+                user: Some(Duration::from_millis(750)),
+                system: Some(Duration::from_millis(250)),
+                max_rss_bytes: Some(4096),
+            },
+        );
+
+        assert!(json.starts_with("{\"schema_version\":1,"), "{json}");
+        assert!(
+            json.contains("\"cpu_utilization_percent\":50.000000000"),
+            "{json}"
+        );
+        assert!(json.contains("\"name\":\"query\\nname\""), "{json}");
+        assert!(json.contains("\"query.executions\":4"), "{json}");
     }
 
     #[test]

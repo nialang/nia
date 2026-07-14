@@ -165,6 +165,7 @@ impl Driver {
     where
         T: ProviderDemandOutput,
     {
+        let timings = request.timings;
         let loader = self.loader_database(&request);
         let loaded = loader.load_program();
         let mut graph_state = module_graph_state(&loaded);
@@ -185,7 +186,9 @@ impl Driver {
             });
             (database, None)
         };
+        let mut provider_demand_rounds = 0_u64;
         loop {
+            provider_demand_rounds += 1;
             let can_finalize_without_discovery =
                 pending_update
                     .as_ref()
@@ -219,10 +222,12 @@ impl Driver {
             let provider_demands = output.provider_demands();
             let provider_changes = loader.add_provider_demands_collect_new(provider_demands);
             if provider_changes.is_empty() {
+                emit_compilation_counters(timings, &database, &output, provider_demand_rounds);
                 return output;
             }
             let next_loaded = loader.load_program();
             if module_graph_state(&next_loaded) == graph_state {
+                emit_compilation_counters(timings, &database, &output, provider_demand_rounds);
                 return output;
             }
             graph_state = module_graph_state(&next_loaded);
@@ -486,6 +491,8 @@ impl Driver {
 
 trait ProviderDemandOutput {
     fn provider_demands(&self) -> Vec<ProviderDemand>;
+    fn checked_body_count(&self) -> usize;
+    fn reachable_body_count(&self) -> usize;
 }
 
 impl ProviderDemandOutput for CheckedProgram {
@@ -494,6 +501,17 @@ impl ProviderDemandOutput for CheckedProgram {
             .iter()
             .flat_map(|module| module.provider_demands.iter().cloned())
             .collect()
+    }
+
+    fn checked_body_count(&self) -> usize {
+        self.modules
+            .iter()
+            .map(|module| module.body_ir.function_bodies.len())
+            .sum()
+    }
+
+    fn reachable_body_count(&self) -> usize {
+        self.checked_body_count()
     }
 }
 
@@ -504,6 +522,59 @@ impl ProviderDemandOutput for CodegenProgram {
             .flat_map(|module| module.provider_demands.iter().cloned())
             .collect()
     }
+
+    fn checked_body_count(&self) -> usize {
+        self.modules
+            .iter()
+            .map(|module| module.body_ir.function_bodies.len())
+            .sum()
+    }
+
+    fn reachable_body_count(&self) -> usize {
+        self.backend_lowering
+            .program
+            .modules
+            .iter()
+            .map(|module| module.functions.len() + module.function_instances.len())
+            .sum()
+    }
+}
+
+fn emit_compilation_counters(
+    timings: TimingMode,
+    database: &CompilerDatabase,
+    output: &impl ProviderDemandOutput,
+    provider_demand_rounds: u64,
+) {
+    if !timings.enabled() {
+        return;
+    }
+    let trace = database.query_trace();
+    nia_timing::emit_counter(
+        "query.executions",
+        trace
+            .queries
+            .iter()
+            .map(|query| query.stats.executions as u64)
+            .sum(),
+    );
+    nia_timing::emit_counter(
+        "query.cache_hits",
+        trace
+            .queries
+            .iter()
+            .map(|query| query.stats.cache_hits as u64)
+            .sum(),
+    );
+    nia_timing::emit_counter("driver.provider_demand_rounds", provider_demand_rounds);
+    nia_timing::emit_counter(
+        "compiler.checked_bodies",
+        output.checked_body_count() as u64,
+    );
+    nia_timing::emit_counter(
+        "compiler.reachable_bodies",
+        output.reachable_body_count() as u64,
+    );
 }
 
 fn module_graph_state(

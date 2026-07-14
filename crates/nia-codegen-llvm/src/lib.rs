@@ -68,6 +68,9 @@ fn emit_llvm_ir_with_options_inner(
             Err(diagnostic) => diagnostics.push(diagnostic),
         }
     }
+    if timings.enabled() {
+        nia_timing::emit_counter("llvm.units", outputs.len() as u64);
+    }
     LlvmCodegenOutput {
         modules: outputs,
         diagnostics,
@@ -147,6 +150,10 @@ fn emit_native_objects_inner(
             }),
             Err(diagnostic) => diagnostics.push(diagnostic),
         }
+    }
+    if timings.enabled() {
+        nia_timing::emit_counter("llvm.units", outputs.len() as u64);
+        nia_timing::emit_counter("llvm.object_reuse_hits", 0);
     }
     LlvmObjectOutput {
         modules: outputs,

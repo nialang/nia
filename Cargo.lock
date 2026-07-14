@@ -412,6 +412,7 @@ dependencies = [
  "nia-symbol",
  "nia-target-config",
  "nia-test-support",
+ "nia-timing",
  "nia-ty",
 ]
 
@@ -899,6 +900,9 @@ version = "0.4.3"
 [[package]]
 name = "nia-timing"
 version = "0.4.3"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "nia-trait-solve"
