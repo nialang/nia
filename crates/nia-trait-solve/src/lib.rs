@@ -79,10 +79,7 @@ pub struct UserAssociatedComptime {
     pub resolution_interner: TyInterner,
 }
 
-pub struct TraitSolver<'a, F>
-where
-    F: Fn(InternedTyId) -> bool,
-{
+pub struct TraitSolver<'a> {
     pub interner: &'a mut TyInterner,
     pub normalization: &'a TypeNormalization,
     pub trait_impls: &'a [ProgramTraitImplSignature],
@@ -92,7 +89,9 @@ where
     pub layouts: Option<&'a Layouts>,
     pub const_expr_value:
         Option<&'a dyn Fn(GlobalConstExprId, InternedTyId) -> Option<ConstGenericValue>>,
-    pub is_enum: F,
+    pub local_module_id: ModuleId,
+    pub local_enums: &'a HashMap<DefId, EnumSignature>,
+    pub program_is_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
     pub impl_is_visible: &'a dyn Fn(ModuleId, TraitImplId) -> bool,
 }
 
@@ -149,8 +148,7 @@ impl<'a> TraitSolverContext<'a> {
         &'b self,
         interner: &'b mut TyInterner,
         assumptions: &'b [TraitGoal],
-    ) -> TraitSolver<'b, impl Fn(InternedTyId) -> bool + 'b> {
-        let interner_snapshot = interner.clone();
+    ) -> TraitSolver<'b> {
         TraitSolver {
             interner,
             normalization: self.normalization,
@@ -160,7 +158,9 @@ impl<'a> TraitSolverContext<'a> {
             associated_type_assumptions: &[],
             layouts: self.layouts,
             const_expr_value: self.const_expr_value,
-            is_enum: move |ty| self.is_enum_with_interner(&interner_snapshot, ty),
+            local_module_id: self.local_module_id,
+            local_enums: self.local_enums,
+            program_is_enum: self.program_is_enum,
             impl_is_visible: self
                 .impl_is_visible
                 .unwrap_or(&trait_impl_visible_by_default),
@@ -172,8 +172,7 @@ impl<'a> TraitSolverContext<'a> {
         interner: &'b mut TyInterner,
         assumptions: &'b [TraitGoal],
         associated_type_assumptions: &'b [AssociatedTypeProjectionEq],
-    ) -> TraitSolver<'b, impl Fn(InternedTyId) -> bool + 'b> {
-        let interner_snapshot = interner.clone();
+    ) -> TraitSolver<'b> {
         TraitSolver {
             interner,
             normalization: self.normalization,
@@ -183,26 +182,13 @@ impl<'a> TraitSolverContext<'a> {
             associated_type_assumptions,
             layouts: self.layouts,
             const_expr_value: self.const_expr_value,
-            is_enum: move |ty| self.is_enum_with_interner(&interner_snapshot, ty),
+            local_module_id: self.local_module_id,
+            local_enums: self.local_enums,
+            program_is_enum: self.program_is_enum,
             impl_is_visible: self
                 .impl_is_visible
                 .unwrap_or(&trait_impl_visible_by_default),
         }
-    }
-
-    fn is_enum_with_interner(&self, interner: &TyInterner, ty: InternedTyId) -> bool {
-        let ty = self.normalization.normalize(ty);
-        if ty.interner_id != interner.interner_id() {
-            return false;
-        }
-        let Some(TyKind::Nominal { def_id, .. }) = interner.get(ty) else {
-            return false;
-        };
-        if def_id.module_id == self.local_module_id {
-            return self.local_enums.contains_key(&def_id.def_id);
-        }
-        self.program_is_enum
-            .is_some_and(|program_is_enum| program_is_enum(*def_id))
     }
 }
 
@@ -614,10 +600,19 @@ where
     }
 }
 
-impl<'a, F> TraitSolver<'a, F>
-where
-    F: Fn(InternedTyId) -> bool,
-{
+impl TraitSolver<'_> {
+    fn is_enum(&self, ty: InternedTyId) -> bool {
+        let ty = self.normalization.normalize(ty);
+        let Some(TyKind::Nominal { def_id, .. }) = self.interner.get(ty) else {
+            return false;
+        };
+        if def_id.module_id == self.local_module_id {
+            return self.local_enums.contains_key(&def_id.def_id);
+        }
+        self.program_is_enum
+            .is_some_and(|program_is_enum| program_is_enum(*def_id))
+    }
+
     pub fn resolve(&mut self, goal: TraitGoal) -> TraitResolution {
         let goal = self.normalize_goal(goal);
         if self
@@ -912,7 +907,7 @@ where
                         || self.types_equivalent(self_ty, self.bool())
                         || self.is_char(self_ty)
                         || self.is_pointer(self_ty)
-                        || (self.is_enum)(self_ty))
+                        || self.is_enum(self_ty))
             }
             BuiltinTrait::Ord => {
                 let [rhs_ty] = goal.trait_args.as_slice() else {
@@ -3049,10 +3044,7 @@ where
     }
 }
 
-impl<F> TypeEquivalence for TraitSolver<'_, F>
-where
-    F: Fn(InternedTyId) -> bool,
-{
+impl TypeEquivalence for TraitSolver<'_> {
     fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.interner.get(ty)
     }
@@ -3063,5 +3055,56 @@ where
 
     fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
         self.structural_types_equivalent(left, right)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enum_classification_reads_new_types_from_working_interner() {
+        let module_id = ModuleId(0);
+        let local_enum_id = DefId(7);
+        let local_enum = GlobalDefId {
+            module_id,
+            def_id: local_enum_id,
+        };
+        let mut interner = TyInterner::new(module_id);
+        let ty = interner.intern(TyKind::Nominal {
+            def_id: local_enum,
+            args: Vec::new(),
+            const_args: Vec::new(),
+        });
+        let normalization = TypeNormalization {
+            interner: interner.clone(),
+            normalized: HashMap::new(),
+            diagnostics: Vec::new(),
+        };
+        let mut local_enums = HashMap::new();
+        local_enums.insert(
+            local_enum_id,
+            EnumSignature {
+                backing_type: interner.primitive(PrimitiveTy::I32),
+                is_open: false,
+                variants: Vec::new(),
+                span: nia_span::Span::default(),
+            },
+        );
+        let trait_impls = Vec::new();
+        let context = TraitSolverContext {
+            normalization: &normalization,
+            trait_impls: &trait_impls,
+            trait_impl_index: None,
+            layouts: None,
+            local_module_id: module_id,
+            local_enums: &local_enums,
+            program_is_enum: None,
+            const_expr_value: None,
+            impl_is_visible: None,
+        };
+        let solver = context.solver(&mut interner, &[]);
+
+        assert!(solver.is_enum(ty));
     }
 }
