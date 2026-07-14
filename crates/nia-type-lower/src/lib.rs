@@ -405,7 +405,7 @@ fn lower_module_types_from_items(
 ) -> TypeLowering {
     context
         .type_store
-        .with_module_interner_for_lowering(module_id, |interner| {
+        .with_module_interner_for_semantic_migration(module_id, |interner| {
             let mut lowerer = TypeLowerer {
                 module_id,
                 resolved,

@@ -3083,6 +3083,86 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
+    fn type_normalization_appends_to_the_session_type_store() {
+        let module_id = ModuleId(0);
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(
+                    module_id,
+                    "main.nia",
+                    "type ByteRef = &u8; pub fn read(value: ByteRef) u8 { 0 }",
+                ),
+            ])));
+        let lowering = database.db.query(TypeLoweringQuery(module_id));
+        let normalization = database.db.query(TypeNormalizationQuery(module_id));
+        let stored = database.db.context().type_store.module_snapshot(module_id);
+
+        assert_eq!(
+            lowering.interner.interner_id(),
+            normalization.interner.interner_id()
+        );
+        assert!(lowering.interner.is_prefix_of(&normalization.interner));
+        assert!(normalization.interner.is_prefix_of(&stored));
+        for (ty_id, kind) in lowering.interner.iter() {
+            assert_eq!(normalization.interner.get(ty_id), Some(kind));
+            assert_eq!(stored.get(ty_id), Some(kind));
+        }
+        assert!(
+            normalization
+                .normalized
+                .iter()
+                .any(|(source, normalized)| source != normalized)
+        );
+    }
+
+    #[test]
+    fn signature_and_full_normalization_share_ids_in_either_query_order() {
+        fn assert_order(signature_first: bool) {
+            let module_id = ModuleId(0);
+            let database =
+                CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                    loaded_module(
+                        module_id,
+                        "main.nia",
+                        "type Ref[T] = &T; pub fn read(value: Ref[u16]) u16 { 0 }",
+                    ),
+                ])));
+            let signature_key = SignatureTypeNormalizationQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::Functions,
+            );
+            let (signature, full) = if signature_first {
+                let signature = database.db.query(signature_key);
+                let full = database.db.query(TypeNormalizationQuery(module_id));
+                (signature, full)
+            } else {
+                let full = database.db.query(TypeNormalizationQuery(module_id));
+                let signature = database.db.query(signature_key);
+                (signature, full)
+            };
+
+            assert_eq!(
+                signature.interner.interner_id(),
+                full.interner.interner_id()
+            );
+            let shared_alias_expansions = signature
+                .normalized
+                .iter()
+                .filter(|(source, normalized)| {
+                    source != normalized && full.normalized.get(source) == Some(normalized)
+                })
+                .count();
+            assert!(
+                shared_alias_expansions > 0,
+                "signature/full normalization did not share an alias expansion"
+            );
+        }
+
+        assert_order(true);
+        assert_order(false);
+    }
+
+    #[test]
     fn type_store_isolates_compiler_database_handle_identity() {
         let loaded = || {
             loaded_program_with_modules(vec![loaded_module(

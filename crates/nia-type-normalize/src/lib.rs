@@ -17,36 +17,36 @@ pub struct TypeNormalization {
 
 pub fn normalize_module_types(
     module_id: ModuleId,
-    interner: &TyInterner,
+    interner: &mut TyInterner,
+    input_ids: &[InternedTyId],
     signatures: &ItemSignatures,
 ) -> TypeNormalization {
     let mut normalizer = TypeNormalizer {
         module_id,
-        interner: interner.clone(),
+        interner,
         aliases: &signatures.type_aliases,
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    let ty_ids: Vec<InternedTyId> = normalizer.interner.iter().map(|(ty_id, _)| ty_id).collect();
-    for ty_id in ty_ids {
+    for ty_id in input_ids.iter().copied() {
         normalizer.normalize_ty(ty_id, &mut Vec::new());
     }
     TypeNormalization {
-        interner: normalizer.interner,
+        interner: normalizer.interner.clone(),
         normalized: normalizer.normalized,
         diagnostics: normalizer.diagnostics,
     }
 }
 
-struct TypeNormalizer<'a> {
+struct TypeNormalizer<'a, 'store> {
     module_id: ModuleId,
-    interner: TyInterner,
+    interner: &'store mut TyInterner,
     aliases: &'a HashMap<DefId, TypeAliasSignature>,
     normalized: HashMap<InternedTyId, InternedTyId>,
     diagnostics: Vec<Diagnostic>,
 }
 
-impl<'a> TypeNormalizer<'a> {
+impl<'a> TypeNormalizer<'a, '_> {
     fn normalize_ty(&mut self, ty_id: InternedTyId, stack: &mut Vec<DefId>) -> InternedTyId {
         if let Some(normalized) = self.normalized.get(&ty_id).copied() {
             return normalized;
@@ -621,8 +621,21 @@ mod tests {
     use nia_item_signatures::collect_item_signatures;
     use nia_parser::parse_module;
     use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind};
-    use nia_type_lower::lower_module_types_with_id;
+    use nia_type_lower::{TypeLowering, lower_module_types_with_id};
     use nia_type_resolve::resolve_module_types;
+
+    fn normalize_lowered(
+        module_id: ModuleId,
+        lowered: &mut TypeLowering,
+        signatures: &ItemSignatures,
+    ) -> TypeNormalization {
+        let input_ids = lowered
+            .interner
+            .iter()
+            .map(|(ty_id, _)| ty_id)
+            .collect::<Vec<_>>();
+        normalize_module_types(module_id, &mut lowered.interner, &input_ids, signatures)
+    }
 
     #[test]
     fn expands_simple_type_aliases() {
@@ -635,9 +648,9 @@ fn id(x: Byte) u8 { x }
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let normalization = normalize_module_types(ModuleId(0), &lowered.interner, &signatures);
+        let normalization = normalize_lowered(ModuleId(0), &mut lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
             "{:?}",
@@ -663,9 +676,9 @@ fn id(p: RawPtr[u8]) &u8 { p }
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let normalization = normalize_module_types(ModuleId(0), &lowered.interner, &signatures);
+        let normalization = normalize_lowered(ModuleId(0), &mut lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
             "{:?}",
@@ -695,9 +708,9 @@ fn id(x: [std::builtin::size[Byte]()]u8) [std::builtin::size[u8]()]u8 { x }
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let normalization = normalize_module_types(ModuleId(0), &lowered.interner, &signatures);
+        let normalization = normalize_lowered(ModuleId(0), &mut lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
             "{:?}",
@@ -738,9 +751,9 @@ fn id(x: SizedBytes[u16]) [std::builtin::size[u16]()]u8 { x }
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let normalization = normalize_module_types(ModuleId(0), &lowered.interner, &signatures);
+        let normalization = normalize_lowered(ModuleId(0), &mut lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
             "{:?}",
@@ -773,9 +786,9 @@ type B = A;
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let normalization = normalize_module_types(ModuleId(0), &lowered.interner, &signatures);
+        let normalization = normalize_lowered(ModuleId(0), &mut lowered, &signatures);
         assert!(
             normalization
                 .diagnostics
@@ -794,9 +807,9 @@ fn take(xs: [2 + 3]u8) void {}
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let normalization = normalize_module_types(ModuleId(0), &lowered.interner, &signatures);
+        let normalization = normalize_lowered(ModuleId(0), &mut lowered, &signatures);
         assert!(normalization.interner.iter().any(|(_, ty)| matches!(
             ty,
             TyKind::Array {
@@ -804,5 +817,42 @@ fn take(xs: [2 + 3]u8) void {}
                 elem: _,
             }
         )));
+    }
+
+    #[test]
+    fn normalizes_only_the_explicit_input_set() {
+        let mut interner = TyInterner::new(ModuleId(0));
+        let elem = interner.primitive(PrimitiveTy::U8);
+        let pointer = interner.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem,
+        });
+        let slice = interner.intern(TyKind::Slice {
+            is_readonly: true,
+            elem,
+        });
+        let before = interner.clone();
+
+        let signatures = ItemSignatures {
+            functions: HashMap::new(),
+            structs: HashMap::new(),
+            unions: HashMap::new(),
+            traits: HashMap::new(),
+            trait_impls: Vec::new(),
+            enums: HashMap::new(),
+            type_aliases: HashMap::new(),
+            globals: HashMap::new(),
+            comptimes: HashMap::new(),
+            diagnostics: Vec::new(),
+        };
+        let normalization =
+            normalize_module_types(ModuleId(0), &mut interner, &[pointer], &signatures);
+
+        assert!(normalization.normalized.contains_key(&pointer));
+        assert!(!normalization.normalized.contains_key(&slice));
+        assert!(before.is_prefix_of(&interner));
+        for (ty_id, kind) in before.iter() {
+            assert_eq!(interner.get(ty_id), Some(kind));
+        }
     }
 }

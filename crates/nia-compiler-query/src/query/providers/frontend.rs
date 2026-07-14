@@ -387,7 +387,7 @@ pub(super) fn provide_type_normalization(
 ) -> TypeNormalization {
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
-    nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
+    normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
 }
 
 pub(super) fn provide_layout_type_normalization(
@@ -396,7 +396,7 @@ pub(super) fn provide_layout_type_normalization(
 ) -> TypeNormalization {
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
-    nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
+    normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
 }
 
 pub(super) fn provide_signature_type_normalization(
@@ -406,7 +406,7 @@ pub(super) fn provide_signature_type_normalization(
 ) -> TypeNormalization {
     let type_lowering = db.query_shared(SignatureTypeLoweringQuery(module_id, set));
     let item_signatures = db.query_shared(SignatureItemSignaturesQuery(module_id, set));
-    nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
+    normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
 }
 
 pub(super) fn provide_signature_comptime_type_normalization(
@@ -415,5 +415,32 @@ pub(super) fn provide_signature_comptime_type_normalization(
 ) -> TypeNormalization {
     let type_lowering = db.query(SignatureComptimeTypeLoweringQuery(module_id));
     let item_signatures = db.query(SignatureComptimeItemSignaturesQuery(module_id));
-    nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
+    normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
+}
+
+fn normalize_types_in_session_store(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    type_lowering: &nia_type_lower::TypeLowering,
+    item_signatures: &ItemSignatures,
+) -> TypeNormalization {
+    let input_ids = type_lowering
+        .interner
+        .iter()
+        .map(|(ty_id, _)| ty_id)
+        .collect::<Vec<_>>();
+    db.context()
+        .type_store
+        .with_module_interner_for_semantic_migration(module_id, |interner| {
+            assert!(
+                type_lowering.interner.is_prefix_of(interner),
+                "Nia ICE: type lowering is not a prefix of its session type store"
+            );
+            nia_type_normalize::normalize_module_types(
+                module_id,
+                interner,
+                &input_ids,
+                item_signatures,
+            )
+        })
 }

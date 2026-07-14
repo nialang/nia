@@ -34,7 +34,7 @@ impl TypeStore {
     }
 
     #[doc(hidden)]
-    pub fn with_module_interner_for_lowering<T>(
+    pub fn with_module_interner_for_semantic_migration<T>(
         &self,
         module_id: ModuleId,
         f: impl FnOnce(&mut TyInterner) -> T,
@@ -46,7 +46,7 @@ impl TypeStore {
 
     #[doc(hidden)]
     pub fn module_snapshot(&self, module_id: ModuleId) -> TyInterner {
-        self.with_module_interner_for_lowering(module_id, |interner| interner.clone())
+        self.with_module_interner_for_semantic_migration(module_id, |interner| interner.clone())
     }
 
     fn module_interner(&self, module_id: ModuleId) -> Arc<Mutex<TyInterner>> {
@@ -1236,7 +1236,7 @@ mod tests {
     fn type_store_module_slots_are_append_only_across_transactions() {
         let store = TypeStore::new();
         let module_id = ModuleId(3);
-        let pointer = store.with_module_interner_for_lowering(module_id, |interner| {
+        let pointer = store.with_module_interner_for_semantic_migration(module_id, |interner| {
             let elem = interner.primitive(PrimitiveTy::U8);
             interner.intern(TyKind::Pointer {
                 is_readonly: true,
@@ -1244,7 +1244,7 @@ mod tests {
             })
         });
         let before = store.module_snapshot(module_id);
-        let slice = store.with_module_interner_for_lowering(module_id, |interner| {
+        let slice = store.with_module_interner_for_semantic_migration(module_id, |interner| {
             let elem = interner.primitive(PrimitiveTy::U8);
             interner.intern(TyKind::Slice {
                 is_readonly: true,

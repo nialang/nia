@@ -172,7 +172,7 @@ fn pipeline_with_options(
         "{:?}",
         type_resolved.diagnostics
     );
-    let lowered = lower_module_types(&module, &type_resolved);
+    let mut lowered = lower_module_types(&module, &type_resolved);
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
     let mut values = nia_value_resolve::resolve_module_values(&module, &defs);
     adjust_values(&module, &defs, &mut values);
@@ -249,8 +249,17 @@ fn pipeline_with_options(
         "{:?}",
         comptime_values.diagnostics
     );
-    let normalization =
-        nia_type_normalize::normalize_module_types(ModuleId(0), &lowered.interner, &signatures);
+    let normalization_input = lowered
+        .interner
+        .iter()
+        .map(|(ty_id, _)| ty_id)
+        .collect::<Vec<_>>();
+    let normalization = nia_type_normalize::normalize_module_types(
+        ModuleId(0),
+        &mut lowered.interner,
+        &normalization_input,
+        &signatures,
+    );
     assert!(
         normalization.diagnostics.is_empty(),
         "{:?}",
