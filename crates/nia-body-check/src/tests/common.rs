@@ -329,7 +329,7 @@ fn pipeline_with_options(
         signatures: BodyLocalSignatures::from_item_signatures(&signatures),
         comptime_signatures: &signatures,
         normalization: &normalization,
-        seed_interner: None,
+        seed: None,
         target: &target,
         comptime,
         comptime_module: &comptime_module.module,
@@ -416,8 +416,17 @@ pub(super) fn semantic_use_table(
 ) -> SemanticUseTable {
     let mut builder = SemanticUseTable::builder();
     for (key, local_use) in &locals.node_uses {
-        if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
-            builder.insert_node_local_value_use(key.clone(), *local_id);
+        match local_use {
+            nia_local_resolve::LocalUse::Local(local_id) => {
+                builder.insert_node_local_value_use(key.clone(), *local_id);
+            }
+            nia_local_resolve::LocalUse::Static(global_id) => {
+                builder.insert_node_global_value_use(key.clone(), *global_id);
+            }
+            nia_local_resolve::LocalUse::ModuleValue
+            | nia_local_resolve::LocalUse::Module
+            | nia_local_resolve::LocalUse::TypePrefix
+            | nia_local_resolve::LocalUse::Unresolved => {}
         }
     }
     builder.extend_node_global_value_uses(

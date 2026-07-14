@@ -434,7 +434,7 @@ pub struct BodyCheckInput<'a> {
     pub signatures: BodyLocalSignatures<'a>,
     pub comptime_signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
-    pub seed_interner: Option<TyInterner>,
+    pub seed: Option<BodyCheckSeed<'a>>,
     pub target: &'a TargetConfig,
     pub comptime: BodyComptime<'a>,
     pub comptime_module: &'a ResolvedComptimeModule,
@@ -450,6 +450,12 @@ pub struct BodyCheckInput<'a> {
     pub filter: BodyCheckFilter<'a>,
     pub product: BodyCheckProduct,
     pub prechecked: Option<PrecheckedBodyCheck>,
+}
+
+#[derive(Clone, Copy)]
+pub struct BodyCheckSeed<'a> {
+    pub interner: &'a TyInterner,
+    pub facts: &'a SemanticFacts,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -577,7 +583,7 @@ pub fn check_module_bodies(
         signatures: BodyLocalSignatures::from_item_signatures(signatures),
         comptime_signatures: signatures,
         normalization: &empty_normalization,
-        seed_interner: None,
+        seed: None,
         target: &target,
         comptime: empty_comptime,
         comptime_module: &empty_comptime_module,
@@ -631,7 +637,7 @@ pub fn check_module_bodies_with_program_signatures(
         signatures: BodyLocalSignatures::from_item_signatures(input.signatures),
         comptime_signatures: input.signatures,
         normalization: input.normalization,
-        seed_interner: None,
+        seed: None,
         target: input.target,
         comptime: input.comptime,
         comptime_module: input.comptime_module,
@@ -726,9 +732,9 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
     let timing = timings.detail();
     let module_id = input.defs.module_id;
     let prechecked = input.prechecked;
-    let mut interner = input
-        .seed_interner
-        .clone()
+    let seed = input.seed;
+    let mut interner = seed
+        .map(|seed| seed.interner.clone())
         .unwrap_or_else(|| input.normalization.interner.clone());
     let visible_extensions = BodyVisibleExtensions {
         methods: input.extensions,
@@ -854,6 +860,9 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
     } else {
         time_body_stage(timing, "body_check.seed_global_types", module_id, || {
             checker.seed_global_types();
+            if let Some(seed) = seed {
+                checker.load_type_facts(module_id, seed.facts);
+            }
         });
         time_body_stage(timing, "body_check.check_module", module_id, || {
             checker.check_module(input.active_item_tree, timing, module_id);
@@ -1426,8 +1435,15 @@ impl<'a> BodyChecker<'a> {
         let ty = self.import_type_to_working_interner(ty);
         let ty = self.normalize_projection(ty);
         self.node_expr_types.insert(expr.node_key.clone(), ty);
+        let global_value_use = match self.semantic_uses.node_value_use(&expr.node_key) {
+            Some(SemanticValueUse::Global(def_id)) => Some(def_id),
+            Some(SemanticValueUse::Local(_)) | None => None,
+        };
         if let Some(facts) = self.current_function_facts() {
             facts.node_expr_types.insert(expr.node_key.clone(), ty);
+            if let Some(def_id) = global_value_use {
+                facts.global_value_uses.insert(def_id);
+            }
         }
     }
 
@@ -1793,20 +1809,7 @@ impl<'a> BodyChecker<'a> {
         self.checked_functions = checked_functions;
         self.diagnostic_owners = diagnostic_owners;
         self.diagnostics = diagnostics;
-        self.global_types = facts
-            .global_types
-            .into_iter()
-            .filter_map(|(def_id, ty)| {
-                (def_id.module_id == module_id).then_some((def_id.def_id, ty))
-            })
-            .collect();
-        self.comptime_types = facts
-            .comptime_types
-            .into_iter()
-            .filter_map(|(def_id, ty)| {
-                (def_id.module_id == module_id).then_some((def_id.def_id, ty))
-            })
-            .collect();
+        self.load_type_facts(module_id, &facts);
         self.generic_instantiations = facts.generic_instantiations;
         self.function_facts = facts.function_facts;
         self.node_expr_types = facts.node_expr_types;
@@ -1820,6 +1823,17 @@ impl<'a> BodyChecker<'a> {
         self.node_switch_pattern_values = facts.node_switch_pattern_values;
         self.node_resolved_calls = facts.node_resolved_calls;
         self.node_function_references = facts.node_function_references;
+    }
+
+    fn load_type_facts(&mut self, module_id: ModuleId, facts: &SemanticFacts) {
+        self.global_types
+            .extend(facts.global_types.iter().filter_map(|(def_id, ty)| {
+                (def_id.module_id == module_id).then_some((def_id.def_id, *ty))
+            }));
+        self.comptime_types
+            .extend(facts.comptime_types.iter().filter_map(|(def_id, ty)| {
+                (def_id.module_id == module_id).then_some((def_id.def_id, *ty))
+            }));
     }
 
     fn lower_checked_module(

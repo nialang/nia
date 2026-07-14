@@ -22,7 +22,7 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         };
-        self.check_receiver_match(call.receiver, call.receiver_ty, receiver_kind);
+        self.check_receiver_match(call.receiver, call.actual_receiver_ty, receiver_kind);
         let Some(method_instantiation_args) = self.lowered_method_type_args(call.type_args) else {
             for arg in call.args {
                 self.check_expr(arg);

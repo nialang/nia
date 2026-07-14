@@ -43,15 +43,15 @@ pub fn main(init: Init) ExitCode!void {
     let mut writable = &mut zeros[..];
     write_first(writable, first(window));
 
-    // Text and byte-string literals are read-only pointers to static arrays.
+    // Text and byte-string literals are fixed-length array values.
     let name = "nia";
     // Adjacent byte-string literals concatenate.
     let bytes = b"ni" b"a";
     // Add a trailing NUL explicitly for C ABI calls.
     let c_name = b"nia\0";
 
-    // Pointer-to-array literals coerce to slices when a slice is expected.
-    let direct_sum = byte_sum(b"nia");
+    // Explicit pointers to arrays coerce to slices when a slice is expected.
+    let direct_sum = byte_sum(&b"nia");
 
     // Use a top-level static when an address should refer to global storage.
     let stable_bytes = &stable_bytes_storage[..];
@@ -90,7 +90,7 @@ pub fn main(init: Init) ExitCode!void {
     }
 
     debug::print(
-        "slice window={} first={} text={} bytes={} cstring={} stable={} copied={}\n",
+        &"slice window={} first={} text={} bytes={} cstring={} stable={} copied={}\n",
         &[
             &window_len,
             &first_written,

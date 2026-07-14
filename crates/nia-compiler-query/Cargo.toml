@@ -53,5 +53,8 @@ nia-type-normalize.workspace = true
 nia-type-resolve.workspace = true
 nia-value-resolve.workspace = true
 
+[dev-dependencies]
+nia-test-support.workspace = true
+
 [lib]
 path = "src/lib.rs"

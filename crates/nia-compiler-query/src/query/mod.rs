@@ -48,11 +48,7 @@ use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 use std::{
     collections::{HashMap, HashSet},
-    env, fs, io,
-    path::{Path, PathBuf},
     sync::{Arc, RwLock},
-    thread,
-    time::{Duration, Instant},
 };
 
 mod backend_lowering;
@@ -155,7 +151,8 @@ impl CompilerDatabase {
     }
 
     pub fn check_program(&self) -> CheckedProgram {
-        let _permit = compiler_work_permit();
+        #[cfg(test)]
+        let _permit = nia_test_support::compiler_permit();
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_query(CheckedProgramQuery)
         })) {
@@ -177,7 +174,8 @@ impl CompilerDatabase {
     }
 
     pub fn entry_check_program(&self) -> CheckedProgram {
-        let _permit = compiler_work_permit();
+        #[cfg(test)]
+        let _permit = nia_test_support::compiler_permit();
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_query(EntryCheckedProgramQuery)
         })) {
@@ -199,14 +197,16 @@ impl CompilerDatabase {
     }
 
     pub fn executable_provider_demands(&self) -> Vec<crate::ProviderDemand> {
-        let _permit = compiler_work_permit();
+        #[cfg(test)]
+        let _permit = nia_test_support::compiler_permit();
         self.db
             .try_query(ExecutableProviderDemandsQuery)
             .unwrap_or_default()
     }
 
     pub fn codegen_program(&self) -> CodegenProgram {
-        let _permit = compiler_work_permit();
+        #[cfg(test)]
+        let _permit = nia_test_support::compiler_permit();
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_query(CodegenProgramQuery)
         })) {
@@ -447,198 +447,6 @@ impl CompilerDatabase {
         }
         invalidation
     }
-}
-
-pub fn compiler_work_permit() -> CompilerWorkPermit {
-    if !compiler_check_slots_enabled() {
-        return CompilerWorkPermit { slot: None };
-    }
-    CompilerWorkPermit {
-        slot: Some(acquire_compiler_check_slot()),
-    }
-}
-
-fn compiler_check_slots_enabled() -> bool {
-    env_limit("NIA_COMPILER_CHECK_LIMIT").is_some()
-}
-
-pub struct CompilerWorkPermit {
-    slot: Option<PathBuf>,
-}
-
-impl Drop for CompilerWorkPermit {
-    fn drop(&mut self) {
-        if let Some(slot) = self.slot.take() {
-            let _ = fs::remove_dir_all(slot);
-        }
-    }
-}
-
-fn acquire_compiler_check_slot() -> PathBuf {
-    const PERMIT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-    const STALE_AFTER: Duration = Duration::from_secs(15 * 60);
-
-    let root = compiler_check_slot_root();
-    fs::create_dir_all(&root).expect("create compiler check slot root");
-    let start = Instant::now();
-    let mut sleep = Duration::from_millis(10);
-    loop {
-        for index in 0..compiler_check_limit() {
-            let slot = root.join(index.to_string());
-            match fs::create_dir(&slot) {
-                Ok(()) => {
-                    write_process_owner(&slot);
-                    return slot;
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    reclaim_stale_compiler_check_slot(&slot, STALE_AFTER);
-                }
-                Err(error) => panic!("create compiler check slot {}: {error}", slot.display()),
-            }
-        }
-        if start.elapsed() >= PERMIT_TIMEOUT {
-            panic!(
-                "timed out after {PERMIT_TIMEOUT:?} waiting for compiler check slot in {}",
-                root.display()
-            );
-        }
-        thread::sleep(sleep);
-        sleep = (sleep * 2).min(Duration::from_millis(250));
-    }
-}
-
-fn compiler_check_limit() -> usize {
-    const MAX_CHECKS: usize = 4;
-    const BYTES_PER_CHECK: usize = 1024 * 1024 * 1024;
-
-    if let Some(limit) = env_limit("NIA_COMPILER_CHECK_LIMIT") {
-        return limit;
-    }
-    let cpu_limit = available_parallelism().clamp(1, MAX_CHECKS);
-    let memory_limit = memory_limited_parallelism(BYTES_PER_CHECK).unwrap_or(cpu_limit);
-    cpu_limit.min(memory_limit).clamp(1, MAX_CHECKS)
-}
-
-fn env_limit(name: &str) -> Option<usize> {
-    env::var(name)
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0)
-}
-
-fn compiler_check_slot_root() -> PathBuf {
-    let mut root = env::temp_dir();
-    root.push("nia_compiler_check_slots");
-    root.push(env!("CARGO_MANIFEST_DIR").replace(std::path::MAIN_SEPARATOR, "_"));
-    root
-}
-
-fn reclaim_stale_compiler_check_slot(slot: &Path, stale_after: Duration) {
-    if compiler_check_slot_owner_is_alive(slot) {
-        return;
-    }
-    if compiler_check_slot_owner_is_unknown(slot)
-        && !compiler_check_slot_is_stale_by_age(slot, stale_after)
-    {
-        return;
-    }
-    let _ = fs::remove_dir_all(slot);
-}
-
-fn compiler_check_slot_owner_is_unknown(slot: &Path) -> bool {
-    read_process_owner(slot).is_none()
-}
-
-fn compiler_check_slot_owner_is_alive(slot: &Path) -> bool {
-    let Some((pid, start_time)) = read_process_owner(slot) else {
-        return false;
-    };
-    process_is_alive(pid, start_time)
-}
-
-fn write_process_owner(slot: &Path) {
-    let pid = std::process::id();
-    let start_time = process_start_time(pid).unwrap_or(0);
-    let _ = fs::write(slot.join("owner"), format!("{pid} {start_time}"));
-}
-
-fn read_process_owner(slot: &Path) -> Option<(u32, u64)> {
-    let owner = fs::read_to_string(slot.join("owner")).ok()?;
-    let mut parts = owner.split_whitespace();
-    let pid = parts.next()?.parse().ok()?;
-    let start_time = parts.next()?.parse().ok()?;
-    Some((pid, start_time))
-}
-
-fn compiler_check_slot_is_stale_by_age(slot: &Path, stale_after: Duration) -> bool {
-    fs::metadata(slot)
-        .and_then(|metadata| metadata.modified())
-        .ok()
-        .and_then(|modified| modified.elapsed().ok())
-        .is_some_and(|elapsed| elapsed >= stale_after)
-}
-
-#[cfg(target_os = "linux")]
-fn process_is_alive(pid: u32, expected_start_time: u64) -> bool {
-    let Some(start_time) = process_start_time(pid) else {
-        return false;
-    };
-    expected_start_time == 0 || start_time == expected_start_time
-}
-
-#[cfg(not(target_os = "linux"))]
-fn process_is_alive(_pid: u32, _expected_start_time: u64) -> bool {
-    true
-}
-
-#[cfg(target_os = "linux")]
-fn process_start_time(pid: u32) -> Option<u64> {
-    let stat = fs::read_to_string(
-        std::path::Path::new("/proc")
-            .join(pid.to_string())
-            .join("stat"),
-    )
-    .ok()?;
-    stat.rsplit_once(") ")?
-        .1
-        .split_whitespace()
-        .nth(19)?
-        .parse()
-        .ok()
-}
-
-#[cfg(not(target_os = "linux"))]
-fn process_start_time(_pid: u32) -> Option<u64> {
-    None
-}
-
-fn available_parallelism() -> usize {
-    thread::available_parallelism()
-        .map(usize::from)
-        .unwrap_or(1)
-}
-
-fn memory_limited_parallelism(bytes_per_slot: usize) -> Option<usize> {
-    let mem_available_kb = linux_mem_available_kb()?;
-    let available_bytes = mem_available_kb.saturating_mul(1024);
-    Some((available_bytes / bytes_per_slot).max(1))
-}
-
-#[cfg(target_os = "linux")]
-fn linux_mem_available_kb() -> Option<usize> {
-    let meminfo = fs::read_to_string("/proc/meminfo").ok()?;
-    for line in meminfo.lines() {
-        let Some(rest) = line.strip_prefix("MemAvailable:") else {
-            continue;
-        };
-        return rest.split_whitespace().next()?.parse().ok();
-    }
-    None
-}
-
-#[cfg(not(target_os = "linux"))]
-fn linux_mem_available_kb() -> Option<usize> {
-    None
 }
 
 impl std::fmt::Debug for CompilerDatabase {
@@ -4042,6 +3850,29 @@ extend Value : Ops {
             "executable_value_ref_edges",
             "full_active_module_item_tree"
         ));
+    }
+
+    #[test]
+    fn executable_value_refs_include_unqualified_static_uses() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "static mut calls: i32 = 0; fn main() i32 { calls += 1; calls }",
+        )]);
+        let db = query_db(loaded);
+        let defs = db.query(ModuleDefsQuery(ModuleId(0)));
+        let main = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
+        };
+        let calls = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.values.get(&sym("calls")).unwrap(),
+        };
+
+        let edges = db.query(ExecutableValueRefEdgesQuery(main));
+
+        assert!(edges.globals.contains(&calls), "{:?}", edges.globals);
     }
 
     #[test]

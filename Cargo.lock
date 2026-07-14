@@ -216,6 +216,7 @@ dependencies = [
  "nia-ice",
  "nia-linker",
  "nia-loader-query",
+ "nia-test-support",
  "nia-timing",
 ]
 
@@ -244,6 +245,7 @@ dependencies = [
  "nia-span",
  "nia-static-ir",
  "nia-symbol",
+ "nia-test-support",
  "nia-timing",
  "nia-ty",
 ]
@@ -291,6 +293,7 @@ dependencies = [
  "nia-symbol-table",
  "nia-syntax",
  "nia-target-config",
+ "nia-test-support",
  "nia-timing",
  "nia-trait-solve",
  "nia-ty",
@@ -408,6 +411,7 @@ dependencies = [
  "nia-static-ir",
  "nia-symbol",
  "nia-target-config",
+ "nia-test-support",
  "nia-ty",
 ]
 
@@ -887,6 +891,10 @@ dependencies = [
  "nia-span",
  "nia-symbol",
 ]
+
+[[package]]
+name = "nia-test-support"
+version = "0.4.3"
 
 [[package]]
 name = "nia-timing"

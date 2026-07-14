@@ -2093,11 +2093,11 @@ impl<'a> BodyChecker<'a> {
     pub(in crate::calls::methods) fn check_receiver_match(
         &mut self,
         receiver: &Expr,
-        receiver_ty: InternedTyId,
+        actual_receiver_ty: InternedTyId,
         receiver_kind: ReceiverKind,
     ) {
         if receiver_kind == ReceiverKind::Ref {
-            let base = self.receiver_base_type(receiver_ty);
+            let base = self.receiver_base_type(actual_receiver_ty);
             if base.as_ref().is_some_and(|base| base.has_readonly_pointer) {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,

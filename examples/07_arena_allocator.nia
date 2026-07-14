@@ -54,7 +54,7 @@ fn run(init: Init) mem::Error!void {
     let mut retained_used = arena.query_used();
 
     debug::print(
-        "arena first_total={} capacity={} used={} retained_capacity={} retained_used={} scratch_len={}\n",
+        &"arena first_total={} capacity={} used={} retained_capacity={} retained_used={} scratch_len={}\n",
         &[
             &first_total,
             &first_capacity,

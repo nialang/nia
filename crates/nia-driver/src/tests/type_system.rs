@@ -1028,6 +1028,7 @@ fn main() i32 {
 
 #[test]
 fn driver_facade_emits_llvm_ir_from_source_request() {
+    let _permit = nia_test_support::compiler_permit();
     let root = temp_dir("driver_facade_emits_llvm_ir_from_source_request");
     write(
         &root.join("main.nia"),
@@ -1094,6 +1095,7 @@ fn driver_facade_formats_inspection_outputs() {
 
 #[test]
 fn driver_facade_formats_optimization_report() {
+    let _permit = nia_test_support::compiler_permit();
     let root = temp_dir("driver_facade_formats_optimization_report");
     write(
         &root.join("main.nia"),
@@ -1117,6 +1119,7 @@ fn main() i32 {
 
 #[test]
 fn driver_checks_in_memory_sources() {
+    let _permit = nia_test_support::compiler_permit();
     let driver = Driver::new();
     driver.set_source(
         "main.nia",
@@ -1143,6 +1146,7 @@ fn main() i32 {
 
 #[test]
 fn driver_invalidates_reused_loader_sources() {
+    let _permit = nia_test_support::compiler_permit();
     let driver = Driver::new();
     driver.set_source("main.nia", "fn main() i32 { 1 }");
 
@@ -1159,6 +1163,7 @@ fn driver_invalidates_reused_loader_sources() {
 
 #[test]
 fn driver_finalizes_executable_once_after_provider_discovery() {
+    let _permit = nia_test_support::compiler_permit();
     let driver = Driver::new();
     driver.set_source(
         "main.nia",
@@ -1183,6 +1188,26 @@ pub fn main(init: process::Init) process::ExitCode!void {
         driver.compiler_query_executions("executable_provider_demands") > 0,
         "provider discovery should run before finalization"
     );
+}
+
+#[test]
+fn incremental_executable_body_check_reuses_inferred_global_types() {
+    let _permit = nia_test_support::compiler_permit();
+    let driver = Driver::new();
+    driver.set_source(
+        "main.nia",
+        r#"
+static bytes = b"nia";
+
+fn main() u8 {
+    bytes[0]
+}
+"#,
+    );
+
+    let program = checked_program_from_output(driver.check_entry(CheckRequest::new("main.nia")));
+
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]

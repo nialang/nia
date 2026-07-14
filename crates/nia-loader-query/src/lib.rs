@@ -57,10 +57,11 @@ pub struct LoaderDatabase {
 impl LoaderDatabase {
     pub fn new(request: LoadRequest) -> Self {
         let entry_path = SourcePath::new(request.entry_path);
-        let package_roots_with_used_paths = request
-            .package_root_used_paths
-            .then(|| request.module_map.entries().map(|(name, _)| name).collect())
-            .unwrap_or_default();
+        let package_roots_with_used_paths = if request.package_root_used_paths {
+            request.module_map.entries().map(|(name, _)| name).collect()
+        } else {
+            HashSet::new()
+        };
         let module_map = effective_module_map(&entry_path, request.module_map);
         let sources = request.sources;
         let symbols = SymbolTable::new();

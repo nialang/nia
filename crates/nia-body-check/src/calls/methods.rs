@@ -334,7 +334,7 @@ impl<'a> BodyChecker<'a> {
                 "receiver argument",
             );
         }
-        self.check_receiver_match(call.receiver, receiver_expected_ty, receiver_kind);
+        self.check_receiver_match(call.receiver, call.actual_receiver_ty, receiver_kind);
 
         let Some(method_instantiation_args) = self
             .profile_stage("body_check.profile.method.lower_type_args", |this| {

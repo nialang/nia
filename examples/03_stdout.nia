@@ -15,7 +15,7 @@ pub fn main(init: Init) ExitCode!void {
 
     // .exit().? maps std I/O errors into process exit errors and propagates.
     stdout.print(
-        "name={:_>6.3} answer={:+05} hex={:#04x} ptr={:p}\n",
+        &"name={:_>6.3} answer={:+05} hex={:#04x} ptr={:p}\n",
         &[&name, &answer, &byte, &ptr],
     ).exit().?;
     stdout.flush().exit().?;

@@ -13,6 +13,9 @@ nia-loader-query.workspace = true
 nia-linker.workspace = true
 nia-timing.workspace = true
 
+[dev-dependencies]
+nia-test-support.workspace = true
+
 [[bin]]
 name = "nia"
 path = "src/main.rs"

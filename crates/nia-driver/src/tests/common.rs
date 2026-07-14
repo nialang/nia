@@ -50,6 +50,7 @@ pub(super) fn check_program_with_options(
     entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
 ) -> crate::CheckedProgram {
+    let _permit = nia_test_support::compiler_permit();
     checked_program_from_output(
         crate::Driver::new().check_all_modules(
             crate::CheckRequest::new(entry_path).with_optimization(optimization),
@@ -58,6 +59,7 @@ pub(super) fn check_program_with_options(
 }
 
 pub(super) fn check_entry_program(entry_path: impl Into<String>) -> crate::CheckedProgram {
+    let _permit = nia_test_support::compiler_permit();
     checked_program_from_output(
         crate::Driver::new().check_entry(crate::CheckRequest::new(entry_path)),
     )
@@ -71,6 +73,7 @@ pub(super) fn codegen_program_with_options(
     entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
 ) -> crate::CodegenProgram {
+    let _permit = nia_test_support::compiler_permit();
     codegen_program_from_output(
         crate::Driver::new()
             .codegen(crate::CheckRequest::new(entry_path).with_optimization(optimization)),
@@ -81,6 +84,7 @@ pub(super) fn check_program_with_map(
     entry_path: impl Into<String>,
     module_map: ModuleMap,
 ) -> crate::CheckedProgram {
+    let _permit = nia_test_support::compiler_permit();
     checked_program_from_output(
         crate::Driver::new()
             .check_all_modules(crate::CheckRequest::new(entry_path).with_module_map(module_map)),
@@ -91,6 +95,7 @@ pub(super) fn check_freestanding_executable_with_options(
     entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
 ) -> crate::CheckedProgram {
+    let _permit = nia_test_support::compiler_permit();
     checked_program_from_output(
         crate::Driver::new().check_all_modules(
             crate::CheckRequest::new(entry_path)
@@ -105,6 +110,7 @@ pub(super) fn check_freestanding_executable_with_map_and_options(
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
 ) -> crate::CheckedProgram {
+    let _permit = nia_test_support::compiler_permit();
     checked_program_from_output(
         crate::Driver::new().check_all_modules(
             crate::CheckRequest::new(entry_path)

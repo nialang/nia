@@ -142,6 +142,31 @@ extend Counter {
 }
 
 #[test]
+fn mutable_receiver_uses_mutable_pointee_without_reassigning_pointer_binding() {
+    let checked = pipeline(
+        r#"
+struct Counter {
+    value: i32,
+}
+
+extend Counter {
+    fn bump(&mut self) void {
+        self.value += 1;
+    }
+}
+
+fn main() i32 {
+    let mut counter = Counter { value: 0 };
+    let pointer = &mut counter;
+    pointer.bump();
+    counter.value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn associated_function_and_field_access_use_extension_owner_type() {
     let checked = pipeline(
         r#"
