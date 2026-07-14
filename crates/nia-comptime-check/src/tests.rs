@@ -77,6 +77,11 @@ fn check_source(source: &str) -> CheckedFixture {
         source_path: &source_path,
         program: ComptimeProgramContext::empty(),
     });
+    assert_eq!(
+        lowered.interner.interner_id(),
+        checked.interner.interner_id()
+    );
+    assert!(lowered.interner.is_prefix_of(&checked.interner));
     CheckedFixture {
         defs,
         locals,

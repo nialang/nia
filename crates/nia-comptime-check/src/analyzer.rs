@@ -156,10 +156,7 @@ pub fn compute_module_comptime_enum_values(
     input: ComptimeInput<'_>,
     array_lengths: ComptimeArrayLengths,
 ) -> ComptimeEnumValues {
-    let mut analyzer = Analyzer::new(input);
-    analyzer
-        .working_interners
-        .insert(input.defs.module_id, array_lengths.interner);
+    let mut analyzer = Analyzer::with_local_interner(input, array_lengths.interner);
     analyzer.array_lengths = array_lengths.values;
     analyzer.diagnostics = array_lengths.diagnostics;
     analyzer.analyze_enum_values();
@@ -191,10 +188,7 @@ pub fn compute_module_comptime_values(
     array_lengths: ComptimeArrayLengths,
     enum_values: ComptimeEnumValues,
 ) -> ComptimeValues {
-    let mut analyzer = Analyzer::new(input);
-    analyzer
-        .working_interners
-        .insert(input.defs.module_id, enum_values.interner);
+    let mut analyzer = Analyzer::with_local_interner(input, enum_values.interner);
     analyzer.array_lengths = array_lengths.values;
     analyzer.enum_values = enum_values.values;
     analyzer.typed_enum_values = enum_values.typed_values;
@@ -216,10 +210,7 @@ pub fn check_module_comptime_with_all_phases(
     typed_facts: ComptimeTypedFacts,
 ) -> ComptimeCheck {
     let diagnostics = typed_facts.diagnostics;
-    let mut analyzer = Analyzer::new(input);
-    analyzer
-        .working_interners
-        .insert(input.defs.module_id, typed_facts.interner);
+    let mut analyzer = Analyzer::with_local_interner(input, typed_facts.interner);
     analyzer.array_lengths = array_lengths.values;
     analyzer.enum_values = enum_values.values;
     analyzer.typed_enum_values = enum_values.typed_values;
@@ -243,10 +234,7 @@ pub fn compute_module_comptime_typed_facts(
     enum_values: ComptimeEnumValues,
     values: ComptimeValues,
 ) -> ComptimeTypedFacts {
-    let mut analyzer = Analyzer::new(input);
-    analyzer
-        .working_interners
-        .insert(input.defs.module_id, values.interner);
+    let mut analyzer = Analyzer::with_local_interner(input, values.interner);
     analyzer.array_lengths = array_lengths.values;
     analyzer.enum_values = enum_values.values;
     analyzer.typed_enum_values = enum_values.typed_values;
@@ -314,6 +302,14 @@ impl Analyzer<'_> {
     }
 
     fn new(input: ComptimeInput<'_>) -> Analyzer<'_> {
+        Self::with_local_interner(input, input.interner.clone())
+    }
+
+    fn with_local_interner(input: ComptimeInput<'_>, local_interner: TyInterner) -> Analyzer<'_> {
+        assert!(
+            input.interner.is_prefix_of(&local_interner),
+            "Nia ICE: comptime working interner is not an append-only extension of its input"
+        );
         Analyzer {
             input,
             values: HashMap::new(),
@@ -326,7 +322,7 @@ impl Analyzer<'_> {
             array_lengths: HashMap::new(),
             diagnostics: Vec::new(),
             active: HashSet::new(),
-            working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
+            working_interners: HashMap::from([(input.defs.module_id, local_interner)]),
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_value_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
@@ -338,7 +334,7 @@ impl Analyzer<'_> {
     fn finish_local_interner(&mut self) -> TyInterner {
         self.working_interners
             .remove(&self.input.defs.module_id)
-            .unwrap_or_else(|| self.input.interner.clone())
+            .expect("Nia ICE: comptime analyzer lost its local working interner")
     }
 
     fn for_typed_query(input: TypedComptimeQueryInput<'_>) -> Analyzer<'_> {

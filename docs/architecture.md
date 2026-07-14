@@ -402,6 +402,17 @@ solving remain visible. This is the first trait/body migration slice, not the
 completion of that domain: body and comptime checking still own working
 interner snapshots and still import cross-module signature types.
 
+The comptime phase chain transfers its local working interner explicitly from
+array-length evaluation through enum values, values, typed facts, and the final
+product. Later phases no longer clone the initial normalization snapshot and
+immediately overwrite it with the preceding phase's interner. Each transfer
+requires an append-only extension of the original input, and losing the local
+working shard is an internal error rather than a fallback clone. Within an
+analyzer, a type already present in the target module shard is reused directly;
+snapshot import is reserved for a handle absent from that shard. Query products
+still expose phase snapshots, so comptime storage is not yet fully migrated to
+the session store.
+
 ### 3.6 `nia-diagnostic`
 
 Defines diagnostics and source rendering. It owns user-facing diagnostic display
