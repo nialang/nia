@@ -125,13 +125,15 @@ where
 
     fn cache_hit(value: &Arc<V>, detail_timing: bool, query_name: &'static str) -> Self::Output {
         time_query_name_detail(detail_timing, "query.clone.cache_hit", query_name, || {
-            value.as_ref().clone()
+            nia_timing::track_query_value_clone(detail_timing, || value.as_ref().clone())
         })
     }
 
     fn computed(value: V, detail_timing: bool, query_name: &'static str) -> (Arc<V>, Self::Output) {
         let cached = time_query_name_detail(detail_timing, "query.clone.store", query_name, || {
-            Arc::new(value.clone())
+            Arc::new(nia_timing::track_query_value_clone(detail_timing, || {
+                value.clone()
+            }))
         });
         (cached, value)
     }

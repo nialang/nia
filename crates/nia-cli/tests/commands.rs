@@ -1090,6 +1090,7 @@ fn main() i32 {
     assert!(stdout.is_empty(), "{stdout}");
     assert!(stderr.contains("timing summary stage check:"), "{stderr}");
     assert!(!stderr.contains("query timing"), "{stderr}");
+    assert!(!stderr.contains("allocator."), "{stderr}");
 
     let tokens = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
@@ -1165,6 +1166,17 @@ fn main() i32 {
         .find(|line| line.starts_with("{\"schema_version\":1,"))
         .expect("missing JSON timing report");
     assert!(report.contains("\"max_rss_bytes\":"), "{report}");
+    if cfg!(feature = "perf-alloc") {
+        assert!(report.contains("\"allocator.alloc_calls\":"), "{report}");
+        assert!(
+            report.contains("\"allocator.allocated_bytes\":"),
+            "{report}"
+        );
+        assert!(report.contains("\"query.value_clone_bytes\":"), "{report}");
+    } else {
+        assert!(!report.contains("\"allocator."), "{report}");
+        assert!(!report.contains("\"query.value_clone_bytes\":"), "{report}");
+    }
     assert!(report.contains("\"query.executions\":"), "{report}");
     assert!(
         report.contains("\"driver.provider_demand_rounds\":"),

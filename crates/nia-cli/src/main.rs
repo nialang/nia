@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#[cfg(feature = "perf-alloc")]
+use std::alloc::System;
 use std::{env, fs, path::PathBuf, process::ExitCode};
 
 use nia_driver::{ModuleMap, NiaOptimizationLevel, Runtime, SourcePath};
@@ -8,7 +10,14 @@ mod help;
 
 use help::{HelpStyle, help_text};
 
+#[cfg(feature = "perf-alloc")]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: nia_timing::CountingAllocator<System> =
+    nia_timing::CountingAllocator::new(System);
+
 fn main() -> ExitCode {
+    #[cfg(feature = "perf-alloc")]
+    nia_timing::register_allocation_instrumentation();
     nia_ice::install_panic_hook();
     match parse_cli(env::args().skip(1).collect()) {
         Ok(CliAction::Help(topic)) => {

@@ -740,7 +740,7 @@ Kern 更快的结构原因很可能是：显式粗粒度阶段、紧凑连续数
 
 ### 17.3 阶段 A release workload 基线
 
-现已增加 `tools/perf.py` 与固定 `benchmarks/`/examples workload。runner 先构建一次 release compiler，再让 minimal、strings/slices、ArrayList、traits、comptime 和完整 emit-exe 各自在新进程运行，并汇总 schema-versioned JSON。compiler 的同一 `nia-timing` collector 直接输出 wall/user/sys、max RSS、CPU utilization、stage/query timings 及 typed counters；driver 上报 query executions/hits、provider-demand rounds、checked/reachable bodies，LLVM 上报 unit/object-reuse，detail timing 还能汇总实际 query value clone count。这里没有通过脚本解析人类 timing 文本，也没有新增隐藏环境变量。
+现已增加 `tools/perf.py` 与固定 `benchmarks/`/examples workload。runner 先用显式 `perf-alloc` feature 构建一次 instrumented release compiler，再让 minimal、strings/slices、ArrayList、traits、comptime 和完整 emit-exe 各自在新进程运行，并汇总 schema-versioned JSON。普通 compiler build 不安装 counting allocator，日常编译与测试的 allocation hot path 没有额外原子检查；自定义或 `--no-build` compiler 缺少 instrumentation 时 runner 会直接拒绝，而不是记录伪造的零值。compiler 的同一 `nia-timing` collector 直接输出 wall/user/sys、max RSS、CPU utilization、stage/query timings 及 typed counters；driver 上报 query executions/hits、provider-demand rounds、checked/reachable bodies，LLVM 上报 unit/object-reuse，instrumented detail timing 还能汇总实际 query value clone count/bytes。这里没有通过脚本解析人类 timing 文本，也没有新增隐藏环境变量。
 
 2026-07-14 在当前 WSL release build 上的一次 smoke baseline（单次样本，仅验证量级与管线，不作为跨机器阈值）：
 
@@ -753,7 +753,20 @@ Kern 更快的结构原因很可能是：显式粗粒度阶段、紧凑连续数
 | comptime check | 0.071 s | 42 MiB | 176 | 1 / 1 |
 | ArrayList emit-exe | 3.699 s | 1,042 MiB | 6,239 | 152 / 183 |
 
-emit-exe 生成 30 个 LLVM units，当前 object reuse 为 0，直接暴露了阶段 G 的缺口。runner 在 machine metadata 中记录 CPU affinity、cgroup CPU quota、system/cgroup/effective memory；它不建立 WSL、物理工作站和租赁机 profile。仍待完成的阶段 A 项目是 allocation/allocated-bytes、clone bytes（目前只有 value clone count）、稳定 CI 宽松 guard 与独立 perf trend storage。
+emit-exe 生成 30 个 LLVM units，当前 object reuse 为 0，直接暴露了阶段 G 的缺口。runner 在 machine metadata 中记录 CPU affinity、cgroup CPU quota、system/cgroup/effective memory；它不建立 WSL、物理工作站和租赁机 profile。首个样本只建立了 value clone count，下面的第二个 instrumentation 切片继续补齐 allocation/clone bytes。
+
+第二个 instrumentation 切片把成功 alloc/dealloc/realloc 次数和 requested bytes 接入同一个 detail collector，并按线程测量 owned query value clone 期间的真实 allocator traffic；它由 perf runner 的显式 `perf-alloc` build 启用，不改变普通 compiler binary 的 allocator。collector flush/JSON 序列化发生在计数停止之后。新的 release smoke 样本为：
+
+| workload | Rust allocated bytes | query value clones | query clone bytes |
+|---|---:|---:|---:|
+| minimal check | 1.24 MiB | 126 | 0.16 MiB |
+| strings/slices check | 1.31 GiB | 32,193 | 50.3 MiB |
+| ArrayList check | 2.12 GiB | 49,947 | 99.1 MiB |
+| traits check | 1.24 GiB | 31,242 | 46.8 MiB |
+| comptime check | 364 MiB | 340 | 1.25 MiB |
+| ArrayList emit-exe | 2.98 GiB | 56,310 | 116 MiB |
+
+累计 allocated bytes 远大于 peak RSS，确认大量短命 heap traffic；query value clone 是明确且应由阶段 C 删除的成本，但只占 ArrayList/emit-exe 总 allocator traffic 的一部分，不能把全部 churn 归因于 query clone。interner/snapshot、body/product materialization 和临时集合仍需后续分项。allocation/clone bytes 已完成基础测量；同资源形状 median comparator 与宽松相对 guard 已具备，但仓库尚无可运行 Nia LLVM suite 的 CI 环境及 main-branch trend storage，因此阶段 A 仍不能关闭。
 
 ## 18. 性能根因树
 
@@ -910,7 +923,7 @@ CompilerSession
 
 Acceptance：基准命令不依赖隐藏环境变量，结果写 machine-readable JSON，CI 只做宽松 guard，perf runner 做趋势分析。
 
-进展（2026-07-14）：固定六 workload、release runner、schema v1 JSON、进程资源、query/provider/body/LLVM/value-clone counters 已落地并完成全套 smoke baseline。阶段仍为进行中；allocation/clone bytes 与 CI/perf trend policy 尚未完成，不能因已有 JSON 就提前宣告 Acceptance 达成。
+进展（2026-07-14）：固定六 workload、release runner、schema v1 JSON、进程资源、query/provider/body/LLVM counters、显式 feature-gated allocator traffic、query value clone count/bytes 已落地并完成全套 smoke baseline；普通 compiler 不承担 allocation instrumentation 开销，同机 comparator 会校验 OS/arch/CPU model/effective CPU/memory，并提供宽松相对 guard。阶段仍为进行中：仓库没有可运行 Nia LLVM suite 的 CI 定义与 main-branch trend storage，不能把开发机样本硬编码成项目阈值，也不能因比较工具存在就提前宣告 Acceptance 达成。
 
 ### 阶段 B（P0）：统一 semantic context 和类型身份
 

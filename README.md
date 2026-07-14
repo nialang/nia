@@ -212,7 +212,8 @@ language states are tracked through Git tags.
 - [examples/](examples/): small executable programs for the current language
   and standard-library surface.
 - [benchmarks/](benchmarks/): fixed compiler performance workloads.
-- [tools/perf.py](tools/perf.py): release compiler baseline runner.
+- [tools/perf.py](tools/perf.py): release compiler baseline runner; use
+  [tools/perf_compare.py](tools/perf_compare.py) for resource-aware comparisons.
 
 ## Platform Status
 
