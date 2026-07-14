@@ -2,7 +2,7 @@
 use std::{env, fs, path::PathBuf, process::ExitCode};
 
 use nia_driver::{ModuleMap, NiaOptimizationLevel, Runtime, SourcePath};
-use nia_timing::{TimingOptions, TimingTrace};
+use nia_timing::{TimingFormat, TimingOptions, TimingTrace};
 
 mod help;
 
@@ -60,12 +60,15 @@ struct Cli {
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     timing_trace: TimingTrace,
+    timing_format: TimingFormat,
     command: CliCommand,
 }
 
 impl Cli {
     fn timing_options(&self) -> TimingOptions {
-        TimingOptions::new(self.timings).with_trace(self.timing_trace)
+        TimingOptions::new(self.timings)
+            .with_trace(self.timing_trace)
+            .with_format(self.timing_format)
     }
 }
 
@@ -219,6 +222,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
             optimization: global_options.optimization,
             timings: global_options.timings,
             timing_trace: global_options.timing_trace,
+            timing_format: global_options.timing_format,
             command,
         })),
     }
@@ -229,6 +233,7 @@ struct GlobalOptions {
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     timing_trace: TimingTrace,
+    timing_format: TimingFormat,
 }
 
 fn extract_global_options(
@@ -239,6 +244,7 @@ fn extract_global_options(
     let mut optimization = NiaOptimizationLevel::default();
     let mut timings = nia_driver::TimingMode::Off;
     let mut timing_trace = TimingTrace::Off;
+    let mut timing_format = TimingFormat::Text;
     let mut remaining = Vec::new();
     let mut iter = args.into_iter();
     let mut preserve_next = false;
@@ -289,6 +295,10 @@ fn extract_global_options(
             timing_trace = trace.map_err(|message| CliError::new(message, help))?;
             continue;
         }
+        if let Some(format) = parse_timing_format_flag(&arg) {
+            timing_format = format.map_err(|message| CliError::new(message, help))?;
+            continue;
+        }
         remaining.push(arg);
     }
     Ok((
@@ -298,6 +308,7 @@ fn extract_global_options(
             optimization,
             timings,
             timing_trace,
+            timing_format,
         },
     ))
 }
@@ -387,6 +398,17 @@ fn parse_timing_trace_value(value: &str) -> Result<TimingTrace, String> {
             "unknown timing trace mode `--timing-trace={value}`; expected --timing-trace=off or --timing-trace=events"
         )),
     }
+}
+
+fn parse_timing_format_flag(arg: &str) -> Option<Result<TimingFormat, String>> {
+    let value = arg.strip_prefix("--timings-format=")?;
+    Some(match value {
+        "text" => Ok(TimingFormat::Text),
+        "json" => Ok(TimingFormat::Json),
+        _ => Err(format!(
+            "unknown timings format `{value}`; expected text or json"
+        )),
+    })
 }
 
 enum ParsedCommand {

@@ -197,6 +197,8 @@ with `std::debug::print`, and `03_stdout.nia` shows explicit stdout output throu
 - [docs/project-conventions.md](docs/project-conventions.md): maintenance rules
   for this repository.
 - [docs/contributing.md](docs/contributing.md): contribution expectations.
+- [docs/performance.md](docs/performance.md): reproducible compiler workloads
+  and machine-readable performance baselines.
 - [docs/ai-usage.md](docs/ai-usage.md): AI-assisted work policy.
 
 Documentation file names are not versioned. Release history and versioned
@@ -209,6 +211,8 @@ language states are tracked through Git tags.
 - [docs/](docs/): language, ABI, architecture, platform, and maintenance docs.
 - [examples/](examples/): small executable programs for the current language
   and standard-library surface.
+- [benchmarks/](benchmarks/): fixed compiler performance workloads.
+- [tools/perf.py](tools/perf.py): release compiler baseline runner.
 
 ## Platform Status
 

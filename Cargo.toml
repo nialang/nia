@@ -74,6 +74,7 @@ authors = ["softfault <givenyoung46@gmail.com>"]
 license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
+libc = "0.2.186"
 nia-span = { path = "crates/nia-span" }
 nia-source = { path = "crates/nia-source" }
 nia-node-id = { path = "crates/nia-node-id" }

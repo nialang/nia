@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+"""Run Nia's fixed compiler workloads and write a machine-readable baseline."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import platform
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_COMPILER = ROOT / "target" / "release" / "nia"
+DEFAULT_OUTPUT = ROOT / "target" / "nia-perf" / "baseline.json"
+
+
+def workloads(output_dir: Path) -> dict[str, list[str]]:
+    return {
+        "minimal": ["check", str(ROOT / "benchmarks" / "minimal.nia")],
+        "strings_slices": ["check", str(ROOT / "examples" / "02_slices_and_strings.nia")],
+        "array_list": ["check", str(ROOT / "examples" / "04_array_list.nia")],
+        "traits": ["check", str(ROOT / "examples" / "05_traits_generics.nia")],
+        "comptime": ["check", str(ROOT / "benchmarks" / "comptime_heavy.nia")],
+        "emit_exe": [
+            "emit",
+            "--exe",
+            str(ROOT / "examples" / "04_array_list.nia"),
+            "-o",
+            str(output_dir / "array_list"),
+        ],
+    }
+
+
+def command_output(args: list[str]) -> str | None:
+    try:
+        result = subprocess.run(
+            args,
+            cwd=ROOT,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip() or None
+
+
+def read_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def parse_memory_limit(value: str | None) -> int | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if not value or value == "max":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def linux_memory() -> tuple[int | None, int | None]:
+    meminfo = read_text(Path("/proc/meminfo"))
+    system = None
+    if meminfo is not None:
+        for line in meminfo.splitlines():
+            if line.startswith("MemTotal:"):
+                try:
+                    system = int(line.split()[1]) * 1024
+                except (IndexError, ValueError):
+                    pass
+                break
+
+    cgroup_text = read_text(Path("/proc/self/cgroup"))
+    if cgroup_text is None:
+        return system, None
+    for line in cgroup_text.splitlines():
+        if line.startswith("0::"):
+            relative = line[3:].lstrip("/")
+            value = read_text(Path("/sys/fs/cgroup") / relative / "memory.max")
+            return system, parse_memory_limit(value)
+    for line in cgroup_text.splitlines():
+        fields = line.split(":", 2)
+        if len(fields) != 3 or "memory" not in fields[1].split(","):
+            continue
+        relative = fields[2].lstrip("/")
+        value = read_text(
+            Path("/sys/fs/cgroup/memory") / relative / "memory.limit_in_bytes"
+        )
+        return system, parse_memory_limit(value)
+    return system, None
+
+
+def linux_cpu_quota() -> float | None:
+    cgroup_text = read_text(Path("/proc/self/cgroup"))
+    if cgroup_text is None:
+        return None
+    for line in cgroup_text.splitlines():
+        if line.startswith("0::"):
+            relative = line[3:].lstrip("/")
+            value = read_text(Path("/sys/fs/cgroup") / relative / "cpu.max")
+            if value is None:
+                return None
+            fields = value.split()
+            if len(fields) != 2 or fields[0] == "max":
+                return None
+            try:
+                return int(fields[0]) / int(fields[1])
+            except (ValueError, ZeroDivisionError):
+                return None
+    for line in cgroup_text.splitlines():
+        fields = line.split(":", 2)
+        if len(fields) != 3 or "cpu" not in fields[1].split(","):
+            continue
+        relative = fields[2].lstrip("/")
+        root = Path("/sys/fs/cgroup/cpu") / relative
+        quota = parse_memory_limit(read_text(root / "cpu.cfs_quota_us"))
+        period = parse_memory_limit(read_text(root / "cpu.cfs_period_us"))
+        if quota is None or period is None or quota < 0 or period == 0:
+            return None
+        return quota / period
+    return None
+
+
+def machine_metadata() -> dict[str, Any]:
+    affinity = None
+    if hasattr(os, "sched_getaffinity"):
+        affinity = len(os.sched_getaffinity(0))
+    system_memory, cgroup_memory = linux_memory()
+    visible_limits = [value for value in (system_memory, cgroup_memory) if value]
+    cpu_quota = linux_cpu_quota()
+    cpu_limits = [value for value in (affinity, cpu_quota) if value]
+    return {
+        "platform": platform.platform(),
+        "architecture": platform.machine(),
+        "logical_cpus": os.cpu_count(),
+        "affinity_cpus": affinity,
+        "cgroup_cpu_quota": cpu_quota,
+        "effective_cpu_limit": min(cpu_limits) if cpu_limits else None,
+        "system_memory_bytes": system_memory,
+        "cgroup_memory_limit_bytes": cgroup_memory,
+        "effective_memory_limit_bytes": min(visible_limits) if visible_limits else None,
+    }
+
+
+def timing_json(stderr: str) -> dict[str, Any]:
+    for line in reversed(stderr.splitlines()):
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and value.get("schema_version") == 1:
+            return value
+    raise ValueError("compiler did not emit a schema_version=1 timing report")
+
+
+def normalize_report_paths(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace(str(ROOT), "$REPO")
+    if isinstance(value, list):
+        return [normalize_report_paths(item) for item in value]
+    if isinstance(value, dict):
+        return {key: normalize_report_paths(item) for key, item in value.items()}
+    return value
+
+
+def command_label(value: str) -> str:
+    path = Path(value)
+    if not path.is_absolute():
+        return value
+    try:
+        return str(Path("$REPO") / path.relative_to(ROOT))
+    except ValueError:
+        if path.parent.name.startswith("nia-perf-"):
+            return str(Path("$TMP") / path.name)
+        return value
+
+
+def run_workload(compiler: Path, name: str, args: list[str]) -> dict[str, Any]:
+    command = [
+        str(compiler),
+        "--timings=detail",
+        "--timings-format=json",
+        *args,
+    ]
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        sys.stderr.write(result.stderr)
+        raise RuntimeError(f"workload {name!r} failed with status {result.returncode}")
+    report = normalize_report_paths(timing_json(result.stderr))
+    report["name"] = name
+    try:
+        compiler_label = str(compiler.relative_to(ROOT))
+    except ValueError:
+        compiler_label = str(compiler)
+    report["command"] = [compiler_label, *(command_label(value) for value in args)]
+    return report
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--compiler", type=Path, default=DEFAULT_COMPILER)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument("--no-build", action="store_true")
+    parser.add_argument(
+        "--workload",
+        action="append",
+        help="run only this workload; may be passed more than once",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    if args.repeat < 1:
+        raise SystemExit("--repeat must be at least 1")
+    compiler = args.compiler.resolve()
+    if not args.no_build and compiler == DEFAULT_COMPILER.resolve():
+        subprocess.run(
+            ["cargo", "build", "--release", "-p", "nia-cli"],
+            cwd=ROOT,
+            check=True,
+        )
+    if not compiler.is_file():
+        raise SystemExit(f"compiler does not exist: {compiler}")
+
+    with tempfile.TemporaryDirectory(prefix="nia-perf-") as temporary:
+        available = workloads(Path(temporary))
+        selected = args.workload or list(available)
+        unknown = sorted(set(selected) - set(available))
+        if unknown:
+            raise SystemExit(f"unknown workload(s): {', '.join(unknown)}")
+        results = []
+        for iteration in range(args.repeat):
+            for name in selected:
+                print(f"perf: iteration {iteration + 1}/{args.repeat} {name}", file=sys.stderr)
+                report = run_workload(compiler, name, available[name])
+                report["iteration"] = iteration
+                results.append(report)
+
+    revision = command_output(["git", "rev-parse", "HEAD"])
+    dirty = command_output(["git", "status", "--porcelain"])
+    baseline = {
+        "schema_version": 1,
+        "compiler": {
+            "path": command_label(str(compiler)),
+            "version": command_output([str(compiler), "--version"]),
+            "revision": revision,
+            "dirty": bool(dirty),
+        },
+        "machine": machine_metadata(),
+        "repeat": args.repeat,
+        "results": results,
+    }
+    output = args.output.resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary_output = output.with_suffix(output.suffix + ".tmp")
+    temporary_output.write_text(
+        json.dumps(baseline, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    temporary_output.replace(output)
+    print(output)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

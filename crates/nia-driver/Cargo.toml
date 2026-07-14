@@ -19,6 +19,7 @@ nia-parser.workspace = true
 nia-source.workspace = true
 nia-symbol.workspace = true
 nia-target-config.workspace = true
+nia-timing.workspace = true
 
 [dev-dependencies]
 nia-test-support.workspace = true
