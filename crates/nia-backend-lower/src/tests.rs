@@ -298,7 +298,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-    let type_lowering = lower_module_types_with_id(ModuleId(0), &module, &type_resolved);
+    let mut type_lowering = lower_module_types_with_id(ModuleId(0), &module, &type_resolved);
     let signatures = collect_item_signatures(&module, &defs, &type_lowering);
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
@@ -310,7 +310,17 @@ fn lower_source_with_body_check_mutation_and_optimization(
         &type_lowering,
         &active_item_tree,
     );
-    let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
+    let normalization_input = type_lowering
+        .interner
+        .iter()
+        .map(|(ty_id, _)| ty_id)
+        .collect::<Vec<_>>();
+    let normalization = normalize_module_types(
+        ModuleId(0),
+        &mut type_lowering.interner,
+        &normalization_input,
+        &signatures,
+    );
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-backend-lower-test/main.nia");
     let comptime_module =

@@ -691,7 +691,7 @@ mod tests {
         let module_id = ModuleId(0);
         let defs = collect_module_defs(module_id, &module);
         let type_resolution = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let type_lowering = lower_module_types_with_id(module_id, &module, &type_resolution);
+        let mut type_lowering = lower_module_types_with_id(module_id, &module, &type_resolution);
         let signatures = collect_item_signatures(&module, &defs, &type_lowering);
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
@@ -709,7 +709,17 @@ mod tests {
         );
         let target = nia_target_config::TargetConfig::host();
         let source_path = SourcePath::new("/tmp/nia-static-check-test/main.nia");
-        let normalization = normalize_module_types(module_id, &type_lowering.interner, &signatures);
+        let normalization_input = type_lowering
+            .interner
+            .iter()
+            .map(|(ty_id, _)| ty_id)
+            .collect::<Vec<_>>();
+        let normalization = normalize_module_types(
+            module_id,
+            &mut type_lowering.interner,
+            &normalization_input,
+            &signatures,
+        );
         let comptime_module =
             nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
                 active_item_tree: &active_item_tree,

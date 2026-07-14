@@ -381,15 +381,19 @@ session. It follows these rules:
 
 The migration has established a compilation-owned `TypeStore`: a
 `TyInternerId` now contains a unique `TypeStoreId` as well as its temporary
-module shard, and every type-lowering variant appends through the same store.
-This prevents handles from separate compiler sessions with equal `ModuleId`s
-from comparing equal. It does not yet satisfy the final contract because the
-module shard remains part of the handle and query products still carry cloned
-interner snapshots. Migration next moves normalization, then traits/body,
+module shard, and every type-lowering and normalization variant appends through
+the same store. Normalization is one algorithm over an explicit mutable
+interner and explicit input handles; compiler query providers supply the store
+transaction, while standalone algorithm tests use that same API. This prevents
+handles from separate compiler sessions with equal `ModuleId`s from comparing
+equal and prevents normalization variants from creating private divergent
+interners. It does not yet satisfy the final contract because the module shard
+remains part of the handle and query products still carry cloned interner
+snapshots for unmigrated consumers. Migration next moves traits/body, then
 layout, monomorphization, backend lowering, and codegen. A domain is migrated
-only when its snapshot/import path is deleted. Temporary adapters exist only at
-the boundary between the migrated prefix and the next unmigrated domain; there
-is no permanent module-local/session-global API choice.
+only when its private mutation/import path is deleted. Temporary snapshots
+exist only at the boundary between the migrated prefix and the next unmigrated
+domain; there is no permanent module-local/session-global API choice.
 
 ### 3.6 `nia-diagnostic`
 

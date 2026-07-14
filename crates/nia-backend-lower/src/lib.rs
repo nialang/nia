@@ -2160,12 +2160,12 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn extend_backend_layouts_for_instances(
-        &self,
+        &mut self,
         layouts: &mut BackendLayouts,
         struct_instances: &[nia_backend_ir::BackendStructInstance],
         union_instances: &[nia_backend_ir::BackendUnionInstance],
     ) {
-        layout_extender::BackendLayoutExtender::new(self.input, &self.type_context.interner)
+        layout_extender::BackendLayoutExtender::new(self.input, &mut self.type_context.interner)
             .extend_for_instances(layouts, struct_instances, union_instances);
     }
 
