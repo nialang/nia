@@ -2,9 +2,9 @@
 use std::sync::Arc;
 
 use nia_ast::{ArrayElements, BindingItem, Block, Expr, ExprKind, IndexArg, StmtKind, UnaryOp};
-use nia_comptime_check::{ComptimeKey, ComptimeValues};
-use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, ResolvedComptimeEnv};
-use nia_comptime_ir::{ResolvedComptimeExpr, ResolvedComptimeTypeArg};
+use nia_const_check::{ConstKey, ConstValues};
+use nia_const_eval::{ConstCommonEnv, ConstError, ConstValue, ResolvedConstEnv};
+use nia_const_ir::{ResolvedConstExpr, ResolvedConstTypeArg};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, ModuleId};
@@ -31,9 +31,9 @@ pub struct StaticCheckInput<'a> {
     pub semantic_uses: &'a SemanticUseTable,
     pub symbols: &'a SymbolTable,
     pub signatures: &'a ItemSignatures,
-    pub comptime: &'a ComptimeValues,
+    pub const_eval: &'a ConstValues,
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
-    pub program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
+    pub program_const: &'a dyn Fn(ModuleId) -> Option<ConstValues>,
     pub target: &'a TargetConfig,
 }
 
@@ -53,9 +53,9 @@ pub fn check_module_static_initializers(input: StaticCheckInput<'_>) -> StaticCh
         signatures: StaticCheckSignatures {
             globals: &input.signatures.globals,
         },
-        comptime: input.comptime,
+        const_eval: input.const_eval,
         program_defs: input.program_defs,
-        program_comptime: input.program_comptime,
+        program_const: input.program_const,
         target: input.target,
     })
 }
@@ -68,9 +68,9 @@ pub struct StaticCheckPreciseInput<'a> {
     pub semantic_uses: &'a SemanticUseTable,
     pub symbols: &'a SymbolTable,
     pub signatures: StaticCheckSignatures<'a>,
-    pub comptime: &'a ComptimeValues,
+    pub const_eval: &'a ConstValues,
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
-    pub program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
+    pub program_const: &'a dyn Fn(ModuleId) -> Option<ConstValues>,
     pub target: &'a TargetConfig,
 }
 
@@ -84,9 +84,9 @@ pub fn check_module_static_initializers_with_signatures(
         semantic_uses: input.semantic_uses,
         symbols: input.symbols,
         signatures: input.signatures,
-        comptime: input.comptime,
+        const_eval: input.const_eval,
         program_defs: input.program_defs,
-        program_comptime: input.program_comptime,
+        program_const: input.program_const,
         target: input.target,
         diagnostics: Vec::new(),
     };
@@ -103,9 +103,9 @@ struct StaticChecker<'a> {
     semantic_uses: &'a SemanticUseTable,
     symbols: &'a SymbolTable,
     signatures: StaticCheckSignatures<'a>,
-    comptime: &'a ComptimeValues,
+    const_eval: &'a ConstValues,
     program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
-    program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
+    program_const: &'a dyn Fn(ModuleId) -> Option<ConstValues>,
     target: &'a TargetConfig,
     diagnostics: Vec<Diagnostic>,
 }
@@ -136,7 +136,7 @@ impl StaticChecker<'_> {
     fn check_active_module(&mut self, item_tree: &ActiveModuleItemTree) {
         for item in &item_tree.items {
             match &item.kind {
-                ItemTreeNodeKind::Binding(binding) if !binding.is_comptime => {
+                ItemTreeNodeKind::Binding(binding) if !binding.is_const() => {
                     self.check_global_binding(item.span, binding);
                 }
                 ItemTreeNodeKind::Function(function) => {
@@ -248,7 +248,7 @@ impl StaticChecker<'_> {
             ExprKind::Ident(_) => match self.local_use(expr) {
                 Some(LocalUse::ModuleValue) => match self.value_name(expr) {
                     Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(def_id) => None,
-                    Some(ValueNameResolution::Def(def_id)) if self.is_comptime(def_id) => None,
+                    Some(ValueNameResolution::Def(def_id)) if self.is_const(def_id) => None,
                     _ => Some("bare global value is not static data; take its address explicitly"),
                 },
                 Some(LocalUse::Unresolved) | None => None,
@@ -280,11 +280,11 @@ impl StaticChecker<'_> {
                 Some("error union construction is not supported in global static data yet")
             }
             ExprKind::Try { .. } => Some("`.?` propagation requires runtime control flow"),
-            ExprKind::Block(_) => Some("block expressions require comptime execution"),
-            ExprKind::If { .. } => Some("if expressions require comptime execution"),
-            ExprKind::IfPattern(_) => Some("if pattern expressions require comptime execution"),
-            ExprKind::Switch(_) => Some("switch expressions require comptime execution"),
-            ExprKind::Call { .. } => Some("function calls require comptime execution"),
+            ExprKind::Block(_) => Some("block expressions require const execution"),
+            ExprKind::If { .. } => Some("if expressions require const execution"),
+            ExprKind::IfPattern(_) => Some("if pattern expressions require const execution"),
+            ExprKind::Switch(_) => Some("switch expressions require const execution"),
+            ExprKind::Call { .. } => Some("function calls require const execution"),
             ExprKind::Assign { .. } => Some("assignment cannot initialize global storage"),
             ExprKind::BracketSuffix { .. } => Some("generic instantiation is not a static value"),
             ExprKind::Underscore => Some("underscore is not a value"),
@@ -389,12 +389,9 @@ impl StaticChecker<'_> {
         }
     }
 
-    fn eval_static_array_index(
-        &self,
-        expr: &Expr,
-    ) -> Result<u64, nia_comptime_engine::ComptimeError> {
+    fn eval_static_array_index(&self, expr: &Expr) -> Result<u64, nia_const_eval::ConstError> {
         self.eval_static_resolved_expr(expr, |expr, env| {
-            nia_comptime_engine::eval_resolved_comptime_array_len_expr(expr, env)
+            nia_const_eval::eval_resolved_const_array_len_expr(expr, env)
         })
     }
 
@@ -404,18 +401,13 @@ impl StaticChecker<'_> {
             .map(|_| "array repeat count is not a static usize constant")
     }
 
-    fn eval_static_int_expr(
-        &self,
-        expr: &Expr,
-    ) -> Result<i128, nia_comptime_engine::ComptimeError> {
+    fn eval_static_int_expr(&self, expr: &Expr) -> Result<i128, nia_const_eval::ConstError> {
         self.eval_static_resolved_expr(expr, |expr, env| {
-            nia_comptime_engine::eval_resolved_comptime_int_expr(expr, env).and_then(|value| {
-                value
-                    .as_i128()
-                    .ok_or_else(|| nia_comptime_engine::ComptimeError {
-                        span: expr.span(),
-                        message: "static integer expression is out of range".to_string(),
-                    })
+            nia_const_eval::eval_resolved_const_int_expr(expr, env).and_then(|value| {
+                value.as_i128().ok_or_else(|| nia_const_eval::ConstError {
+                    span: expr.span(),
+                    message: "static integer expression is out of range".to_string(),
+                })
             })
         })
     }
@@ -424,24 +416,24 @@ impl StaticChecker<'_> {
         &self,
         expr: &Expr,
         eval: impl FnOnce(
-            &ResolvedComptimeExpr,
-            &mut StaticComptimeEnv<'_>,
-        ) -> Result<T, nia_comptime_engine::ComptimeError>,
-    ) -> Result<T, nia_comptime_engine::ComptimeError> {
-        let semantic_uses = self.comptime_semantic_uses();
-        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses)
-            .with_symbols(self.symbols);
-        let mut env = StaticComptimeEnv {
+            &ResolvedConstExpr,
+            &mut StaticConstEnv<'_>,
+        ) -> Result<T, nia_const_eval::ConstError>,
+    ) -> Result<T, nia_const_eval::ConstError> {
+        let semantic_uses = self.const_semantic_uses();
+        let context =
+            nia_const_ir::ResolvedConstLowerInputs::new(&semantic_uses).with_symbols(self.symbols);
+        let mut env = StaticConstEnv {
             defs: self.defs,
-            comptime: self.comptime,
+            const_eval: self.const_eval,
             program_defs: self.program_defs,
-            program_comptime: self.program_comptime,
+            program_const: self.program_const,
             symbols: self.symbols,
             target: self.target,
         };
         let expr =
-            nia_comptime_ir::lower_expr_resolved_with_context(expr, &context).map_err(|err| {
-                nia_comptime_engine::ComptimeError {
+            nia_const_ir::lower_expr_resolved_with_context(expr, &context).map_err(|err| {
+                nia_const_eval::ConstError {
                     span: err.span,
                     message: err.message,
                 }
@@ -449,20 +441,20 @@ impl StaticChecker<'_> {
         eval(&expr, &mut env)
     }
 
-    fn comptime_semantic_uses(&self) -> SemanticUseTable {
+    fn const_semantic_uses(&self) -> SemanticUseTable {
         let mut builder = SemanticUseTable::builder();
         for (key, value_use) in &self.semantic_uses.node_value_uses {
             match value_use {
                 SemanticValueUse::Local(local_id)
                     if self
-                        .comptime
+                        .const_eval
                         .values
-                        .contains_key(&ComptimeKey::Local(*local_id)) =>
+                        .contains_key(&ConstKey::Local(*local_id)) =>
                 {
                     builder.insert_node_local_value_use(key.clone(), *local_id);
                 }
                 SemanticValueUse::Global(global_id)
-                    if self.global_comptime_id(*global_id) == Some(*global_id) =>
+                    if self.global_const_id(*global_id) == Some(*global_id) =>
                 {
                     builder.insert_node_global_value_use(key.clone(), *global_id);
                 }
@@ -484,8 +476,8 @@ impl StaticChecker<'_> {
         builder.finish()
     }
 
-    fn global_comptime_id(&self, global_id: GlobalDefId) -> Option<GlobalDefId> {
-        (self.global_def_kind(global_id) == Some(DefKind::Comptime)).then_some(global_id)
+    fn global_const_id(&self, global_id: GlobalDefId) -> Option<GlobalDefId> {
+        (self.global_def_kind(global_id) == Some(DefKind::Const)).then_some(global_id)
     }
 
     fn global_def_kind(&self, global_id: GlobalDefId) -> Option<DefKind> {
@@ -503,10 +495,10 @@ impl StaticChecker<'_> {
         )
     }
 
-    fn is_comptime(&self, def_id: DefId) -> bool {
+    fn is_const(&self, def_id: DefId) -> bool {
         matches!(
             self.defs.defs.get(def_id).map(|def| def.kind),
-            Some(DefKind::Comptime)
+            Some(DefKind::Const)
         )
     }
 
@@ -546,74 +538,72 @@ impl StaticChecker<'_> {
     }
 }
 
-struct StaticComptimeEnv<'a> {
+struct StaticConstEnv<'a> {
     defs: &'a DefCollection,
-    comptime: &'a ComptimeValues,
+    const_eval: &'a ConstValues,
     program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
-    program_comptime: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
+    program_const: &'a dyn Fn(ModuleId) -> Option<ConstValues>,
     symbols: &'a SymbolTable,
     target: &'a TargetConfig,
 }
 
-impl ComptimeCommonEnv for StaticComptimeEnv<'_> {
+impl ConstCommonEnv for StaticConstEnv<'_> {
     fn symbol_name(&self, symbol: SymbolId) -> String {
-        StaticComptimeEnv::symbol_name(self, symbol)
+        StaticConstEnv::symbol_name(self, symbol)
     }
 }
 
-impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
+impl ResolvedConstEnv for StaticConstEnv<'_> {
     fn resolve_resolved_name(
         &mut self,
         span: Span,
-        resolution: nia_comptime_ir::ComptimeNameResolution,
-    ) -> Result<ComptimeValue, ComptimeError> {
+        resolution: nia_const_ir::ConstNameResolution,
+    ) -> Result<ConstValue, ConstError> {
         let key = match resolution {
-            nia_comptime_ir::ComptimeNameResolution::Local(local_id) => {
-                ComptimeKey::Local(local_id)
-            }
-            nia_comptime_ir::ComptimeNameResolution::Global(global_id) => {
-                if self.global_def_kind(global_id) != Some(DefKind::Comptime) {
-                    return Err(ComptimeError {
+            nia_const_ir::ConstNameResolution::Local(local_id) => ConstKey::Local(local_id),
+            nia_const_ir::ConstNameResolution::Global(global_id) => {
+                if self.global_def_kind(global_id) != Some(DefKind::Const) {
+                    return Err(ConstError {
                         span,
-                        message: "static constant expression can only use comptime bindings"
+                        message: "static constant expression can only use const bindings"
                             .to_string(),
                     });
                 }
-                ComptimeKey::Global(global_id)
+                ConstKey::Global(global_id)
             }
-            nia_comptime_ir::ComptimeNameResolution::BuiltinAssociatedValue(value) => {
+            nia_const_ir::ConstNameResolution::BuiltinAssociatedValue(value) => {
                 let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
                 let Some(value) = kind.value(primitive, self.target.pointer_width) else {
-                    return Err(ComptimeError {
+                    return Err(ConstError {
                         span,
-                        message: "builtin associated value is not representable at comptime"
+                        message: "builtin associated value is not representable at const"
                             .to_string(),
                     });
                 };
-                return Ok(ComptimeValue::Int(value));
+                return Ok(ConstValue::Int(value));
             }
-            nia_comptime_ir::ComptimeNameResolution::GenericParam(name) => {
-                return Err(ComptimeError {
+            nia_const_ir::ConstNameResolution::GenericParam(name) => {
+                return Err(ConstError {
                     span,
                     message: format!(
-                        "static constant expression cannot use unresolved comptime generic parameter `{}`",
+                        "static constant expression cannot use unresolved const generic parameter `{}`",
                         self.symbol_name(name)
                     ),
                 });
             }
-            nia_comptime_ir::ComptimeNameResolution::AssociatedComptimeProjection(projection) => {
-                return Err(ComptimeError {
+            nia_const_ir::ConstNameResolution::AssociatedConstProjection(projection) => {
+                return Err(ConstError {
                     span,
                     message: format!(
-                        "static constant expression cannot use unresolved associated comptime value `{}`",
+                        "static constant expression cannot use unresolved associated const value `{}`",
                         self.symbol_name(projection.name)
                     ),
                 });
             }
         };
-        self.value_for_key(key).ok_or_else(|| ComptimeError {
+        self.value_for_key(key).ok_or_else(|| ConstError {
             span,
-            message: "failed to evaluate comptime value".to_string(),
+            message: "failed to evaluate const value".to_string(),
         })
     }
 
@@ -621,9 +611,9 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
         &mut self,
         span: Span,
         _builtin: nia_ids::LayoutBuiltin,
-        _type_arg: &ResolvedComptimeTypeArg,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        Err(ComptimeError {
+        _type_arg: &ResolvedConstTypeArg,
+    ) -> Result<ConstValue, ConstError> {
+        Err(ConstError {
             span,
             message: "layout builtins are not available in static address constants".to_string(),
         })
@@ -632,10 +622,10 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
     fn resolve_resolved_field_offset_builtin(
         &mut self,
         span: Span,
-        _type_arg: &ResolvedComptimeTypeArg,
+        _type_arg: &ResolvedConstTypeArg,
         _field: &SymbolId,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        Err(ComptimeError {
+    ) -> Result<ConstValue, ConstError> {
+        Err(ConstError {
             span,
             message: "field offset builtins are not available in static address constants"
                 .to_string(),
@@ -643,19 +633,19 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
     }
 }
 
-impl StaticComptimeEnv<'_> {
+impl StaticConstEnv<'_> {
     fn symbol_name(&self, symbol: SymbolId) -> String {
         symbol_text_or_unresolved(self.symbols, symbol)
     }
 
-    fn value_for_key(&self, key: ComptimeKey) -> Option<ComptimeValue> {
+    fn value_for_key(&self, key: ConstKey) -> Option<ConstValue> {
         match key {
-            ComptimeKey::Local(_) => self.comptime.values.get(&key).cloned(),
-            ComptimeKey::Global(global_id) if global_id.module_id == self.defs.module_id => {
-                self.comptime.values.get(&key).cloned()
+            ConstKey::Local(_) => self.const_eval.values.get(&key).cloned(),
+            ConstKey::Global(global_id) if global_id.module_id == self.defs.module_id => {
+                self.const_eval.values.get(&key).cloned()
             }
-            ComptimeKey::Global(global_id) => (self.program_comptime)(global_id.module_id)
-                .and_then(|comptime| comptime.values.get(&key).cloned()),
+            ConstKey::Global(global_id) => (self.program_const)(global_id.module_id)
+                .and_then(|const_eval| const_eval.values.get(&key).cloned()),
         }
     }
 
@@ -696,10 +686,8 @@ mod tests {
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
         let item_tree = ModuleItemTree::from_module(&module);
-        let active_item_tree = ActiveModuleItemTree::new(
-            item_tree.active_items_without_comptime(),
-            Default::default(),
-        );
+        let active_item_tree =
+            ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default());
         let semantic_uses = semantic_use_table(
             module_id,
             &values,
@@ -720,25 +708,24 @@ mod tests {
             &normalization_input,
             &signatures,
         );
-        let comptime_module =
-            nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
-                active_item_tree: &active_item_tree,
-                defs: &defs,
-                signatures: &signatures,
-                values: &values,
-                locals: &locals,
-                semantic_uses: &semantic_uses,
-                symbols: &symbols,
-                const_exprs: &type_lowering.const_exprs,
-                source_path: &source_path,
-            });
+        let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
+            active_item_tree: &active_item_tree,
+            defs: &defs,
+            signatures: &signatures,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            symbols: &symbols,
+            const_exprs: &type_lowering.const_exprs,
+            source_path: &source_path,
+        });
         assert!(
-            comptime_module.diagnostics.is_empty(),
+            const_module.diagnostics.is_empty(),
             "{:?}",
-            comptime_module.diagnostics
+            const_module.diagnostics
         );
-        let comptime_input = nia_comptime_check::ComptimeInput {
-            module: &comptime_module.module,
+        let const_input = nia_const_check::ConstInput {
+            module: &const_module.module,
             defs: &defs,
             values: &values,
             locals: &locals,
@@ -750,25 +737,19 @@ mod tests {
             normalized: &normalization.normalized,
             target: &target,
             source_path: &source_path,
-            program: nia_comptime_check::ComptimeProgramContext::empty(),
+            program: nia_const_check::ConstProgramContext::empty(),
         };
-        let array_lengths =
-            nia_comptime_check::compute_module_comptime_array_lengths(comptime_input);
-        let enum_values = nia_comptime_check::compute_module_comptime_enum_values(
-            comptime_input,
-            array_lengths.clone(),
-        );
-        let comptime = nia_comptime_check::compute_module_comptime_values(
-            comptime_input,
-            array_lengths,
-            enum_values,
-        );
+        let array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
+        let enum_values =
+            nia_const_check::compute_module_const_enum_values(const_input, array_lengths.clone());
+        let const_eval =
+            nia_const_check::compute_module_const_values(const_input, array_lengths, enum_values);
         assert!(
-            comptime.diagnostics.is_empty(),
+            const_eval.diagnostics.is_empty(),
             "{:?}",
-            comptime.diagnostics
+            const_eval.diagnostics
         );
-        let no_program_comptime = |_| None;
+        let no_program_const = |_| None;
         let no_program_defs = |_| None;
         check_module_static_initializers(StaticCheckInput {
             active_item_tree: &active_item_tree,
@@ -778,9 +759,9 @@ mod tests {
             semantic_uses: &semantic_uses,
             symbols: &symbols,
             signatures: &signatures,
-            comptime: &comptime,
+            const_eval: &const_eval,
             program_defs: &no_program_defs,
-            program_comptime: &no_program_comptime,
+            program_const: &no_program_const,
             target: &target,
         })
     }
@@ -904,10 +885,10 @@ static vtable: Vtable = { print: & print_i32 };
     }
 
     #[test]
-    fn accepts_static_integer_expression_from_comptime_value() {
+    fn accepts_static_integer_expression_from_const_value() {
         let checked = check(
             r#"
-comptime base = 20;
+const base = 20;
 static mut value: i32 = base + 2;
 "#,
         );
@@ -916,10 +897,10 @@ static mut value: i32 = base + 2;
     }
 
     #[test]
-    fn accepts_static_array_repeat_count_from_comptime_value() {
+    fn accepts_static_array_repeat_count_from_const_value() {
         let checked = check(
             r#"
-comptime n = 3;
+const n = 3;
 static mut values: [3]i32 = [1; n];
 "#,
         );
@@ -966,10 +947,10 @@ static mut bad: &i32 = &target[idx];
     }
 
     #[test]
-    fn accepts_static_global_address_index_from_comptime_value() {
+    fn accepts_static_global_address_index_from_const_value() {
         let checked = check(
             r#"
-comptime idx = 1;
+const idx = 1;
 static mut target: [2]i32 = [1, 2];
 static mut selected: &i32 = &target[idx];
 "#,

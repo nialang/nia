@@ -299,7 +299,7 @@ impl StableDefHasher {
             DefKind::Module => b"module",
             DefKind::Function => b"function",
             DefKind::Global => b"global",
-            DefKind::Comptime => b"comptime",
+            DefKind::Const => b"const",
             DefKind::Struct => b"struct",
             DefKind::StructField => b"struct_field",
             DefKind::Union => b"union",
@@ -473,7 +473,7 @@ pub enum DefKind {
     Module,
     Function,
     Global,
-    Comptime,
+    Const,
     Struct,
     StructField,
     Union,
@@ -686,8 +686,8 @@ impl<'a> Collector<'a> {
             ItemTreeNodeKind::Binding(binding) => {
                 self.add_value_def(
                     binding.name,
-                    if binding.is_comptime {
-                        DefKind::Comptime
+                    if binding.is_const() {
+                        DefKind::Const
                     } else {
                         DefKind::Global
                     },
@@ -858,10 +858,10 @@ impl<'a> Collector<'a> {
         associated_value: &TraitAssociatedValue,
     ) {
         let value_id = self.push_member_def(
-            owner_identity.child(DefKind::Comptime, &associated_value.name),
+            owner_identity.child(DefKind::Const, &associated_value.name),
             parent,
             associated_value.name,
-            DefKind::Comptime,
+            DefKind::Const,
             Visibility::Public,
             associated_value.span,
         );
@@ -872,7 +872,7 @@ impl<'a> Collector<'a> {
             associated_value.name,
             value_id,
             associated_value.span,
-            "duplicate trait associated comptime",
+            "duplicate trait associated const",
         );
     }
 
@@ -911,7 +911,7 @@ impl<'a> Collector<'a> {
     ) {
         let binding = &associated_value.binding;
         let value_id = self.push_associated_value_def(
-            owner_identity.child(DefKind::Comptime, &binding.name),
+            owner_identity.child(DefKind::Const, &binding.name),
             parent,
             binding,
             associated_value.vis,
@@ -1074,7 +1074,7 @@ impl<'a> Collector<'a> {
             identity,
             parent,
             binding.name,
-            DefKind::Comptime,
+            DefKind::Const,
             visibility,
             span,
         )
@@ -1484,7 +1484,7 @@ extend[T, T] Methods[T] {
         let (module, errors) = parse_module(
             r#"
 static global: i32 = 1;
-comptime answer: i32 = 42;
+const answer: i32 = 42;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1499,8 +1499,8 @@ comptime answer: i32 = 42;
             let nia_ast::ItemKind::Binding(binding) = &item.kind else {
                 continue;
             };
-            let expected_kind = if binding.is_comptime {
-                DefKind::Comptime
+            let expected_kind = if binding.is_const() {
+                DefKind::Const
             } else {
                 DefKind::Global
             };

@@ -572,7 +572,7 @@ fn executable_check(
                             resolution_inputs: Some(resolution_inputs),
                             seed,
                             global_initializer_cache: Some(&caches.global_initializers),
-                            comptime_module_cache: Some(&caches.comptime_modules),
+                            const_module_cache: Some(&caches.const_modules),
                             program_function_signature_cache: Some(
                                 &caches.body_function_signatures,
                             ),
@@ -720,7 +720,7 @@ fn executable_check(
                 &reachability_by_module,
                 &mut fact_by_id,
                 &caches,
-                &caches.comptime_modules,
+                &caches.const_modules,
             )
         },
     );
@@ -795,7 +795,7 @@ fn executable_check(
         || {
             codegen_modules
                 .iter()
-                .map(|module| (module.id, module.comptime.array_lengths.clone()))
+                .map(|module| (module.id, module.const_eval.array_lengths.clone()))
                 .collect::<HashMap<_, _>>()
         },
     );
@@ -974,7 +974,7 @@ fn final_executable_checked_modules(
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
     fact_by_id: &mut HashMap<ModuleId, ExecutableFactModuleState>,
     caches: &ExecutableCheckCaches,
-    comptime_module_cache: &RefCell<HashMap<ModuleId, ComptimeModuleLowering>>,
+    const_module_cache: &RefCell<HashMap<ModuleId, ConstModuleLowering>>,
 ) -> HashMap<ModuleId, CheckedModule> {
     let reachable_body_modules = executable_reachable_body_modules(db, reachability_by_module);
     let modules_with_executable_items = parse_ok
@@ -1082,7 +1082,7 @@ fn final_executable_checked_modules(
                         resolution_inputs: Some(resolution_inputs),
                         seed: None,
                         global_initializer_cache: Some(&caches.global_initializers),
-                        comptime_module_cache: Some(comptime_module_cache),
+                        const_module_cache: Some(const_module_cache),
                         program_function_signature_cache: Some(&caches.body_function_signatures),
                         product: nia_body_check::BodyCheckProduct::Full,
                         prechecked,

@@ -45,7 +45,7 @@ pub(super) fn monomorphization_for_checked_modules(
                     defs: &module.defs,
                     interner: &function_bodies.interner,
                     normalization: &module.type_normalization,
-                    comptime: &module.comptime,
+                    const_eval: &module.const_eval,
                     const_expr_summaries: &module.type_lowering.const_expr_summaries,
                     layouts: Some(&module.layouts),
                     local_enums: &local_signatures
@@ -145,8 +145,8 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         all_visible_extensions,
         active_item_trees,
         item_signatures,
-        comptime_array_lengths,
-        comptime_enum_values,
+        const_array_lengths,
+        const_enum_values,
         visible_extensions,
         extension_methods,
         function_bodies,
@@ -184,21 +184,21 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                     })
                     .collect::<Vec<_>>()
             });
-        let comptime_array_lengths = checked_modules
+        let const_array_lengths = checked_modules
             .iter()
-            .map(|checked_module| nia_comptime_check::ComptimeArrayLengths {
-                interner: checked_module.comptime.interner.clone(),
-                values: checked_module.comptime.array_lengths.clone(),
-                diagnostics: checked_module.comptime.diagnostics.clone(),
+            .map(|checked_module| nia_const_check::ConstArrayLengths {
+                interner: checked_module.const_eval.interner.clone(),
+                values: checked_module.const_eval.array_lengths.clone(),
+                diagnostics: checked_module.const_eval.diagnostics.clone(),
             })
             .collect::<Vec<_>>();
-        let comptime_enum_values = checked_modules
+        let const_enum_values = checked_modules
             .iter()
-            .map(|checked_module| nia_comptime_check::ComptimeEnumValues {
-                interner: checked_module.comptime.interner.clone(),
-                values: checked_module.comptime.enum_values.clone(),
-                typed_values: checked_module.comptime.typed_enum_values.clone(),
-                diagnostics: checked_module.comptime.diagnostics.clone(),
+            .map(|checked_module| nia_const_check::ConstEnumValues {
+                interner: checked_module.const_eval.interner.clone(),
+                values: checked_module.const_eval.enum_values.clone(),
+                typed_values: checked_module.const_eval.typed_enum_values.clone(),
+                diagnostics: checked_module.const_eval.diagnostics.clone(),
             })
             .collect::<Vec<_>>();
         let visible_extensions = time_provider(
@@ -220,8 +220,8 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             all_visible_extensions,
             active_item_trees,
             item_signatures,
-            comptime_array_lengths,
-            comptime_enum_values,
+            const_array_lengths,
+            const_enum_values,
             visible_extensions,
             extension_methods,
             function_bodies,
@@ -242,7 +242,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         build_backend_lowering_indexes(
             &all_visible_extensions,
             checked_modules,
-            &comptime_array_lengths,
+            &const_array_lengths,
             &function_bodies,
         )
     });
@@ -265,8 +265,8 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 runtime: db.query(CompilerRuntimeQuery),
                 active_item_trees: &active_item_trees,
                 item_signatures: &item_signatures,
-                comptime_array_lengths: &comptime_array_lengths,
-                comptime_enum_values: &comptime_enum_values,
+                const_array_lengths: &const_array_lengths,
+                const_enum_values: &const_enum_values,
                 visible_extensions: &visible_extensions,
                 function_bodies: &function_bodies,
                 extension_methods: &extension_methods.methods,
@@ -355,7 +355,7 @@ pub(super) fn checked_module_diagnostics(
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,
-            &checked.comptime.diagnostics,
+            &checked.const_eval.diagnostics,
         ));
         diagnostics.extend(module_diagnostics(
             &checked.path,

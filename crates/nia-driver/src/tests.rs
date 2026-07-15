@@ -2,7 +2,7 @@
 mod associated_types;
 mod builtin_traits;
 mod common;
-mod comptime;
+mod const_eval;
 mod const_generics;
 mod imports;
 mod soundness;

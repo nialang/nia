@@ -576,7 +576,7 @@ impl<'a> LayoutComputer<'a> {
             }) => self.nominal_layout(span, def_id, &args, &const_args),
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
                 | TyKind::GenericParam(_)
@@ -707,7 +707,7 @@ impl<'a> LayoutComputer<'a> {
                         .iter()
                         .any(|arg| self.is_open_generic_const_arg(arg, seen))
             }
-            Some(TyKind::Error | TyKind::ComptimeOnly) | None => false,
+            Some(TyKind::Error | TyKind::ConstOnly) | None => false,
         }
     }
 
@@ -797,7 +797,7 @@ impl<'a> LayoutComputer<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::STATIC_CHECK,
                         span,
-                        "array length was not evaluated by comptime",
+                        "array length was not evaluated by const",
                     ));
                     return None;
                 };
@@ -1579,9 +1579,9 @@ fn tagged_union_layout(payloads: &[TypeLayout]) -> TypeLayout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_comptime_check::{
-        ComptimeCheck, ComptimeInput, ComptimeModuleInput, ComptimeProgramContext,
-        check_module_comptime, lower_module_comptime,
+    use nia_const_check::{
+        ConstCheck, ConstInput, ConstModuleInput, ConstProgramContext, check_module_const,
+        lower_module_const,
     };
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_item_signatures::collect_item_signatures;
@@ -1601,25 +1601,23 @@ mod tests {
         SymbolId::from_stable_hash(stable_hash(text))
     }
 
-    fn compute_test_comptime(
+    fn compute_test_const(
         module: &nia_ast::Module,
         symbols: &SymbolTable,
         defs: &nia_defs::DefCollection,
         signatures: &ItemSignatures,
         lowered: &nia_type_lower::TypeLowering,
-    ) -> ComptimeCheck {
+    ) -> ConstCheck {
         let values = resolve_module_values(module, defs);
         let locals = resolve_module_locals(module, defs, &values);
         let item_tree = ModuleItemTree::from_module(module);
-        let active_item_tree = ActiveModuleItemTree::new(
-            item_tree.active_items_without_comptime(),
-            Default::default(),
-        );
+        let active_item_tree =
+            ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default());
         let semantic_uses =
             semantic_use_table(ModuleId(0), &values, &locals, lowered, &active_item_tree);
         let target = nia_target_config::TargetConfig::host();
         let source_path = SourcePath::new("/tmp/nia-layout-test/main.nia");
-        let comptime_module = lower_module_comptime(ComptimeModuleInput {
+        let const_module = lower_module_const(ConstModuleInput {
             active_item_tree: &active_item_tree,
             defs,
             signatures,
@@ -1631,12 +1629,12 @@ mod tests {
             source_path: &source_path,
         });
         assert!(
-            comptime_module.diagnostics.is_empty(),
+            const_module.diagnostics.is_empty(),
             "{:?}",
-            comptime_module.diagnostics
+            const_module.diagnostics
         );
-        check_module_comptime(ComptimeInput {
-            module: &comptime_module.module,
+        check_module_const(ConstInput {
+            module: &const_module.module,
             defs,
             values: &values,
             locals: &locals,
@@ -1648,7 +1646,7 @@ mod tests {
             normalized: &HashMap::new(),
             target: &target,
             source_path: &source_path,
-            program: ComptimeProgramContext::empty(),
+            program: ConstProgramContext::empty(),
         })
     }
 
@@ -1725,13 +1723,13 @@ fn main(p: &Pair, xs: [3]u16) {}
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let comptime = compute_test_comptime(&module, &symbols, &defs, &signatures, &lowered);
+        let const_eval = compute_test_const(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
             &lowered.interner,
             &signatures,
             &HashMap::new(),
-            &|id| comptime.array_lengths.get(&id).copied(),
+            &|id| const_eval.array_lengths.get(&id).copied(),
             TargetDataLayout::LP64,
         );
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
@@ -1773,13 +1771,13 @@ fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8)
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let comptime = compute_test_comptime(&module, &symbols, &defs, &signatures, &lowered);
+        let const_eval = compute_test_const(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
             &lowered.interner,
             &signatures,
             &HashMap::new(),
-            &|id| comptime.array_lengths.get(&id).copied(),
+            &|id| const_eval.array_lengths.get(&id).copied(),
             TargetDataLayout::LP64,
         );
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
@@ -1824,13 +1822,13 @@ fn main(buf: Buffer[u8, 4]) {}
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let comptime = compute_test_comptime(&module, &symbols, &defs, &signatures, &lowered);
+        let const_eval = compute_test_const(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
             &lowered.interner,
             &signatures,
             &HashMap::new(),
-            &|id| comptime.array_lengths.get(&id).copied(),
+            &|id| const_eval.array_lengths.get(&id).copied(),
             TargetDataLayout::LP64,
         );
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
@@ -1855,13 +1853,13 @@ fn main(value: Empty) {}
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let comptime = compute_test_comptime(&module, &symbols, &defs, &signatures, &lowered);
+        let const_eval = compute_test_const(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
             &lowered.interner,
             &signatures,
             &HashMap::new(),
-            &|id| comptime.array_lengths.get(&id).copied(),
+            &|id| const_eval.array_lengths.get(&id).copied(),
             TargetDataLayout::LP64,
         );
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
@@ -2001,13 +1999,13 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let comptime = compute_test_comptime(&module, &symbols, &defs, &signatures, &lowered);
+        let const_eval = compute_test_const(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
             &lowered.interner,
             &signatures,
             &HashMap::new(),
-            &|id| comptime.array_lengths.get(&id).copied(),
+            &|id| const_eval.array_lengths.get(&id).copied(),
             TargetDataLayout::LP64,
         );
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);

@@ -3,7 +3,7 @@
 @[builtin("Simd")]
 pub trait Simd {
     type Lane;
-    comptime Lanes: usize;
+    const Lanes: usize;
 }
 
 @[builtin("SimdMask")]

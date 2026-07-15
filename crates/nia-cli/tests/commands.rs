@@ -1485,7 +1485,7 @@ fn main() i32 {
     std::fs::write(
         &mapped,
         r#"
-pub comptime answer: i32 = 42;
+pub const answer: i32 = 42;
 "#,
     )
     .expect("write mapped source");

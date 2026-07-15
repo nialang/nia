@@ -349,7 +349,7 @@ impl<'a> ModuleLowerer<'a> {
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
-            | TyKind::ComptimeOnly
+            | TyKind::ConstOnly
             | TyKind::Error => false,
         }
     }
@@ -457,7 +457,7 @@ impl<'a> ModuleLowerer<'a> {
         include_body: bool,
     ) -> Option<BackendFunction> {
         let signature = self.input.program_functions.get(&def_id)?;
-        if signature.signature.is_comptime {
+        if signature.signature.is_const {
             return None;
         }
         if include_body && !signature.signature.is_extern && !signature.signature.has_body {
@@ -929,7 +929,7 @@ pub(crate) fn contains_generic_param(
             TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
-            | TyKind::ComptimeOnly
+            | TyKind::ConstOnly
             | TyKind::Error,
         )
         | None => false,
@@ -999,7 +999,7 @@ pub(crate) fn contains_unresolved_projection(
         | Some(TyKind::SelfParam)
         | Some(
             TyKind::Error
-            | TyKind::ComptimeOnly
+            | TyKind::ConstOnly
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. },
@@ -1081,7 +1081,7 @@ pub(crate) fn contains_error(
         Some(TyKind::GenericParam(_))
         | Some(TyKind::SelfParam)
         | Some(
-            TyKind::ComptimeOnly
+            TyKind::ConstOnly
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. },

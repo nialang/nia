@@ -2,9 +2,9 @@ using pkg::math;
 using pkg::mem;
 using pkg::os;
 
-pub comptime ctrl_empty: u8 = 0xffu8;
-pub comptime ctrl_deleted: u8 = 0x80u8;
-pub comptime group_width: usize = 8usize;
+pub const ctrl_empty: u8 = 0xffu8;
+pub const ctrl_deleted: u8 = 0x80u8;
+pub const group_width: usize = 8usize;
 
 pub struct ProbeCursor {
     pos: usize,

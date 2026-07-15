@@ -23,7 +23,7 @@ Nia provides:
 - traits implemented by `extend Type : Trait` blocks;
 - expression-oriented blocks and `if`;
 - C-style enums with namespaces and `switch` without fallthrough;
-- compile-time value bindings with `comptime`;
+- compile-time value bindings with `const`;
 - `defer` for scope cleanup;
 - C ABI interop through `extern`;
 - explicit file modules declared with `module`, `using`, and `pub using`;
@@ -234,7 +234,7 @@ and
 as
 bool
 break
-comptime
+const
 continue
 defer
 else
@@ -929,13 +929,13 @@ let mut q = Point{x: 1, y: 2};
 let mut ptr = &Point { x: 3, y: 4 }; // &(Point { ... }) as read-only
 ```
 
-In a `comptime` value context, an untyped struct literal may also be used as a
+In a `const` value context, an untyped struct literal may also be used as a
 structural compile-time-only value. This does not create an anonymous runtime
 struct type:
 
 ```nia
-comptime config = { width: 4usize };
-comptime width: usize = config.width;
+const config = { width: 4usize };
+const width: usize = config.width;
 ```
 
 Field access:
@@ -1028,7 +1028,7 @@ fn log(value: i32) {
 }
 ```
 
-Use `static` rather than `comptime` for data that must have a stable
+Use `static` rather than `const` for data that must have a stable
 address, such as data passed across an explicit foreign ABI boundary.
 
 Function pointer type:
@@ -1092,7 +1092,7 @@ expression syntax and are stored with the AST node.
 
 `@[if condition]` is the language-defined conditional compilation attribute.
 It may be attached to items and statements. The condition language is separate
-from ordinary Nia expressions and from `comptime` evaluation. It accepts boolean,
+from ordinary Nia expressions and from `const` evaluation. It accepts boolean,
 integer, and string literals; names `arch`, `vendor`, `os`, `env`, `abi`,
 `endian`, and `pointer_width`; unary `not`; binary `and`, `or`, `==`, and `!=`;
 and parentheses.
@@ -1126,12 +1126,12 @@ active target rather than read from disk:
 ```nia
 using builtin;
 
-comptime word_bits: usize = builtin::pointer_width;
-comptime target_os = builtin::os;
+const word_bits: usize = builtin::pointer_width;
+const target_os = builtin::os;
 ```
 
 The initial `builtin` surface exposes `arch`, `vendor`, `os`, `env`, `abi`,
-`endian`, and `pointer_width` as public comptime values. These values share the
+`endian`, and `pointer_width` as public const values. These values share the
 same target facts used by `@[if ...]`.
 
 The parser accepts attributes on top-level items and on `struct`/`union` fields.
@@ -1359,7 +1359,7 @@ through `return`, `break`, or `continue`. Switches over closed enums must cover
 all variants or provide `_`. Switches over open enums must provide `_`, even if
 every named variant is covered.
 
-### 5.6 Let And Comptime Bindings
+### 5.6 Let And Const Bindings
 
 `let` is an immutable binding, not a general compile-time execution mechanism
 and not macro substitution.
@@ -1369,10 +1369,10 @@ let name = "nia";
 let mask: u32 = 0xff;
 ```
 
-Use `comptime` for named compile-time values:
+Use `const` for named compile-time values:
 
 ```nia
-comptime size: usize = 16;
+const size: usize = 16;
 ```
 
 Local `let` bindings cannot be assigned after declaration:
@@ -1424,46 +1424,46 @@ static bad = { 1 + 2 };     // error: block execution is not static data
 ```
 
 Contexts requiring compile-time values, such as non-literal array lengths, read
-`comptime` bindings rather than `static` storage.
+`const` bindings rather than `static` storage.
 
-`comptime` creates a compile-time value binding with no runtime storage and no
+`const` creates a compile-time value binding with no runtime storage and no
 address:
 
 ```nia
-comptime width: usize = 4;
+const width: usize = 4;
 
 fn first_value() i32 {
-    comptime local_width: usize = width;
+    const local_width: usize = width;
     let mut xs: [local_width]i32 = [1, 2, 3, 4];
     xs[0]
 }
 ```
 
-`comptime` may appear wherever `let mut` or `let` binding syntax is accepted. A
-`comptime` binding must have an initializer. Its initializer must be evaluable
+`const` may appear at module, associated-value, and local binding positions. A
+`const` binding must have an initializer. Its initializer must be evaluable
 with the current compile-time value evaluator. Current compile-time values cover
 integer, boolean, string, array, and struct literal values; struct field access;
 casts that preserve the underlying value; boolean `not`, `and`, and `or`;
-equality comparisons between matching primitive comptime value kinds; simple
+equality comparisons between matching primitive const value kinds; simple
 integer arithmetic and bit operations; and references to other visible
-`comptime` bindings. Cyclic `comptime` dependencies are errors.
+`const` bindings. Cyclic `const` dependencies are errors.
 
-Top-level `pub comptime` bindings participate in normal module visibility and
+Top-level `pub const` bindings participate in normal module visibility and
 may be used through imports:
 
 ```nia
 // config.nia
-pub comptime width: usize = 4;
+pub const width: usize = 4;
 
 // main.nia
 using root::config;
 let mut xs: [config::width]i32 = [1, 2, 3, 4];
 ```
 
-Taking the address of a `comptime` binding is invalid because it has no runtime
+Taking the address of a `const` binding is invalid because it has no runtime
 storage.
 
-Struct comptime values are ordinary field-keyed comptime values:
+Struct const values are ordinary field-keyed const values:
 
 ```nia
 struct Point {
@@ -1471,12 +1471,34 @@ struct Point {
     y: usize,
 }
 
-comptime p: Point = Point{x: 2, y: 3};
-comptime width: usize = p.x + p.y;
+const p: Point = Point{x: 2, y: 3};
+const width: usize = p.x + p.y;
 ```
 
 Conditional source selection is expressed with `@[if ...]`, not with
-`comptime`. `comptime` is reserved for compile-time values and functions.
+`const`. `const` is reserved for compile-time values and functions.
+
+`const fn` declares a function whose body executes in constant evaluation. In
+the current language it may only be called from a const context; making
+runtime-representable `const fn` callable at runtime is a separate future
+language decision, not an implicit property of the keyword migration.
+
+Constant evaluation may use ordinary `let mut` locals for loops, accumulation,
+and aggregate construction. Each call receives fresh local state. That state
+cannot modify a module or associated `const`, has no observable address or
+cross-query identity, and cannot escape into the returned const value:
+
+```nia
+const fn width() usize {
+    let mut value = 0usize;
+    while value < 4usize {
+        value += 1usize;
+    }
+    value
+}
+
+const array_width: usize = width();
+```
 
 ### 5.7 Static Storage
 
@@ -1516,8 +1538,11 @@ is controlled by the module system.
 ## 6. Local Bindings And Assignment
 
 `let mut` introduces mutable bindings. `let` introduces immutable bindings with
-storage. `comptime` and `comptime mut` introduce compile-time value bindings
-with no runtime storage.
+storage. `const` introduces an immutable compile-time value binding with no
+runtime storage or address. `const` is itself the declaration keyword, so
+`const let` is invalid. There is no `const mut`; mutation during constant
+evaluation uses transient `let mut` locals inside a `const fn` or const
+initializer block.
 
 Inferred type declaration:
 
@@ -1966,7 +1991,7 @@ has offset `0`.
 `@embed("path")` reads a file during compile-time evaluation and returns its
 contents as a byte array value. The path argument must be a string literal and
 is resolved relative to the source file that contains the `@embed` call, not the
-process working directory. `@embed` is only valid in a `comptime` expression
+process working directory. `@embed` is only valid in a `const` expression
 context; it does not parse or macro-expand the embedded bytes.
 
 `@size[T]()` and `@align[T]()` require `T: Sized`. For concrete layout-known
@@ -2961,7 +2986,7 @@ A conforming Nia compiler supports:
 - primitive type checking;
 - arrays, slices, pointers, optional types, error union types, structs, unions,
   C-style enums, and function types;
-- `let mut`, `let`, and `comptime` bindings;
+- `let mut`, `let`, and `const` bindings;
 - expression blocks and tail expressions;
 - `if` expressions;
 - the three `for` forms;
@@ -3101,7 +3126,7 @@ this document:
 - SIMD as a language primitive;
 - user-defined attributes and arbitrary compiler intrinsics;
 - macros;
-- general compile-time execution beyond the current `comptime` value subset.
+- general compile-time execution beyond the current `const` value subset.
 
 ## 16. Example
 

@@ -129,7 +129,7 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
             TypedLocal {
                 id: payload_local,
                 name: local_name("x"),
-                kind: TypedLocalKind::Binding,
+                kind: TypedLocalKind::MutableBinding,
                 ty,
                 span,
             },
@@ -235,7 +235,7 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
             TypedLocal {
                 id: payload_local,
                 name: local_name("x"),
-                kind: TypedLocalKind::Binding,
+                kind: TypedLocalKind::MutableBinding,
                 ty: i32_ty,
                 span,
             },
@@ -377,7 +377,7 @@ fn value_if_pattern_caches_target_and_stores_payload_binding() {
             TypedLocal {
                 id: payload_local,
                 name: local_name("payload"),
-                kind: TypedLocalKind::Binding,
+                kind: TypedLocalKind::MutableBinding,
                 ty,
                 span,
             },
@@ -498,7 +498,7 @@ fn value_if_pattern_trap_else_lowers_as_effect_only() {
             TypedLocal {
                 id: payload_local,
                 name: local_name("payload"),
-                kind: TypedLocalKind::Binding,
+                kind: TypedLocalKind::MutableBinding,
                 ty,
                 span,
             },
@@ -610,7 +610,7 @@ fn collects_unique_locals_from_statement_switch_arms() {
     let arm_local = TypedLocal {
         id: LocalId(1),
         name: local_name("arm_local"),
-        kind: TypedLocalKind::Binding,
+        kind: TypedLocalKind::MutableBinding,
         ty,
         span,
     };

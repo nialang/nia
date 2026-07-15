@@ -52,25 +52,24 @@ fn main() i32 {
     );
     let target = nia_target_config::TargetConfig::host();
     let source_path = nia_source::SourcePath::new("/tmp/nia-backend-lower-test/lowering.nia");
-    let comptime_module =
-        nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
-            active_item_tree: &active_item_tree,
-            defs: &defs,
-            signatures: &signatures,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            symbols: &symbols,
-            const_exprs: &type_lowering.const_exprs,
-            source_path: &source_path,
-        });
+    let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
+        active_item_tree: &active_item_tree,
+        defs: &defs,
+        signatures: &signatures,
+        values: &values,
+        locals: &locals,
+        semantic_uses: &semantic_uses,
+        symbols: &symbols,
+        const_exprs: &type_lowering.const_exprs,
+        source_path: &source_path,
+    });
     assert!(
-        comptime_module.diagnostics.is_empty(),
+        const_module.diagnostics.is_empty(),
         "{:?}",
-        comptime_module.diagnostics
+        const_module.diagnostics
     );
-    let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
-        module: &comptime_module.module,
+    let const_eval = nia_const_check::check_module_const(nia_const_check::ConstInput {
+        module: &const_module.module,
         defs: &defs,
         values: &values,
         locals: &locals,
@@ -82,14 +81,14 @@ fn main() i32 {
         normalized: &normalization.normalized,
         target: &target,
         source_path: &source_path,
-        program: nia_comptime_check::ComptimeProgramContext::empty(),
+        program: nia_const_check::ConstProgramContext::empty(),
     });
     let layouts = nia_layout::compute_layouts_with_normalized_types(
         &defs,
         &normalization.interner,
         &signatures,
         &normalization.normalized,
-        &|id| comptime.array_lengths.get(&id).copied(),
+        &|id| const_eval.array_lengths.get(&id).copied(),
         nia_layout::TargetDataLayout::LP64,
     );
     let _abi = check_module_abi(&defs, &type_lowering.interner, &signatures);
@@ -143,26 +142,26 @@ fn main() i32 {
     );
     let origins = NodeOriginTable::default();
     let program_signatures = EmptyBodyProgramSignatures::new();
-    let comptime_array_lengths = nia_comptime_check::ComptimeArrayLengths {
-        interner: comptime.interner.clone(),
-        values: comptime.array_lengths.clone(),
+    let const_array_lengths = nia_const_check::ConstArrayLengths {
+        interner: const_eval.interner.clone(),
+        values: const_eval.array_lengths.clone(),
         diagnostics: Vec::new(),
     };
-    let comptime_values = nia_comptime_check::ComptimeValues {
-        interner: comptime.interner.clone(),
-        values: comptime.values.clone(),
-        typed_values: comptime.typed_values.clone(),
+    let const_values = nia_const_check::ConstValues {
+        interner: const_eval.interner.clone(),
+        values: const_eval.values.clone(),
+        typed_values: const_eval.typed_values.clone(),
         diagnostics: Vec::new(),
     };
-    let comptime_typed_facts = nia_comptime_check::ComptimeTypedFacts {
-        interner: comptime.interner.clone(),
-        typed_values: comptime.typed_values.clone(),
+    let const_typed_facts = nia_const_check::ConstTypedFacts {
+        interner: const_eval.interner.clone(),
+        typed_values: const_eval.typed_values.clone(),
         diagnostics: Vec::new(),
     };
-    let body_comptime = nia_body_check::BodyComptime::from_phases(
-        &comptime_values,
-        &comptime_array_lengths,
-        &comptime_typed_facts,
+    let body_const = nia_body_check::BodyConst::from_phases(
+        &const_values,
+        &const_array_lengths,
+        &const_typed_facts,
     );
     let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
@@ -176,12 +175,12 @@ fn main() i32 {
         semantic_uses: &semantic_uses,
         lowered: &type_lowering,
         signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
-        comptime_signatures: &signatures,
+        const_signatures: &signatures,
         normalization: &normalization,
         seed: None,
         target: &target,
-        comptime: body_comptime,
-        comptime_module: &comptime_module.module,
+        const_eval: body_const,
+        const_module: &const_module.module,
         layouts: &layouts,
         extensions: &extensions,
         lazy_extensions: None,
@@ -190,7 +189,7 @@ fn main() i32 {
         program: nia_body_check::BodyProgramContext::empty(),
         program_signatures: program_signatures.context(),
         function_scope: nia_body_check::FunctionCheckScope::LocalModule,
-        program_comptime: nia_body_check::ProgramComptimeMaps::empty(),
+        program_const: nia_body_check::ProgramConstMaps::empty(),
         filter: nia_body_check::BodyCheckFilter::All,
         product: nia_body_check::BodyCheckProduct::Full,
         prechecked: None,
@@ -211,8 +210,8 @@ fn main() i32 {
             )
         })
         .collect::<HashMap<_, _>>();
-    let program_comptime = HashMap::from([(ModuleId(0), &comptime_array_lengths)]);
-    let comptime_enum_values = comptime_enum_values_from_check(&comptime);
+    let program_const = HashMap::from([(ModuleId(0), &const_array_lengths)]);
+    let const_enum_values = const_enum_values_from_check(&const_eval);
     let program_function_body_interners = ProgramFunctionBodyInterners::default();
     let no_program_defs = |_| None;
     let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::default();
@@ -232,9 +231,9 @@ fn main() i32 {
         function_interner: &body_check.ir.interner,
         semantic_facts: &body_check.facts,
         extensions: &extensions,
-        comptime_array_lengths: &comptime_array_lengths,
-        comptime_enum_values: &comptime_enum_values,
-        program_comptime: &program_comptime,
+        const_array_lengths: &const_array_lengths,
+        const_enum_values: &const_enum_values,
+        program_const: &program_const,
         layouts: &layouts,
         function_bodies: &function_bodies,
         roots: BackendFunctionRoots::Public,
@@ -276,24 +275,24 @@ fn main() i32 {
     assert_eq!(lowering.program.modules[0].functions.len(), 2);
 }
 
-fn comptime_enum_values_from_check(
-    comptime: &nia_comptime_check::ComptimeCheck,
-) -> nia_comptime_check::ComptimeEnumValues {
-    nia_comptime_check::ComptimeEnumValues {
-        interner: comptime.interner.clone(),
-        values: comptime.enum_values.clone(),
-        typed_values: comptime.typed_enum_values.clone(),
+fn const_enum_values_from_check(
+    const_eval: &nia_const_check::ConstCheck,
+) -> nia_const_check::ConstEnumValues {
+    nia_const_check::ConstEnumValues {
+        interner: const_eval.interner.clone(),
+        values: const_eval.enum_values.clone(),
+        typed_values: const_eval.typed_enum_values.clone(),
         diagnostics: Vec::new(),
     }
 }
 
 #[test]
-fn comptime_bindings_do_not_lower_to_storage() {
+fn const_bindings_do_not_lower_to_storage() {
     let source = r#"
-comptime answer: i32 = 40 + 2;
+const answer: i32 = 40 + 2;
 
 fn main() i32 {
-    comptime local: i32 = answer;
+    const local: i32 = answer;
     local
 }
 "#;
@@ -316,9 +315,9 @@ fn main() i32 {
 }
 
 #[test]
-fn lowers_large_array_repeat_count_from_comptime_binding() {
+fn lowers_large_array_repeat_count_from_const_binding() {
     let source = r#"
-comptime N: usize = 1048576;
+const N: usize = 1048576;
 
 fn main() i32 {
     let mut buffer: [N]u8 = [0u8; N];
@@ -347,7 +346,7 @@ fn main() i32 {
     };
     assert_eq!(
         lowering.program.modules[0]
-            .comptime
+            .const_eval
             .array_lengths
             .get(id)
             .copied(),
@@ -462,7 +461,7 @@ fn main() i32 {
 }
 
 #[test]
-fn instantiates_comptime_generic_function_array_lengths_in_function_ir() {
+fn instantiates_const_generic_function_array_lengths_in_function_ir() {
     let source = r#"
 fn take[T, N: usize](items: [N]T) usize {
     items.len()
@@ -513,7 +512,7 @@ fn main() usize {
 }
 
 #[test]
-fn instantiates_nominal_comptime_generic_array_lengths() {
+fn instantiates_nominal_const_generic_array_lengths() {
     let source = r#"
 struct Buffer[T, N: usize] {
     data: [N]T,

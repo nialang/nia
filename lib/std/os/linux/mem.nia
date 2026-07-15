@@ -4,7 +4,7 @@ using pkg::os::linux::types;
 
 using types::Errno;
 
-comptime native_page_size: usize = 4096usize;
+const native_page_size: usize = 4096usize;
 
 fn raw_map_pages(len: usize) Errno!&mut u8 {
     let prot_read_write = 3usize;

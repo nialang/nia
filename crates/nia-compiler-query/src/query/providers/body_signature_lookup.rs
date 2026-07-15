@@ -18,10 +18,10 @@ impl nia_program_signatures::ProgramSignatureLookup for BodyProgramSignatureLook
             .or_else(|| self.fallback.global(def_id))
     }
 
-    fn comptime(&self, def_id: GlobalDefId) -> Option<ProgramComptimeSignature> {
+    fn const_eval(&self, def_id: GlobalDefId) -> Option<ProgramConstSignature> {
         self.maps
-            .and_then(|maps| maps.comptime(def_id))
-            .or_else(|| self.fallback.comptime(def_id))
+            .and_then(|maps| maps.const_eval(def_id))
+            .or_else(|| self.fallback.const_eval(def_id))
     }
 
     fn struct_(&self, def_id: GlobalDefId) -> Option<ProgramStructSignature> {

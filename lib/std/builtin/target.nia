@@ -1,22 +1,22 @@
 // Target configuration values exposed through std::builtin.
 
 @[builtin("target.arch")]
-pub comptime arch: &[char];
+pub const arch: &[char];
 
 @[builtin("target.vendor")]
-pub comptime vendor: &[char];
+pub const vendor: &[char];
 
 @[builtin("target.os")]
-pub comptime os: &[char];
+pub const os: &[char];
 
 @[builtin("target.env")]
-pub comptime env: &[char];
+pub const env: &[char];
 
 @[builtin("target.abi")]
-pub comptime abi: &[char];
+pub const abi: &[char];
 
 @[builtin("target.endian")]
-pub comptime endian: &[char];
+pub const endian: &[char];
 
 @[builtin("target.pointer_width")]
-pub comptime pointer_width: usize;
+pub const pointer_width: usize;

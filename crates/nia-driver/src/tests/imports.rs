@@ -367,8 +367,8 @@ using entry::a; fn main() {}"#,
 }
 
 #[test]
-fn builtin_module_exposes_target_comptime_values() {
-    let root = temp_dir("builtin_module_exposes_target_comptime_values");
+fn builtin_module_exposes_target_const_values() {
+    let root = temp_dir("builtin_module_exposes_target_const_values");
     write(
         &root.join("main.nia"),
         r#"
@@ -717,8 +717,8 @@ extend math::Point {
 }
 
 #[test]
-fn imports_public_extension_associated_comptime_values() {
-    let root = temp_dir("imports_public_extension_associated_comptime_values");
+fn imports_public_extension_associated_const_values() {
+    let root = temp_dir("imports_public_extension_associated_const_values");
     write(
         &root.join("main.nia"),
         r#"
@@ -736,7 +736,7 @@ fn main() usize {
 pub struct Marker {}
 
 extend Marker {
-    pub comptime LIMIT: usize = 123usize;
+    pub const LIMIT: usize = 123usize;
 }
 "#,
     );
@@ -746,9 +746,9 @@ extend Marker {
 }
 
 #[test]
-fn imports_public_extension_associated_comptime_values_with_builtin_initializer() {
+fn imports_public_extension_associated_const_values_with_builtin_initializer() {
     let root =
-        temp_dir("imports_public_extension_associated_comptime_values_with_builtin_initializer");
+        temp_dir("imports_public_extension_associated_const_values_with_builtin_initializer");
     write(
         &root.join("main.nia"),
         r#"
@@ -766,7 +766,7 @@ fn main() usize {
 pub struct Marker {}
 
 extend Marker {
-    pub comptime LIMIT: usize = if 64usize == 64 {
+    pub const LIMIT: usize = if 64usize == 64 {
         18446744073709551615usize
     } else {
         4294967295usize
@@ -2656,7 +2656,7 @@ fn main() usize {
 pub struct Marker {}
 
 extend Marker {
-    pub(pkg) comptime LIMIT: usize = 123usize;
+    pub(pkg) const LIMIT: usize = 123usize;
 }
 "#,
     );

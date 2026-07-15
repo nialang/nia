@@ -90,13 +90,13 @@ impl<'a> BodyChecker<'a> {
                         return None;
                     }
                 }
-                GenericParamSignatureKind::Comptime { ty } => {
+                GenericParamSignatureKind::Const { ty } => {
                     let Some(value) = self.const_generic_value_from_bracket_arg(arg, *ty) else {
                         let name = self.symbol_name(param.name);
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
                             arg.span,
-                            format!("generic argument `{name}` must be a comptime value"),
+                            format!("generic argument `{name}` must be a const value"),
                         ));
                         return None;
                     };
@@ -144,9 +144,9 @@ impl<'a> BodyChecker<'a> {
         expr: &nia_ast::Expr,
         expected_ty: InternedTyId,
     ) -> Option<ConstGenericValue> {
-        self.with_comptime_context(|this| {
+        self.with_const_context(|this| {
             this.check_expr(expr);
-            let comptime_expr = match this.lower_comptime_expr(expr) {
+            let const_expr = match this.lower_const_expr(expr) {
                 Ok(expr) => expr,
                 Err(err) => {
                     this.diagnostics.push(Diagnostic::user_error_at(
@@ -157,30 +157,29 @@ impl<'a> BodyChecker<'a> {
                     return None;
                 }
             };
-            let value = match nia_comptime_engine::eval_resolved_comptime_expr(&comptime_expr, this)
-            {
+            let value = match nia_const_eval::eval_resolved_const_expr(&const_expr, this) {
                 Ok(value) => value,
                 Err(err) => {
                     this.diagnostics.push(Diagnostic::user_error_at(
-                        codes::COMPTIME,
+                        codes::CONST,
                         err.span,
                         err.message,
                     ));
                     return None;
                 }
             };
-            this.const_generic_value_from_comptime_value(expr.span, value, expected_ty)
+            this.const_generic_value_from_const_value(expr.span, value, expected_ty)
         })
     }
 
-    fn const_generic_value_from_comptime_value(
+    fn const_generic_value_from_const_value(
         &mut self,
         span: Span,
-        value: nia_comptime_check::ComptimeValue,
+        value: nia_const_check::ConstValue,
         expected_ty: InternedTyId,
     ) -> Option<ConstGenericValue> {
         match value {
-            nia_comptime_check::ComptimeValue::Int(value) => {
+            nia_const_check::ConstValue::Int(value) => {
                 if self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Char) {
                     let scalar = u32::try_from(value.bits()).ok()?;
                     return char::from_u32(scalar).map(ConstGenericValue::Char);
@@ -189,13 +188,13 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         span,
-                        "comptime generic integer argument is out of range for parameter type",
+                        "const generic integer argument is out of range for parameter type",
                     ));
                     return None;
                 }
                 Some(ConstGenericValue::Int(value))
             }
-            nia_comptime_check::ComptimeValue::Bool(value)
+            nia_const_check::ConstValue::Bool(value)
                 if self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Bool) =>
             {
                 Some(ConstGenericValue::Bool(value))
@@ -280,7 +279,7 @@ impl<'a> BodyChecker<'a> {
         let mut complete = true;
         let mut args = Vec::new();
         for generic in generic_params {
-            if !matches!(generic.kind, GenericParamSignatureKind::Comptime { .. }) {
+            if !matches!(generic.kind, GenericParamSignatureKind::Const { .. }) {
                 continue;
             }
             if let Some(arg) = substitutions.get(&generic.name) {
@@ -291,7 +290,7 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    format!("cannot infer comptime generic parameter `{name}`"),
+                    format!("cannot infer const generic parameter `{name}`"),
                 ));
             }
         }

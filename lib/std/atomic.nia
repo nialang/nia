@@ -1,21 +1,21 @@
-pub comptime Unordered: usize = 0usize;
-pub comptime Monotonic: usize = 1usize;
-pub comptime Acquire: usize = 2usize;
-pub comptime Release: usize = 3usize;
-pub comptime AcqRel: usize = 4usize;
-pub comptime SeqCst: usize = 5usize;
+pub const Unordered: usize = 0usize;
+pub const Monotonic: usize = 1usize;
+pub const Acquire: usize = 2usize;
+pub const Release: usize = 3usize;
+pub const AcqRel: usize = 4usize;
+pub const SeqCst: usize = 5usize;
 
-pub comptime Xchg: usize = 0usize;
-pub comptime Add: usize = 1usize;
-pub comptime Sub: usize = 2usize;
-pub comptime And: usize = 3usize;
-pub comptime Nand: usize = 4usize;
-pub comptime Or: usize = 5usize;
-pub comptime Xor: usize = 6usize;
-pub comptime Max: usize = 7usize;
-pub comptime Min: usize = 8usize;
-pub comptime UMax: usize = 9usize;
-pub comptime UMin: usize = 10usize;
+pub const Xchg: usize = 0usize;
+pub const Add: usize = 1usize;
+pub const Sub: usize = 2usize;
+pub const And: usize = 3usize;
+pub const Nand: usize = 4usize;
+pub const Or: usize = 5usize;
+pub const Xor: usize = 6usize;
+pub const Max: usize = 7usize;
+pub const Min: usize = 8usize;
+pub const UMax: usize = 9usize;
+pub const UMin: usize = 10usize;
 
 pub struct Atomic[T]
 where T: Sized

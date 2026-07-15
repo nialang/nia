@@ -770,7 +770,7 @@ mod tests {
                 locals: vec![FunctionLocal {
                     id: LocalId(0),
                     name: crate::LocalName::named(sym("value")),
-                    kind: crate::FunctionLocalKind::Binding,
+                    kind: crate::FunctionLocalKind::MutableBinding,
                     ty,
                     span,
                 }],

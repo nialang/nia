@@ -522,21 +522,21 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn trait_impls_require_associated_comptime_definitions() {
-    let root = temp_dir("trait_impls_require_associated_comptime_definitions");
+fn trait_impls_require_associated_const_definitions() {
+    let root = temp_dir("trait_impls_require_associated_const_definitions");
     write(
         &root.join("main.nia"),
         r#"
 trait Simd {
     type Lane;
-    comptime Lanes: usize;
+    const Lanes: usize;
 }
 
 struct Vec4 {}
 
 extend Vec4 : Simd {
     type Lane = u8;
-    comptime Extra: usize = 4usize;
+    const Extra: usize = 4usize;
 }
 
 fn main() i32 { 0 }
@@ -548,7 +548,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("missing definition for associated comptime `Lanes`")),
+            .contains("missing definition for associated const `Lanes`")),
         "{:?}",
         program.diagnostics
     );
@@ -556,28 +556,28 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("associated comptime `Extra` is not a member")),
+            .contains("associated const `Extra` is not a member")),
         "{:?}",
         program.diagnostics
     );
 }
 
 #[test]
-fn trait_impls_accept_associated_comptime_definitions() {
-    let root = temp_dir("trait_impls_accept_associated_comptime_definitions");
+fn trait_impls_accept_associated_const_definitions() {
+    let root = temp_dir("trait_impls_accept_associated_const_definitions");
     write(
         &root.join("main.nia"),
         r#"
 trait Simd {
     type Lane;
-    comptime Lanes: usize;
+    const Lanes: usize;
 }
 
 struct Vec4 {}
 
 extend Vec4 : Simd {
     type Lane = u8;
-    comptime Lanes: usize = 4usize;
+    const Lanes: usize = 4usize;
 }
 
 fn main() i32 { 0 }
@@ -1085,19 +1085,19 @@ fn main() i32 {
 }
 
 #[test]
-fn trait_associated_comptime_projection_checks_as_value() {
-    let root = temp_dir("trait_associated_comptime_projection_checks_as_value");
+fn trait_associated_const_projection_checks_as_value() {
+    let root = temp_dir("trait_associated_const_projection_checks_as_value");
     write(
         &root.join("main.nia"),
         r#"
 trait Simd {
-    comptime Lanes: usize;
+    const Lanes: usize;
 }
 
 struct Vec4 {}
 
 extend Vec4 : Simd {
-    comptime Lanes: usize = 4usize;
+    const Lanes: usize = 4usize;
 }
 
 fn lanes[T]() usize
@@ -1117,19 +1117,19 @@ fn main() i32 {
 }
 
 #[test]
-fn trait_impl_associated_comptime_type_must_match_requirement() {
-    let root = temp_dir("trait_impl_associated_comptime_type_must_match_requirement");
+fn trait_impl_associated_const_type_must_match_requirement() {
+    let root = temp_dir("trait_impl_associated_const_type_must_match_requirement");
     write(
         &root.join("main.nia"),
         r#"
 trait Simd {
-    comptime Lanes: usize;
+    const Lanes: usize;
 }
 
 struct Vec4 {}
 
 extend Vec4 : Simd {
-    comptime Lanes: bool = true;
+    const Lanes: bool = true;
 }
 
 fn main() i32 {
@@ -1150,13 +1150,13 @@ fn main() i32 {
 }
 
 #[test]
-fn imported_trait_associated_comptime_projection_checks_as_value() {
-    let root = temp_dir("imported_trait_associated_comptime_projection_checks_as_value");
+fn imported_trait_associated_const_projection_checks_as_value() {
+    let root = temp_dir("imported_trait_associated_const_projection_checks_as_value");
     write(
         &root.join("simd.nia"),
         r#"
 pub trait Simd {
-    comptime Lanes: usize;
+    const Lanes: usize;
 }
 "#,
     );
@@ -1169,7 +1169,7 @@ using entry::simd;
 struct Vec4 {}
 
 extend Vec4 : simd::Simd {
-    comptime Lanes: usize = 4usize;
+    const Lanes: usize = 4usize;
 }
 
 fn lanes[T]() usize
@@ -1189,19 +1189,19 @@ fn main() i32 {
 }
 
 #[test]
-fn trait_associated_comptime_projection_drives_array_lengths() {
-    let root = temp_dir("trait_associated_comptime_projection_drives_array_lengths");
+fn trait_associated_const_projection_drives_array_lengths() {
+    let root = temp_dir("trait_associated_const_projection_drives_array_lengths");
     write(
         &root.join("main.nia"),
         r#"
 trait Shape {
-    comptime N: usize;
+    const N: usize;
 }
 
 struct Four {}
 
 extend Four : Shape {
-    comptime N: usize = 4usize;
+    const N: usize = 4usize;
 }
 
 fn fourth(values: [[Four as Shape]::N]u8) u8 {
@@ -1219,13 +1219,13 @@ fn main() i32 {
 }
 
 #[test]
-fn generic_impl_associated_comptime_projection_uses_instance_const_args() {
-    let root = temp_dir("generic_impl_associated_comptime_projection_uses_instance_const_args");
+fn generic_impl_associated_const_projection_uses_instance_const_args() {
+    let root = temp_dir("generic_impl_associated_const_projection_uses_instance_const_args");
     write(
         &root.join("main.nia"),
         r#"
 trait HasLen {
-    comptime Len: usize;
+    const Len: usize;
 }
 
 struct Buf[N: usize] {
@@ -1233,17 +1233,17 @@ struct Buf[N: usize] {
 }
 
 extend[N: usize] Buf[N] : HasLen {
-    comptime Len: usize = N;
+    const Len: usize = N;
 }
 
-comptime fn len[T]() usize
+const fn len[T]() usize
 where T: HasLen
 {
     [T as HasLen]::Len
 }
 
-comptime A: usize = len[Buf[4]]();
-comptime B: usize = len[Buf[8]]();
+const A: usize = len[Buf[4]]();
+const B: usize = len[Buf[8]]();
 
 fn main() usize {
     A * 10usize + B
@@ -1256,14 +1256,13 @@ fn main() usize {
 }
 
 #[test]
-fn supertrait_associated_comptime_projection_resolves_through_subtrait_bound() {
-    let root =
-        temp_dir("supertrait_associated_comptime_projection_resolves_through_subtrait_bound");
+fn supertrait_associated_const_projection_resolves_through_subtrait_bound() {
+    let root = temp_dir("supertrait_associated_const_projection_resolves_through_subtrait_bound");
     write(
         &root.join("main.nia"),
         r#"
 trait Base {
-    comptime N: usize;
+    const N: usize;
 }
 
 trait Sub : Base {}
@@ -1271,18 +1270,18 @@ trait Sub : Base {}
 struct Value {}
 
 extend Value : Base {
-    comptime N: usize = 6usize;
+    const N: usize = 6usize;
 }
 
 extend Value : Sub {}
 
-comptime fn n[T]() usize
+const fn n[T]() usize
 where T: Sub
 {
     [T as Base]::N
 }
 
-comptime WIDTH: usize = n[Value]();
+const WIDTH: usize = n[Value]();
 
 fn main() usize {
     let values: [WIDTH]usize = [1, 2, 3, 4, 5, 6];
@@ -1296,23 +1295,22 @@ fn main() usize {
 }
 
 #[test]
-fn trait_const_generic_associated_comptime_projection_substitutes_const_args() {
-    let root =
-        temp_dir("trait_const_generic_associated_comptime_projection_substitutes_const_args");
+fn trait_const_generic_associated_const_projection_substitutes_const_args() {
+    let root = temp_dir("trait_const_generic_associated_const_projection_substitutes_const_args");
     write(
         &root.join("main.nia"),
         r#"
 trait Slot[N: usize] {
-    comptime Width: usize;
+    const Width: usize;
 }
 
 struct Store {}
 
 extend Store : Slot[3] {
-    comptime Width: usize = 3usize;
+    const Width: usize = 3usize;
 }
 
-comptime fn width_store() usize
+const fn width_store() usize
 {
     [Store as Slot[3]]::Width
 }
@@ -1323,7 +1321,7 @@ where T: Slot[N]
     [T as Slot[N]]::Width
 }
 
-comptime WIDTH: usize = width_store();
+const WIDTH: usize = width_store();
 
 fn main() usize {
     let values: [WIDTH]usize = [1, 2, 3];

@@ -2474,7 +2474,7 @@ fn reachable_function_has_runtime_body(
     program_signatures: ExecutableSignatureIndex<'_>,
 ) -> bool {
     (program_signatures.function)(def_id)
-        .map(|signature| !signature.signature.is_comptime && signature.signature.has_body)
+        .map(|signature| !signature.signature.is_const && signature.signature.has_body)
         .or_else(|| {
             (program_signatures.trait_default_method)(def_id).map(|(_, trait_signature)| {
                 trait_signature
@@ -2756,7 +2756,7 @@ fn match_type_pattern<'a>(
         TyKind::TraitObject { .. }
         | TyKind::TraitObjectPointee { .. }
         | TyKind::Projection { .. } => typed_refs_equivalent(pattern, actual),
-        TyKind::Error | TyKind::ComptimeOnly => true,
+        TyKind::Error | TyKind::ConstOnly => true,
     }
 }
 
@@ -2786,7 +2786,7 @@ fn typed_refs_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_>) -> bool {
 fn typed_refs_structurally_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_>) -> bool {
     match (left.kind(), right.kind()) {
         (Some(TyKind::Error), Some(TyKind::Error)) => true,
-        (Some(TyKind::ComptimeOnly), Some(TyKind::ComptimeOnly)) => true,
+        (Some(TyKind::ConstOnly), Some(TyKind::ConstOnly)) => true,
         (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
         (Some(TyKind::BuiltinType(left)), Some(TyKind::BuiltinType(right))) => left == right,
         (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
@@ -3500,7 +3500,7 @@ fn substitute_ty(
             }))
         }
         TyKind::Error
-        | TyKind::ComptimeOnly
+        | TyKind::ConstOnly
         | TyKind::Primitive(_)
         | TyKind::BuiltinType(_)
         | TyKind::Vector { .. } => Some(ty),
@@ -3971,7 +3971,7 @@ fn collect_ty_owner_modules<'a>(
             push_tys(type_ids, current_interner, args.iter().copied())
         }
         TyKind::Error
-        | TyKind::ComptimeOnly
+        | TyKind::ConstOnly
         | TyKind::Primitive(_)
         | TyKind::BuiltinType(_)
         | TyKind::Vector { .. }

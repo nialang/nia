@@ -8,9 +8,9 @@ license.workspace = true
 [dependencies]
 nia-ast.workspace = true
 nia-body-ir.workspace = true
-nia-comptime-check.workspace = true
-nia-comptime-engine.workspace = true
-nia-comptime-ir.workspace = true
+nia-const-check.workspace = true
+nia-const-eval.workspace = true
+nia-const-ir.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true

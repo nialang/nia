@@ -365,7 +365,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::BuiltinType(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. }
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Error,
             )
             | None => None,

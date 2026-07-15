@@ -14,13 +14,13 @@ pub(super) struct BackendLoweringIndexes<'a> {
     pub(super) program_type_normalizations:
         HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
     pub(super) program_function_bodies: HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
-    pub(super) program_comptime: HashMap<ModuleId, &'a nia_comptime_check::ComptimeArrayLengths>,
+    pub(super) program_const: HashMap<ModuleId, &'a nia_const_check::ConstArrayLengths>,
 }
 
 pub(super) fn build_backend_lowering_indexes<'a>(
     visible_extension_modules: &'a [(ModuleId, VisibleExtensionsValue)],
     checked_modules: &'a [CheckedModule],
-    comptime_array_lengths: &'a [nia_comptime_check::ComptimeArrayLengths],
+    const_array_lengths: &'a [nia_const_check::ConstArrayLengths],
     function_bodies: &'a [LoweredFunctionBodies],
 ) -> BackendLoweringIndexes<'a> {
     let program_extensions = visible_extension_modules
@@ -48,9 +48,9 @@ pub(super) fn build_backend_lowering_indexes<'a>(
                 .map(|(def_id, body)| (*def_id, body.clone()))
         })
         .collect::<HashMap<_, _>>();
-    let program_comptime = checked_modules
+    let program_const = checked_modules
         .iter()
-        .zip(comptime_array_lengths.iter())
+        .zip(const_array_lengths.iter())
         .map(|(checked_module, array_lengths)| (checked_module.id, array_lengths))
         .collect::<HashMap<_, _>>();
     let program_type_normalizations = checked_modules
@@ -63,7 +63,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
         program_function_body_interners,
         program_type_normalizations,
         program_function_bodies,
-        program_comptime,
+        program_const,
     }
 }
 
@@ -73,8 +73,8 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) runtime: RuntimeModel,
     pub(super) active_item_trees: &'a [Arc<ActiveModuleItemTree>],
     pub(super) item_signatures: &'a [ItemSignatures],
-    pub(super) comptime_array_lengths: &'a [nia_comptime_check::ComptimeArrayLengths],
-    pub(super) comptime_enum_values: &'a [nia_comptime_check::ComptimeEnumValues],
+    pub(super) const_array_lengths: &'a [nia_const_check::ConstArrayLengths],
+    pub(super) const_enum_values: &'a [nia_const_check::ConstEnumValues],
     pub(super) visible_extensions: &'a [VisibleExtensionsValue],
     pub(super) function_bodies: &'a [LoweredFunctionBodies],
     pub(super) extension_methods: &'a nia_defs::ExtensionMethods,
@@ -91,8 +91,8 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
         .iter()
         .zip(input.active_item_trees.iter())
         .zip(input.item_signatures.iter())
-        .zip(input.comptime_array_lengths.iter())
-        .zip(input.comptime_enum_values.iter())
+        .zip(input.const_array_lengths.iter())
+        .zip(input.const_enum_values.iter())
         .zip(input.visible_extensions.iter())
         .zip(input.function_bodies.iter())
         .map(
@@ -101,9 +101,9 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     (
                         (
                             ((checked_module, active_item_tree), item_signatures),
-                            comptime_array_lengths,
+                            const_array_lengths,
                         ),
-                        comptime_enum_values,
+                        const_enum_values,
                     ),
                     visible_extensions,
                 ),
@@ -124,9 +124,9 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     body_ir: &checked_module.body_ir,
                     function_interner: &function_bodies.interner,
                     semantic_facts: &checked_module.semantic_facts,
-                    comptime_array_lengths,
-                    comptime_enum_values,
-                    program_comptime: &input.indexes.program_comptime,
+                    const_array_lengths,
+                    const_enum_values,
+                    program_const: &input.indexes.program_const,
                     layouts: &checked_module.layouts,
                     function_bodies: &function_bodies.bodies,
                     roots: backend_function_roots(input.runtime, checked_module),

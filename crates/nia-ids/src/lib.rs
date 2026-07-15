@@ -277,7 +277,7 @@ pub enum ValueBuiltin {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BuiltinComptime {
+pub enum BuiltinConstValue {
     TargetArch,
     TargetVendor,
     TargetOs,
@@ -289,7 +289,7 @@ pub enum BuiltinComptime {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinFunction {
-    ComptimeError,
+    ConstError,
     Trap,
     SizeOf,
     AlignOf,
@@ -317,7 +317,7 @@ pub enum BuiltinFunction {
 
 impl BuiltinFunction {
     pub const ALL: [Self; 24] = [
-        Self::ComptimeError,
+        Self::ConstError,
         Self::Trap,
         Self::SizeOf,
         Self::AlignOf,
@@ -345,7 +345,7 @@ impl BuiltinFunction {
 
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
-            "error" => Some(Self::ComptimeError),
+            "error" => Some(Self::ConstError),
             "trap" => Some(Self::Trap),
             "size" => Some(Self::SizeOf),
             "align" => Some(Self::AlignOf),
@@ -375,7 +375,7 @@ impl BuiltinFunction {
 
     pub fn name(self) -> &'static str {
         match self {
-            Self::ComptimeError => "error",
+            Self::ConstError => "error",
             Self::Trap => "trap",
             Self::SizeOf => "size",
             Self::AlignOf => "align",
@@ -418,7 +418,7 @@ impl ValueBuiltin {
     }
 }
 
-impl BuiltinComptime {
+impl BuiltinConstValue {
     pub const ALL: [Self; 7] = [
         Self::TargetArch,
         Self::TargetVendor,
@@ -567,11 +567,11 @@ impl BuiltinAssociatedType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BuiltinAssociatedComptime {
+pub enum BuiltinAssociatedConst {
     Lanes,
 }
 
-impl BuiltinAssociatedComptime {
+impl BuiltinAssociatedConst {
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "Lanes" => Some(Self::Lanes),
@@ -919,7 +919,7 @@ impl BuiltinTrait {
     pub const ITEM_ASSOC_TYPE: &'static str = "Item";
     pub const ITER_ASSOC_TYPE: &'static str = "Iter";
     pub const LANE_ASSOC_TYPE: &'static str = "Lane";
-    pub const LANES_ASSOC_COMPTIME: &'static str = "Lanes";
+    pub const LANES_ASSOC_CONST: &'static str = "Lanes";
 
     const ADD_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Add];
     const SUB_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Sub];
@@ -963,9 +963,8 @@ impl BuiltinTrait {
     const ITERABLE_ASSOC_TYPES: [BuiltinAssociatedType; 2] =
         [BuiltinAssociatedType::Item, BuiltinAssociatedType::Iter];
     const NO_ASSOC_TYPES: [BuiltinAssociatedType; 0] = [];
-    const LANES_ASSOC_COMPTIMES: [BuiltinAssociatedComptime; 1] =
-        [BuiltinAssociatedComptime::Lanes];
-    const NO_ASSOC_COMPTIMES: [BuiltinAssociatedComptime; 0] = [];
+    const LANES_ASSOC_CONSTS: [BuiltinAssociatedConst; 1] = [BuiltinAssociatedConst::Lanes];
+    const NO_ASSOC_CONSTS: [BuiltinAssociatedConst; 0] = [];
     const DEREF_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
         trait_id: Self::Deref,
         preserves_trait_args: false,
@@ -1342,16 +1341,16 @@ impl BuiltinTrait {
         self.descriptor().associated_types
     }
 
-    pub fn has_associated_comptime(self, name: &str) -> bool {
-        self.associated_comptimes()
+    pub fn has_associated_const(self, name: &str) -> bool {
+        self.associated_consts()
             .iter()
-            .any(|associated_comptime| associated_comptime.name() == name)
+            .any(|associated_const| associated_const.name() == name)
     }
 
-    pub fn associated_comptimes(self) -> &'static [BuiltinAssociatedComptime] {
+    pub fn associated_consts(self) -> &'static [BuiltinAssociatedConst] {
         match self {
-            Self::Simd => &Self::LANES_ASSOC_COMPTIMES,
-            _ => &Self::NO_ASSOC_COMPTIMES,
+            Self::Simd => &Self::LANES_ASSOC_CONSTS,
+            _ => &Self::NO_ASSOC_CONSTS,
         }
     }
 

@@ -217,12 +217,12 @@ pub(super) fn provide_signature_type_resolution(
     })
 }
 
-pub(super) fn provide_signature_comptime_type_resolution(
+pub(super) fn provide_signature_const_type_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeResolution {
-    time_module_provider(db, "signature_comptime_type_resolution", module_id, || {
-        let active_item_tree = db.query(SignatureComptimeItemTreeQuery(module_id));
+    time_module_provider(db, "signature_const_type_resolution", module_id, || {
+        let active_item_tree = db.query(SignatureConstItemTreeQuery(module_id));
         let defs = db.query_shared(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
         let graph = QueryModuleGraphLookup::new(db);
@@ -310,12 +310,12 @@ pub(super) fn provide_signature_type_lowering(
     )
 }
 
-pub(super) fn provide_signature_comptime_type_lowering(
+pub(super) fn provide_signature_const_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeLowering {
-    let active_item_tree = db.query(SignatureComptimeItemTreeQuery(module_id));
-    let type_resolution = db.query(SignatureComptimeTypeResolutionQuery(module_id));
+    let active_item_tree = db.query(SignatureConstItemTreeQuery(module_id));
+    let type_resolution = db.query(SignatureConstTypeResolutionQuery(module_id));
     let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
     nia_type_lower::lower_module_types_from_active_item_tree_with_context(
@@ -365,13 +365,13 @@ pub(super) fn provide_signature_item_signatures(
     )
 }
 
-pub(super) fn provide_signature_comptime_item_signatures(
+pub(super) fn provide_signature_const_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ItemSignatures {
-    let active_item_tree = db.query(SignatureComptimeItemTreeQuery(module_id));
+    let active_item_tree = db.query(SignatureConstItemTreeQuery(module_id));
     let defs = db.query_shared(ModuleDefsQuery(module_id));
-    let type_lowering = db.query(SignatureComptimeTypeLoweringQuery(module_id));
+    let type_lowering = db.query(SignatureConstTypeLoweringQuery(module_id));
     let symbols = db.context().symbols();
     nia_item_signatures::collect_item_signatures_from_active_item_tree_with_symbols(
         &active_item_tree,
@@ -409,12 +409,12 @@ pub(super) fn provide_signature_type_normalization(
     normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
 }
 
-pub(super) fn provide_signature_comptime_type_normalization(
+pub(super) fn provide_signature_const_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeNormalization {
-    let type_lowering = db.query(SignatureComptimeTypeLoweringQuery(module_id));
-    let item_signatures = db.query(SignatureComptimeItemSignaturesQuery(module_id));
+    let type_lowering = db.query(SignatureConstTypeLoweringQuery(module_id));
+    let item_signatures = db.query(SignatureConstItemSignaturesQuery(module_id));
     normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
 }
 

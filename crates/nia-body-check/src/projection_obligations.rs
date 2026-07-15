@@ -7,7 +7,7 @@ use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{
     FunctionSignature, ProgramTraitImplSignature, TraitImplSignature, WherePredicateSignature,
 };
-use nia_sema_ir::{AssociatedComptimeProjection, SemanticUseTable};
+use nia_sema_ir::{AssociatedConstProjection, SemanticUseTable};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
 use nia_trait_solve::{AssociatedTypeProjectionEq, TraitGoal, TraitResolution, TraitSolverContext};
@@ -37,16 +37,16 @@ struct MethodTraitImplContext {
     associated_types: Vec<nia_item_signatures::TraitImplAssociatedTypeSignature>,
 }
 
-struct AssociatedComptimeProjectionUseCollector<'a> {
+struct AssociatedConstProjectionUseCollector<'a> {
     semantic_uses: &'a SemanticUseTable,
-    projections: Vec<(Span, AssociatedComptimeProjection)>,
+    projections: Vec<(Span, AssociatedConstProjection)>,
 }
 
-impl AssociatedComptimeProjectionUseCollector<'_> {
+impl AssociatedConstProjectionUseCollector<'_> {
     fn visit_expr(&mut self, expr: &nia_ast::Expr) {
         if let Some(projection) = self
             .semantic_uses
-            .node_associated_comptime_projection(&expr.node_key)
+            .node_associated_const_projection(&expr.node_key)
             .cloned()
         {
             self.projections.push((expr.span, projection));
@@ -996,7 +996,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::SelfParam,
@@ -1106,7 +1106,7 @@ impl<'a> BodyChecker<'a> {
                 nia_ast::GenericParamKind::Type => {
                     type_args.push(self.interner.intern(TyKind::GenericParam(param.name)));
                 }
-                nia_ast::GenericParamKind::Comptime { ty } => {
+                nia_ast::GenericParamKind::Const { ty } => {
                     let ty = self.ty_for_type(&ty);
                     const_args.push(ConstGenericArg {
                         ty,
@@ -1674,7 +1674,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. }
@@ -1720,13 +1720,13 @@ impl<'a> BodyChecker<'a> {
         let Some(expr) = self.type_lowering.const_exprs.get(&id).cloned() else {
             return;
         };
-        let mut collector = AssociatedComptimeProjectionUseCollector {
+        let mut collector = AssociatedConstProjectionUseCollector {
             semantic_uses: self.semantic_uses,
             projections: Vec::new(),
         };
         collector.visit_expr(&expr);
         for (projection_span, projection) in collector.projections {
-            self.check_associated_comptime_projection_obligation(
+            self.check_associated_const_projection_obligation(
                 projection_span,
                 projection,
                 obligations,
@@ -1734,10 +1734,10 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn check_associated_comptime_projection_obligation(
+    fn check_associated_const_projection_obligation(
         &mut self,
         span: Span,
-        projection: AssociatedComptimeProjection,
+        projection: AssociatedConstProjection,
         obligations: &[TraitObligation],
     ) {
         self.check_type_projection_obligations(span, projection.self_ty, obligations);

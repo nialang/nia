@@ -106,7 +106,7 @@ fn main() i32 {
 }
 
 #[test]
-fn infers_comptime_generic_array_lengths_from_call_arguments() {
+fn infers_const_generic_array_lengths_from_call_arguments() {
     let checked = pipeline(
         r#"
 fn take_array[T, N: usize](xs: [N]T) usize {
@@ -137,7 +137,7 @@ fn main(xs: [4]u8) usize {
 }
 
 #[test]
-fn infers_comptime_generic_array_lengths_from_array_literal_arguments() {
+fn infers_const_generic_array_lengths_from_array_literal_arguments() {
     let checked = pipeline(
         r#"
 fn take_array[T, N: usize](xs: [N]T) usize {

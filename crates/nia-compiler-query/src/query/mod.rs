@@ -4,7 +4,7 @@ use crate::{
     RuntimeModel, TimingMode, module_diagnostics,
 };
 use nia_backend_lower::BackendLowerModuleInput;
-use nia_comptime_check::{ComptimeCheck, ComptimeModuleLowering};
+use nia_const_check::{ConstCheck, ConstModuleLowering};
 use nia_defs::{
     DefCollection, ModulePublicSurface, ModuleUsingScope, PublicSurfaceLookup, PublicSurfaces,
     UsingScopeLookup,
@@ -13,7 +13,7 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_imports::{ModuleGraph, ModuleGraphLookup, ModuleNode, ModuleNodeRef};
 use nia_item_signatures::{
-    ItemSignatures, ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
+    ItemSignatures, ProgramConstSignature, ProgramEnumSignature, ProgramFunctionSignature,
     ProgramGlobalSignature, ProgramStructSignature, ProgramTraitSignature,
     ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature, UnionSignature,
 };
@@ -431,11 +431,8 @@ impl CompilerDatabase {
                         nia_item_tree::SignatureItemSet::Traits,
                     )));
                 }
-                if module.signature_comptime_items {
-                    invalidation.extend(
-                        self.db
-                            .invalidate(SignatureComptimeItemTreeQuery(module_id)),
-                    );
+                if module.signature_const_items {
+                    invalidation.extend(self.db.invalidate(SignatureConstItemTreeQuery(module_id)));
                 }
                 if module.full_active_item_tree {
                     invalidation.extend(
@@ -759,18 +756,18 @@ fn index_executable_value_ref_item(
     };
     match &item.kind {
         nia_item_tree::ItemTreeNodeKind::Function(function)
-            if !function.is_comptime && function.body.is_some() =>
+            if !function.is_const && function.body.is_some() =>
         {
             insert(&function.node_key);
         }
         nia_item_tree::ItemTreeNodeKind::Binding(binding)
-            if !binding.is_comptime && binding.value.is_some() =>
+            if !binding.is_const() && binding.value.is_some() =>
         {
             insert(&binding.node_key);
         }
         nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
             for method in &item_trait.methods {
-                if method.function.is_comptime || method.function.body.is_none() {
+                if method.function.is_const || method.function.body.is_none() {
                     continue;
                 }
                 insert(&method.function.node_key);
@@ -778,14 +775,14 @@ fn index_executable_value_ref_item(
         }
         nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
             for method in &extend.methods {
-                if method.function.is_comptime || method.function.body.is_none() {
+                if method.function.is_const || method.function.body.is_none() {
                     continue;
                 }
                 insert(&method.function.node_key);
             }
             for associated_value in &extend.associated_values {
                 let binding = &associated_value.binding;
-                if binding.is_comptime || binding.value.is_none() {
+                if binding.is_const() || binding.value.is_none() {
                     continue;
                 }
                 insert(&binding.node_key);
@@ -1058,16 +1055,16 @@ impl CompilerContext {
         )
     }
 
-    fn signature_comptime_item_tree(
+    fn signature_const_item_tree(
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
     ) -> ActiveModuleItemTree {
         self.module_field(
             db,
-            &SignatureComptimeItemTreeQuery(module_id),
+            &SignatureConstItemTreeQuery(module_id),
             module_id,
-            |module| module.active_item_tree.comptime_signature_items(),
+            |module| module.active_item_tree.const_signature_items(),
         )
     }
 
@@ -1824,7 +1821,7 @@ struct ChangedModuleInput {
     signature_type_items: bool,
     provider_summary: bool,
     signature_trait_items: bool,
-    signature_comptime_items: bool,
+    signature_const_items: bool,
     full_active_item_tree: bool,
 }
 
@@ -1889,8 +1886,8 @@ impl ChangedModuleInput {
                         &new.active_item_tree
                             .signature_items(nia_item_tree::SignatureItemSet::Traits),
                     ),
-                signature_comptime_items: old.active_item_tree.comptime_signature_items()
-                    != new.active_item_tree.comptime_signature_items(),
+                signature_const_items: old.active_item_tree.const_signature_items()
+                    != new.active_item_tree.const_signature_items(),
                 full_active_item_tree: old.active_item_tree != new.active_item_tree,
             },
             (Some(_), Some(_)) => Self::all_inputs_changed(ids),
@@ -1912,7 +1909,7 @@ impl ChangedModuleInput {
                 signature_type_items: true,
                 provider_summary: true,
                 signature_trait_items: true,
-                signature_comptime_items: true,
+                signature_const_items: true,
                 full_active_item_tree: true,
             },
             (None, None) => return None,
@@ -1933,7 +1930,7 @@ impl ChangedModuleInput {
             || changed.signature_type_items
             || changed.provider_summary
             || changed.signature_trait_items
-            || changed.signature_comptime_items
+            || changed.signature_const_items
             || changed.full_active_item_tree
         {
             Some(changed)
@@ -1961,7 +1958,7 @@ impl ChangedModuleInput {
             signature_type_items: true,
             provider_summary: true,
             signature_trait_items: true,
-            signature_comptime_items: true,
+            signature_const_items: true,
             full_active_item_tree: true,
         }
     }
@@ -3674,11 +3671,7 @@ extend Value : Ops {
             ),
             loaded_module(ModuleId(1), "module1.nia", "struct S { value: i32 }"),
             loaded_module(ModuleId(2), "module2.nia", "fn helper() i32 { 1 }"),
-            loaded_module(
-                ModuleId(3),
-                "module3.nia",
-                "comptime WIDTH: usize = 4usize;",
-            ),
+            loaded_module(ModuleId(3), "module3.nia", "const WIDTH: usize = 4usize;"),
             loaded_module(
                 ModuleId(4),
                 "module4.nia",
@@ -3692,7 +3685,7 @@ extend Value : Ops {
             loaded_module(
                 ModuleId(6),
                 "module6.nia",
-                "struct U {} extend U { comptime WIDTH: usize = 4usize; }",
+                "struct U {} extend U { const WIDTH: usize = 4usize; }",
             ),
         ]);
         let db = query_db(loaded);
@@ -3756,11 +3749,7 @@ extend Value : Ops {
             ),
             loaded_module(ModuleId(1), "module1.nia", "struct S { value: i32 }"),
             loaded_module(ModuleId(2), "module2.nia", "fn helper() i32 { 1 }"),
-            loaded_module(
-                ModuleId(3),
-                "module3.nia",
-                "comptime WIDTH: usize = 4usize;",
-            ),
+            loaded_module(ModuleId(3), "module3.nia", "const WIDTH: usize = 4usize;"),
             loaded_module(
                 ModuleId(4),
                 "module4.nia",
@@ -3844,7 +3833,7 @@ extend Value : Ops {
             dependency.from.name == "layouts" && dependency.to.name == "layout_type_normalization"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "layouts" && dependency.to.name == "comptime_array_lengths"
+            dependency.from.name == "layouts" && dependency.to.name == "const_array_lengths"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "layouts" && dependency.to.name == "item_signatures"
@@ -3853,7 +3842,7 @@ extend Value : Ops {
             dependency.from.name == "layouts"
                 && matches!(
                     dependency.to.name,
-                    "type_normalization" | "comptime" | "body_check"
+                    "type_normalization" | "const" | "body_check"
                 )
         }));
     }
@@ -4352,7 +4341,7 @@ fn main() i32 {
 struct S {}
 
 extend S {
-    comptime WIDTH: usize = 4usize;
+    const WIDTH: usize = 4usize;
 }
 
 fn main() usize {
@@ -4420,18 +4409,18 @@ fn main() usize {
                 && dependency.to.name == "signature_item_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "static_check" && dependency.to.name == "comptime_values"
+            dependency.from.name == "static_check" && dependency.to.name == "const_values"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "static_check"
-                && matches!(dependency.to.name, "item_signatures" | "comptime")
+                && matches!(dependency.to.name, "item_signatures" | "const")
         }));
         assert!(
             !trace
                 .dependencies
                 .iter()
                 .any(|dependency| dependency.from.name == "static_check"
-                    && dependency.to.name == "program_comptime")
+                    && dependency.to.name == "program_const")
         );
         assert!(
             !trace
@@ -4466,10 +4455,10 @@ fn main() usize {
                 && dependency.to.description.contains("ExtensionFunctions")
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "body_check" && dependency.to.name == "comptime_values"
+            dependency.from.name == "body_check" && dependency.to.name == "const_values"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "body_check" && dependency.to.name == "comptime_array_lengths"
+            dependency.from.name == "body_check" && dependency.to.name == "const_array_lengths"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "body_check"
@@ -4488,7 +4477,7 @@ fn main() usize {
         }
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "body_check"
-                && matches!(dependency.to.name, "item_signatures" | "comptime")
+                && matches!(dependency.to.name, "item_signatures" | "const")
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "body_check"
@@ -4664,42 +4653,41 @@ extend Used {
     }
 
     #[test]
-    fn comptime_uses_precise_program_context_queries() {
+    fn const_uses_precise_program_context_queries() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "comptime VALUE = 1; fn main() i32 { VALUE }",
+            "const VALUE = 1; fn main() i32 { VALUE }",
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(ComptimeQuery(ModuleId(0)));
+        let _ = db.query(ConstQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime" && dependency.to.name == "comptime_module"
+            dependency.from.name == "const" && dependency.to.name == "const_module"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime" && dependency.to.name == "comptime_array_lengths"
+            dependency.from.name == "const" && dependency.to.name == "const_array_lengths"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime" && dependency.to.name == "comptime_enum_values"
+            dependency.from.name == "const" && dependency.to.name == "const_enum_values"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime_array_lengths"
-                && dependency.to.name == "comptime_module"
+            dependency.from.name == "const_array_lengths" && dependency.to.name == "const_module"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime_enum_values"
-                && dependency.to.name == "comptime_array_lengths"
+            dependency.from.name == "const_enum_values"
+                && dependency.to.name == "const_array_lengths"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime" && dependency.to.name == "program_full_defs_by_id"
+            dependency.from.name == "const" && dependency.to.name == "program_full_defs_by_id"
         }));
         assert!(
             !trace
                 .dependencies
                 .iter()
-                .any(|dependency| dependency.to.name == "program_comptime_modules")
+                .any(|dependency| dependency.to.name == "program_const_modules")
         );
         assert!(
             !trace
@@ -4708,12 +4696,12 @@ extend Used {
                 .any(|dependency| dependency.to.name == "program_item_signatures")
         );
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime"
+            dependency.from.name == "const"
                 && dependency.to.name == "program_trait_solving_signatures"
         }));
-        assert!(!depends_on_body_signature_query(&trace, "comptime"));
+        assert!(!depends_on_body_signature_query(&trace, "const"));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime" && dependency.to.name == "full_module_defs"
+            dependency.from.name == "const" && dependency.to.name == "full_module_defs"
         }));
     }
 
@@ -5267,19 +5255,19 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
-    fn comptime_module_uses_full_active_item_tree_query() {
+    fn const_module_uses_full_active_item_tree_query() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "comptime fn value() usize { 1 } comptime VALUE = value();",
+            "const fn value() usize { 1 } const VALUE = value();",
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(ComptimeModuleQuery(ModuleId(0)));
+        let _ = db.query(ConstModuleQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime_module"
+            dependency.from.name == "const_module"
                 && dependency.to.name == "full_active_module_item_tree"
         }));
     }
@@ -5380,8 +5368,7 @@ extend i32 : ParseFrom[Input] {
                 && dependency.to.name == "program_backend_signatures"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "backend_lowering"
-                && dependency.to.name == "comptime_enum_values"
+            dependency.from.name == "backend_lowering" && dependency.to.name == "const_enum_values"
         }));
         assert!(!depends_on_body_signature_query(&trace, "backend_lowering"));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -5391,12 +5378,12 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
-    fn executable_checked_modules_reuse_filtered_comptime_inputs() {
+    fn executable_checked_modules_reuse_filtered_const_inputs() {
         let mut loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
             r#"
-comptime fn len() usize {
+const fn len() usize {
     4
 }
 
@@ -5422,22 +5409,22 @@ fn main() i32 {
 
         assert!(
             module.body_diagnostics.is_empty(),
-            "reachable comptime functions must remain available to executable body checking: {:?}",
+            "reachable const functions must remain available to executable body checking: {:?}",
             module.body_diagnostics
         );
         assert!(
             module
-                .comptime
+                .const_eval
                 .array_lengths
                 .values()
                 .any(|length| *length == 4),
-            "filtered executable comptime phases should retain reachable array lengths"
+            "filtered executable const phases should retain reachable array lengths"
         );
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "executable_body_check"
                 && matches!(
                     dependency.to.name,
-                    "comptime_values" | "comptime_array_lengths" | "comptime_typed_facts"
+                    "const_values" | "const_array_lengths" | "const_typed_facts"
                 )
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -5446,18 +5433,18 @@ fn main() i32 {
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "executable_checked_module_set"
-                && matches!(dependency.to.name, "comptime" | "comptime_enum_values")
+                && matches!(dependency.to.name, "const" | "const_enum_values")
         }));
     }
 
     #[test]
-    fn executable_full_lowering_reuses_explicit_and_inferred_comptime_types() {
+    fn executable_full_lowering_reuses_explicit_and_inferred_const_types() {
         let mut loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
             r#"
-comptime explicit: usize = 19usize;
-comptime inferred = 4usize;
+const explicit: usize = 19usize;
+const inferred = 4usize;
 
 fn main() usize {
     explicit + inferred
@@ -5475,10 +5462,10 @@ fn main() usize {
 
         assert!(
             module.body_diagnostics.is_empty(),
-            "prechecked comptime types must remain available during full body lowering: {:?}",
+            "prechecked const types must remain available during full body lowering: {:?}",
             module.body_diagnostics
         );
-        assert_eq!(module.semantic_facts.comptime_types.len(), 2);
+        assert_eq!(module.semantic_facts.const_types.len(), 2);
         assert_eq!(module.body_ir.function_bodies.len(), 1);
     }
 
@@ -5526,7 +5513,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn executable_filtered_comptime_resolves_forwarded_array_len_values() {
+    fn executable_filtered_const_resolves_forwarded_array_len_values() {
         let main = loaded_module(
             ModuleId(0),
             "main.nia",
@@ -5547,14 +5534,14 @@ fn main() i32 {
 module raw;
 using self::raw;
 
-pub comptime LEN: usize = raw::LEN;
+pub const LEN: usize = raw::LEN;
 "#,
         );
         let raw = loaded_module(
             ModuleId(2),
             "facade/raw.nia",
             r#"
-pub comptime LEN: usize = 4usize;
+pub const LEN: usize = 4usize;
 "#,
         );
         let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
@@ -5578,21 +5565,21 @@ pub comptime LEN: usize = 4usize;
 
         assert!(
             entry.body_diagnostics.is_empty(),
-            "filtered executable body checking should resolve forwarded comptime array lengths: {:?}",
+            "filtered executable body checking should resolve forwarded const array lengths: {:?}",
             entry.body_diagnostics
         );
         assert!(
             entry
-                .comptime
+                .const_eval
                 .array_lengths
                 .values()
                 .any(|length| *length == 4),
-            "filtered executable comptime should evaluate forwarded array length"
+            "filtered executable const should evaluate forwarded array length"
         );
     }
 
     #[test]
-    fn executable_filtered_comptime_resolves_local_forwarded_array_len_in_method_body() {
+    fn executable_filtered_const_resolves_local_forwarded_array_len_in_method_body() {
         let main = loaded_module(
             ModuleId(0),
             "main.nia",
@@ -5600,7 +5587,7 @@ pub comptime LEN: usize = 4usize;
 module raw;
 using entry::raw;
 
-comptime LEN: usize = raw::LEN;
+const LEN: usize = raw::LEN;
 
 struct Box {}
 
@@ -5621,7 +5608,7 @@ fn main() usize {
             ModuleId(1),
             "raw.nia",
             r#"
-pub comptime LEN: usize = 4usize;
+pub const LEN: usize = 4usize;
 "#,
         );
         let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
@@ -5649,11 +5636,11 @@ pub comptime LEN: usize = 4usize;
         );
         assert!(
             entry
-                .comptime
+                .const_eval
                 .array_lengths
                 .values()
                 .any(|length| *length == 4),
-            "filtered executable comptime should evaluate local forwarded method-body array length"
+            "filtered executable const should evaluate local forwarded method-body array length"
         );
     }
 
@@ -7205,7 +7192,7 @@ pub fn unused_bad() i32 {
     }
 
     #[test]
-    fn executable_type_only_modules_keep_signature_comptime_enum_values() {
+    fn executable_type_only_modules_keep_signature_const_enum_values() {
         let entry = loaded_module(
             ModuleId(0),
             "main.nia",
@@ -7256,11 +7243,11 @@ pub fn unused_bad() i32 {
             .expect("enum variant B");
         assert!(
             matches!(
-                type_module.comptime.enum_values.get(&b),
-                Some(nia_comptime_check::ComptimeValue::Int(value)) if value.bits() == 3
+                type_module.const_eval.enum_values.get(&b),
+                Some(nia_const_check::ConstValue::Int(value)) if value.bits() == 3
             ),
-            "type-only signature comptime should evaluate enum discriminants: {:?}",
-            type_module.comptime.enum_values
+            "type-only signature const should evaluate enum discriminants: {:?}",
+            type_module.const_eval.enum_values
         );
 
         let trace = db.query_trace();
@@ -7282,7 +7269,7 @@ pub fn unused_bad() i32 {
     }
 
     #[test]
-    fn executable_type_only_modules_keep_signature_comptime_array_lengths() {
+    fn executable_type_only_modules_keep_signature_const_array_lengths() {
         let entry = loaded_module(
             ModuleId(0),
             "main.nia",
@@ -7299,7 +7286,7 @@ fn main(value: types::Packet) i32 {
             ModuleId(1),
             "types.nia",
             r#"
-comptime N: usize = 4;
+const N: usize = 4;
 
 pub struct Packet {
     data: [N]u8,
@@ -7325,12 +7312,12 @@ pub fn unused_bad() i32 {
         );
         assert!(
             type_module
-                .comptime
+                .const_eval
                 .array_lengths
                 .values()
                 .any(|len| *len == 4),
-            "type-only signature comptime should evaluate array length constants: {:?}",
-            type_module.comptime.array_lengths
+            "type-only signature const should evaluate array length constants: {:?}",
+            type_module.const_eval.array_lengths
         );
 
         let trace = db.query_trace();
@@ -7719,11 +7706,11 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn body_check_uses_comptime_semantic_modules_not_ast_module_map() {
+    fn body_check_uses_const_semantic_modules_not_ast_module_map() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "comptime N: usize = 4; fn main() i32 { let mut values: [N]i32 = [0; N]; values.len() as i32 }",
+            "const N: usize = 4; fn main() i32 { let mut values: [N]i32 = [0; N]; values.len() as i32 }",
         )]);
         let db = query_db(loaded);
 
@@ -7731,26 +7718,26 @@ pub fn expensive_or_invalid() i32 {
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "body_check" && dependency.to.name == "comptime_module"
+            dependency.from.name == "body_check" && dependency.to.name == "const_module"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "body_check" && dependency.to.name == "comptime_values"
+            dependency.from.name == "body_check" && dependency.to.name == "const_values"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "body_check" && dependency.to.name == "comptime_array_lengths"
+            dependency.from.name == "body_check" && dependency.to.name == "const_array_lengths"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "body_check"
                 && dependency.to.name == "full_active_module_item_tree"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "body_check" && dependency.to.name == "comptime"
+            dependency.from.name == "body_check" && dependency.to.name == "const"
         }));
         assert!(
             !trace
                 .dependencies
                 .iter()
-                .any(|dependency| dependency.to.name == "program_comptime_modules")
+                .any(|dependency| dependency.to.name == "program_const_modules")
         );
         assert!(
             !trace

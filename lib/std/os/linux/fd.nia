@@ -4,17 +4,17 @@ using pkg::os::linux::types;
 
 using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, Pipe, SeekWhence};
 
-comptime linux_dirent64_reclen_offset: usize = 16usize;
-comptime linux_dirent64_type_offset: usize = 18usize;
-comptime linux_dirent64_name_offset: usize = 19usize;
-comptime dirent_type_unknown: u8 = 0u8;
-comptime dirent_type_fifo: u8 = 1u8;
-comptime dirent_type_chr: u8 = 2u8;
-comptime dirent_type_dir: u8 = 4u8;
-comptime dirent_type_blk: u8 = 6u8;
-comptime dirent_type_reg: u8 = 8u8;
-comptime dirent_type_lnk: u8 = 10u8;
-comptime dirent_type_sock: u8 = 12u8;
+const linux_dirent64_reclen_offset: usize = 16usize;
+const linux_dirent64_type_offset: usize = 18usize;
+const linux_dirent64_name_offset: usize = 19usize;
+const dirent_type_unknown: u8 = 0u8;
+const dirent_type_fifo: u8 = 1u8;
+const dirent_type_chr: u8 = 2u8;
+const dirent_type_dir: u8 = 4u8;
+const dirent_type_blk: u8 = 6u8;
+const dirent_type_reg: u8 = 8u8;
+const dirent_type_lnk: u8 = 10u8;
+const dirent_type_sock: u8 = 12u8;
 
 extend FileDescriptor {
     pub fn write_some(&self, bytes: &[u8]) Errno!usize {

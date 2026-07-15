@@ -23,8 +23,8 @@ pub fn getcwd(buffer: &mut [u8]) Error!&[u8] {
     os::getcwd(buffer).as_fs_error()
 }
 
-comptime max_path_bytes: usize = os::max_path_bytes;
-comptime max_i64_as_u64: u64 = 9223372036854775807u64;
+const max_path_bytes: usize = os::max_path_bytes;
+const max_i64_as_u64: u64 = 9223372036854775807u64;
 
 extend Dir {
     fn from_owned_descriptor(handle: os::FileHandle) Dir {

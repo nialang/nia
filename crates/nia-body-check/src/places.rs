@@ -269,9 +269,9 @@ impl<'a> BodyChecker<'a> {
     fn ident_not_assignable_reason(&self, expr: &Expr) -> Option<&'static str> {
         match self.local_use(expr) {
             Some(LocalUse::Local(local_id)) => match self.locals.locals.get(local_id) {
-                Some(local) if local.kind == LocalKind::ConstBinding => Some("local is let"),
-                Some(local) if local.kind == LocalKind::ComptimeBinding => {
-                    Some("comptime binding has no storage")
+                Some(local) if local.kind == LocalKind::ImmutableBinding => Some("local is let"),
+                Some(local) if local.kind == LocalKind::ConstBinding => {
+                    Some("const binding has no storage")
                 }
                 Some(_) => None,
                 None => Some("local definition is missing"),
@@ -306,7 +306,7 @@ impl<'a> BodyChecker<'a> {
                 Some(_) => None,
                 None => Some("global signature is missing"),
             },
-            DefKind::Comptime => Some("comptime binding has no storage"),
+            DefKind::Const => Some("const binding has no storage"),
             DefKind::Function | DefKind::Method => Some("function item is not assignable"),
             _ => Some("definition is not a value place"),
         }

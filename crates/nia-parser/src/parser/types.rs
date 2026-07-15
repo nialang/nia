@@ -24,7 +24,7 @@ impl Parser {
                 };
                 if self.eat(TokenKind::Colon).is_some() {
                     if let Some(ty) = self.parse_type() {
-                        generics.push(nia_ast::GenericParam::comptime_param(name, token.span, ty));
+                        generics.push(nia_ast::GenericParam::const_param(name, token.span, ty));
                     }
                 } else {
                     generics.push(nia_ast::GenericParam::type_param(name, token.span));

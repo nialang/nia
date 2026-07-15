@@ -7,14 +7,14 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 pub(super) struct ExecutableCheckCaches {
-    pub(super) array_lengths: RefCell<HashMap<ModuleId, nia_comptime_check::ComptimeArrayLengths>>,
+    pub(super) array_lengths: RefCell<HashMap<ModuleId, nia_const_check::ConstArrayLengths>>,
     pub(super) body_resolution_inputs: RefCell<HashMap<ModuleId, BodyCheckResolutionInputs>>,
     pub(super) reachability_function_signatures:
         RefCell<HashMap<GlobalDefId, std::sync::Arc<ProgramFunctionSignature>>>,
     pub(super) body_function_signatures: RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>,
     pub(super) global_initializers:
-        RefCell<HashMap<GlobalDefId, Option<nia_comptime_ir::ResolvedComptimeExpr>>>,
-    pub(super) comptime_modules: RefCell<HashMap<ModuleId, ComptimeModuleLowering>>,
+        RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>,
+    pub(super) const_modules: RefCell<HashMap<ModuleId, ConstModuleLowering>>,
 }
 
 impl Default for ExecutableCheckCaches {
@@ -25,7 +25,7 @@ impl Default for ExecutableCheckCaches {
             reachability_function_signatures: RefCell::new(HashMap::new()),
             body_function_signatures: RefCell::new(HashMap::new()),
             global_initializers: RefCell::new(HashMap::new()),
-            comptime_modules: RefCell::new(HashMap::new()),
+            const_modules: RefCell::new(HashMap::new()),
         }
     }
 }
@@ -47,7 +47,7 @@ impl ExecutableCheckCaches {
         self.global_initializers
             .get_mut()
             .retain(|def_id, _| modules.contains(&def_id.module_id));
-        self.comptime_modules
+        self.const_modules
             .get_mut()
             .retain(|module_id, _| modules.contains(module_id));
     }
@@ -183,7 +183,7 @@ impl ExecutableFactModuleState {
         let BodyCheckWithResolutionInputs {
             body_check,
             inputs: _,
-            comptime: _,
+            const_eval: _,
         } = body_check;
         let nia_body_check::BodyCheck {
             ir,
@@ -242,7 +242,7 @@ impl ExecutableFactModuleState {
         let BodyCheckWithResolutionInputs {
             body_check,
             inputs: _,
-            comptime: _,
+            const_eval: _,
         } = increment;
         let nia_body_check::BodyCheck {
             mut ir,

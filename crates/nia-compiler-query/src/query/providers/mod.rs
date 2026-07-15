@@ -20,7 +20,7 @@ mod body_check_flow;
 mod body_executable;
 mod body_signature_lookup;
 mod codegen;
-mod comptime;
+mod const_eval;
 mod executable_reachability;
 mod extension_providers;
 mod frontend;
@@ -29,7 +29,7 @@ mod module_checks;
 mod program_flow;
 mod program_signatures;
 mod semantic_inputs;
-mod signature_comptime;
+mod signature_const;
 
 use self::body_check_flow::*;
 pub(in crate::query) use self::body_check_flow::{
@@ -41,7 +41,7 @@ pub(in crate::query) use self::body_executable::{
 };
 use self::body_signature_lookup::*;
 use self::codegen::*;
-use self::comptime::*;
+use self::const_eval::*;
 #[cfg(test)]
 pub(in crate::query) use self::executable_reachability::provide_executable_checked_modules;
 pub(in crate::query) use self::executable_reachability::{
@@ -54,10 +54,9 @@ use self::module_checks::*;
 use self::program_flow::*;
 use self::program_signatures::*;
 use self::semantic_inputs::*;
-use self::signature_comptime::{
-    provide_signature_comptime_module, signature_comptime_array_lengths,
-    signature_comptime_module_lowering, signature_comptime_values, signature_layouts_for_types,
-    with_type_signature_comptime_input,
+use self::signature_const::{
+    provide_signature_const_module, signature_const_array_lengths, signature_const_module_lowering,
+    signature_const_values, signature_layouts_for_types, with_type_signature_const_input,
 };
 
 pub(super) struct QueryPublicSurfaceLookup<'a> {
@@ -188,18 +187,18 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
     pub(super) signature_type_resolution:
         fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> TypeResolution,
-    pub(super) signature_comptime_type_resolution:
+    pub(super) signature_const_type_resolution:
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
     pub(super) type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
     pub(super) declaration_type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
     pub(super) signature_type_lowering:
         fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> TypeLowering,
-    pub(super) signature_comptime_type_lowering:
+    pub(super) signature_const_type_lowering:
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
     pub(super) item_signatures: fn(&QueryDb<CompilerContext>, ModuleId) -> ItemSignatures,
     pub(super) signature_item_signatures:
         fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> ItemSignatures,
-    pub(super) signature_comptime_item_signatures:
+    pub(super) signature_const_item_signatures:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ItemSignatures,
     pub(super) type_normalization: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
     pub(super) layout_type_normalization:
@@ -209,10 +208,10 @@ pub(super) struct CompilerQueryProviders {
         ModuleId,
         nia_item_tree::SignatureItemSet,
     ) -> TypeNormalization,
-    pub(super) signature_comptime_type_normalization:
+    pub(super) signature_const_type_normalization:
         fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
-    pub(super) signature_comptime_module:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ComptimeModuleLowering,
+    pub(super) signature_const_module:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> ConstModuleLowering,
     pub(super) program_signature_module_ids:
         fn(&QueryDb<CompilerContext>, nia_item_tree::SignatureItemSet) -> Vec<ModuleId>,
     pub(super) program_signature_module_eligibility:
@@ -273,16 +272,16 @@ pub(super) struct CompilerQueryProviders {
     pub(super) local_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> LocalResolution,
     pub(super) semantic_use_table:
         fn(&QueryDb<CompilerContext>, ModuleId) -> nia_sema_ir::SemanticUseTable,
-    pub(super) comptime_module: fn(&QueryDb<CompilerContext>, ModuleId) -> ComptimeModuleLowering,
-    pub(super) comptime: fn(&QueryDb<CompilerContext>, ModuleId) -> ComptimeCheck,
-    pub(super) comptime_array_lengths:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_comptime_check::ComptimeArrayLengths,
-    pub(super) comptime_enum_values:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_comptime_check::ComptimeEnumValues,
-    pub(super) comptime_values:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_comptime_check::ComptimeValues,
-    pub(super) comptime_typed_facts:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_comptime_check::ComptimeTypedFacts,
+    pub(super) const_module: fn(&QueryDb<CompilerContext>, ModuleId) -> ConstModuleLowering,
+    pub(super) const_eval: fn(&QueryDb<CompilerContext>, ModuleId) -> ConstCheck,
+    pub(super) const_array_lengths:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_const_check::ConstArrayLengths,
+    pub(super) const_enum_values:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_const_check::ConstEnumValues,
+    pub(super) const_values:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_const_check::ConstValues,
+    pub(super) const_typed_facts:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_const_check::ConstTypedFacts,
     pub(super) layouts: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_layout::Layouts,
     pub(super) signature_layouts: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_layout::Layouts,
     pub(super) abi_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_abi_check::AbiCheck,
@@ -323,19 +322,19 @@ impl Default for CompilerQueryProviders {
             type_resolution: provide_type_resolution,
             declaration_type_resolution: provide_declaration_type_resolution,
             signature_type_resolution: provide_signature_type_resolution,
-            signature_comptime_type_resolution: provide_signature_comptime_type_resolution,
+            signature_const_type_resolution: provide_signature_const_type_resolution,
             type_lowering: provide_type_lowering,
             declaration_type_lowering: provide_declaration_type_lowering,
             signature_type_lowering: provide_signature_type_lowering,
-            signature_comptime_type_lowering: provide_signature_comptime_type_lowering,
+            signature_const_type_lowering: provide_signature_const_type_lowering,
             item_signatures: provide_item_signatures,
             signature_item_signatures: provide_signature_item_signatures,
-            signature_comptime_item_signatures: provide_signature_comptime_item_signatures,
+            signature_const_item_signatures: provide_signature_const_item_signatures,
             type_normalization: provide_type_normalization,
             layout_type_normalization: provide_layout_type_normalization,
             signature_type_normalization: provide_signature_type_normalization,
-            signature_comptime_type_normalization: provide_signature_comptime_type_normalization,
-            signature_comptime_module: provide_signature_comptime_module,
+            signature_const_type_normalization: provide_signature_const_type_normalization,
+            signature_const_module: provide_signature_const_module,
             program_signature_module_ids: provide_program_signature_module_ids,
             program_signature_module_eligibility: provide_program_signature_module_eligibility,
             module_program_signature_facts: provide_module_program_signature_facts,
@@ -366,12 +365,12 @@ impl Default for CompilerQueryProviders {
             value_resolution: provide_value_resolution,
             local_resolution: provide_local_resolution,
             semantic_use_table: provide_semantic_use_table,
-            comptime_module: provide_comptime_module,
-            comptime: provide_comptime,
-            comptime_array_lengths: provide_comptime_array_lengths,
-            comptime_enum_values: provide_comptime_enum_values,
-            comptime_values: provide_comptime_values,
-            comptime_typed_facts: provide_comptime_typed_facts,
+            const_module: provide_const_module,
+            const_eval: provide_const,
+            const_array_lengths: provide_const_array_lengths,
+            const_enum_values: provide_const_enum_values,
+            const_values: provide_const_values,
+            const_typed_facts: provide_const_typed_facts,
             layouts: provide_layouts,
             signature_layouts: provide_signature_layouts,
             abi_check: provide_abi_check,

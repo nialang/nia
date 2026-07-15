@@ -27,7 +27,7 @@ pub(super) fn sym(text: &str) -> SymbolId {
 pub(super) struct EmptyBodyProgramSignatures {
     pub functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
     pub globals: HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalSignature>,
-    pub comptimes: HashMap<GlobalDefId, nia_item_signatures::ProgramComptimeSignature>,
+    pub consts: HashMap<GlobalDefId, nia_item_signatures::ProgramConstSignature>,
     pub structs: HashMap<GlobalDefId, nia_item_signatures::ProgramStructSignature>,
     pub unions: HashMap<GlobalDefId, nia_item_signatures::ProgramUnionSignature>,
     pub enums: HashMap<GlobalDefId, nia_item_signatures::ProgramEnumSignature>,
@@ -41,7 +41,7 @@ impl EmptyBodyProgramSignatures {
         Self {
             functions: HashMap::new(),
             globals: HashMap::new(),
-            comptimes: HashMap::new(),
+            consts: HashMap::new(),
             structs: HashMap::new(),
             unions: HashMap::new(),
             enums: HashMap::new(),
@@ -69,11 +69,11 @@ impl ProgramSignatureLookup for EmptyBodyProgramSignatures {
         self.globals.get(&def_id).cloned()
     }
 
-    fn comptime(
+    fn const_eval(
         &self,
         def_id: GlobalDefId,
-    ) -> Option<nia_item_signatures::ProgramComptimeSignature> {
-        self.comptimes.get(&def_id).cloned()
+    ) -> Option<nia_item_signatures::ProgramConstSignature> {
+        self.consts.get(&def_id).cloned()
     }
 
     fn struct_(&self, def_id: GlobalDefId) -> Option<nia_item_signatures::ProgramStructSignature> {
@@ -190,25 +190,24 @@ fn pipeline_with_options(
     );
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-body-check-test/main.nia");
-    let comptime_module =
-        nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
-            active_item_tree: &active_item_tree,
-            defs: &defs,
-            signatures: &signatures,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            symbols: &symbols,
-            const_exprs: &lowered.const_exprs,
-            source_path: &source_path,
-        });
+    let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
+        active_item_tree: &active_item_tree,
+        defs: &defs,
+        signatures: &signatures,
+        values: &values,
+        locals: &locals,
+        semantic_uses: &semantic_uses,
+        symbols: &symbols,
+        const_exprs: &lowered.const_exprs,
+        source_path: &source_path,
+    });
     assert!(
-        comptime_module.diagnostics.is_empty(),
+        const_module.diagnostics.is_empty(),
         "{:?}",
-        comptime_module.diagnostics
+        const_module.diagnostics
     );
-    let comptime_input = nia_comptime_check::ComptimeInput {
-        module: &comptime_module.module,
+    let const_input = nia_const_check::ConstInput {
+        module: &const_module.module,
         defs: &defs,
         values: &values,
         locals: &locals,
@@ -220,34 +219,28 @@ fn pipeline_with_options(
         normalized: &std::collections::HashMap::new(),
         target: &target,
         source_path: &source_path,
-        program: nia_comptime_check::ComptimeProgramContext::empty(),
+        program: nia_const_check::ConstProgramContext::empty(),
     };
-    let comptime_array_lengths =
-        nia_comptime_check::compute_module_comptime_array_lengths(comptime_input);
-    let comptime_enum_values = nia_comptime_check::compute_module_comptime_enum_values(
-        comptime_input,
-        comptime_array_lengths.clone(),
+    let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
+    let const_enum_values =
+        nia_const_check::compute_module_const_enum_values(const_input, const_array_lengths.clone());
+    let const_values = nia_const_check::compute_module_const_values(
+        const_input,
+        const_array_lengths.clone(),
+        const_enum_values.clone(),
     );
-    let comptime_values = nia_comptime_check::compute_module_comptime_values(
-        comptime_input,
-        comptime_array_lengths.clone(),
-        comptime_enum_values.clone(),
+    let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
+        const_input,
+        const_array_lengths.clone(),
+        const_enum_values,
+        const_values.clone(),
     );
-    let comptime_typed_facts = nia_comptime_check::compute_module_comptime_typed_facts(
-        comptime_input,
-        comptime_array_lengths.clone(),
-        comptime_enum_values,
-        comptime_values.clone(),
-    );
-    let comptime = crate::BodyComptime::from_phases(
-        &comptime_values,
-        &comptime_array_lengths,
-        &comptime_typed_facts,
-    );
+    let const_eval =
+        crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     assert!(
-        comptime_values.diagnostics.is_empty(),
+        const_values.diagnostics.is_empty(),
         "{:?}",
-        comptime_values.diagnostics
+        const_values.diagnostics
     );
     let normalization_input = lowered
         .interner
@@ -336,12 +329,12 @@ fn pipeline_with_options(
         semantic_uses: &semantic_uses,
         lowered: &lowered,
         signatures: BodyLocalSignatures::from_item_signatures(&signatures),
-        comptime_signatures: &signatures,
+        const_signatures: &signatures,
         normalization: &normalization,
         seed: None,
         target: &target,
-        comptime,
-        comptime_module: &comptime_module.module,
+        const_eval,
+        const_module: &const_module.module,
         layouts: &layouts,
         extensions: &extensions,
         lazy_extensions: None,
@@ -350,7 +343,7 @@ fn pipeline_with_options(
         program: BodyProgramContext::empty(),
         program_signatures: program_signatures.context(),
         function_scope: FunctionCheckScope::LocalModule,
-        program_comptime: ProgramComptimeMaps::empty(),
+        program_const: ProgramConstMaps::empty(),
         filter: crate::BodyCheckFilter::All,
         product: crate::BodyCheckProduct::Full,
         prechecked: None,
@@ -359,10 +352,7 @@ fn pipeline_with_options(
 
 pub(super) fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {
     let item_tree = ModuleItemTree::from_module(module);
-    ActiveModuleItemTree::new(
-        item_tree.active_items_without_comptime(),
-        Default::default(),
-    )
+    ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default())
 }
 
 fn single_module_trait_impls(

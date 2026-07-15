@@ -1377,7 +1377,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
-            Some(TyKind::ComptimeOnly | TyKind::Error) => false,
+            Some(TyKind::ConstOnly | TyKind::Error) => false,
             None => panic!(
                 "Nia ICE: method pattern type {:?} is missing from interner {:?}",
                 general,
@@ -1908,7 +1908,7 @@ impl<'a> BodyChecker<'a> {
                 _ => false,
             },
             Some(TyKind::Primitive(_) | TyKind::Vector { .. })
-            | Some(TyKind::ComptimeOnly | TyKind::Error)
+            | Some(TyKind::ConstOnly | TyKind::Error)
             | None => self.types_match(pattern, actual),
         }
     }
@@ -1983,7 +1983,7 @@ impl<'a> BodyChecker<'a> {
                 nia_ty::IntConst::unsigned((*value).into()),
             )),
             ArrayLenTy::ConstExpr(id) => {
-                self.comptime.array_lengths.get(id).copied().map(|value| {
+                self.const_eval.array_lengths.get(id).copied().map(|value| {
                     nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
                 })
             }

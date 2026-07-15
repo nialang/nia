@@ -680,7 +680,7 @@ mod tests {
                 .source
                 .contains("build_script::build(&mut api).exit().?;")
         );
-        assert!(!runner.source.contains("comptime"));
+        assert!(!runner.source.contains("const"));
     }
 
     #[test]

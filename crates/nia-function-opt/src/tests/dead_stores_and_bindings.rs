@@ -38,14 +38,14 @@ fn removes_unused_local_bindings_to_fixed_point() {
         nia_function_ir::FunctionLocal {
             id: LocalId(0),
             name: local_name("a"),
-            kind: FunctionLocalKind::Binding,
+            kind: FunctionLocalKind::MutableBinding,
             ty,
             span,
         },
         nia_function_ir::FunctionLocal {
             id: LocalId(1),
             name: local_name("b"),
-            kind: FunctionLocalKind::Binding,
+            kind: FunctionLocalKind::MutableBinding,
             ty,
             span,
         },
@@ -98,7 +98,7 @@ fn preserves_try_success_locals_as_referenced_bindings() {
         nia_function_ir::FunctionLocal {
             id: LocalId(0),
             name: local_name("ok"),
-            kind: FunctionLocalKind::Binding,
+            kind: FunctionLocalKind::MutableBinding,
             ty,
             span,
         },
@@ -154,7 +154,7 @@ fn preserves_effects_from_unused_local_binding_initializer() {
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
         name: local_name("unused"),
-        kind: FunctionLocalKind::Binding,
+        kind: FunctionLocalKind::MutableBinding,
         ty,
         span,
     }];
@@ -194,7 +194,7 @@ fn removes_never_read_local_store_with_pure_value() {
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
         name: local_name("unused"),
-        kind: FunctionLocalKind::Binding,
+        kind: FunctionLocalKind::MutableBinding,
         ty,
         span,
     }];
@@ -233,7 +233,7 @@ fn preserves_effects_from_never_read_local_store_value() {
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
         name: local_name("unused"),
-        kind: FunctionLocalKind::Binding,
+        kind: FunctionLocalKind::MutableBinding,
         ty,
         span,
     }];
@@ -279,7 +279,7 @@ fn preserves_stores_to_read_locals() {
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
         name: local_name("used"),
-        kind: FunctionLocalKind::Binding,
+        kind: FunctionLocalKind::MutableBinding,
         ty,
         span,
     }];
@@ -336,7 +336,7 @@ fn removes_local_store_overwritten_before_read() {
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
         name: local_name("target"),
-        kind: FunctionLocalKind::Binding,
+        kind: FunctionLocalKind::MutableBinding,
         ty,
         span,
     }];
@@ -403,7 +403,7 @@ fn preserves_effects_from_overwritten_local_store_value() {
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
         name: local_name("target"),
-        kind: FunctionLocalKind::Binding,
+        kind: FunctionLocalKind::MutableBinding,
         ty,
         span,
     }];
@@ -472,7 +472,7 @@ fn preserves_local_store_read_before_overwrite() {
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
         name: local_name("target"),
-        kind: FunctionLocalKind::Binding,
+        kind: FunctionLocalKind::MutableBinding,
         ty,
         span,
     }];

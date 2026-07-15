@@ -16,7 +16,7 @@ fn main() i32 {
             let local = body
                 .locals
                 .iter()
-                .find(|local| local.kind == nia_function_ir::FunctionLocalKind::Binding)
+                .find(|local| local.kind == nia_function_ir::FunctionLocalKind::MutableBinding)
                 .expect("binding local");
             body.blocks[0].ops.push(FunctionOp::StoreLocal {
                 local_id: local.id,
@@ -75,7 +75,7 @@ fn main() i32 {
             let local = body
                 .locals
                 .iter()
-                .find(|local| local.kind == nia_function_ir::FunctionLocalKind::Binding)
+                .find(|local| local.kind == nia_function_ir::FunctionLocalKind::MutableBinding)
                 .expect("binding local");
             body.blocks[0].ops.push(FunctionOp::StoreLocal {
                 local_id: local.id,
@@ -380,7 +380,7 @@ fn main() i32 {
             body.locals.push(nia_function_ir::FunctionLocal {
                 id: temp,
                 name: nia_function_ir::LocalName::temporary(999),
-                kind: nia_function_ir::FunctionLocalKind::Binding,
+                kind: nia_function_ir::FunctionLocalKind::MutableBinding,
                 ty,
                 span,
             });

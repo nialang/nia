@@ -40,8 +40,23 @@ pub struct BindingStmt {
     pub pattern: Pattern,
     pub ty: Option<TypeRef>,
     pub value: Option<Expr>,
-    pub is_mutable: bool,
-    pub is_comptime: bool,
+    pub kind: LocalBindingKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalBindingKind {
+    Let { is_mutable: bool },
+    Const,
+}
+
+impl BindingStmt {
+    pub fn is_const(&self) -> bool {
+        matches!(self.kind, LocalBindingKind::Const)
+    }
+
+    pub fn is_mutable(&self) -> bool {
+        matches!(self.kind, LocalBindingKind::Let { is_mutable: true })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

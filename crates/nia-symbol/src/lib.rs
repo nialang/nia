@@ -464,7 +464,7 @@ pub trait ToSymbolId {
 impl ToSymbolId for nia_ids::BuiltinFunction {
     fn symbol_id(self) -> SymbolId {
         match self {
-            Self::ComptimeError => known::ERROR,
+            Self::ConstError => known::ERROR,
             Self::Trap => known::TRAP,
             Self::SizeOf => known::SIZE,
             Self::AlignOf => known::ALIGN,
@@ -584,7 +584,7 @@ impl ToSymbolId for nia_ids::BuiltinAssociatedType {
     }
 }
 
-impl ToSymbolId for nia_ids::BuiltinAssociatedComptime {
+impl ToSymbolId for nia_ids::BuiltinAssociatedConst {
     fn symbol_id(self) -> SymbolId {
         match self {
             Self::Lanes => known::LANES,

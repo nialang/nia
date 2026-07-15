@@ -6,7 +6,7 @@ pub struct ModuleProgramSignatureFacts {
     pub trait_defs: HashSet<GlobalDefId>,
     pub functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
     pub globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
-    pub comptimes: HashMap<GlobalDefId, ProgramComptimeSignature>,
+    pub consts: HashMap<GlobalDefId, ProgramConstSignature>,
     pub structs: HashMap<GlobalDefId, ProgramStructSignature>,
     pub unions: HashMap<GlobalDefId, ProgramUnionSignature>,
     pub enums: HashMap<GlobalDefId, ProgramEnumSignature>,
@@ -33,7 +33,7 @@ pub fn collect_module_program_signature_facts(
         trait_defs,
         functions: collect_program_functions_excluding(&modules, &HashSet::new()),
         globals: collect_program_globals(&modules),
-        comptimes: collect_program_comptimes(&modules),
+        consts: collect_program_consts(&modules),
         structs: collect_program_structs(&modules),
         unions: collect_program_unions(&modules),
         enums: collect_program_enums(&modules),
@@ -152,25 +152,25 @@ pub fn collect_program_globals(
     globals
 }
 
-pub fn collect_program_comptimes(
+pub fn collect_program_consts(
     modules: &[ModuleSignatureInput<'_>],
-) -> HashMap<GlobalDefId, ProgramComptimeSignature> {
-    let mut comptimes = HashMap::new();
+) -> HashMap<GlobalDefId, ProgramConstSignature> {
+    let mut consts = HashMap::new();
     for module in modules {
-        for (def_id, signature) in &module.signatures.comptimes {
-            comptimes.insert(
+        for (def_id, signature) in &module.signatures.consts {
+            consts.insert(
                 GlobalDefId {
                     module_id: module.module_id,
                     def_id: *def_id,
                 },
-                ProgramComptimeSignature {
+                ProgramConstSignature {
                     signature: signature.clone(),
                     interner: module.lowering.interner.clone(),
                 },
             );
         }
     }
-    comptimes
+    consts
 }
 
 pub fn collect_program_structs(

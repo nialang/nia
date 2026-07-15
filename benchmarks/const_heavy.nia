@@ -1,0 +1,49 @@
+const fn width(seed: usize) usize {
+    let mut value = seed;
+    let mut index: usize = 0;
+    while index < 32usize {
+        value = (value * 3usize + index) % 31usize;
+        index += 1usize;
+    }
+    value + 1usize
+}
+
+const n00: usize = width(0usize);
+const n01: usize = width(1usize);
+const n02: usize = width(2usize);
+const n03: usize = width(3usize);
+const n04: usize = width(4usize);
+const n05: usize = width(5usize);
+const n06: usize = width(6usize);
+const n07: usize = width(7usize);
+const n08: usize = width(8usize);
+const n09: usize = width(9usize);
+const n10: usize = width(10usize);
+const n11: usize = width(11usize);
+const n12: usize = width(12usize);
+const n13: usize = width(13usize);
+const n14: usize = width(14usize);
+const n15: usize = width(15usize);
+
+fn main() usize {
+    let a00: [n00]u8 = [0u8; n00];
+    let a01: [n01]u8 = [0u8; n01];
+    let a02: [n02]u8 = [0u8; n02];
+    let a03: [n03]u8 = [0u8; n03];
+    let a04: [n04]u8 = [0u8; n04];
+    let a05: [n05]u8 = [0u8; n05];
+    let a06: [n06]u8 = [0u8; n06];
+    let a07: [n07]u8 = [0u8; n07];
+    let a08: [n08]u8 = [0u8; n08];
+    let a09: [n09]u8 = [0u8; n09];
+    let a10: [n10]u8 = [0u8; n10];
+    let a11: [n11]u8 = [0u8; n11];
+    let a12: [n12]u8 = [0u8; n12];
+    let a13: [n13]u8 = [0u8; n13];
+    let a14: [n14]u8 = [0u8; n14];
+    let a15: [n15]u8 = [0u8; n15];
+    a00.len() + a01.len() + a02.len() + a03.len()
+        + a04.len() + a05.len() + a06.len() + a07.len()
+        + a08.len() + a09.len() + a10.len() + a11.len()
+        + a12.len() + a13.len() + a14.len() + a15.len()
+}

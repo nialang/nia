@@ -164,11 +164,11 @@ fn main() u8 {
 }
 
 #[test]
-fn materializes_runtime_uses_of_comptime_string_values() {
+fn materializes_runtime_uses_of_const_string_values() {
     let checked = pipeline(
         r#"
-comptime default_value = b"default\0";
-comptime text_value = "nia";
+const default_value = b"default\0";
+const text_value = "nia";
 
 fn take_bytes(xs: &[u8]) usize {
     xs.len()
@@ -271,10 +271,10 @@ fn typed_expr_contains_error_expr(expr: &nia_body_ir::TypedExpr) -> bool {
 }
 
 #[test]
-fn materializes_comptime_byte_string_call_arguments() {
+fn materializes_const_byte_string_call_arguments() {
     let checked = pipeline(
         r#"
-comptime default_value = b"default\0";
+const default_value = b"default\0";
 
 fn take_bytes(xs: &[u8]) usize {
     xs.len()
@@ -637,10 +637,10 @@ fn main() i32 {
 }
 
 #[test]
-fn checks_large_array_repeat_count_from_comptime_binding() {
+fn checks_large_array_repeat_count_from_const_binding() {
     let checked = pipeline(
         r#"
-comptime N: usize = 1048576;
+const N: usize = 1048576;
 
 fn main() i32 {
     let mut buffer: [N]u8 = [0u8; N];

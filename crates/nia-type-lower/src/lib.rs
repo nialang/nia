@@ -533,7 +533,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_, '_> {
                                 .iter()
                                 .filter_map(|generic| match generic.kind {
                                     GenericParamKind::Type => None,
-                                    GenericParamKind::Comptime { ref ty } => {
+                                    GenericParamKind::Const { ref ty } => {
                                         let ty =
                                             lowerer.lower_type_in_context(ty, TypeContext::Value);
                                         Some(ConstGenericArg {
@@ -770,7 +770,7 @@ impl TypeLowerer<'_, '_> {
                                 .iter()
                                 .filter_map(|generic| match generic.kind {
                                     GenericParamKind::Type => None,
-                                    GenericParamKind::Comptime { ref ty } => {
+                                    GenericParamKind::Const { ref ty } => {
                                         let ty =
                                             lowerer.lower_type_in_context(ty, TypeContext::Value);
                                         Some(ConstGenericArg {
@@ -1183,13 +1183,13 @@ impl<'a> TypeLowerer<'a, '_> {
                         .get(positional_index)
                         .map(|generic| &generic.kind)
                     {
-                        Some(GenericParamKind::Comptime { ty }) => {
+                        Some(GenericParamKind::Const { ty }) => {
                             let Some(value) = self.lower_const_generic_value_from_type_ref(arg_ty)
                             else {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::TYPE_NORMALIZATION,
                                     arg_ty.span,
-                                    "expected comptime generic argument",
+                                    "expected const generic argument",
                                 ));
                                 positional_index += 1;
                                 continue;
@@ -1206,12 +1206,12 @@ impl<'a> TypeLowerer<'a, '_> {
                         .get(positional_index)
                         .map(|generic| &generic.kind)
                     {
-                        Some(GenericParamKind::Comptime { ty }) => {
+                        Some(GenericParamKind::Const { ty }) => {
                             let Some(value) = self.lower_const_generic_value_from_expr(expr) else {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::TYPE_NORMALIZATION,
                                     expr.span,
-                                    "unsupported comptime generic argument",
+                                    "unsupported const generic argument",
                                 ));
                                 positional_index += 1;
                                 continue;
@@ -1223,7 +1223,7 @@ impl<'a> TypeLowerer<'a, '_> {
                             self.diagnostics.push(Diagnostic::user_error_at(
                                 codes::TYPE_NORMALIZATION,
                                 expr.span,
-                                "comptime value generic argument supplied for type parameter",
+                                "const value generic argument supplied for type parameter",
                             ));
                         }
                     }
@@ -1241,12 +1241,12 @@ impl<'a> TypeLowerer<'a, '_> {
                         .get(positional_index)
                         .map(|generic| &generic.kind)
                     {
-                        Some(GenericParamKind::Comptime { ty }) => {
+                        Some(GenericParamKind::Const { ty }) => {
                             let Some(value) = self.lower_const_generic_value_from_expr(expr) else {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::TYPE_NORMALIZATION,
                                     expr.span,
-                                    "unsupported comptime generic argument",
+                                    "unsupported const generic argument",
                                 ));
                                 positional_index += 1;
                                 continue;
@@ -1452,13 +1452,13 @@ impl<'a> TypeLowerer<'a, '_> {
                         .get(positional_index)
                         .map(|generic| &generic.kind)
                     {
-                        Some(GenericParamKind::Comptime { ty }) => {
+                        Some(GenericParamKind::Const { ty }) => {
                             let Some(value) = self.lower_const_generic_value_from_type_ref(arg_ty)
                             else {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::TYPE_NORMALIZATION,
                                     arg_ty.span,
-                                    "expected comptime generic argument",
+                                    "expected const generic argument",
                                 ));
                                 positional_index += 1;
                                 continue;
@@ -1479,12 +1479,12 @@ impl<'a> TypeLowerer<'a, '_> {
                         .get(positional_index)
                         .map(|generic| &generic.kind)
                     {
-                        Some(GenericParamKind::Comptime { ty }) => {
+                        Some(GenericParamKind::Const { ty }) => {
                             let Some(value) = self.lower_const_generic_value_from_expr(expr) else {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::TYPE_NORMALIZATION,
                                     expr.span,
-                                    "expected comptime generic argument",
+                                    "expected const generic argument",
                                 ));
                                 positional_index += 1;
                                 continue;
@@ -1498,7 +1498,7 @@ impl<'a> TypeLowerer<'a, '_> {
                             self.diagnostics.push(Diagnostic::user_error_at(
                                 codes::TYPE_NORMALIZATION,
                                 expr.span,
-                                "comptime value generic argument supplied for type parameter",
+                                "const value generic argument supplied for type parameter",
                             ));
                         }
                     }
@@ -1516,12 +1516,12 @@ impl<'a> TypeLowerer<'a, '_> {
                         .get(positional_index)
                         .map(|generic| &generic.kind)
                     {
-                        Some(GenericParamKind::Comptime { ty }) => {
+                        Some(GenericParamKind::Const { ty }) => {
                             let Some(value) = self.lower_const_generic_value_from_expr(expr) else {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::TYPE_NORMALIZATION,
                                     expr.span,
-                                    "expected comptime generic argument",
+                                    "expected const generic argument",
                                 ));
                                 positional_index += 1;
                                 continue;
@@ -1724,7 +1724,7 @@ impl<'a> TypeLowerer<'a, '_> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_NORMALIZATION,
                         expr.span,
-                        "comptime value generic arguments are not supported",
+                        "const value generic arguments are not supported",
                     ));
                 }
                 TypeArg::TypeOrConst { ty, .. } => {
@@ -1891,7 +1891,7 @@ impl<'a> TypeLowerer<'a, '_> {
         };
         if segments.len() == 1 && segments[0].args.is_empty() {
             let name = type_path_segment_name(&segments[0])?;
-            if self.is_comptime_generic_param(name) {
+            if self.is_const_generic_param(name) {
                 return Some(ConstGenericValue::GenericParam(*name));
             }
         }
@@ -1917,7 +1917,7 @@ impl<'a> TypeLowerer<'a, '_> {
 
     fn lower_const_generic_value_from_expr(&mut self, expr: &Expr) -> Option<ConstGenericValue> {
         if let ExprKind::Ident(name) = &expr.kind
-            && self.is_comptime_generic_param(name)
+            && self.is_const_generic_param(name)
         {
             return Some(ConstGenericValue::GenericParam(*name));
         }
@@ -1948,7 +1948,7 @@ impl<'a> TypeLowerer<'a, '_> {
 
     fn with_generics(&mut self, generics: &[GenericParam], f: impl FnOnce(&mut Self)) {
         for generic in generics {
-            if let GenericParamKind::Comptime { ty } = &generic.kind {
+            if let GenericParamKind::Const { ty } = &generic.kind {
                 self.lower_type_in_context(ty, TypeContext::Value);
             }
         }
@@ -1957,10 +1957,10 @@ impl<'a> TypeLowerer<'a, '_> {
         self.generic_stack.pop();
     }
 
-    fn is_comptime_generic_param(&self, name: &SymbolId) -> bool {
+    fn is_const_generic_param(&self, name: &SymbolId) -> bool {
         self.generic_stack.iter().rev().any(|generics| {
             generics.iter().any(|generic| {
-                &generic.name == name && matches!(generic.kind, GenericParamKind::Comptime { .. })
+                &generic.name == name && matches!(generic.kind, GenericParamKind::Const { .. })
             })
         })
     }
@@ -2088,7 +2088,7 @@ impl<'a> TypeLowerer<'a, '_> {
 
     fn lower_array_len_expr(&mut self, expr: &Expr) -> ArrayLenTy {
         if let ExprKind::Ident(name) = &expr.kind
-            && self.is_comptime_generic_param(name)
+            && self.is_const_generic_param(name)
         {
             return ArrayLenTy::GenericParam(*name);
         }
@@ -2388,7 +2388,7 @@ fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
     }
 
     #[test]
-    fn lowers_comptime_generic_array_lengths_and_nominal_args() {
+    fn lowers_const_generic_array_lengths_and_nominal_args() {
         let (module, errors) = parse_module(
             r#"
 struct Buffer[T, N: usize] {
@@ -2517,7 +2517,7 @@ extend[T] [T] {
     }
 
     #[test]
-    fn rejects_comptime_value_generic_type_arguments() {
+    fn rejects_const_value_generic_type_arguments() {
         let (module, errors) = parse_module(
             r#"
 struct Box[T] {
@@ -2537,7 +2537,7 @@ fn make() Box[4] {
             lowered
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.summary.contains("comptime value generic"))
+                .any(|diagnostic| diagnostic.summary.contains("const value generic"))
         );
     }
 

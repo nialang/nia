@@ -41,9 +41,9 @@ members = [
     "crates/nia-trait-solve",
     "crates/nia-sema",
     "crates/nia-sema-ir",
-    "crates/nia-comptime-ir",
-    "crates/nia-comptime-engine",
-    "crates/nia-comptime-check",
+    "crates/nia-const-ir",
+    "crates/nia-const-eval",
+    "crates/nia-const-check",
     "crates/nia-static-check",
     "crates/nia-static-ir",
     "crates/nia-ir-names",
@@ -115,9 +115,9 @@ nia-type-normalize = { path = "crates/nia-type-normalize" }
 nia-trait-solve = { path = "crates/nia-trait-solve" }
 nia-sema = { path = "crates/nia-sema" }
 nia-sema-ir = { path = "crates/nia-sema-ir" }
-nia-comptime-ir = { path = "crates/nia-comptime-ir" }
-nia-comptime-engine = { path = "crates/nia-comptime-engine" }
-nia-comptime-check = { path = "crates/nia-comptime-check" }
+nia-const-ir = { path = "crates/nia-const-ir" }
+nia-const-eval = { path = "crates/nia-const-eval" }
+nia-const-check = { path = "crates/nia-const-check" }
 nia-static-check = { path = "crates/nia-static-check" }
 nia-static-ir = { path = "crates/nia-static-ir" }
 nia-ir-names = { path = "crates/nia-ir-names" }

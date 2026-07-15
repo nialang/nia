@@ -267,7 +267,7 @@ impl<'a> TypeNormalizer<'a, '_> {
             }
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_),
@@ -552,7 +552,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                 })
             }
             Some(
-                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+                TyKind::Error | TyKind::ConstOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
             )
             | None => self.normalize_ty(ty_id, stack),
         }
@@ -842,7 +842,7 @@ fn take(xs: [2 + 3]u8) void {}
             enums: HashMap::new(),
             type_aliases: HashMap::new(),
             globals: HashMap::new(),
-            comptimes: HashMap::new(),
+            consts: HashMap::new(),
             diagnostics: Vec::new(),
         };
         let normalization =

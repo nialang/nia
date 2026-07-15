@@ -70,7 +70,7 @@ impl TypeStore {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TyKind {
     Error,
-    ComptimeOnly,
+    ConstOnly,
     Primitive(PrimitiveTy),
     Pointer {
         is_readonly: bool,
@@ -420,7 +420,7 @@ impl TyInterner {
         match self.get(id) {
             None | Some(TyKind::Error) => true,
             Some(
-                TyKind::ComptimeOnly
+                TyKind::ConstOnly
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::GenericParam(_)
@@ -531,7 +531,7 @@ pub fn try_import_type_into(
             target_interner: target.interner_id(),
             ty,
         }),
-        Some(TyKind::ComptimeOnly) => Ok(target.intern(TyKind::ComptimeOnly)),
+        Some(TyKind::ConstOnly) => Ok(target.intern(TyKind::ConstOnly)),
         Some(TyKind::Primitive(primitive)) => Ok(target.primitive(primitive)),
         Some(TyKind::GenericParam(name)) => Ok(target.intern(TyKind::GenericParam(name))),
         Some(TyKind::SelfParam) => Ok(target.intern(TyKind::SelfParam)),

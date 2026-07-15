@@ -4,12 +4,12 @@ use nia_ast::{
     BindingItem, BindingStmt, Block, BracketArg, ConditionBinaryOp, ConditionExpr,
     ConditionExprKind, ConditionUnaryOp, EnumItem, EnumVariant, Expr, ExprKind, ExtendItem,
     ExtendMethod, Field, FieldInit, ForInStmt, FunctionItem, GenericParam, IfPatternArm,
-    IfPatternExpr, Item, ItemKind, LoopStmt, Module, ModuleItem, Param, PathSegmentKind, Pattern,
-    PatternKind, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm, SwitchArmBody,
-    SwitchPattern, SwitchPatternKind, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
-    TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem,
-    UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate,
-    WhileStmt,
+    IfPatternExpr, Item, ItemBindingKind, ItemKind, LocalBindingKind, LoopStmt, Module, ModuleItem,
+    Param, PathSegmentKind, Pattern, PatternKind, ReceiverKind, Stmt, StmtKind, StringLiteral,
+    StructItem, SwitchArm, SwitchArmBody, SwitchPattern, SwitchPatternKind, SwitchStmt,
+    TraitAssociatedType, TraitItem, TraitMethod, TypeAliasItem, TypeArg, TypeKind, TypePathSegment,
+    TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName,
+    UsingSelector, Visibility, WhereClause, WherePredicate, WhileStmt,
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{NodeOriginTable, SyntaxKind as NodeSyntaxKind, VersionedNodeKey};
@@ -84,7 +84,7 @@ struct FunctionParts {
     return_type: Option<TypeRef>,
     body: Option<Block>,
     is_extern: bool,
-    is_comptime: bool,
+    is_const: bool,
     is_variadic: bool,
     span: Span,
 }
@@ -93,9 +93,7 @@ struct BindingParts {
     name: SymbolId,
     ty: Option<TypeRef>,
     value: Option<Expr>,
-    is_mutable: bool,
-    is_comptime: bool,
-    is_extern: bool,
+    kind: ItemBindingKind,
     span: Span,
 }
 
@@ -210,7 +208,7 @@ impl Parser {
             return_type: parts.return_type,
             body: parts.body,
             is_extern: parts.is_extern,
-            is_comptime: parts.is_comptime,
+            is_const: parts.is_const,
             is_variadic: parts.is_variadic,
             span: parts.span,
             node_key,
@@ -294,9 +292,7 @@ impl Parser {
             name: parts.name,
             ty: parts.ty,
             value: parts.value,
-            is_mutable: parts.is_mutable,
-            is_comptime: parts.is_comptime,
-            is_extern: parts.is_extern,
+            kind: parts.kind,
             node_key,
         }
     }
@@ -435,8 +431,8 @@ impl Parser {
         self.tokens.at(kind)
     }
 
-    fn at_comptime_fn(&self) -> bool {
-        self.at(TokenKind::Comptime) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Fn))
+    fn at_const_fn(&self) -> bool {
+        self.at(TokenKind::Const) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Fn))
     }
 
     fn bump(&mut self) -> SyntaxToken {
@@ -565,7 +561,7 @@ impl Parser {
                     | TokenKind::Enum
                     | TokenKind::Type
                     | TokenKind::Fn
-                    | TokenKind::Comptime
+                    | TokenKind::Const
                     | TokenKind::Static
                     | TokenKind::Pub
             ) {

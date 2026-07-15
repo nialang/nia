@@ -118,7 +118,7 @@ fn collects_unique_locals_from_statement_block_expressions() {
     let inner_local = TypedLocal {
         id: LocalId(1),
         name: local_name("inner"),
-        kind: TypedLocalKind::Binding,
+        kind: TypedLocalKind::MutableBinding,
         ty,
         span,
     };
@@ -162,7 +162,7 @@ fn collects_locals_from_deferred_block_expressions() {
     let deferred_local = TypedLocal {
         id: LocalId(3),
         name: local_name("deferred_local"),
-        kind: TypedLocalKind::Binding,
+        kind: TypedLocalKind::MutableBinding,
         ty,
         span,
     };
@@ -192,7 +192,7 @@ fn collects_locals_from_deferred_block_expressions() {
     assert!(function_body.locals.iter().any(|local| {
         local.id == LocalId(3)
             && local.name == local_name("deferred_local")
-            && local.kind == FunctionLocalKind::Binding
+            && local.kind == FunctionLocalKind::MutableBinding
     }));
     validate_function_body(&function_body).expect("valid defer block local table");
 }
@@ -204,14 +204,14 @@ fn collects_unique_locals_from_statement_if_arms() {
     let then_local = TypedLocal {
         id: LocalId(1),
         name: local_name("then_local"),
-        kind: TypedLocalKind::Binding,
+        kind: TypedLocalKind::MutableBinding,
         ty,
         span,
     };
     let else_local = TypedLocal {
         id: LocalId(2),
         name: local_name("else_local"),
-        kind: TypedLocalKind::Binding,
+        kind: TypedLocalKind::MutableBinding,
         ty,
         span,
     };

@@ -19,7 +19,7 @@ pub struct BackendModule {
     pub id: ModuleId,
     pub name: String,
     pub interner: TyInterner,
-    pub comptime: BackendComptimeFacts,
+    pub const_eval: BackendConstFacts,
     pub layouts: BackendLayouts,
     pub structs: Vec<BackendStruct>,
     pub unions: Vec<BackendUnion>,
@@ -35,7 +35,7 @@ pub struct BackendModule {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct BackendComptimeFacts {
+pub struct BackendConstFacts {
     pub array_lengths: HashMap<GlobalConstExprId, u64>,
 }
 

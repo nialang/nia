@@ -70,7 +70,7 @@ impl ModuleItemTree {
         }
     }
 
-    pub fn active_items_without_comptime(&self) -> Vec<ItemTreeNode> {
+    pub fn active_items_without_const(&self) -> Vec<ItemTreeNode> {
         self.items.clone()
     }
 
@@ -130,13 +130,9 @@ impl ActiveModuleItemTree {
         }
     }
 
-    pub fn comptime_signature_items(&self) -> Self {
+    pub fn const_signature_items(&self) -> Self {
         Self {
-            items: self
-                .items
-                .iter()
-                .filter_map(comptime_signature_item)
-                .collect(),
+            items: self.items.iter().filter_map(const_signature_item).collect(),
             inactive_spans: self.inactive_spans.clone(),
         }
     }
@@ -323,7 +319,7 @@ fn item_tree_node_kind_definition_eq(lhs: &ItemTreeNodeKind, rhs: &ItemTreeNodeK
                     .all(|(lhs, rhs)| lhs.name == rhs.name && lhs.receiver == rhs.receiver)
         }
         (ItemTreeNodeKind::Binding(lhs), ItemTreeNodeKind::Binding(rhs)) => {
-            lhs.name == rhs.name && lhs.is_comptime == rhs.is_comptime
+            lhs.name == rhs.name && lhs.is_const() == rhs.is_const()
         }
         _ => false,
     }
@@ -439,23 +435,23 @@ fn signature_item(item: &ItemTreeNode, set: SignatureItemSet) -> Option<ItemTree
     })
 }
 
-fn comptime_signature_item(item: &ItemTreeNode) -> Option<ItemTreeNode> {
+fn const_signature_item(item: &ItemTreeNode) -> Option<ItemTreeNode> {
     let kind = match &item.kind {
         ItemTreeNodeKind::Struct(item) => ItemTreeNodeKind::Struct(item.clone()),
         ItemTreeNodeKind::Union(item) => ItemTreeNodeKind::Union(item.clone()),
         ItemTreeNodeKind::Enum(item) => ItemTreeNodeKind::Enum(item.clone()),
         ItemTreeNodeKind::TypeAlias(item) => ItemTreeNodeKind::TypeAlias(item.clone()),
-        ItemTreeNodeKind::Binding(item) if item.is_comptime => {
+        ItemTreeNodeKind::Binding(item) if item.is_const() => {
             ItemTreeNodeKind::Binding(item.clone())
         }
-        ItemTreeNodeKind::Function(item) if item.is_comptime => {
+        ItemTreeNodeKind::Function(item) if item.is_const => {
             ItemTreeNodeKind::Function(item.clone())
         }
         ItemTreeNodeKind::Extend(item) => {
             let mut item = item.clone();
             item.associated_values
-                .retain(|associated_value| associated_value.binding.is_comptime);
-            item.methods.retain(|method| method.function.is_comptime);
+                .retain(|associated_value| associated_value.binding.is_const());
+            item.methods.retain(|method| method.function.is_const);
             if item.associated_types.is_empty()
                 && item.associated_values.is_empty()
                 && item.methods.is_empty()
@@ -628,7 +624,7 @@ fn function_decl_eq(lhs: &FunctionItem, rhs: &FunctionItem) -> bool {
         && params_decl_eq(&lhs.params, &rhs.params)
         && option_type_ref_decl_eq(lhs.return_type.as_ref(), rhs.return_type.as_ref())
         && lhs.is_extern == rhs.is_extern
-        && lhs.is_comptime == rhs.is_comptime
+        && lhs.is_const == rhs.is_const
         && lhs.is_variadic == rhs.is_variadic
 }
 
@@ -649,9 +645,9 @@ fn param_decl_eq(lhs: &Param, rhs: &Param) -> bool {
 fn binding_decl_eq(lhs: &BindingItem, rhs: &BindingItem) -> bool {
     lhs.name == rhs.name
         && option_type_ref_decl_eq(lhs.ty.as_ref(), rhs.ty.as_ref())
-        && lhs.is_mutable == rhs.is_mutable
-        && lhs.is_comptime == rhs.is_comptime
-        && lhs.is_extern == rhs.is_extern
+        && lhs.is_mutable() == rhs.is_mutable()
+        && lhs.is_const() == rhs.is_const()
+        && lhs.is_extern() == rhs.is_extern()
 }
 
 pub fn lower_module_items(module: &Module) -> ModuleItemTree {

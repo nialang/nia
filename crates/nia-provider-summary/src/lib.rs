@@ -468,7 +468,7 @@ struct Widget {}
 
 extend Widget {
     pub fn score(&self) i32 { 1 }
-    pub comptime Kind: i32 = 0;
+    pub const Kind: i32 = 0;
 }
 "#,
         );
@@ -712,7 +712,7 @@ extend SpawnError : error::IntoError {
         assert!(errors.is_empty(), "{errors:?}");
         let item_tree = ModuleItemTree::from_module(&module);
         let active = nia_item_tree::ActiveModuleItemTree::new(
-            item_tree.active_items_without_comptime(),
+            item_tree.active_items_without_const(),
             Default::default(),
         );
         ProviderSummary::from_active_item_tree(&active)

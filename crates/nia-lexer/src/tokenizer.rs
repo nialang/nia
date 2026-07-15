@@ -200,7 +200,7 @@ impl<'a> Tokenizer<'a> {
             "as" => TokenKind::As,
             "bool" => TokenKind::Bool,
             "break" => TokenKind::Break,
-            "comptime" => TokenKind::Comptime,
+            "const" => TokenKind::Const,
             "continue" => TokenKind::Continue,
             "defer" => TokenKind::Defer,
             "else" => TokenKind::Else,

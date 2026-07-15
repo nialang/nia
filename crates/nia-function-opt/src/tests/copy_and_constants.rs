@@ -45,14 +45,14 @@ fn propagates_local_copies_within_one_block() {
         nia_function_ir::FunctionLocal {
             id: LocalId(0),
             name: local_name("source"),
-            kind: FunctionLocalKind::Binding,
+            kind: FunctionLocalKind::MutableBinding,
             ty,
             span,
         },
         nia_function_ir::FunctionLocal {
             id: LocalId(1),
             name: local_name("copy"),
-            kind: FunctionLocalKind::Binding,
+            kind: FunctionLocalKind::MutableBinding,
             ty,
             span,
         },
@@ -130,14 +130,14 @@ fn propagates_local_copies_inside_defer_bodies() {
         nia_function_ir::FunctionLocal {
             id: LocalId(0),
             name: local_name("source"),
-            kind: FunctionLocalKind::Binding,
+            kind: FunctionLocalKind::MutableBinding,
             ty,
             span,
         },
         nia_function_ir::FunctionLocal {
             id: LocalId(1),
             name: local_name("copy"),
-            kind: FunctionLocalKind::Binding,
+            kind: FunctionLocalKind::MutableBinding,
             ty,
             span,
         },
@@ -189,7 +189,7 @@ fn propagates_local_constants_within_one_block() {
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
         name: local_name("value"),
-        kind: FunctionLocalKind::Binding,
+        kind: FunctionLocalKind::MutableBinding,
         ty,
         span,
     }];
@@ -255,7 +255,7 @@ fn propagates_local_constants_inside_defer_bodies() {
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
         name: local_name("value"),
-        kind: FunctionLocalKind::Binding,
+        kind: FunctionLocalKind::MutableBinding,
         ty,
         span,
     }];
@@ -320,7 +320,7 @@ fn does_not_propagate_constants_for_locals_used_as_places() {
     body.locals = vec![nia_function_ir::FunctionLocal {
         id: LocalId(0),
         name: local_name("value"),
-        kind: FunctionLocalKind::Binding,
+        kind: FunctionLocalKind::MutableBinding,
         ty,
         span,
     }];
@@ -391,14 +391,14 @@ fn does_not_propagate_locals_used_as_places() {
         nia_function_ir::FunctionLocal {
             id: LocalId(0),
             name: local_name("source"),
-            kind: FunctionLocalKind::Binding,
+            kind: FunctionLocalKind::MutableBinding,
             ty,
             span,
         },
         nia_function_ir::FunctionLocal {
             id: LocalId(1),
             name: local_name("copy"),
-            kind: FunctionLocalKind::Binding,
+            kind: FunctionLocalKind::MutableBinding,
             ty,
             span,
         },

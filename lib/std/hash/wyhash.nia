@@ -3,10 +3,10 @@ using pkg::hash::traits;
 
 using traits::Hasher;
 
-comptime wyhash_secret0: u64 = 0xa0761d6478bd642fu64;
-comptime wyhash_secret1: u64 = 0xe7037ed1a0b428dbu64;
-comptime wyhash_secret2: u64 = 0x8ebc6af09c88c6e3u64;
-comptime wyhash_secret3: u64 = 0x589965cc75374cc3u64;
+const wyhash_secret0: u64 = 0xa0761d6478bd642fu64;
+const wyhash_secret1: u64 = 0xe7037ed1a0b428dbu64;
+const wyhash_secret2: u64 = 0x8ebc6af09c88c6e3u64;
+const wyhash_secret3: u64 = 0x589965cc75374cc3u64;
 
 pub struct Wyhash {
     a: u64,

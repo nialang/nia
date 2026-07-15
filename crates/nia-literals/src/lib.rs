@@ -28,7 +28,7 @@ fn parse_int_literal(text: &str) -> Result<i128, String> {
         return Err("invalid integer constant".to_string());
     }
     i128::from_str_radix(&digits, radix)
-        .map_err(|_| "integer literal is out of range for comptime evaluation".to_string())
+        .map_err(|_| "integer literal is out of range for const evaluation".to_string())
 }
 
 fn numeric_literal_body(text: &str) -> &str {

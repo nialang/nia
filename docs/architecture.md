@@ -55,7 +55,7 @@ source files
   -> type normalization
   -> value path resolution
   -> local name resolution
-  -> comptime value checking
+  -> const value checking
   -> layout computation
   -> ABI check
   -> static initializer check
@@ -70,7 +70,7 @@ source files
 The driver requests top-level query products. Individual crates do not load
 files, schedule whole-program work, or call later backends. Some arrows above
 are query dependencies rather than mandatory eager stages; for example a future
-active item surface query can ask comptime branch queries which in turn depend
+active item surface query can ask const branch queries which in turn depend
 on already-lowered declaration surfaces.
 
 Optimization is configured separately from the phase graph. The CLI accepts
@@ -399,10 +399,10 @@ Trait solving no longer creates a frozen clone of its mutable working interner
 for enum classification. The solver holds enum metadata and classifies nominal
 types directly through the same interner it mutates, so types appended during
 solving remain visible. This is the first trait/body migration slice, not the
-completion of that domain: body and comptime checking still own working
+completion of that domain: body and const checking still own working
 interner snapshots and still import cross-module signature types.
 
-The comptime phase chain transfers its local working interner explicitly from
+The const phase chain transfers its local working interner explicitly from
 array-length evaluation through enum values, values, typed facts, and the final
 product. Later phases no longer clone the initial normalization snapshot and
 immediately overwrite it with the preceding phase's interner. Each transfer
@@ -410,7 +410,7 @@ requires an append-only extension of the original input, and losing the local
 working shard is an internal error rather than a fallback clone. Within an
 analyzer, a type already present in the target module shard is reused directly;
 snapshot import is reserved for a handle absent from that shard. Query products
-still expose phase snapshots, so comptime storage is not yet fully migrated to
+still expose phase snapshots, so const storage is not yet fully migrated to
 the session store.
 
 ### 3.6 `nia-diagnostic`
@@ -510,7 +510,7 @@ and enum namespace validation do not rescan the module list for every segment.
 Extension-method collection and visible-extension queries depend on a
 program-level type-normalization map query, so extension discovery and
 per-module visibility filtering do not rebuild the same normalization map.
-Comptime and body-check providers also depend on program-level module/definition
+Const and body-check providers also depend on program-level module/definition
 map queries, so they do not rebuild identical cross-module context maps for each
 module.
 Executable reachability pruning is intentionally outside the provider file in
@@ -530,7 +530,7 @@ assigns `DefId`s and tracks namespaces for values, types, modules, enum
 variants, and methods.
 
 It detects duplicate names in the same namespace and duplicate generic
-parameters. It does not evaluate comptime conditions, type-check bodies, or load
+parameters. It does not evaluate const conditions, type-check bodies, or load
 other files.
 
 ### 5.2 `nia-imports`
@@ -615,87 +615,87 @@ bindings, block-local `using`, deferred expressions, and local identifiers.
 It also marks expressions that syntactically act as type prefixes for associated
 function calls or enum variant paths.
 
-## 8. Comptime Values, Static Data, Layout, And ABI
+## 8. Const Values, Static Data, Layout, And ABI
 
-### 8.1 `nia-comptime-ir`
+### 8.1 `nia-const-ir`
 
 Defines the source-preserving semantic body used for compile-time execution.
-This is Nia's comptime execution surface, not a generic HIR. It stores only the
+This is Nia's const execution surface, not a generic HIR. It stores only the
 expression, statement, block, function, parameter, binding, and field forms that
 are valid inputs to compile-time evaluation, while preserving the semantic ids
 and source spans needed for name, local, type-argument, and diagnostic queries.
 
-AST is lowered into `ComptimeModule` before execution. A `ComptimeModule`
-contains the module's comptime enums, global and local comptime initializers,
-`comptime fn` bodies, and type-level constant expressions. That keeps parser
+AST is lowered into `ConstModule` before execution. A `ConstModule`
+contains the module's const enums, global and local const initializers,
+`const fn` bodies, and type-level constant expressions. That keeps parser
 syntax out of the evaluator and gives the query system a cacheable module-level
-boundary for ordinary comptime values such as user comptime structs, imported
-`comptime fn` calls, and array length expressions.
+boundary for ordinary const values such as user const structs, imported
+`const fn` calls, and array length expressions.
 
-Comptime lowering consumes `SemanticUseTable` from `nia-sema-ir` for source
+Const lowering consumes `SemanticUseTable` from `nia-sema-ir` for source
 positions that already have semantic identity: value uses, local definitions,
-and type uses. The table is a shared semantic input surface, not a comptime
-resolver. Callers such as `nia-comptime-check`, `nia-body-check`, and
+and type uses. The table is a shared semantic input surface, not a const
+resolver. Callers such as `nia-const-check`, `nia-body-check`, and
 `nia-static-check` decide which resolved locals and globals are valid in their
-context, then pass one table to `nia-comptime-ir`. This prevents compile-time
+context, then pass one table to `nia-const-ir`. This prevents compile-time
 lowering from reinterpreting bare names or carrying a parallel set of name,
 local, and type lookup closures.
 
-### 8.2 `nia-comptime-engine`
+### 8.2 `nia-const-eval`
 
 Evaluates the pure expression subset used by current compile-time values. It
-consumes `nia-comptime-ir` rather than AST. It is an evaluator, not a language
+consumes `nia-const-ir` rather than AST. It is an evaluator, not a language
 semantic pass: it does not load modules, know visibility, own storage rules, or
 make backend decisions.
 
 Supported evaluation is intentionally small: integer, boolean, string, and
-struct literal values; identifiers resolved by a caller-provided comptime
+struct literal values; identifiers resolved by a caller-provided const
 environment; struct field access; casts that preserve the underlying value;
 boolean logic; equality over
-matching primitive comptime values; and simple integer arithmetic and bit
-operations. It also evaluates visible `comptime fn` bodies represented as
-comptime semantic bodies. AST lowering is performed by callers such as
-`nia-comptime-check`, `nia-body-check`, static validation, or the early target
+matching primitive const values; and simple integer arithmetic and bit
+operations. It also evaluates visible `const fn` bodies represented as
+const semantic bodies. AST lowering is performed by callers such as
+`nia-const-check`, `nia-body-check`, static validation, or the early target
 pruner before values reach the engine; the engine itself only accepts the
-comptime semantic representation.
+const semantic representation.
 
-### 8.3 `nia-comptime-check`
+### 8.3 `nia-const-check`
 
-Lowers AST plus local/value/type semantic tables into `ComptimeModule`, then
-uses `nia-comptime-engine` to check and collect current compile-time values. It
-owns `comptime` binding dependency resolution, cycle diagnostics, enum
+Lowers AST plus local/value/type semantic tables into `ConstModule`, then
+uses `nia-const-eval` to check and collect current compile-time values. It
+owns `const` binding dependency resolution, cycle diagnostics, enum
 discriminant values, and array length values that depend on local or imported
-comptime bindings or imported `comptime fn` calls.
+const bindings or imported `const fn` calls.
 Layout builtins such as `@size[T]()` and `@align[T]()` consume those evaluated
 array lengths through narrow lookup closures while computing layouts; they do
-not construct ad hoc `ComptimeCheck` result tables for layout queries.
+not construct ad hoc `ConstCheck` result tables for layout queries.
 
 This crate is the semantic boundary for current compile-time value requirements.
-It is separate from static storage because `comptime` bindings have no runtime
+It is separate from static storage because `const` bindings have no runtime
 storage or address, while `static` and `static mut` declarations do.
 
-`nia-comptime-check` also owns the typed comptime value layer. The engine may
+`nia-const-check` also owns the typed const value layer. The engine may
 produce a pure value such as an integer, string, array, or struct, but the
-checker records the semantic comptime type when it is known from source-level
+checker records the semantic const type when it is known from source-level
 semantic tables or builtin declarations. Runtime Nia types are represented as
-one case of this typed comptime layer; pure compile-time structs are represented
+one case of this typed const layer; pure compile-time structs are represented
 structurally and do not have to be forced into the
 runtime type interner. This keeps type ownership in the semantic query layer
 instead of teaching the evaluator about Nia's type system, while still giving
-generic comptime calls and ordinary user comptime structs one shared typed
+generic const calls and ordinary user const structs one shared typed
 representation.
 
-Typed comptime bindings are not limited to explicit type annotations. When a
-`comptime` binding has no source annotation, the checker derives its typed
-value from the initializer's typed comptime expression and records that in
-`ComptimeCheck::typed_values`. Cross-module body checking consumes those typed
-values through the program comptime query result and imports runtime types into
+Typed const bindings are not limited to explicit type annotations. When a
+`const` binding has no source annotation, the checker derives its typed
+value from the initializer's typed const expression and records that in
+`ConstCheck::typed_values`. Cross-module body checking consumes those typed
+values through the program const query result and imports runtime types into
 the current module interner at the use site. Item signatures remain the source
-signature surface; inferred comptime value types are semantic query output, not
+signature surface; inferred const value types are semantic query output, not
 retroactive signature data.
 
-Typed comptime expression inference belongs to this checker as well. It derives
-runtime types for source-shaped comptime expressions only when the type is a
+Typed const expression inference belongs to this checker as well. It derives
+runtime types for source-shaped const expressions only when the type is a
 semantic consequence of the expression and available tables, such as suffixed
 integer literals, typed aggregate literals, inferable array literals, structural
 field access, and optional constructors whose payload type is
@@ -704,138 +704,138 @@ one-sided error-union values, remain untyped until an explicit binding,
 parameter, or call context supplies the full type.
 
 Propagation expressions use the same typed value surface: when the operand type
-is known as `?T` or `E!T`, `operand.?` has payload type `T` for later comptime
+is known as `?T` or `E!T`, `operand.?` has payload type `T` for later const
 generic inference.
 
-Binary comptime expressions are typed conservatively from operand types.
+Binary const expressions are typed conservatively from operand types.
 Boolean logic and comparisons produce `bool`; integer arithmetic and bit
 operations produce the shared operand type only when both operands already have
 the same concrete integer runtime type.
 
-Boolean literals and supported unary comptime operators are typed directly:
+Boolean literals and supported unary const operators are typed directly:
 `true`, `false`, and `not` produce `bool`, while integer negation preserves the
 known concrete integer operand type.
 
 Expected types are an input to this semantic query, not a fallback evaluator
-rule. This lets generic comptime calls infer through partially-known parameter
+rule. This lets generic const calls infer through partially-known parameter
 types, for example `E!T` can type `!value` when `E` is already concrete, while
 still refusing to invent the missing half of an error union from the value
 shape alone.
 
 File embedding is part of the same semantic boundary. The `@embed("path")`
-builtin is lowered into `nia-comptime-ir`, evaluated by `nia-comptime-engine`
-through the caller-provided comptime environment, and resolved by
-`nia-comptime-check` against the `SourcePath` of the module currently
+builtin is lowered into `nia-const-ir`, evaluated by `nia-const-eval`
+through the caller-provided const environment, and resolved by
+`nia-const-check` against the `SourcePath` of the module currently
 executing. It is deliberately not a loader fallback or cwd-relative operation;
 cross-module execution receives the producing module's source path through the
-program comptime context.
+program const context.
 
-Comptime block expressions are typed from their tail expression. A block with
-statements creates a typed comptime scope in the checker, records local binding
+Const block expressions are typed from their tail expression. A block with
+statements creates a typed const scope in the checker, records local binding
 types from explicit annotations or inferable initializer expressions, and then
 types the tail inside that scope. This remains a semantic typing operation; the
 engine still owns value execution and the checker does not execute statement
 effects just to discover a block tail type.
 
-Comptime array literals are typed by expected array context when one exists,
+Const array literals are typed by expected array context when one exists,
 or by peer element inference otherwise. List literals choose an element that
 produces a concrete type as the anchor, then type the remaining elements from
 that anchor; this lets contextual forms such as `[null, ?value]` infer the
 optional element type without treating unresolved generic placeholders as real
-types. Repeat literals use the repeated value type and the comptime repeat
+types. Repeat literals use the repeated value type and the const repeat
 count to build the array runtime type. When no runtime array context exists,
-array literals can still be typed as structural comptime-only arrays. Their
-element type is another `ComptimeValueType`, so arrays of structural comptime
+array literals can still be typed as structural const-only arrays. Their
+element type is another `ConstValueType`, so arrays of structural const
 structs behave like ordinary compile-time data tables and indexed elements can
-feed field access and generic comptime call inference.
-Comptime array slicing is part of the same value surface: slicing a comptime
-array produces another comptime array value, and the typed comptime layer
+feed field access and generic const call inference.
+Const array slicing is part of the same value surface: slicing a const
+array produces another const array value, and the typed const layer
 records the sliced element type and known length so the result can feed field
-access, indexing, and generic comptime call inference without becoming a
+access, indexing, and generic const call inference without becoming a
 runtime slice.
 
-Comptime struct literals have two typed surfaces. When an expected nominal
+Const struct literals have two typed surfaces. When an expected nominal
 struct type exists, the checker uses that struct type, substitutes its generic
 arguments into the field signature types, infers still-open generic arguments
 from concrete field values, and then rechecks all fields with the completed
 field types. Without a nominal expected type, the literal is a structural
-compile-time-only value: the checker derives each field's comptime type and
-records a `ComptimeValueType::Struct`. It does not invent anonymous runtime
-struct types from field names; structural values stay in the comptime-only
+compile-time-only value: the checker derives each field's const type and
+records a `ConstValueType::Struct`. It does not invent anonymous runtime
+struct types from field names; structural values stay in the const-only
 typed surface.
 
-Comptime field access consumes both sides of that typed value surface.
-Structural comptime-only structs resolve fields from their structural field
+Const field access consumes both sides of that typed value surface.
+Structural const-only structs resolve fields from their structural field
 type list, while runtime nominal struct values resolve fields from the nominal
 struct signature with generic arguments substituted into the current execution
-module. Structural comptime data stays on the same typed expression path
+module. Structural const data stays on the same typed expression path
 without forcing anonymous data into the runtime type interner.
 
-Consumers outside `nia-comptime-check` should use the typed value surface's
+Consumers outside `nia-const-check` should use the typed value surface's
 accessors for structural field and array element queries instead of duplicating
-shape matches. That keeps `nia-body-check` a consumer of typed comptime facts
-rather than a second owner of comptime expression inference.
+shape matches. That keeps `nia-body-check` a consumer of typed const facts
+rather than a second owner of const expression inference.
 
-The same boundary applies to function-body comptime execution. `nia-body-check`
-may execute lowered `nia-comptime-ir` expressions while checking body-local
-`if` expressions, array lengths, and local `comptime` bindings, but generic
-comptime-call instantiation is delegated back to `nia-comptime-check`'s typed
-query surface. Body checking provides a typed comptime frame containing local
-binding value types, name aliases, active comptime function type substitutions,
+The same boundary applies to function-body const execution. `nia-body-check`
+may execute lowered `nia-const-ir` expressions while checking body-local
+`if` expressions, array lengths, and local `const` bindings, but generic
+const-call instantiation is delegated back to `nia-const-check`'s typed
+query surface. Body checking provides a typed const frame containing local
+binding value types, name aliases, active const function type substitutions,
 the current target, and the same program-level type lowering, normalization,
-signature, definition, and comptime-module context available to top-level
-comptime checking. The comptime checker uses that frame and program context
-through `TypedComptimeQueryInput`, so expression type queries and comptime
+signature, definition, and const-module context available to top-level
+const checking. The const checker uses that frame and program context
+through `TypedConstQueryInput`, so expression type queries and const
 function generic instantiation share one public input surface. This lets
-function-local structural comptime values, imported `comptime fn` calls, and
-imported structural comptime fields infer generic arguments without growing a
+function-local structural const values, imported `const fn` calls, and
+imported structural const fields infer generic arguments without growing a
 second type-inference implementation in body checking.
 
-`TypedComptimeQueryInput` borrows existing typed comptime query output instead
+`TypedConstQueryInput` borrows existing typed const query output instead
 of copying it into a new result table. The checker overlays those borrowed
 facts with any typed values produced by the local query, preserving the query
 graph boundary while avoiding an accidental clone-based API contract.
 
-Typed comptime expression inference uses explicit probe helpers when it needs
-to ask whether a subexpression can be evaluated as a comptime integer, array
+Typed const expression inference uses explicit probe helpers when it needs
+to ask whether a subexpression can be evaluated as a const integer, array
 length, or generic argument source. These probes deliberately return absence
 rather than diagnostics: they are used to decide whether a type can be proven
 from the current semantic facts, not to validate the program. The checking
 paths that own required compile-time behavior still execute the same lowered
-`nia-comptime-ir` through `nia-comptime-engine` and report engine errors there.
+`nia-const-ir` through `nia-const-eval` and report engine errors there.
 This keeps typed inference from becoming a second diagnostics pass while making
 the optional probe boundary visible in code.
 
-Comptime `if` expressions are typed from branch result types. The then block
-tail and else expression are both typed through the same source-shaped comptime
+Const `if` expressions are typed from branch result types. The then block
+tail and else expression are both typed through the same source-shaped const
 expression rules, including nested block expressions and contextual
 constructors such as `null`. Both selected result shapes must agree on the same
-typed comptime value shape before the `if` expression can feed generic
-comptime call inference: runtime Nia values agree by `TyId`, while structural
-comptime-only structs agree by their field type surface.
+typed const value shape before the `if` expression can feed generic
+const call inference: runtime Nia values agree by `TyId`, while structural
+const-only structs agree by their field type surface.
 
-Comptime `switch` expressions follow the same source-shaped typed surface as
+Const `switch` expressions follow the same source-shaped typed surface as
 runtime source `switch`: value patterns, integer ranges, and default cases.
-Value-producing arm bodies are typed and unified to one typed comptime value
+Value-producing arm bodies are typed and unified to one typed const value
 shape, while control-flow-only arms such as `return`, `break`, or `continue`
 do not invent a switch result type. Recursive optional and error-union payload
 patterns belong to if-pattern expressions; their payload locals are typed from the
 target type while checking those arms. The evaluator still performs
 actual matching; the checker only records the arm and payload types needed for
-comptime generic inference.
+const generic inference.
 
-Comptime function calls are typed by their signatures in the same layer. Generic
+Const function calls are typed by their signatures in the same layer. Generic
 type arguments are inferred from typed argument expressions, substituted into
 the return type, and then imported into the current execution module's working
-interner. This makes nested comptime calls participate in later generic
+interner. This makes nested const calls participate in later generic
 inference without executing the callee solely to discover its type.
 
-Early target pruning is intentionally narrower than full comptime execution: it
+Early target pruning is intentionally narrower than full const execution: it
 can evaluate target builtins and same-module helper functions before the module
-graph is complete. It lowers its accepted AST conditions to `nia-comptime-ir`
-locally, but does not participate in program-level comptime module queries. Full
-imported comptime function execution belongs to the semantic query path after
-imports, definitions, values, locals, and comptime modules are available.
+graph is complete. It lowers its accepted AST conditions to `nia-const-ir`
+locally, but does not participate in program-level const module queries. Full
+imported const function execution belongs to the semantic query path after
+imports, definitions, values, locals, and const modules are available.
 
 ### 8.4 `nia-static-check`
 
@@ -905,18 +905,18 @@ It produces two explicit products:
 - `BodyFacts`, the body semantic surface: expression types, final
   bracket-suffix resolution, builtin values, call targets, coercions, function
   references, local types, generic instantiations, source-node fact keys, plus
-  checked comptime-derived facts such as array repeat counts and switch pattern
+  checked const-derived facts such as array repeat counts and switch pattern
   values;
 - `BodyIr`, the runtime checked body boundary: typed function bodies, static
   initializers, and the interner required to interpret those typed bodies.
 
 Later phases consume these products explicitly instead of reading ad hoc
 body-check side tables or rediscovering expression semantics from AST shape.
-Runtime body lowering is a consumer of `ComptimeCheck` and program comptime
-query results. It must not implement a second imported-comptime evaluator; an
-imported `comptime` value used in a runtime expression is read from the producing
-module's `ComptimeCheck`, while body-local compile-time execution remains in the
-body checker and delegates typed comptime queries back to `nia-comptime-check`.
+Runtime body lowering is a consumer of `ConstCheck` and program const
+query results. It must not implement a second imported-const evaluator; an
+imported `const` value used in a runtime expression is read from the producing
+module's `ConstCheck`, while body-local compile-time execution remains in the
+body checker and delegates typed const queries back to `nia-const-check`.
 
 ### 9.3 `nia-body-ir`
 
@@ -940,12 +940,12 @@ MIR and does not own diagnostics or checking policy. It is the durable data
 product of body checking and the input boundary for later lowering,
 monomorphization, and backend phases. `BodyFacts` carries semantic side facts;
 `BodyIr` carries runtime typed bodies and static data.
-Facts derived from comptime execution during body checking, such as array repeat
+Facts derived from const execution during body checking, such as array repeat
 counts and switch pattern values, are recorded here so later lowering can
 consume checked facts instead of re-running expression evaluation from source
 shape. If body IR lowering does not have a checked integer-pattern fact because
 the checker already rejected the pattern or the pattern is not an integer fact,
-it keeps the original expression-shaped pattern instead of re-running comptime
+it keeps the original expression-shaped pattern instead of re-running const
 evaluation or producing a second diagnostic.
 Integer and boolean switch patterns therefore enter `BodyIr` as checked pattern
 values or checked ranges; expression-shaped switch patterns remain only for
@@ -1095,7 +1095,7 @@ because their invariants are different:
 
 When body checking materializes accepted static initializers into
 `StaticInit`, any required compile-time integer or static-address index is
-lowered through the same `nia-comptime-ir` surface and evaluated through a
+lowered through the same `nia-const-ir` surface and evaluated through a
 single static-initializer helper. That helper is part of static data
 materialization, not a general backend escape hatch for reinterpreting AST.
 
@@ -1314,7 +1314,7 @@ filesystem paths as semantic identity.
 
 Module cycles are load-time errors. Loaded modules keep separate `ModuleId`s
 and source paths, and references still go through explicit using aliases and
-normal visibility checks. Recursive aliases, comptime dependencies, layouts,
+normal visibility checks. Recursive aliases, const dependencies, layouts,
 generic expansion, or re-export chains remain concrete semantic errors for
 their owning phases.
 

@@ -5,7 +5,7 @@ use nia_backend_ir::{
     BackendEnum, BackendEnumVariant, BackendField, BackendFunction, BackendFunctionAttribute,
     BackendGlobal, BackendParam, BackendStruct, BackendUnion,
 };
-use nia_comptime_check::ComptimeValue;
+use nia_const_check::ConstValue;
 use nia_defs::DefKind;
 use nia_ids::ReceiverKind;
 use nia_item_signatures::FunctionAttribute;
@@ -95,11 +95,11 @@ impl<'a> ModuleLowerer<'a> {
                     name: variant.name,
                     value: self
                         .input
-                        .comptime_enum_values
+                        .const_enum_values
                         .values
                         .get(&variant.def_id)
                         .and_then(|value| match value {
-                            ComptimeValue::Int(value) => value.as_i128(),
+                            ConstValue::Int(value) => value.as_i128(),
                             _ => None,
                         }),
                     span: variant.span,
@@ -216,7 +216,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendFunction> {
         let def_id = self.def_id_for_node_any_function(&function.node_key)?;
         let signature = self.input.signatures.functions.get(&def_id)?;
-        if signature.is_comptime {
+        if signature.is_const {
             return None;
         }
         if !signature.is_extern && !signature.has_body {

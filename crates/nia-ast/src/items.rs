@@ -254,7 +254,7 @@ pub struct FunctionItem {
     pub return_type: Option<TypeRef>,
     pub body: Option<Block>,
     pub is_extern: bool,
-    pub is_comptime: bool,
+    pub is_const: bool,
     pub is_variadic: bool,
     pub span: Span,
     pub node_key: VersionedNodeKey,
@@ -270,7 +270,7 @@ pub struct GenericParam {
 #[derive(Debug, Clone, PartialEq)]
 pub enum GenericParamKind {
     Type,
-    Comptime { ty: TypeRef },
+    Const { ty: TypeRef },
 }
 
 impl GenericParam {
@@ -282,11 +282,11 @@ impl GenericParam {
         }
     }
 
-    pub fn comptime_param(name: SymbolId, name_span: Span, ty: TypeRef) -> Self {
+    pub fn const_param(name: SymbolId, name_span: Span, ty: TypeRef) -> Self {
         Self {
             name,
             name_span,
-            kind: GenericParamKind::Comptime { ty },
+            kind: GenericParamKind::Const { ty },
         }
     }
 
@@ -294,8 +294,8 @@ impl GenericParam {
         matches!(self.kind, GenericParamKind::Type)
     }
 
-    pub fn is_comptime(&self) -> bool {
-        matches!(self.kind, GenericParamKind::Comptime { .. })
+    pub fn is_const(&self) -> bool {
+        matches!(self.kind, GenericParamKind::Const { .. })
     }
 }
 
@@ -310,7 +310,7 @@ pub fn generic_param_identities(generics: &[GenericParam]) -> Vec<String> {
 pub fn generic_param_identity(generic: &GenericParam) -> String {
     match &generic.kind {
         GenericParamKind::Type => symbol_identity_key(generic.name),
-        GenericParamKind::Comptime { ty } => {
+        GenericParamKind::Const { ty } => {
             format!(
                 "{}:{}",
                 symbol_identity_key(generic.name),
@@ -334,8 +334,38 @@ pub struct BindingItem {
     pub name: SymbolId,
     pub ty: Option<TypeRef>,
     pub value: Option<Expr>,
-    pub is_mutable: bool,
-    pub is_comptime: bool,
-    pub is_extern: bool,
+    pub kind: ItemBindingKind,
     pub node_key: VersionedNodeKey,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemBindingKind {
+    Const,
+    Static { is_mutable: bool, is_extern: bool },
+}
+
+impl BindingItem {
+    pub fn is_const(&self) -> bool {
+        matches!(self.kind, ItemBindingKind::Const)
+    }
+
+    pub fn is_mutable(&self) -> bool {
+        matches!(
+            self.kind,
+            ItemBindingKind::Static {
+                is_mutable: true,
+                ..
+            }
+        )
+    }
+
+    pub fn is_extern(&self) -> bool {
+        matches!(
+            self.kind,
+            ItemBindingKind::Static {
+                is_extern: true,
+                ..
+            }
+        )
+    }
 }

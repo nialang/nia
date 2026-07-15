@@ -45,8 +45,8 @@ pub struct TypedLocal {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypedLocalKind {
     Param,
-    Binding,
-    ConstBinding,
+    MutableBinding,
+    ImmutableBinding,
 }
 
 #[derive(Debug, Clone, PartialEq)]

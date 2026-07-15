@@ -8,7 +8,7 @@ mod cross_module;
 mod function_ir;
 mod imports_and_aggregates;
 mod layouts_and_literals;
-mod low_level_and_comptime;
+mod low_level_and_const;
 mod operators;
 mod smoke;
 mod structural_extensions;

@@ -562,7 +562,7 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
 
 fn namespace_for(kind: DefKind) -> Option<PublicNamespace> {
     match kind {
-        DefKind::Function | DefKind::Global | DefKind::Comptime => Some(PublicNamespace::Value),
+        DefKind::Function | DefKind::Global | DefKind::Const => Some(PublicNamespace::Value),
         DefKind::Struct | DefKind::Union | DefKind::Trait | DefKind::Enum | DefKind::TypeAlias => {
             Some(PublicNamespace::Type)
         }
@@ -1707,7 +1707,7 @@ fn resolve_current_single(
         && let Some(def) = current.defs.get(def_id)
         && matches!(
             def.kind,
-            DefKind::Function | DefKind::Global | DefKind::Comptime
+            DefKind::Function | DefKind::Global | DefKind::Const
         )
     {
         entries.push(ResolvedEntry {

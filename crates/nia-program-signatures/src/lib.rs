@@ -5,10 +5,9 @@ use std::collections::HashMap;
 
 use nia_ids::GlobalDefId;
 use nia_item_signatures::{
-    ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
-    ProgramGlobalSignature, ProgramStructSignature, ProgramTraitImplIndex,
-    ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
-    ProgramUnionSignature,
+    ProgramConstSignature, ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature,
+    ProgramStructSignature, ProgramTraitImplIndex, ProgramTraitImplSignature,
+    ProgramTraitSignature, ProgramTypeAliasSignature, ProgramUnionSignature,
 };
 use nia_symbol::{SymbolId, SymbolMap};
 
@@ -17,7 +16,7 @@ pub use analysis::*;
 pub trait ProgramSignatureLookup {
     fn function(&self, def_id: GlobalDefId) -> Option<ProgramFunctionSignature>;
     fn global(&self, def_id: GlobalDefId) -> Option<ProgramGlobalSignature>;
-    fn comptime(&self, def_id: GlobalDefId) -> Option<ProgramComptimeSignature>;
+    fn const_eval(&self, def_id: GlobalDefId) -> Option<ProgramConstSignature>;
     fn struct_(&self, def_id: GlobalDefId) -> Option<ProgramStructSignature>;
     fn union(&self, def_id: GlobalDefId) -> Option<ProgramUnionSignature>;
     fn enum_(&self, def_id: GlobalDefId) -> Option<ProgramEnumSignature>;
@@ -37,8 +36,8 @@ pub trait ProgramSignatureLookup {
         self.global(def_id).is_some()
     }
 
-    fn has_comptime(&self, def_id: GlobalDefId) -> bool {
-        self.comptime(def_id).is_some()
+    fn has_const(&self, def_id: GlobalDefId) -> bool {
+        self.const_eval(def_id).is_some()
     }
 
     fn has_struct(&self, def_id: GlobalDefId) -> bool {
@@ -109,7 +108,7 @@ impl ProgramSignatureLookup for EmptyProgramSignatureLookup {
         None
     }
 
-    fn comptime(&self, _def_id: GlobalDefId) -> Option<ProgramComptimeSignature> {
+    fn const_eval(&self, _def_id: GlobalDefId) -> Option<ProgramConstSignature> {
         None
     }
 
@@ -159,7 +158,7 @@ impl ProgramSignatureContext<'static> {
 pub struct ProgramSignatureMaps<'a> {
     pub functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
     pub globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
-    pub comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
+    pub consts: &'a HashMap<GlobalDefId, ProgramConstSignature>,
     pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
     pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
@@ -171,7 +170,7 @@ pub struct ProgramSignatureMaps<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct ProgramNonFunctionSignatureMaps<'a> {
     pub globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
-    pub comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
+    pub consts: &'a HashMap<GlobalDefId, ProgramConstSignature>,
     pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
     pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
@@ -248,8 +247,8 @@ impl ProgramSignatureLookup for ProgramSignatureMaps<'_> {
         self.globals.get(&def_id).cloned()
     }
 
-    fn comptime(&self, def_id: GlobalDefId) -> Option<ProgramComptimeSignature> {
-        self.comptimes.get(&def_id).cloned()
+    fn const_eval(&self, def_id: GlobalDefId) -> Option<ProgramConstSignature> {
+        self.consts.get(&def_id).cloned()
     }
 
     fn struct_(&self, def_id: GlobalDefId) -> Option<ProgramStructSignature> {
@@ -298,8 +297,8 @@ impl ProgramSignatureLookup for ProgramSignatureMaps<'_> {
         self.globals.contains_key(&def_id)
     }
 
-    fn has_comptime(&self, def_id: GlobalDefId) -> bool {
-        self.comptimes.contains_key(&def_id)
+    fn has_const(&self, def_id: GlobalDefId) -> bool {
+        self.consts.contains_key(&def_id)
     }
 
     fn has_struct(&self, def_id: GlobalDefId) -> bool {
@@ -328,8 +327,8 @@ impl ProgramNonFunctionSignatureMaps<'_> {
         self.globals.get(&def_id).cloned()
     }
 
-    pub fn comptime(&self, def_id: GlobalDefId) -> Option<ProgramComptimeSignature> {
-        self.comptimes.get(&def_id).cloned()
+    pub fn const_eval(&self, def_id: GlobalDefId) -> Option<ProgramConstSignature> {
+        self.consts.get(&def_id).cloned()
     }
 
     pub fn struct_(&self, def_id: GlobalDefId) -> Option<ProgramStructSignature> {
@@ -375,7 +374,7 @@ impl ProgramNonFunctionSignatureMaps<'_> {
 pub struct ProgramSignatureResolvers<'a> {
     pub function: &'a dyn Fn(GlobalDefId) -> Option<ProgramFunctionSignature>,
     pub global: &'a dyn Fn(GlobalDefId) -> Option<ProgramGlobalSignature>,
-    pub comptime: &'a dyn Fn(GlobalDefId) -> Option<ProgramComptimeSignature>,
+    pub const_eval: &'a dyn Fn(GlobalDefId) -> Option<ProgramConstSignature>,
     pub struct_: &'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
     pub union: &'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
     pub enum_: &'a dyn Fn(GlobalDefId) -> Option<ProgramEnumSignature>,
@@ -395,8 +394,8 @@ impl ProgramSignatureLookup for ProgramSignatureResolvers<'_> {
         (self.global)(def_id)
     }
 
-    fn comptime(&self, def_id: GlobalDefId) -> Option<ProgramComptimeSignature> {
-        (self.comptime)(def_id)
+    fn const_eval(&self, def_id: GlobalDefId) -> Option<ProgramConstSignature> {
+        (self.const_eval)(def_id)
     }
 
     fn struct_(&self, def_id: GlobalDefId) -> Option<ProgramStructSignature> {

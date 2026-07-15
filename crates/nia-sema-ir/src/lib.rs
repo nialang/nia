@@ -16,8 +16,7 @@ pub struct SemanticUseTable {
     pub node_value_uses: HashMap<VersionedNodeKey, SemanticValueUse>,
     pub node_const_generic_uses: HashMap<VersionedNodeKey, SymbolId>,
     pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
-    pub node_associated_comptime_projections:
-        HashMap<VersionedNodeKey, AssociatedComptimeProjection>,
+    pub node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
     pub node_local_defs: HashMap<VersionedNodeKey, LocalId>,
     pub node_type_uses: HashMap<VersionedNodeKey, InternedTyId>,
 }
@@ -38,11 +37,11 @@ impl SemanticUseTable {
         self.node_builtin_associated_values.get(key).copied()
     }
 
-    pub fn node_associated_comptime_projection(
+    pub fn node_associated_const_projection(
         &self,
         key: &VersionedNodeKey,
-    ) -> Option<&AssociatedComptimeProjection> {
-        self.node_associated_comptime_projections.get(key)
+    ) -> Option<&AssociatedConstProjection> {
+        self.node_associated_const_projections.get(key)
     }
 
     pub fn node_const_generic_use(&self, key: &VersionedNodeKey) -> Option<&SymbolId> {
@@ -100,22 +99,22 @@ impl SemanticUseTableBuilder {
         self.table.node_builtin_associated_values.insert(key, value);
     }
 
-    pub fn insert_node_associated_comptime_projection(
+    pub fn insert_node_associated_const_projection(
         &mut self,
         key: VersionedNodeKey,
-        projection: AssociatedComptimeProjection,
+        projection: AssociatedConstProjection,
     ) {
         self.table
-            .node_associated_comptime_projections
+            .node_associated_const_projections
             .insert(key, projection);
     }
 
-    pub fn extend_node_associated_comptime_projections(
+    pub fn extend_node_associated_const_projections(
         &mut self,
-        projections: impl IntoIterator<Item = (VersionedNodeKey, AssociatedComptimeProjection)>,
+        projections: impl IntoIterator<Item = (VersionedNodeKey, AssociatedConstProjection)>,
     ) {
         self.table
-            .node_associated_comptime_projections
+            .node_associated_const_projections
             .extend(projections);
     }
 
@@ -169,7 +168,7 @@ pub enum SemanticValueUse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AssociatedComptimeProjection {
+pub struct AssociatedConstProjection {
     pub self_ty: InternedTyId,
     pub trait_id: TraitId,
     pub trait_args: Vec<InternedTyId>,
@@ -266,7 +265,7 @@ fn int_mask(bits: u32) -> u128 {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticFacts {
     pub global_types: HashMap<GlobalDefId, InternedTyId>,
-    pub comptime_types: HashMap<GlobalDefId, InternedTyId>,
+    pub const_types: HashMap<GlobalDefId, InternedTyId>,
     /// Instantiations owned by module-level facts. Function body instantiations live in
     /// `function_facts`; use `iter_generic_instantiations` when both owners are relevant.
     pub generic_instantiations: Vec<GenericInstantiation>,
@@ -281,8 +280,7 @@ pub struct SemanticFacts {
     pub node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
     pub node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
     pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
-    pub node_associated_comptime_projections:
-        HashMap<VersionedNodeKey, AssociatedComptimeProjection>,
+    pub node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
     pub node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
     pub node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
     pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
@@ -292,7 +290,7 @@ pub struct SemanticFacts {
 impl SemanticFacts {
     pub fn extend(&mut self, facts: Self) {
         self.global_types.extend(facts.global_types);
-        self.comptime_types.extend(facts.comptime_types);
+        self.const_types.extend(facts.const_types);
         self.generic_instantiations
             .extend(facts.generic_instantiations);
         self.function_facts.extend(facts.function_facts);
@@ -308,8 +306,8 @@ impl SemanticFacts {
         self.node_builtin_values.extend(facts.node_builtin_values);
         self.node_builtin_associated_values
             .extend(facts.node_builtin_associated_values);
-        self.node_associated_comptime_projections
-            .extend(facts.node_associated_comptime_projections);
+        self.node_associated_const_projections
+            .extend(facts.node_associated_const_projections);
         self.node_array_repeat_counts
             .extend(facts.node_array_repeat_counts);
         self.node_switch_pattern_values
@@ -395,13 +393,13 @@ impl SemanticFacts {
         )
     }
 
-    pub fn iter_node_associated_comptime_projections(
+    pub fn iter_node_associated_const_projections(
         &self,
-    ) -> impl Iterator<Item = (&VersionedNodeKey, &AssociatedComptimeProjection)> + '_ {
-        self.node_associated_comptime_projections.iter().chain(
+    ) -> impl Iterator<Item = (&VersionedNodeKey, &AssociatedConstProjection)> + '_ {
+        self.node_associated_const_projections.iter().chain(
             self.function_facts
                 .values()
-                .flat_map(|facts| facts.node_associated_comptime_projections.iter()),
+                .flat_map(|facts| facts.node_associated_const_projections.iter()),
         )
     }
 
@@ -467,8 +465,8 @@ impl SemanticFacts {
             for key in facts.node_builtin_values.keys() {
                 self.node_builtin_values.remove(key);
             }
-            for key in facts.node_associated_comptime_projections.keys() {
-                self.node_associated_comptime_projections.remove(key);
+            for key in facts.node_associated_const_projections.keys() {
+                self.node_associated_const_projections.remove(key);
             }
             for key in facts.node_array_repeat_counts.keys() {
                 self.node_array_repeat_counts.remove(key);
@@ -498,8 +496,7 @@ pub struct FunctionSemanticFacts {
     pub node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
     pub node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
     pub node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
-    pub node_associated_comptime_projections:
-        HashMap<VersionedNodeKey, AssociatedComptimeProjection>,
+    pub node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
     pub node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
     pub node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
     pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,

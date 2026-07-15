@@ -38,7 +38,7 @@ fn main() i32 { 0 }
     assert!(matches!(module.items[3].kind, ItemKind::Struct(_)));
     assert!(matches!(module.items[4].kind, ItemKind::Extend(_)));
     assert!(matches!(module.items[5].kind, ItemKind::Binding(_)));
-    assert!(matches!(&module.items[6].kind, ItemKind::Binding(binding) if binding.is_extern));
+    assert!(matches!(&module.items[6].kind, ItemKind::Binding(binding) if binding.is_extern()));
     assert!(matches!(module.items[7].kind, ItemKind::TypeAlias(_)));
     assert!(matches!(module.items[8].kind, ItemKind::Function(_)));
 }

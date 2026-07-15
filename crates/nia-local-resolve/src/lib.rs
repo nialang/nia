@@ -88,9 +88,9 @@ impl LocalBindingName {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalKind {
     Param,
-    Binding,
+    MutableBinding,
+    ImmutableBinding,
     ConstBinding,
-    ComptimeBinding,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -397,7 +397,7 @@ impl LocalDefinitionAllocator {
             }
             StmtKind::ForIn(for_stmt) => {
                 self.allocate_expr(&for_stmt.iter);
-                self.allocate_pattern(&for_stmt.pattern, LocalKind::ConstBinding);
+                self.allocate_pattern(&for_stmt.pattern, LocalKind::ImmutableBinding);
                 self.allocate_block(&for_stmt.body);
             }
             StmtKind::While(while_stmt) => {
@@ -419,12 +419,12 @@ impl LocalDefinitionAllocator {
             self.allocate_expr(value);
         }
         let _ = fallback_key;
-        let default_kind = if binding.is_comptime {
-            LocalKind::ComptimeBinding
-        } else if binding.is_mutable {
-            LocalKind::Binding
-        } else {
+        let default_kind = if binding.is_const() {
             LocalKind::ConstBinding
+        } else if binding.is_mutable() {
+            LocalKind::MutableBinding
+        } else {
+            LocalKind::ImmutableBinding
         };
         self.allocate_pattern_with_span(&binding.pattern, default_kind, span);
     }
@@ -519,7 +519,7 @@ impl LocalDefinitionAllocator {
             ExprKind::IfPattern(if_pattern) => {
                 self.allocate_expr(&if_pattern.target);
                 for arm in &if_pattern.arms {
-                    self.allocate_pattern(&arm.pattern, LocalKind::ConstBinding);
+                    self.allocate_pattern(&arm.pattern, LocalKind::ImmutableBinding);
                     self.allocate_block(&arm.body);
                 }
                 if let Some(else_branch) = &if_pattern.else_branch {
@@ -584,12 +584,12 @@ impl LocalDefinitionAllocator {
                 node_key,
                 is_mutable,
             } => {
-                let kind = if matches!(binding_kind, LocalKind::ComptimeBinding) {
-                    LocalKind::ComptimeBinding
-                } else if *is_mutable || matches!(binding_kind, LocalKind::Binding) {
-                    LocalKind::Binding
-                } else {
+                let kind = if matches!(binding_kind, LocalKind::ConstBinding) {
                     LocalKind::ConstBinding
+                } else if *is_mutable || matches!(binding_kind, LocalKind::MutableBinding) {
+                    LocalKind::MutableBinding
+                } else {
+                    LocalKind::ImmutableBinding
                 };
                 self.allocate_definition(name, kind, binding_span, node_key.clone());
             }
@@ -766,7 +766,7 @@ impl<'a> LocalResolver<'a> {
                 self.push_scope();
                 self.resolve_pattern(
                     &for_stmt.pattern,
-                    LocalKind::ConstBinding,
+                    LocalKind::ImmutableBinding,
                     "duplicate local binding",
                 );
                 self.resolve_block(&for_stmt.body);
@@ -793,12 +793,12 @@ impl<'a> LocalResolver<'a> {
             self.resolve_expr(value);
         }
         let _ = fallback_key;
-        let default_kind = if binding.is_comptime {
-            LocalKind::ComptimeBinding
-        } else if binding.is_mutable {
-            LocalKind::Binding
-        } else {
+        let default_kind = if binding.is_const() {
             LocalKind::ConstBinding
+        } else if binding.is_mutable() {
+            LocalKind::MutableBinding
+        } else {
+            LocalKind::ImmutableBinding
         };
         self.resolve_pattern_with_span(
             &binding.pattern,
@@ -1048,7 +1048,7 @@ impl<'a> LocalResolver<'a> {
                     self.push_scope();
                     self.resolve_pattern(
                         &arm.pattern,
-                        LocalKind::ConstBinding,
+                        LocalKind::ImmutableBinding,
                         "duplicate if pattern binding",
                     );
                     self.resolve_block(&arm.body);
@@ -1108,12 +1108,12 @@ impl<'a> LocalResolver<'a> {
                 node_key,
                 is_mutable,
             } => {
-                let kind = if matches!(binding_kind, LocalKind::ComptimeBinding) {
-                    LocalKind::ComptimeBinding
-                } else if *is_mutable || matches!(binding_kind, LocalKind::Binding) {
-                    LocalKind::Binding
-                } else {
+                let kind = if matches!(binding_kind, LocalKind::ConstBinding) {
                     LocalKind::ConstBinding
+                } else if *is_mutable || matches!(binding_kind, LocalKind::MutableBinding) {
+                    LocalKind::MutableBinding
+                } else {
+                    LocalKind::ImmutableBinding
                 };
                 self.define(name, kind, binding_span, node_key.clone(), duplicate);
             }

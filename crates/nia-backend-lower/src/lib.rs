@@ -103,10 +103,10 @@ pub struct BackendLowerModuleInput<'a> {
     pub function_interner: &'a nia_ty::TyInterner,
     pub semantic_facts: &'a SemanticFacts,
     pub extensions: &'a VisibleExtensionMethods,
-    pub comptime_array_lengths: &'a nia_comptime_check::ComptimeArrayLengths,
-    pub comptime_enum_values: &'a nia_comptime_check::ComptimeEnumValues,
-    pub program_comptime:
-        &'a std::collections::HashMap<ModuleId, &'a nia_comptime_check::ComptimeArrayLengths>,
+    pub const_array_lengths: &'a nia_const_check::ConstArrayLengths,
+    pub const_enum_values: &'a nia_const_check::ConstEnumValues,
+    pub program_const:
+        &'a std::collections::HashMap<ModuleId, &'a nia_const_check::ConstArrayLengths>,
     pub layouts: &'a Layouts,
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub roots: BackendFunctionRoots,
@@ -765,7 +765,7 @@ impl ReachableAggregateRoots {
             }
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::GenericParam(_)
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
@@ -1065,7 +1065,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.lower_function_local_static_globals(function, &mut globals, &mut worklist);
                 }
                 ItemTreeNodeKind::Binding(binding) => {
-                    if binding.is_comptime {
+                    if binding.is_const() {
                         continue;
                     }
                     self.lower_static_global_binding(
@@ -1144,8 +1144,8 @@ impl<'a> ModuleLowerer<'a> {
             id: self.input.module_id,
             name: self.input.module_name.clone(),
             interner: self.type_context.interner.clone(),
-            comptime: nia_backend_ir::BackendComptimeFacts {
-                array_lengths: self.input.comptime_array_lengths.values.clone(),
+            const_eval: nia_backend_ir::BackendConstFacts {
+                array_lengths: self.input.const_array_lengths.values.clone(),
             },
             layouts: backend_layouts,
             structs,
@@ -1412,7 +1412,7 @@ impl<'a> ModuleLowerer<'a> {
                     && !self
                         .has_effective_generics(def_id, &generic_param_names(&function.generics)));
         }
-        if function.is_comptime
+        if function.is_const
             || function.is_extern
             || def.name == known::MAIN
             || def.name == known::START_ENTRY
@@ -2227,7 +2227,7 @@ impl<'a> ModuleLowerer<'a> {
         let defs = &self.input.defs.defs;
         let input = self.input;
         let const_expr_summaries = &self.input.type_lowering.const_expr_summaries;
-        let comptime_array_lengths = self.input.comptime_array_lengths;
+        let const_array_lengths = self.input.const_array_lengths;
         let self_arg = self_arg.map(|ty| self.import_instance_arg_type(ty));
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
         let diagnostics = &mut self.diagnostics;
@@ -2254,7 +2254,7 @@ impl<'a> ModuleLowerer<'a> {
                 name
             },
             |id| {
-                let value = comptime_array_lengths.values.get(&id).copied();
+                let value = const_array_lengths.values.get(&id).copied();
                 if value.is_none() && missing_array_len_diagnostics.insert(id) {
                     let span = const_expr_summaries
                         .get(&id)

@@ -4,7 +4,7 @@ pub(pkg) module linux;
 using pkg::os::linux as platform;
 using pkg::error;
 
-pub comptime max_path_bytes: usize = platform::max_path_bytes;
+pub const max_path_bytes: usize = platform::max_path_bytes;
 
 pub enum Error: i32 {
     PermissionDenied = 1,

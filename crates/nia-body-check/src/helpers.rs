@@ -194,21 +194,18 @@ impl<'a> BodyChecker<'a> {
             .collect()
     }
 
-    pub(crate) fn current_comptime_generic_arg(
-        &mut self,
-        name: &SymbolId,
-    ) -> Option<ConstGenericArg> {
+    pub(crate) fn current_const_generic_arg(&mut self, name: &SymbolId) -> Option<ConstGenericArg> {
         let current_def_id = self.current_def_id?;
         let ty = self
-            .current_comptime_generic_type(current_def_id, name)
-            .or_else(|| self.current_method_owner_comptime_generic_type(current_def_id, name))?;
+            .current_const_generic_type(current_def_id, name)
+            .or_else(|| self.current_method_owner_const_generic_type(current_def_id, name))?;
         Some(ConstGenericArg {
             ty,
             value: ConstGenericValue::GenericParam(*name),
         })
     }
 
-    fn current_comptime_generic_type(
+    fn current_const_generic_type(
         &mut self,
         current_def_id: GlobalDefId,
         name: &SymbolId,
@@ -221,8 +218,8 @@ impl<'a> BodyChecker<'a> {
             while let Some(id) = def_id {
                 let def = defs.defs.get(id)?;
                 if let Some(param) = def.generic_params.iter().find(|param| {
-                    &param.name == name && matches!(param.kind, GenericParamKind::Comptime { .. })
-                }) && let GenericParamKind::Comptime { ty: param_ty } = &param.kind
+                    &param.name == name && matches!(param.kind, GenericParamKind::Const { .. })
+                }) && let GenericParamKind::Const { ty: param_ty } = &param.kind
                 {
                     ty = Some(param_ty.clone());
                     break;
@@ -234,7 +231,7 @@ impl<'a> BodyChecker<'a> {
         Some(self.ty_for_type(&ty))
     }
 
-    fn current_method_owner_comptime_generic_type(
+    fn current_method_owner_const_generic_type(
         &mut self,
         current_def_id: GlobalDefId,
         name: &SymbolId,
@@ -247,10 +244,10 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         let owner_ty = self.method_owner_type(current_def_id.def_id)?;
-        self.comptime_generic_type_from_ty(owner_ty, name)
+        self.const_generic_type_from_ty(owner_ty, name)
     }
 
-    fn comptime_generic_type_from_ty(
+    fn const_generic_type_from_ty(
         &mut self,
         ty: InternedTyId,
         name: &SymbolId,
@@ -265,7 +262,7 @@ impl<'a> BodyChecker<'a> {
                 ..
             } if &len_name == name => Some(self.primitive(nia_ty::PrimitiveTy::Usize)),
             TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. } => {
-                self.comptime_generic_type_from_ty(elem, name)
+                self.const_generic_type_from_ty(elem, name)
             }
             _ => None,
         }
@@ -295,7 +292,7 @@ impl<'a> BodyChecker<'a> {
                     }
                     type_index += 1;
                 }
-                GenericParamKind::Comptime { .. } => {
+                GenericParamKind::Const { .. } => {
                     if let Some(arg) = const_args.get(const_index).cloned() {
                         const_substitutions.insert(param.name, arg);
                     }
@@ -337,7 +334,7 @@ impl<'a> BodyChecker<'a> {
                     name: generic.name,
                     kind: match &generic.kind {
                         GenericParamKind::Type => GenericParamSignatureKind::Type,
-                        GenericParamKind::Comptime { ty } => GenericParamSignatureKind::Comptime {
+                        GenericParamKind::Const { ty } => GenericParamSignatureKind::Const {
                             ty: self.ty_for_type(ty),
                         },
                     },
@@ -814,7 +811,7 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             Some(
-                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+                TyKind::Error | TyKind::ConstOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
             )
             | None => ty,
         }
