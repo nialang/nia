@@ -554,11 +554,13 @@ Zig 对函数分析后创建 codegen task，并进入 link queue。AIR 可以转
 
 ### 13.2 测试 permit 暴露了生产资源模型缺失
 
-当前维护已把 `nia-test-support` 的进程内 `ResourcePool` 改为自动跨进程协调：每个 compiler unit 按 1.5 GiB、系统预留 1 GiB，容量取 CPU 与 `min(system memory, cgroup limit)` 的较小约束并最多为 8；build test 申请两个 unit。workspace 默认通过标准 `RUST_TEST_THREADS=2` 保守运行，高容量机器可显式覆盖该标准变量。Linux 使用 PID + process start time 回收崩溃遗留 slot，无法可靠判活的平台按 age 回收；无法取得内存上限时重编译测试退化为串行，而不是仅按 CPU 放大并发。`CompilerDatabase` 的公开 check/codegen 方法仍在 `#[cfg(test)]` 下直接获取 permit。
+第一轮 `nia-test-support` 虽建立了跨进程 `ResourcePool`，但预算仍过于乐观：每个 compiler unit 按 1.5 GiB、只为系统预留固定 1 GiB，8 GiB WSL 因而允许 4 unit；build test 申请两个 unit，正好可以同时放行两个完整 build 链。2026-07-15 的真实 OOM 证明这不是可靠默认值：两个 `nia` 主编译器各约 1.49 GiB RSS，另有两个 build-script 编译器，而同机 HLS 约 2.9 GiB，最终 7.6 GiB RAM 与 2 GiB swap 全部耗尽并触发 WSL 异常重启。
+
+修订后的临时保护仍以 1.5 GiB 为 compiler unit、build 为两个 unit，但测试总预算最多只占有效内存的一半，并在实际取得跨进程 slot 后检查 system/cgroup 当前可用内存；压力不足时释放 slot 等待，而不是继续启动子进程。容量取 CPU、system memory 与最紧 cgroup 祖先限制的共同约束并最多为 8；cgroup v2 同时按各祖先的 `memory.max - memory.current` 取最小余量，避免租赁机或容器把限制设在父 slice 时误判为无限。Linux 使用 PID + process start time 回收崩溃遗留 slot，无法可靠判活的平台按 age 回收；无法取得内存上限时重编译测试退化为串行。workspace 级 `RUST_TEST_THREADS=2` 已删除，普通 unit test 恢复 libtest 自然并发，只有声明完整 session 的入口参与资源门控。`CompilerDatabase` 的公开 check/codegen 方法仍在 `#[cfg(test)]` 下直接获取 permit。
 
 这里不应把 WSL、日常物理开发机和租赁开发机建模为三类 profile。正确的配置维度是进程实际可用的 CPU affinity/quota、cgroup/VM 可见内存和用户显式覆盖：WSL 走 Linux 路径并看到其 VM 资源，容器或受限租赁机采用 cgroup 上限，裸 Linux 开发机采用系统资源。Rust 仓库本身主要通过 `x.py`/bootstrap 统一 suite、jobs/jobserver、compiletest 并发和 CI 机器配置，而不是为机器类别维护不同测试语义；Nia 要吸收的是这个“统一调度入口 + 可覆盖资源预算”的分层。由于 Nia 仍要求根目录无参数 `cargo test` 成为可靠入口，当前轻量的自动探测是必要兼容层，但不应演变成第二套长期调度器。
 
-分组实测验证了内存权重的数量级：`nia-compiler-query` 全组峰值约 866 MiB，`nia-driver` 483 个测试在两线程下峰值约 1.46 GiB，`nia-cli` 全套集成/执行测试峰值约 1.69 GiB。因此 1.5 GiB/unit、CLI 同时最多两个普通 compiler unit 是有测量依据的保守值，而不是仅按 CPU 猜测。
+分组实测给出的 `nia-compiler-query` 约 866 MiB、`nia-driver` 约 1.46 GiB、`nia-cli` 约 1.69 GiB 只能说明 1.5 GiB/unit 的数量级，不能证明“系统总内存减 1 GiB”足以覆盖并发峰值。OOM 现场进一步表明 build 链应按复合任务计费，测试预算也必须给开发工具和 WSL 宿主行为留下比例余量。
 
 这个措施能防止 CI/OOM，是合理的临时保护；但它仍说明资源约束在测试外层，而不是编译器内部：
 
@@ -661,7 +663,7 @@ Zig 的大文件较多，不是代码组织的理想模板；其优点是核心�
 
 2026-07-14 的一次全量运行期间 WSL 实例被宿主拆除并重建。重启后的 Linux 内核日志无法保留旧实例 OOM 信息；Windows 事件在终止前只记录到 `Tcpip` 4231（TCP 临时端口空间耗尽），没有标准 Resource-Exhaustion/OOM 事件。随后单独复跑当时停留的 `nia-build` 全组仅约 207 MiB并通过，因此不能把该重启归因于 Nia OOM，但这次事件促成了跨进程/cgroup 预算和分组峰值验证。
 
-资源预算收紧后，根目录无参数 `cargo test` 已在同一 WSL 环境完整通过：CLI commands、native execute、LLVM/codegen、101 个 compiler-query、483 个 driver case 与全部 doc-test 均自然完成，未再使用 `--test-threads` 参数或 Nia 私有环境变量。这证明当前保护层可以作为可靠默认入口，但不改变 13.2 的判断：最终资源 ownership 仍应回到 compiler executor，测试层只声明 workload weight。
+第一轮资源预算后，根目录无参数 `cargo test` 曾在同一 WSL 环境完整通过，但单次成功不足以证明保护可靠；2026-07-15 的后续原样运行在 `nia-cli` 的 `commands` 二进制中触发了上述有内核日志佐证的 OOM。修订预算并删除 workspace 级 libtest 限线程后，`cargo test -p nia-cli --test commands` 已在自然并发下 50/50 通过，完整 build case 在 8 GiB 环境按权重串行进入；随后根目录原样 `cargo test` 也完整通过，覆盖 CLI commands/native execute、176 个 LLVM/codegen、107 个 compiler-query、484 个 driver case 与全部 doc-test。运行后本 boot 无新增 kernel OOM 记录，2 GiB swap 仅使用 268 KiB；严格 workspace/all-targets/all-features Clippy 同样无 warning。这个结果恢复了默认入口，但仍只证明当前保护在本机 workload 下成立，后续应以重复运行和不同 cgroup 预算继续验证，而不能再由单次成功推导永久可靠。
 
 Nia 约有 1,600 级 `#[test]`，覆盖面可观，这是资产。主要问题是：
 

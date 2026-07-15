@@ -10,7 +10,7 @@ use std::{
 const MAX_PARALLEL_COMPILERS: usize = 8;
 const UNKNOWN_MEMORY_PARALLEL_COMPILERS: usize = 1;
 const COMPILER_MEMORY_BYTES: usize = 1536 * 1024 * 1024;
-const SYSTEM_MEMORY_HEADROOM_BYTES: usize = 1024 * 1024 * 1024;
+const AVAILABLE_MEMORY_HEADROOM_BYTES: usize = 512 * 1024 * 1024;
 const PERMIT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const UNKNOWN_OWNER_STALE_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
 
@@ -25,7 +25,13 @@ pub fn build_permit() -> ResourcePermit<'static> {
 }
 
 fn compiler_pool() -> &'static ResourcePool {
-    COMPILER_POOL.get_or_init(|| ResourcePool::new(parallel_compiler_limit(), compiler_slot_root()))
+    COMPILER_POOL.get_or_init(|| {
+        ResourcePool::with_memory_gate(
+            parallel_compiler_limit(),
+            compiler_slot_root(),
+            effective_memory_limit_bytes(),
+        )
+    })
 }
 
 fn parallel_compiler_limit() -> usize {
@@ -39,8 +45,7 @@ fn compiler_limit(available_cpus: usize, system_memory: Option<usize>) -> usize 
     let cpu_limit = available_cpus.clamp(1, MAX_PARALLEL_COMPILERS);
     let memory_limit = system_memory
         .map(|total| {
-            total
-                .saturating_sub(SYSTEM_MEMORY_HEADROOM_BYTES)
+            test_memory_budget(total)
                 .checked_div(COMPILER_MEMORY_BYTES)
                 .unwrap_or(0)
                 .max(1)
@@ -49,20 +54,31 @@ fn compiler_limit(available_cpus: usize, system_memory: Option<usize>) -> usize 
     cpu_limit.min(memory_limit).max(1)
 }
 
+fn test_memory_budget(total: usize) -> usize {
+    total / 2
+}
+
 struct ResourcePool {
     capacity: usize,
     available: Mutex<usize>,
     ready: Condvar,
     slot_root: PathBuf,
+    memory_limit: Option<usize>,
 }
 
 impl ResourcePool {
+    #[cfg(test)]
     fn new(capacity: usize, slot_root: PathBuf) -> Self {
+        Self::with_memory_gate(capacity, slot_root, None)
+    }
+
+    fn with_memory_gate(capacity: usize, slot_root: PathBuf, memory_limit: Option<usize>) -> Self {
         Self {
             capacity,
             available: Mutex::new(capacity),
             ready: Condvar::new(),
             slot_root,
+            memory_limit,
         }
     }
 
@@ -78,7 +94,15 @@ impl ResourcePool {
         *available -= permits;
         drop(available);
 
-        let slots = match acquire_process_slots(&self.slot_root, self.capacity, permits) {
+        let minimum_available_memory = self
+            .memory_limit
+            .map(|limit| minimum_available_memory(limit, permits));
+        let slots = match acquire_process_slots(
+            &self.slot_root,
+            self.capacity,
+            permits,
+            minimum_available_memory,
+        ) {
             Ok(slots) => slots,
             Err(error) => {
                 self.release(permits);
@@ -133,6 +157,7 @@ fn acquire_process_slots(
     root: &Path,
     capacity: usize,
     requested: usize,
+    minimum_available_memory: Option<usize>,
 ) -> io::Result<Vec<PathBuf>> {
     fs::create_dir_all(root)?;
     let start = Instant::now();
@@ -150,7 +175,10 @@ fn acquire_process_slots(
                     }
                     acquired.push(slot);
                     if acquired.len() == requested {
-                        return Ok(acquired);
+                        if memory_pressure_allows(minimum_available_memory) {
+                            return Ok(acquired);
+                        }
+                        break;
                     }
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -172,6 +200,19 @@ fn acquire_process_slots(
         thread::sleep(delay + process_backoff_jitter());
         delay = (delay * 2).min(Duration::from_millis(250));
     }
+}
+
+fn minimum_available_memory(memory_limit: usize, permits: usize) -> usize {
+    let workload_memory = permits
+        .saturating_mul(COMPILER_MEMORY_BYTES)
+        .saturating_add(AVAILABLE_MEMORY_HEADROOM_BYTES);
+    workload_memory.min(test_memory_budget(memory_limit))
+}
+
+fn memory_pressure_allows(minimum_available_memory: Option<usize>) -> bool {
+    minimum_available_memory.is_none_or(|minimum| {
+        effective_available_memory_bytes().is_none_or(|available| available >= minimum)
+    })
 }
 
 fn release_process_slots(slots: Vec<PathBuf>) {
@@ -264,32 +305,85 @@ fn effective_memory_limit_bytes() -> Option<usize> {
         .min()
 }
 
+fn effective_available_memory_bytes() -> Option<usize> {
+    [
+        system_available_memory_bytes(),
+        cgroup_available_memory_bytes(),
+    ]
+    .into_iter()
+    .flatten()
+    .min()
+}
+
 #[cfg(target_os = "linux")]
 fn system_memory_bytes() -> Option<usize> {
+    meminfo_bytes("MemTotal:")
+}
+
+#[cfg(target_os = "linux")]
+fn system_available_memory_bytes() -> Option<usize> {
+    meminfo_bytes("MemAvailable:")
+}
+
+#[cfg(target_os = "linux")]
+fn meminfo_bytes(field: &str) -> Option<usize> {
     let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
-    let total_kib = meminfo.lines().find_map(|line| {
-        line.strip_prefix("MemTotal:")?
+    let value_kib = meminfo.lines().find_map(|line| {
+        line.strip_prefix(field)?
             .split_whitespace()
             .next()?
             .parse::<usize>()
             .ok()
     })?;
-    total_kib.checked_mul(1024)
+    value_kib.checked_mul(1024)
 }
 
 #[cfg(target_os = "linux")]
 fn cgroup_memory_limit_bytes() -> Option<usize> {
     let cgroup = fs::read_to_string("/proc/self/cgroup").ok()?;
-    if let Some(path) = cgroup.lines().find_map(|line| line.strip_prefix("0::")) {
-        let value = fs::read_to_string(
-            Path::new("/sys/fs/cgroup")
-                .join(path.trim_start_matches('/'))
-                .join("memory.max"),
-        )
-        .ok()?;
-        return parse_memory_limit(&value);
+    if let Some(directory) = cgroup_v2_directory(&cgroup) {
+        let mount = Path::new("/sys/fs/cgroup");
+        return cgroup_v2_memory_limit(mount, &mount.join(directory));
     }
-    let path = cgroup.lines().find_map(|line| {
+    let path = cgroup_v1_memory_directory(&cgroup)?;
+    let value = fs::read_to_string(
+        Path::new("/sys/fs/cgroup/memory")
+            .join(path)
+            .join("memory.limit_in_bytes"),
+    )
+    .ok()?;
+    parse_memory_limit(&value)
+}
+
+#[cfg(target_os = "linux")]
+fn cgroup_available_memory_bytes() -> Option<usize> {
+    let cgroup = fs::read_to_string("/proc/self/cgroup").ok()?;
+    if let Some(directory) = cgroup_v2_directory(&cgroup) {
+        let mount = Path::new("/sys/fs/cgroup");
+        return cgroup_v2_available_memory(mount, &mount.join(directory));
+    }
+    let path = cgroup_v1_memory_directory(&cgroup)?;
+    let root = Path::new("/sys/fs/cgroup/memory").join(path);
+    let limit = parse_memory_limit(&fs::read_to_string(root.join("memory.limit_in_bytes")).ok()?)?;
+    let current = fs::read_to_string(root.join("memory.usage_in_bytes"))
+        .ok()?
+        .trim()
+        .parse::<usize>()
+        .ok()?;
+    Some(limit.saturating_sub(current))
+}
+
+#[cfg(target_os = "linux")]
+fn cgroup_v2_directory(cgroup: &str) -> Option<&Path> {
+    cgroup
+        .lines()
+        .find_map(|line| line.strip_prefix("0::"))
+        .map(|path| Path::new(path.trim_start_matches('/')))
+}
+
+#[cfg(target_os = "linux")]
+fn cgroup_v1_memory_directory(cgroup: &str) -> Option<&Path> {
+    cgroup.lines().find_map(|line| {
         let mut fields = line.splitn(3, ':');
         let _hierarchy = fields.next()?;
         let controllers = fields.next()?;
@@ -297,19 +391,48 @@ fn cgroup_memory_limit_bytes() -> Option<usize> {
         controllers
             .split(',')
             .any(|item| item == "memory")
-            .then_some(path)
-    })?;
-    let value = fs::read_to_string(
-        Path::new("/sys/fs/cgroup/memory")
-            .join(path.trim_start_matches('/'))
-            .join("memory.limit_in_bytes"),
-    )
-    .ok()?;
-    parse_memory_limit(&value)
+            .then(|| Path::new(path.trim_start_matches('/')))
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn cgroup_v2_memory_limit(mount: &Path, leaf: &Path) -> Option<usize> {
+    cgroup_v2_ancestors(mount, leaf)
+        .filter_map(|directory| {
+            parse_memory_limit(&fs::read_to_string(directory.join("memory.max")).ok()?)
+        })
+        .min()
+}
+
+#[cfg(target_os = "linux")]
+fn cgroup_v2_available_memory(mount: &Path, leaf: &Path) -> Option<usize> {
+    cgroup_v2_ancestors(mount, leaf)
+        .filter_map(|directory| {
+            let limit =
+                parse_memory_limit(&fs::read_to_string(directory.join("memory.max")).ok()?)?;
+            let current = fs::read_to_string(directory.join("memory.current"))
+                .ok()?
+                .trim()
+                .parse::<usize>()
+                .ok()?;
+            Some(limit.saturating_sub(current))
+        })
+        .min()
+}
+
+#[cfg(target_os = "linux")]
+fn cgroup_v2_ancestors<'a>(mount: &'a Path, leaf: &'a Path) -> impl Iterator<Item = &'a Path> {
+    leaf.ancestors()
+        .take_while(move |path| path.starts_with(mount))
 }
 
 #[cfg(not(target_os = "linux"))]
 fn cgroup_memory_limit_bytes() -> Option<usize> {
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn cgroup_available_memory_bytes() -> Option<usize> {
     None
 }
 
@@ -323,21 +446,39 @@ fn system_memory_bytes() -> Option<usize> {
     None
 }
 
+#[cfg(not(target_os = "linux"))]
+fn system_available_memory_bytes() -> Option<usize> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn compiler_limit_reserves_memory_and_caps_cpu_parallelism() {
-        assert_eq!(compiler_limit(32, Some(8 * 1024 * 1024 * 1024)), 4);
+        assert_eq!(compiler_limit(32, Some(8 * 1024 * 1024 * 1024)), 2);
         assert_eq!(compiler_limit(32, Some(3 * 1024 * 1024 * 1024)), 1);
         assert_eq!(compiler_limit(2, Some(8 * 1024 * 1024 * 1024)), 2);
+        assert_eq!(compiler_limit(32, Some(32 * 1024 * 1024 * 1024)), 8);
     }
 
     #[test]
     fn compiler_limit_always_allows_progress() {
         assert_eq!(compiler_limit(0, Some(0)), 1);
         assert_eq!(compiler_limit(16, None), UNKNOWN_MEMORY_PARALLEL_COMPILERS);
+    }
+
+    #[test]
+    fn available_memory_gate_scales_down_on_small_hosts() {
+        assert_eq!(
+            minimum_available_memory(8 * 1024 * 1024 * 1024, 2),
+            7 * 512 * 1024 * 1024
+        );
+        assert_eq!(
+            minimum_available_memory(3 * 1024 * 1024 * 1024, 1),
+            3 * 512 * 1024 * 1024
+        );
     }
 
     #[test]
@@ -362,6 +503,30 @@ mod tests {
         drop(second_permit);
     }
 
+    #[test]
+    fn process_slots_block_independent_pools_until_release() {
+        let root = test_slot_root("cross_process_blocking");
+        let first = ResourcePool::new(1, root.clone());
+        let first_permit = first.acquire(1);
+        let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            let second = ResourcePool::new(1, root);
+            let second_permit = second.acquire(1);
+            acquired_tx.send(()).expect("report acquired process slot");
+            drop(second_permit);
+        });
+
+        assert!(
+            acquired_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "independent pool acquired an occupied process slot"
+        );
+        drop(first_permit);
+        acquired_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("independent pool should acquire the released process slot");
+        waiter.join().expect("process slot waiter");
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn process_liveness_uses_pid_and_start_time() {
@@ -379,6 +544,42 @@ mod tests {
         assert_eq!(parse_memory_limit("1073741824\n"), Some(1024 * 1024 * 1024));
         assert_eq!(parse_memory_limit("max\n"), None);
         assert_eq!(parse_memory_limit("invalid\n"), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cgroup_v2_inherits_parent_memory_budget() {
+        let mount = test_slot_root("cgroup_v2_parent");
+        let leaf = mount.join("parent/leaf");
+        fs::create_dir_all(&leaf).expect("create cgroup fixture");
+        fs::write(mount.join("memory.max"), "max").expect("write root memory.max");
+        fs::write(mount.join("memory.current"), "0").expect("write root memory.current");
+        fs::write(mount.join("parent/memory.max"), "4096").expect("write parent memory.max");
+        fs::write(mount.join("parent/memory.current"), "1024")
+            .expect("write parent memory.current");
+        fs::write(leaf.join("memory.max"), "max").expect("write leaf memory.max");
+        fs::write(leaf.join("memory.current"), "512").expect("write leaf memory.current");
+
+        assert_eq!(cgroup_v2_memory_limit(&mount, &leaf), Some(4096));
+        assert_eq!(cgroup_v2_available_memory(&mount, &leaf), Some(3072));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cgroup_v2_uses_tightest_nested_memory_budget() {
+        let mount = test_slot_root("cgroup_v2_nested");
+        let leaf = mount.join("parent/leaf");
+        fs::create_dir_all(&leaf).expect("create cgroup fixture");
+        fs::write(mount.join("memory.max"), "8192").expect("write root memory.max");
+        fs::write(mount.join("memory.current"), "2048").expect("write root memory.current");
+        fs::write(mount.join("parent/memory.max"), "4096").expect("write parent memory.max");
+        fs::write(mount.join("parent/memory.current"), "1024")
+            .expect("write parent memory.current");
+        fs::write(leaf.join("memory.max"), "2048").expect("write leaf memory.max");
+        fs::write(leaf.join("memory.current"), "512").expect("write leaf memory.current");
+
+        assert_eq!(cgroup_v2_memory_limit(&mount, &leaf), Some(2048));
+        assert_eq!(cgroup_v2_available_memory(&mount, &leaf), Some(1536));
     }
 
     fn test_slot_root(name: &str) -> PathBuf {
