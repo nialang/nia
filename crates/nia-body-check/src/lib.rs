@@ -924,7 +924,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             .resize(checker.diagnostics.len(), None);
         BodyCheck {
             ir: BodyIr {
-                interner: checker.interner.clone(),
                 function_bodies: checker.function_bodies,
                 global_inits: checker.global_inits,
             },
@@ -1834,10 +1833,6 @@ impl<'a> BodyChecker<'a> {
             diagnostic_owners,
             diagnostics,
         } = prechecked;
-        assert!(
-            ir.interner.is_prefix_of(&self.interner),
-            "Nia ICE: prechecked body interner is not a prefix of its session type store"
-        );
         self.global_inits = ir.global_inits;
         self.checked_functions = checked_functions;
         self.diagnostic_owners = diagnostic_owners;

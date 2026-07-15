@@ -111,7 +111,7 @@ fn function_bodies_from_checked_modules(
                         .type_store
                         .with_module_interner_for_semantic_migration(module.id, |interner| {
                             assert!(
-                                module.body_ir.interner.is_prefix_of(interner),
+                                module.type_normalization.interner.is_prefix_of(interner),
                                 "Nia ICE: function lowering input is not a prefix of its session type store"
                             );
                             nia_function_lower::lower_function_bodies_with_interner(
@@ -168,7 +168,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         visible_extensions,
         extension_methods,
         function_bodies,
-        function_interners,
+        type_interners,
     ) = time_provider(db.context().timings(), "backend_lowering.inputs", || {
         let timings = db.context().timings();
         let all_visible_extensions = time_provider(
@@ -233,7 +233,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 db.query(ExtensionMethodIndexQuery)
             });
         let function_bodies = function_bodies_from_checked_modules(db, checked_modules);
-        let function_interners = checked_modules
+        let type_interners = checked_modules
             .iter()
             .map(|module| {
                 (
@@ -251,7 +251,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             visible_extensions,
             extension_methods,
             function_bodies,
-            function_interners,
+            type_interners,
         )
     });
     let function_lowering_diagnostics =
@@ -271,7 +271,6 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             checked_modules,
             &const_array_lengths,
             &function_bodies,
-            &function_interners,
         )
     });
     let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
@@ -297,7 +296,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 const_enum_values: &const_enum_values,
                 visible_extensions: &visible_extensions,
                 function_bodies: &function_bodies,
-                function_interners: &function_interners,
+                type_interners: &type_interners,
                 extension_methods: &extension_methods.methods,
                 program_defs: &program_defs,
                 program_signatures,

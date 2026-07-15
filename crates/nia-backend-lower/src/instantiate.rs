@@ -474,7 +474,9 @@ impl<'a> ModuleLowerer<'a> {
             const_substitutions,
         } = input;
         let instantiation_snapshot = self.instantiation.take_snapshot();
-        let body_interner = self.type_context.function_body_interner(function.module_id);
+        let body_interner = self
+            .type_context
+            .type_interner_for_module(function.module_id);
         let substitutions = self.intern_type_and_const_substitutions_with_self(
             self_arg,
             substitutions,
@@ -776,7 +778,7 @@ impl<'a> ModuleLowerer<'a> {
     fn ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
         let ty = self.import_instance_arg_type(ty);
         let current_interner = self.type_context.interner.clone();
-        let body_interner = &self.input.body_ir.interner;
+        let body_interner = self.input.type_interner;
         let extension_interner = self.input.extension_interner;
         let mut ty_kind = |ty: InternedTyId| {
             if let Some(interner) = self.instantiation.body_interner
@@ -788,7 +790,9 @@ impl<'a> ModuleLowerer<'a> {
                 return body_interner.get(ty).cloned();
             }
             if let Some(current) = self.instantiation.function
-                && let Some(interner) = self.type_context.function_body_interner(current.module_id)
+                && let Some(interner) = self
+                    .type_context
+                    .type_interner_for_module(current.module_id)
                 && ty.interner_id == interner.interner_id()
             {
                 return interner.get(ty).cloned();

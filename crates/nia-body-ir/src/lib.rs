@@ -15,11 +15,10 @@ use nia_span::Span;
 use nia_static_ir::StaticInit;
 use nia_symbol::SymbolId;
 use nia_ty::IntConst;
-use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, TraitId, TyInterner};
+use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, TraitId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyIr {
-    pub interner: TyInterner,
     pub function_bodies: HashMap<GlobalDefId, TypedBody>,
     pub global_inits: HashMap<GlobalDefId, StaticInit>,
 }

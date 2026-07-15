@@ -83,12 +83,15 @@ impl ExecutableFactSession {
         &mut self,
         body_activated: &HashSet<ModuleId>,
         provider_changes: &HashSet<ProviderDemand>,
+        interner_for_module: impl Fn(ModuleId) -> nia_ty::TyInterner,
     ) {
         self.reachability = Default::default();
         let mut retained_modules = HashSet::new();
         self.modules.retain(|module_id, state| {
-            let retained = !body_activated.contains(module_id)
-                && state.invalidate_provider_changes(provider_changes);
+            let retained = !body_activated.contains(module_id) && {
+                let interner = interner_for_module(*module_id);
+                state.invalidate_provider_changes(provider_changes, &interner)
+            };
             if retained {
                 retained_modules.insert(*module_id);
             }
@@ -102,6 +105,7 @@ impl ExecutableFactModuleState {
     pub(super) fn invalidate_provider_changes(
         &mut self,
         provider_changes: &HashSet<ProviderDemand>,
+        interner: &nia_ty::TyInterner,
     ) -> bool {
         if self.unowned_provider_demands.iter().any(|demand| {
             provider_change_invalidates_facts(demand) && provider_changes.contains(demand)
@@ -161,7 +165,7 @@ impl ExecutableFactModuleState {
             self.checked_globals.remove(&global);
         }
         self.rebuild_provider_demands();
-        self.executable_refs = executable_module_refs_for_fact_state(self);
+        self.executable_refs = executable_module_refs_for_fact_state(self, interner);
         true
     }
 
@@ -218,14 +222,19 @@ impl ExecutableFactModuleState {
             diagnostic_owners,
             diagnostics,
         };
-        state.executable_refs = executable_module_refs_for_fact_state(&state);
+        let interner = db.context().type_store.module_snapshot(module_id);
+        state.executable_refs = executable_module_refs_for_fact_state(&state, &interner);
         state
     }
 
-    pub(super) fn reachable_input(&self) -> ReachableModuleInput<'_> {
+    pub(super) fn reachable_input<'a>(
+        &'a self,
+        interner: &'a nia_ty::TyInterner,
+    ) -> ReachableModuleInput<'a> {
         ReachableModuleInput {
             module_id: self.module_id,
             defs: &self.defs,
+            interner,
             body_ir: &self.body_ir,
             executable_refs: &self.executable_refs,
             semantic_facts: &self.semantic_facts,
@@ -238,6 +247,7 @@ impl ExecutableFactModuleState {
         &mut self,
         increment: BodyCheckWithResolutionInputs,
         checked_globals: HashSet<GlobalDefId>,
+        interner: &nia_ty::TyInterner,
     ) {
         let BodyCheckWithResolutionInputs {
             body_check,
@@ -256,12 +266,12 @@ impl ExecutableFactModuleState {
         let executable_refs = executable_module_refs_for_increment(
             self.module_id,
             &self.defs,
+            interner,
             &ir,
             &facts,
             &self.type_lowering,
             &self.type_normalization,
         );
-        merge_executable_interner_snapshot(&mut self.body_ir.interner, ir.interner, "fact");
         self.body_ir
             .function_bodies
             .extend(ir.function_bodies.drain());
@@ -350,8 +360,9 @@ pub(super) fn is_runtime_global_def(db: &QueryDb<CompilerContext>, def_id: Globa
 
 fn executable_module_refs_for_fact_state(
     state: &ExecutableFactModuleState,
+    interner: &nia_ty::TyInterner,
 ) -> ExecutableModuleRefs {
-    let input = state.reachable_input();
+    let input = state.reachable_input(interner);
     let mut refs = nia_executable_facts::executable_module_refs_from_typed_ir(&input);
     refs.extend(nia_executable_facts::executable_module_refs_from_semantic_facts(&input));
     refs
@@ -360,6 +371,7 @@ fn executable_module_refs_for_fact_state(
 fn executable_module_refs_for_increment(
     module_id: ModuleId,
     defs: &DefCollection,
+    interner: &nia_ty::TyInterner,
     body_ir: &nia_body_ir::BodyIr,
     semantic_facts: &nia_sema_ir::SemanticFacts,
     type_lowering: &nia_type_lower::TypeLowering,
@@ -369,6 +381,7 @@ fn executable_module_refs_for_increment(
     let input = ReachableModuleInput {
         module_id,
         defs,
+        interner,
         body_ir,
         executable_refs: &empty_refs,
         semantic_facts,
@@ -380,12 +393,19 @@ fn executable_module_refs_for_increment(
     refs
 }
 
-pub(super) fn reachable_fact_module_inputs(
-    fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
-) -> Vec<ReachableModuleInput<'_>> {
+pub(super) fn reachable_fact_module_inputs<'a>(
+    fact_by_id: &'a HashMap<ModuleId, ExecutableFactModuleState>,
+    type_interners: &'a HashMap<ModuleId, nia_ty::TyInterner>,
+) -> Vec<ReachableModuleInput<'a>> {
     fact_by_id
         .values()
-        .map(ExecutableFactModuleState::reachable_input)
+        .map(|state| {
+            state.reachable_input(
+                type_interners
+                    .get(&state.module_id)
+                    .expect("executable fact session interner"),
+            )
+        })
         .collect()
 }
 
@@ -486,21 +506,6 @@ pub(super) fn print_executable_round_debug(info: ExecutableRoundDebug<'_>) {
             info.module_id,
             info.requested_function_names.join(", "),
             info.checked_function_names.join(", "),
-        );
-    }
-}
-
-fn merge_executable_interner_snapshot(
-    current: &mut nia_ty::TyInterner,
-    increment: nia_ty::TyInterner,
-    source: &str,
-) {
-    if current.interner_id() != increment.interner_id() || current.is_prefix_of(&increment) {
-        *current = increment;
-    } else if !increment.is_prefix_of(current) {
-        panic!(
-            "Nia ICE: executable {source} type interner snapshots share id {:?} but are not prefix-compatible",
-            current.interner_id()
         );
     }
 }

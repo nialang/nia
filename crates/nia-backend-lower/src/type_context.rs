@@ -29,7 +29,7 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         Self {
             input,
             shared,
-            interner: merged_current_interner(input),
+            interner: input.type_interner.clone(),
             type_instantiations: HashMap::new(),
             self_substitutions: Vec::new(),
             type_substitutions: Vec::new(),
@@ -82,16 +82,14 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         self.shared.input_type_interners.get(&ty.interner_id)
     }
 
-    pub(crate) fn function_body_interner(
+    pub(crate) fn type_interner_for_module(
         &self,
         module_id: ModuleId,
     ) -> Option<&'input nia_ty::TyInterner> {
         if module_id == self.input.module_id {
-            return Some(self.input.function_interner);
+            return Some(self.input.type_interner);
         }
-        self.input
-            .program_function_body_interners
-            .for_module(module_id)
+        self.input.program_type_interners.get(&module_id)
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
@@ -200,29 +198,6 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
     }
 }
 
-fn merged_current_interner(input: &BackendLowerModuleInput<'_>) -> nia_ty::TyInterner {
-    merge_current_interners(&input.body_ir.interner, input.function_interner)
-}
-
-fn merge_current_interners(
-    body: &nia_ty::TyInterner,
-    function: &nia_ty::TyInterner,
-) -> nia_ty::TyInterner {
-    if body.interner_id() != function.interner_id() {
-        return function.clone();
-    }
-    if body.is_prefix_of(function) {
-        return function.clone();
-    }
-    if function.is_prefix_of(body) {
-        return body.clone();
-    }
-    panic!(
-        "Nia ICE: backend body and function type interners share id {:?} but are not prefix-compatible",
-        body.interner_id()
-    );
-}
-
 fn require_type_in_interner(interner: &nia_ty::TyInterner, ty: InternedTyId, source: &str) {
     if interner.get(ty).is_none() {
         panic!(
@@ -230,43 +205,5 @@ fn require_type_in_interner(interner: &nia_ty::TyInterner, ty: InternedTyId, sou
             ty,
             interner.interner_id()
         );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use nia_ty::{PrimitiveTy, TyInterner, TyKind};
-
-    #[test]
-    fn current_backend_interner_keeps_longer_body_snapshot() {
-        let mut body = TyInterner::new(ModuleId(0));
-        let function = body.clone();
-        let elem = body.primitive(PrimitiveTy::U8);
-        let slice = body.intern(TyKind::Slice {
-            is_readonly: false,
-            elem,
-        });
-
-        let merged = merge_current_interners(&body, &function);
-
-        assert_eq!(merged.interner_id(), body.interner_id());
-        assert_eq!(merged.get(slice), body.get(slice));
-    }
-
-    #[test]
-    fn current_backend_interner_keeps_longer_function_snapshot() {
-        let body = TyInterner::new(ModuleId(0));
-        let mut function = body.clone();
-        let elem = function.primitive(PrimitiveTy::U8);
-        let slice = function.intern(TyKind::Slice {
-            is_readonly: false,
-            elem,
-        });
-
-        let merged = merge_current_interners(&body, &function);
-
-        assert_eq!(merged.interner_id(), function.interner_id());
-        assert_eq!(merged.get(slice), function.get(slice));
     }
 }

@@ -133,11 +133,24 @@ impl ProgramSignatureLookup for EmptyBodyProgramSignatures {
     }
 }
 
-pub(super) fn pipeline(source: &str) -> BodyCheck {
+pub(super) struct TestBodyCheck {
+    pub(super) check: BodyCheck,
+    pub(super) interner: nia_ty::TyInterner,
+}
+
+impl std::ops::Deref for TestBodyCheck {
+    type Target = BodyCheck;
+
+    fn deref(&self) -> &Self::Target {
+        &self.check
+    }
+}
+
+pub(super) fn pipeline(source: &str) -> TestBodyCheck {
     pipeline_with_values(source, |_, _, _| {})
 }
 
-pub(super) fn pipeline_without_visible_extensions(source: &str) -> BodyCheck {
+pub(super) fn pipeline_without_visible_extensions(source: &str) -> TestBodyCheck {
     pipeline_with_options(source, |_, _, _| {}, false)
 }
 
@@ -148,7 +161,7 @@ pub(super) fn pipeline_with_values(
         &nia_defs::DefCollection,
         &mut nia_value_resolve::ValueResolution,
     ),
-) -> BodyCheck {
+) -> TestBodyCheck {
     pipeline_with_options(source, adjust_values, true)
 }
 
@@ -160,7 +173,7 @@ fn pipeline_with_options(
         &mut nia_value_resolve::ValueResolution,
     ),
     include_visible_extensions: bool,
-) -> BodyCheck {
+) -> TestBodyCheck {
     let symbols = SymbolTable::new();
     let (module, parse_errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
@@ -325,7 +338,7 @@ fn pipeline_with_options(
     let mut program_signatures = EmptyBodyProgramSignatures::new();
     program_signatures.trait_impls = single_module_trait_impls(ModuleId(0), &signatures, &lowered);
     let origins = NodeOriginTable::default();
-    check_module_bodies_with_program_signatures_and_layouts(
+    let check = check_module_bodies_with_program_signatures_and_layouts(
         BodyCheckInput {
             source_version: None,
             source_path: &source_path,
@@ -358,7 +371,11 @@ fn pipeline_with_options(
             prechecked: None,
         },
         &mut const_interner,
-    )
+    );
+    TestBodyCheck {
+        check,
+        interner: const_interner,
+    }
 }
 
 pub(super) fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {
