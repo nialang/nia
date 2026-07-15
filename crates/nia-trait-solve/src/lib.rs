@@ -2748,7 +2748,7 @@ impl TraitSolver<'_> {
         if !seen.insert((left, right)) {
             return true;
         }
-        match (self.interner.get(left), layouts.interner.get(right)) {
+        match (self.interner.get(left), self.interner.get(right)) {
             (Some(TyKind::Error), Some(TyKind::Error)) => true,
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,

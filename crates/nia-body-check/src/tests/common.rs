@@ -315,9 +315,10 @@ fn pipeline_with_options(
             }
         }
     }
+    let mut layout_interner = lowered.interner.clone();
     let layouts = nia_layout::compute_layouts(
         &defs,
-        &lowered.interner,
+        &mut layout_interner,
         &signatures,
         nia_layout::TargetDataLayout::LP64,
     );

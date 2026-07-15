@@ -74,7 +74,6 @@ pub struct FieldLayout {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layouts {
     pub target: TargetDataLayout,
-    pub interner: TyInterner,
     pub types: HashMap<InternedTyId, TypeLayout>,
     pub structs: HashMap<DefId, StructLayout>,
     pub unions: HashMap<DefId, StructLayout>,
@@ -205,7 +204,7 @@ impl Layouts {
 
 pub fn compute_layouts(
     defs: &DefCollection,
-    interner: &TyInterner,
+    interner: &mut TyInterner,
     signatures: &ItemSignatures,
     target: TargetDataLayout,
 ) -> Layouts {
@@ -223,7 +222,7 @@ pub fn compute_layouts(
 
 pub fn compute_layouts_with_normalized_types(
     defs: &DefCollection,
-    interner: &TyInterner,
+    interner: &mut TyInterner,
     signatures: &ItemSignatures,
     normalized: &HashMap<InternedTyId, InternedTyId>,
     array_lengths: &dyn ArrayLengthValues,
@@ -262,10 +261,9 @@ pub struct InstanceLayoutRequest<'a> {
     pub const_args: &'a [ConstGenericArg],
 }
 
-#[derive(Clone, Copy)]
 pub struct LayoutComputationInput<'a> {
     pub defs: &'a DefCollection,
-    pub interner: &'a TyInterner,
+    pub interner: &'a mut TyInterner,
     pub signatures: &'a ItemSignatures,
     pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
     pub array_lengths: &'a dyn ArrayLengthValues,
@@ -282,7 +280,7 @@ pub struct LayoutRoots<'a> {
 
 pub fn compute_layouts_with_program_context(
     defs: &DefCollection,
-    interner: &TyInterner,
+    interner: &mut TyInterner,
     signatures: &ItemSignatures,
     normalized: &HashMap<InternedTyId, InternedTyId>,
     array_lengths: &dyn ArrayLengthValues,
@@ -318,7 +316,7 @@ pub fn compute_layouts_for_roots_with_program_context(
 }
 
 pub fn compute_struct_instance_layout_with_program_context(
-    input: LayoutComputationInput<'_>,
+    input: &mut LayoutComputationInput<'_>,
     request: InstanceLayoutRequest<'_>,
 ) -> Option<StructLayout> {
     let mut computer = LayoutComputer::new(
@@ -357,7 +355,7 @@ pub fn compute_struct_instance_layout_with_program_context(
 }
 
 pub fn compute_union_instance_layout_with_program_context(
-    input: LayoutComputationInput<'_>,
+    input: &mut LayoutComputationInput<'_>,
     request: InstanceLayoutRequest<'_>,
 ) -> Option<StructLayout> {
     let mut computer = LayoutComputer::new(
@@ -397,7 +395,7 @@ pub fn compute_union_instance_layout_with_program_context(
 
 struct LayoutComputer<'a> {
     module_id: nia_ids::ModuleId,
-    interner: TyInterner,
+    interner: &'a mut TyInterner,
     signatures: &'a ItemSignatures,
     normalized: &'a HashMap<InternedTyId, InternedTyId>,
     array_lengths: &'a dyn ArrayLengthValues,
@@ -419,7 +417,7 @@ struct LayoutComputer<'a> {
 impl<'a> LayoutComputer<'a> {
     fn new(
         defs: &DefCollection,
-        interner: &TyInterner,
+        interner: &'a mut TyInterner,
         signatures: &'a ItemSignatures,
         normalized: &'a HashMap<InternedTyId, InternedTyId>,
         array_lengths: &'a dyn ArrayLengthValues,
@@ -428,7 +426,7 @@ impl<'a> LayoutComputer<'a> {
     ) -> Self {
         Self {
             module_id: defs.module_id,
-            interner: interner.clone(),
+            interner,
             signatures,
             normalized,
             array_lengths,
@@ -519,7 +517,6 @@ impl<'a> LayoutComputer<'a> {
     fn finish(self) -> Layouts {
         Layouts {
             target: self.target,
-            interner: self.interner,
             types: self.types,
             structs: self.structs,
             unions: self.unions,
@@ -905,49 +902,49 @@ impl<'a> LayoutComputer<'a> {
         if let Some(program_structs) = self.program.structs
             && let Some(signature) = program_structs.get(&def_id).cloned()
         {
-            let signature = import_struct_signature(&mut self.interner, &signature);
+            let signature = import_struct_signature(self.interner, &signature);
             return self.external_struct_layout(span, def_id, &signature, args, const_args);
         }
         if let Some(program_struct) = self.program.struct_
             && let Some(signature) = program_struct(def_id)
         {
-            let signature = import_struct_signature(&mut self.interner, &signature);
+            let signature = import_struct_signature(self.interner, &signature);
             return self.external_struct_layout(span, def_id, &signature, args, const_args);
         }
         if let Some(program_unions) = self.program.unions
             && let Some(signature) = program_unions.get(&def_id).cloned()
         {
-            let signature = import_union_signature(&mut self.interner, &signature);
+            let signature = import_union_signature(self.interner, &signature);
             return self.external_union_layout(span, def_id, &signature, args, const_args);
         }
         if let Some(program_union) = self.program.union
             && let Some(signature) = program_union(def_id)
         {
-            let signature = import_union_signature(&mut self.interner, &signature);
+            let signature = import_union_signature(self.interner, &signature);
             return self.external_union_layout(span, def_id, &signature, args, const_args);
         }
         if let Some(program_enums) = self.program.enums
             && let Some(signature) = program_enums.get(&def_id).cloned()
         {
-            let signature = import_enum_signature(&mut self.interner, &signature);
+            let signature = import_enum_signature(self.interner, &signature);
             return self.enum_layout(span, &signature);
         }
         if let Some(program_enum) = self.program.enum_
             && let Some(signature) = program_enum(def_id)
         {
-            let signature = import_enum_signature(&mut self.interner, &signature);
+            let signature = import_enum_signature(self.interner, &signature);
             return self.enum_layout(span, &signature);
         }
         if let Some(program_type_aliases) = self.program.type_aliases
             && let Some(signature) = program_type_aliases.get(&def_id).cloned()
         {
-            let signature = import_type_alias_signature(&mut self.interner, &signature);
+            let signature = import_type_alias_signature(self.interner, &signature);
             return self.type_alias_layout(span, &signature, args);
         }
         if let Some(program_type_alias) = self.program.type_alias
             && let Some(signature) = program_type_alias(def_id)
         {
-            let signature = import_type_alias_signature(&mut self.interner, &signature);
+            let signature = import_type_alias_signature(self.interner, &signature);
             return self.type_alias_layout(span, &signature, args);
         }
         None
@@ -969,7 +966,7 @@ impl<'a> LayoutComputer<'a> {
             .zip(args.iter().copied())
             .collect();
         let target = substitute_generics(
-            &mut self.interner,
+            self.interner,
             signature.target,
             &substitutions,
             &SymbolMap::default(),
@@ -1231,12 +1228,8 @@ impl<'a> LayoutComputer<'a> {
         let mut layouts = Vec::new();
         for (source_index, field) in fields.iter().enumerate() {
             let field_ty = self.normalize_ty(field.ty);
-            let field_ty = substitute_generics(
-                &mut self.interner,
-                field_ty,
-                substitutions,
-                const_substitutions,
-            );
+            let field_ty =
+                substitute_generics(self.interner, field_ty, substitutions, const_substitutions);
             let Some(field_layout) = self.layout_ty(field_ty, field.span) else {
                 self.visiting_structs.remove(key);
                 return None;
@@ -1262,12 +1255,8 @@ impl<'a> LayoutComputer<'a> {
         let mut max_align = 1u64;
         for field in &signature.fields {
             let field_ty = self.normalize_ty(field.ty);
-            let field_ty = substitute_generics(
-                &mut self.interner,
-                field_ty,
-                substitutions,
-                const_substitutions,
-            );
+            let field_ty =
+                substitute_generics(self.interner, field_ty, substitutions, const_substitutions);
             let Some(field_layout) = self.layout_ty(field_ty, field.span) else {
                 self.visiting_unions.remove(key);
                 return None;
@@ -1725,12 +1714,12 @@ fn main(p: &Pair, xs: [3]u16) {}
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let const_eval = compute_test_const(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
-            &lowered.interner,
+            &mut lowered.interner,
             &signatures,
             &HashMap::new(),
             &|id| const_eval.array_lengths.get(&id).copied(),
@@ -1773,12 +1762,12 @@ fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8)
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let const_eval = compute_test_const(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
-            &lowered.interner,
+            &mut lowered.interner,
             &signatures,
             &HashMap::new(),
             &|id| const_eval.array_lengths.get(&id).copied(),
@@ -1823,13 +1812,13 @@ fn main(buf: Buffer[u8, 4]) {}
             "{:?}",
             resolved.diagnostics
         );
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let const_eval = compute_test_const(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
-            &lowered.interner,
+            &mut lowered.interner,
             &signatures,
             &HashMap::new(),
             &|id| const_eval.array_lengths.get(&id).copied(),
@@ -1855,12 +1844,12 @@ fn main(value: Empty) {}
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let const_eval = compute_test_const(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
-            &lowered.interner,
+            &mut lowered.interner,
             &signatures,
             &HashMap::new(),
             &|id| const_eval.array_lengths.get(&id).copied(),
@@ -1890,7 +1879,7 @@ struct Mixed {
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let mixed_id = defs
             .module_scope
@@ -1903,7 +1892,7 @@ struct Mixed {
         let c_id = signature.fields[2].def_id;
         let layouts = compute_layouts(
             &defs,
-            &lowered.interner,
+            &mut lowered.interner,
             &signatures,
             TargetDataLayout::LP64,
         );
@@ -1931,7 +1920,7 @@ fn main() {
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         assert!(lowered.interner.iter().any(|(_, ty)| matches!(
             ty,
@@ -1942,7 +1931,7 @@ fn main() {
         )));
         let layouts = compute_layouts(
             &defs,
-            &lowered.interner,
+            &mut lowered.interner,
             &signatures,
             TargetDataLayout::LP64,
         );
@@ -1961,7 +1950,7 @@ extern struct CPair {
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let cpair_id = defs
             .module_scope
@@ -1977,7 +1966,7 @@ extern struct CPair {
         );
         let layouts = compute_layouts(
             &defs,
-            &lowered.interner,
+            &mut lowered.interner,
             &signatures,
             TargetDataLayout::LP64,
         );
@@ -2001,12 +1990,12 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let const_eval = compute_test_const(&module, &symbols, &defs, &signatures, &lowered);
         let layouts = compute_layouts_with_normalized_types(
             &defs,
-            &lowered.interner,
+            &mut lowered.interner,
             &signatures,
             &HashMap::new(),
             &|id| const_eval.array_lengths.get(&id).copied(),
@@ -2052,11 +2041,11 @@ fn main(a: Bits[i32]) {}
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let mut lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let layouts = compute_layouts(
             &defs,
-            &lowered.interner,
+            &mut lowered.interner,
             &signatures,
             TargetDataLayout::LP64,
         );

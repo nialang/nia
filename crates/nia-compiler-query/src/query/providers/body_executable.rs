@@ -1129,10 +1129,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 .borrow()
                 .contains_key(&module_id)
             {
-                let array_lengths = with_const_input_and_program_signatures(
+                let array_lengths = with_const_input_and_program_facts(
                     db,
                     module_id,
                     Some(signatures),
+                    |module_id| fact_mode.signature_facts_for(module_id),
                     |input, module, interner| {
                         let mut array_lengths =
                             nia_const_check::compute_module_const_array_lengths(input, interner);
@@ -1174,10 +1175,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 .contains_key(&module_id)
             {
                 let array_lengths = program_const_array_lengths(module_id)?;
-                let enum_values = with_const_input_and_program_signatures(
+                let enum_values = with_const_input_and_program_facts(
                     db,
                     module_id,
                     Some(signatures),
+                    |module_id| fact_mode.signature_facts_for(module_id),
                     |input, module, interner| {
                         let mut enum_values = nia_const_check::compute_module_const_enum_values(
                             input,
@@ -1188,10 +1190,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                         enum_values
                     },
                 );
-                let values = with_const_input_and_program_signatures(
+                let values = with_const_input_and_program_facts(
                     db,
                     module_id,
                     Some(signatures),
+                    |module_id| fact_mode.signature_facts_for(module_id),
                     |input, module, interner| {
                         let mut values = nia_const_check::compute_module_const_values(
                             input,
@@ -1418,107 +1421,147 @@ pub(super) fn executable_layouts_for_reachable_items(
                 ),
             })
         };
+        let load_filtered_array_lengths = |target_module_id| {
+            let has_reachable_body_items = reachable_body_modules_override
+                .map(|modules| modules.contains(target_module_id))
+                .unwrap_or_else(|| {
+                    has_reachable_executable_body_items(
+                        db,
+                        target_module_id,
+                        reachable_functions,
+                        reachable_globals,
+                    )
+                });
+            if has_reachable_body_items {
+                with_const_input_and_program_facts(
+                    db,
+                    target_module_id,
+                    non_function_signatures_override,
+                    |module_id| {
+                        reachable_body_modules_override
+                            .map(|modules| !modules.contains(module_id))
+                            .unwrap_or_else(|| {
+                                !has_reachable_executable_body_items(
+                                    db,
+                                    module_id,
+                                    reachable_functions,
+                                    reachable_globals,
+                                )
+                            })
+                    },
+                    |input, module, interner| {
+                        let mut array_lengths =
+                            nia_const_check::compute_module_const_array_lengths(input, interner);
+                        array_lengths.diagnostics.extend(module.diagnostics.clone());
+                        array_lengths
+                    },
+                )
+            } else {
+                with_type_signature_const_input(
+                    db,
+                    target_module_id,
+                    non_function_signatures_override,
+                    |input, module, interner| {
+                        let mut array_lengths =
+                            nia_const_check::compute_module_const_array_lengths(input, interner);
+                        array_lengths.diagnostics.extend(module.diagnostics.clone());
+                        array_lengths
+                    },
+                )
+            }
+        };
+        let local_array_lengths = if let Some(array_length_cache) = array_length_cache {
+            if !array_length_cache.borrow().contains_key(&module_id) {
+                array_length_cache
+                    .borrow_mut()
+                    .insert(module_id, load_filtered_array_lengths(module_id));
+            }
+            array_length_cache
+                .borrow()
+                .get(&module_id)
+                .cloned()
+                .expect("local executable array lengths must be cached")
+        } else {
+            load_filtered_array_lengths(module_id)
+        };
+        let signature_array_lengths = RefCell::new(HashMap::new());
         let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
-            if let Some(array_length_cache) = array_length_cache {
-                if !array_length_cache.borrow().contains_key(&id.module_id) {
-                    let has_reachable_body_items = reachable_body_modules_override
-                        .map(|modules| modules.contains(id.module_id))
-                        .unwrap_or_else(|| {
-                            has_reachable_executable_body_items(
-                                db,
-                                id.module_id,
+            if id.module_id == module_id {
+                return local_array_lengths.values.get(&id).copied();
+            }
+            if !signature_array_lengths.borrow().contains_key(&id.module_id) {
+                let array_lengths = with_type_signature_const_input(
+                    db,
+                    id.module_id,
+                    non_function_signatures_override,
+                    |input, module, interner| {
+                        let mut array_lengths =
+                            nia_const_check::compute_module_const_array_lengths(input, interner);
+                        array_lengths.diagnostics.extend(module.diagnostics.clone());
+                        array_lengths
+                    },
+                );
+                signature_array_lengths
+                    .borrow_mut()
+                    .insert(id.module_id, array_lengths);
+            }
+            signature_array_lengths
+                .borrow()
+                .get(&id.module_id)
+                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+        };
+        time_module_provider(db, "executable_layouts.compute", module_id, || {
+            let symbols = db.context().symbols();
+            db.context()
+                .type_store
+                .with_module_interner_for_semantic_migration(module_id, |interner| {
+                    assert!(
+                        type_normalization.interner.is_prefix_of(interner),
+                        "Nia ICE: executable layout input is not a prefix of its session type store"
+                    );
+                    let roots =
+                        time_module_provider(db, "executable_layouts.roots", module_id, || {
+                            executable_layout_roots(
+                                ExecutableLayoutModule {
+                                    module_id,
+                                    signatures: &item_signatures,
+                                    program_struct: &program_struct,
+                                    program_union: &program_union,
+                                },
+                                interner,
+                                type_lowering
+                                    .versioned_type_uses_from_active_item_tree(&active_item_tree)
+                                    .into_iter()
+                                    .map(|(_, ty)| ty),
                                 reachable_functions,
                                 reachable_globals,
                             )
                         });
-                    let array_lengths = if has_reachable_body_items {
-                        with_const_input_and_program_signatures(
-                            db,
-                            id.module_id,
-                            non_function_signatures_override,
-                            |input, module, interner| {
-                                let mut array_lengths =
-                                    nia_const_check::compute_module_const_array_lengths(
-                                        input, interner,
-                                    );
-                                array_lengths.diagnostics.extend(module.diagnostics.clone());
-                                array_lengths
+                    nia_layout::compute_layouts_for_roots_with_program_context(
+                        nia_layout::LayoutComputationInput {
+                            defs: &defs,
+                            interner,
+                            signatures: &item_signatures,
+                            normalized: &type_normalization.normalized,
+                            array_lengths: &executable_array_lengths,
+                            target: nia_layout::TargetDataLayout::LP64,
+                            program: nia_layout::ProgramLayoutContext {
+                                symbols: Some(&symbols),
+                                array_lengths: Some(&executable_array_lengths),
+                                struct_: Some(&program_struct),
+                                union: Some(&program_union),
+                                enum_: Some(&program_enum),
+                                type_alias: Some(&program_type_alias),
+                                ..Default::default()
                             },
-                        )
-                    } else {
-                        with_type_signature_const_input(
-                            db,
-                            id.module_id,
-                            non_function_signatures_override,
-                            |input, module, interner| {
-                                let mut array_lengths =
-                                    nia_const_check::compute_module_const_array_lengths(
-                                        input, interner,
-                                    );
-                                array_lengths.diagnostics.extend(module.diagnostics.clone());
-                                array_lengths
-                            },
-                        )
-                    };
-                    array_length_cache
-                        .borrow_mut()
-                        .insert(id.module_id, array_lengths);
-                }
-                return array_length_cache
-                    .borrow()
-                    .get(&id.module_id)
-                    .and_then(|array_lengths| array_lengths.values.get(&id).copied());
-            }
-            Some(db.query(ConstArrayLengthsQuery(id.module_id)))
-                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
-        };
-        let (layout_interner, roots) =
-            time_module_provider(db, "executable_layouts.roots", module_id, || {
-                let mut layout_interner = type_normalization.interner.clone();
-                let roots = executable_layout_roots(
-                    ExecutableLayoutModule {
-                        module_id,
-                        signatures: &item_signatures,
-                        program_struct: &program_struct,
-                        program_union: &program_union,
-                    },
-                    &mut layout_interner,
-                    type_lowering
-                        .versioned_type_uses_from_active_item_tree(&active_item_tree)
-                        .into_iter()
-                        .map(|(_, ty)| ty),
-                    reachable_functions,
-                    reachable_globals,
-                );
-                (layout_interner, roots)
-            });
-
-        time_module_provider(db, "executable_layouts.compute", module_id, || {
-            let symbols = db.context().symbols();
-            nia_layout::compute_layouts_for_roots_with_program_context(
-                nia_layout::LayoutComputationInput {
-                    defs: &defs,
-                    interner: &layout_interner,
-                    signatures: &item_signatures,
-                    normalized: &type_normalization.normalized,
-                    array_lengths: &executable_array_lengths,
-                    target: nia_layout::TargetDataLayout::LP64,
-                    program: nia_layout::ProgramLayoutContext {
-                        symbols: Some(&symbols),
-                        array_lengths: Some(&executable_array_lengths),
-                        struct_: Some(&program_struct),
-                        union: Some(&program_union),
-                        enum_: Some(&program_enum),
-                        type_alias: Some(&program_type_alias),
-                        ..Default::default()
-                    },
-                },
-                nia_layout::LayoutRoots {
-                    types: &roots.types,
-                    structs: &roots.structs,
-                    unions: &roots.unions,
-                },
-            )
+                        },
+                        nia_layout::LayoutRoots {
+                            types: &roots.types,
+                            structs: &roots.structs,
+                            unions: &roots.unions,
+                        },
+                    )
+                })
         })
     })
 }
@@ -1612,27 +1655,35 @@ fn rooted_layouts_for_checked_module(
                     .and_then(|array_lengths| array_lengths.values.get(&id).copied())
             })
     };
-    nia_layout::compute_layouts_for_roots_with_program_context(
-        nia_layout::LayoutComputationInput {
-            defs: &module.defs,
-            interner: &module.type_normalization.interner,
-            signatures: &item_signatures,
-            normalized: &module.type_normalization.normalized,
-            array_lengths: &local_array_lengths,
-            target: nia_layout::TargetDataLayout::LP64,
-            program: nia_layout::ProgramLayoutContext {
-                symbols: Some(&symbols),
-                layouts: Some(&layout_query),
-                array_lengths: Some(&program_array_lengths),
-                ..Default::default()
-            },
-        },
-        nia_layout::LayoutRoots {
-            types: &roots.types,
-            structs: &roots.structs,
-            unions: &roots.unions,
-        },
-    )
+    db.context()
+        .type_store
+        .with_module_interner_for_semantic_migration(module.id, |interner| {
+            assert!(
+                module.type_normalization.interner.is_prefix_of(interner),
+                "Nia ICE: rooted layout input is not a prefix of its session type store"
+            );
+            nia_layout::compute_layouts_for_roots_with_program_context(
+                nia_layout::LayoutComputationInput {
+                    defs: &module.defs,
+                    interner,
+                    signatures: &item_signatures,
+                    normalized: &module.type_normalization.normalized,
+                    array_lengths: &local_array_lengths,
+                    target: nia_layout::TargetDataLayout::LP64,
+                    program: nia_layout::ProgramLayoutContext {
+                        symbols: Some(&symbols),
+                        layouts: Some(&layout_query),
+                        array_lengths: Some(&program_array_lengths),
+                        ..Default::default()
+                    },
+                },
+                nia_layout::LayoutRoots {
+                    types: &roots.types,
+                    structs: &roots.structs,
+                    unions: &roots.unions,
+                },
+            )
+        })
 }
 
 struct ExecutableLayoutModule<'a> {

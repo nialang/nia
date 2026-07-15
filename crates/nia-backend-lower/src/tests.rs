@@ -373,14 +373,16 @@ fn lower_source_with_body_check_mutation_and_optimization(
         .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
             nia_const_check::check_module_const(const_input, interner)
         });
-    let layouts = nia_layout::compute_layouts_with_normalized_types(
-        &defs,
-        &normalization.interner,
-        &signatures,
-        &normalization.normalized,
-        &|id| const_eval.array_lengths.get(&id).copied(),
-        nia_layout::TargetDataLayout::LP64,
-    );
+    let layouts = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+        nia_layout::compute_layouts_with_normalized_types(
+            &defs,
+            interner,
+            &signatures,
+            &normalization.normalized,
+            &|id| const_eval.array_lengths.get(&id).copied(),
+            nia_layout::TargetDataLayout::LP64,
+        )
+    });
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
         diagnostics: Vec::new(),

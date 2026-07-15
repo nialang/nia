@@ -87,9 +87,10 @@ fn main() i32 {
         },
         &mut const_interner,
     );
+    let mut layout_interner = normalization.interner.clone();
     let layouts = nia_layout::compute_layouts_with_normalized_types(
         &defs,
-        &normalization.interner,
+        &mut layout_interner,
         &signatures,
         &normalization.normalized,
         &|id| const_eval.array_lengths.get(&id).copied(),

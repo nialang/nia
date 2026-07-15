@@ -533,9 +533,10 @@ pub fn check_module_bodies(
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
+    let mut layout_interner = lowered.interner.clone();
     let layouts = nia_layout::compute_layouts(
         defs,
-        &lowered.interner,
+        &mut layout_interner,
         signatures,
         nia_layout::TargetDataLayout::LP64,
     );
@@ -617,7 +618,7 @@ pub fn check_module_bodies_with_program_signatures(
 ) -> BodyCheck {
     let layouts = nia_layout::compute_layouts_with_normalized_types(
         input.defs,
-        &input.normalization.interner,
+        interner,
         input.signatures,
         &input.normalization.normalized,
         &|id| input.const_eval.array_lengths.get(&id).copied(),
