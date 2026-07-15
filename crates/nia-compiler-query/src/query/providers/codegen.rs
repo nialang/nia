@@ -187,7 +187,6 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         let const_array_lengths = checked_modules
             .iter()
             .map(|checked_module| nia_const_check::ConstArrayLengths {
-                interner: checked_module.const_eval.interner.clone(),
                 values: checked_module.const_eval.array_lengths.clone(),
                 diagnostics: checked_module.const_eval.diagnostics.clone(),
             })
@@ -195,7 +194,6 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         let const_enum_values = checked_modules
             .iter()
             .map(|checked_module| nia_const_check::ConstEnumValues {
-                interner: checked_module.const_eval.interner.clone(),
                 values: checked_module.const_eval.enum_values.clone(),
                 typed_values: checked_module.const_eval.typed_enum_values.clone(),
                 diagnostics: checked_module.const_eval.diagnostics.clone(),

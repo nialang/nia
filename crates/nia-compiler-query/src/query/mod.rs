@@ -3113,6 +3113,46 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
+    fn const_phases_append_to_one_session_type_store_shard() {
+        let module_id = ModuleId(0);
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(
+                    module_id,
+                    "main.nia",
+                    r#"
+const values = 0usize..3usize;
+const width: usize = values.end();
+
+fn main() i32 { 0 }
+"#,
+                ),
+            ])));
+        let normalization = database.db.query(TypeNormalizationQuery(module_id));
+        let before_const = database.db.context().type_store.module_snapshot(module_id);
+
+        let _ = database.db.query(ConstArrayLengthsQuery(module_id));
+        let after_array_lengths = database.db.context().type_store.module_snapshot(module_id);
+        let _ = database.db.query(ConstEnumValuesQuery(module_id));
+        let after_enum_values = database.db.context().type_store.module_snapshot(module_id);
+        let _ = database.db.query(ConstValuesQuery(module_id));
+        let after_values = database.db.context().type_store.module_snapshot(module_id);
+        let _ = database.db.query(ConstTypedFactsQuery(module_id));
+        let after_typed_facts = database.db.context().type_store.module_snapshot(module_id);
+        let checked = database.db.query(ConstQuery(module_id));
+        let after_check = database.db.context().type_store.module_snapshot(module_id);
+
+        assert!(normalization.interner.is_prefix_of(&before_const));
+        assert!(before_const.is_prefix_of(&after_array_lengths));
+        assert!(after_array_lengths.is_prefix_of(&after_enum_values));
+        assert!(after_enum_values.is_prefix_of(&after_values));
+        assert!(after_values.is_prefix_of(&after_typed_facts));
+        assert_eq!(after_typed_facts, after_check);
+        assert_eq!(checked.interner, after_check);
+        assert!(after_check.len() > before_const.len());
+    }
+
+    #[test]
     fn signature_and_full_normalization_share_ids_in_either_query_order() {
         fn assert_order(signature_first: bool) {
             let module_id = ModuleId(0);

@@ -85,22 +85,33 @@ fn main() i32 {
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext::empty(),
     };
-    let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
-    let const_enum_values =
-        nia_const_check::compute_module_const_enum_values(const_input, const_array_lengths.clone());
+    let mut const_interner = lowered.interner.clone();
+    let const_array_lengths =
+        nia_const_check::compute_module_const_array_lengths(const_input, &mut const_interner);
+    let const_enum_values = nia_const_check::compute_module_const_enum_values(
+        const_input,
+        &mut const_interner,
+        const_array_lengths.clone(),
+    );
     let const_values = nia_const_check::compute_module_const_values(
         const_input,
+        &mut const_interner,
         const_array_lengths.clone(),
         const_enum_values.clone(),
     );
     let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
         const_input,
+        &mut const_interner,
         const_array_lengths.clone(),
         const_enum_values,
         const_values.clone(),
     );
-    let const_eval =
-        crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
+    let const_eval = crate::BodyConst::from_phases(
+        &const_interner,
+        &const_values,
+        &const_array_lengths,
+        &const_typed_facts,
+    );
     let normalization = TypeNormalization {
         interner: lowered.interner.clone(),
         normalized: HashMap::new(),
@@ -240,22 +251,33 @@ fn main() i32 {
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext::empty(),
     };
-    let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
-    let const_enum_values =
-        nia_const_check::compute_module_const_enum_values(const_input, const_array_lengths.clone());
+    let mut const_interner = lowered.interner.clone();
+    let const_array_lengths =
+        nia_const_check::compute_module_const_array_lengths(const_input, &mut const_interner);
+    let const_enum_values = nia_const_check::compute_module_const_enum_values(
+        const_input,
+        &mut const_interner,
+        const_array_lengths.clone(),
+    );
     let const_values = nia_const_check::compute_module_const_values(
         const_input,
+        &mut const_interner,
         const_array_lengths.clone(),
         const_enum_values.clone(),
     );
     let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
         const_input,
+        &mut const_interner,
         const_array_lengths.clone(),
         const_enum_values,
         const_values.clone(),
     );
-    let const_eval =
-        crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
+    let const_eval = crate::BodyConst::from_phases(
+        &const_interner,
+        &const_values,
+        &const_array_lengths,
+        &const_typed_facts,
+    );
     let normalization = TypeNormalization {
         interner: lowered.interner.clone(),
         normalized: HashMap::new(),

@@ -354,7 +354,9 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn interner_for_module(&self, module_id: ModuleId) -> Option<&TyInterner> {
-        self.working_interners.get(&module_id)
+        self.working_interners
+            .get(&module_id)
+            .map(|interner| &**interner)
     }
 
     pub(super) fn source_interner_for_module(&self, module_id: ModuleId) -> Option<TyInterner> {
@@ -398,6 +400,7 @@ impl Analyzer<'_> {
         self.working_interners
             .values()
             .find(|interner| interner_id == interner.interner_id())
+            .map(|interner| &**interner)
     }
 
     fn source_interner_snapshot_by_id(
@@ -421,15 +424,20 @@ impl Analyzer<'_> {
         let active = if let Some(working) = self.working_interner_by_id(ty.interner_id)
             && working.get(ty).is_some()
         {
-            if let Some(source) = self.source_interner_snapshot_by_id(ty.interner_id)
-                && !source.is_prefix_of(working)
-            {
-                panic!(
-                    "Nia ICE: const working type interner {:?} diverged from source snapshot",
-                    ty.interner_id
-                );
+            if let Some(source) = self.source_interner_snapshot_by_id(ty.interner_id) {
+                if source.is_prefix_of(working) {
+                    working.clone()
+                } else if working.is_prefix_of(&source) {
+                    source
+                } else {
+                    panic!(
+                        "Nia ICE: const working type interner {:?} diverged from source snapshot",
+                        ty.interner_id
+                    );
+                }
+            } else {
+                working.clone()
             }
-            working.clone()
         } else {
             self.source_interner_for_type(ty).unwrap_or_else(|| {
                 panic!(
@@ -465,7 +473,8 @@ impl Analyzer<'_> {
             return Some(());
         }
         let interner = self.source_interner_for_module(module_id)?;
-        self.working_interners.insert(module_id, interner);
+        self.working_interners
+            .insert(module_id, super::WorkingInterner::Snapshot(interner));
         Some(())
     }
 

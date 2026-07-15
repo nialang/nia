@@ -125,7 +125,11 @@ impl Analyzer<'_> {
                 .program_is_enum
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let Some(interner_snapshot) = self.working_interners.get(&module_id).cloned() else {
+        let Some(interner_snapshot) = self
+            .working_interners
+            .get(&module_id)
+            .map(|interner| (**interner).clone())
+        else {
             return false;
         };
         let normalization = nia_type_normalize::TypeNormalization {
@@ -195,7 +199,10 @@ impl Analyzer<'_> {
                 .program_is_enum
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let interner_snapshot = self.working_interners.get(&module_id)?.clone();
+        let interner_snapshot = self
+            .working_interners
+            .get(&module_id)
+            .map(|interner| (**interner).clone())?;
         let normalization = nia_type_normalize::TypeNormalization {
             interner: interner_snapshot,
             normalized,
@@ -271,7 +278,10 @@ impl Analyzer<'_> {
                 .program_is_enum
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let interner_snapshot = self.working_interners.get(&module_id)?.clone();
+        let interner_snapshot = self
+            .working_interners
+            .get(&module_id)
+            .map(|interner| (**interner).clone())?;
         let normalization = nia_type_normalize::TypeNormalization {
             interner: interner_snapshot,
             normalized,

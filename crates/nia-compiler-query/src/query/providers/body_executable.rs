@@ -121,6 +121,7 @@ impl ExecutableValueRefEdges {
 
 struct BodyCheckConstInputs {
     module: ConstModuleLowering,
+    interner: nia_ty::TyInterner,
     array_lengths: nia_const_check::ConstArrayLengths,
     enum_values: nia_const_check::ConstEnumValues,
     values: nia_const_check::ConstValues,
@@ -182,7 +183,7 @@ impl<'a> ExecutableFactMode<'a> {
 impl BodyCheckConstInputs {
     fn into_check(self) -> ConstCheck {
         ConstCheck {
-            interner: self.typed_facts.interner,
+            interner: self.interner,
             values: self.values.values,
             typed_values: self.typed_facts.typed_values,
             enum_values: self.enum_values.values,
@@ -490,12 +491,26 @@ fn const_inputs_for_body_check(
             nia_item_tree::SignatureItemSet::Values,
         )))
     };
-    let trait_impls_for_module = |module_id| {
+    let local_trait_impls = fact_mode
+        .non_function_signatures
+        .is_none()
+        .then(|| db.query_shared(VisibleTraitImplsQuery(module_id)));
+    let trait_impls_for_module = |requested_module_id| {
+        if requested_module_id == module_id {
+            return fact_mode
+                .non_function_signatures
+                .map(|signatures| signatures.trait_impls.clone())
+                .or_else(|| {
+                    local_trait_impls
+                        .as_ref()
+                        .map(|signatures| signatures.trait_impls.clone())
+                });
+        }
         if let Some(signatures) = fact_mode.non_function_signatures {
             return Some(signatures.trait_impls.clone());
         }
         Some(
-            db.query(VisibleTraitImplsQuery(module_id))
+            db.query(VisibleTraitImplsQuery(requested_module_id))
                 .trait_impls
                 .clone(),
         )
@@ -527,8 +542,17 @@ fn const_inputs_for_body_check(
             nia_item_tree::SignatureItemSet::Values,
         )))
     };
-    let visible_extensions_for_module =
-        |module_id| Some(db.query(VisibleExtensionsQuery(module_id)).methods.clone());
+    let local_visible_extensions = db.query_shared(VisibleExtensionsQuery(module_id));
+    let visible_extensions_for_module = |requested_module_id| {
+        if requested_module_id == module_id {
+            return Some(local_visible_extensions.methods.clone());
+        }
+        Some(
+            db.query(VisibleExtensionsQuery(requested_module_id))
+                .methods
+                .clone(),
+        )
+    };
     let program_global_initializer = |global_id| {
         if let Some(cache) = global_initializer_cache {
             if !cache.borrow().contains_key(&global_id) {
@@ -569,46 +593,71 @@ fn const_inputs_for_body_check(
             visible_extensions: Some(&visible_extensions_for_module),
         },
     };
-    let mut array_lengths = time_module_provider(
-        db,
-        "executable_body_check.const_eval.array_lengths",
-        module_id,
-        || nia_const_check::compute_module_const_array_lengths(const_input),
-    );
-    array_lengths.diagnostics.extend(module.diagnostics.clone());
-    let enum_values = time_module_provider(
-        db,
-        "executable_body_check.const_eval.enum_values",
-        module_id,
-        || nia_const_check::compute_module_const_enum_values(const_input, array_lengths.clone()),
-    );
-    let values = time_module_provider(
-        db,
-        "executable_body_check.const_eval.values",
-        module_id,
-        || {
-            nia_const_check::compute_module_const_values(
-                const_input,
-                array_lengths.clone(),
-                enum_values.clone(),
+    let (array_lengths, enum_values, values, typed_facts, interner) = db
+        .context()
+        .type_store
+        .with_module_interner_for_semantic_migration(module_id, |interner| {
+            assert!(
+                normalization.interner.is_prefix_of(interner),
+                "Nia ICE: body const input is not a prefix of its session type store"
+            );
+            let mut array_lengths = time_module_provider(
+                db,
+                "executable_body_check.const_eval.array_lengths",
+                module_id,
+                || nia_const_check::compute_module_const_array_lengths(const_input, interner),
+            );
+            array_lengths.diagnostics.extend(module.diagnostics.clone());
+            let enum_values = time_module_provider(
+                db,
+                "executable_body_check.const_eval.enum_values",
+                module_id,
+                || {
+                    nia_const_check::compute_module_const_enum_values(
+                        const_input,
+                        interner,
+                        array_lengths.clone(),
+                    )
+                },
+            );
+            let values = time_module_provider(
+                db,
+                "executable_body_check.const_eval.values",
+                module_id,
+                || {
+                    nia_const_check::compute_module_const_values(
+                        const_input,
+                        interner,
+                        array_lengths.clone(),
+                        enum_values.clone(),
+                    )
+                },
+            );
+            let typed_facts = time_module_provider(
+                db,
+                "executable_body_check.const_eval.typed_facts",
+                module_id,
+                || {
+                    nia_const_check::compute_module_const_typed_facts(
+                        const_input,
+                        interner,
+                        array_lengths.clone(),
+                        enum_values.clone(),
+                        values.clone(),
+                    )
+                },
+            );
+            (
+                array_lengths,
+                enum_values,
+                values,
+                typed_facts,
+                interner.clone(),
             )
-        },
-    );
-    let typed_facts = time_module_provider(
-        db,
-        "executable_body_check.const_eval.typed_facts",
-        module_id,
-        || {
-            nia_const_check::compute_module_const_typed_facts(
-                const_input,
-                array_lengths.clone(),
-                enum_values.clone(),
-                values.clone(),
-            )
-        },
-    );
+        });
     BodyCheckConstInputs {
         module,
+        interner,
         array_lengths,
         enum_values,
         values,
@@ -732,14 +781,17 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let full_const_array_lengths;
     let full_const_typed_facts;
     let full_const_module;
+    let full_const_interner;
     let (body_const, const_module) = match filter {
         nia_body_check::BodyCheckFilter::All => {
             full_const_values = db.query(ConstValuesQuery(module_id));
             full_const_array_lengths = db.query(ConstArrayLengthsQuery(module_id));
             full_const_typed_facts = db.query(ConstTypedFactsQuery(module_id));
             full_const_module = db.query(ConstModuleQuery(module_id));
+            full_const_interner = db.context().type_store.module_snapshot(module_id);
             (
                 nia_body_check::BodyConst::from_phases(
+                    &full_const_interner,
                     &full_const_values,
                     &full_const_array_lengths,
                     &full_const_typed_facts,
@@ -775,6 +827,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 .expect("filtered const inputs must be initialized");
             (
                 nia_body_check::BodyConst::from_phases(
+                    &filtered.interner,
                     &filtered.values,
                     &filtered.array_lengths,
                     &filtered.typed_facts,
@@ -1066,9 +1119,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     db,
                     module_id,
                     Some(signatures),
-                    |input, module| {
+                    |input, module, interner| {
                         let mut array_lengths =
-                            nia_const_check::compute_module_const_array_lengths(input);
+                            nia_const_check::compute_module_const_array_lengths(input, interner);
                         array_lengths.diagnostics.extend(module.diagnostics.clone());
                         array_lengths
                     },
@@ -1111,9 +1164,10 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     db,
                     module_id,
                     Some(signatures),
-                    |input, module| {
+                    |input, module, interner| {
                         let mut enum_values = nia_const_check::compute_module_const_enum_values(
                             input,
+                            interner,
                             array_lengths.clone(),
                         );
                         enum_values.diagnostics.extend(module.diagnostics.clone());
@@ -1124,9 +1178,10 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     db,
                     module_id,
                     Some(signatures),
-                    |input, module| {
+                    |input, module, interner| {
                         let mut values = nia_const_check::compute_module_const_values(
                             input,
+                            interner,
                             array_lengths,
                             enum_values,
                         );
@@ -1356,9 +1411,11 @@ pub(super) fn executable_layouts_for_reachable_items(
                             db,
                             id.module_id,
                             non_function_signatures_override,
-                            |input, module| {
+                            |input, module, interner| {
                                 let mut array_lengths =
-                                    nia_const_check::compute_module_const_array_lengths(input);
+                                    nia_const_check::compute_module_const_array_lengths(
+                                        input, interner,
+                                    );
                                 array_lengths.diagnostics.extend(module.diagnostics.clone());
                                 array_lengths
                             },
@@ -1368,9 +1425,11 @@ pub(super) fn executable_layouts_for_reachable_items(
                             db,
                             id.module_id,
                             non_function_signatures_override,
-                            |input, module| {
+                            |input, module, interner| {
                                 let mut array_lengths =
-                                    nia_const_check::compute_module_const_array_lengths(input);
+                                    nia_const_check::compute_module_const_array_lengths(
+                                        input, interner,
+                                    );
                                 array_lengths.diagnostics.extend(module.diagnostics.clone());
                                 array_lengths
                             },
@@ -1727,17 +1786,21 @@ pub(super) fn executable_signature_checked_module(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
-    let (array_lengths, enum_values) = with_type_signature_const_input(
+    let (array_lengths, enum_values, const_interner) = with_type_signature_const_input(
         db,
         module_id,
         Some(program_signatures),
-        |input, module| {
-            let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input);
+        |input, module, interner| {
+            let mut array_lengths =
+                nia_const_check::compute_module_const_array_lengths(input, interner);
             array_lengths.diagnostics.extend(module.diagnostics.clone());
-            let mut enum_values =
-                nia_const_check::compute_module_const_enum_values(input, array_lengths.clone());
+            let mut enum_values = nia_const_check::compute_module_const_enum_values(
+                input,
+                interner,
+                array_lengths.clone(),
+            );
             enum_values.diagnostics.extend(module.diagnostics.clone());
-            (array_lengths, enum_values)
+            (array_lengths, enum_values, interner.clone())
         },
     );
     let mut const_diagnostics = array_lengths.diagnostics.clone();
@@ -1764,7 +1827,7 @@ pub(super) fn executable_signature_checked_module(
         },
         type_normalization: type_normalization.clone(),
         const_eval: ConstCheck {
-            interner: enum_values.interner,
+            interner: const_interner,
             values: HashMap::new(),
             typed_values: HashMap::new(),
             enum_values: enum_values.values,
