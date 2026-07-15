@@ -520,7 +520,6 @@ fn codegen_program_from_query_error(
         modules: Vec::new(),
         monomorphization: nia_monomorphize::Monomorphization {
             instances: Vec::new(),
-            type_interners: std::collections::HashMap::new(),
             diagnostics: Vec::new(),
         },
         backend_lowering: nia_backend_lower::BackendLowering {

@@ -390,7 +390,6 @@ impl Default for CompilerQueryProviders {
 fn empty_monomorphization() -> nia_monomorphize::Monomorphization {
     nia_monomorphize::Monomorphization {
         instances: Vec::new(),
-        type_interners: HashMap::new(),
         diagnostics: Vec::new(),
     }
 }

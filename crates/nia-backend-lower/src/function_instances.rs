@@ -823,17 +823,8 @@ impl<'a> ModuleLowerer<'a> {
                     }
                     return arg;
                 }
-                let source = self
-                    .monomorphization
-                    .type_interners
-                    .get(&arg.interner_id)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "Nia ICE: missing monomorphized type interner {:?} for argument {:?}",
-                            arg.interner_id, arg
-                        )
-                    });
-                nia_ty::import_type_into(&mut self.type_context.interner, source, arg)
+                let source = self.type_context.active_interner_for_type(arg).clone();
+                nia_ty::import_type_into(&mut self.type_context.interner, &source, arg)
             })
             .collect()
     }

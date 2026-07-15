@@ -264,7 +264,6 @@ fn main() i32 {
         &[input],
         &Monomorphization {
             instances: Vec::new(),
-            type_interners: HashMap::new(),
             diagnostics: Vec::new(),
         },
         nia_opt::OptimizationPolicy::default(),

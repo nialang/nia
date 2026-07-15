@@ -69,6 +69,7 @@ pub(super) fn monomorphization_for_checked_modules(
                 },
             )
             .collect::<Vec<_>>(),
+        &db.context().type_store,
     )
 }
 

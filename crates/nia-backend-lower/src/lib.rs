@@ -215,7 +215,7 @@ pub fn lower_backend_program_with_timings(
         };
     }
     let shared = time_backend_stage(timing, "backend_lower.shared_indexes", || {
-        BackendLowerShared::new(modules, monomorphization)
+        BackendLowerShared::new(modules)
     });
     let mut lowerers = time_backend_stage(timing, "backend_lower.new_lowerers", || {
         modules
@@ -527,7 +527,7 @@ pub(crate) struct BackendLowerShared {
 }
 
 impl BackendLowerShared {
-    fn new(modules: &[BackendLowerModuleInput<'_>], monomorphization: &Monomorphization) -> Self {
+    fn new(modules: &[BackendLowerModuleInput<'_>]) -> Self {
         let first = modules.first();
         Self {
             program_extension_generics_by_method: first
@@ -547,7 +547,7 @@ impl BackendLowerShared {
             program_method_symbols_by_def: first
                 .map(index_program_method_symbols_by_def)
                 .unwrap_or_default(),
-            input_type_interners: index_input_type_interner_snapshots(modules, monomorphization),
+            input_type_interners: index_input_type_interner_snapshots(modules),
         }
     }
 }
@@ -2408,7 +2408,6 @@ fn index_program_extension_method_sources_by_def(
 
 fn index_input_type_interner_snapshots(
     modules: &[BackendLowerModuleInput<'_>],
-    monomorphization: &Monomorphization,
 ) -> HashMap<TyInternerId, nia_ty::TyInterner> {
     let mut interners = HashMap::new();
     for input in modules {
@@ -2417,9 +2416,6 @@ fn index_input_type_interner_snapshots(
         for interner in input.program_function_body_interners.values() {
             insert_input_type_interner_snapshot(&mut interners, "program_function_body", interner);
         }
-    }
-    for interner in monomorphization.type_interners.values() {
-        insert_input_type_interner_snapshot(&mut interners, "monomorphization", interner);
     }
     interners
 }
