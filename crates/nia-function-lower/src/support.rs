@@ -33,7 +33,7 @@ pub(super) struct SwitchStmtArmContext<'a> {
     pub(super) blocks: &'a mut Vec<FunctionBlock>,
 }
 
-impl FunctionLowerer {
+impl FunctionLowerer<'_> {
     pub(super) fn try_kind(&self, ty: InternedTyId) -> Option<FunctionTryKind> {
         let interner = self.interner.as_ref()?;
         match interner.get(ty) {

@@ -22,6 +22,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
     checked_modules: &'a [CheckedModule],
     const_array_lengths: &'a [nia_const_check::ConstArrayLengths],
     function_bodies: &'a [LoweredFunctionBodies],
+    function_interners: &'a HashMap<ModuleId, nia_ty::TyInterner>,
 ) -> BackendLoweringIndexes<'a> {
     let program_extensions = visible_extension_modules
         .iter()
@@ -34,10 +35,9 @@ pub(super) fn build_backend_lowering_indexes<'a>(
         .collect::<HashMap<_, _>>();
     let program_function_body_interners =
         nia_backend_lower::ProgramFunctionBodyInterners::from_modules(
-            checked_modules
+            function_interners
                 .iter()
-                .zip(function_bodies.iter())
-                .map(|(checked_module, lowered)| (checked_module.id, &lowered.interner)),
+                .map(|(module_id, interner)| (*module_id, interner)),
         );
     let program_function_bodies = function_bodies
         .iter()
@@ -77,6 +77,7 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) const_enum_values: &'a [nia_const_check::ConstEnumValues],
     pub(super) visible_extensions: &'a [VisibleExtensionsValue],
     pub(super) function_bodies: &'a [LoweredFunctionBodies],
+    pub(super) function_interners: &'a HashMap<ModuleId, nia_ty::TyInterner>,
     pub(super) extension_methods: &'a nia_defs::ExtensionMethods,
     pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     pub(super) program_signatures: ProgramCodegenSignatures<'a>,
@@ -122,7 +123,10 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     signatures: item_signatures,
                     type_normalization: &checked_module.type_normalization,
                     body_ir: &checked_module.body_ir,
-                    function_interner: &function_bodies.interner,
+                    function_interner: input
+                        .function_interners
+                        .get(&checked_module.id)
+                        .expect("function lowering interner snapshot"),
                     semantic_facts: &checked_module.semantic_facts,
                     const_array_lengths,
                     const_enum_values,

@@ -128,7 +128,6 @@ pub(super) struct ProgramAbiSignaturesValue {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct LoweredFunctionBodies {
-    pub(super) interner: nia_ty::TyInterner,
     pub(super) bodies: HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
     pub(super) diagnostics: Vec<nia_function_lower::FunctionLoweringDiagnostic>,
 }

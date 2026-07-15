@@ -57,28 +57,23 @@ pub fn lower_function_body(body: &TypedBody) -> Result<FunctionBody, FunctionLow
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoweredFunctionBody {
-    pub interner: TyInterner,
     pub body: FunctionBody,
 }
 
 pub fn lower_function_body_with_interner(
     module_id: ModuleId,
     body: &TypedBody,
-    interner: &TyInterner,
+    interner: &mut TyInterner,
 ) -> Result<LoweredFunctionBody, FunctionLoweringDiagnostic> {
     input::validate_function_lowering_input(body)?;
     let mut lowerer = FunctionLowerer::new(module_id, Some(interner));
     let body = lowerer.lower_body(body);
     validate_function_body(&body).map_err(FunctionLoweringDiagnostic::from)?;
-    Ok(LoweredFunctionBody {
-        interner: lowerer.finish_interner(),
-        body,
-    })
+    Ok(LoweredFunctionBody { body })
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoweredFunctionBodies {
-    pub interner: TyInterner,
     pub bodies: std::collections::HashMap<nia_ids::GlobalDefId, FunctionBody>,
     pub diagnostics: Vec<FunctionLoweringDiagnostic>,
 }
@@ -86,7 +81,7 @@ pub struct LoweredFunctionBodies {
 pub fn lower_function_bodies_with_interner<'a>(
     module_id: ModuleId,
     bodies: impl IntoIterator<Item = (&'a nia_ids::GlobalDefId, &'a TypedBody)>,
-    interner: &TyInterner,
+    interner: &mut TyInterner,
 ) -> Result<LoweredFunctionBodies, Vec<FunctionLoweringDiagnostic>> {
     let mut lowerer = FunctionLowerer::new(module_id, Some(interner));
     let mut bodies = bodies.into_iter().collect::<Vec<_>>();
@@ -107,7 +102,6 @@ pub fn lower_function_bodies_with_interner<'a>(
         }
     }
     let lowered = LoweredFunctionBodies {
-        interner: lowerer.finish_interner(),
         bodies: lowered_bodies,
         diagnostics,
     };
@@ -118,7 +112,7 @@ pub fn lower_function_bodies_with_interner<'a>(
     }
 }
 
-struct FunctionLowerer {
+struct FunctionLowerer<'a> {
     next_block: u32,
     next_scope: u32,
     next_temp_local: u32,
@@ -126,7 +120,7 @@ struct FunctionLowerer {
     temp_locals: Vec<FunctionLocal>,
     scopes: Vec<FunctionScope>,
     loop_targets: Vec<LoopTargetIds>,
-    interner: Option<TyInterner>,
+    interner: Option<&'a mut TyInterner>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -151,8 +145,8 @@ struct StatementIf<'a> {
     else_branch: Option<&'a TypedExpr>,
 }
 
-impl FunctionLowerer {
-    fn new(module_id: ModuleId, interner: Option<&TyInterner>) -> Self {
+impl<'a> FunctionLowerer<'a> {
+    fn new(module_id: ModuleId, interner: Option<&'a mut TyInterner>) -> Self {
         Self {
             next_block: 0,
             next_scope: 0,
@@ -161,7 +155,7 @@ impl FunctionLowerer {
             temp_locals: Vec::new(),
             scopes: Vec::new(),
             loop_targets: Vec::new(),
-            interner: interner.cloned(),
+            interner,
         }
     }
 
@@ -228,11 +222,5 @@ impl FunctionLowerer {
         self.temp_locals.clear();
         self.scopes.clear();
         self.loop_targets.clear();
-    }
-
-    fn finish_interner(&mut self) -> TyInterner {
-        self.interner
-            .take()
-            .unwrap_or_else(|| TyInterner::new(self.module_id))
     }
 }

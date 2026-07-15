@@ -276,7 +276,7 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
         ty: void_ty,
     };
 
-    let function_body = lower_function_body_with_interner(ModuleId(0), &body, &interner)
+    let function_body = lower_function_body_with_interner(ModuleId(0), &body, &mut interner)
         .expect("valid typed body")
         .body;
 
