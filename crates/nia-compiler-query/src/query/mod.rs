@@ -3139,7 +3139,7 @@ fn main() i32 { 0 }
         let after_values = database.db.context().type_store.module_snapshot(module_id);
         let _ = database.db.query(ConstTypedFactsQuery(module_id));
         let after_typed_facts = database.db.context().type_store.module_snapshot(module_id);
-        let checked = database.db.query(ConstQuery(module_id));
+        let _ = database.db.query(ConstQuery(module_id));
         let after_check = database.db.context().type_store.module_snapshot(module_id);
 
         assert!(normalization.interner.is_prefix_of(&before_const));
@@ -3148,8 +3148,43 @@ fn main() i32 { 0 }
         assert!(after_enum_values.is_prefix_of(&after_values));
         assert!(after_values.is_prefix_of(&after_typed_facts));
         assert_eq!(after_typed_facts, after_check);
-        assert_eq!(checked.interner, after_check);
         assert!(after_check.len() > before_const.len());
+    }
+
+    #[test]
+    fn body_check_appends_to_the_session_type_store_shard() {
+        let module_id = ModuleId(0);
+        let database =
+            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
+                loaded_module(
+                    module_id,
+                    "main.nia",
+                    r#"
+fn main() i32 {
+    let values = [1i32, 2i32, 3i32];
+    values[0]
+}
+"#,
+                ),
+            ])));
+        let _ = database.db.query(ConstQuery(module_id));
+        let before_body = database.db.context().type_store.module_snapshot(module_id);
+
+        let checked = database.db.query(BodyCheckQuery(module_id));
+        let after_body = database.db.context().type_store.module_snapshot(module_id);
+
+        assert!(before_body.is_prefix_of(&after_body));
+        assert_eq!(checked.ir.interner, after_body);
+        assert!(after_body.iter().any(|(ty, kind)| {
+            before_body.get(ty).is_none()
+                && matches!(
+                    kind,
+                    nia_ty::TyKind::Array {
+                        len: nia_ty::ArrayLenTy::ConstValue(3),
+                        ..
+                    }
+                )
+        }));
     }
 
     #[test]

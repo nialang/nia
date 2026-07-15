@@ -242,12 +242,8 @@ fn pipeline_with_options(
         const_enum_values,
         const_values.clone(),
     );
-    let const_eval = crate::BodyConst::from_phases(
-        &const_interner,
-        &const_values,
-        &const_array_lengths,
-        &const_typed_facts,
-    );
+    let const_eval =
+        crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     assert!(
         const_values.diagnostics.is_empty(),
         "{:?}",
@@ -328,37 +324,40 @@ fn pipeline_with_options(
     let mut program_signatures = EmptyBodyProgramSignatures::new();
     program_signatures.trait_impls = single_module_trait_impls(ModuleId(0), &signatures, &lowered);
     let origins = NodeOriginTable::default();
-    check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
-        source_version: None,
-        source_path: &source_path,
-        symbols: &symbols,
-        origins: &origins,
-        active_item_tree: &active_item_tree,
-        defs: &defs,
-        values: &values,
-        locals: &locals,
-        semantic_uses: &semantic_uses,
-        lowered: &lowered,
-        signatures: BodyLocalSignatures::from_item_signatures(&signatures),
-        const_signatures: &signatures,
-        normalization: &normalization,
-        seed: None,
-        target: &target,
-        const_eval,
-        const_module: &const_module.module,
-        layouts: &layouts,
-        extensions: &extensions,
-        lazy_extensions: None,
-        program_extension_methods: &nia_defs::ExtensionMethods::default(),
-        extension_interner: None,
-        program: BodyProgramContext::empty(),
-        program_signatures: program_signatures.context(),
-        function_scope: FunctionCheckScope::LocalModule,
-        program_const: ProgramConstMaps::empty(),
-        filter: crate::BodyCheckFilter::All,
-        product: crate::BodyCheckProduct::Full,
-        prechecked: None,
-    })
+    check_module_bodies_with_program_signatures_and_layouts(
+        BodyCheckInput {
+            source_version: None,
+            source_path: &source_path,
+            symbols: &symbols,
+            origins: &origins,
+            active_item_tree: &active_item_tree,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            lowered: &lowered,
+            signatures: BodyLocalSignatures::from_item_signatures(&signatures),
+            const_signatures: &signatures,
+            normalization: &normalization,
+            seed: None,
+            target: &target,
+            const_eval,
+            const_module: &const_module.module,
+            layouts: &layouts,
+            extensions: &extensions,
+            lazy_extensions: None,
+            program_extension_methods: &nia_defs::ExtensionMethods::default(),
+            extension_interner: None,
+            program: BodyProgramContext::empty(),
+            program_signatures: program_signatures.context(),
+            function_scope: FunctionCheckScope::LocalModule,
+            program_const: ProgramConstMaps::empty(),
+            filter: crate::BodyCheckFilter::All,
+            product: crate::BodyCheckProduct::Full,
+            prechecked: None,
+        },
+        &mut const_interner,
+    )
 }
 
 pub(super) fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {

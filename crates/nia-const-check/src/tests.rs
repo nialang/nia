@@ -79,11 +79,8 @@ fn check_source(source: &str) -> CheckedFixture {
         },
         &mut const_interner,
     );
-    assert_eq!(
-        lowered.interner.interner_id(),
-        checked.interner.interner_id()
-    );
-    assert!(lowered.interner.is_prefix_of(&checked.interner));
+    assert_eq!(lowered.interner.interner_id(), const_interner.interner_id());
+    assert!(lowered.interner.is_prefix_of(&const_interner));
     CheckedFixture {
         defs,
         locals,

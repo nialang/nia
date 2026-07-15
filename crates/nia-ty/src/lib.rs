@@ -7,7 +7,37 @@ use nia_ids::{
 };
 use nia_span::Span;
 use nia_symbol::SymbolId;
+use std::cell::RefCell;
 use std::sync::{Arc, Mutex, RwLock};
+
+thread_local! {
+    static HELD_MODULE_INTERNERS: RefCell<FastHashSet<(TypeStoreId, ModuleId)>> =
+        RefCell::new(FastHashSet::default());
+}
+
+struct ModuleInternerGuard {
+    key: (TypeStoreId, ModuleId),
+}
+
+impl ModuleInternerGuard {
+    fn acquire(key: (TypeStoreId, ModuleId)) -> Self {
+        HELD_MODULE_INTERNERS.with(|held| {
+            assert!(
+                held.borrow_mut().insert(key),
+                "Nia ICE: reentrant access to the same type store module shard"
+            );
+        });
+        Self { key }
+    }
+}
+
+impl Drop for ModuleInternerGuard {
+    fn drop(&mut self) {
+        HELD_MODULE_INTERNERS.with(|held| {
+            held.borrow_mut().remove(&self.key);
+        });
+    }
+}
 
 #[derive(Debug)]
 pub struct TypeStore {
@@ -39,6 +69,7 @@ impl TypeStore {
         module_id: ModuleId,
         f: impl FnOnce(&mut TyInterner) -> T,
     ) -> T {
+        let _guard = ModuleInternerGuard::acquire((self.id, module_id));
         let interner = self.module_interner(module_id);
         let mut interner = interner.lock().expect("type store module lock poisoned");
         f(&mut interner)
@@ -1314,6 +1345,15 @@ mod tests {
         assert!(!base.is_prefix_of(&snapshot));
         assert!(!base.is_prefix_of(&diverged));
         assert!(!diverged.is_prefix_of(&base));
+    }
+
+    #[test]
+    #[should_panic(expected = "reentrant access to the same type store module shard")]
+    fn type_store_rejects_same_thread_module_reentry() {
+        let store = TypeStore::new();
+        store.with_module_interner_for_semantic_migration(ModuleId(0), |_| {
+            store.with_module_interner_for_semantic_migration(ModuleId(0), |_| {});
+        });
     }
 
     #[test]

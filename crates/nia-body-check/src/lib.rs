@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::fmt;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    ops::{Deref, DerefMut},
     rc::Rc,
     sync::Arc,
 };
@@ -127,7 +128,6 @@ pub struct PrecheckedBodyCheck {
 
 #[derive(Debug, Clone, Copy)]
 pub struct BodyConst<'a> {
-    pub interner: &'a TyInterner,
     pub values: &'a HashMap<ConstKey, ConstValue>,
     pub typed_values: &'a HashMap<ConstKey, TypedConstValue>,
     pub array_lengths: &'a HashMap<nia_ids::GlobalConstExprId, u64>,
@@ -135,13 +135,11 @@ pub struct BodyConst<'a> {
 
 impl<'a> BodyConst<'a> {
     pub fn from_phases(
-        interner: &'a TyInterner,
         values: &'a ConstValues,
         array_lengths: &'a ConstArrayLengths,
         typed_facts: &'a ConstTypedFacts,
     ) -> Self {
         Self {
-            interner,
             values: &values.values,
             typed_values: &typed_facts.typed_values,
             array_lengths: &array_lengths.values,
@@ -548,7 +546,6 @@ pub fn check_module_bodies(
     let empty_typed_const_values = HashMap::new();
     let empty_array_lengths = HashMap::new();
     let empty_const = BodyConst {
-        interner: &lowered.interner,
         values: &empty_const_values,
         typed_values: &empty_typed_const_values,
         array_lengths: &empty_array_lengths,
@@ -597,20 +594,26 @@ pub fn check_module_bodies(
         product: BodyCheckProduct::Full,
         prechecked: None,
     };
+    let mut interner = lowered.interner.clone();
     let mut checked = check_module_bodies_with_program_signatures_and_layouts_with_timings(
         input,
+        &mut interner,
         nia_timing::TimingMode::Off,
     );
     checked.diagnostics.extend(layouts.diagnostics);
     checked
 }
 
-pub fn check_module_bodies_with_layouts(input: BodyCheckInput<'_>) -> BodyCheck {
-    check_module_bodies_with_program_signatures_and_layouts(input)
+pub fn check_module_bodies_with_layouts(
+    input: BodyCheckInput<'_>,
+    interner: &mut TyInterner,
+) -> BodyCheck {
+    check_module_bodies_with_program_signatures_and_layouts(input, interner)
 }
 
 pub fn check_module_bodies_with_program_signatures(
     input: BodyCheckWithProgramSignaturesInput<'_>,
+    interner: &mut TyInterner,
 ) -> BodyCheck {
     let layouts = nia_layout::compute_layouts_with_normalized_types(
         input.defs,
@@ -620,37 +623,40 @@ pub fn check_module_bodies_with_program_signatures(
         &|id| input.const_eval.array_lengths.get(&id).copied(),
         nia_layout::TargetDataLayout::LP64,
     );
-    let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
-        source_version: input.source_version,
-        source_path: input.source_path,
-        symbols: input.symbols,
-        origins: input.origins,
-        active_item_tree: input.active_item_tree,
-        defs: input.defs,
-        values: input.values,
-        locals: input.locals,
-        semantic_uses: input.semantic_uses,
-        lowered: input.lowered,
-        signatures: BodyLocalSignatures::from_item_signatures(input.signatures),
-        const_signatures: input.signatures,
-        normalization: input.normalization,
-        seed: None,
-        target: input.target,
-        const_eval: input.const_eval,
-        const_module: input.const_module,
-        layouts: &layouts,
-        extensions: input.extensions,
-        lazy_extensions: None,
-        program_extension_methods: input.program_extension_methods,
-        extension_interner: None,
-        program: input.program,
-        program_signatures: input.program_signatures,
-        function_scope: input.function_scope,
-        program_const: ProgramConstMaps::empty(),
-        filter: BodyCheckFilter::All,
-        product: BodyCheckProduct::Full,
-        prechecked: None,
-    });
+    let mut checked = check_module_bodies_with_layouts(
+        BodyCheckInput {
+            source_version: input.source_version,
+            source_path: input.source_path,
+            symbols: input.symbols,
+            origins: input.origins,
+            active_item_tree: input.active_item_tree,
+            defs: input.defs,
+            values: input.values,
+            locals: input.locals,
+            semantic_uses: input.semantic_uses,
+            lowered: input.lowered,
+            signatures: BodyLocalSignatures::from_item_signatures(input.signatures),
+            const_signatures: input.signatures,
+            normalization: input.normalization,
+            seed: None,
+            target: input.target,
+            const_eval: input.const_eval,
+            const_module: input.const_module,
+            layouts: &layouts,
+            extensions: input.extensions,
+            lazy_extensions: None,
+            program_extension_methods: input.program_extension_methods,
+            extension_interner: None,
+            program: input.program,
+            program_signatures: input.program_signatures,
+            function_scope: input.function_scope,
+            program_const: ProgramConstMaps::empty(),
+            filter: BodyCheckFilter::All,
+            product: BodyCheckProduct::Full,
+            prechecked: None,
+        },
+        interner,
+    );
     checked.diagnostics.extend(layouts.diagnostics);
     checked
 }
@@ -715,24 +721,34 @@ fn semantic_use_table_for_body_input(
 
 pub fn check_module_bodies_with_program_signatures_and_layouts(
     input: BodyCheckInput<'_>,
+    interner: &mut TyInterner,
 ) -> BodyCheck {
     check_module_bodies_with_program_signatures_and_layouts_with_timings(
         input,
+        interner,
         nia_timing::TimingMode::Off,
     )
 }
 
-pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
-    input: BodyCheckInput<'_>,
+pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
+    input: BodyCheckInput<'a>,
+    interner: &'a mut TyInterner,
     timings: nia_timing::TimingMode,
 ) -> BodyCheck {
     let timing = timings.detail();
     let module_id = input.defs.module_id;
     let prechecked = input.prechecked;
     let seed = input.seed;
-    let mut interner = seed
-        .map(|seed| seed.interner.clone())
-        .unwrap_or_else(|| input.normalization.interner.clone());
+    assert!(
+        input.normalization.interner.is_prefix_of(interner),
+        "Nia ICE: body input is not a prefix of its session type store"
+    );
+    if let Some(seed) = seed {
+        assert!(
+            seed.interner.is_prefix_of(interner),
+            "Nia ICE: body seed is not a prefix of its session type store"
+        );
+    }
     let visible_extensions = BodyVisibleExtensions {
         methods: input.extensions,
         interner: input.extension_interner,
@@ -748,7 +764,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
                 input.defs,
                 input.signatures,
                 visible_extensions,
-                &mut interner,
+                interner,
                 &input.lowered.interner,
                 input.normalization,
             )
@@ -768,7 +784,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
                 import_visible_extensions_into_working_interner(
                     input.extensions,
                     input.extension_interner,
-                    &mut interner,
+                    interner,
                 )
             },
         ))
@@ -781,7 +797,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         values: input.values,
         locals: input.locals,
         semantic_uses: input.semantic_uses,
-        interner,
+        interner: BodyWorkingInterner::Session(interner),
         type_lowering: input.lowered,
         signatures: input.signatures,
         const_signatures: input.const_signatures,
@@ -907,7 +923,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
             .resize(checker.diagnostics.len(), None);
         BodyCheck {
             ir: BodyIr {
-                interner: checker.interner,
+                interner: checker.interner.clone(),
                 function_bodies: checker.function_bodies,
                 global_inits: checker.global_inits,
             },
@@ -951,6 +967,31 @@ fn time_body_stage_if_slow<T>(
     )
 }
 
+enum BodyWorkingInterner<'a> {
+    Session(&'a mut TyInterner),
+    Snapshot(TyInterner),
+}
+
+impl Deref for BodyWorkingInterner<'_> {
+    type Target = TyInterner;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Session(interner) => interner,
+            Self::Snapshot(interner) => interner,
+        }
+    }
+}
+
+impl DerefMut for BodyWorkingInterner<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Session(interner) => interner,
+            Self::Snapshot(interner) => interner,
+        }
+    }
+}
+
 struct BodyChecker<'a> {
     active_item_tree: &'a ActiveModuleItemTree,
     defs: &'a DefCollection,
@@ -958,7 +999,7 @@ struct BodyChecker<'a> {
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
     semantic_uses: &'a SemanticUseTable,
-    interner: TyInterner,
+    interner: BodyWorkingInterner<'a>,
     type_lowering: &'a TypeLowering,
     signatures: BodyLocalSignatures<'a>,
     const_signatures: &'a ItemSignatures,
@@ -1132,12 +1173,6 @@ impl<'a> ProgramSignatureScope<'a> {
             ProgramSignatureScope::LocalModule => None,
             ProgramSignatureScope::Program(program) => program.trait_owning_method(method_id),
         }
-    }
-}
-
-impl<'a> BodyChecker<'a> {
-    fn program_is_enum(&self, def_id: GlobalDefId) -> bool {
-        self.program_signature_scope.has_enum(def_id)
     }
 }
 
@@ -1641,9 +1676,6 @@ impl<'a> BodyChecker<'a> {
         if self.normalization.interner.get(ty).is_some() {
             return Some(self.normalization.interner.clone());
         }
-        if self.const_eval.interner.get(ty).is_some() {
-            return Some(self.const_eval.interner.clone());
-        }
         if self.interner.get(ty).is_some() {
             return Some(self.interner.clone());
         }
@@ -1801,7 +1833,10 @@ impl<'a> BodyChecker<'a> {
             diagnostic_owners,
             diagnostics,
         } = prechecked;
-        self.interner = ir.interner;
+        assert!(
+            ir.interner.is_prefix_of(&self.interner),
+            "Nia ICE: prechecked body interner is not a prefix of its session type store"
+        );
         self.global_inits = ir.global_inits;
         self.checked_functions = checked_functions;
         self.diagnostic_owners = diagnostic_owners;

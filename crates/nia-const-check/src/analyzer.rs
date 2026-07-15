@@ -66,7 +66,7 @@ pub struct TypedConstFrame {
     pub const_substitutions: SymbolMap<ConstGenericArg>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct TypedConstQueryInput<'a> {
     pub module: &'a ResolvedConstModule,
     pub defs: &'a DefCollection,
@@ -76,7 +76,8 @@ pub struct TypedConstQueryInput<'a> {
     pub symbols: &'a nia_symbol_table::SymbolTable,
     pub lowered: &'a nia_type_lower::TypeLowering,
     pub signatures: &'a ItemSignatures,
-    pub interner: &'a TyInterner,
+    pub base_interner: &'a TyInterner,
+    pub interner: &'a mut TyInterner,
     pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
     pub target: &'a TargetConfig,
     pub source_path: &'a SourcePath,
@@ -237,7 +238,6 @@ pub fn check_module_const_with_all_phases(
         "Nia ICE: const session interner is not an append-only extension of its input"
     );
     ConstCheck {
-        interner: interner.clone(),
         values: values.values,
         typed_values: typed_facts.typed_values,
         enum_values: enum_values.values,
@@ -385,7 +385,7 @@ impl Analyzer<'_> {
                 symbols: input.symbols,
                 lowered: input.lowered,
                 signatures: input.signatures,
-                interner: input.interner,
+                interner: input.base_interner,
                 normalized: input.normalized,
                 target: input.target,
                 source_path: input.source_path,
@@ -408,7 +408,7 @@ impl Analyzer<'_> {
             active: HashSet::new(),
             working_interners: HashMap::from([(
                 input.defs.module_id,
-                WorkingInterner::Snapshot(input.interner.clone()),
+                WorkingInterner::Session(input.interner),
             )]),
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_value_type_normalizations: RefCell::new(HashMap::new()),

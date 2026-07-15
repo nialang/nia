@@ -21,7 +21,6 @@ use nia_value_resolve::ValueResolution;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConstCheck {
-    pub interner: TyInterner,
     pub values: HashMap<ConstKey, ConstValue>,
     pub typed_values: HashMap<ConstKey, TypedConstValue>,
     pub enum_values: HashMap<DefId, ConstValue>,
