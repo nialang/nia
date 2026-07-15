@@ -17,11 +17,26 @@ const UNKNOWN_OWNER_STALE_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
 static COMPILER_POOL: OnceLock<ResourcePool> = OnceLock::new();
 
 pub fn compiler_permit() -> ResourcePermit<'static> {
-    compiler_pool().acquire(1)
+    compiler_pool().acquire(ResourceRequest::new(1, 1))
 }
 
 pub fn build_permit() -> ResourcePermit<'static> {
-    compiler_pool().acquire(2)
+    compiler_pool().acquire(ResourceRequest::new(2, 1))
+}
+
+#[derive(Clone, Copy)]
+struct ResourceRequest {
+    slots: usize,
+    memory_units: usize,
+}
+
+impl ResourceRequest {
+    const fn new(slots: usize, memory_units: usize) -> Self {
+        Self {
+            slots,
+            memory_units,
+        }
+    }
 }
 
 fn compiler_pool() -> &'static ResourcePool {
@@ -82,8 +97,8 @@ impl ResourcePool {
         }
     }
 
-    fn acquire(&self, requested: usize) -> ResourcePermit<'_> {
-        let permits = requested.clamp(1, self.capacity);
+    fn acquire(&self, request: ResourceRequest) -> ResourcePermit<'_> {
+        let permits = request.slots.clamp(1, self.capacity);
         let mut available = lock_unpoisoned(&self.available);
         while *available < permits {
             available = self
@@ -96,7 +111,7 @@ impl ResourcePool {
 
         let minimum_available_memory = self
             .memory_limit
-            .map(|limit| minimum_available_memory(limit, permits));
+            .map(|limit| minimum_available_memory(limit, request.memory_units.max(1)));
         let slots = match acquire_process_slots(
             &self.slot_root,
             self.capacity,
@@ -484,10 +499,19 @@ mod tests {
     #[test]
     fn weighted_permits_return_their_full_capacity() {
         let pool = ResourcePool::new(4, test_slot_root("weighted_permits"));
-        let permit = pool.acquire(2);
+        let permit = pool.acquire(ResourceRequest::new(2, 1));
         assert_eq!(*lock_unpoisoned(&pool.available), 2);
         drop(permit);
         assert_eq!(*lock_unpoisoned(&pool.available), 4);
+    }
+
+    #[test]
+    fn scheduling_weight_does_not_inflate_memory_requirement() {
+        let build = ResourceRequest::new(2, 1);
+        assert_eq!(
+            minimum_available_memory(8 * 1024 * 1024 * 1024, build.memory_units),
+            2 * 1024 * 1024 * 1024
+        );
     }
 
     #[test]
@@ -495,11 +519,11 @@ mod tests {
         let root = test_slot_root("cross_process_slots");
         let first = ResourcePool::new(2, root.clone());
         let second = ResourcePool::new(2, root);
-        let permit = first.acquire(2);
+        let permit = first.acquire(ResourceRequest::new(2, 1));
         assert!(second.slot_root.join("0").is_dir());
         assert!(second.slot_root.join("1").is_dir());
         drop(permit);
-        let second_permit = second.acquire(2);
+        let second_permit = second.acquire(ResourceRequest::new(2, 1));
         drop(second_permit);
     }
 
@@ -507,11 +531,11 @@ mod tests {
     fn process_slots_block_independent_pools_until_release() {
         let root = test_slot_root("cross_process_blocking");
         let first = ResourcePool::new(1, root.clone());
-        let first_permit = first.acquire(1);
+        let first_permit = first.acquire(ResourceRequest::new(1, 1));
         let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
         let waiter = std::thread::spawn(move || {
             let second = ResourcePool::new(1, root);
-            let second_permit = second.acquire(1);
+            let second_permit = second.acquire(ResourceRequest::new(1, 1));
             acquired_tx.send(()).expect("report acquired process slot");
             drop(second_permit);
         });
