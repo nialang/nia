@@ -1921,7 +1921,6 @@ pub(super) fn executable_signature_checked_module(
             diagnostics: Vec::new(),
         },
         body_ir: nia_body_ir::BodyIr {
-            interner: type_normalization.interner,
             function_bodies: HashMap::new(),
             global_inits: HashMap::new(),
         },

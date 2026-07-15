@@ -389,7 +389,7 @@ while standalone algorithm tests use that same API. This prevents handles from
 separate compiler sessions with equal `ModuleId`s from comparing equal and
 prevents migrated phases from creating private divergent interners. The final
 contract is not yet satisfied because the module shard remains part of the
-handle and backend consumers still receive cloned snapshots. A domain is
+handle and backend lowering/codegen still use a cloned working view. A domain is
 migrated only when its private mutation/import path is deleted. Temporary
 snapshots exist only at the boundary between the migrated prefix and the next
 unmigrated domain; there is no permanent module-local/session-global API
@@ -419,13 +419,12 @@ one module shard so an ownership violation becomes an immediate internal error
 instead of a mutex deadlock. Foreign const snapshots still select the newer
 append-only prefix and report an internal error only when two views diverge.
 
-`BodyIr` still publishes an interner snapshot for executable reachability,
-backend lowering, and codegen compatibility. Prechecked body products and
-incremental seeds must be prefixes of the session shard and cannot replace it.
-Layout and monomorphization no longer need that snapshot for writable type
-ownership; the remaining Phase B work must delete `BodyIr.interner` rather than
-move it into another aggregate product or turn speculative snapshots into a
-permanent dual API.
+`BodyIr` no longer publishes an interner snapshot. Prechecked body facts and
+incremental seeds borrow an explicit current session view, which must be a
+prefix of the session shard and cannot replace it. Executable fact extraction
+and reachability likewise receive an explicit short-lived view; typed body data
+is not also a type-store product. This removes the former hidden requirement to
+merge every body increment into a second snapshot.
 
 Function IR lowering and monomorphization have crossed this boundary for
 mutation. Function lowering borrows the session shard and appends synthesized
@@ -447,13 +446,14 @@ than a second read-only layout API. Array-length facts are prepared before a
 store transaction when evaluating them could reenter the same shard.
 
 Backend lowering is still on the next snapshot boundary. Compiler-query takes
-module snapshots after function lowering, layout, and monomorphization have
-completed and lends them only for the duration of backend lowering. These
-snapshots are not query values or semantic products, and backend no longer
-treats layout or monomorphization results as another type store. The next
-migration removes `BodyIr.interner` and `ProgramFunctionBodyInterners`, then
-deletes the remaining backend cross-interner imports rather than preserving
-this snapshot protocol as a second API.
+one final snapshot per module after function lowering, layout, and
+monomorphization have completed and lends that map only for the duration of
+backend lowering. These snapshots are not query values or semantic products.
+`BodyIr.interner`, `ProgramFunctionBodyInterners`, and the body/function snapshot
+merge path have been deleted; backend uses only this final session view. The
+next migration must jointly replace backend's cloned writable interner,
+cross-interner imports, and `BackendModule.interner`/codegen lookup contract
+rather than preserving the call-stack snapshot protocol as a second API.
 
 ### 3.6 `nia-diagnostic`
 
@@ -610,10 +610,9 @@ them into canonical type ids.
 
 ### 6.2 `nia-ty`
 
-Defines the compiler type model and the current module-local `TyInterner`.
-During the type-identity migration it will own the compilation-session type
-store described in section 3.5; later phases will consume `TyId` without an
-interner snapshot.
+Defines the compiler type model, temporary module-sharded `TyInterner`, and the
+compilation-session `TypeStore` described in section 3.5. Later phases will
+consume a unified `TyId` without an interner snapshot.
 
 ### 6.3 `nia-type-lower`
 
@@ -956,7 +955,8 @@ It produces two explicit products:
   checked const-derived facts such as array repeat counts and switch pattern
   values;
 - `BodyIr`, the runtime checked body boundary: typed function bodies, static
-  initializers, and the interner required to interpret those typed bodies.
+  initializers, and no type-store snapshot. Consumers interpret its typed
+  handles through the compilation session.
 
 Later phases consume these products explicitly instead of reading ad hoc
 body-check side tables or rediscovering expression semantics from AST shape.
@@ -977,7 +977,8 @@ Defines checked body data products:
   keys, checked array repeat counts, checked switch pattern values, and recorded
   generic instantiations.
 - `BodyIr` is the runtime checked body product. It stores typed function
-  bodies, static initializers, and the type interner used by those bodies.
+  bodies and static initializers, but does not own the type interner used by
+  those bodies.
 - The crate also defines the typed body, statement, expression, place, call,
   aggregate, inline assembly, and control-flow nodes produced after body
   checking.

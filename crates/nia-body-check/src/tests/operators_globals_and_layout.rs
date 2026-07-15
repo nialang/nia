@@ -54,7 +54,7 @@ fn main() usize {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    let usize_ty = checked.ir.interner.primitive(nia_ty::PrimitiveTy::Usize);
+    let usize_ty = checked.interner.primitive(nia_ty::PrimitiveTy::Usize);
     assert_eq!(main_tail_integer_literal_tys(&checked), vec![usize_ty]);
 }
 
@@ -68,7 +68,7 @@ fn main() usize {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    let isize_ty = checked.ir.interner.primitive(nia_ty::PrimitiveTy::Isize);
+    let isize_ty = checked.interner.primitive(nia_ty::PrimitiveTy::Isize);
     assert_eq!(main_tail_integer_literal_tys(&checked), vec![isize_ty]);
 }
 

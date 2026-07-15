@@ -130,14 +130,14 @@ extend Counter {
         .expect("outer self.bump() receiver");
     assert!(
         matches!(
-            checked.ir.interner.get(receiver.ty),
+            checked.interner.get(receiver.ty),
             Some(TyKind::Pointer {
                 is_readonly: false,
                 ..
             })
         ),
         "expected ref method receiver typed as pointer, got {:?}",
-        checked.ir.interner.get(receiver.ty)
+        checked.interner.get(receiver.ty)
     );
 }
 

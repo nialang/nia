@@ -377,10 +377,19 @@ fn executable_check(
     let mut reachability_state = reachability;
     let extension_lookup = QueryExecutableExtensionLookup::new(db);
     loop {
+        let reachable_type_interners = fact_by_id
+            .keys()
+            .map(|module_id| {
+                (
+                    *module_id,
+                    db.context().type_store.module_snapshot(*module_id),
+                )
+            })
+            .collect::<HashMap<_, _>>();
         let reachable_inputs = time_provider(
             db.context().timings(),
             "executable_checked_modules.inputs",
-            || reachable_fact_module_inputs(&fact_by_id),
+            || reachable_fact_module_inputs(&fact_by_id, &reachable_type_interners),
         );
         time_provider(
             db.context().timings(),
@@ -517,12 +526,17 @@ fn executable_check(
                     Some(reachable_body_modules),
                 )
             };
-            let seed = fact_by_id
-                .get(&module_id)
-                .map(|state| nia_body_check::BodyCheckSeed {
-                    interner: &state.body_ir.interner,
-                    facts: &state.semantic_facts,
-                });
+            let seed_interner = fact_by_id
+                .contains_key(&module_id)
+                .then(|| db.context().type_store.module_snapshot(module_id));
+            let seed =
+                fact_by_id
+                    .get(&module_id)
+                    .zip(seed_interner.as_ref())
+                    .map(|(state, interner)| nia_body_check::BodyCheckSeed {
+                        interner,
+                        facts: &state.semantic_facts,
+                    });
             let body_check = {
                 let resolution_inputs = {
                     let cached = caches
@@ -592,18 +606,21 @@ fn executable_check(
                 db,
                 "executable_checked_modules.fact_merge",
                 module_id,
-                || match fact_by_id.get_mut(&module_id) {
-                    Some(state) => state.extend(body_check, module_globals),
-                    None => {
-                        fact_by_id.insert(
-                            module_id,
-                            ExecutableFactModuleState::new(
-                                db,
+                || {
+                    let interner = db.context().type_store.module_snapshot(module_id);
+                    match fact_by_id.get_mut(&module_id) {
+                        Some(state) => state.extend(body_check, module_globals, &interner),
+                        None => {
+                            fact_by_id.insert(
                                 module_id,
-                                body_check,
-                                module_globals,
-                            ),
-                        );
+                                ExecutableFactModuleState::new(
+                                    db,
+                                    module_id,
+                                    body_check,
+                                    module_globals,
+                                ),
+                            );
+                        }
                     }
                 },
             );
@@ -638,10 +655,19 @@ fn executable_check(
                 checked_functions: checked_this_round,
             });
         }
+        let checked_type_interners = fact_by_id
+            .keys()
+            .map(|module_id| {
+                (
+                    *module_id,
+                    db.context().type_store.module_snapshot(*module_id),
+                )
+            })
+            .collect::<HashMap<_, _>>();
         let checked_inputs = time_provider(
             db.context().timings(),
             "executable_checked_modules.batch_inputs",
-            || reachable_fact_module_inputs(&fact_by_id),
+            || reachable_fact_module_inputs(&fact_by_id, &checked_type_interners),
         );
         let checked_inputs_by_id = time_provider(
             db.context().timings(),

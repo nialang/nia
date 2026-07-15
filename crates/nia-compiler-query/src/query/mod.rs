@@ -842,7 +842,9 @@ impl CompilerContext {
         self.executable_fact_session
             .lock()
             .expect("executable fact session lock poisoned")
-            .retain_after_graph_growth(body_activated, provider_changes);
+            .retain_after_graph_growth(body_activated, provider_changes, |module_id| {
+                self.type_store.module_snapshot(module_id)
+            });
     }
 
     fn executable_root_modules(&self) -> (ModuleId, Vec<ModuleId>) {
@@ -3169,11 +3171,10 @@ fn main() i32 {
         let _ = database.db.query(ConstQuery(module_id));
         let before_body = database.db.context().type_store.module_snapshot(module_id);
 
-        let checked = database.db.query(BodyCheckQuery(module_id));
+        let _ = database.db.query(BodyCheckQuery(module_id));
         let after_body = database.db.context().type_store.module_snapshot(module_id);
 
         assert!(before_body.is_prefix_of(&after_body));
-        assert_eq!(checked.ir.interner, after_body);
         assert!(after_body.iter().any(|(ty, kind)| {
             before_body.get(ty).is_none()
                 && matches!(
@@ -5854,9 +5855,10 @@ extend Sink : Writer {
             })
             .map(|local| local.ty)
             .expect("write method should have a self param");
+        let interner = db.context().type_store.module_snapshot(writer.id);
 
         assert!(
-            !matches!(writer.body_ir.interner.get(self_ty), Some(TyKind::Error)),
+            !matches!(interner.get(self_ty), Some(TyKind::Error)),
             "reachable extension method receiver/params should not collapse to error types"
         );
     }
@@ -6188,9 +6190,10 @@ pub enum Errno: i32 {
             })
             .map(|local| local.ty)
             .expect("into_error should have a self param");
+        let interner = db.context().type_store.module_snapshot(module.id);
 
         assert!(
-            !matches!(module.body_ir.interner.get(self_ty), Some(TyKind::Error)),
+            !matches!(interner.get(self_ty), Some(TyKind::Error)),
             "re-exported trait witness receiver should not collapse to error"
         );
     }

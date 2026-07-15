@@ -273,7 +273,7 @@ fn lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
         mutate_body,
         mutate_extensions,
         mutate_const,
-        |_, _, _, _| {},
+        |_, _, _, _, _| {},
         optimization,
     )
 }
@@ -293,6 +293,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         &nia_ast::Module,
         &nia_defs::DefCollection,
         &ItemSignatures,
+        &nia_ty::TyInterner,
     ),
     optimization: nia_opt::OptimizationPolicy,
 ) -> BackendLowering {
@@ -449,7 +450,8 @@ fn lower_source_with_body_check_mutation_and_optimization(
         "{:?}",
         body_check.diagnostics
     );
-    mutate_body_check(&mut body_check, &module, &defs, &signatures);
+    let body_interner = type_store.module_snapshot(ModuleId(0));
+    mutate_body_check(&mut body_check, &module, &defs, &signatures, &body_interner);
     let function_bodies = body_check
         .ir
         .function_bodies
@@ -470,7 +472,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         &[nia_monomorphize::MonomorphizeModuleInput {
             module_id: ModuleId(0),
             defs: &defs,
-            interner: &body_check.ir.interner,
+            interner: &body_interner,
             normalization: &normalization,
             const_eval: &const_eval,
             const_expr_summaries: &type_lowering.const_expr_summaries,
@@ -496,9 +498,9 @@ fn lower_source_with_body_check_mutation_and_optimization(
     };
     let program_const = HashMap::from([(ModuleId(0), &const_array_lengths)]);
     let const_enum_values = const_enum_values_from_check(&const_eval);
-    let program_function_body_interners = ProgramFunctionBodyInterners::default();
     let no_program_defs = |_| None;
     let backend_interner = type_store.module_snapshot(ModuleId(0));
+    let program_type_interners = HashMap::from([(ModuleId(0), backend_interner)]);
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -512,7 +514,9 @@ fn lower_source_with_body_check_mutation_and_optimization(
         signatures: &signatures,
         type_normalization: &normalization,
         body_ir: &body_check.ir,
-        function_interner: &backend_interner,
+        type_interner: program_type_interners
+            .get(&ModuleId(0))
+            .expect("backend session interner"),
         semantic_facts: &body_check.facts,
         extensions: &extensions,
         const_array_lengths: &const_array_lengths,
@@ -529,7 +533,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
         program_defs: &no_program_defs,
-        program_function_body_interners: &program_function_body_interners,
+        program_type_interners: &program_type_interners,
         program_type_normalizations: &HashMap::new(),
         program_functions: &HashMap::new(),
         program_structs: &HashMap::new(),

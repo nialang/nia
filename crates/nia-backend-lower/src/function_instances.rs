@@ -472,7 +472,7 @@ impl<'a> ModuleLowerer<'a> {
         let source_interner = &signature.interner;
         let body_interner = self
             .type_context
-            .function_body_interner(def_id.module_id)
+            .type_interner_for_module(def_id.module_id)
             .unwrap_or(source_interner);
         let own_generics = &signature.signature.generics;
         let effective_generics = self.effective_generics(def_id, own_generics).to_vec();

@@ -100,7 +100,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub signatures: &'a ItemSignatures,
     pub type_normalization: &'a TypeNormalization,
     pub body_ir: &'a BodyIr,
-    pub function_interner: &'a nia_ty::TyInterner,
+    pub type_interner: &'a nia_ty::TyInterner,
     pub semantic_facts: &'a SemanticFacts,
     pub extensions: &'a VisibleExtensionMethods,
     pub const_array_lengths: &'a nia_const_check::ConstArrayLengths,
@@ -121,7 +121,7 @@ pub struct BackendLowerModuleInput<'a> {
         (&'a VisibleExtensionMethods, &'a nia_ty::TyInterner),
     >,
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
-    pub program_function_body_interners: &'a ProgramFunctionBodyInterners<'a>,
+    pub program_type_interners: &'a std::collections::HashMap<ModuleId, nia_ty::TyInterner>,
     pub program_type_normalizations:
         &'a std::collections::HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
     pub program_functions: &'a std::collections::HashMap<GlobalDefId, ProgramFunctionSignature>,
@@ -142,29 +142,6 @@ impl std::fmt::Debug for BackendLowerModuleInput<'_> {
             .field("module_name", &self.module_name)
             .field("program_defs", &true)
             .finish_non_exhaustive()
-    }
-}
-
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct ProgramFunctionBodyInterners<'a> {
-    by_module: HashMap<ModuleId, &'a nia_ty::TyInterner>,
-}
-
-impl<'a> ProgramFunctionBodyInterners<'a> {
-    pub fn from_modules(
-        modules: impl IntoIterator<Item = (ModuleId, &'a nia_ty::TyInterner)>,
-    ) -> Self {
-        Self {
-            by_module: modules.into_iter().collect(),
-        }
-    }
-
-    pub fn for_module(&self, module_id: ModuleId) -> Option<&'a nia_ty::TyInterner> {
-        self.by_module.get(&module_id).copied()
-    }
-
-    pub fn values(&self) -> impl Iterator<Item = &'a nia_ty::TyInterner> + '_ {
-        self.by_module.values().copied()
     }
 }
 
@@ -2328,7 +2305,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn error_ty(&self) -> InternedTyId {
-        self.input.function_interner.error()
+        self.input.type_interner.error()
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
@@ -2411,10 +2388,8 @@ fn index_input_type_interner_snapshots(
 ) -> HashMap<TyInternerId, nia_ty::TyInterner> {
     let mut interners = HashMap::new();
     for input in modules {
-        insert_input_type_interner_snapshot(&mut interners, "body_ir", &input.body_ir.interner);
-        insert_input_type_interner_snapshot(&mut interners, "function", input.function_interner);
-        for interner in input.program_function_body_interners.values() {
-            insert_input_type_interner_snapshot(&mut interners, "program_function_body", interner);
+        for interner in input.program_type_interners.values() {
+            insert_input_type_interner_snapshot(&mut interners, "session", interner);
         }
     }
     interners

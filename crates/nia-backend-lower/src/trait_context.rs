@@ -27,7 +27,7 @@ impl BackendTraitContext {
         Self {
             extension_trait_method_candidates: index_extension_trait_method_candidates(
                 input.extensions,
-                input.extension_interner.unwrap_or(input.function_interner),
+                input.extension_interner.unwrap_or(input.type_interner),
             ),
             builtin_trait_resolutions: HashMap::new(),
             trait_impls_by_method: index_local_trait_impls_by_method(input),

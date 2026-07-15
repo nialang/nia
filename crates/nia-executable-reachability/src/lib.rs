@@ -1043,7 +1043,7 @@ fn extend_reachable_traits_from_generic_instances(
             let mut visited = HashSet::default();
             extend_reachable_traits_from_generic_instantiation(
                 module.module_id,
-                &module.body_ir.interner,
+                module.interner,
                 GenericTraitReachabilityContext {
                     modules_by_id,
                     program_signatures,
@@ -1083,7 +1083,7 @@ fn extend_reachable_traits_from_generic_instances_incremental(
             let mut visited = HashSet::default();
             extend_reachable_traits_from_generic_instantiation(
                 module.module_id,
-                &module.body_ir.interner,
+                module.interner,
                 GenericTraitReachabilityContext {
                     modules_by_id,
                     program_signatures,
@@ -1230,7 +1230,7 @@ fn extend_reachable_traits_from_generic_instantiation(
         let mut nested_interner = signature_interner.clone();
         let Some(nested_instantiation) = instantiate_nested_generic_instantiation(
             &mut nested_interner,
-            &target_module.body_ir.interner,
+            target_module.interner,
             nested,
             &substitutions,
         ) else {
@@ -1555,7 +1555,7 @@ fn typed_executable_refs_from_executable_refs(
             vtable.trait_id,
             vtable.self_ty,
             vtable.trait_args,
-            Some(module.body_ir.interner.clone()),
+            Some(module.interner.clone()),
         );
     }
     TypedExecutableRefs {
@@ -2321,7 +2321,7 @@ fn with_reachable_extension_method_match(
         let use_interner = if let Some(interner) = use_interner_override {
             interner
         } else if let Some(use_module) = modules_by_id.get(&use_module_id) {
-            &use_module.body_ir.interner
+            use_module.interner
         } else {
             return;
         };
@@ -3625,7 +3625,7 @@ fn collect_reachable_fact_owner_modules_for_items(
     collect_ty_ids_owner_modules(
         type_ids,
         program_signatures,
-        &module.body_ir.interner,
+        module.interner,
         &module.type_lowering.interner,
         &module.type_normalization.interner,
         type_modules,

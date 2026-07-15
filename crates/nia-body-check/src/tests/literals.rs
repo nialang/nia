@@ -111,25 +111,25 @@ fn main() i32 {
         .copied()
         .collect::<Vec<_>>();
     assert!(
-        local_types.iter().any(|ty| checked.ir.interner.get(*ty)
+        local_types.iter().any(|ty| checked.interner.get(*ty)
             == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))),
         "{:?}",
         local_types
     );
     assert!(
-        local_types.iter().any(|ty| checked.ir.interner.get(*ty)
+        local_types.iter().any(|ty| checked.interner.get(*ty)
             == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::F64))),
         "{:?}",
         local_types
     );
     assert!(
-        local_types.iter().any(|ty| checked.ir.interner.get(*ty)
+        local_types.iter().any(|ty| checked.interner.get(*ty)
             == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::U8))),
         "{:?}",
         local_types
     );
     assert!(
-        local_types.iter().any(|ty| checked.ir.interner.get(*ty)
+        local_types.iter().any(|ty| checked.interner.get(*ty)
             == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::F32))),
         "{:?}",
         local_types

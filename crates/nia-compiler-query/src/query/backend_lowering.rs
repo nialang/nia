@@ -10,7 +10,6 @@ pub(super) struct BackendLoweringIndexes<'a> {
             &'a nia_ty::TyInterner,
         ),
     >,
-    pub(super) program_function_body_interners: nia_backend_lower::ProgramFunctionBodyInterners<'a>,
     pub(super) program_type_normalizations:
         HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
     pub(super) program_function_bodies: HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
@@ -22,7 +21,6 @@ pub(super) fn build_backend_lowering_indexes<'a>(
     checked_modules: &'a [CheckedModule],
     const_array_lengths: &'a [nia_const_check::ConstArrayLengths],
     function_bodies: &'a [LoweredFunctionBodies],
-    function_interners: &'a HashMap<ModuleId, nia_ty::TyInterner>,
 ) -> BackendLoweringIndexes<'a> {
     let program_extensions = visible_extension_modules
         .iter()
@@ -33,12 +31,6 @@ pub(super) fn build_backend_lowering_indexes<'a>(
             )
         })
         .collect::<HashMap<_, _>>();
-    let program_function_body_interners =
-        nia_backend_lower::ProgramFunctionBodyInterners::from_modules(
-            function_interners
-                .iter()
-                .map(|(module_id, interner)| (*module_id, interner)),
-        );
     let program_function_bodies = function_bodies
         .iter()
         .flat_map(|lowered| {
@@ -60,7 +52,6 @@ pub(super) fn build_backend_lowering_indexes<'a>(
 
     BackendLoweringIndexes {
         program_extensions,
-        program_function_body_interners,
         program_type_normalizations,
         program_function_bodies,
         program_const,
@@ -77,7 +68,7 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) const_enum_values: &'a [nia_const_check::ConstEnumValues],
     pub(super) visible_extensions: &'a [VisibleExtensionsValue],
     pub(super) function_bodies: &'a [LoweredFunctionBodies],
-    pub(super) function_interners: &'a HashMap<ModuleId, nia_ty::TyInterner>,
+    pub(super) type_interners: &'a HashMap<ModuleId, nia_ty::TyInterner>,
     pub(super) extension_methods: &'a nia_defs::ExtensionMethods,
     pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     pub(super) program_signatures: ProgramCodegenSignatures<'a>,
@@ -123,10 +114,10 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     signatures: item_signatures,
                     type_normalization: &checked_module.type_normalization,
                     body_ir: &checked_module.body_ir,
-                    function_interner: input
-                        .function_interners
+                    type_interner: input
+                        .type_interners
                         .get(&checked_module.id)
-                        .expect("function lowering interner snapshot"),
+                        .expect("backend session interner snapshot"),
                     semantic_facts: &checked_module.semantic_facts,
                     const_array_lengths,
                     const_enum_values,
@@ -142,7 +133,7 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     program_extension_methods: input.extension_methods,
                     program_extensions: &input.indexes.program_extensions,
                     program_defs: input.program_defs,
-                    program_function_body_interners: &input.indexes.program_function_body_interners,
+                    program_type_interners: input.type_interners,
                     program_type_normalizations: &input.indexes.program_type_normalizations,
                     program_functions: input.program_signatures.functions,
                     program_structs: input.program_signatures.structs,
