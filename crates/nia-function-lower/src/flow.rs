@@ -4,7 +4,7 @@ use super::*;
 use nia_ids::TyInternerIndex;
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod};
 
-impl FunctionLowerer {
+impl FunctionLowerer<'_> {
     pub(super) fn lower_body_into(
         &mut self,
         body: &TypedBody,

@@ -23,7 +23,16 @@ pub(super) fn monomorphization_for_checked_modules(
         .iter()
         .map(|module| (module.id, db.query(ItemSignaturesQuery(module.id))))
         .collect::<HashMap<_, _>>();
-    let function_bodies = function_bodies_from_checked_modules(db, checked_modules);
+    let _function_bodies = function_bodies_from_checked_modules(db, checked_modules);
+    let function_interners = checked_modules
+        .iter()
+        .map(|module| {
+            (
+                module.id,
+                db.context().type_store.module_snapshot(module.id),
+            )
+        })
+        .collect::<HashMap<_, _>>();
     let semantic_instantiations = checked_modules
         .iter()
         .map(|module| {
@@ -37,13 +46,14 @@ pub(super) fn monomorphization_for_checked_modules(
     nia_monomorphize::collect_monomorphizations(
         &checked_modules
             .iter()
-            .zip(function_bodies.iter())
             .zip(semantic_instantiations.iter())
             .map(
-                |((module, function_bodies), semantic_instantiations)| MonomorphizeModuleInput {
+                |(module, semantic_instantiations)| MonomorphizeModuleInput {
                     module_id: module.id,
                     defs: &module.defs,
-                    interner: &function_bodies.interner,
+                    interner: function_interners
+                        .get(&module.id)
+                        .expect("function lowering interner snapshot"),
                     normalization: &module.type_normalization,
                     const_eval: &module.const_eval,
                     const_expr_summaries: &module.type_lowering.const_expr_summaries,
@@ -95,20 +105,27 @@ fn function_bodies_from_checked_modules(
             checked_modules
                 .iter()
                 .map(|module| {
-                    let lowered = nia_function_lower::lower_function_bodies_with_interner(
-                        module.id,
-                        module.body_ir.function_bodies.iter(),
-                        &module.body_ir.interner,
-                    )
-                    .unwrap_or_else(|diagnostics| {
-                        nia_function_lower::LoweredFunctionBodies {
-                            interner: module.body_ir.interner.clone(),
-                            bodies: HashMap::new(),
-                            diagnostics,
-                        }
-                    });
+                    let lowered = db
+                        .context()
+                        .type_store
+                        .with_module_interner_for_semantic_migration(module.id, |interner| {
+                            assert!(
+                                module.body_ir.interner.is_prefix_of(interner),
+                                "Nia ICE: function lowering input is not a prefix of its session type store"
+                            );
+                            nia_function_lower::lower_function_bodies_with_interner(
+                                module.id,
+                                module.body_ir.function_bodies.iter(),
+                                interner,
+                            )
+                            .unwrap_or_else(|diagnostics| {
+                                nia_function_lower::LoweredFunctionBodies {
+                                    bodies: HashMap::new(),
+                                    diagnostics,
+                                }
+                            })
+                        });
                     LoweredFunctionBodies {
-                        interner: lowered.interner,
                         bodies: lowered.bodies,
                         diagnostics: lowered.diagnostics,
                     }
@@ -150,6 +167,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         visible_extensions,
         extension_methods,
         function_bodies,
+        function_interners,
     ) = time_provider(db.context().timings(), "backend_lowering.inputs", || {
         let timings = db.context().timings();
         let all_visible_extensions = time_provider(
@@ -214,6 +232,15 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 db.query(ExtensionMethodIndexQuery)
             });
         let function_bodies = function_bodies_from_checked_modules(db, checked_modules);
+        let function_interners = checked_modules
+            .iter()
+            .map(|module| {
+                (
+                    module.id,
+                    db.context().type_store.module_snapshot(module.id),
+                )
+            })
+            .collect::<HashMap<_, _>>();
         (
             all_visible_extensions,
             active_item_trees,
@@ -223,6 +250,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             visible_extensions,
             extension_methods,
             function_bodies,
+            function_interners,
         )
     });
     let function_lowering_diagnostics =
@@ -242,6 +270,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             checked_modules,
             &const_array_lengths,
             &function_bodies,
+            &function_interners,
         )
     });
     let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
@@ -267,6 +296,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 const_enum_values: &const_enum_values,
                 visible_extensions: &visible_extensions,
                 function_bodies: &function_bodies,
+                function_interners: &function_interners,
                 extension_methods: &extension_methods.methods,
                 program_defs: &program_defs,
                 program_signatures,

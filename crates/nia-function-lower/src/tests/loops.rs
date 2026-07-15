@@ -235,9 +235,9 @@ fn lowers_for_in_iterator_next_payload_and_edges() {
 }
 
 #[test]
-fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
+fn lowering_for_in_appends_synthesized_optional_item_type() {
     let span = Span::default();
-    let interner = TyInterner::new(ModuleId(0));
+    let mut interner = TyInterner::new(ModuleId(0));
     let item_ty = interner.primitive(PrimitiveTy::I32);
     let body = TypedBody {
         span,
@@ -288,13 +288,15 @@ fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
             .iter()
             .any(|(_, ty)| matches!(ty, TyKind::Optional { elem } if *elem == item_ty))
     );
+    let before_lowering = interner.clone();
 
-    let lowered =
-        lower_function_body_with_interner(ModuleId(0), &body, &interner).expect("valid typed body");
+    let _ = lower_function_body_with_interner(ModuleId(0), &body, &mut interner)
+        .expect("valid typed body");
 
+    assert!(before_lowering.is_prefix_of(&interner));
+    assert!(interner.len() > before_lowering.len());
     assert!(
-        lowered
-            .interner
+        interner
             .iter()
             .any(|(_, ty)| matches!(ty, TyKind::Optional { elem } if *elem == item_ty))
     );

@@ -427,6 +427,17 @@ cannot replace it. The next Phase B slice migrates those downstream consumers
 and deletes `BodyIr.interner`; it must not move the snapshot into another
 aggregate product or turn speculative snapshots into a permanent dual API.
 
+Function IR lowering has crossed this boundary for mutation. It borrows the
+session shard and appends synthesized types, while its single-body and batch
+products contain only function IR and diagnostics. Until monomorphization and
+backend lowering migrate, the compiler-query provider takes module snapshots
+after all function lowering completes and lends them only for the duration of
+that downstream call. These snapshots are not query values or semantic
+products. The next writable fork to remove is
+`MonoCollector.working_interners_by_module`, together with the published
+`Monomorphization.type_interners`; only then can backend and reachability stop
+using `BodyIr.interner` and `ProgramFunctionBodyInterners` as type stores.
+
 ### 3.6 `nia-diagnostic`
 
 Defines diagnostics and source rendering. It owns user-facing diagnostic display

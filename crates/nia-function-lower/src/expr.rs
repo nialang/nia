@@ -2,7 +2,7 @@
 use super::support::{LoweringContext, PatternConditionContext, SwitchValueArmContext};
 use super::*;
 
-impl FunctionLowerer {
+impl FunctionLowerer<'_> {
     pub(super) fn lower_value_expr(
         &mut self,
         expr: &TypedExpr,
@@ -1323,7 +1323,7 @@ impl FunctionLowerer {
     }
 }
 
-impl FunctionLowerer {
+impl FunctionLowerer<'_> {
     fn lower_bit_intrinsic_op(
         &self,
         op: nia_body_ir::TypedBitIntrinsicOp,

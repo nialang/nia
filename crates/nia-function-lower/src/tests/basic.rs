@@ -105,7 +105,7 @@ fn lowers_try_expression_to_try_terminator_and_success_local() {
         ty: i32_ty,
     };
 
-    let function_body = lower_function_body_with_interner(ModuleId(0), &body, &interner)
+    let function_body = lower_function_body_with_interner(ModuleId(0), &body, &mut interner)
         .expect("valid typed body")
         .body;
 
