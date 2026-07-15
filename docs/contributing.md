@@ -39,18 +39,17 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
-The workspace config admits at most two libtest cases at once, following the
-same `RUST_TEST_THREADS` mechanism used by Rust's bootstrap. Compiler-heavy
-phases additionally share a cross-process budget derived from the effective CPU
-count and the smaller of system and cgroup memory limits. Build commands are
-charged at twice the weight of ordinary compiler work. Machine categories do
-not select separate test paths: WSL uses the Linux VM's visible resources,
-containers and constrained rental hosts use their cgroup limits, and bare Linux
-hosts use system resources. If memory cannot be detected, compiler-heavy tests
-run serially. This keeps the default command conservative without private
-environment variables; high-capacity machines may override the standard
-`RUST_TEST_THREADS` setting when they intentionally want more libtest
-concurrency.
+Libtest keeps its normal platform-selected concurrency. Tests that create a
+complete compiler, LLVM, or build session additionally share a cross-process
+memory budget derived from effective CPU and memory limits. The test budget is
+at most half of visible memory, build commands are charged at twice the weight
+of ordinary compiler work, and new work waits while system or cgroup available
+memory is under pressure. Machine categories do not select separate test paths:
+WSL uses the Linux VM's visible resources, containers and constrained rental
+hosts use the tightest inherited cgroup limit, and bare Linux hosts use system
+resources. If memory cannot be detected, compiler-heavy tests run serially.
+This keeps the default command conservative without private environment
+variables or a workspace-wide libtest thread restriction.
 
 Do not add `allow` or `expect` attributes to bypass lints. Fix the code instead.
 
