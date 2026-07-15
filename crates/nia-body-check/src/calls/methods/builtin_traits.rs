@@ -522,9 +522,8 @@ impl<'a> BodyChecker<'a> {
             return self.primitive(PrimitiveTy::Usize);
         }
         if matches!(trait_id, BuiltinTrait::Char) {
-            return self.interner.intern(TyKind::Optional {
-                elem: self.primitive(PrimitiveTy::Char),
-            });
+            let elem = self.primitive(PrimitiveTy::Char);
+            return self.interner.intern(TyKind::Optional { elem });
         }
         if matches!(trait_id, BuiltinTrait::Iterable) {
             let iter = self.interner.intern(TyKind::Projection {

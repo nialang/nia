@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::BodyChecker;
 use crate::literals::{
     byte_string_literal_len, float_literal_suffix_ty, float_literal_text,
     has_numeric_literal_suffix, integer_literal_suffix_ty, integer_literal_value, integer_range,
     numeric_literal_suffix, parse_float_literal, string_literal_char_len,
 };
+use crate::{BodyChecker, BodyWorkingInterner};
 use nia_ast::{Expr, ExprKind, TypeRef, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
@@ -514,10 +514,10 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
         let expected = self.normalization.normalize(expected?);
-        match self.interner.get(expected) {
+        match self.interner.get(expected).cloned() {
             Some(TyKind::Slice { elem, .. }) => Some(self.interner.intern(TyKind::Array {
                 len: ArrayLenTy::Infer,
-                elem: *elem,
+                elem,
             })),
             _ => None,
         }
@@ -1189,7 +1189,7 @@ impl<'a> BodyChecker<'a> {
             values: self.values,
             locals: self.locals,
             semantic_uses: self.semantic_uses,
-            interner: self.interner.clone(),
+            interner: BodyWorkingInterner::Snapshot(self.interner.clone()),
             type_lowering: self.type_lowering,
             signatures: self.signatures,
             const_signatures: self.const_signatures,
@@ -1810,9 +1810,10 @@ impl<'a> BodyChecker<'a> {
         literal: &nia_ast::StringLiteral,
     ) -> InternedTyId {
         let len = string_literal_char_len(literal).unwrap_or(0);
+        let elem = self.primitive(PrimitiveTy::Char);
         self.interner.intern(TyKind::Array {
             len: ArrayLenTy::ConstValue(len as u64),
-            elem: self.primitive(PrimitiveTy::Char),
+            elem,
         })
     }
 
@@ -1828,9 +1829,10 @@ impl<'a> BodyChecker<'a> {
         literal: &nia_ast::StringLiteral,
     ) -> InternedTyId {
         let len = byte_string_literal_len(literal).unwrap_or(0);
+        let elem = self.primitive(PrimitiveTy::U8);
         self.interner.intern(TyKind::Array {
             len: ArrayLenTy::ConstValue(len as u64),
-            elem: self.primitive(PrimitiveTy::U8),
+            elem,
         })
     }
 
@@ -1917,12 +1919,12 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn vector_bool_mask(&mut self, ty: InternedTyId) -> Option<InternedTyId> {
         let ty = self.normalization.normalize(ty);
-        let Some(TyKind::Vector { lanes, .. }) = self.interner.get(ty) else {
+        let Some(TyKind::Vector { lanes, .. }) = self.interner.get(ty).cloned() else {
             return None;
         };
         Some(self.interner.intern(TyKind::Vector {
             elem: PrimitiveTy::Bool,
-            lanes: *lanes,
+            lanes,
         }))
     }
 

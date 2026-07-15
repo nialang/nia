@@ -121,7 +121,6 @@ impl ExecutableValueRefEdges {
 
 struct BodyCheckConstInputs {
     module: ConstModuleLowering,
-    interner: nia_ty::TyInterner,
     array_lengths: nia_const_check::ConstArrayLengths,
     enum_values: nia_const_check::ConstEnumValues,
     values: nia_const_check::ConstValues,
@@ -183,7 +182,6 @@ impl<'a> ExecutableFactMode<'a> {
 impl BodyCheckConstInputs {
     fn into_check(self) -> ConstCheck {
         ConstCheck {
-            interner: self.interner,
             values: self.values.values,
             typed_values: self.typed_facts.typed_values,
             enum_values: self.enum_values.values,
@@ -593,7 +591,7 @@ fn const_inputs_for_body_check(
             visible_extensions: Some(&visible_extensions_for_module),
         },
     };
-    let (array_lengths, enum_values, values, typed_facts, interner) = db
+    let (array_lengths, enum_values, values, typed_facts) = db
         .context()
         .type_store
         .with_module_interner_for_semantic_migration(module_id, |interner| {
@@ -647,17 +645,10 @@ fn const_inputs_for_body_check(
                     )
                 },
             );
-            (
-                array_lengths,
-                enum_values,
-                values,
-                typed_facts,
-                interner.clone(),
-            )
+            (array_lengths, enum_values, values, typed_facts)
         });
     BodyCheckConstInputs {
         module,
-        interner,
         array_lengths,
         enum_values,
         values,
@@ -781,17 +772,14 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let full_const_array_lengths;
     let full_const_typed_facts;
     let full_const_module;
-    let full_const_interner;
     let (body_const, const_module) = match filter {
         nia_body_check::BodyCheckFilter::All => {
             full_const_values = db.query(ConstValuesQuery(module_id));
             full_const_array_lengths = db.query(ConstArrayLengthsQuery(module_id));
             full_const_typed_facts = db.query(ConstTypedFactsQuery(module_id));
             full_const_module = db.query(ConstModuleQuery(module_id));
-            full_const_interner = db.context().type_store.module_snapshot(module_id);
             (
                 nia_body_check::BodyConst::from_phases(
-                    &full_const_interner,
                     &full_const_values,
                     &full_const_array_lengths,
                     &full_const_typed_facts,
@@ -827,7 +815,6 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 .expect("filtered const inputs must be initialized");
             (
                 nia_body_check::BodyConst::from_phases(
-                    &filtered.interner,
                     &filtered.values,
                     &filtered.array_lengths,
                     &filtered.typed_facts,
@@ -862,6 +849,12 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         }
         Some(db.query(TypeNormalizationQuery(module_id)))
     };
+    let local_function_signatures = db.query_shared(SignatureItemSignaturesQuery(
+        module_id,
+        nia_item_tree::SignatureItemSet::Functions,
+    ));
+    let local_function_interner =
+        signature_type_interner(db, module_id, nia_item_tree::SignatureItemSet::Functions);
     let local_program_function_signature_cache =
         RefCell::new(HashMap::<GlobalDefId, ProgramFunctionSignature>::new());
     let program_function_signature = |def_id: GlobalDefId| {
@@ -872,6 +865,27 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         }
         if let Some(signature) = local_program_function_signature_cache.borrow().get(&def_id) {
             return Some(signature.clone());
+        }
+        if def_id.module_id == module_id {
+            return local_function_signatures
+                .functions
+                .get(&def_id.def_id)
+                .cloned()
+                .map(|signature| {
+                    let signature = ProgramFunctionSignature {
+                        name: defs
+                            .defs
+                            .get(def_id.def_id)
+                            .map(|def| def.name)
+                            .unwrap_or_default(),
+                        signature,
+                        interner: local_function_interner.clone(),
+                    };
+                    local_program_function_signature_cache
+                        .borrow_mut()
+                        .insert(def_id, signature.clone());
+                    signature
+                });
         }
         db.query_shared(SignatureItemSignaturesQuery(
             def_id.module_id,
@@ -1208,63 +1222,74 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     };
     let program_visible_extensions =
         |module_id| Some(db.query(VisibleExtensionsQuery(module_id)).methods.clone());
-    let run_body_check =
-        |inputs: &BodyCheckResolutionInputs,
-         body_const: nia_body_check::BodyConst<'_>,
-         const_module: &nia_const_ir::ResolvedConstModule,
-         filter: nia_body_check::BodyCheckFilter<'_>,
-         prechecked: Option<nia_body_check::PrecheckedBodyCheck>| {
-            nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
-                nia_body_check::BodyCheckInput {
-                    source_version: Some(source_version),
-                    source_path: &source_path,
-                    symbols: &db.context().symbols(),
-                    origins: &origins,
-                    active_item_tree: &inputs.active_item_tree,
-                    defs: &defs,
-                    values: &inputs.values,
-                    locals: &inputs.locals,
-                    semantic_uses: &inputs.semantic_uses,
-                    lowered: &lowered,
-                    signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(
-                        &signatures,
-                    ),
-                    const_signatures: &signatures,
-                    normalization: &normalization,
-                    seed,
-                    target: &db.query(CompilerTargetQuery),
-                    const_eval: body_const,
-                    const_module,
-                    layouts: &layouts,
-                    extensions: &empty_extensions,
-                    lazy_extensions: Some(&lazy_extensions),
-                    program_extension_methods,
-                    extension_interner: None,
-                    program: nia_body_check::BodyProgramContext {
-                        defs: Some(&program_defs),
-                        type_normalizations: Some(&program_type_normalization),
-                        extension_type_normalizations: Some(&extension_method_normalization),
-                        signatures: Some(&item_signatures_for_module),
-                        layouts: Some(&program_layouts),
-                        visible_extensions: Some(&program_visible_extensions),
-                        extension_method_by_id: Some(&program_extension_method_by_id),
-                        extension_methods_named: Some(&program_extension_methods_named),
-                    },
-                    program_signatures,
-                    function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
-                    program_const: nia_body_check::ProgramConstMaps {
-                        values: &program_const_values,
-                        array_lengths: &program_const_array_lengths,
-                        module: &program_const_module,
-                    },
-                    filter,
-                    product,
-                    prechecked,
+    let run_body_check = |inputs: &BodyCheckResolutionInputs,
+                          body_const: nia_body_check::BodyConst<'_>,
+                          const_module: &nia_const_ir::ResolvedConstModule,
+                          filter: nia_body_check::BodyCheckFilter<'_>,
+                          prechecked: Option<nia_body_check::PrecheckedBodyCheck>,
+                          interner: &mut nia_ty::TyInterner| {
+        nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
+            nia_body_check::BodyCheckInput {
+                source_version: Some(source_version),
+                source_path: &source_path,
+                symbols: &db.context().symbols(),
+                origins: &origins,
+                active_item_tree: &inputs.active_item_tree,
+                defs: &defs,
+                values: &inputs.values,
+                locals: &inputs.locals,
+                semantic_uses: &inputs.semantic_uses,
+                lowered: &lowered,
+                signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
+                const_signatures: &signatures,
+                normalization: &normalization,
+                seed,
+                target: &db.query(CompilerTargetQuery),
+                const_eval: body_const,
+                const_module,
+                layouts: &layouts,
+                extensions: &empty_extensions,
+                lazy_extensions: Some(&lazy_extensions),
+                program_extension_methods,
+                extension_interner: None,
+                program: nia_body_check::BodyProgramContext {
+                    defs: Some(&program_defs),
+                    type_normalizations: Some(&program_type_normalization),
+                    extension_type_normalizations: Some(&extension_method_normalization),
+                    signatures: Some(&item_signatures_for_module),
+                    layouts: Some(&program_layouts),
+                    visible_extensions: Some(&program_visible_extensions),
+                    extension_method_by_id: Some(&program_extension_method_by_id),
+                    extension_methods_named: Some(&program_extension_methods_named),
                 },
-                db.context().timings(),
+                program_signatures,
+                function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
+                program_const: nia_body_check::ProgramConstMaps {
+                    values: &program_const_values,
+                    array_lengths: &program_const_array_lengths,
+                    module: &program_const_module,
+                },
+                filter,
+                product,
+                prechecked,
+            },
+            interner,
+            db.context().timings(),
+        )
+    };
+    let body_check = db
+        .context()
+        .type_store
+        .with_module_interner_for_semantic_migration(module_id, |interner| {
+            run_body_check(
+                inputs,
+                body_const,
+                const_module,
+                filter,
+                prechecked,
+                interner,
             )
-        };
-    let body_check = run_body_check(inputs, body_const, const_module, filter, prechecked);
+        });
     let stored_inputs = match (product, filter) {
         (nia_body_check::BodyCheckProduct::FactsOnly, _) => filtered_inputs,
         (
@@ -1786,7 +1811,7 @@ pub(super) fn executable_signature_checked_module(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
-    let (array_lengths, enum_values, const_interner) = with_type_signature_const_input(
+    let (array_lengths, enum_values) = with_type_signature_const_input(
         db,
         module_id,
         Some(program_signatures),
@@ -1800,7 +1825,7 @@ pub(super) fn executable_signature_checked_module(
                 array_lengths.clone(),
             );
             enum_values.diagnostics.extend(module.diagnostics.clone());
-            (array_lengths, enum_values, interner.clone())
+            (array_lengths, enum_values)
         },
     );
     let mut const_diagnostics = array_lengths.diagnostics.clone();
@@ -1827,7 +1852,6 @@ pub(super) fn executable_signature_checked_module(
         },
         type_normalization: type_normalization.clone(),
         const_eval: ConstCheck {
-            interner: const_interner,
             values: HashMap::new(),
             typed_values: HashMap::new(),
             enum_values: enum_values.values,

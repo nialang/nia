@@ -1178,6 +1178,8 @@ impl<'a> BodyChecker<'a> {
     ) -> Result<nia_const_check::ConstGenericInstantiation, ConstError> {
         let frames = self.typed_const_frames();
         let trait_impls_for_module = |_| Some(self.program_trait_impls.to_vec());
+        let program_signature_scope = self.program_signature_scope;
+        let program_is_enum = |def_id| program_signature_scope.has_enum(def_id);
         nia_const_check::instantiate_resolved_const_function_generics(
             nia_const_check::TypedConstQueryInput {
                 module: self.const_module,
@@ -1188,7 +1190,8 @@ impl<'a> BodyChecker<'a> {
                 symbols: self.symbols,
                 lowered: self.type_lowering,
                 signatures: self.const_signatures,
-                interner: &self.interner,
+                base_interner: &self.normalization.interner,
+                interner: &mut self.interner,
                 normalized: &self.normalization.normalized,
                 target: self.target,
                 source_path: self.source_path,
@@ -1202,7 +1205,7 @@ impl<'a> BodyChecker<'a> {
                     value_signatures: self.program.signatures,
                     const_values: Some(self.program_const_values),
                     global_initializer: None,
-                    program_is_enum: Some(&|def_id| self.program_is_enum(def_id)),
+                    program_is_enum: Some(&program_is_enum),
                     trait_impls_for_module: Some(&trait_impls_for_module),
                     visible_extensions: self.program.visible_extensions,
                 },
@@ -1238,10 +1241,9 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> Option<nia_const_check::ConstValueType> {
         let frames = self.typed_const_frames();
-        let mut query_interner = self.const_eval.interner.clone();
-        let expected =
-            expected.map(|ty| nia_ty::import_type_into(&mut query_interner, &self.interner, ty));
         let trait_impls_for_module = |_| Some(self.program_trait_impls.to_vec());
+        let program_signature_scope = self.program_signature_scope;
+        let program_is_enum = |def_id| program_signature_scope.has_enum(def_id);
         let input = nia_const_check::TypedConstQueryInput {
             module: self.const_module,
             defs: self.defs,
@@ -1251,7 +1253,8 @@ impl<'a> BodyChecker<'a> {
             symbols: self.symbols,
             lowered: self.type_lowering,
             signatures: self.const_signatures,
-            interner: &query_interner,
+            base_interner: &self.normalization.interner,
+            interner: &mut self.interner,
             normalized: &self.normalization.normalized,
             target: self.target,
             source_path: self.source_path,
@@ -1265,7 +1268,7 @@ impl<'a> BodyChecker<'a> {
                 value_signatures: self.program.signatures,
                 const_values: Some(self.program_const_values),
                 global_initializer: None,
-                program_is_enum: Some(&|def_id| self.program_is_enum(def_id)),
+                program_is_enum: Some(&program_is_enum),
                 trait_impls_for_module: Some(&trait_impls_for_module),
                 visible_extensions: self.program.visible_extensions,
             },
@@ -1274,32 +1277,20 @@ impl<'a> BodyChecker<'a> {
             frames: &frames,
         };
         let ty = nia_const_check::infer_resolved_const_expr_type(input, expr, expected)?;
-        Some(self.import_current_const_expr_type(&query_interner, ty))
+        Some(self.import_current_const_expr_type(ty))
     }
 
     fn import_current_const_expr_type(
         &mut self,
-        source: &TyInterner,
         ty: nia_const_check::ConstValueType,
     ) -> nia_const_check::ConstValueType {
         match ty {
             nia_const_check::ConstValueType::Runtime(ty) => {
-                let source = if source.get(ty).is_some() {
-                    source.clone()
-                } else if let Some(source) = self.interner_containing_ty(ty) {
-                    source
-                } else {
-                    return nia_const_check::ConstValueType::Runtime(ty);
-                };
-                nia_const_check::ConstValueType::Runtime(nia_ty::import_type_into(
-                    &mut self.interner,
-                    &source,
-                    ty,
-                ))
+                nia_const_check::ConstValueType::Runtime(self.import_type_to_working_interner(ty))
             }
             nia_const_check::ConstValueType::Array { elem, len } => {
                 nia_const_check::ConstValueType::Array {
-                    elem: Box::new(self.import_current_const_expr_type(source, *elem)),
+                    elem: Box::new(self.import_current_const_expr_type(*elem)),
                     len,
                 }
             }
@@ -1309,7 +1300,7 @@ impl<'a> BodyChecker<'a> {
                         .into_iter()
                         .map(|field| nia_const_check::ConstValueFieldType {
                             name: field.name,
-                            ty: self.import_current_const_expr_type(source, field.ty),
+                            ty: self.import_current_const_expr_type(field.ty),
                         })
                         .collect(),
                 )

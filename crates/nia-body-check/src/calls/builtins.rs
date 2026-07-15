@@ -840,9 +840,10 @@ impl<'a> BodyChecker<'a> {
         let Some((mut elem_ty, dest_expected)) =
             self.memory_dest_slice_expected(&args[0], dest_actual)
         else {
+            let elem = explicit_elem_ty.map_or_else(|| self.error(), |arg| arg.ty);
             let src_expected = self.interner.intern(TyKind::Slice {
                 is_readonly: true,
-                elem: explicit_elem_ty.map_or_else(|| self.error(), |arg| arg.ty),
+                elem,
             });
             self.check_expr_with_expected(&args[1], Some(src_expected));
             return self.void();

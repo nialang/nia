@@ -106,12 +106,8 @@ fn main() i32 {
         const_enum_values,
         const_values.clone(),
     );
-    let const_eval = crate::BodyConst::from_phases(
-        &const_interner,
-        &const_values,
-        &const_array_lengths,
-        &const_typed_facts,
-    );
+    let const_eval =
+        crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     let normalization = TypeNormalization {
         interner: lowered.interner.clone(),
         normalized: HashMap::new(),
@@ -124,37 +120,40 @@ fn main() i32 {
         nia_layout::TargetDataLayout::LP64,
     );
     let program_signatures = EmptyBodyProgramSignatures::new();
-    let checked = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
-        source_version: Some(version),
-        source_path: &source_path,
-        symbols: &symbols,
-        origins: &origins,
-        active_item_tree: &active_item_tree,
-        defs: &defs,
-        values: &values,
-        locals: &locals,
-        semantic_uses: &semantic_uses,
-        lowered: &lowered,
-        signatures: BodyLocalSignatures::from_item_signatures(&signatures),
-        const_signatures: &signatures,
-        normalization: &normalization,
-        seed: None,
-        target: &target,
-        const_eval,
-        const_module: &const_module.module,
-        layouts: &layouts,
-        extensions: &VisibleExtensionMethods::default(),
-        lazy_extensions: None,
-        program_extension_methods: &nia_defs::ExtensionMethods::default(),
-        extension_interner: None,
-        program: BodyProgramContext::empty(),
-        program_signatures: program_signatures.context(),
-        function_scope: FunctionCheckScope::LocalModule,
-        program_const: ProgramConstMaps::empty(),
-        filter: crate::BodyCheckFilter::All,
-        product: crate::BodyCheckProduct::Full,
-        prechecked: None,
-    });
+    let checked = check_module_bodies_with_program_signatures_and_layouts(
+        BodyCheckInput {
+            source_version: Some(version),
+            source_path: &source_path,
+            symbols: &symbols,
+            origins: &origins,
+            active_item_tree: &active_item_tree,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            lowered: &lowered,
+            signatures: BodyLocalSignatures::from_item_signatures(&signatures),
+            const_signatures: &signatures,
+            normalization: &normalization,
+            seed: None,
+            target: &target,
+            const_eval,
+            const_module: &const_module.module,
+            layouts: &layouts,
+            extensions: &VisibleExtensionMethods::default(),
+            lazy_extensions: None,
+            program_extension_methods: &nia_defs::ExtensionMethods::default(),
+            extension_interner: None,
+            program: BodyProgramContext::empty(),
+            program_signatures: program_signatures.context(),
+            function_scope: FunctionCheckScope::LocalModule,
+            program_const: ProgramConstMaps::empty(),
+            filter: crate::BodyCheckFilter::All,
+            product: crate::BodyCheckProduct::Full,
+            prechecked: None,
+        },
+        &mut const_interner,
+    );
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(checked.facts.iter_node_expr_types().next().is_some());
@@ -272,12 +271,8 @@ fn main() i32 {
         const_enum_values,
         const_values.clone(),
     );
-    let const_eval = crate::BodyConst::from_phases(
-        &const_interner,
-        &const_values,
-        &const_array_lengths,
-        &const_typed_facts,
-    );
+    let const_eval =
+        crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     let normalization = TypeNormalization {
         interner: lowered.interner.clone(),
         normalized: HashMap::new(),
@@ -290,37 +285,40 @@ fn main() i32 {
         nia_layout::TargetDataLayout::LP64,
     );
     let program_signatures = EmptyBodyProgramSignatures::new();
-    let checked = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
-        source_version: Some(version),
-        source_path: &source_path,
-        symbols: &symbols,
-        origins: &origins,
-        active_item_tree: &active_item_tree,
-        defs: &defs,
-        values: &values,
-        locals: &locals,
-        semantic_uses: &semantic_uses,
-        lowered: &lowered,
-        signatures: BodyLocalSignatures::from_item_signatures(&signatures),
-        const_signatures: &signatures,
-        normalization: &normalization,
-        seed: None,
-        target: &target,
-        const_eval,
-        const_module: &const_module.module,
-        layouts: &layouts,
-        extensions: &VisibleExtensionMethods::default(),
-        lazy_extensions: None,
-        program_extension_methods: &nia_defs::ExtensionMethods::default(),
-        extension_interner: None,
-        program: BodyProgramContext::empty(),
-        program_signatures: program_signatures.context(),
-        function_scope: FunctionCheckScope::LocalModule,
-        program_const: ProgramConstMaps::empty(),
-        filter: crate::BodyCheckFilter::All,
-        product: crate::BodyCheckProduct::Full,
-        prechecked: None,
-    });
+    let checked = check_module_bodies_with_program_signatures_and_layouts(
+        BodyCheckInput {
+            source_version: Some(version),
+            source_path: &source_path,
+            symbols: &symbols,
+            origins: &origins,
+            active_item_tree: &active_item_tree,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            lowered: &lowered,
+            signatures: BodyLocalSignatures::from_item_signatures(&signatures),
+            const_signatures: &signatures,
+            normalization: &normalization,
+            seed: None,
+            target: &target,
+            const_eval,
+            const_module: &const_module.module,
+            layouts: &layouts,
+            extensions: &VisibleExtensionMethods::default(),
+            lazy_extensions: None,
+            program_extension_methods: &nia_defs::ExtensionMethods::default(),
+            extension_interner: None,
+            program: BodyProgramContext::empty(),
+            program_signatures: program_signatures.context(),
+            function_scope: FunctionCheckScope::LocalModule,
+            program_const: ProgramConstMaps::empty(),
+            filter: crate::BodyCheckFilter::All,
+            product: crate::BodyCheckProduct::Full,
+            prechecked: None,
+        },
+        &mut const_interner,
+    );
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(checked.facts.iter_node_expr_types().any(|(key, _)| {

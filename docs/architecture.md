@@ -403,18 +403,29 @@ completion of that domain: body checking still owns a working interner snapshot,
 while const checking still snapshots foreign modules and imports cross-module
 signature types.
 
-Const phase providers mutate the compilation-owned `TypeStore` module shard
-directly. Array lengths, enum values, values, and typed facts are ordinary query
-facts and no longer carry or transfer `TyInterner` snapshots. The analyzer
-borrows the session shard for its local module; temporary working snapshots are
-reserved for foreign modules that have not yet crossed the Phase B boundary.
-Providers resolve local trait and extension facts before entering the mutable
-transaction so nested semantic queries cannot re-enter the same module lock.
-When a foreign source snapshot advances, the analyzer selects the newer
-append-only prefix and reports an internal error only if the two views actually
-diverge. `ConstCheck` still publishes one interner snapshot for the unmigrated
-body/backend boundary; removing that final snapshot belongs to the body-store
-migration rather than to an intermediate const phase.
+Const and body providers mutate the compilation-owned `TypeStore` module shard
+directly. Array lengths, enum values, values, typed const facts, `ConstCheck`,
+and `BodyConst` are ordinary semantic products and no longer carry or transfer
+`TyInterner` snapshots. The const analyzer and production body checker borrow
+the session shard for their local module, and typed const queries issued while
+checking a body append through that same borrow. Temporary working snapshots
+are reserved for foreign const modules and explicitly speculative body type
+comparison; neither is a second production ownership path.
+
+A store transaction must not invoke a provider that mutates the same module
+shard. Providers acquire shared local trait, extension, and function-signature
+facts before entering the transaction, while preserving item-level lazy
+materialization inside resolvers. `TypeStore` rejects same-thread reentry into
+one module shard so an ownership violation becomes an immediate internal error
+instead of a mutex deadlock. Foreign const snapshots still select the newer
+append-only prefix and report an internal error only when two views diverge.
+
+`BodyIr` currently publishes the one remaining interner snapshot at the
+boundary to layout, monomorphization, backend lowering, and codegen. Prechecked
+body products and incremental seeds must be prefixes of the session shard and
+cannot replace it. The next Phase B slice migrates those downstream consumers
+and deletes `BodyIr.interner`; it must not move the snapshot into another
+aggregate product or turn speculative snapshots into a permanent dual API.
 
 ### 3.6 `nia-diagnostic`
 
