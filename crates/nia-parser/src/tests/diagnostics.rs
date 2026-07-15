@@ -25,6 +25,15 @@ fn rejects_string_module_name() {
 }
 
 #[test]
+fn rejects_removed_comptime_keyword() {
+    let (_module, errors) = parse_module("comptime width: usize = 4;");
+    assert!(
+        !errors.is_empty(),
+        "legacy `comptime` syntax must not parse"
+    );
+}
+
+#[test]
 fn rejects_deep_relative_using_prefix() {
     let (_module, errors) = parse_module("using super..math;");
     assert!(
@@ -91,7 +100,7 @@ fn parser_makes_progress_on_generated_invalid_inputs() {
         "let",
         "static",
         "mut",
-        "comptime",
+        "const",
         "extern",
         "pub",
         "fn",

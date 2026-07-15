@@ -31,10 +31,10 @@ extend Error!DeinitStatus {
     }
 }
 
-comptime max_small_size: usize = 2048usize;
-comptime min_slot_size: usize = 16usize;
-comptime small_magic: usize = 0x6e69615f67707331usize;
-comptime large_magic: usize = 0x6e69615f67706131usize;
+const max_small_size: usize = 2048usize;
+const min_slot_size: usize = 16usize;
+const small_magic: usize = 0x6e69615f67707331usize;
+const large_magic: usize = 0x6e69615f67706131usize;
 
 struct SmallSlot {
     magic: usize,

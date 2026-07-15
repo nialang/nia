@@ -34,8 +34,8 @@ pub struct FunctionLocal {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionLocalKind {
     Param,
-    Binding,
-    ConstBinding,
+    MutableBinding,
+    ImmutableBinding,
 }
 
 #[derive(Debug, Clone, PartialEq)]

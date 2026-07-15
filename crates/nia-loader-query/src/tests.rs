@@ -246,7 +246,7 @@ fn query_loader_loads_std_builtin_target_module() {
         matches!(
             &item.kind,
             ItemTreeNodeKind::Binding(binding)
-                if binding.is_comptime && binding.name == sym("pointer_width")
+                if binding.is_const() && binding.name == sym("pointer_width")
         )
     }));
 }
@@ -420,7 +420,7 @@ fn query_loader_keeps_facade_used_paths_shallow_for_reexported_value() {
         r#"
 using std::builtin::size;
 
-comptime word_size: usize = size[usize]();
+const word_size: usize = size[usize]();
 "#,
     );
 

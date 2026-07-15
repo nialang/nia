@@ -1,0 +1,22 @@
+[package]
+name = "nia-const-ir"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+nia-ast.workspace = true
+nia-ids.workspace = true
+nia-literals.workspace = true
+nia-node-id.workspace = true
+nia-sema-ir.workspace = true
+nia-span.workspace = true
+nia-symbol.workspace = true
+nia-symbol-table.workspace = true
+
+[dev-dependencies]
+nia-source.workspace = true
+
+[lib]
+path = "src/lib.rs"

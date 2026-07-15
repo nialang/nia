@@ -9,12 +9,12 @@ pub(super) fn provide_layouts(
         let defs = db.query_shared(FullModuleDefsQuery(module_id));
         let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
-        let array_lengths = db.query(ComptimeArrayLengthsQuery(module_id));
+        let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
         let symbols = db.context().symbols();
         let layout_query = |module_id| Some(db.query(SignatureLayoutsQuery(module_id)));
         let local_array_lengths = |id| array_lengths.values.get(&id).copied();
         let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
-            Some(db.query(ComptimeArrayLengthsQuery(id.module_id)))
+            Some(db.query(ConstArrayLengthsQuery(id.module_id)))
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
         nia_layout::compute_layouts_with_program_context(
@@ -105,9 +105,9 @@ pub(super) fn provide_static_check(
         module_id,
         nia_item_tree::SignatureItemSet::Values,
     ));
-    let comptime = db.query(ComptimeValuesQuery(module_id));
+    let const_eval = db.query(ConstValuesQuery(module_id));
     let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
-    let program_comptime_values = |module_id| Some(db.query(ComptimeValuesQuery(module_id)));
+    let program_const_values = |module_id| Some(db.query(ConstValuesQuery(module_id)));
     nia_static_check::check_module_static_initializers_with_signatures(
         nia_static_check::StaticCheckPreciseInput {
             active_item_tree: &active_item_tree,
@@ -119,9 +119,9 @@ pub(super) fn provide_static_check(
             signatures: nia_static_check::StaticCheckSignatures {
                 globals: &signatures.globals,
             },
-            comptime: &comptime,
+            const_eval: &const_eval,
             program_defs: &program_defs,
-            program_comptime: &program_comptime_values,
+            program_const: &program_const_values,
             target: &db.query(CompilerTargetQuery),
         },
     )

@@ -103,14 +103,14 @@ fn lowers_for_in_iterator_next_payload_and_edges() {
             TypedLocal {
                 id: LocalId(0),
                 name: local_name("i"),
-                kind: TypedLocalKind::Binding,
+                kind: TypedLocalKind::MutableBinding,
                 ty,
                 span,
             },
             TypedLocal {
                 id: LocalId(10),
                 name: local_name("iter"),
-                kind: TypedLocalKind::Binding,
+                kind: TypedLocalKind::MutableBinding,
                 ty,
                 span,
             },
@@ -245,14 +245,14 @@ fn lowering_for_in_returns_interner_with_synthesized_optional_item_type() {
             TypedLocal {
                 id: LocalId(0),
                 name: local_name("i"),
-                kind: TypedLocalKind::Binding,
+                kind: TypedLocalKind::MutableBinding,
                 ty: item_ty,
                 span,
             },
             TypedLocal {
                 id: LocalId(10),
                 name: local_name("iter"),
-                kind: TypedLocalKind::Binding,
+                kind: TypedLocalKind::MutableBinding,
                 ty: item_ty,
                 span,
             },
@@ -369,14 +369,14 @@ fn preserves_unique_locals_from_flattened_loop_bodies() {
     let outer_local = TypedLocal {
         id: LocalId(0),
         name: local_name("outer"),
-        kind: TypedLocalKind::Binding,
+        kind: TypedLocalKind::MutableBinding,
         ty,
         span,
     };
     let inner_local = TypedLocal {
         id: LocalId(1),
         name: local_name("inner"),
-        kind: TypedLocalKind::Binding,
+        kind: TypedLocalKind::MutableBinding,
         ty,
         span,
     };

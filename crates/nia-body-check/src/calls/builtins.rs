@@ -57,7 +57,7 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let name = builtin.name();
         match builtin {
-            BuiltinFunction::ComptimeError => {
+            BuiltinFunction::ConstError => {
                 self.record_builtin_function_call(call_span, value_node, builtin, None);
                 self.reject_builtin_type_arg(builtin_span, name, type_args);
                 if args.len() != 1 {
@@ -73,7 +73,7 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     call_span,
-                    "builtin `error` can only be evaluated at comptime",
+                    "builtin `error` can only be evaluated at const",
                 ));
                 self.error()
             }
@@ -108,7 +108,7 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     call_span,
-                    "builtin `embed` can only be evaluated at comptime",
+                    "builtin `embed` can only be evaluated at const",
                 ));
                 self.error()
             }
@@ -1232,7 +1232,7 @@ impl<'a> BodyChecker<'a> {
         context: AtomicOrderContext,
     ) -> Option<CheckedAtomicOrder> {
         self.check_expr(expr);
-        let value = self.comptime_int_arg(expr, "atomic ordering")?;
+        let value = self.const_int_arg(expr, "atomic ordering")?;
         let order = match value {
             0 => CheckedAtomicOrder::Unordered,
             1 => CheckedAtomicOrder::Monotonic,
@@ -1271,7 +1271,7 @@ impl<'a> BodyChecker<'a> {
         ty: InternedTyId,
     ) -> Option<CheckedAtomicRmwOp> {
         self.check_expr(expr);
-        let value = self.comptime_int_arg(expr, "atomic read-modify-write operation")?;
+        let value = self.const_int_arg(expr, "atomic read-modify-write operation")?;
         let op = match value {
             0 => CheckedAtomicRmwOp::Xchg,
             1 => CheckedAtomicRmwOp::Add,
@@ -1357,20 +1357,20 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn comptime_int_arg(&mut self, expr: &Expr, context: &str) -> Option<i128> {
+    fn const_int_arg(&mut self, expr: &Expr, context: &str) -> Option<i128> {
         let value = self
-            .with_comptime_context(|this| {
-                let expr = this.lower_comptime_expr(expr).map_err(|err| {
-                    nia_comptime_engine::ComptimeError {
-                        span: err.span,
-                        message: err.message,
-                    }
-                })?;
-                nia_comptime_engine::eval_resolved_comptime_expr(&expr, this)
+            .with_const_context(|this| {
+                let expr =
+                    this.lower_const_expr(expr)
+                        .map_err(|err| nia_const_eval::ConstError {
+                            span: err.span,
+                            message: err.message,
+                        })?;
+                nia_const_eval::eval_resolved_const_expr(&expr, this)
             })
             .ok();
         match value {
-            Some(nia_comptime_engine::ComptimeValue::Int(value)) => value.as_i128(),
+            Some(nia_const_eval::ConstValue::Int(value)) => value.as_i128(),
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,

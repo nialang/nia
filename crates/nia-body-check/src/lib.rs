@@ -27,11 +27,10 @@ use nia_ast::{
     StmtKind,
 };
 use nia_body_ir::BodyIr;
-use nia_comptime_check::{
-    ComptimeArrayLengths, ComptimeKey, ComptimeTypedFacts, ComptimeValue, ComptimeValues,
-    TypedComptimeValue,
+use nia_const_check::{
+    ConstArrayLengths, ConstKey, ConstTypedFacts, ConstValue, ConstValues, TypedConstValue,
 };
-use nia_comptime_ir::ResolvedComptimeModule;
+use nia_const_ir::ResolvedConstModule;
 use nia_defs::{
     DefCollection, DefId, DefKind, ExtensionMethod, ExtensionMethods, VisibleExtensionMethod,
     VisibleExtensionMethods,
@@ -41,12 +40,11 @@ use nia_ids::{
     BuiltinTraitMethod, GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind, Visibility,
 };
 use nia_item_signatures::{
-    ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
-    ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
-    ProgramGlobalSignature, ProgramStructSignature, ProgramTraitImplIndex,
-    ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
-    ProgramUnionSignature, StructSignature, TraitImplSignature, TraitSignature, TypeAliasSignature,
-    UnionSignature,
+    ConstSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
+    ProgramConstSignature, ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature,
+    ProgramStructSignature, ProgramTraitImplIndex, ProgramTraitImplSignature,
+    ProgramTraitSignature, ProgramTypeAliasSignature, ProgramUnionSignature, StructSignature,
+    TraitImplSignature, TraitSignature, TypeAliasSignature, UnionSignature,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_layout::Layouts;
@@ -55,7 +53,7 @@ use nia_mangle::mangle_symbol_id;
 use nia_node_id::{NodeOriginTable, VersionedNodeKey};
 use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
 use nia_sema_ir::{
-    AssociatedComptimeProjection, BracketSuffixResolution, BuiltinValue, FunctionReference,
+    AssociatedConstProjection, BracketSuffixResolution, BuiltinValue, FunctionReference,
     FunctionSemanticFacts, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
     SemanticFacts, SemanticTraitMethodRef, SemanticUseTable, SemanticValueUse, TraitObjectCoercion,
     TraitObjectUpcast,
@@ -128,18 +126,18 @@ pub struct PrecheckedBodyCheck {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct BodyComptime<'a> {
+pub struct BodyConst<'a> {
     pub interner: &'a TyInterner,
-    pub values: &'a HashMap<ComptimeKey, ComptimeValue>,
-    pub typed_values: &'a HashMap<ComptimeKey, TypedComptimeValue>,
+    pub values: &'a HashMap<ConstKey, ConstValue>,
+    pub typed_values: &'a HashMap<ConstKey, TypedConstValue>,
     pub array_lengths: &'a HashMap<nia_ids::GlobalConstExprId, u64>,
 }
 
-impl<'a> BodyComptime<'a> {
+impl<'a> BodyConst<'a> {
     pub fn from_phases(
-        values: &'a ComptimeValues,
-        array_lengths: &'a ComptimeArrayLengths,
-        typed_facts: &'a ComptimeTypedFacts,
+        values: &'a ConstValues,
+        array_lengths: &'a ConstArrayLengths,
+        typed_facts: &'a ConstTypedFacts,
     ) -> Self {
         Self {
             interner: &typed_facts.interner,
@@ -181,15 +179,15 @@ struct SwitchCoverage {
 }
 
 #[derive(Clone, Copy)]
-pub struct ProgramComptimeMaps<'a> {
-    pub values: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
-    pub array_lengths: &'a dyn Fn(ModuleId) -> Option<ComptimeArrayLengths>,
-    pub module: &'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>,
+pub struct ProgramConstMaps<'a> {
+    pub values: &'a dyn Fn(ModuleId) -> Option<ConstValues>,
+    pub array_lengths: &'a dyn Fn(ModuleId) -> Option<ConstArrayLengths>,
+    pub module: &'a dyn Fn(ModuleId) -> Option<ResolvedConstModule>,
 }
 
-impl fmt::Debug for ProgramComptimeMaps<'_> {
+impl fmt::Debug for ProgramConstMaps<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ProgramComptimeMaps")
+        f.debug_struct("ProgramConstMaps")
             .field("values", &true)
             .field("array_lengths", &true)
             .field("module", &true)
@@ -197,25 +195,25 @@ impl fmt::Debug for ProgramComptimeMaps<'_> {
     }
 }
 
-impl ProgramComptimeMaps<'_> {
+impl ProgramConstMaps<'_> {
     pub fn empty() -> Self {
         Self {
-            values: &no_program_comptime_values,
-            array_lengths: &no_program_comptime_array_lengths,
-            module: &no_program_comptime_module,
+            values: &no_program_const_values,
+            array_lengths: &no_program_const_array_lengths,
+            module: &no_program_const_module,
         }
     }
 }
 
-fn no_program_comptime_values(_: ModuleId) -> Option<ComptimeValues> {
+fn no_program_const_values(_: ModuleId) -> Option<ConstValues> {
     None
 }
 
-fn no_program_comptime_array_lengths(_: ModuleId) -> Option<ComptimeArrayLengths> {
+fn no_program_const_array_lengths(_: ModuleId) -> Option<ConstArrayLengths> {
     None
 }
 
-fn no_program_comptime_module(_: ModuleId) -> Option<ResolvedComptimeModule> {
+fn no_program_const_module(_: ModuleId) -> Option<ResolvedConstModule> {
     None
 }
 
@@ -432,12 +430,12 @@ pub struct BodyCheckInput<'a> {
     pub semantic_uses: &'a SemanticUseTable,
     pub lowered: &'a TypeLowering,
     pub signatures: BodyLocalSignatures<'a>,
-    pub comptime_signatures: &'a ItemSignatures,
+    pub const_signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
     pub seed: Option<BodyCheckSeed<'a>>,
     pub target: &'a TargetConfig,
-    pub comptime: BodyComptime<'a>,
-    pub comptime_module: &'a ResolvedComptimeModule,
+    pub const_eval: BodyConst<'a>,
+    pub const_module: &'a ResolvedConstModule,
     pub layouts: &'a Layouts,
     pub extensions: &'a VisibleExtensionMethods,
     pub lazy_extensions: Option<&'a dyn Fn() -> (VisibleExtensionMethods, TyInterner)>,
@@ -446,7 +444,7 @@ pub struct BodyCheckInput<'a> {
     pub program: BodyProgramContext<'a>,
     pub program_signatures: ProgramSignatureContext<'a>,
     pub function_scope: FunctionCheckScope,
-    pub program_comptime: ProgramComptimeMaps<'a>,
+    pub program_const: ProgramConstMaps<'a>,
     pub filter: BodyCheckFilter<'a>,
     pub product: BodyCheckProduct,
     pub prechecked: Option<PrecheckedBodyCheck>,
@@ -462,7 +460,7 @@ pub struct BodyCheckSeed<'a> {
 pub struct BodyLocalSignatures<'a> {
     pub functions: &'a HashMap<DefId, FunctionSignature>,
     pub globals: &'a HashMap<DefId, GlobalSignature>,
-    pub comptimes: &'a HashMap<DefId, ComptimeSignature>,
+    pub consts: &'a HashMap<DefId, ConstSignature>,
     pub structs: &'a HashMap<DefId, StructSignature>,
     pub unions: &'a HashMap<DefId, UnionSignature>,
     pub enums: &'a HashMap<DefId, EnumSignature>,
@@ -476,7 +474,7 @@ impl<'a> BodyLocalSignatures<'a> {
         Self {
             functions: &signatures.functions,
             globals: &signatures.globals,
-            comptimes: &signatures.comptimes,
+            consts: &signatures.consts,
             structs: &signatures.structs,
             unions: &signatures.unions,
             enums: &signatures.enums,
@@ -502,8 +500,8 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
     pub target: &'a TargetConfig,
-    pub comptime: BodyComptime<'a>,
-    pub comptime_module: &'a ResolvedComptimeModule,
+    pub const_eval: BodyConst<'a>,
+    pub const_module: &'a ResolvedConstModule,
     pub extensions: &'a VisibleExtensionMethods,
     pub program_extension_methods: &'a ExtensionMethods,
     pub program: BodyProgramContext<'a>,
@@ -542,26 +540,24 @@ pub fn check_module_bodies(
         signatures,
         nia_layout::TargetDataLayout::LP64,
     );
-    let empty_comptime_module = ResolvedComptimeModule::default();
+    let empty_const_module = ResolvedConstModule::default();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_program_extension_methods = ExtensionMethods::default();
-    let empty_comptime_values = HashMap::new();
-    let empty_typed_comptime_values = HashMap::new();
+    let empty_const_values = HashMap::new();
+    let empty_typed_const_values = HashMap::new();
     let empty_array_lengths = HashMap::new();
-    let empty_comptime = BodyComptime {
+    let empty_const = BodyConst {
         interner: &lowered.interner,
-        values: &empty_comptime_values,
-        typed_values: &empty_typed_comptime_values,
+        values: &empty_const_values,
+        typed_values: &empty_typed_const_values,
         array_lengths: &empty_array_lengths,
     };
     let target = TargetConfig::host();
     let source_path = SourcePath::new("main.nia");
     let symbols = SymbolTable::new();
     let item_tree = ModuleItemTree::from_module(module);
-    let active_item_tree = ActiveModuleItemTree::new(
-        item_tree.active_items_without_comptime(),
-        Default::default(),
-    );
+    let active_item_tree =
+        ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default());
     let semantic_uses = semantic_use_table_for_body_input(
         defs.module_id,
         values,
@@ -581,12 +577,12 @@ pub fn check_module_bodies(
         semantic_uses: &semantic_uses,
         lowered,
         signatures: BodyLocalSignatures::from_item_signatures(signatures),
-        comptime_signatures: signatures,
+        const_signatures: signatures,
         normalization: &empty_normalization,
         seed: None,
         target: &target,
-        comptime: empty_comptime,
-        comptime_module: &empty_comptime_module,
+        const_eval: empty_const,
+        const_module: &empty_const_module,
         layouts: &layouts,
         extensions: &empty_extensions,
         lazy_extensions: None,
@@ -594,7 +590,7 @@ pub fn check_module_bodies(
         extension_interner: None,
         program: BodyProgramContext::empty(),
         program_signatures: ProgramSignatureContext::empty(),
-        program_comptime: ProgramComptimeMaps::empty(),
+        program_const: ProgramConstMaps::empty(),
         function_scope: FunctionCheckScope::LocalModule,
         filter: BodyCheckFilter::All,
         product: BodyCheckProduct::Full,
@@ -620,7 +616,7 @@ pub fn check_module_bodies_with_program_signatures(
         &input.normalization.interner,
         input.signatures,
         &input.normalization.normalized,
-        &|id| input.comptime.array_lengths.get(&id).copied(),
+        &|id| input.const_eval.array_lengths.get(&id).copied(),
         nia_layout::TargetDataLayout::LP64,
     );
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
@@ -635,12 +631,12 @@ pub fn check_module_bodies_with_program_signatures(
         semantic_uses: input.semantic_uses,
         lowered: input.lowered,
         signatures: BodyLocalSignatures::from_item_signatures(input.signatures),
-        comptime_signatures: input.signatures,
+        const_signatures: input.signatures,
         normalization: input.normalization,
         seed: None,
         target: input.target,
-        comptime: input.comptime,
-        comptime_module: input.comptime_module,
+        const_eval: input.const_eval,
+        const_module: input.const_module,
         layouts: &layouts,
         extensions: input.extensions,
         lazy_extensions: None,
@@ -649,7 +645,7 @@ pub fn check_module_bodies_with_program_signatures(
         program: input.program,
         program_signatures: input.program_signatures,
         function_scope: input.function_scope,
-        program_comptime: ProgramComptimeMaps::empty(),
+        program_const: ProgramConstMaps::empty(),
         filter: BodyCheckFilter::All,
         product: BodyCheckProduct::Full,
         prechecked: None,
@@ -787,11 +783,11 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         interner,
         type_lowering: input.lowered,
         signatures: input.signatures,
-        comptime_signatures: input.comptime_signatures,
+        const_signatures: input.const_signatures,
         normalization: input.normalization,
         target: input.target,
-        comptime: input.comptime,
-        comptime_module: input.comptime_module,
+        const_eval: input.const_eval,
+        const_module: input.const_module,
         layouts: input.layouts,
         extensions,
         program_extension_methods: input.program_extension_methods,
@@ -803,9 +799,9 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         },
         program_trait_impls: input.program_signatures.trait_impls,
         program_trait_impl_index: input.program_signatures.trait_impl_index,
-        program_comptime_values: input.program_comptime.values,
-        program_comptime_array_lengths: input.program_comptime.array_lengths,
-        program_comptime_module: input.program_comptime.module,
+        program_const_values: input.program_const.values,
+        program_const_array_lengths: input.program_const.array_lengths,
+        program_const_module: input.program_const.module,
         source_path: input.source_path,
         symbols: input.symbols,
         extension_methods_by_id,
@@ -819,7 +815,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         node_trait_object_coercions: HashMap::new(),
         node_trait_object_upcasts: HashMap::new(),
         node_builtin_values: HashMap::new(),
-        node_associated_comptime_projections: HashMap::new(),
+        node_associated_const_projections: HashMap::new(),
         node_array_repeat_counts: HashMap::new(),
         node_switch_pattern_values: HashMap::new(),
         node_resolved_calls: HashMap::new(),
@@ -830,7 +826,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         global_inits: HashMap::new(),
         local_types: HashMap::new(),
         global_types: HashMap::new(),
-        comptime_types: HashMap::new(),
+        const_types: HashMap::new(),
         method_receiver_kinds: HashMap::new(),
         traits_by_method_name: SymbolMap::default(),
         trait_impls_by_trait: HashMap::new(),
@@ -845,8 +841,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
         current_return: void_ty,
         current_def_id: None,
         current_param_locals: Vec::new(),
-        comptime_context_depth: 0,
-        comptime_call_locals: Vec::new(),
+        const_context_depth: 0,
+        const_call_locals: Vec::new(),
         body_filter: ActiveBodyCheckFilter::from_filter(input.filter),
         product: input.product,
         checked_functions: HashSet::new(),
@@ -881,8 +877,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
                 .into_iter()
                 .map(|(def_id, ty)| (GlobalDefId { module_id, def_id }, ty))
                 .collect(),
-            comptime_types: checker
-                .comptime_types
+            const_types: checker
+                .const_types
                 .into_iter()
                 .map(|(def_id, ty)| (GlobalDefId { module_id, def_id }, ty))
                 .collect(),
@@ -898,7 +894,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings(
                 .semantic_uses
                 .node_builtin_associated_values
                 .clone(),
-            node_associated_comptime_projections: checker.node_associated_comptime_projections,
+            node_associated_const_projections: checker.node_associated_const_projections,
             node_array_repeat_counts: checker.node_array_repeat_counts,
             node_switch_pattern_values: checker.node_switch_pattern_values,
             node_resolved_calls: checker.node_resolved_calls,
@@ -964,20 +960,20 @@ struct BodyChecker<'a> {
     interner: TyInterner,
     type_lowering: &'a TypeLowering,
     signatures: BodyLocalSignatures<'a>,
-    comptime_signatures: &'a ItemSignatures,
+    const_signatures: &'a ItemSignatures,
     normalization: &'a TypeNormalization,
     target: &'a TargetConfig,
-    comptime: BodyComptime<'a>,
-    comptime_module: &'a ResolvedComptimeModule,
+    const_eval: BodyConst<'a>,
+    const_module: &'a ResolvedConstModule,
     layouts: &'a Layouts,
     extensions: BodyVisibleExtensionSource<'a>,
     program_extension_methods: &'a ExtensionMethods,
     program_signature_scope: ProgramSignatureScope<'a>,
     program_trait_impls: &'a [ProgramTraitImplSignature],
     program_trait_impl_index: Option<&'a ProgramTraitImplIndex>,
-    program_comptime_values: &'a dyn Fn(ModuleId) -> Option<ComptimeValues>,
-    program_comptime_array_lengths: &'a dyn Fn(ModuleId) -> Option<ComptimeArrayLengths>,
-    program_comptime_module: &'a dyn Fn(ModuleId) -> Option<ResolvedComptimeModule>,
+    program_const_values: &'a dyn Fn(ModuleId) -> Option<ConstValues>,
+    program_const_array_lengths: &'a dyn Fn(ModuleId) -> Option<ConstArrayLengths>,
+    program_const_module: &'a dyn Fn(ModuleId) -> Option<ResolvedConstModule>,
     source_path: &'a SourcePath,
     symbols: &'a SymbolTable,
     extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,
@@ -991,7 +987,7 @@ struct BodyChecker<'a> {
     node_trait_object_coercions: HashMap<VersionedNodeKey, TraitObjectCoercion>,
     node_trait_object_upcasts: HashMap<VersionedNodeKey, TraitObjectUpcast>,
     node_builtin_values: HashMap<VersionedNodeKey, BuiltinValue>,
-    node_associated_comptime_projections: HashMap<VersionedNodeKey, AssociatedComptimeProjection>,
+    node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
     node_array_repeat_counts: HashMap<VersionedNodeKey, u64>,
     node_switch_pattern_values: HashMap<VersionedNodeKey, i128>,
     node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
@@ -1002,7 +998,7 @@ struct BodyChecker<'a> {
     global_inits: HashMap<GlobalDefId, nia_static_ir::StaticInit>,
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
-    comptime_types: HashMap<DefId, InternedTyId>,
+    const_types: HashMap<DefId, InternedTyId>,
     method_receiver_kinds: HashMap<GlobalDefId, Option<ReceiverKind>>,
     traits_by_method_name: SymbolMap<Vec<GlobalDefId>>,
     trait_impls_by_trait: HashMap<nia_ty::TraitId, Vec<usize>>,
@@ -1018,8 +1014,8 @@ struct BodyChecker<'a> {
     current_return: InternedTyId,
     current_def_id: Option<GlobalDefId>,
     current_param_locals: Vec<LocalId>,
-    comptime_context_depth: usize,
-    comptime_call_locals: Vec<ComptimeCallFrame>,
+    const_context_depth: usize,
+    const_call_locals: Vec<ConstCallFrame>,
     body_filter: ActiveBodyCheckFilter<'a>,
     product: BodyCheckProduct,
     checked_functions: HashSet<GlobalDefId>,
@@ -1064,10 +1060,10 @@ impl<'a> ProgramSignatureScope<'a> {
         }
     }
 
-    fn comptime(&self, def_id: GlobalDefId) -> Option<ProgramComptimeSignature> {
+    fn const_eval(&self, def_id: GlobalDefId) -> Option<ProgramConstSignature> {
         match self {
             ProgramSignatureScope::LocalModule => None,
-            ProgramSignatureScope::Program(program) => program.comptime(def_id),
+            ProgramSignatureScope::Program(program) => program.const_eval(def_id),
         }
     }
 
@@ -1153,11 +1149,11 @@ struct ExtensionMethodLookup {
 }
 
 #[derive(Debug, Clone, Default)]
-struct ComptimeCallFrame {
+struct ConstCallFrame {
     module_id: Option<ModuleId>,
     function_id: Option<GlobalDefId>,
-    locals: HashMap<LocalId, nia_comptime_check::ComptimeValue>,
-    local_types: HashMap<LocalId, nia_comptime_check::ComptimeValueType>,
+    locals: HashMap<LocalId, nia_const_check::ConstValue>,
+    local_types: HashMap<LocalId, nia_const_check::ConstValueType>,
     mutable_locals: HashSet<LocalId>,
     type_substitutions: SymbolMap<InternedTyId>,
     const_substitutions: SymbolMap<ConstGenericArg>,
@@ -1564,16 +1560,16 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn record_associated_comptime_projection(
+    fn record_associated_const_projection(
         &mut self,
         expr: &Expr,
-        projection: AssociatedComptimeProjection,
+        projection: AssociatedConstProjection,
     ) {
-        self.node_associated_comptime_projections
+        self.node_associated_const_projections
             .insert(expr.node_key.clone(), projection.clone());
         if let Some(facts) = self.current_function_facts() {
             facts
-                .node_associated_comptime_projections
+                .node_associated_const_projections
                 .insert(expr.node_key.clone(), projection);
         }
     }
@@ -1644,8 +1640,8 @@ impl<'a> BodyChecker<'a> {
         if self.normalization.interner.get(ty).is_some() {
             return Some(self.normalization.interner.clone());
         }
-        if self.comptime.interner.get(ty).is_some() {
-            return Some(self.comptime.interner.clone());
+        if self.const_eval.interner.get(ty).is_some() {
+            return Some(self.const_eval.interner.clone());
         }
         if self.interner.get(ty).is_some() {
             return Some(self.interner.clone());
@@ -1738,15 +1734,15 @@ impl<'a> BodyChecker<'a> {
             .copied()
     }
 
-    fn with_comptime_context<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        self.comptime_context_depth += 1;
+    fn with_const_context<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.const_context_depth += 1;
         let result = f(self);
-        self.comptime_context_depth -= 1;
+        self.const_context_depth -= 1;
         result
     }
 
-    fn in_comptime_context(&self) -> bool {
-        self.comptime_context_depth > 0
+    fn in_const_context(&self) -> bool {
+        self.const_context_depth > 0
     }
 
     fn defs_for_module(&self, module_id: ModuleId) -> Option<ModuleDefs<'_>> {
@@ -1818,7 +1814,7 @@ impl<'a> BodyChecker<'a> {
         self.node_trait_object_coercions = facts.node_trait_object_coercions;
         self.node_trait_object_upcasts = facts.node_trait_object_upcasts;
         self.node_builtin_values = facts.node_builtin_values;
-        self.node_associated_comptime_projections = facts.node_associated_comptime_projections;
+        self.node_associated_const_projections = facts.node_associated_const_projections;
         self.node_array_repeat_counts = facts.node_array_repeat_counts;
         self.node_switch_pattern_values = facts.node_switch_pattern_values;
         self.node_resolved_calls = facts.node_resolved_calls;
@@ -1830,8 +1826,8 @@ impl<'a> BodyChecker<'a> {
             .extend(facts.global_types.iter().filter_map(|(def_id, ty)| {
                 (def_id.module_id == module_id).then_some((def_id.def_id, *ty))
             }));
-        self.comptime_types
-            .extend(facts.comptime_types.iter().filter_map(|(def_id, ty)| {
+        self.const_types
+            .extend(facts.const_types.iter().filter_map(|(def_id, ty)| {
                 (def_id.module_id == module_id).then_some((def_id.def_id, *ty))
             }));
     }
@@ -1900,7 +1896,7 @@ impl<'a> BodyChecker<'a> {
         let Some(signature) = self.function_signature_for_body(def_id, global_def_id) else {
             return;
         };
-        if signature.is_comptime {
+        if signature.is_const {
             return;
         }
         let Some(body) = &function.body else {
@@ -1920,8 +1916,8 @@ impl<'a> BodyChecker<'a> {
         let previous_node_trait_object_upcasts =
             std::mem::take(&mut self.node_trait_object_upcasts);
         let previous_node_builtin_values = std::mem::take(&mut self.node_builtin_values);
-        let previous_node_associated_comptime_projections =
-            std::mem::take(&mut self.node_associated_comptime_projections);
+        let previous_node_associated_const_projections =
+            std::mem::take(&mut self.node_associated_const_projections);
         let previous_node_array_repeat_counts = std::mem::take(&mut self.node_array_repeat_counts);
         let previous_node_switch_pattern_values =
             std::mem::take(&mut self.node_switch_pattern_values);
@@ -1947,8 +1943,7 @@ impl<'a> BodyChecker<'a> {
         self.node_trait_object_coercions = function_facts.node_trait_object_coercions;
         self.node_trait_object_upcasts = function_facts.node_trait_object_upcasts;
         self.node_builtin_values = function_facts.node_builtin_values;
-        self.node_associated_comptime_projections =
-            function_facts.node_associated_comptime_projections;
+        self.node_associated_const_projections = function_facts.node_associated_const_projections;
         self.node_array_repeat_counts = function_facts.node_array_repeat_counts;
         self.node_switch_pattern_values = function_facts.node_switch_pattern_values;
         self.node_resolved_calls = function_facts.node_resolved_calls;
@@ -1967,7 +1962,7 @@ impl<'a> BodyChecker<'a> {
         self.node_trait_object_coercions = previous_node_trait_object_coercions;
         self.node_trait_object_upcasts = previous_node_trait_object_upcasts;
         self.node_builtin_values = previous_node_builtin_values;
-        self.node_associated_comptime_projections = previous_node_associated_comptime_projections;
+        self.node_associated_const_projections = previous_node_associated_const_projections;
         self.node_array_repeat_counts = previous_node_array_repeat_counts;
         self.node_switch_pattern_values = previous_node_switch_pattern_values;
         self.node_resolved_calls = previous_node_resolved_calls;
@@ -1983,8 +1978,8 @@ impl<'a> BodyChecker<'a> {
         time_body_stage(timing, "body_check.bindings", module_id, || {
             for item in &active_item_tree.items {
                 if let ItemTreeNodeKind::Binding(binding) = &item.kind {
-                    if binding.is_comptime {
-                        self.check_comptime_binding(item.span, binding);
+                    if binding.is_const() {
+                        self.check_const_binding(item.span, binding);
                     } else {
                         self.check_global_binding(item.span, binding);
                     }
@@ -2009,7 +2004,7 @@ impl<'a> BodyChecker<'a> {
                         if associated_value.binding.value.is_none() {
                             continue;
                         }
-                        self.check_reachable_comptime_binding(
+                        self.check_reachable_const_binding(
                             associated_value.span,
                             &associated_value.binding,
                         );
@@ -2150,22 +2145,22 @@ impl<'a> BodyChecker<'a> {
                 self.global_types.insert(*def_id, ty);
             }
         }
-        for (def_id, signature) in self.signatures.comptimes {
+        for (def_id, signature) in self.signatures.consts {
             if let Some(ty) = signature.explicit_type {
-                self.comptime_types.insert(*def_id, ty);
+                self.const_types.insert(*def_id, ty);
             }
         }
     }
 
-    fn check_comptime_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
-        let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Comptime)
+    fn check_const_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
+        let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Const)
         else {
             return;
         };
         let Some(value) = &binding.value else {
             if self
                 .signatures
-                .comptimes
+                .consts
                 .get(&def_id)
                 .is_some_and(|signature| signature.builtin.is_some())
             {
@@ -2174,63 +2169,59 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 item_span,
-                "comptime binding requires an initializer",
+                "const binding requires an initializer",
             ));
             return;
         };
-        let comptime_ty = match binding.ty.as_ref() {
+        let const_ty = match binding.ty.as_ref() {
             Some(ty) => {
                 let explicit = self.ty_for_type(ty);
                 let value_ty = self
-                    .comptime_initializer_runtime_type(value, Some(explicit))
+                    .const_initializer_runtime_type(value, Some(explicit))
                     .unwrap_or_else(|| {
-                        self.with_comptime_context(|this| {
+                        self.with_const_context(|this| {
                             this.check_expr_with_expected(value, Some(explicit))
                         })
                     });
-                if !self.is_comptime_only_ty(value_ty) && !self.types_match(explicit, value_ty) {
-                    self.expect_expr_type(value, explicit, value_ty, "comptime initializer");
+                if !self.is_const_only_ty(value_ty) && !self.types_match(explicit, value_ty) {
+                    self.expect_expr_type(value, explicit, value_ty, "const initializer");
                 }
                 self.materialize_inferred_array_type(explicit, value_ty)
                     .unwrap_or(explicit)
             }
             None => {
-                if let Some(ty) = self.comptime_initializer_runtime_type(value, None) {
+                if let Some(ty) = self.const_initializer_runtime_type(value, None) {
                     ty
                 } else if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
-                    self.with_comptime_context(|this| this.infer_array_literal_expr(value))
+                    self.with_const_context(|this| this.infer_array_literal_expr(value))
                 } else {
-                    self.with_comptime_context(|this| this.check_expr(value))
+                    self.with_const_context(|this| this.check_expr(value))
                 }
             }
         };
-        self.comptime_types.insert(def_id, comptime_ty);
+        self.const_types.insert(def_id, const_ty);
     }
 
-    fn check_reachable_comptime_binding(
-        &mut self,
-        item_span: Span,
-        binding: &nia_ast::BindingItem,
-    ) {
-        let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Comptime)
+    fn check_reachable_const_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
+        let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Const)
         else {
             return;
         };
         if !self.body_filter.includes_global(self.global_def_id(def_id)) {
             return;
         }
-        self.check_comptime_binding(item_span, binding);
+        self.check_const_binding(item_span, binding);
     }
 
-    fn comptime_initializer_runtime_type(
+    fn const_initializer_runtime_type(
         &mut self,
         value: &Expr,
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
-        let comptime_expr = self.lower_comptime_expr(value).ok()?;
-        let ty = self.comptime_expr_type_for_ir_with_expected(&comptime_expr, expected)?;
+        let const_expr = self.lower_const_expr(value).ok()?;
+        let ty = self.const_expr_type_for_ir_with_expected(&const_expr, expected)?;
         match ty {
-            nia_comptime_check::ComptimeValueType::Runtime(ty) => Some(ty),
+            nia_const_check::ConstValueType::Runtime(ty) => Some(ty),
             _ => None,
         }
     }
@@ -2272,8 +2263,8 @@ impl<'a> BodyChecker<'a> {
             Some(ty) => {
                 let explicit = self.ty_for_type(ty);
                 let value_ty = self.check_expr_with_expected(value, Some(explicit));
-                if self.is_comptime_only_ty(value_ty) {
-                    self.reject_runtime_comptime_only_value(value.span, "global initializer");
+                if self.is_const_only_ty(value_ty) {
+                    self.reject_runtime_const_only_value(value.span, "global initializer");
                     self.error()
                 } else {
                     self.expect_expr_type(value, explicit, value_ty, "global initializer");
@@ -2287,8 +2278,8 @@ impl<'a> BodyChecker<'a> {
                 } else {
                     self.check_expr(value)
                 };
-                if self.is_comptime_only_ty(value_ty) {
-                    self.reject_runtime_comptime_only_value(value.span, "global initializer");
+                if self.is_const_only_ty(value_ty) {
+                    self.reject_runtime_const_only_value(value.span, "global initializer");
                     self.error()
                 } else {
                     value_ty
@@ -2431,7 +2422,7 @@ impl<'a> BodyChecker<'a> {
                 });
             },
         );
-        if signature.is_comptime {
+        if signature.is_const {
             self.current_return = previous_return;
             self.current_def_id = previous_def_id;
             self.current_param_locals = previous_param_locals;
@@ -2898,11 +2889,11 @@ impl<'a> BodyChecker<'a> {
 
     fn check_local_binding(&mut self, stmt: &Stmt, binding: &BindingStmt) {
         let span = stmt.span;
-        if binding.is_comptime && binding.value.is_none() {
+        if binding.is_const() && binding.value.is_none() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
-                "comptime binding requires an initializer",
+                "const binding requires an initializer",
             ));
         }
         let Some(binding_key) = self.single_pattern_binding_key(&binding.pattern) else {
@@ -2927,17 +2918,17 @@ impl<'a> BodyChecker<'a> {
             (Some(ty), Some(value)) => {
                 let explicit_binding = self.ty_for_type(ty);
                 let explicit_input = self.pattern_input_ty(&binding.pattern, explicit_binding);
-                let value_ty = if binding.is_comptime {
-                    self.with_comptime_context(|this| {
+                let value_ty = if binding.is_const() {
+                    self.with_const_context(|this| {
                         this.check_expr_with_expected(value, Some(explicit_input))
                     })
                 } else {
                     self.check_expr_with_expected(value, Some(explicit_input))
                 };
-                if binding.is_comptime && self.is_comptime_only_ty(value_ty) {
-                    // The initializer is validated by nia-comptime-check and has no runtime value.
-                } else if self.is_comptime_only_ty(value_ty) {
-                    self.reject_runtime_comptime_only_value(value.span, "binding initializer");
+                if binding.is_const() && self.is_const_only_ty(value_ty) {
+                    // The initializer is validated by nia-const-check and has no runtime value.
+                } else if self.is_const_only_ty(value_ty) {
+                    self.reject_runtime_const_only_value(value.span, "binding initializer");
                     return self.record_error_local_binding(binding_key);
                 } else {
                     self.expect_expr_type(value, explicit_input, value_ty, "binding initializer");
@@ -2954,20 +2945,20 @@ impl<'a> BodyChecker<'a> {
             }
             (None, Some(value)) => {
                 let value_ty = if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
-                    if binding.is_comptime {
-                        self.with_comptime_context(|this| this.infer_array_literal_expr(value))
+                    if binding.is_const() {
+                        self.with_const_context(|this| this.infer_array_literal_expr(value))
                     } else {
                         self.infer_array_literal_expr(value)
                     }
                 } else {
-                    if binding.is_comptime {
-                        self.with_comptime_context(|this| this.check_expr(value))
+                    if binding.is_const() {
+                        self.with_const_context(|this| this.check_expr(value))
                     } else {
                         self.check_expr(value)
                     }
                 };
-                if !binding.is_comptime && self.is_comptime_only_ty(value_ty) {
-                    self.reject_runtime_comptime_only_value(value.span, "binding initializer");
+                if !binding.is_const() && self.is_const_only_ty(value_ty) {
+                    self.reject_runtime_const_only_value(value.span, "binding initializer");
                     self.error()
                 } else {
                     self.check_irrefutable_pattern(&binding.pattern, value_ty, "binding pattern")
@@ -2987,11 +2978,11 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn reject_runtime_comptime_only_value(&mut self, span: Span, context: &str) {
+    fn reject_runtime_const_only_value(&mut self, span: Span, context: &str) {
         self.diagnostics.push(Diagnostic::user_error_at(
             codes::TYPE_CHECK,
             span,
-            format!("{context} cannot use comptime-only value"),
+            format!("{context} cannot use const-only value"),
         ));
     }
 
@@ -3588,18 +3579,18 @@ impl<'a> BodyChecker<'a> {
             if value { 1 } else { 0 }
         } else {
             match self
-                .with_comptime_context(|this| {
-                    let expr = this.lower_comptime_expr(expr).map_err(|err| {
-                        nia_comptime_engine::ComptimeError {
-                            span: err.span,
-                            message: err.message,
-                        }
-                    })?;
-                    nia_comptime_engine::eval_resolved_comptime_expr(&expr, this)
+                .with_const_context(|this| {
+                    let expr =
+                        this.lower_const_expr(expr)
+                            .map_err(|err| nia_const_eval::ConstError {
+                                span: err.span,
+                                message: err.message,
+                            })?;
+                    nia_const_eval::eval_resolved_const_expr(&expr, this)
                 })
                 .ok()?
             {
-                nia_comptime_engine::ComptimeValue::Int(value) => value.as_i128()?,
+                nia_const_eval::ConstValue::Int(value) => value.as_i128()?,
                 _ => return None,
             }
         };

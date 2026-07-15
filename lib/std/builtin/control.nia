@@ -6,13 +6,13 @@
 @[builtin("trap")]
 pub fn trap() never;
 
-// Emits a compile-time diagnostic with a comptime string message.
+// Emits a compile-time diagnostic with a const string message.
 @[builtin("error")]
-pub comptime fn error(message: &[char]) never;
+pub const fn error(message: &[char]) never;
 
-// Embeds a file at comptime.
+// Embeds a file at const.
 @[builtin("embed")]
-pub comptime fn embed(path: &[char]) void;
+pub const fn embed(path: &[char]) void;
 
 // Compiler-checked inline assembly configuration.
 @[builtin("AsmConfig")]

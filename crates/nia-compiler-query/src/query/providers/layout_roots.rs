@@ -171,7 +171,7 @@ impl<'a> LayoutRootCollector<'a> {
             | Some(TyKind::BuiltinType(_))
             | Some(TyKind::Vector { .. })
             | Some(TyKind::Error)
-            | Some(TyKind::ComptimeOnly)
+            | Some(TyKind::ConstOnly)
             | Some(TyKind::SelfParam)
             | Some(TyKind::GenericParam(_))
             | None => {}
@@ -470,7 +470,7 @@ impl<'a> LayoutRootCollector<'a> {
             Some(TyKind::Primitive(_))
             | Some(TyKind::Vector { .. })
             | Some(TyKind::Error)
-            | Some(TyKind::ComptimeOnly)
+            | Some(TyKind::ConstOnly)
             | Some(TyKind::SelfParam)
             | None => ty,
         }

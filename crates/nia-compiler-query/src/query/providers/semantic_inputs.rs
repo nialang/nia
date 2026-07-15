@@ -219,11 +219,11 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
             .iter()
             .map(|(key, value)| (key.clone(), *value)),
     );
-    builder.extend_node_associated_comptime_projections(
-        associated_comptime_projections_from_active_item_tree(active_item_tree, type_lowering),
+    builder.extend_node_associated_const_projections(
+        associated_const_projections_from_active_item_tree(active_item_tree, type_lowering),
     );
-    builder.extend_node_associated_comptime_projections(
-        associated_comptime_projections_from_const_exprs(
+    builder.extend_node_associated_const_projections(
+        associated_const_projections_from_const_exprs(
             &type_lowering.const_exprs,
             None,
             type_lowering,
@@ -252,8 +252,8 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
                 .filter(|(key, _)| const_expr_nodes.contains(*key))
                 .map(|(key, value)| (key.clone(), *value)),
         );
-        builder.extend_node_associated_comptime_projections(
-            associated_comptime_projections_from_const_exprs(
+        builder.extend_node_associated_const_projections(
+            associated_const_projections_from_const_exprs(
                 &type_lowering.const_exprs,
                 const_expr_value_resolution_ids,
                 type_lowering,
@@ -313,14 +313,14 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
     builder.finish()
 }
 
-fn associated_comptime_projections_from_active_item_tree(
+fn associated_const_projections_from_active_item_tree(
     active_item_tree: &ActiveModuleItemTree,
     type_lowering: &TypeLowering,
 ) -> Vec<(
     nia_node_id::VersionedNodeKey,
-    nia_sema_ir::AssociatedComptimeProjection,
+    nia_sema_ir::AssociatedConstProjection,
 )> {
-    let mut collector = AssociatedComptimeProjectionCollector {
+    let mut collector = AssociatedConstProjectionCollector {
         type_lowering,
         projections: Vec::new(),
     };
@@ -330,15 +330,15 @@ fn associated_comptime_projections_from_active_item_tree(
     collector.projections
 }
 
-fn associated_comptime_projections_from_const_exprs(
+fn associated_const_projections_from_const_exprs(
     const_exprs: &HashMap<GlobalConstExprId, nia_ast::Expr>,
     ids: Option<&HashSet<GlobalConstExprId>>,
     type_lowering: &TypeLowering,
 ) -> Vec<(
     nia_node_id::VersionedNodeKey,
-    nia_sema_ir::AssociatedComptimeProjection,
+    nia_sema_ir::AssociatedConstProjection,
 )> {
-    let mut collector = AssociatedComptimeProjectionCollector {
+    let mut collector = AssociatedConstProjectionCollector {
         type_lowering,
         projections: Vec::new(),
     };
@@ -351,15 +351,15 @@ fn associated_comptime_projections_from_const_exprs(
     collector.projections
 }
 
-struct AssociatedComptimeProjectionCollector<'a> {
+struct AssociatedConstProjectionCollector<'a> {
     type_lowering: &'a TypeLowering,
     projections: Vec<(
         nia_node_id::VersionedNodeKey,
-        nia_sema_ir::AssociatedComptimeProjection,
+        nia_sema_ir::AssociatedConstProjection,
     )>,
 }
 
-impl AssociatedComptimeProjectionCollector<'_> {
+impl AssociatedConstProjectionCollector<'_> {
     fn visit_item_tree_node(&mut self, item: &nia_item_tree::ItemTreeNode) {
         match &item.kind {
             nia_item_tree::ItemTreeNodeKind::Function(function) => {
@@ -420,7 +420,7 @@ impl AssociatedComptimeProjectionCollector<'_> {
         };
         self.projections.push((
             expr.node_key.clone(),
-            nia_sema_ir::AssociatedComptimeProjection {
+            nia_sema_ir::AssociatedConstProjection {
                 self_ty,
                 trait_id,
                 trait_args,
@@ -470,7 +470,7 @@ impl AssociatedComptimeProjectionCollector<'_> {
     }
 }
 
-impl<'ast> nia_ast_walk::Visitor<'ast> for AssociatedComptimeProjectionCollector<'_> {
+impl<'ast> nia_ast_walk::Visitor<'ast> for AssociatedConstProjectionCollector<'_> {
     fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
         if let nia_ast::ExprKind::Qualified { lhs, name } = &expr.kind
             && let nia_ast::ExprKind::TraitTarget { ty, trait_ref } = &lhs.kind
@@ -638,7 +638,7 @@ fn collect_array_len_const_exprs_in_ty(
         Some(
             TyKind::Range { bound: None, .. }
             | TyKind::Error
-            | TyKind::ComptimeOnly
+            | TyKind::ConstOnly
             | TyKind::SelfParam
             | TyKind::GenericParam(_)
             | TyKind::Primitive(_)

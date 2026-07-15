@@ -153,7 +153,7 @@ Zig 对 LLVM 的增量能力仍有明确限制：当前 LLVM object 更新部分
 
 这里需要区分 Nia 的设计潜力与当前实现。Nia 源于对 Kern 线性流水线的反思，并且没有 rustc 数十年的兼容包袱；从一开始追求显式产品、细粒度依赖和单一职责，确实有机会形成比 rustc 更清晰的目标架构。但“后发”“crate 更多”或“拆分更细”本身不构成优势。当前 Nia 的状态所有权、依赖图和性能模型还没有达到 rustc/Zig 的成熟度，而且实际效果已经部分违背最初的解耦目标。
 
-健康的 Nia 不应是“没有中心”，而应是：集中语义身份、revision、存储、依赖规则和调度规则；分离 parser、type、trait、comptime、optimization 等算法；显式定义算法的输入、输出和所有权。中心内核与算法解耦并不冲突，稳定内核恰恰是外围模块能够真正解耦的前提。
+健康的 Nia 不应是“没有中心”，而应是：集中语义身份、revision、存储、依赖规则和调度规则；分离 parser、type、trait、const evaluation、optimization 等算法；显式定义算法的输入、输出和所有权。中心内核与算法解耦并不冲突，稳定内核恰恰是外围模块能够真正解耦的前提。
 
 ## 6. 查询与增量架构
 
@@ -354,9 +354,9 @@ Rust 的 parser/HIR 并不以 lossless tree 为核心，因此不能直接作为
 - parse product fingerprint 可序列化；
 - module discovery 成为统一依赖事实，而不是 driver 回调循环。
 
-## 9. 语义分析、Trait 与 Comptime
+## 9. 语义分析、Trait 与 Const Evaluation
 
-Nia 已经把 type lower、type resolve、normalize、trait solve、body check、comptime check 等职责拆开，这比 Kern 的粗阶段更利于演进。问题是拆分主要发生在 crate 和数据产品层，公共语义内核仍不够稳定。
+Nia 已经把 type lower、type resolve、normalize、trait solve、body check、const check 等职责拆开，这比 Kern 的粗阶段更利于演进。问题是拆分主要发生在 crate 和数据产品层，公共语义内核仍不够稳定。
 
 典型症状包括：
 
@@ -402,7 +402,7 @@ owned AST / semantic tables
 `BackendModule` 再聚合：
 
 - interner；
-- comptime facts；
+- const facts；
 - 所有 layouts；
 - structs/unions/enums；
 - globals/global instances；
@@ -751,7 +751,7 @@ Kern 更快的结构原因很可能是：显式粗粒度阶段、紧凑连续数
 
 ### 17.3 阶段 A release workload 基线
 
-现已增加 `tools/perf.py` 与固定 `benchmarks/`/examples workload。runner 先用显式 `perf-alloc` feature 构建一次 instrumented release compiler，再让 minimal、strings/slices、ArrayList、traits、comptime 和完整 emit-exe 各自在新进程运行，并汇总 schema-versioned JSON。普通 compiler build 不安装 counting allocator，日常编译与测试的 allocation hot path 没有额外原子检查；自定义或 `--no-build` compiler 缺少 instrumentation 时 runner 会直接拒绝，而不是记录伪造的零值。compiler 的同一 `nia-timing` collector 直接输出 wall/user/sys、max RSS、CPU utilization、stage/query timings 及 typed counters；driver 上报 query executions/hits、provider-demand rounds、checked/reachable bodies，LLVM 上报 unit/object-reuse，instrumented detail timing 还能汇总实际 query value clone count/bytes。这里没有通过脚本解析人类 timing 文本，也没有新增隐藏环境变量。
+现已增加 `tools/perf.py` 与固定 `benchmarks/`/examples workload。runner 先用显式 `perf-alloc` feature 构建一次 instrumented release compiler，再让 minimal、strings/slices、ArrayList、traits、const evaluation 和完整 emit-exe 各自在新进程运行，并汇总 schema-versioned JSON。普通 compiler build 不安装 counting allocator，日常编译与测试的 allocation hot path 没有额外原子检查；自定义或 `--no-build` compiler 缺少 instrumentation 时 runner 会直接拒绝，而不是记录伪造的零值。compiler 的同一 `nia-timing` collector 直接输出 wall/user/sys、max RSS、CPU utilization、stage/query timings 及 typed counters；driver 上报 query executions/hits、provider-demand rounds、checked/reachable bodies，LLVM 上报 unit/object-reuse，instrumented detail timing 还能汇总实际 query value clone count/bytes。这里没有通过脚本解析人类 timing 文本，也没有新增隐藏环境变量。
 
 2026-07-14 在当前 WSL release build 上的一次 smoke baseline（单次样本，仅验证量级与管线，不作为跨机器阈值）：
 
@@ -761,7 +761,7 @@ Kern 更快的结构原因很可能是：显式粗粒度阶段、紧凑连续数
 | strings/slices check | 1.535 s | 323 MiB | 4,082 | 94 / 94 |
 | ArrayList check | 2.370 s | 480 MiB | 5,554 | 144 / 144 |
 | traits check | 1.460 s | 318 MiB | 3,920 | 85 / 85 |
-| comptime check | 0.071 s | 42 MiB | 176 | 1 / 1 |
+| const-eval check | 0.071 s | 42 MiB | 176 | 1 / 1 |
 | ArrayList emit-exe | 3.699 s | 1,042 MiB | 6,239 | 152 / 183 |
 
 emit-exe 生成 30 个 LLVM units，当前 object reuse 为 0，直接暴露了阶段 G 的缺口。runner 在 machine metadata 中记录 CPU affinity、cgroup CPU quota、system/cgroup/effective memory；它不建立 WSL、物理工作站和租赁机 profile。首个样本只建立了 value clone count，下面的第二个 instrumentation 切片继续补齐 allocation/clone bytes。
@@ -774,7 +774,7 @@ emit-exe 生成 30 个 LLVM units，当前 object reuse 为 0，直接暴露了�
 | strings/slices check | 1.31 GiB | 32,193 | 50.3 MiB |
 | ArrayList check | 2.12 GiB | 49,947 | 99.1 MiB |
 | traits check | 1.24 GiB | 31,242 | 46.8 MiB |
-| comptime check | 364 MiB | 340 | 1.25 MiB |
+| const-eval check | 364 MiB | 340 | 1.25 MiB |
 | ArrayList emit-exe | 2.98 GiB | 56,310 | 116 MiB |
 
 累计 allocated bytes 远大于 peak RSS，确认大量短命 heap traffic；query value clone 是明确且应由阶段 C 删除的成本，但只占 ArrayList/emit-exe 总 allocator traffic 的一部分，不能把全部 churn 归因于 query clone。interner/snapshot、body/product materialization 和临时集合仍需后续分项。allocation/clone bytes 已完成基础测量；同资源形状 median comparator 与宽松相对 guard 已具备，但仓库尚无可运行 Nia LLVM suite 的 CI 环境及 main-branch trend storage，因此阶段 A 仍不能关闭。
@@ -916,11 +916,17 @@ CompilerSession
 
 顶层 `Driver` 只负责：构造 session、提交编译目标、选择输出、等待任务、render diagnostic/link。它不应实现语义 fixed point。
 
+### 21.1 Const 语义边界
+
+Nia 的公开语言不再使用 Zig 式 `comptime` 总括编译期已知性、求值、结构选择和局部状态。`const` 只表示不可变、无运行时存储、无独立地址身份的编译期值；条件源码选择继续由 `@[if ...]` 独立承担。模块、关联和局部 const 声明都不存在 `const mut`。常量求值算法仍可在 `const fn` 或 const initializer block 内使用瞬态 `let mut`，但这些局部只能属于一次求值 call frame，不可修改全局 const、不可形成可观察的求值顺序，也不可让可变引用或临时地址逃逸到最终结果。这样 const query 对外仍是由函数、参数、target facts 与显式追踪输入决定的纯结果。
+
+实现必须与这个边界同构：AST binding kind 使用 `Const` 与 `Let/Static { is_mutable }` 的枚举，而不是 `is_const × is_mutable` 布尔组合；const evaluator 的 assignment target 只允许本次调用的 mutable local。内部 crate/API 统一采用 `nia-const-ir`、`nia-const-eval`、`nia-const-check` 和 `Const*` 命名，旧 `comptime` 关键字、crate、type alias 与兼容入口全部删除。`const fn` 是否在 runtime-representable 参数/返回类型下也可运行时调用，是下一层独立语义与 IR 统一任务，不能作为关键字迁移的隐式副作用。
+
 ## 22. 分阶段路线图
 
 ### 阶段 A：建立基线与防回归指标
 
-在架构改动前固定 4–6 个 workload：minimal、slices/string、ArrayList、trait-heavy、comptime-heavy、完整 emit-exe。记录：
+在架构改动前固定 4–6 个 workload：minimal、slices/string、ArrayList、trait-heavy、const-eval-heavy、完整 emit-exe。记录：
 
 - wall/user/sys；
 - max RSS；
@@ -950,6 +956,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 进展（2026-07-14）：identity/ownership contract、type lowering 与 normalization 生产路径的迁移切片已完成。`CompilerContext` 现在持有 compilation-owned `TypeStore`；declaration/full/signature/signature-comptime type lowering 与四类 normalization provider 全部在同一 append-only module shard 中 intern；`TyInternerId::for_module` 已删除，store identity 会拒绝不同 compiler session 的 foreign handle。Normalization 不再先 clone interner 再私有写入，也没有保留旧 API：唯一算法入口显式接收 mutable interner 与本次 lowering 的 input IDs，query provider 只负责提供 store transaction，因此 signature subset 不会误归一化 store 中其他 subset 的类型。自动化测试覆盖跨 update prefix/旧 slot 不变、跨 database 隔离、normalization 只追加且只处理显式输入，以及 signature/full 两种执行顺序共享 alias expansion ID。后端实例布局原先重新归一化后仍读取旧 interner，并分别维护 local/foreign 两条重复路径；现在它对既有 backend working interner 使用同一算法、统一读取归一化 snapshot，并合并为一条实例布局路径。trait/body 迁移的第一切片也已开始：`TraitSolverContext::solver*` 原先为 enum 分类 clone mutable working interner，导致 solver 后续追加的本地 nominal type 对分类视图不可见；现在 `TraitSolver` 直接持有 enum 元数据并从同一个 working interner 读取类型，删除这份冻结 snapshot，回归测试覆盖 solver 创建后追加的本地 enum handle。原样 `cargo test` 与严格 workspace Clippy 均通过；相对 normalization baseline 的六 workload perf guard 通过，query executions 全部不变，ArrayList / strings+slices / traits / emit-exe allocated bytes 分别下降 1.31% / 1.22% / 0.97% / 1.48%；单样本 wall 波动不作为性能收益声明。过渡期 shard identity 紧凑编码为 64-bit，`InternedTyId` 为 16 bytes；该尺寸暴露的 `FunctionForHeader` 大小悬殊已通过只对 recursive condition 增加 ownership indirection 修正，没有 Clippy allow。Phase B 仍在进行中：当前 handle 仍包含临时 module shard，`TypeLowering`/`TypeNormalization` 仍为未迁移下游携带 snapshot，body/comptime/layout/mono/backend 的 working interner 与跨 interner import 也仍存在。下一切片继续迁移 body/comptime 的 working interner ownership，并将同 module append 与真正跨模块 import 分开；不能用 type alias 或永久 adapter 假装统一 `TyId` 已完成。
 
 进展（2026-07-15）：comptime 的本模块 working interner 已从隐式 clone/replace 改为显式阶段所有权链：array lengths -> enum values -> values -> typed facts -> final check 每一步直接接管上一阶段 interner，并断言它是初始 normalization input 的 append-only extension；`finish_local_interner` 丢失 shard 时不再 fallback clone，而是 ICE。`import_ty_into_module*` 也统一为先验证 target shard 已含 handle 并直接复用，只有 handle 缺失时才获取 source snapshot 做 import；同时删除了 `active_interner_for_type` 返回 owned snapshot 后的二次 clone。comptime fixture 统一验证最终 interner 与 lowering identity 相同且保持 prefix。原样 `cargo test`、严格 workspace Clippy 和六 workload perf guard 均通过；相对 trait-working baseline，query executions 全部不变，comptime RSS -1.18% / allocated -0.015%，emit-exe RSS -0.044% / allocated -0.107%，其余波动均在 guard 内，单样本 wall 不作为性能结论。Phase B 仍未完成：第一阶段仍需从 normalization snapshot 建立 working interner，各 comptime query product 仍内嵌阶段 snapshot，外模块 signature import 也仍存在；下一步应把 query provider 的本模块 comptime mutation 接入 session `TypeStore` transaction，再删除这些阶段产品中的 interner 字段。
+
+进展（2026-07-15）：语言与实现的 compile-time value 模型已单轨收敛为 const。lexer/parser/AST、标准库、测试和规范不再接受或生成旧 `comptime` 关键字；`const mut` 从 AST 状态空间删除，局部与 item binding 分别由 `LocalBindingKind::{Let, Const}` 和 `ItemBindingKind::{Static, Const}` 表达，普通 mutable/immutable local 与 const local 也拥有不同的 semantic kind。有效 mutation 用例统一改为 `const fn` 内的 `let mut`，const assignment 仍只写本次 call frame。`nia-comptime-ir/engine/check` 及全部 `Comptime*` API 已原子迁移为 `nia-const-ir/eval/check` 与 `Const*`，没有保留 crate alias、type alias、`const let` 或旧 parser 分支；旧关键字拒绝、顶层/局部/关联 `const mut` 拒绝以及 176 个 const-eval driver 回归均有验证。原样 `cargo test`、`cargo check --workspace` 与严格 workspace Clippy 均通过。该语义收敛不改变 Phase B 的剩余所有权问题：const query products 仍携带阶段 interner snapshot，下一步仍是接入 session `TypeStore` transaction 并删除产品内 interner 字段。
 
 ### 阶段 C（P0）：重做 query value/storage 契约
 
@@ -1056,7 +1064,7 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 ## 24. 最终判断
 
-Nia 当前不是“实现质量落后一大截、需要全面重写”，也不是“只差几个热点优化”。它已经具备第一梯队编译器常见的许多组件：lossless syntax、typed query、trait/normalize/comptime 分层、function IR、reachability、monomorphization、LLVM backend、丰富测试。真正的问题是这些组件之间缺少一个统一、性能导向的 compiler kernel。
+Nia 当前不是“实现质量落后一大截、需要全面重写”，也不是“只差几个热点优化”。它已经具备第一梯队编译器常见的许多组件：lossless syntax、typed query、trait/normalize/const-eval 分层、function IR、reachability、monomorphization、LLVM backend、丰富测试。真正的问题是这些组件之间缺少一个统一、性能导向的 compiler kernel。
 
 与 Rust 的差距主要在：统一 `TyCtxt` 式身份/arena、稳定 query/dep-node、IR 所有权转移、CGU/work product 和成熟调度。与 Zig 的差距主要在：`Compilation/Zcu` 式明确 state owner、紧凑 InternPool、semantic fact dependency、per-function AIR ownership 和 codegen/link queue。
 

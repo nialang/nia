@@ -169,7 +169,7 @@ impl<'a> BodyChecker<'a> {
                 TyKind::GenericParam(_)
                 | TyKind::SelfParam
                 | TyKind::Projection { .. }
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Error,
             )
             | None => {}

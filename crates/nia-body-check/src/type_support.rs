@@ -342,7 +342,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)
@@ -389,14 +389,14 @@ impl<'a> BodyChecker<'a> {
         solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
     }
 
-    pub(crate) fn resolve_associated_comptime_projection(
+    pub(crate) fn resolve_associated_const_projection(
         &mut self,
         self_ty: InternedTyId,
         trait_id: TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
         name: &SymbolId,
-    ) -> Option<nia_trait_solve::AssociatedComptimeResolution> {
+    ) -> Option<nia_trait_solve::AssociatedConstResolution> {
         let assumptions = self.current_trait_goals();
         let const_expr_values = self.const_expr_values_for_trait_solver(trait_const_args);
         let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
@@ -418,7 +418,7 @@ impl<'a> BodyChecker<'a> {
             }),
         };
         let mut solver = context.solver(&mut self.interner, &assumptions);
-        solver.resolve_associated_comptime(self_ty, trait_id, trait_args, trait_const_args, name)
+        solver.resolve_associated_const(self_ty, trait_id, trait_args, trait_const_args, name)
     }
 
     pub(crate) fn expect_type(
@@ -505,8 +505,8 @@ impl<'a> BodyChecker<'a> {
         self.expect_type(expr.span, expected, actual, context);
     }
 
-    pub(crate) fn is_comptime_only_ty(&self, ty: InternedTyId) -> bool {
-        matches!(self.interner.get(ty), Some(TyKind::ComptimeOnly))
+    pub(crate) fn is_const_only_ty(&self, ty: InternedTyId) -> bool {
+        matches!(self.interner.get(ty), Some(TyKind::ConstOnly))
     }
 
     pub(crate) fn literal_array_expected_from_slice_expected(
@@ -875,7 +875,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(
                 TyKind::Primitive(_)
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Vector { .. }
                 | TyKind::BuiltinType(_)
                 | TyKind::GenericParam(_)
@@ -1192,20 +1192,20 @@ impl<'a> BodyChecker<'a> {
             interner: self.interner.clone(),
             type_lowering: self.type_lowering,
             signatures: self.signatures,
-            comptime_signatures: self.comptime_signatures,
+            const_signatures: self.const_signatures,
             normalization: self.normalization,
             target: self.target,
-            comptime: self.comptime,
-            comptime_module: self.comptime_module,
+            const_eval: self.const_eval,
+            const_module: self.const_module,
             layouts: self.layouts,
             extensions: self.extensions.clone(),
             program_extension_methods: self.program_extension_methods,
             program_signature_scope: self.program_signature_scope,
             program_trait_impls: self.program_trait_impls,
             program_trait_impl_index: self.program_trait_impl_index,
-            program_comptime_values: self.program_comptime_values,
-            program_comptime_array_lengths: self.program_comptime_array_lengths,
-            program_comptime_module: self.program_comptime_module,
+            program_const_values: self.program_const_values,
+            program_const_array_lengths: self.program_const_array_lengths,
+            program_const_module: self.program_const_module,
             source_path: self.source_path,
             symbols: self.symbols,
             extension_methods_by_id: self.extension_methods_by_id.clone(),
@@ -1219,7 +1219,7 @@ impl<'a> BodyChecker<'a> {
             node_trait_object_coercions: HashMap::new(),
             node_trait_object_upcasts: HashMap::new(),
             node_builtin_values: HashMap::new(),
-            node_associated_comptime_projections: HashMap::new(),
+            node_associated_const_projections: HashMap::new(),
             node_array_repeat_counts: HashMap::new(),
             node_switch_pattern_values: HashMap::new(),
             node_resolved_calls: HashMap::new(),
@@ -1230,7 +1230,7 @@ impl<'a> BodyChecker<'a> {
             global_inits: HashMap::new(),
             local_types: HashMap::new(),
             global_types: HashMap::new(),
-            comptime_types: HashMap::new(),
+            const_types: HashMap::new(),
             method_receiver_kinds: HashMap::new(),
             traits_by_method_name: SymbolMap::default(),
             trait_impls_by_trait: HashMap::new(),
@@ -1247,8 +1247,8 @@ impl<'a> BodyChecker<'a> {
             current_return: self.current_return,
             current_def_id: self.current_def_id,
             current_param_locals: self.current_param_locals.clone(),
-            comptime_context_depth: self.comptime_context_depth,
-            comptime_call_locals: Vec::new(),
+            const_context_depth: self.const_context_depth,
+            const_call_locals: Vec::new(),
             body_filter: self.body_filter.clone(),
             product: self.product,
             checked_functions: self.checked_functions.clone(),
@@ -1397,7 +1397,7 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::ConstValue(value) => Ok(*value),
             ArrayLenTy::ConstExpr(id) => self
                 .array_len_const_expr_value(*id)
-                .ok_or_else(|| "array length was not evaluated by comptime".to_string()),
+                .ok_or_else(|| "array length was not evaluated by const".to_string()),
             ArrayLenTy::Builtin { builtin, ty } => {
                 let Some(layout) = self.layout_of(*ty) else {
                     return Err(format!(
@@ -1517,7 +1517,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(TyKind::GenericParam(name)) => self.symbol_name(*name),
             Some(TyKind::SelfParam) => "Self".to_string(),
-            Some(TyKind::ComptimeOnly) => "<comptime-only value>".to_string(),
+            Some(TyKind::ConstOnly) => "<const-only value>".to_string(),
             Some(TyKind::Error) => "<error type>".to_string(),
             None => "<unknown type>".to_string(),
         }
@@ -1549,7 +1549,7 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::ConstExpr(id) => self
                 .array_len_const_expr_value(*id)
                 .map(|value| value.to_string())
-                .unwrap_or_else(|| "<unevaluated comptime value>".to_string()),
+                .unwrap_or_else(|| "<unevaluated const value>".to_string()),
             ArrayLenTy::Builtin { builtin, ty } => {
                 format!("@{}[{}]()", builtin.name(), self.ty_name(*ty))
             }
@@ -1558,9 +1558,9 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn array_len_const_expr_value(&self, id: GlobalConstExprId) -> Option<u64> {
         if id.module_id == self.defs.module_id {
-            return self.comptime.array_lengths.get(&id).copied();
+            return self.const_eval.array_lengths.get(&id).copied();
         }
-        (self.program_comptime_array_lengths)(id.module_id)
+        (self.program_const_array_lengths)(id.module_id)
             .and_then(|array_lengths| array_lengths.values.get(&id).copied())
     }
 

@@ -3,7 +3,7 @@ pub(super) use crate::{
     LlvmCodegenOptions, LlvmCodegenOutput, LlvmObjectOutput, catch_llvm_codegen_ice,
 };
 pub(super) use nia_backend_ir::{
-    BackendComptimeFacts, BackendEnum, BackendEnumVariant, BackendField, BackendFunction,
+    BackendConstFacts, BackendEnum, BackendEnumVariant, BackendField, BackendFunction,
     BackendFunctionInstance, BackendGlobal, BackendLayouts, BackendModule, BackendParam,
     BackendProgram, BackendStruct, BackendTraitObjectVtable, BackendTraitObjectVtableEntry,
     BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey, BackendUnion,
@@ -247,7 +247,7 @@ pub using impl::{Box, make_box, read_box, answer};
                 (
                     "impl.nia",
                     r#"
-pub comptime answer: i32 = 2;
+pub const answer: i32 = 2;
 
 pub struct Box[T] {
     value: T,
@@ -471,12 +471,12 @@ fn main(ptr: &i32) i32 {
             )],
         },
         EmitSmokeCase {
-            name: "union_open_enum_and_comptime_lengths",
+            name: "union_open_enum_and_const_lengths",
             root: "main.nia",
             files: &[(
                 "main.nia",
                 r#"
-comptime width: usize = 2 + 2;
+const width: usize = 2 + 2;
 
 union Bits {
     i: i32,

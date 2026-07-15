@@ -184,7 +184,7 @@ impl FunctionLowerer {
         self.temp_locals.push(FunctionLocal {
             id,
             name: LocalName::temporary(id.0),
-            kind: FunctionLocalKind::Binding,
+            kind: FunctionLocalKind::MutableBinding,
             ty,
             span,
         });
@@ -651,8 +651,8 @@ impl FunctionLowerer {
     pub(super) fn lower_local_kind(kind: TypedLocalKind) -> FunctionLocalKind {
         match kind {
             TypedLocalKind::Param => FunctionLocalKind::Param,
-            TypedLocalKind::Binding => FunctionLocalKind::Binding,
-            TypedLocalKind::ConstBinding => FunctionLocalKind::ConstBinding,
+            TypedLocalKind::MutableBinding => FunctionLocalKind::MutableBinding,
+            TypedLocalKind::ImmutableBinding => FunctionLocalKind::ImmutableBinding,
         }
     }
 

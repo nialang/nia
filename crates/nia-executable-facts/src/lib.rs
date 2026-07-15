@@ -1063,7 +1063,7 @@ pub fn filter_semantic_facts_for_reachable_items(
             .into_iter()
             .filter(|(def_id, _)| reachable_globals.contains(def_id))
             .collect(),
-        comptime_types: facts.comptime_types,
+        const_types: facts.const_types,
         ..Default::default()
     };
     reachable_facts.generic_instantiations.extend(

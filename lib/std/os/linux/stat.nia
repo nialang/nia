@@ -3,30 +3,30 @@ using pkg::os::linux::types;
 
 using types::{Errno, FileDescriptor, FileKind, FileMetadata, Timestamp};
 
-comptime at_symlink_no_follow: usize = 0x100usize;
-comptime at_no_automount: usize = 0x800usize;
-comptime at_empty_path: usize = 0x1000usize;
-comptime statx_type: u32 = 0x00000001u32;
-comptime statx_mode: u32 = 0x00000002u32;
-comptime statx_nlink: u32 = 0x00000004u32;
-comptime statx_atime: u32 = 0x00000020u32;
-comptime statx_mtime: u32 = 0x00000040u32;
-comptime statx_ctime: u32 = 0x00000080u32;
-comptime statx_ino: u32 = 0x00000100u32;
-comptime statx_size: u32 = 0x00000200u32;
-comptime statx_blocks: u32 = 0x00000400u32;
-comptime statx_request_basic: u32 =
+const at_symlink_no_follow: usize = 0x100usize;
+const at_no_automount: usize = 0x800usize;
+const at_empty_path: usize = 0x1000usize;
+const statx_type: u32 = 0x00000001u32;
+const statx_mode: u32 = 0x00000002u32;
+const statx_nlink: u32 = 0x00000004u32;
+const statx_atime: u32 = 0x00000020u32;
+const statx_mtime: u32 = 0x00000040u32;
+const statx_ctime: u32 = 0x00000080u32;
+const statx_ino: u32 = 0x00000100u32;
+const statx_size: u32 = 0x00000200u32;
+const statx_blocks: u32 = 0x00000400u32;
+const statx_request_basic: u32 =
     statx_type | statx_mode | statx_nlink | statx_atime | statx_mtime | statx_ctime | statx_ino | statx_size | statx_blocks;
-comptime statx_required_basic: u32 =
+const statx_required_basic: u32 =
     statx_type | statx_mode | statx_nlink | statx_mtime | statx_ctime | statx_ino | statx_size;
-comptime s_ifmt: u16 = 0o170000u16;
-comptime s_ififo: u16 = 0o010000u16;
-comptime s_ifchr: u16 = 0o020000u16;
-comptime s_ifdir: u16 = 0o040000u16;
-comptime s_ifblk: u16 = 0o060000u16;
-comptime s_ifreg: u16 = 0o100000u16;
-comptime s_iflnk: u16 = 0o120000u16;
-comptime s_ifsock: u16 = 0o140000u16;
+const s_ifmt: u16 = 0o170000u16;
+const s_ififo: u16 = 0o010000u16;
+const s_ifchr: u16 = 0o020000u16;
+const s_ifdir: u16 = 0o040000u16;
+const s_ifblk: u16 = 0o060000u16;
+const s_ifreg: u16 = 0o100000u16;
+const s_iflnk: u16 = 0o120000u16;
+const s_ifsock: u16 = 0o140000u16;
 
 pub extern struct StatxTimestamp {
     sec: i64,

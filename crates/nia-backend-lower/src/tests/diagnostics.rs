@@ -43,7 +43,7 @@ fn main() i32 {
 #[test]
 fn unresolved_array_lengths_in_backend_symbols_are_diagnostic_not_panic() {
     let source = r#"
-comptime N: usize = 3;
+const N: usize = 3;
 
 struct Box[T] {
     value: T,
@@ -51,9 +51,9 @@ struct Box[T] {
 
 fn main(value: Box[[N]u8]) void {}
 "#;
-    let lowering = lower_source_with_comptime_mutation(source, |comptime, type_lowering| {
+    let lowering = lower_source_with_const_mutation(source, |const_eval, type_lowering| {
         for id in type_lowering.const_exprs.keys() {
-            comptime.array_lengths.remove(id);
+            const_eval.array_lengths.remove(id);
         }
     });
 

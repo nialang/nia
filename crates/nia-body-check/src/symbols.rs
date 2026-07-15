@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ids::{BuiltinAssociatedComptime, BuiltinFunction, BuiltinTrait, BuiltinTraitMethod};
+use nia_ids::{BuiltinAssociatedConst, BuiltinFunction, BuiltinTrait, BuiltinTraitMethod};
 use nia_symbol::{SymbolId, known};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,7 +24,7 @@ pub(crate) fn asm_config_field(name: SymbolId) -> Option<AsmConfigField> {
 
 pub(crate) fn builtin_function_symbol(name: SymbolId) -> Option<BuiltinFunction> {
     match name {
-        known::ERROR => Some(BuiltinFunction::ComptimeError),
+        known::ERROR => Some(BuiltinFunction::ConstError),
         known::TRAP => Some(BuiltinFunction::Trap),
         known::SIZE => Some(BuiltinFunction::SizeOf),
         known::ALIGN => Some(BuiltinFunction::AlignOf),
@@ -52,12 +52,12 @@ pub(crate) fn builtin_function_symbol(name: SymbolId) -> Option<BuiltinFunction>
     }
 }
 
-pub(crate) fn builtin_associated_comptime_symbol(
+pub(crate) fn builtin_associated_const_symbol(
     trait_id: BuiltinTrait,
     name: SymbolId,
-) -> Option<BuiltinAssociatedComptime> {
+) -> Option<BuiltinAssociatedConst> {
     match trait_id {
-        BuiltinTrait::Simd if name == known::LANES => Some(BuiltinAssociatedComptime::Lanes),
+        BuiltinTrait::Simd if name == known::LANES => Some(BuiltinAssociatedConst::Lanes),
         _ => None,
     }
 }

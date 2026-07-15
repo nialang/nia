@@ -43,10 +43,10 @@ fn main(flag: bool, bits: u32, x: i32) bool {
 }
 
 #[test]
-fn lowers_comptime_value_binary_operator_suffix_literal_types() {
+fn lowers_const_value_binary_operator_suffix_literal_types() {
     let checked = pipeline(
         r#"
-comptime group_width: usize = 8usize;
+const group_width: usize = 8usize;
 
 fn main() usize {
     group_width - 1usize

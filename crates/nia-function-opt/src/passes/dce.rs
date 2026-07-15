@@ -126,7 +126,7 @@ pub(crate) fn remove_unused_bindings_matching_once(
     let removable_locals = body
         .locals
         .iter()
-        .filter(|local| matches!(local.kind, FunctionLocalKind::Binding))
+        .filter(|local| matches!(local.kind, FunctionLocalKind::MutableBinding))
         .filter(|local| is_candidate(local))
         .filter(|local| !referenced_locals.contains(&local.id))
         .map(|local| local.id)

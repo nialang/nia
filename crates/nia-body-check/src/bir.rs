@@ -124,7 +124,7 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .filter(|stmt| {
                 !matches!(&stmt.kind, StmtKind::Using(_))
-                    && !matches!(&stmt.kind, StmtKind::Binding(binding) if binding.is_comptime)
+                    && !matches!(&stmt.kind, StmtKind::Binding(binding) if binding.is_const())
                     && !matches!(&stmt.kind, StmtKind::Static(_))
             })
             .map(|stmt| self.lower_stmt(stmt))
@@ -159,7 +159,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_locals(&self, body_span: Span) -> Vec<TypedLocal> {
-        // Runtime body IR intentionally excludes comptime bindings: their
+        // Runtime body IR intentionally excludes const bindings: their
         // values are available to later phases through evaluated constants, not
         // through storage-bearing locals.
         self.locals
@@ -172,9 +172,9 @@ impl<'a> BodyChecker<'a> {
             .filter_map(|(id, local)| {
                 let kind = match local.kind {
                     LocalKind::Param => TypedLocalKind::Param,
-                    LocalKind::Binding => TypedLocalKind::Binding,
-                    LocalKind::ConstBinding => TypedLocalKind::ConstBinding,
-                    LocalKind::ComptimeBinding => return None,
+                    LocalKind::MutableBinding => TypedLocalKind::MutableBinding,
+                    LocalKind::ImmutableBinding => TypedLocalKind::ImmutableBinding,
+                    LocalKind::ConstBinding => return None,
                 };
                 Some(TypedLocal {
                     id,
@@ -263,7 +263,7 @@ impl<'a> BodyChecker<'a> {
             value: binding.value.as_ref().map(|value| {
                 self.lower_binding_initializer_for_pattern(&binding.pattern, value, ty)
             }),
-            is_mutable: binding.is_mutable,
+            is_mutable: binding.is_mutable(),
         })
     }
 
@@ -564,14 +564,9 @@ impl<'a> BodyChecker<'a> {
         let ty = forced_ty
             .or_else(|| self.expr_ty(expr))
             .unwrap_or_else(|| self.error());
-        if let Some(def_id) = self.global_comptime_use(expr) {
-            let ty =
-                forced_ty.unwrap_or_else(|| self.runtime_ty_for_global_comptime_use(def_id, ty));
-            return self.lower_comptime_value_expr(
-                expr.span,
-                ty,
-                self.global_comptime_value(def_id),
-            );
+        if let Some(def_id) = self.global_const_use(expr) {
+            let ty = forced_ty.unwrap_or_else(|| self.runtime_ty_for_global_const_use(def_id, ty));
+            return self.lower_const_value_expr(expr.span, ty, self.global_const_value(def_id));
         }
         if let Some(variant_id) = self.qualified_enum_variant(expr) {
             return TypedExpr {
@@ -586,13 +581,13 @@ impl<'a> BodyChecker<'a> {
                     TypedExprKind::Function(def_id)
                 }
                 Some(nia_defs::DefKind::Global) => TypedExprKind::Global(def_id),
-                Some(nia_defs::DefKind::Comptime) => {
+                Some(nia_defs::DefKind::Const) => {
                     let ty = forced_ty
-                        .unwrap_or_else(|| self.runtime_ty_for_global_comptime_use(def_id, ty));
-                    return self.lower_comptime_value_expr(
+                        .unwrap_or_else(|| self.runtime_ty_for_global_const_use(def_id, ty));
+                    return self.lower_const_value_expr(
                         expr.span,
                         ty,
-                        self.global_comptime_value(def_id),
+                        self.global_const_value(def_id),
                     );
                 }
                 _ => TypedExprKind::Error,
@@ -635,13 +630,13 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Bool(value) => TypedExprKind::Bool(*value),
             ExprKind::Null => TypedExprKind::Null,
             ExprKind::Ident(_) | ExprKind::SelfValue => {
-                if let Some(local_id) = self.local_comptime_use(expr) {
-                    return self.lower_comptime_value_expr(
+                if let Some(local_id) = self.local_const_use(expr) {
+                    return self.lower_const_value_expr(
                         expr.span,
                         ty,
-                        self.comptime
+                        self.const_eval
                             .values
-                            .get(&nia_comptime_check::ComptimeKey::Local(local_id))
+                            .get(&nia_const_check::ConstKey::Local(local_id))
                             .cloned(),
                     );
                 }
@@ -1257,7 +1252,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_atomic_order(&mut self, expr: &Expr) -> AtomicOrder {
-        match self.lower_comptime_int(expr) {
+        match self.lower_const_int(expr) {
             Some(0) => AtomicOrder::Unordered,
             Some(1) => AtomicOrder::Monotonic,
             Some(2) => AtomicOrder::Acquire,
@@ -1269,7 +1264,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_atomic_rmw_op(&mut self, expr: &Expr) -> AtomicRmwOp {
-        match self.lower_comptime_int(expr) {
+        match self.lower_const_int(expr) {
             Some(0) => AtomicRmwOp::Xchg,
             Some(1) => AtomicRmwOp::Add,
             Some(2) => AtomicRmwOp::Sub,
@@ -1285,52 +1280,52 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn lower_comptime_int(&mut self, expr: &Expr) -> Option<i128> {
+    fn lower_const_int(&mut self, expr: &Expr) -> Option<i128> {
         match self
-            .with_comptime_context(|this| {
-                let expr = this.lower_comptime_expr(expr).map_err(|err| {
-                    nia_comptime_engine::ComptimeError {
-                        span: err.span,
-                        message: err.message,
-                    }
-                })?;
-                nia_comptime_engine::eval_resolved_comptime_expr(&expr, this)
+            .with_const_context(|this| {
+                let expr =
+                    this.lower_const_expr(expr)
+                        .map_err(|err| nia_const_eval::ConstError {
+                            span: err.span,
+                            message: err.message,
+                        })?;
+                nia_const_eval::eval_resolved_const_expr(&expr, this)
             })
             .ok()?
         {
-            nia_comptime_engine::ComptimeValue::Int(value) => value.as_i128(),
+            nia_const_eval::ConstValue::Int(value) => value.as_i128(),
             _ => None,
         }
     }
 
-    fn runtime_ty_for_global_comptime_use(
+    fn runtime_ty_for_global_const_use(
         &mut self,
         def_id: nia_ids::GlobalDefId,
         fallback: nia_ids::InternedTyId,
     ) -> nia_ids::InternedTyId {
         if def_id.module_id == self.defs.module_id {
             return self
-                .typed_runtime_ty_for_current_module_comptime(def_id)
-                .or_else(|| self.comptime_types.get(&def_id.def_id).copied())
+                .typed_runtime_ty_for_current_module_const(def_id)
+                .or_else(|| self.const_types.get(&def_id.def_id).copied())
                 .unwrap_or(fallback);
         }
         if fallback != self.error() {
             return fallback;
         }
-        self.qualified_program_comptime_type(def_id)
+        self.qualified_program_const_type(def_id)
             .unwrap_or(fallback)
     }
 
-    fn typed_runtime_ty_for_current_module_comptime(
+    fn typed_runtime_ty_for_current_module_const(
         &mut self,
         def_id: nia_ids::GlobalDefId,
     ) -> Option<nia_ids::InternedTyId> {
         let typed = self
-            .comptime
+            .const_eval
             .typed_values
-            .get(&nia_comptime_check::ComptimeKey::Global(def_id))?
+            .get(&nia_const_check::ConstKey::Global(def_id))?
             .clone();
-        let nia_comptime_check::ComptimeValueType::Runtime(ty) = typed.ty else {
+        let nia_const_check::ConstValueType::Runtime(ty) = typed.ty else {
             return None;
         };
         Some(self.import_type_to_working_interner(ty))
@@ -1338,25 +1333,22 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn expr_runtime_ty(&mut self, expr: &Expr) -> nia_ids::InternedTyId {
         let ty = self.expr_ty(expr).unwrap_or_else(|| self.error());
-        if let Some(def_id) = self.global_comptime_use(expr) {
-            return self.runtime_ty_for_global_comptime_use(def_id, ty);
+        if let Some(def_id) = self.global_const_use(expr) {
+            return self.runtime_ty_for_global_const_use(def_id, ty);
         }
         if let Some(def_id) = self.qualified_value(expr)
-            && matches!(
-                self.global_def_kind(def_id),
-                Some(nia_defs::DefKind::Comptime)
-            )
+            && matches!(self.global_def_kind(def_id), Some(nia_defs::DefKind::Const))
         {
-            return self.runtime_ty_for_global_comptime_use(def_id, ty);
+            return self.runtime_ty_for_global_const_use(def_id, ty);
         }
         ty
     }
 
-    fn lower_comptime_value_expr(
+    fn lower_const_value_expr(
         &mut self,
         span: Span,
         ty: nia_ids::InternedTyId,
-        value: Option<nia_comptime_check::ComptimeValue>,
+        value: Option<nia_const_check::ConstValue>,
     ) -> TypedExpr {
         if ty == self.error() {
             return TypedExpr {
@@ -1366,30 +1358,30 @@ impl<'a> BodyChecker<'a> {
             };
         }
         match value {
-            Some(nia_comptime_check::ComptimeValue::Int(value)) => TypedExpr {
+            Some(nia_const_check::ConstValue::Int(value)) => TypedExpr {
                 span,
                 ty,
                 kind: TypedExprKind::BuiltinValue(BuiltinConst::Int(value)),
             },
-            Some(nia_comptime_check::ComptimeValue::Float(value)) => TypedExpr {
+            Some(nia_const_check::ConstValue::Float(value)) => TypedExpr {
                 span,
                 ty,
                 kind: TypedExprKind::Float(value.to_string()),
             },
-            Some(nia_comptime_check::ComptimeValue::Bool(value)) => TypedExpr {
+            Some(nia_const_check::ConstValue::Bool(value)) => TypedExpr {
                 span,
                 ty,
                 kind: TypedExprKind::Bool(value),
             },
             Some(value) => {
-                if let Some(expr) = self.materialize_comptime_value_expr(span, ty, &value) {
+                if let Some(expr) = self.materialize_const_value_expr(span, ty, &value) {
                     return expr;
                 }
                 self.diagnostics
                     .push(nia_diagnostic::Diagnostic::user_error_at(
                         nia_diagnostic::codes::TYPE_CHECK,
                         span,
-                        "runtime expression cannot use this comptime value",
+                        "runtime expression cannot use this const value",
                     ));
                 TypedExpr {
                     span,
@@ -1402,7 +1394,7 @@ impl<'a> BodyChecker<'a> {
                     .push(nia_diagnostic::Diagnostic::user_error_at(
                         nia_diagnostic::codes::TYPE_CHECK,
                         span,
-                        "comptime value is not available during body check",
+                        "const value is not available during body check",
                     ));
                 TypedExpr {
                     span,
@@ -1413,11 +1405,11 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn materialize_comptime_value_expr(
+    fn materialize_const_value_expr(
         &mut self,
         span: Span,
         ty: nia_ids::InternedTyId,
-        value: &nia_comptime_check::ComptimeValue,
+        value: &nia_const_check::ConstValue,
     ) -> Option<TypedExpr> {
         let normalized_ty = self.normalization.normalize(ty);
         match self.interner.get(normalized_ty).cloned()? {
@@ -1426,7 +1418,7 @@ impl<'a> BodyChecker<'a> {
                     return None;
                 }
                 let array =
-                    self.materialize_comptime_array_expr(span, elem, pointer_pointee(value)?)?;
+                    self.materialize_const_array_expr(span, elem, pointer_pointee(value)?)?;
                 let ty = if array.ty == elem {
                     ty
                 } else {
@@ -1448,8 +1440,8 @@ impl<'a> BodyChecker<'a> {
                 if !is_readonly {
                     return None;
                 }
-                let array_ty = self.comptime_array_ty_for_slice_value(elem, value)?;
-                let array = self.materialize_comptime_array_expr(span, array_ty, value)?;
+                let array_ty = self.const_array_ty_for_slice_value(elem, value)?;
+                let array = self.materialize_const_array_expr(span, array_ty, value)?;
                 let pointer = TypedExpr {
                     span,
                     ty: self.interner.intern(TyKind::Pointer {
@@ -1475,34 +1467,34 @@ impl<'a> BodyChecker<'a> {
                     },
                 })
             }
-            TyKind::Array { .. } => self.materialize_comptime_array_expr(span, ty, value),
+            TyKind::Array { .. } => self.materialize_const_array_expr(span, ty, value),
             _ => None,
         }
     }
 
-    fn comptime_array_ty_for_slice_value(
+    fn const_array_ty_for_slice_value(
         &mut self,
         elem: nia_ids::InternedTyId,
-        value: &nia_comptime_check::ComptimeValue,
+        value: &nia_const_check::ConstValue,
     ) -> Option<nia_ids::InternedTyId> {
-        let values = pointer_pointee(value).and_then(comptime_array_values)?;
+        let values = pointer_pointee(value).and_then(const_array_values)?;
         Some(self.interner.intern(TyKind::Array {
             len: ArrayLenTy::ConstValue(values.len() as u64),
             elem,
         }))
     }
 
-    fn materialize_comptime_array_expr(
+    fn materialize_const_array_expr(
         &mut self,
         span: Span,
         ty: nia_ids::InternedTyId,
-        value: &nia_comptime_check::ComptimeValue,
+        value: &nia_const_check::ConstValue,
     ) -> Option<TypedExpr> {
         let normalized_ty = self.normalization.normalize(ty);
         let TyKind::Array { len, elem } = self.interner.get(normalized_ty).cloned()? else {
             return None;
         };
-        let values = comptime_array_values(value)?;
+        let values = const_array_values(value)?;
         let ty = match len {
             ArrayLenTy::ConstValue(expected_len) => {
                 if expected_len != values.len() as u64 {
@@ -1525,7 +1517,7 @@ impl<'a> BodyChecker<'a> {
         let elem = self.normalization.normalize(elem);
         match self.interner.get(elem) {
             Some(TyKind::Primitive(PrimitiveTy::U8)) => {
-                let bytes = comptime_ints_to_u8(values)?;
+                let bytes = const_ints_to_u8(values)?;
                 Some(TypedExpr {
                     span,
                     ty,
@@ -1533,7 +1525,7 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             Some(TyKind::Primitive(PrimitiveTy::Char)) => {
-                let scalars = comptime_ints_to_u32(values)?;
+                let scalars = const_ints_to_u32(values)?;
                 if scalars
                     .iter()
                     .all(|scalar| char::from_u32(*scalar).is_some())
@@ -1551,23 +1543,23 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn global_comptime_value(
+    pub(crate) fn global_const_value(
         &self,
         def_id: nia_ids::GlobalDefId,
-    ) -> Option<nia_comptime_check::ComptimeValue> {
-        self.global_comptime_value_for_env(def_id)
+    ) -> Option<nia_const_check::ConstValue> {
+        self.global_const_value_for_env(def_id)
     }
 
-    fn global_comptime_value_for_env(
+    fn global_const_value_for_env(
         &self,
         def_id: nia_ids::GlobalDefId,
-    ) -> Option<nia_comptime_check::ComptimeValue> {
-        let key = nia_comptime_check::ComptimeKey::Global(def_id);
+    ) -> Option<nia_const_check::ConstValue> {
+        let key = nia_const_check::ConstKey::Global(def_id);
         if def_id.module_id == self.defs.module_id {
-            return self.comptime.values.get(&key).cloned();
+            return self.const_eval.values.get(&key).cloned();
         }
-        (self.program_comptime_values)(def_id.module_id)
-            .and_then(|comptime| comptime.values.get(&key).cloned())
+        (self.program_const_values)(def_id.module_id)
+            .and_then(|const_eval| const_eval.values.get(&key).cloned())
     }
 
     fn empty_struct_literal_expr(&mut self, ty: nia_ids::InternedTyId, block: &Block) -> bool {
@@ -1739,7 +1731,7 @@ impl<'a> BodyChecker<'a> {
                     .locals
                     .locals
                     .get(local)
-                    .is_some_and(|local| local.kind == LocalKind::ComptimeBinding)
+                    .is_some_and(|local| local.kind == LocalKind::ConstBinding)
                 {
                     return TypedExprKind::Error;
                 }
@@ -1758,7 +1750,7 @@ impl<'a> BodyChecker<'a> {
                             return TypedExprKind::Function(global_id);
                         }
                         Some(nia_defs::DefKind::Global) => return TypedExprKind::Global(global_id),
-                        Some(nia_defs::DefKind::Comptime) => return TypedExprKind::Error,
+                        Some(nia_defs::DefKind::Const) => return TypedExprKind::Error,
                         _ => return TypedExprKind::Error,
                     }
                 }
@@ -1771,7 +1763,7 @@ impl<'a> BodyChecker<'a> {
                             Some(nia_defs::DefKind::Global) => {
                                 TypedExprKind::Global(self.global_def_id(def_id))
                             }
-                            Some(nia_defs::DefKind::Comptime) => TypedExprKind::Error,
+                            Some(nia_defs::DefKind::Const) => TypedExprKind::Error,
                             _ => TypedExprKind::Error,
                         }
                     }
@@ -1783,7 +1775,7 @@ impl<'a> BodyChecker<'a> {
             | Some(LocalUse::Unresolved)
             | None => match &expr.kind {
                 ExprKind::Ident(name) => self
-                    .current_comptime_generic_arg(name)
+                    .current_const_generic_arg(name)
                     .map(TypedExprKind::ConstGeneric)
                     .unwrap_or(TypedExprKind::Error),
                 _ => TypedExprKind::Error,
@@ -2046,12 +2038,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_expr_with_checked_ty(&mut self, expr: &Expr) -> TypedExpr {
-        if self.global_comptime_use(expr).is_some()
+        if self.global_const_use(expr).is_some()
             || self.qualified_value(expr).is_some_and(|def_id| {
-                matches!(
-                    self.global_def_kind(def_id),
-                    Some(nia_defs::DefKind::Comptime)
-                )
+                matches!(self.global_def_kind(def_id), Some(nia_defs::DefKind::Const))
             })
         {
             let ty = self.expr_ty(expr);
@@ -2633,10 +2622,7 @@ impl<'a> BodyChecker<'a> {
             return PlaceBase::Error;
         }
         if let Some(def_id) = self.qualified_value(expr)
-            && !matches!(
-                self.global_def_kind(def_id),
-                Some(nia_defs::DefKind::Comptime)
-            )
+            && !matches!(self.global_def_kind(def_id), Some(nia_defs::DefKind::Const))
         {
             return PlaceBase::Global(def_id);
         }
@@ -2648,7 +2634,7 @@ impl<'a> BodyChecker<'a> {
                     Some(ValueNameResolution::Def(def_id))
                         if !matches!(
                             self.defs.defs.get(def_id).map(|def| def.kind),
-                            Some(nia_defs::DefKind::Comptime)
+                            Some(nia_defs::DefKind::Const)
                         ) =>
                     {
                         PlaceBase::Global(self.global_def_id(def_id))
@@ -3027,22 +3013,20 @@ impl<'a> BodyChecker<'a> {
     }
 }
 
-fn pointer_pointee(
-    value: &nia_comptime_check::ComptimeValue,
-) -> Option<&nia_comptime_check::ComptimeValue> {
+fn pointer_pointee(value: &nia_const_check::ConstValue) -> Option<&nia_const_check::ConstValue> {
     match value {
-        nia_comptime_check::ComptimeValue::Pointer(pointee) => Some(pointee),
-        nia_comptime_check::ComptimeValue::String(_) => Some(value),
+        nia_const_check::ConstValue::Pointer(pointee) => Some(pointee),
+        nia_const_check::ConstValue::String(_) => Some(value),
         _ => None,
     }
 }
 
-enum ComptimeArrayValues<'a> {
-    Values(&'a [nia_comptime_check::ComptimeValue]),
+enum ConstArrayValues<'a> {
+    Values(&'a [nia_const_check::ConstValue]),
     String(&'a str),
 }
 
-impl ComptimeArrayValues<'_> {
+impl ConstArrayValues<'_> {
     fn len(&self) -> usize {
         match self {
             Self::Values(values) => values.len(),
@@ -3051,46 +3035,40 @@ impl ComptimeArrayValues<'_> {
     }
 }
 
-fn comptime_array_values(
-    value: &nia_comptime_check::ComptimeValue,
-) -> Option<ComptimeArrayValues<'_>> {
+fn const_array_values(value: &nia_const_check::ConstValue) -> Option<ConstArrayValues<'_>> {
     match value {
-        nia_comptime_check::ComptimeValue::Array(values) => {
-            Some(ComptimeArrayValues::Values(values))
-        }
-        nia_comptime_check::ComptimeValue::String(value) => {
-            Some(ComptimeArrayValues::String(value))
-        }
+        nia_const_check::ConstValue::Array(values) => Some(ConstArrayValues::Values(values)),
+        nia_const_check::ConstValue::String(value) => Some(ConstArrayValues::String(value)),
         _ => None,
     }
 }
 
-fn comptime_ints_to_u8(values: ComptimeArrayValues<'_>) -> Option<Vec<u8>> {
+fn const_ints_to_u8(values: ConstArrayValues<'_>) -> Option<Vec<u8>> {
     match values {
-        ComptimeArrayValues::Values(values) => values
+        ConstArrayValues::Values(values) => values
             .iter()
             .map(|value| {
-                let nia_comptime_check::ComptimeValue::Int(value) = value else {
+                let nia_const_check::ConstValue::Int(value) = value else {
                     return None;
                 };
                 u8::try_from(value.bits()).ok()
             })
             .collect(),
-        ComptimeArrayValues::String(_) => None,
+        ConstArrayValues::String(_) => None,
     }
 }
 
-fn comptime_ints_to_u32(values: ComptimeArrayValues<'_>) -> Option<Vec<u32>> {
+fn const_ints_to_u32(values: ConstArrayValues<'_>) -> Option<Vec<u32>> {
     match values {
-        ComptimeArrayValues::Values(values) => values
+        ConstArrayValues::Values(values) => values
             .iter()
             .map(|value| {
-                let nia_comptime_check::ComptimeValue::Int(value) = value else {
+                let nia_const_check::ConstValue::Int(value) = value else {
                     return None;
                 };
                 u32::try_from(value.bits()).ok()
             })
             .collect(),
-        ComptimeArrayValues::String(value) => Some(value.chars().map(u32::from).collect()),
+        ConstArrayValues::String(value) => Some(value.chars().map(u32::from).collect()),
     }
 }

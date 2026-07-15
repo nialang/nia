@@ -96,7 +96,7 @@ impl QueryKey<CompilerContext> for ModuleAbiSignatureFactsQuery {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramExecutableNonFunctionSignatures {
     pub(super) globals: HashMap<GlobalDefId, ProgramGlobalSignature>,
-    pub(super) comptimes: HashMap<GlobalDefId, ProgramComptimeSignature>,
+    pub(super) consts: HashMap<GlobalDefId, ProgramConstSignature>,
     pub(super) structs: HashMap<GlobalDefId, ProgramStructSignature>,
     pub(super) unions: HashMap<GlobalDefId, ProgramUnionSignature>,
     pub(super) enums: HashMap<GlobalDefId, ProgramEnumSignature>,

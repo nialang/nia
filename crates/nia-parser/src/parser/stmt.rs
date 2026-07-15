@@ -34,7 +34,7 @@ impl Parser {
                 StmtKind::Static(Box::new(binding)),
             ));
         }
-        if self.at(TokenKind::Comptime) || self.at(TokenKind::Let) {
+        if self.at(TokenKind::Const) || self.at(TokenKind::Let) {
             let binding = self.parse_binding_stmt()?;
             return Some(self.make_stmt(
                 Span::new(start, self.previous_end()),
@@ -120,13 +120,10 @@ impl Parser {
     }
 
     fn parse_binding_stmt(&mut self) -> Option<BindingStmt> {
-        let is_comptime = self.eat(TokenKind::Comptime).is_some();
-        let mut is_mutable = if is_comptime {
-            if self.eat(TokenKind::Let).is_none()
-                && !self.at(TokenKind::Mut)
-                && !self.starts_binding_pattern()
-            {
-                self.error_here("expected `let` binding");
+        let is_const = self.eat(TokenKind::Const).is_some();
+        let is_mutable = if is_const {
+            if !self.starts_binding_pattern() {
+                self.error_here("expected const binding");
                 return None;
             }
             false
@@ -136,9 +133,13 @@ impl Parser {
             self.error_here("expected `let` binding");
             return None;
         };
-        if self.eat(TokenKind::Mut).is_some() {
-            is_mutable = true;
+        if is_const && self.at(TokenKind::Mut) {
+            self.error_here(
+                "const bindings cannot be mutable; use `let mut` inside const evaluation",
+            );
+            return None;
         }
+        let is_mutable = self.eat(TokenKind::Mut).is_some() || is_mutable;
         let pattern = self.parse_irrefutable_pattern_until(&[
             TokenKind::Colon,
             TokenKind::Eq,
@@ -154,8 +155,8 @@ impl Parser {
         } else {
             None
         };
-        if is_comptime && value.is_none() {
-            self.error_here("comptime binding requires an initializer");
+        if is_const && value.is_none() {
+            self.error_here("const binding requires an initializer");
             return None;
         }
         let anchor = value
@@ -168,8 +169,11 @@ impl Parser {
             pattern: self.apply_pattern_binding_mutability(pattern, is_mutable),
             ty,
             value,
-            is_mutable,
-            is_comptime,
+            kind: if is_const {
+                LocalBindingKind::Const
+            } else {
+                LocalBindingKind::Let { is_mutable }
+            },
         })
     }
 
@@ -614,7 +618,7 @@ impl Parser {
                 | TokenKind::Loop
                 | TokenKind::Using
                 | TokenKind::Static
-        ) || self.at(TokenKind::Comptime)
+        ) || self.at(TokenKind::Const)
     }
 
     pub(super) fn parse_block(&mut self) -> Option<Block> {

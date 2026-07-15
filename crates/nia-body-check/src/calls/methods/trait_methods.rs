@@ -534,7 +534,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)

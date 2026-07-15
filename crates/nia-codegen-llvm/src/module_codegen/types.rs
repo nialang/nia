@@ -289,7 +289,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::SlicePointee { .. }
                 | TyKind::TraitObjectPointee { .. }
                 | TyKind::Projection { .. }
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Error,
             )
             | None => AbiParam::Direct(ty),
@@ -334,7 +334,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::SlicePointee { .. }
                 | TyKind::TraitObjectPointee { .. }
                 | TyKind::Projection { .. }
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Error,
             )
             | None => AbiReturn::Direct(ty),
@@ -467,7 +467,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::SlicePointee { .. }
                 | TyKind::TraitObjectPointee { .. }
                 | TyKind::Projection { .. }
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Error,
             )
             | None => Err(self.error(span, "type is not concrete enough for LLVM lowering")),
@@ -606,11 +606,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .program
                 .module(id.module_id)
                 .ok_or_else(|| self.error(span, "missing array length owner module"))?
-                .comptime
+                .const_eval
                 .array_lengths
                 .get(id)
                 .copied()
-                .ok_or_else(|| self.error(span, "array length was not evaluated by comptime")),
+                .ok_or_else(|| self.error(span, "array length was not evaluated by const")),
             ArrayLenTy::Builtin { builtin, ty } => {
                 let Some(layout) = self.layout_of(*ty) else {
                     return Err(self.error(
@@ -1188,8 +1188,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
                 .program
                 .module(right.module_id)
-                .map(|module| &module.comptime.array_lengths)
-                .unwrap_or(&self.source.comptime.array_lengths)
+                .map(|module| &module.const_eval.array_lengths)
+                .unwrap_or(&self.source.const_eval.array_lengths)
                 .get(right)
                 .is_some_and(|right| left == right),
             (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => {
@@ -1197,11 +1197,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     let left = self
                         .program
                         .module(left.module_id)
-                        .and_then(|module| module.comptime.array_lengths.get(left));
+                        .and_then(|module| module.const_eval.array_lengths.get(left));
                     let right = self
                         .program
                         .module(right.module_id)
-                        .and_then(|module| module.comptime.array_lengths.get(right));
+                        .and_then(|module| module.const_eval.array_lengths.get(right));
                     left.is_some() && left == right
                 }
             }

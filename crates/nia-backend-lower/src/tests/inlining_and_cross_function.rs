@@ -947,7 +947,7 @@ fn main() i32 {
             },
         );
     };
-    let o2 = lower_source_with_body_mutation_extensions_comptime_mutation_and_optimization(
+    let o2 = lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
         source,
         build_dynamic_call,
         setup_extensions,
@@ -969,7 +969,7 @@ fn main() i32 {
         }
     ));
 
-    let o3 = lower_source_with_body_mutation_extensions_comptime_mutation_and_optimization(
+    let o3 = lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
         source,
         build_dynamic_call,
         setup_extensions,
@@ -1138,7 +1138,7 @@ fn main() i32 {
             },
         );
     };
-    let o3 = lower_source_with_body_mutation_extensions_comptime_mutation_and_optimization(
+    let o3 = lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
         source,
         build_dynamic_call,
         setup_extensions,

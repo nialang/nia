@@ -14,11 +14,11 @@ explicit options:
 
 ```sh
 python3 tools/perf.py --repeat 3 --output target/nia-perf/before.json
-python3 tools/perf.py --no-build --workload traits --workload comptime
+python3 tools/perf.py --no-build --workload traits --workload const_eval
 ```
 
 The suite currently fixes six compiler paths: minimal check, strings and
-slices, ArrayList, trait-heavy code, comptime-heavy code, and full executable
+slices, ArrayList, trait-heavy code, const-eval-heavy code, and full executable
 emission. Benchmark sources live in `benchmarks/` or reuse maintained examples;
 generated executables and reports remain under temporary or `target/`
 directories.

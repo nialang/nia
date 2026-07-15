@@ -25,7 +25,7 @@ def workloads(output_dir: Path) -> dict[str, list[str]]:
         "strings_slices": ["check", str(ROOT / "examples" / "02_slices_and_strings.nia")],
         "array_list": ["check", str(ROOT / "examples" / "04_array_list.nia")],
         "traits": ["check", str(ROOT / "examples" / "05_traits_generics.nia")],
-        "comptime": ["check", str(ROOT / "benchmarks" / "comptime_heavy.nia")],
+        "const_eval": ["check", str(ROOT / "benchmarks" / "const_heavy.nia")],
         "emit_exe": [
             "emit",
             "--exe",

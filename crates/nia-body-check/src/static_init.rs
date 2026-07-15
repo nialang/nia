@@ -75,7 +75,7 @@ impl<'a> BodyChecker<'a> {
                 if let Some(BuiltinValue::Usize(value)) = self.builtin_value(expr) {
                     return StaticInit::Int(IntConst::unsigned(*value as u128));
                 }
-                if let Some(value) = self.static_comptime_int(expr) {
+                if let Some(value) = self.static_const_int(expr) {
                     return StaticInit::Int(value);
                 }
                 StaticInit::Zero
@@ -128,7 +128,7 @@ impl<'a> BodyChecker<'a> {
                 ..
             }
             | ExprKind::Binary { .. } => self
-                .eval_static_comptime_int_expr(expr)
+                .eval_static_const_int_expr(expr)
                 .map(StaticInit::Int)
                 .unwrap_or_else(|err| {
                     self.diagnostics.push(Diagnostic::user_error_at(
@@ -264,29 +264,29 @@ impl<'a> BodyChecker<'a> {
             .map(|field| self.substitute_generics(field.ty, &substitutions))
     }
 
-    fn eval_static_comptime_int_expr(
+    fn eval_static_const_int_expr(
         &mut self,
         expr: &Expr,
-    ) -> Result<IntConst, nia_comptime_engine::ComptimeError> {
-        let expr = self.eval_static_comptime_expr(expr)?;
-        nia_comptime_engine::eval_resolved_comptime_int_expr(&expr, self)
+    ) -> Result<IntConst, nia_const_eval::ConstError> {
+        let expr = self.eval_static_const_expr(expr)?;
+        nia_const_eval::eval_resolved_const_int_expr(&expr, self)
     }
 
-    fn eval_static_comptime_array_len_expr(
+    fn eval_static_const_array_len_expr(
         &mut self,
         expr: &Expr,
-    ) -> Result<u64, nia_comptime_engine::ComptimeError> {
-        let expr = self.eval_static_comptime_expr(expr)?;
-        nia_comptime_engine::eval_resolved_comptime_array_len_expr(&expr, self)
+    ) -> Result<u64, nia_const_eval::ConstError> {
+        let expr = self.eval_static_const_expr(expr)?;
+        nia_const_eval::eval_resolved_const_array_len_expr(&expr, self)
     }
 
-    fn eval_static_comptime_expr(
+    fn eval_static_const_expr(
         &mut self,
         expr: &Expr,
-    ) -> Result<nia_comptime_ir::ResolvedComptimeExpr, nia_comptime_engine::ComptimeError> {
-        self.with_comptime_context(|this| {
-            this.lower_comptime_expr(expr)
-                .map_err(|err| nia_comptime_engine::ComptimeError {
+    ) -> Result<nia_const_ir::ResolvedConstExpr, nia_const_eval::ConstError> {
+        self.with_const_context(|this| {
+            this.lower_const_expr(expr)
+                .map_err(|err| nia_const_eval::ConstError {
                     span: err.span,
                     message: err.message,
                 })
@@ -433,7 +433,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_static_place_index(&mut self, expr: &Expr) -> u64 {
-        match self.eval_static_comptime_array_len_expr(expr) {
+        match self.eval_static_const_array_len_expr(expr) {
             Ok(value) => value,
             Err(error) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -449,20 +449,20 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn static_comptime_int(&self, expr: &Expr) -> Option<IntConst> {
-        if let Some(global_id) = self.global_comptime_use(expr) {
-            return match self.global_comptime_value(global_id)? {
-                nia_comptime_check::ComptimeValue::Int(value) => Some(value),
+    fn static_const_int(&self, expr: &Expr) -> Option<IntConst> {
+        if let Some(global_id) = self.global_const_use(expr) {
+            return match self.global_const_value(global_id)? {
+                nia_const_check::ConstValue::Int(value) => Some(value),
                 _ => None,
             };
         }
-        if let Some(local_id) = self.local_comptime_use(expr) {
+        if let Some(local_id) = self.local_const_use(expr) {
             return match self
-                .comptime
+                .const_eval
                 .values
-                .get(&nia_comptime_check::ComptimeKey::Local(local_id))?
+                .get(&nia_const_check::ConstKey::Local(local_id))?
             {
-                nia_comptime_check::ComptimeValue::Int(value) => Some(*value),
+                nia_const_check::ConstValue::Int(value) => Some(*value),
                 _ => None,
             };
         }

@@ -112,26 +112,39 @@ fn main(ptr: &i32, mut_ptr: &mut i32) {
 }
 
 #[test]
-fn parses_local_comptime_mut_binding() {
-    let (module, errors) = parse_module(
+fn rejects_local_const_mut_binding() {
+    let (_module, errors) = parse_module(
         r#"
-comptime fn width() usize {
-    comptime mut value: usize = 1usize;
+const fn width() usize {
+    const mut value: usize = 1usize;
     value
 }
 "#,
     );
-    assert!(errors.is_empty(), "{errors:?}");
-    let ItemKind::Function(function) = &module.items[0].kind else {
-        panic!("expected function");
-    };
-    let body = function.body.as_ref().expect("expected body");
-    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
-        panic!("expected binding");
-    };
-    assert!(binding.is_comptime);
-    assert!(binding.is_mutable);
-    assert_eq!(bind_pattern_name(&binding.pattern), Some(sym("value")));
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("const bindings cannot be mutable")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_local_const_let_binding() {
+    let (_module, errors) = parse_module(
+        r#"
+const fn width() usize {
+    const let value: usize = 1usize;
+    value
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected const binding")),
+        "{errors:?}"
+    );
 }
 
 #[test]

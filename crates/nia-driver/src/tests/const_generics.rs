@@ -172,12 +172,12 @@ fn main() i32 {
 }
 
 #[test]
-fn const_generic_comptime_fn_result_can_drive_nominal_arg_and_extend_value() {
-    let root = temp_dir("const_generic_comptime_fn_result_can_drive_nominal_arg_and_extend_value");
+fn const_generic_const_fn_result_can_drive_nominal_arg_and_extend_value() {
+    let root = temp_dir("const_generic_const_fn_result_can_drive_nominal_arg_and_extend_value");
     write(
         &root.join("main.nia"),
         r#"
-comptime fn plus_one(value: usize) usize {
+const fn plus_one(value: usize) usize {
     value + 1usize
 }
 
@@ -186,14 +186,14 @@ struct Buffer[T, N: usize] {
 }
 
 extend[T, N: usize] Buffer[T, N] {
-    pub comptime WIDTH: usize = N;
+    pub const WIDTH: usize = N;
 
     pub fn len(& self) usize {
         Buffer[T, N]::WIDTH
     }
 }
 
-comptime WIDTH: usize = plus_one(3usize);
+const WIDTH: usize = plus_one(3usize);
 
 fn main() i32 {
     let buffer: Buffer[i32, WIDTH] = { values: [1, 2, 3, 4] };
@@ -207,12 +207,12 @@ fn main() i32 {
 }
 
 #[test]
-fn const_generic_extend_comptime_can_call_comptime_fn_per_instance() {
-    let root = temp_dir("const_generic_extend_comptime_can_call_comptime_fn_per_instance");
+fn const_generic_extend_const_can_call_const_fn_per_instance() {
+    let root = temp_dir("const_generic_extend_const_can_call_const_fn_per_instance");
     write(
         &root.join("main.nia"),
         r#"
-comptime fn double(value: usize) usize {
+const fn double(value: usize) usize {
     value * 2usize
 }
 
@@ -221,7 +221,7 @@ struct Buffer[T, N: usize] {
 }
 
 extend[T, N: usize] Buffer[T, N] {
-    pub comptime DOUBLE_WIDTH: usize = double(N);
+    pub const DOUBLE_WIDTH: usize = double(N);
 }
 
 fn main() usize {
@@ -235,8 +235,8 @@ fn main() usize {
 }
 
 #[test]
-fn const_generic_instances_keep_assoc_comptime_values_separate() {
-    let root = temp_dir("const_generic_instances_keep_assoc_comptime_values_separate");
+fn const_generic_instances_keep_assoc_const_values_separate() {
+    let root = temp_dir("const_generic_instances_keep_assoc_const_values_separate");
     write(
         &root.join("main.nia"),
         r#"
@@ -245,7 +245,7 @@ struct Buffer[T, N: usize] {
 }
 
 extend[T, N: usize] Buffer[T, N] {
-    pub comptime WIDTH: usize = N;
+    pub const WIDTH: usize = N;
 }
 
 fn main() usize {
@@ -259,12 +259,12 @@ fn main() usize {
 }
 
 #[test]
-fn const_generic_fake_refs_do_not_runtime_materialize_comptime_values() {
-    let root = temp_dir("const_generic_fake_refs_do_not_runtime_materialize_comptime_values");
+fn const_generic_fake_refs_do_not_runtime_materialize_const_values() {
+    let root = temp_dir("const_generic_fake_refs_do_not_runtime_materialize_const_values");
     write(
         &root.join("main.nia"),
         r#"
-comptime fn width[N: usize]() usize {
+const fn width[N: usize]() usize {
     let value: usize = N;
     value
 }
@@ -404,12 +404,12 @@ fn main() usize {
 }
 
 #[test]
-fn const_generic_comptime_arg_expression_normalizes_for_trait_matching() {
-    let root = temp_dir("const_generic_comptime_arg_expression_normalizes_for_trait_matching");
+fn const_generic_const_arg_expression_normalizes_for_trait_matching() {
+    let root = temp_dir("const_generic_const_arg_expression_normalizes_for_trait_matching");
     write(
         &root.join("main.nia"),
         r#"
-comptime fn plus_one(value: usize) usize {
+const fn plus_one(value: usize) usize {
     value + 1usize
 }
 
@@ -425,7 +425,7 @@ struct Buffer[N: usize] {
 
 extend[N: usize] Buffer[N] : Width[N] {}
 
-comptime THREE: usize = plus_one(2usize);
+const THREE: usize = plus_one(2usize);
 
 fn read[T](value: & T) usize
 where T: Width[THREE] {
@@ -521,12 +521,12 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn const_generic_type_position_accepts_comptime_expression_args() {
-    let root = temp_dir("const_generic_type_position_accepts_comptime_expression_args");
+fn const_generic_type_position_accepts_const_expression_args() {
+    let root = temp_dir("const_generic_type_position_accepts_const_expression_args");
     write(
         &root.join("main.nia"),
         r#"
-comptime fn plus_one(value: usize) usize {
+const fn plus_one(value: usize) usize {
     value + 1usize
 }
 
@@ -546,12 +546,12 @@ fn main() i32 {
 }
 
 #[test]
-fn const_generic_call_position_accepts_comptime_expression_args() {
-    let root = temp_dir("const_generic_call_position_accepts_comptime_expression_args");
+fn const_generic_call_position_accepts_const_expression_args() {
+    let root = temp_dir("const_generic_call_position_accepts_const_expression_args");
     write(
         &root.join("main.nia"),
         r#"
-comptime fn plus_one(value: usize) usize {
+const fn plus_one(value: usize) usize {
     value + 1usize
 }
 
@@ -570,14 +570,14 @@ fn main() usize {
 }
 
 #[test]
-fn const_generic_type_position_accepts_imported_comptime_expression_args() {
-    let root = temp_dir("const_generic_type_position_accepts_imported_comptime_expression_args");
+fn const_generic_type_position_accepts_imported_const_expression_args() {
+    let root = temp_dir("const_generic_type_position_accepts_imported_const_expression_args");
     write(
         &root.join("config.nia"),
         r#"
-pub comptime WIDTH: usize = 3usize;
+pub const WIDTH: usize = 3usize;
 
-pub comptime fn plus_one(value: usize) usize {
+pub const fn plus_one(value: usize) usize {
     value + 1usize
 }
 "#,
@@ -625,7 +625,7 @@ fn main() usize {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("comptime value")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("const value")),
         "{:?}",
         program.diagnostics
     );
@@ -652,7 +652,7 @@ fn main() usize {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("comptime generic")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("const generic")),
         "{:?}",
         program.diagnostics
     );
@@ -784,7 +784,7 @@ fn const_generic_bool_expression_normalizes_for_trait_matching() {
     write(
         &root.join("main.nia"),
         r#"
-comptime fn yes() bool {
+const fn yes() bool {
     true
 }
 
@@ -800,7 +800,7 @@ extend Token : Flagged[true] {
     }
 }
 
-comptime ENABLED: bool = yes();
+const ENABLED: bool = yes();
 
 fn read[T](value: & T) usize
 where T: Flagged[ENABLED] {
@@ -824,7 +824,7 @@ fn const_generic_char_expression_normalizes_for_trait_matching() {
     write(
         &root.join("main.nia"),
         r#"
-comptime fn marker() char {
+const fn marker() char {
     'N'
 }
 
@@ -840,7 +840,7 @@ extend Token : Tagged['N'] {
     }
 }
 
-comptime TAG: char = marker();
+const TAG: char = marker();
 
 fn read[T](value: & T) usize
 where T: Tagged[TAG] {
@@ -864,7 +864,7 @@ fn const_generic_expression_normalizes_for_extension_method_specificity() {
     write(
         &root.join("main.nia"),
         r#"
-comptime fn plus_one(value: usize) usize {
+const fn plus_one(value: usize) usize {
     value + 1usize
 }
 
@@ -901,7 +901,7 @@ fn const_generic_expression_normalizes_for_projection_equivalence() {
     write(
         &root.join("main.nia"),
         r#"
-comptime fn plus_one(value: usize) usize {
+const fn plus_one(value: usize) usize {
     value + 1usize
 }
 
@@ -915,7 +915,7 @@ extend Store : Slot[3] {
     type Item = i32;
 }
 
-comptime WIDTH: usize = plus_one(2usize);
+const WIDTH: usize = plus_one(2usize);
 
 fn read[S](value: [S as Slot[3]]::Item) [S as Slot[WIDTH]]::Item
 where S: Slot[3] {
@@ -938,7 +938,7 @@ fn const_generic_u8_expression_rejects_out_of_range_value() {
     write(
         &root.join("main.nia"),
         r#"
-comptime fn too_large() usize {
+const fn too_large() usize {
     256usize
 }
 
@@ -996,16 +996,16 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("cannot infer comptime generic parameter")),
+            .contains("cannot infer const generic parameter")),
         "{:?}",
         program.diagnostics
     );
 }
 
 #[test]
-fn ambiguous_generic_arg_reports_value_error_only_when_comptime_param_requires_it() {
+fn ambiguous_generic_arg_reports_value_error_only_when_const_param_requires_it() {
     let root =
-        temp_dir("ambiguous_generic_arg_reports_value_error_only_when_comptime_param_requires_it");
+        temp_dir("ambiguous_generic_arg_reports_value_error_only_when_const_param_requires_it");
     write(
         &root.join("main.nia"),
         r#"
@@ -1028,7 +1028,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("failed to resolve comptime name")),
+            .contains("failed to resolve const name")),
         "{:?}",
         program.diagnostics
     );

@@ -10,7 +10,7 @@ pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePre
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{
-    BuiltinComptime, BuiltinType, BuiltinTypeAnchor, InternedTyId, ReceiverKind, TraitImplId,
+    BuiltinConstValue, BuiltinType, BuiltinTypeAnchor, InternedTyId, ReceiverKind, TraitImplId,
     Visibility,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
@@ -32,7 +32,7 @@ pub struct ItemSignatures {
     pub enums: HashMap<DefId, EnumSignature>,
     pub type_aliases: HashMap<DefId, TypeAliasSignature>,
     pub globals: HashMap<DefId, GlobalSignature>,
-    pub comptimes: HashMap<DefId, ComptimeSignature>,
+    pub consts: HashMap<DefId, ConstSignature>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -50,8 +50,8 @@ pub struct ProgramGlobalSignature {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProgramComptimeSignature {
-    pub signature: ComptimeSignature,
+pub struct ProgramConstSignature {
+    pub signature: ConstSignature,
     pub interner: nia_ty::TyInterner,
 }
 
@@ -138,7 +138,7 @@ pub struct FunctionSignature {
     pub params: Vec<ParamSignature>,
     pub return_type: InternedTyId,
     pub is_extern: bool,
-    pub is_comptime: bool,
+    pub is_const: bool,
     pub is_variadic: bool,
     pub attributes: Vec<FunctionAttribute>,
     pub has_body: bool,
@@ -154,7 +154,7 @@ pub struct GenericParamSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub enum GenericParamSignatureKind {
     Type,
-    Comptime { ty: InternedTyId },
+    Const { ty: InternedTyId },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -323,15 +323,15 @@ fn attribute_path_text_with_symbols(path: &[SymbolId], symbols: Option<&dyn Symb
         .join(".")
 }
 
-fn builtin_comptime_item_symbol(builtin: BuiltinComptime) -> SymbolId {
+fn builtin_const_item_symbol(builtin: BuiltinConstValue) -> SymbolId {
     match builtin {
-        BuiltinComptime::TargetArch => known::ARCH,
-        BuiltinComptime::TargetVendor => known::VENDOR,
-        BuiltinComptime::TargetOs => known::OS,
-        BuiltinComptime::TargetEnv => known::ENV,
-        BuiltinComptime::TargetAbi => known::ABI,
-        BuiltinComptime::TargetEndian => known::ENDIAN,
-        BuiltinComptime::TargetPointerWidth => known::POINTER_WIDTH,
+        BuiltinConstValue::TargetArch => known::ARCH,
+        BuiltinConstValue::TargetVendor => known::VENDOR,
+        BuiltinConstValue::TargetOs => known::OS,
+        BuiltinConstValue::TargetEnv => known::ENV,
+        BuiltinConstValue::TargetAbi => known::ABI,
+        BuiltinConstValue::TargetEndian => known::ENDIAN,
+        BuiltinConstValue::TargetPointerWidth => known::POINTER_WIDTH,
     }
 }
 
@@ -461,9 +461,9 @@ pub struct GlobalSignature {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeSignature {
+pub struct ConstSignature {
     pub explicit_type: Option<InternedTyId>,
-    pub builtin: Option<BuiltinComptime>,
+    pub builtin: Option<BuiltinConstValue>,
     pub span: Span,
 }
 
@@ -579,7 +579,7 @@ fn collect_item_signatures_from_items(
         enums: HashMap::new(),
         type_aliases: HashMap::new(),
         globals: HashMap::new(),
-        comptimes: HashMap::new(),
+        consts: HashMap::new(),
         diagnostics: Vec::new(),
     };
     for item in items {
@@ -632,8 +632,8 @@ impl<'a> SignatureCollector<'a> {
                 self.collect_function_local_static_signatures(signatures, function);
             }
             ItemTreeNodeKind::Binding(binding) => {
-                if binding.is_comptime {
-                    self.collect_comptime(signatures, item, binding);
+                if binding.is_const() {
+                    self.collect_const(signatures, item, binding);
                 } else {
                     self.collect_global(signatures, item, binding);
                 }
@@ -734,7 +734,7 @@ impl<'a> SignatureCollector<'a> {
             .associated_values
             .iter()
             .filter_map(|associated_value| {
-                self.collect_associated_comptime(signatures, associated_value)
+                self.collect_associated_const(signatures, associated_value)
                     .map(|def_id| TraitImplAssociatedValueSignature {
                         def_id,
                         name: associated_value.binding.name,
@@ -814,7 +814,7 @@ impl<'a> SignatureCollector<'a> {
             let Some(associated_value_id) = self.def_id_for_node(
                 &associated_value.node_key,
                 associated_value.span,
-                DefKind::Comptime,
+                DefKind::Const,
             ) else {
                 continue;
             };
@@ -998,7 +998,7 @@ impl<'a> SignatureCollector<'a> {
                         def_id,
                         GlobalSignature {
                             explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
-                            is_mutable: binding.is_mutable,
+                            is_mutable: binding.is_mutable(),
                             is_extern: false,
                             span: stmt.span,
                         },
@@ -1038,44 +1038,44 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             GlobalSignature {
                 explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
-                is_mutable: binding.is_mutable,
-                is_extern: binding.is_extern,
+                is_mutable: binding.is_mutable(),
+                is_extern: binding.is_extern(),
                 span: item.span,
             },
         );
     }
 
-    fn collect_comptime(
+    fn collect_const(
         &mut self,
         signatures: &mut ItemSignatures,
         item: &ItemTreeNode,
         binding: &BindingItem,
     ) {
-        let Some(def_id) = self.def_id_for_node(&binding.node_key, item.span, DefKind::Comptime)
+        let Some(def_id) = self.def_id_for_node(&binding.node_key, item.span, DefKind::Const)
         else {
             return;
         };
-        signatures.comptimes.insert(
+        signatures.consts.insert(
             def_id,
-            ComptimeSignature {
+            ConstSignature {
                 explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
-                builtin: self.builtin_comptime_attribute(&item.attributes, binding),
+                builtin: self.builtin_const_attribute(&item.attributes, binding),
                 span: item.span,
             },
         );
     }
 
-    fn collect_associated_comptime(
+    fn collect_associated_const(
         &mut self,
         signatures: &mut ItemSignatures,
         associated_value: &nia_ast::ExtendAssociatedValue,
     ) -> Option<DefId> {
         let binding = &associated_value.binding;
         let def_id =
-            self.def_id_for_node(&binding.node_key, associated_value.span, DefKind::Comptime)?;
-        signatures.comptimes.insert(
+            self.def_id_for_node(&binding.node_key, associated_value.span, DefKind::Const)?;
+        signatures.consts.insert(
             def_id,
-            ComptimeSignature {
+            ConstSignature {
                 explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
                 builtin: None,
                 span: associated_value.span,
@@ -1084,11 +1084,11 @@ impl<'a> SignatureCollector<'a> {
         Some(def_id)
     }
 
-    fn builtin_comptime_attribute(
+    fn builtin_const_attribute(
         &mut self,
         attributes: &[Attribute],
         binding: &BindingItem,
-    ) -> Option<BuiltinComptime> {
+    ) -> Option<BuiltinConstValue> {
         let mut out = None;
         for attribute in attributes {
             let AttributeKind::Meta(meta) = &attribute.kind else {
@@ -1099,20 +1099,20 @@ impl<'a> SignatureCollector<'a> {
                     let builtin_name =
                         self.parse_builtin_attribute_name(attribute, meta.args.as_slice());
                     if let Some(builtin_name) = builtin_name {
-                        if let Some(builtin) = BuiltinComptime::from_name(builtin_name.as_str()) {
+                        if let Some(builtin) = BuiltinConstValue::from_name(builtin_name.as_str()) {
                             if out.replace(builtin).is_some() {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::ITEM_SIGNATURE,
                                     attribute.span,
-                                    "duplicate `@[builtin]` comptime attribute",
+                                    "duplicate `@[builtin]` const attribute",
                                 ));
                             }
-                            if builtin_comptime_item_symbol(builtin) != binding.name {
+                            if builtin_const_item_symbol(builtin) != binding.name {
                                 self.diagnostics.push(Diagnostic::user_error_at(
                                     codes::ITEM_SIGNATURE,
                                     attribute.span,
                                     format!(
-                                        "builtin comptime source item `{}` must match descriptor item `{}`",
+                                        "builtin const source item `{}` must match descriptor item `{}`",
                                         self.symbol_debug_text(binding.name),
                                         builtin.item_name()
                                     ),
@@ -1122,15 +1122,15 @@ impl<'a> SignatureCollector<'a> {
                             self.diagnostics.push(Diagnostic::user_error_at(
                                 codes::ITEM_SIGNATURE,
                                 attribute.span,
-                                format!("unknown builtin comptime `{builtin_name}`"),
+                                format!("unknown builtin const `{builtin_name}`"),
                             ));
                         }
                     }
-                    if binding.is_extern || binding.value.is_some() || binding.ty.is_none() {
+                    if binding.is_extern() || binding.value.is_some() || binding.ty.is_none() {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::ITEM_SIGNATURE,
                             attribute.span,
-                            "`@[builtin]` is only valid on bodyless non-extern comptime declarations with an explicit type",
+                            "`@[builtin]` is only valid on bodyless non-extern const declarations with an explicit type",
                         ));
                     }
                 }
@@ -1139,7 +1139,7 @@ impl<'a> SignatureCollector<'a> {
                         codes::ITEM_SIGNATURE,
                         attribute.span,
                         format!(
-                            "unknown comptime attribute `@[{}]`",
+                            "unknown const attribute `@[{}]`",
                             self.attribute_path_text(&meta.path)
                         ),
                     ));
@@ -1166,7 +1166,7 @@ impl<'a> SignatureCollector<'a> {
             params,
             return_type,
             is_extern: function.is_extern,
-            is_comptime: function.is_comptime,
+            is_const: function.is_const,
             is_variadic: function.is_variadic,
             attributes: Vec::new(),
             has_body: function.body.is_some(),
@@ -1184,7 +1184,7 @@ impl<'a> SignatureCollector<'a> {
                 name: generic.name,
                 kind: match &generic.kind {
                     GenericParamKind::Type => GenericParamSignatureKind::Type,
-                    GenericParamKind::Comptime { ty } => GenericParamSignatureKind::Comptime {
+                    GenericParamKind::Const { ty } => GenericParamSignatureKind::Const {
                         ty: self.ty_for_type(ty),
                     },
                 },
@@ -1620,7 +1620,7 @@ struct Point {
 }
 
 extend Point {
-    pub comptime Origin: i32 = 0;
+    pub const Origin: i32 = 0;
     fn len2(&self) i32 { missing + self.x }
 }
 
@@ -1683,7 +1683,7 @@ fn add(a: i32, b: i32) i32 {
         );
         assert!(
             signatures
-                .comptimes
+                .consts
                 .contains_key(&impl_signature.associated_values[0].def_id)
         );
     }
@@ -1793,12 +1793,12 @@ pub trait Iterator {
     }
 
     #[test]
-    fn records_trait_associated_comptime_requirements() {
+    fn records_trait_associated_const_requirements() {
         let signatures = signatures_ok(
             r#"
 trait Simd {
     type Lane;
-    comptime Lanes: usize;
+    const Lanes: usize;
 }
 "#,
         );
@@ -1880,16 +1880,16 @@ extend[T, N: usize] [N]T : Len {
             .collect::<BTreeSet<_>>();
         assert_eq!(actual_type_anchors, expected_type_anchors);
 
-        let expected_comptimes = BuiltinComptime::ALL
+        let expected_consts = BuiltinConstValue::ALL
             .iter()
             .map(|builtin| builtin.name().to_string())
             .collect::<BTreeSet<_>>();
-        let actual_comptimes = declarations
-            .comptimes
+        let actual_consts = declarations
+            .consts
             .iter()
             .map(|symbol| symbol_debug_text(*symbol))
             .collect::<BTreeSet<_>>();
-        assert_eq!(actual_comptimes, expected_comptimes);
+        assert_eq!(actual_consts, expected_consts);
 
         let expected_extends = [
             "i8",
@@ -1972,11 +1972,11 @@ extend[T, N: usize] [N]T : Len {
                     .map(|name| symbol_debug_text(*name))
                     .collect::<Vec<_>>(),
                 builtin
-                    .associated_comptimes()
+                    .associated_consts()
                     .iter()
                     .map(|associated_value| associated_value.name().to_string())
                     .collect::<Vec<_>>(),
-                "associated comptime drift for {}",
+                "associated const drift for {}",
                 descriptor.name
             );
             assert_eq!(
@@ -2061,7 +2061,7 @@ extend[T, N: usize] [N]T : Len {
         functions: Vec<SymbolId>,
         types: Vec<SymbolId>,
         type_anchors: Vec<SymbolId>,
-        comptimes: Vec<SymbolId>,
+        consts: Vec<SymbolId>,
         traits: BTreeMap<String, SourceBuiltinTrait>,
         extends: BTreeMap<String, Vec<SymbolId>>,
     }
@@ -2183,28 +2183,28 @@ extend[T, N: usize] [N]T : Len {
                         if let Some(name) = builtin_attribute(&item.attributes) {
                             let name_symbol = sym(&name);
                             assert!(
-                                BuiltinComptime::from_name(&name).is_some(),
-                                "unknown builtin comptime `{name}` in {}",
+                                BuiltinConstValue::from_name(&name).is_some(),
+                                "unknown builtin const `{name}` in {}",
                                 path.display()
                             );
                             assert_eq!(
                                 binding.name,
-                                sym(BuiltinComptime::from_name(&name).unwrap().item_name()),
-                                "builtin comptime source item name must match descriptor item name"
+                                sym(BuiltinConstValue::from_name(&name).unwrap().item_name()),
+                                "builtin const source item name must match descriptor item name"
                             );
                             assert!(
-                                binding.is_comptime
+                                binding.is_const()
                                     && binding.value.is_none()
                                     && binding.ty.is_some(),
-                                "builtin comptime declaration `{name}` in {} must be bodyless with an explicit type",
+                                "builtin const declaration `{name}` in {} must be bodyless with an explicit type",
                                 path.display()
                             );
                             assert!(
-                                !out.comptimes.contains(&name_symbol),
-                                "duplicate builtin comptime declaration `{name}` in {}",
+                                !out.consts.contains(&name_symbol),
+                                "duplicate builtin const declaration `{name}` in {}",
                                 path.display()
                             );
-                            out.comptimes.push(name_symbol);
+                            out.consts.push(name_symbol);
                         }
                     }
                     nia_ast::ItemKind::Extend(extend) => {

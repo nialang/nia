@@ -517,7 +517,7 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
     fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
         match &expr.kind {
             nia_ast::ExprKind::Ident(name) => {
-                if self.is_comptime_generic_param(name) {
+                if self.is_const_generic_param(name) {
                     self.node_const_generic_names
                         .insert(expr.node_key.clone(), *name);
                 }
@@ -1400,7 +1400,7 @@ impl<'a> TypeResolver<'a> {
 
     fn with_generics(&mut self, generics: &[GenericParam], f: impl FnOnce(&mut Self)) {
         for generic in generics {
-            if let GenericParamKind::Comptime { ty } = &generic.kind {
+            if let GenericParamKind::Const { ty } = &generic.kind {
                 self.visit_type(ty);
             }
         }
@@ -1432,10 +1432,10 @@ impl<'a> TypeResolver<'a> {
             .any(|generics| generics.iter().any(|generic| &generic.name == name))
     }
 
-    fn is_comptime_generic_param(&self, name: &SymbolId) -> bool {
+    fn is_const_generic_param(&self, name: &SymbolId) -> bool {
         self.generic_stack.iter().rev().any(|generics| {
             generics.iter().any(|generic| {
-                &generic.name == name && matches!(generic.kind, GenericParamKind::Comptime { .. })
+                &generic.name == name && matches!(generic.kind, GenericParamKind::Const { .. })
             })
         })
     }

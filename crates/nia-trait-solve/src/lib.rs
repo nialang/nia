@@ -65,13 +65,13 @@ pub struct UserImpl {
 }
 
 #[derive(Debug, Clone)]
-pub enum AssociatedComptimeResolution {
-    User(UserAssociatedComptime),
+pub enum AssociatedConstResolution {
+    User(UserAssociatedConst),
     Const(ConstGenericArg),
 }
 
 #[derive(Debug, Clone)]
-pub struct UserAssociatedComptime {
+pub struct UserAssociatedConst {
     pub def_id: GlobalDefId,
     pub substitutions: SymbolMap<InternedTyId>,
     pub const_substitutions: SymbolMap<ConstGenericArg>,
@@ -119,11 +119,9 @@ fn builtin_associated_type_from_symbol(name: SymbolId) -> Option<BuiltinAssociat
     }
 }
 
-fn builtin_associated_comptime_from_symbol(
-    name: SymbolId,
-) -> Option<nia_ids::BuiltinAssociatedComptime> {
+fn builtin_associated_const_from_symbol(name: SymbolId) -> Option<nia_ids::BuiltinAssociatedConst> {
     match name {
-        known::LANES => Some(nia_ids::BuiltinAssociatedComptime::Lanes),
+        known::LANES => Some(nia_ids::BuiltinAssociatedConst::Lanes),
         _ => None,
     }
 }
@@ -674,14 +672,14 @@ impl TraitSolver<'_> {
         )
     }
 
-    pub fn resolve_associated_comptime(
+    pub fn resolve_associated_const(
         &mut self,
         self_ty: InternedTyId,
         trait_id: TraitId,
         trait_args: &[InternedTyId],
         trait_const_args: &[ConstGenericArg],
         name: &SymbolId,
-    ) -> Option<AssociatedComptimeResolution> {
+    ) -> Option<AssociatedConstResolution> {
         let goal = self.normalize_goal(TraitGoal {
             self_ty,
             trait_id,
@@ -700,7 +698,7 @@ impl TraitSolver<'_> {
                     .associated_values
                     .iter()
                     .find(|associated_value| &associated_value.name == name)?;
-                Some(AssociatedComptimeResolution::User(UserAssociatedComptime {
+                Some(AssociatedConstResolution::User(UserAssociatedConst {
                     def_id: GlobalDefId {
                         module_id: impl_signature.module_id,
                         def_id: associated_value.def_id,
@@ -712,13 +710,13 @@ impl TraitSolver<'_> {
                 }))
             }
             TraitResolution::Intrinsic(intrinsic) => self
-                .resolve_intrinsic_associated_comptime(
+                .resolve_intrinsic_associated_const(
                     intrinsic.goal.self_ty,
                     intrinsic.goal.trait_id,
                     &intrinsic.goal.trait_args,
                     name,
                 )
-                .map(AssociatedComptimeResolution::Const),
+                .map(AssociatedConstResolution::Const),
             TraitResolution::Assumed(_)
             | TraitResolution::Unsatisfied
             | TraitResolution::Ambiguous => None,
@@ -1123,7 +1121,7 @@ impl TraitSolver<'_> {
         }
     }
 
-    pub fn resolve_intrinsic_associated_comptime(
+    pub fn resolve_intrinsic_associated_const(
         &mut self,
         self_ty: InternedTyId,
         trait_id: TraitId,
@@ -1133,8 +1131,8 @@ impl TraitSolver<'_> {
         let TraitId::Builtin(trait_id) = trait_id else {
             return None;
         };
-        match (trait_id, builtin_associated_comptime_from_symbol(*name)?) {
-            (BuiltinTrait::Simd, nia_ids::BuiltinAssociatedComptime::Lanes) => {
+        match (trait_id, builtin_associated_const_from_symbol(*name)?) {
+            (BuiltinTrait::Simd, nia_ids::BuiltinAssociatedConst::Lanes) => {
                 trait_args.is_empty().then_some(())?;
                 let Some(TyKind::Vector { lanes, .. }) = self.kind(self_ty) else {
                     return None;
@@ -1405,7 +1403,7 @@ impl TraitSolver<'_> {
             self.interner.get(right).cloned(),
         ) {
             (Some(TyKind::Error), Some(TyKind::Error)) => true,
-            (Some(TyKind::ComptimeOnly), Some(TyKind::ComptimeOnly)) => true,
+            (Some(TyKind::ConstOnly), Some(TyKind::ConstOnly)) => true,
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (
                 Some(TyKind::Vector {
@@ -2320,7 +2318,7 @@ impl TraitSolver<'_> {
                 _ => false,
             },
             Some(
-                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+                TyKind::Error | TyKind::ConstOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
             )
             | None => self.types_equivalent(pattern, actual),
         }
@@ -2596,7 +2594,7 @@ impl TraitSolver<'_> {
             }
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. },

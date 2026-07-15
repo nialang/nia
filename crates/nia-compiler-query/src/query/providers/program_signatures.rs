@@ -114,14 +114,14 @@ fn collect_globals(
         .collect()
 }
 
-fn collect_comptimes(
+fn collect_consts(
     facts: &[ModuleProgramSignatureFactsValue],
-) -> HashMap<GlobalDefId, ProgramComptimeSignature> {
+) -> HashMap<GlobalDefId, ProgramConstSignature> {
     facts
         .iter()
         .flat_map(|facts| {
             facts
-                .comptimes
+                .consts
                 .iter()
                 .map(|(def_id, sig)| (*def_id, sig.clone()))
         })
@@ -238,7 +238,7 @@ pub(super) fn executable_program_non_function_signatures(
     let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
     ProgramExecutableNonFunctionSignatures {
         globals: collect_globals(&value_facts),
-        comptimes: collect_comptimes(&value_facts),
+        consts: collect_consts(&value_facts),
         structs: collect_structs(&type_facts),
         unions: collect_unions(&type_facts),
         enums: collect_enums(&type_facts),

@@ -201,7 +201,7 @@ impl<'a> ModuleLowerer<'a> {
                     }
                     type_index += 1;
                 }
-                nia_ast::GenericParamKind::Comptime { .. } => {
+                nia_ast::GenericParamKind::Const { .. } => {
                     if let Some(arg) = const_args.get(const_index).cloned() {
                         const_substitutions.insert(generic.name, arg);
                     }
@@ -225,7 +225,7 @@ impl<'a> ModuleLowerer<'a> {
         for generic in &def.generic_params {
             match generic.kind {
                 nia_ast::GenericParamKind::Type => {}
-                nia_ast::GenericParamKind::Comptime { .. } => {
+                nia_ast::GenericParamKind::Const { .. } => {
                     if let Some(arg) = const_args.get(const_index).cloned() {
                         const_substitutions.insert(generic.name, arg);
                     }
@@ -1225,7 +1225,7 @@ impl<'a> ModuleLowerer<'a> {
                 });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
-            Some(TyKind::Error | TyKind::ComptimeOnly)
+            Some(TyKind::Error | TyKind::ConstOnly)
             | Some(TyKind::Primitive(_) | TyKind::Vector { .. })
             | None => self.finish_type_instantiation(key, ty, can_use_cache),
         }
@@ -1783,7 +1783,7 @@ impl<'a> ModuleLowerer<'a> {
                 _ => false,
             },
             Some(TyKind::Primitive(_) | TyKind::Vector { .. })
-            | Some(TyKind::ComptimeOnly | TyKind::Error)
+            | Some(TyKind::ConstOnly | TyKind::Error)
             | None => self.types_match(pattern, actual),
         }
     }
@@ -1870,7 +1870,7 @@ impl<'a> ModuleLowerer<'a> {
             }
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. },
@@ -1956,7 +1956,7 @@ impl<'a> ModuleLowerer<'a> {
             }
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. },

@@ -10,7 +10,7 @@ fn lowers_body_to_entry_block_with_tail() {
         locals: vec![TypedLocal {
             id: LocalId(0),
             name: local_name("x"),
-            kind: TypedLocalKind::Binding,
+            kind: TypedLocalKind::MutableBinding,
             ty,
             span,
         }],
@@ -86,7 +86,7 @@ fn lowers_try_expression_to_try_terminator_and_success_local() {
         locals: vec![TypedLocal {
             id: LocalId(0),
             name: local_name("value"),
-            kind: TypedLocalKind::Binding,
+            kind: TypedLocalKind::MutableBinding,
             ty: optional_i32,
             span,
         }],
@@ -142,7 +142,7 @@ fn lowers_address_of_places_to_function_place() {
         locals: vec![TypedLocal {
             id: LocalId(0),
             name: local_name("x"),
-            kind: TypedLocalKind::Binding,
+            kind: TypedLocalKind::MutableBinding,
             ty,
             span,
         }],
@@ -250,7 +250,7 @@ fn address_of_slice_lowers_to_slice_value_not_place() {
         locals: vec![TypedLocal {
             id: LocalId(0),
             name: local_name("ptr"),
-            kind: TypedLocalKind::Binding,
+            kind: TypedLocalKind::MutableBinding,
             ty,
             span,
         }],

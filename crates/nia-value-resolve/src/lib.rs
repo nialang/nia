@@ -955,7 +955,7 @@ impl<'a> ValueResolver<'a> {
         };
         if matches!(
             def.kind,
-            DefKind::Function | DefKind::Global | DefKind::Comptime
+            DefKind::Function | DefKind::Global | DefKind::Const
         ) {
             self.insert_qualified_value(node_key, GlobalDefId { module_id, def_id });
         }
@@ -1036,7 +1036,7 @@ impl<'a> ValueResolver<'a> {
             };
             if matches!(
                 def.kind,
-                DefKind::Function | DefKind::Global | DefKind::Comptime
+                DefKind::Function | DefKind::Global | DefKind::Const
             ) {
                 return ValueNameResolution::Def(def_id);
             }
@@ -1258,7 +1258,7 @@ fn main() i32 {
 fn main() usize {
     let mut a = std::builtin::size[usize]();
     let mut b = std::builtin::align[usize]();
-    comptime d: usize = std::builtin::error("bad");
+    const d: usize = std::builtin::error("bad");
     std::builtin::trap();
     a + b + d
 }

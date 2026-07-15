@@ -79,7 +79,7 @@ pub fn check_module_flow(
 ) -> FlowCheck {
     let item_tree = ModuleItemTree::from_module(module);
     let active_item_tree =
-        ActiveModuleItemTree::new(item_tree.active_items_without_comptime(), HashSet::new());
+        ActiveModuleItemTree::new(item_tree.active_items_without_const(), HashSet::new());
     check_active_module_flow(&active_item_tree, interner, signatures)
 }
 

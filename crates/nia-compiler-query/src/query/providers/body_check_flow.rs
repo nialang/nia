@@ -29,14 +29,14 @@ fn filter_item_tree_node_for_body_check(
 ) {
     match &mut item.kind {
         nia_item_tree::ItemTreeNodeKind::Function(function) => {
-            if !function.is_comptime
+            if !function.is_const
                 && !body_check_filter_includes_function(module_id, defs, &function.node_key, filter)
             {
                 function.body = None;
             }
         }
         nia_item_tree::ItemTreeNodeKind::Binding(binding) => {
-            if !binding.is_comptime
+            if !binding.is_const()
                 && !body_check_filter_includes_global(module_id, defs, &binding.node_key, filter)
             {
                 binding.value = None;
@@ -44,7 +44,7 @@ fn filter_item_tree_node_for_body_check(
         }
         nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
             for method in &mut item_trait.methods {
-                if !method.function.is_comptime
+                if !method.function.is_const
                     && !body_check_filter_includes_function(
                         module_id,
                         defs,
@@ -58,7 +58,7 @@ fn filter_item_tree_node_for_body_check(
         }
         nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
             for method in &mut extend.methods {
-                if !method.function.is_comptime
+                if !method.function.is_const
                     && !body_check_filter_includes_function(
                         module_id,
                         defs,
@@ -334,7 +334,7 @@ pub(in crate::query) struct BodyCheckResolutionInputs {
 pub(in crate::query) struct BodyCheckWithResolutionInputs {
     pub(in crate::query) body_check: nia_body_check::BodyCheck,
     pub(in crate::query) inputs: BodyCheckResolutionInputs,
-    pub(in crate::query) comptime: Option<ComptimeCheck>,
+    pub(in crate::query) const_eval: Option<ConstCheck>,
 }
 
 pub(super) struct BodyCheckResolutionContext<'a> {
@@ -394,10 +394,10 @@ pub(super) fn body_local_item_signatures(
     global_signatures.extend(functions.globals);
     global_signatures.extend(extension_functions.globals);
     global_signatures.extend(traits.globals);
-    let mut comptime_signatures = values.comptimes;
-    comptime_signatures.extend(functions.comptimes);
-    comptime_signatures.extend(extension_functions.comptimes);
-    comptime_signatures.extend(traits.comptimes);
+    let mut const_signatures = values.consts;
+    const_signatures.extend(functions.consts);
+    const_signatures.extend(extension_functions.consts);
+    const_signatures.extend(traits.consts);
     let mut diagnostics = functions.diagnostics;
     diagnostics.extend(extension_functions.diagnostics);
     diagnostics.extend(values.diagnostics);
@@ -412,7 +412,7 @@ pub(super) fn body_local_item_signatures(
         enums: types.enums,
         type_aliases: types.type_aliases,
         globals: global_signatures,
-        comptimes: comptime_signatures,
+        consts: const_signatures,
         diagnostics,
     }
 }

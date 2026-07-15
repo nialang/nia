@@ -1,15 +1,15 @@
-pub comptime max_path_bytes: usize = 4096usize;
-pub comptime at_fdcwd: i32 = -100;
-pub comptime at_removedir: usize = 0x200usize;
-pub comptime open_create: i32 = 0o100;
-pub comptime open_exclusive: i32 = 0o200;
-pub comptime open_truncate: i32 = 0o1000;
-pub comptime open_directory: i32 = 0o200000;
-pub comptime open_no_follow: i32 = 0o400000;
-pub comptime open_close_on_exec: i32 = 0o2000000;
-pub comptime close_on_exec: i32 = 0o2000000;
-pub comptime wait_no_hang: usize = 1usize;
-pub comptime sigterm: i32 = 15;
+pub const max_path_bytes: usize = 4096usize;
+pub const at_fdcwd: i32 = -100;
+pub const at_removedir: usize = 0x200usize;
+pub const open_create: i32 = 0o100;
+pub const open_exclusive: i32 = 0o200;
+pub const open_truncate: i32 = 0o1000;
+pub const open_directory: i32 = 0o200000;
+pub const open_no_follow: i32 = 0o400000;
+pub const open_close_on_exec: i32 = 0o2000000;
+pub const close_on_exec: i32 = 0o2000000;
+pub const wait_no_hang: usize = 1usize;
+pub const sigterm: i32 = 15;
 
 pub enum Errno: i32 {
     PermissionDenied = 1,

@@ -160,10 +160,10 @@ impl BackendValidator<'_> {
                     self.validate_type(arg, span);
                 }
             }
-            TyKind::ComptimeOnly => self.diagnostics.push(Diagnostic::internal_error_at(
+            TyKind::ConstOnly => self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
-                format!("backend IR type {ty:?} is comptime-only before LLVM codegen"),
+                format!("backend IR type {ty:?} is const-only before LLVM codegen"),
             )),
             TyKind::BuiltinType(builtin) => self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -242,7 +242,7 @@ impl BackendValidator<'_> {
                     ));
                     return;
                 };
-                if !module.comptime.array_lengths.contains_key(id) {
+                if !module.const_eval.array_lengths.contains_key(id) {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         span,
@@ -457,7 +457,7 @@ impl BackendValidator<'_> {
                 }
             }
             TyKind::BuiltinTrait { .. } => Some(TypeLayout { size: 0, align: 1 }),
-            TyKind::ComptimeOnly
+            TyKind::ConstOnly
             | TyKind::BuiltinType(_)
             | TyKind::Projection { .. }
             | TyKind::GenericParam(_)
@@ -497,7 +497,7 @@ impl BackendValidator<'_> {
             ArrayLenTy::ConstExpr(id) => self
                 .index
                 .module(id.module_id)
-                .and_then(|module| module.comptime.array_lengths.get(id).copied()),
+                .and_then(|module| module.const_eval.array_lengths.get(id).copied()),
             ArrayLenTy::Builtin { builtin, ty } => {
                 let layout = self.layout_of(*ty)?;
                 match builtin {

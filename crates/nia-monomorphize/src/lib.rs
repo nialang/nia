@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use nia_comptime_check::ComptimeCheck;
+use nia_const_check::ConstCheck;
 use nia_defs::{DefCollection, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{
@@ -46,7 +46,7 @@ pub struct MonomorphizeModuleInput<'a> {
     pub defs: &'a DefCollection,
     pub interner: &'a TyInterner,
     pub normalization: &'a TypeNormalization,
-    pub comptime: &'a ComptimeCheck,
+    pub const_eval: &'a ConstCheck,
     pub const_expr_summaries: &'a HashMap<GlobalConstExprId, ConstExprSummary>,
     pub layouts: Option<&'a Layouts>,
     pub local_enums: &'a HashMap<nia_ids::DefId, EnumSignature>,
@@ -71,9 +71,9 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
             .iter()
             .map(|input| (input.module_id, input.normalization))
             .collect(),
-        comptime_by_module: inputs
+        const_by_module: inputs
             .iter()
-            .map(|input| (input.module_id, input.comptime))
+            .map(|input| (input.module_id, input.const_eval))
             .collect(),
         const_expr_summaries_by_module: inputs
             .iter()
@@ -133,7 +133,7 @@ struct MonoCollector<'a> {
     defs_by_module: HashMap<ModuleId, &'a DefCollection>,
     interners_by_module: HashMap<ModuleId, &'a TyInterner>,
     normalizations_by_module: HashMap<ModuleId, &'a TypeNormalization>,
-    comptime_by_module: HashMap<ModuleId, &'a ComptimeCheck>,
+    const_by_module: HashMap<ModuleId, &'a ConstCheck>,
     const_expr_summaries_by_module:
         HashMap<ModuleId, &'a HashMap<GlobalConstExprId, ConstExprSummary>>,
     working_interners_by_module: HashMap<ModuleId, TyInterner>,
@@ -393,7 +393,7 @@ impl MonoCollector<'_> {
             TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
-            | TyKind::ComptimeOnly
+            | TyKind::ConstOnly
             | TyKind::Error => false,
         }
     }
@@ -638,7 +638,7 @@ impl MonoCollector<'_> {
             | TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
             | TyKind::Vector { .. }
-            | TyKind::ComptimeOnly
+            | TyKind::ConstOnly
             | TyKind::Error => false,
         }
     }
@@ -1076,9 +1076,7 @@ impl MonoCollector<'_> {
                     },
                 )
             }
-            TyKind::Primitive(_) | TyKind::Vector { .. } | TyKind::ComptimeOnly | TyKind::Error => {
-                ty
-            }
+            TyKind::Primitive(_) | TyKind::Vector { .. } | TyKind::ConstOnly | TyKind::Error => ty,
         };
         if can_use_cache {
             self.type_instantiations.insert(key, instantiated);
@@ -1141,7 +1139,7 @@ impl MonoCollector<'_> {
         };
         let imported = match kind {
             TyKind::Error => TyKind::Error,
-            TyKind::ComptimeOnly => TyKind::ComptimeOnly,
+            TyKind::ConstOnly => TyKind::ConstOnly,
             TyKind::Primitive(primitive) => TyKind::Primitive(primitive),
             TyKind::BuiltinType(builtin) => TyKind::BuiltinType(builtin),
             TyKind::Vector { elem, lanes } => TyKind::Vector { elem, lanes },
@@ -1464,7 +1462,7 @@ impl MonoCollector<'_> {
         }
         let defs_by_module = &self.defs_by_module;
         let def_names = &mut self.def_names;
-        let comptime_by_module = &self.comptime_by_module;
+        let const_by_module = &self.const_by_module;
         let const_expr_summaries_by_module = &self.const_expr_summaries_by_module;
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
         let diagnostics = &mut self.diagnostics;
@@ -1474,7 +1472,7 @@ impl MonoCollector<'_> {
             |def_id| cached_def_name(defs_by_module, def_names, def_id),
             |id| {
                 array_len(
-                    comptime_by_module,
+                    const_by_module,
                     const_expr_summaries_by_module,
                     missing_array_len_diagnostics,
                     diagnostics,
@@ -1488,7 +1486,7 @@ impl MonoCollector<'_> {
 }
 
 fn array_len(
-    comptime_by_module: &HashMap<ModuleId, &ComptimeCheck>,
+    const_by_module: &HashMap<ModuleId, &ConstCheck>,
     const_expr_summaries_by_module: &HashMap<
         ModuleId,
         &HashMap<GlobalConstExprId, ConstExprSummary>,
@@ -1497,9 +1495,9 @@ fn array_len(
     diagnostics: &mut Vec<Diagnostic>,
     id: GlobalConstExprId,
 ) -> Option<u64> {
-    let value = comptime_by_module
+    let value = const_by_module
         .get(&id.module_id)
-        .and_then(|comptime| comptime.array_lengths.get(&id).copied());
+        .and_then(|const_eval| const_eval.array_lengths.get(&id).copied());
     if value.is_none() && missing_array_len_diagnostics.insert(id) {
         let span = const_expr_summaries_by_module
             .get(&id.module_id)
@@ -1648,7 +1646,7 @@ mod tests {
         defs: &'a DefCollection,
         interner: &'a TyInterner,
         normalization: &'a TypeNormalization,
-        comptime: &'a ComptimeCheck,
+        const_eval: &'a ConstCheck,
         const_expr_summaries: &'a HashMap<GlobalConstExprId, ConstExprSummary>,
         instantiations: &'a [GenericInstantiation],
     ) -> MonomorphizeModuleInput<'a> {
@@ -1657,7 +1655,7 @@ mod tests {
             defs,
             interner,
             normalization,
-            comptime,
+            const_eval,
             const_expr_summaries,
             layouts: None,
             local_enums: &EMPTY_LOCAL_ENUMS,
@@ -1698,13 +1696,13 @@ mod tests {
         ];
 
         let normalization = normalization_for(&interner);
-        let comptime = ComptimeCheck::default();
+        let const_eval = ConstCheck::default();
         let const_exprs = HashMap::new();
         let mono = collect_monomorphizations(&[mono_input(
             &defs,
             &interner,
             &normalization,
-            &comptime,
+            &const_eval,
             &const_exprs,
             &instantiations,
         )]);
@@ -1741,13 +1739,13 @@ fn main() i32 { outer(1) }
         ];
 
         let normalization = normalization_for(&interner);
-        let comptime = ComptimeCheck::default();
+        let const_eval = ConstCheck::default();
         let const_exprs = HashMap::new();
         let mono = collect_monomorphizations(&[mono_input(
             &defs,
             &interner,
             &normalization,
-            &comptime,
+            &const_eval,
             &const_exprs,
             &instantiations,
         )]);
@@ -1808,13 +1806,13 @@ fn main() i32 { 0 }
         ];
 
         let normalization = normalization_for(&interner);
-        let comptime = ComptimeCheck::default();
+        let const_eval = ConstCheck::default();
         let const_exprs = HashMap::new();
         let mono = collect_monomorphizations(&[mono_input(
             &defs,
             &interner,
             &normalization,
-            &comptime,
+            &const_eval,
             &const_exprs,
             &instantiations,
         )]);
@@ -1856,13 +1854,13 @@ fn main() i32 { 0 }
         ];
 
         let normalization = normalization_for(&interner);
-        let comptime = ComptimeCheck::default();
+        let const_eval = ConstCheck::default();
         let const_exprs = HashMap::new();
         let mono = collect_monomorphizations(&[mono_input(
             &defs,
             &interner,
             &normalization,
-            &comptime,
+            &const_eval,
             &const_exprs,
             &instantiations,
         )]);
@@ -1899,13 +1897,13 @@ fn main() i32 { 0 }
         ];
 
         let normalization = normalization_for(&interner);
-        let comptime = ComptimeCheck::default();
+        let const_eval = ConstCheck::default();
         let const_exprs = HashMap::new();
         let mono = collect_monomorphizations(&[mono_input(
             &defs,
             &interner,
             &normalization,
-            &comptime,
+            &const_eval,
             &const_exprs,
             &instantiations,
         )]);
@@ -1966,12 +1964,12 @@ fn main() i32 { 0 }
         );
 
         let normalization = normalization_for(&interner);
-        let comptime = ComptimeCheck::default();
+        let const_eval = ConstCheck::default();
         let mono = collect_monomorphizations(&[mono_input(
             &defs,
             &interner,
             &normalization,
-            &comptime,
+            &const_eval,
             &const_expr_summaries,
             &instantiations,
         )]);
@@ -2025,13 +2023,13 @@ fn wrap[T](value: T) T { value }
         ];
 
         let normalization = normalization_for(&interner);
-        let comptime = ComptimeCheck::default();
+        let const_eval = ConstCheck::default();
         let const_exprs = HashMap::new();
         let mono = collect_monomorphizations(&[mono_input(
             &defs,
             &interner,
             &normalization,
-            &comptime,
+            &const_eval,
             &const_exprs,
             &instantiations,
         )]);
@@ -2090,7 +2088,7 @@ fn wrap[T](value: T) T { value }
             defs_by_module: HashMap::new(),
             interners_by_module: HashMap::new(),
             normalizations_by_module: HashMap::new(),
-            comptime_by_module: HashMap::new(),
+            const_by_module: HashMap::new(),
             const_expr_summaries_by_module: HashMap::new(),
             working_interners_by_module: HashMap::new(),
             layouts_by_module: HashMap::new(),

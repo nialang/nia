@@ -40,7 +40,7 @@ fn validates_defer_body_references_to_enclosing_locals() {
     let local = TypedLocal {
         id: LocalId(1),
         name: local_name("value"),
-        kind: TypedLocalKind::Binding,
+        kind: TypedLocalKind::MutableBinding,
         ty,
         span,
     };

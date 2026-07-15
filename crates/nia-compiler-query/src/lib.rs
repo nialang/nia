@@ -4,7 +4,7 @@ mod query;
 use nia_abi_check::AbiCheck;
 use nia_backend_lower::BackendLowering;
 use nia_body_ir::BodyIr;
-use nia_comptime_check::ComptimeCheck;
+use nia_const_check::ConstCheck;
 use nia_defs::DefCollection;
 use nia_diagnostic::{Diagnostic, Severity};
 use nia_flow_check::FlowCheck;
@@ -112,7 +112,7 @@ pub struct CheckedModule {
     pub value_resolution: ValueResolution,
     pub local_resolution: LocalResolution,
     pub type_normalization: TypeNormalization,
-    pub comptime: ComptimeCheck,
+    pub const_eval: ConstCheck,
     pub static_check: StaticCheck,
     pub layouts: Layouts,
     pub abi_check: AbiCheck,

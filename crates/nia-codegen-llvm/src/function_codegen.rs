@@ -120,8 +120,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             if matches!(
                 local.kind,
                 FunctionLocalKind::Param
-                    | FunctionLocalKind::Binding
-                    | FunctionLocalKind::ConstBinding
+                    | FunctionLocalKind::MutableBinding
+                    | FunctionLocalKind::ImmutableBinding
             ) {
                 if self.is_zero_sized(local.ty) {
                     self.local_tys.insert(local.id, local.ty);

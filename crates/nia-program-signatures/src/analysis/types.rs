@@ -783,9 +783,7 @@ pub(super) fn substitute_imported_type(
                 name: *name,
             })
         }
-        Some(
-            TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
-        )
+        Some(TyKind::Error | TyKind::ConstOnly | TyKind::Primitive(_) | TyKind::Vector { .. })
         | None => import_type_into(target_interner, source_interner, ty),
     }
 }

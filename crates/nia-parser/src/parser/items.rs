@@ -45,9 +45,9 @@ impl Parser {
             ItemKind::Enum(self.parse_enum()?)
         } else if self.at(TokenKind::Type) {
             ItemKind::TypeAlias(self.parse_type_alias(item_has_builtin_attribute(&attributes))?)
-        } else if self.at(TokenKind::Fn) || self.at_comptime_fn() {
-            ItemKind::Function(self.parse_function(false, self.at_comptime_fn())?)
-        } else if self.at(TokenKind::Comptime) || self.at(TokenKind::Static) {
+        } else if self.at(TokenKind::Fn) || self.at_const_fn() {
+            ItemKind::Function(self.parse_function(false, self.at_const_fn())?)
+        } else if self.at(TokenKind::Const) || self.at(TokenKind::Static) {
             ItemKind::Binding(
                 self.parse_binding_with_options(false, !item_has_builtin_attribute(&attributes))?,
             )
@@ -377,17 +377,17 @@ impl Parser {
                 if let Some(associated_type) = self.parse_trait_associated_type() {
                     associated_types.push(associated_type);
                 }
-            } else if self.at(TokenKind::Fn) || self.at_comptime_fn() {
-                if let Some(function) = self.parse_function(false, self.at_comptime_fn()) {
+            } else if self.at(TokenKind::Fn) || self.at_const_fn() {
+                if let Some(function) = self.parse_function(false, self.at_const_fn()) {
                     methods.push(TraitMethod { function });
                 }
-            } else if self.at(TokenKind::Comptime) {
+            } else if self.at(TokenKind::Const) {
                 if let Some(associated_value) = self.parse_trait_associated_value() {
                     associated_values.push(associated_value);
                 }
             } else {
                 self.error_here(
-                    "expected associated type, associated comptime value, or method in trait body",
+                    "expected associated type, associated const value, or method in trait body",
                 );
                 let checkpoint = self.checkpoint();
                 self.recover_to_member_boundary_with_progress(checkpoint);
@@ -440,25 +440,20 @@ impl Parser {
     }
 
     fn parse_trait_associated_value(&mut self) -> Option<nia_ast::TraitAssociatedValue> {
-        let start = self
-            .expect(TokenKind::Comptime, "expected `comptime`")?
-            .start;
+        let start = self.expect(TokenKind::Const, "expected `const`")?.start;
         if self.eat(TokenKind::Mut).is_some() {
-            self.error_here("trait associated comptime declarations cannot be mutable");
+            self.error_here("trait associated const declarations cannot be mutable");
         }
-        let name = self.expect_name(TokenKind::Ident, "expected associated comptime name")?;
-        self.expect(
-            TokenKind::Colon,
-            "expected `:` after associated comptime name",
-        )?;
+        let name = self.expect_name(TokenKind::Ident, "expected associated const name")?;
+        self.expect(TokenKind::Colon, "expected `:` after associated const name")?;
         let ty = self.parse_type_until(&[TokenKind::Eq, TokenKind::Semicolon])?;
         if self.eat(TokenKind::Eq).is_some() {
-            self.error_here("trait associated comptime declarations cannot have initializers");
+            self.error_here("trait associated const declarations cannot have initializers");
             self.collect_until(&[TokenKind::Semicolon])?;
         }
         self.expect(
             TokenKind::Semicolon,
-            "expected `;` after associated comptime declaration",
+            "expected `;` after associated const declaration",
         )?;
         Some(self.make_trait_associated_value(name, ty, Span::new(start, self.previous_end())))
     }
@@ -491,11 +486,11 @@ impl Parser {
                 if let Some(associated_type) = self.parse_extend_associated_type() {
                     associated_types.push(associated_type);
                 }
-            } else if self.at(TokenKind::Fn) || self.at_comptime_fn() {
-                if let Some(function) = self.parse_function(false, self.at_comptime_fn()) {
+            } else if self.at(TokenKind::Fn) || self.at_const_fn() {
+                if let Some(function) = self.parse_function(false, self.at_const_fn()) {
                     methods.push(ExtendMethod { vis, function });
                 }
-            } else if self.at(TokenKind::Comptime) {
+            } else if self.at(TokenKind::Const) {
                 let start = self.peek().span.start;
                 if let Some(binding) = self.parse_extend_associated_value_binding(is_builtin_extend)
                 {
@@ -503,11 +498,13 @@ impl Parser {
                     associated_values.push(nia_ast::ExtendAssociatedValue { vis, binding, span });
                 }
             } else if self.at(TokenKind::Let) {
-                self.error_here("extend value members must be declared as `comptime` values");
+                self.error_here("extend value members must be declared as `const` values");
                 let checkpoint = self.checkpoint();
                 self.recover_to_member_boundary_with_progress(checkpoint);
             } else {
-                self.error_here("expected associated type, associated comptime value, or method in extend block");
+                self.error_here(
+                    "expected associated type, associated const value, or method in extend block",
+                );
                 let checkpoint = self.checkpoint();
                 self.recover_to_member_boundary_with_progress(checkpoint);
             }
@@ -530,17 +527,17 @@ impl Parser {
     ) -> Option<BindingItem> {
         let start = self.peek().span.start;
         let binding = self.parse_binding_with_options(false, false)?;
-        if binding.is_comptime && binding.value.is_none() && !allow_bodyless {
+        if binding.is_const() && binding.value.is_none() && !allow_bodyless {
             self.error_at(
                 Span::new(start, self.previous_end()),
-                "comptime binding requires an initializer",
+                "const binding requires an initializer",
             );
             return None;
         }
-        if binding.is_comptime && binding.value.is_none() && binding.ty.is_none() {
+        if binding.is_const() && binding.value.is_none() && binding.ty.is_none() {
             self.error_at(
                 Span::new(start, self.previous_end()),
-                "bodyless associated comptime declaration requires an explicit type",
+                "bodyless associated const declaration requires an explicit type",
             );
             return None;
         }
@@ -680,12 +677,12 @@ impl Parser {
         })
     }
 
-    fn parse_function(&mut self, is_extern: bool, is_comptime: bool) -> Option<FunctionItem> {
+    fn parse_function(&mut self, is_extern: bool, is_const: bool) -> Option<FunctionItem> {
         let start = self.peek().span.start;
-        if is_comptime {
-            self.expect(TokenKind::Comptime, "expected `comptime`")?;
+        if is_const {
+            self.expect(TokenKind::Const, "expected `const`")?;
             if is_extern {
-                self.error_here("extern function cannot be `comptime`");
+                self.error_here("extern function cannot be `const`");
             }
         }
         self.expect(TokenKind::Fn, "expected `fn`")?;
@@ -724,7 +721,7 @@ impl Parser {
             return_type,
             body,
             is_extern,
-            is_comptime,
+            is_const,
             is_variadic,
             span: Span::new(start, end),
         }))
@@ -792,24 +789,29 @@ impl Parser {
     fn parse_binding_with_options(
         &mut self,
         is_extern: bool,
-        require_comptime_initializer: bool,
+        require_const_initializer: bool,
     ) -> Option<BindingItem> {
         let start = self.peek().span.start;
-        let is_comptime = if self.eat(TokenKind::Comptime).is_some() {
+        let is_const = if self.eat(TokenKind::Const).is_some() {
             if is_extern {
-                self.error_here("extern binding cannot be `comptime`");
+                self.error_here("extern binding cannot be `const`");
                 return None;
             }
             true
         } else {
             false
         };
-        let is_mutable = if is_comptime && self.eat(TokenKind::Mut).is_some() {
-            true
-        } else if is_comptime && self.at(TokenKind::Ident) {
-            false
+        let kind = if is_const {
+            if self.at(TokenKind::Mut) {
+                self.error_here("const bindings cannot be mutable");
+                return None;
+            }
+            ItemBindingKind::Const
         } else if self.eat(TokenKind::Static).is_some() {
-            self.eat(TokenKind::Mut).is_some()
+            ItemBindingKind::Static {
+                is_mutable: self.eat(TokenKind::Mut).is_some(),
+                is_extern,
+            }
         } else if self.at(TokenKind::Let) {
             self.error_here("top-level storage declarations use `static`; `let` is local-only");
             return None;
@@ -832,8 +834,8 @@ impl Parser {
         } else {
             None
         };
-        if is_comptime && value.is_none() && require_comptime_initializer {
-            self.error_here("comptime binding requires an initializer");
+        if is_const && value.is_none() && require_const_initializer {
+            self.error_here("const binding requires an initializer");
             return None;
         }
         if !is_extern && value.is_none() && ty.is_none() {
@@ -854,9 +856,7 @@ impl Parser {
             name,
             ty,
             value,
-            is_mutable,
-            is_comptime,
-            is_extern,
+            kind,
             span: Span::new(start, self.previous_end()),
         }))
     }

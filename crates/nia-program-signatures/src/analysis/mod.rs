@@ -12,7 +12,7 @@ use nia_ids::{
     ReceiverKind, TraitImplId, Visibility,
 };
 use nia_item_signatures::{
-    FunctionSignature, ItemSignatures, ProgramComptimeSignature, ProgramEnumSignature,
+    FunctionSignature, ItemSignatures, ProgramConstSignature, ProgramEnumSignature,
     ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
     ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
     ProgramUnionSignature, TraitImplSignature, TraitSignature,
@@ -705,13 +705,13 @@ fn validate_trait_impl(
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 associated_value.span,
-                format!("associated comptime `{name}` is not a member of implemented trait"),
+                format!("associated const `{name}` is not a member of implemented trait"),
             ));
             continue;
         };
         let Some(actual_ty) = module
             .signatures
-            .comptimes
+            .consts
             .get(&associated_value.def_id)
             .and_then(|signature| signature.explicit_type)
         else {
@@ -720,12 +720,12 @@ fn validate_trait_impl(
                 codes::NAME_RESOLUTION,
                 associated_value.span,
                 format!(
-                    "associated comptime `{name}` requires an explicit type to satisfy the trait requirement"
+                    "associated const `{name}` requires an explicit type to satisfy the trait requirement"
                 ),
             ));
             continue;
         };
-        if !trait_associated_comptime_type_matches(TraitAssociatedComptimeTypeMatch {
+        if !trait_associated_const_type_matches(TraitAssociatedConstTypeMatch {
             module,
             trait_signature,
             required_ty: required.ty,
@@ -741,7 +741,7 @@ fn validate_trait_impl(
                 codes::NAME_RESOLUTION,
                 associated_value.span,
                 format!(
-                    "implementation of associated comptime `{name}` does not match the trait requirement"
+                    "implementation of associated const `{name}` does not match the trait requirement"
                 ),
             ));
         }
@@ -770,7 +770,7 @@ fn validate_trait_impl(
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
-                format!("missing definition for associated comptime `{name}`"),
+                format!("missing definition for associated const `{name}`"),
             ));
         }
     }
@@ -880,7 +880,7 @@ fn validate_trait_impl(
     diagnostics.len() == start_len
 }
 
-struct TraitAssociatedComptimeTypeMatch<'a> {
+struct TraitAssociatedConstTypeMatch<'a> {
     module: &'a ExtensionModuleInput<'a>,
     trait_signature: TraitSignatureRef<'a>,
     required_ty: nia_ids::InternedTyId,
@@ -892,7 +892,7 @@ struct TraitAssociatedComptimeTypeMatch<'a> {
     impl_signature: &'a TraitImplSignature,
 }
 
-fn trait_associated_comptime_type_matches(input: TraitAssociatedComptimeTypeMatch<'_>) -> bool {
+fn trait_associated_const_type_matches(input: TraitAssociatedConstTypeMatch<'_>) -> bool {
     let mut comparison_interner = input.module.normalization.interner.clone();
     let substitutions = input
         .trait_signature
@@ -1741,7 +1741,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
 
 fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> bool {
     match interner.get(ty) {
-        Some(TyKind::Error | TyKind::ComptimeOnly) | None => false,
+        Some(TyKind::Error | TyKind::ConstOnly) | None => false,
         Some(TyKind::Primitive(PrimitiveTy::Never)) => false,
         Some(TyKind::Array { len, .. }) => !matches!(len, nia_ty::ArrayLenTy::Infer),
         Some(

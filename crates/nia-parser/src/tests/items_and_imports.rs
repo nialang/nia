@@ -52,10 +52,10 @@ fn main() {
         matches!(&module.items[2].kind, ItemKind::Struct(item_struct) if item_struct.is_extern)
     );
     assert!(
-        matches!(&module.items[3].kind, ItemKind::Binding(binding) if binding.is_extern && !binding.is_mutable && binding.value.is_none())
+        matches!(&module.items[3].kind, ItemKind::Binding(binding) if binding.is_extern() && !binding.is_mutable() && binding.value.is_none())
     );
     assert!(
-        matches!(&module.items[4].kind, ItemKind::Binding(binding) if binding.is_extern && binding.value.is_none())
+        matches!(&module.items[4].kind, ItemKind::Binding(binding) if binding.is_extern() && binding.value.is_none())
     );
     let ItemKind::Function(function) = &module.items[5].kind else {
         panic!("expected function");
@@ -63,7 +63,7 @@ fn main() {
     let body = function.body.as_ref().expect("body");
     assert!(matches!(&body.stmts[0].kind, StmtKind::Binding(binding) if binding.value.is_none()));
     assert!(
-        matches!(&body.stmts[1].kind, StmtKind::Binding(binding) if !binding.is_mutable && binding.value.is_none())
+        matches!(&body.stmts[1].kind, StmtKind::Binding(binding) if !binding.is_mutable() && binding.value.is_none())
     );
 }
 
@@ -378,7 +378,7 @@ extend[T] Box[T] {
 }
 
 #[test]
-fn parses_comptime_generic_params() {
+fn parses_const_generic_params() {
     let (module, errors) = parse_module(
         r#"
 struct Buffer[T, N: usize] {
@@ -395,16 +395,15 @@ struct Buffer[T, N: usize] {
         vec![sym("T"), sym("N")]
     );
     assert!(item.generics[0].is_type());
-    assert!(item.generics[1].is_comptime());
+    assert!(item.generics[1].is_const());
 }
 
 #[test]
-fn parses_extend_associated_comptime_values() {
+fn parses_extend_associated_const_values() {
     let (module, errors) = parse_module(
         r#"
 extend usize {
-    pub comptime MAX: usize = 18446744073709551615usize;
-    comptime mut shadow: usize = 1usize;
+    pub const MAX: usize = 18446744073709551615usize;
 }
 "#,
     );
@@ -412,22 +411,36 @@ extend usize {
     let ItemKind::Extend(extend) = &module.items[0].kind else {
         panic!("expected extend");
     };
-    assert_eq!(extend.associated_values.len(), 2);
+    assert_eq!(extend.associated_values.len(), 1);
     assert_eq!(extend.associated_values[0].binding.name, sym("MAX"));
-    assert!(extend.associated_values[0].binding.is_comptime);
-    assert!(!extend.associated_values[0].binding.is_mutable);
-    assert_eq!(extend.associated_values[1].binding.name, sym("shadow"));
-    assert!(extend.associated_values[1].binding.is_comptime);
-    assert!(extend.associated_values[1].binding.is_mutable);
+    assert!(extend.associated_values[0].binding.is_const());
+    assert!(!extend.associated_values[0].binding.is_mutable());
 }
 
 #[test]
-fn bodyless_extend_associated_comptime_values_require_builtin_extend() {
+fn rejects_mutable_extend_associated_const_values() {
+    let (_module, errors) = parse_module(
+        r#"
+extend usize {
+    const mut shadow: usize = 1usize;
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("const bindings cannot be mutable")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn bodyless_extend_associated_const_values_require_builtin_extend() {
     let (module, errors) = parse_module(
         r#"
 @[builtin("usize")]
 extend usize {
-    pub comptime MAX: usize;
+    pub const MAX: usize;
 }
 "#,
     );
@@ -442,7 +455,7 @@ extend usize {
     let (_, errors) = parse_module(
         r#"
 extend usize {
-    pub comptime MAX: usize;
+    pub const MAX: usize;
 }
 "#,
     );

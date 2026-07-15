@@ -716,7 +716,7 @@ impl<'a> ModuleLowerer<'a> {
             }
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::GenericParam(_)
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)
@@ -1351,7 +1351,7 @@ impl<'a> ModuleLowerer<'a> {
             }
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::GenericParam(_)
                 | TyKind::SelfParam
                 | TyKind::BuiltinType(_)

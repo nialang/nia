@@ -472,7 +472,7 @@ fn write_type_arg_identity(out: &mut String, arg: &TypeArg) {
             write_type_ref_identity(out, ty);
         }
         TypeArg::Const(expr) => {
-            out.push_str("const:");
+            out.push_str("const_eval:");
             out.push_str(&expr_identity(expr));
         }
         TypeArg::TypeOrConst { ty, expr } => {

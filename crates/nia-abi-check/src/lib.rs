@@ -426,10 +426,10 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context_desc} cannot use unresolved associated type projection"),
             )),
-            Some(TyKind::ComptimeOnly) => self.diagnostics.push(Diagnostic::user_error_at(
+            Some(TyKind::ConstOnly) => self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
                 span,
-                format!("{context_desc} cannot use comptime-only value"),
+                format!("{context_desc} cannot use const-only value"),
             )),
             Some(TyKind::Error) => {}
             None => self.diagnostics.push(Diagnostic::internal_error_at(

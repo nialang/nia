@@ -440,7 +440,7 @@ where
         }
         Some(TyKind::GenericParam(name)) => format!("gen__{}", mangle_symbol_id(*name)),
         Some(TyKind::SelfParam) => "self_param".to_string(),
-        Some(TyKind::ComptimeOnly) => "comptime_only".to_string(),
+        Some(TyKind::ConstOnly) => "const_only".to_string(),
         Some(TyKind::Error) => "ty_error".to_string(),
         None => panic!(
             "Nia ICE: cannot mangle type {:?} with interner {:?}",

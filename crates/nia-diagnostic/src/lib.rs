@@ -151,11 +151,11 @@ pub mod codes {
         "local-resolution",
         "local binding resolution failed",
     );
-    pub const COMPTIME: DiagnosticCodeDef = DiagnosticCodeDef::user(
+    pub const CONST: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0401",
-        DiagnosticStage::Comptime,
-        "comptime",
-        "comptime evaluation failed",
+        DiagnosticStage::Const,
+        "const",
+        "const evaluation failed",
     );
     pub const STATIC_CHECK: DiagnosticCodeDef = DiagnosticCodeDef::user(
         "E0501",
@@ -201,7 +201,7 @@ pub mod codes {
         ITEM_SIGNATURE,
         TYPE_CHECK,
         LOCAL_RESOLUTION,
-        COMPTIME,
+        CONST,
         STATIC_CHECK,
         LLVM_CODEGEN,
         UNUSED_IMPORT,
@@ -283,7 +283,7 @@ pub mod codes {
         LocalResolution,
         TypeCheck,
         BodyIr,
-        Comptime,
+        Const,
         StaticCheck,
         FunctionIr,
         BackendIr,

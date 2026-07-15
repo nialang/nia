@@ -4,11 +4,11 @@ use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
 use nia_defs::{DefId, DefKind, VisibleExtensionAssociatedValue};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{BuiltinAssociatedComptime, InternedTyId};
+use nia_ids::{BuiltinAssociatedConst, InternedTyId};
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::{
-    AssociatedComptimeProjection, BracketSuffixResolution, BuiltinAssociatedValue,
-    BuiltinOperatorOp, BuiltinValue,
+    AssociatedConstProjection, BracketSuffixResolution, BuiltinAssociatedValue, BuiltinOperatorOp,
+    BuiltinValue,
 };
 use nia_span::Span;
 use nia_symbol::{SymbolId, known};
@@ -36,9 +36,9 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
-        if expr_allows_expected_comptime_projection(expr)
+        if expr_allows_expected_const_projection(expr)
             && let Some(ty) = expected
-                .and_then(|expected| self.expected_comptime_expr_runtime_projection(expr, expected))
+                .and_then(|expected| self.expected_const_expr_runtime_projection(expr, expected))
         {
             self.record_expr_node_type(expr, ty);
             return ty;
@@ -234,14 +234,12 @@ impl<'a> BodyChecker<'a> {
                     ));
                     self.error()
                 } else if let ExprKind::TraitTarget { ty, trait_ref } = &lhs.kind {
-                    self.check_trait_associated_comptime_value_access(expr, ty, trait_ref, name)
+                    self.check_trait_associated_const_value_access(expr, ty, trait_ref, name)
                 } else if let Some(ty) = self.check_builtin_associated_value(expr) {
                     ty
                 } else if let Some(ty) = self.check_enum_variant_access(expr.span, lhs, name) {
                     ty
-                } else if let Some(ty) =
-                    self.check_associated_comptime_value_access(expr, lhs, name)
-                {
+                } else if let Some(ty) = self.check_associated_const_value_access(expr, lhs, name) {
                     ty
                 } else if self
                     .values
@@ -261,14 +259,14 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Index { lhs, index } => {
                 if let IndexArg::Expr(index) = index
-                    && let Some(ty) = self.comptime_index_expr_runtime_type(lhs, index)
+                    && let Some(ty) = self.const_index_expr_runtime_type(lhs, index)
                 {
                     self.check_expr(index);
                     return ty;
                 }
                 if matches!(index, IndexArg::Range(_))
-                    && self.in_comptime_context()
-                    && let Some(ty) = self.comptime_slice_expr_runtime_type(expr, expected)
+                    && self.in_const_context()
+                    && let Some(ty) = self.const_slice_expr_runtime_type(expr, expected)
                 {
                     return ty;
                 }
@@ -326,27 +324,27 @@ impl<'a> BodyChecker<'a> {
         ty
     }
 
-    fn check_associated_comptime_value_access(
+    fn check_associated_const_value_access(
         &mut self,
         expr: &Expr,
         lhs: &Expr,
         name: &SymbolId,
     ) -> Option<InternedTyId> {
         let target_ty = self.associated_target_ty(lhs, None, name)?;
-        let value = self.associated_comptime_value_for_target(target_ty, name)?;
+        let value = self.associated_const_value_for_target(target_ty, name)?;
         let def_id = value.def_id;
-        self.comptime_types
+        self.const_types
             .get(&def_id.def_id)
             .copied()
             .or_else(|| match def_id.module_id == self.defs.module_id {
                 true => self
                     .signatures
-                    .comptimes
+                    .consts
                     .get(&def_id.def_id)
                     .and_then(|signature| signature.explicit_type),
                 false => self
                     .program_signature_scope
-                    .comptime(def_id)
+                    .const_eval(def_id)
                     .and_then(|signature| {
                         signature
                             .signature
@@ -358,13 +356,13 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     expr.span,
-                    "associated comptime value requires an explicit type",
+                    "associated const value requires an explicit type",
                 ));
                 Some(self.error())
             })
     }
 
-    fn check_trait_associated_comptime_value_access(
+    fn check_trait_associated_const_value_access(
         &mut self,
         expr: &Expr,
         target: &nia_ast::TypeRef,
@@ -379,13 +377,13 @@ impl<'a> BodyChecker<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 trait_ref.span,
-                "associated comptime projection requires a trait target",
+                "associated const projection requires a trait target",
             ));
             return self.error();
         };
-        self.record_associated_comptime_projection(
+        self.record_associated_const_projection(
             expr,
-            AssociatedComptimeProjection {
+            AssociatedConstProjection {
                 self_ty: target_ty,
                 trait_id,
                 trait_args: trait_args.clone(),
@@ -414,10 +412,10 @@ impl<'a> BodyChecker<'a> {
                 unreachable!("trait_id matched source or builtin");
             };
             if let Some(associated) =
-                crate::symbols::builtin_associated_comptime_symbol(trait_id, *name)
+                crate::symbols::builtin_associated_const_symbol(trait_id, *name)
             {
                 if matches!(trait_id, BuiltinTrait::Simd)
-                    && matches!(associated, BuiltinAssociatedComptime::Lanes)
+                    && matches!(associated, BuiltinAssociatedConst::Lanes)
                     && let Some(TyKind::Vector { lanes, .. }) =
                         self.interner.get(target_ty).cloned()
                 {
@@ -429,7 +427,7 @@ impl<'a> BodyChecker<'a> {
                 codes::TYPE_CHECK,
                 expr.span,
                 format!(
-                    "trait has no associated comptime value `{}`",
+                    "trait has no associated const value `{}`",
                     self.symbol_name(*name)
                 ),
             ));
@@ -447,7 +445,7 @@ impl<'a> BodyChecker<'a> {
                 codes::TYPE_CHECK,
                 expr.span,
                 format!(
-                    "trait has no associated comptime value `{}`",
+                    "trait has no associated const value `{}`",
                     self.symbol_name(*name)
                 ),
             ));
@@ -467,7 +465,7 @@ impl<'a> BodyChecker<'a> {
         self.normalize_projection(ty)
     }
 
-    fn associated_comptime_value_for_target(
+    fn associated_const_value_for_target(
         &mut self,
         target_ty: InternedTyId,
         name: &SymbolId,
@@ -518,15 +516,15 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn expected_comptime_expr_runtime_projection(
+    fn expected_const_expr_runtime_projection(
         &mut self,
         expr: &Expr,
         expected: InternedTyId,
     ) -> Option<InternedTyId> {
         let expected = self.import_type_to_working_interner(expected);
-        let comptime_expr = self.lower_comptime_expr(expr).ok()?;
-        match self.comptime_expr_type_for_ir_with_expected(&comptime_expr, Some(expected))? {
-            nia_comptime_check::ComptimeValueType::Runtime(actual)
+        let const_expr = self.lower_const_expr(expr).ok()?;
+        match self.const_expr_type_for_ir_with_expected(&const_expr, Some(expected))? {
+            nia_const_check::ConstValueType::Runtime(actual)
                 if self.types_match(expected, actual) =>
             {
                 Some(
@@ -534,10 +532,10 @@ impl<'a> BodyChecker<'a> {
                         .unwrap_or(expected),
                 )
             }
-            nia_comptime_check::ComptimeValueType::Runtime(actual) => {
+            nia_const_check::ConstValueType::Runtime(actual) => {
                 self.coerce_pointer_array_to_slice(expr, expected, actual)
             }
-            nia_comptime_check::ComptimeValueType::String
+            nia_const_check::ConstValueType::String
                 if self.is_runtime_char_array_type(expected) =>
             {
                 Some(match &expr.kind {
@@ -1374,7 +1372,7 @@ impl<'a> BodyChecker<'a> {
             && let Some(index) = &arg.expr
         {
             self.record_bracket_suffix_node_resolution(expr, BracketSuffixResolution::Index);
-            if let Some(ty) = self.comptime_index_expr_runtime_type(callee, index) {
+            if let Some(ty) = self.const_index_expr_runtime_type(callee, index) {
                 self.check_expr(index);
                 return ty;
             }
@@ -1459,7 +1457,7 @@ impl<'a> BodyChecker<'a> {
             | Some(LocalUse::Unresolved)
             | None => {
                 if let Some(arg) =
-                    expr_ident_name(expr).and_then(|name| self.current_comptime_generic_arg(name))
+                    expr_ident_name(expr).and_then(|name| self.current_const_generic_arg(name))
                 {
                     return arg.ty;
                 }
@@ -1494,18 +1492,14 @@ impl<'a> BodyChecker<'a> {
                 ));
                 self.error()
             }),
-            DefKind::Comptime => self
-                .comptime_types
-                .get(&def_id)
-                .copied()
-                .unwrap_or_else(|| {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        span,
-                        "comptime type is not available during body check",
-                    ));
-                    self.error()
-                }),
+            DefKind::Const => self.const_types.get(&def_id).copied().unwrap_or_else(|| {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    "const type is not available during body check",
+                ));
+                self.error()
+            }),
             _ => self.error(),
         }
     }
@@ -1518,7 +1512,7 @@ fn expr_ident_name(expr: &Expr) -> Option<&SymbolId> {
     }
 }
 
-fn expr_allows_expected_comptime_projection(expr: &Expr) -> bool {
+fn expr_allows_expected_const_projection(expr: &Expr) -> bool {
     matches!(
         expr.kind,
         ExprKind::Integer(_)

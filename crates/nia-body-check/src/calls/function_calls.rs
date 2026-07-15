@@ -280,11 +280,11 @@ impl<'a> BodyChecker<'a> {
                 args,
             );
         }
-        if signature.is_comptime && !self.in_comptime_context() {
+        if signature.is_const && !self.in_const_context() {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
-                "`comptime fn` can only be called from a comptime expression",
+                "`const fn` can only be called from a const expression",
             ));
             for arg in args {
                 self.check_expr(arg);
@@ -294,7 +294,7 @@ impl<'a> BodyChecker<'a> {
         if signature.generics.is_empty() {
             let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
             self.check_direct_call_args(span, args, &params, signature.is_variadic);
-            if !signature.is_comptime {
+            if !signature.is_const {
                 self.record_resolved_node_call(
                     span,
                     &expr.node_key,
@@ -808,7 +808,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(
                 TyKind::Error
-                | TyKind::ComptimeOnly
+                | TyKind::ConstOnly
                 | TyKind::Primitive(_)
                 | TyKind::BuiltinType(_)
                 | TyKind::Vector { .. },
@@ -1103,7 +1103,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             Some(
-                TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
+                TyKind::Error | TyKind::ConstOnly | TyKind::Primitive(_) | TyKind::Vector { .. },
             )
             | None => {}
         }
@@ -1228,7 +1228,7 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     span,
-                    format!("conflicting inferred value for comptime generic parameter `{name}`"),
+                    format!("conflicting inferred value for const generic parameter `{name}`"),
                 ));
             }
         } else {
@@ -1242,7 +1242,7 @@ impl<'a> BodyChecker<'a> {
                 Some(ConstGenericValue::Int(IntConst::unsigned(value.into())))
             }
             ArrayLenTy::ConstExpr(id) => self
-                .comptime
+                .const_eval
                 .array_lengths
                 .get(&id)
                 .copied()
@@ -1259,7 +1259,7 @@ fn type_generic_names(signature: &FunctionSignature) -> Vec<SymbolId> {
         .iter()
         .filter_map(|param| match param.kind {
             GenericParamSignatureKind::Type => Some(param.name),
-            GenericParamSignatureKind::Comptime { .. } => None,
+            GenericParamSignatureKind::Const { .. } => None,
         })
         .collect()
 }

@@ -88,11 +88,11 @@ fn main(ptr: &u8) bool {
 }
 
 #[test]
-fn parses_trait_target_associated_comptime_projection() {
+fn parses_trait_target_associated_const_projection() {
     let (module, errors) = parse_module(
         r#"
 trait Simd {
-    comptime Lanes: usize;
+    const Lanes: usize;
 }
 
 fn lanes[T]() usize where T: Simd {
@@ -387,12 +387,12 @@ where T: Mapper[A, B, C = i32, D = bool] {
 }
 
 #[test]
-fn parses_trait_associated_comptime_requirements() {
+fn parses_trait_associated_const_requirements() {
     let (module, errors) = parse_module(
         r#"
 trait Simd {
     type Lane;
-    comptime Lanes: usize;
+    const Lanes: usize;
 }
 "#,
     );
@@ -411,7 +411,7 @@ trait Simd {
     let (_, errors) = parse_module(
         r#"
 trait Bad {
-    comptime Value: usize = 1usize;
+    const Value: usize = 1usize;
 }
 "#,
     );
