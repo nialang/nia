@@ -382,14 +382,14 @@ session. It follows these rules:
 The migration has established a compilation-owned `TypeStore`: a
 `TyInternerId` now contains a unique `TypeStoreId` as well as its temporary
 module shard, and type lowering, normalization, const analysis, body checking,
-function lowering, and monomorphization append through the same store.
+function lowering, layout, and monomorphization append through the same store.
 Normalization remains one algorithm over an explicit mutable interner and
 explicit input handles; compiler query providers supply the store transaction,
 while standalone algorithm tests use that same API. This prevents handles from
 separate compiler sessions with equal `ModuleId`s from comparing equal and
 prevents migrated phases from creating private divergent interners. The final
 contract is not yet satisfied because the module shard remains part of the
-handle and layout/backend consumers still receive cloned snapshots. A domain is
+handle and backend consumers still receive cloned snapshots. A domain is
 migrated only when its private mutation/import path is deleted. Temporary
 snapshots exist only at the boundary between the migrated prefix and the next
 unmigrated domain; there is no permanent module-local/session-global API
@@ -398,10 +398,9 @@ choice.
 Trait solving no longer creates a frozen clone of its mutable working interner
 for enum classification. The solver holds enum metadata and classifies nominal
 types directly through the same interner it mutates, so types appended during
-solving remain visible. This is the first trait/body migration slice, not the
-completion of that domain: body checking still owns a working interner snapshot,
-while const checking still snapshots foreign modules and imports cross-module
-signature types.
+solving remain visible. Const and body checking have since moved their local
+mutation into the session store; foreign const modules and cross-module
+signature imports remain explicit migration boundaries.
 
 Const and body providers mutate the compilation-owned `TypeStore` module shard
 directly. Array lengths, enum values, values, typed const facts, `ConstCheck`,
@@ -420,12 +419,13 @@ one module shard so an ownership violation becomes an immediate internal error
 instead of a mutex deadlock. Foreign const snapshots still select the newer
 append-only prefix and report an internal error only when two views diverge.
 
-`BodyIr` currently publishes the one remaining interner snapshot at the
-boundary to layout, monomorphization, backend lowering, and codegen. Prechecked
-body products and incremental seeds must be prefixes of the session shard and
-cannot replace it. The next Phase B slice migrates those downstream consumers
-and deletes `BodyIr.interner`; it must not move the snapshot into another
-aggregate product or turn speculative snapshots into a permanent dual API.
+`BodyIr` still publishes an interner snapshot for executable reachability,
+backend lowering, and codegen compatibility. Prechecked body products and
+incremental seeds must be prefixes of the session shard and cannot replace it.
+Layout and monomorphization no longer need that snapshot for writable type
+ownership; the remaining Phase B work must delete `BodyIr.interner` rather than
+move it into another aggregate product or turn speculative snapshots into a
+permanent dual API.
 
 Function IR lowering and monomorphization have crossed this boundary for
 mutation. Function lowering borrows the session shard and appends synthesized
@@ -437,14 +437,23 @@ callbacks cannot reenter the store. The collector no longer owns
 `working_interners_by_module`, and `Monomorphization` no longer publishes a map
 of cloned interners.
 
+Layout computation is also one mutable-interner algorithm. Production query
+providers run root collection and layout computation inside the owning module's
+`TypeStore` transaction, so imported signature types and substituted generic
+types append to the session shard. `Layouts` contains only layout facts and
+diagnostics; it does not publish an interner snapshot. Standalone analysis and
+backend lowering use the same API with their current working interner rather
+than a second read-only layout API. Array-length facts are prepared before a
+store transaction when evaluating them could reenter the same shard.
+
 Backend lowering is still on the next snapshot boundary. Compiler-query takes
-module snapshots after function lowering and monomorphization have completed
-and lends them only for the duration of backend lowering. These snapshots are
-not query values or semantic products, and backend no longer treats the
-monomorphization result as another type store. The next migration removes
-`BodyIr.interner` and `ProgramFunctionBodyInterners`, then deletes the remaining
-backend cross-interner imports rather than preserving this snapshot protocol as
-a second API.
+module snapshots after function lowering, layout, and monomorphization have
+completed and lends them only for the duration of backend lowering. These
+snapshots are not query values or semantic products, and backend no longer
+treats layout or monomorphization results as another type store. The next
+migration removes `BodyIr.interner` and `ProgramFunctionBodyInterners`, then
+deletes the remaining backend cross-interner imports rather than preserving
+this snapshot protocol as a second API.
 
 ### 3.6 `nia-diagnostic`
 
@@ -891,6 +900,12 @@ indices. They must not carry source-shaped body expressions or runtime places.
 Computes ABI-relevant layout for primitive, pointer, array, struct, enum, and
 instantiated nominal types. It uses explicit target data layout assumptions, such
 as LP64, rather than hidden host assumptions.
+
+The algorithm receives the caller's mutable type interner because importing a
+foreign signature or substituting a generic layout can intern structural types.
+Compiler query providers supply a session `TypeStore` transaction; standalone
+callers supply their working interner. The result is a layout fact table and
+never owns a private interner snapshot.
 
 ### 8.7 `nia-abi-check`
 

@@ -17,20 +17,28 @@ pub(super) fn provide_layouts(
             Some(db.query(ConstArrayLengthsQuery(id.module_id)))
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
-        nia_layout::compute_layouts_with_program_context(
-            &defs,
-            &type_normalization.interner,
-            &item_signatures,
-            &type_normalization.normalized,
-            &local_array_lengths,
-            nia_layout::TargetDataLayout::LP64,
-            nia_layout::ProgramLayoutContext {
-                symbols: Some(&symbols),
-                layouts: Some(&layout_query),
-                array_lengths: Some(&program_array_lengths),
-                ..Default::default()
-            },
-        )
+        db.context()
+            .type_store
+            .with_module_interner_for_semantic_migration(module_id, |interner| {
+                assert!(
+                    type_normalization.interner.is_prefix_of(interner),
+                    "Nia ICE: layout input is not a prefix of its session type store"
+                );
+                nia_layout::compute_layouts_with_program_context(
+                    &defs,
+                    interner,
+                    &item_signatures,
+                    &type_normalization.normalized,
+                    &local_array_lengths,
+                    nia_layout::TargetDataLayout::LP64,
+                    nia_layout::ProgramLayoutContext {
+                        symbols: Some(&symbols),
+                        layouts: Some(&layout_query),
+                        array_lengths: Some(&program_array_lengths),
+                        ..Default::default()
+                    },
+                )
+            })
     })
 }
 

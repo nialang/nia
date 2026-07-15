@@ -268,7 +268,7 @@ Nia 应采用一个单一模型，而不是并列的“typed query 系统”和�
 
 ### 7.1 Nia 的 module-local interner 是当前最深的架构债务
 
-Phase B 开始前，`InternedTyId` 包含 `TyInternerId + TyInternerIndex`，而 `TyInternerId::for_module` 直接来源于 `ModuleId`。第一实现切片已经删除 `for_module`，改为 `TypeStoreId + ModuleId`，因此相同 `ModuleId` 的不同 compiler session 不再产生可误认的 handle；但 module shard 和 `TyInternerIndex` 仍存在，尚未成为最终统一 `TyId`。`TyInterner` 本身仍是可 clone 的 Vec/hash interner。type lower、normalize、const、body、function lower 与 monomorphization 的本模块 mutation 已迁入 store；未迁移的 layout/backend 读路径与真正跨模块类型仍通过 snapshot 或 `try_import_type_into` 按 `TyKind` 递归重建。
+Phase B 开始前，`InternedTyId` 包含 `TyInternerId + TyInternerIndex`，而 `TyInternerId::for_module` 直接来源于 `ModuleId`。第一实现切片已经删除 `for_module`，改为 `TypeStoreId + ModuleId`，因此相同 `ModuleId` 的不同 compiler session 不再产生可误认的 handle；但 module shard 和 `TyInternerIndex` 仍存在，尚未成为最终统一 `TyId`。`TyInterner` 本身仍是可 clone 的 Vec/hash interner。type lower、normalize、const、body、function lower、layout 与 monomorphization 的本模块 mutation 已迁入 store，layout product 也不再携带 private interner；未迁移的 backend 读路径与真正跨模块类型仍通过 snapshot 或 `try_import_type_into` 按 `TyKind` 递归重建。
 
 实际代码中广泛存在：
 
@@ -458,7 +458,7 @@ Nia 的 monomorphization 此前会为每个模块 clone `TyInterner` 到 `workin
 
 1. mono identity 仍依赖 `arg_module_id + module-local type IDs`；
 2. collection 不是统一 dependency graph 中的 item traversal，而是先聚合 module inputs；
-3. backend 仍通过 `BodyIr.interner`、`ProgramFunctionBodyInterners` 和调用栈内 snapshot map 消费类型，统一 store 尚未贯穿到最终 IR 产品。
+3. backend 仍通过 `BodyIr.interner`、`ProgramFunctionBodyInterners` 和调用栈内 snapshot map 消费类型；layout 已接入 store，但统一类型访问尚未贯穿到最终 IR 产品。
 
 `nia-executable-reachability` 还有自己的循环：按当前 reachable modules 收集 body refs、traits、generic instances 和 fact owner modules，直到 change key 不变。incremental variant 仍通过多组 set 和重复的 current module materialization推进。
 
@@ -965,6 +965,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 进展（2026-07-15）：function IR lowering 的本模块类型写入已从 `BodyIr.interner.clone()` 迁到 session `TypeStore` transaction。`LoweredFunctionBody`、`nia_function_lower::LoweredFunctionBodies` 与 compiler-query 的同名 batch product 均不再携带 `TyInterner`；for-in lowering 合成的 optional item type直接追加到调用方 shard，并有 prefix/slot-growth 回归。codegen provider 在所有 function body lowering 完成后才为尚未迁移的 monomorphization/backend 获取短生命周期 module snapshot map，该 map 只存在于一次 provider 调用栈，不进入 query value、checked IR 或 function-lowering product。49 个 function-lower、107 个 compiler-query、98 个 backend-lower、176 个 codegen 与 484 个 driver 测试通过，严格 workspace Clippy 无 warning。相对 body-store candidate 的六 workload perf guard 通过，query executions 全部不变；allocated bytes 在 -0.005% 到 +0.012%，RSS 在 -1.17% 到 0%，单样本 wall 不作为性能结论。下一切片应迁移 `MonoCollector.working_interners_by_module` 与 `Monomorphization.type_interners`，随后让 reachability/backend/codegen 从 session 类型访问读取并删除 `BodyIr.interner` 与 `ProgramFunctionBodyInterners`；provider 临时 snapshot map 不能固化成新的所有权层。
 
 进展（2026-07-15）：monomorphization 的 writable type ownership 已迁入 session `TypeStore`。`MonoCollector.working_interners_by_module`、只读 `interners_by_module` 与 `Monomorphization.type_interners` 已删除；唯一 collector 入口显式接收 store，先验证输入 snapshot 是对应 shard 的 prefix，再让实例化类型直接追加到 shard。递归 generic/depth/import 检查不跨递归持锁，trait projection 只在 solver 调用期间锁目标 shard，mangling callback 只读预取 map；回归测试证明 nested generic body 实际向 session 追加 `&i32` 类型。backend 不再把 mono result 当 type store，而是在 function lowering 与 mono 完成后读取 compiler-query 提供的最新短生命周期 session snapshots；backend fixture 也改为完整 store pipeline，没有测试专用兼容 API。原样根目录 `cargo test`、严格 workspace/all-targets/all-features Clippy 均通过；相对 function-store baseline 的六 workload perf guard 中 query executions 全部不变，allocated bytes 在 -0.052% 到 +0.002%、RSS 在 -1.92% 到 +0.16% 内，单样本 wall 不作为性能结论。Phase B 尚未完成：`BodyIr.interner`、`ProgramFunctionBodyInterners` 与 backend snapshot/import 路径仍存在，下一切片应把 layout/backend 的读路径接到 session type access 并删除这些边界，而不是把 snapshot map 固化成新产品。
+
+进展（2026-07-15）：layout 的 writable type ownership 已迁入 session `TypeStore`。`LayoutComputer` 与唯一公开计算 API 直接复借调用方 mutable interner，`Layouts.interner` 已删除；production module/signature/executable providers 在对应 shard transaction 内完成 root 收集、跨模块 signature import、generic substitution 与 layout 计算，standalone/body/backend 则对各自唯一 working interner 使用同一 API，没有保留 read-only/owned 双轨。backend instance layout 重新 normalization 后也继续写同一 working interner，trait solver 的 layout equivalence 不再读取 layout product 私有快照。跨模块 generic signature 回归证明 layout 新建的 array type实际追加到 session shard。迁移首次运行暴露出 executable layout 在持锁期间 lazy 求 array length 导致同 shard 重入；provider 现在 transaction 前预取本模块 facts，外模块 array length 独立使用 signature facts。const program context 也显式统一 module/normalization/signatures 的 full-or-signature policy，因此 type-only module 保留 array length且不会升级执行 full type/value resolution；`@size/@offset` 路径同时删除了临时整份 defs/signatures clone。原样根目录 `cargo test` 完整通过，严格 workspace/all-targets/all-features Clippy 无 warning；compiler-query 108、backend-lower 98、body-check 139 个 crate 测试均通过。全量验收还发现 test resource request 把 build 的 2-slot 独占权重误当成两个并发 compiler memory unit，在 7.6 GiB WSL 上会无进展等待；调度 request 现将 slots 与 memory units 正交表达，build 仍独占 2 slots但按一个串行 compiler workload门控，回归测试覆盖该不变量，无参数 `cargo test` 不再需要外部并发限制。Phase B 仍未完成：`BodyIr.interner`、`ProgramFunctionBodyInterners` 与 backend snapshot/import 路径仍是下一切片，不能把 layout 已删除的 ownership 重新包装进 backend aggregate。
 
 ### 阶段 C（P0）：重做 query value/storage 契约
 

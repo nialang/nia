@@ -39,7 +39,16 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             &normalization_input,
             self.input.signatures,
         );
-        let array_lengths = |id| self.program_array_len(id);
+        let input = self.input;
+        let array_lengths = |id: GlobalConstExprId| {
+            if id.module_id == input.module_id {
+                return input.const_array_lengths.values.get(&id).copied();
+            }
+            input
+                .program_const
+                .get(&id.module_id)
+                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+        };
         let program = ProgramLayoutContext {
             symbols: Some(self.input.symbols),
             layouts: None,
@@ -48,18 +57,9 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             unions: Some(self.input.program_unions),
             ..Default::default()
         };
-        let layout_input = nia_layout::LayoutComputationInput {
-            defs: self.input.defs,
-            interner: &normalization.interner,
-            signatures: self.input.signatures,
-            normalized: &normalization.normalized,
-            array_lengths: &array_lengths,
-            target: self.input.layouts.target,
-            program,
-        };
         let computed = nia_layout::compute_layouts_with_program_context(
             self.input.defs,
-            &normalization.interner,
+            self.interner,
             self.input.signatures,
             &normalization.normalized,
             &array_lengths,
@@ -73,13 +73,26 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             self.input.module_id,
         );
         append_missing_nominal_layouts(&mut layouts.unions, computed.unions, self.input.module_id);
-        self.append_instance_layouts(layouts, layout_input, struct_instances, union_instances);
+        let mut layout_input = nia_layout::LayoutComputationInput {
+            defs: self.input.defs,
+            interner: self.interner,
+            signatures: self.input.signatures,
+            normalized: &normalization.normalized,
+            array_lengths: &array_lengths,
+            target: self.input.layouts.target,
+            program,
+        };
+        Self::append_instance_layouts(
+            layouts,
+            &mut layout_input,
+            struct_instances,
+            union_instances,
+        );
     }
 
     fn append_instance_layouts(
-        &self,
         layouts: &mut BackendLayouts,
-        layout_input: nia_layout::LayoutComputationInput<'_>,
+        layout_input: &mut nia_layout::LayoutComputationInput<'_>,
         struct_instances: &[BackendStructInstance],
         union_instances: &[BackendUnionInstance],
     ) {
@@ -134,16 +147,6 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 layouts.union_instances.push((key, layout));
             }
         }
-    }
-
-    fn program_array_len(&self, id: GlobalConstExprId) -> Option<u64> {
-        if id.module_id == self.input.module_id {
-            return self.input.const_array_lengths.values.get(&id).copied();
-        }
-        self.input
-            .program_const
-            .get(&id.module_id)
-            .and_then(|array_lengths| array_lengths.values.get(&id).copied())
     }
 }
 

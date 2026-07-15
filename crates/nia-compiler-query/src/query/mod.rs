@@ -3956,6 +3956,39 @@ extend Value : Ops {
     }
 
     #[test]
+    fn signature_layout_imports_append_to_the_session_type_store() {
+        let loaded = loaded_program_with_modules(vec![
+            loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "module module1; using self::module1::Box; struct Holder { value: Box[u16] }",
+            ),
+            loaded_module(
+                ModuleId(1),
+                "module1.nia",
+                "pub struct Box[T] { value: [3]T }",
+            ),
+        ]);
+        let db = query_db(loaded);
+        let signature_types = nia_item_tree::SignatureItemSet::Types;
+
+        let _ = db.query(SignatureTypeNormalizationQuery(
+            ModuleId(0),
+            signature_types,
+        ));
+        let _ = db.query_shared(SignatureItemSignaturesQuery(ModuleId(0), signature_types));
+        let before_layout = db.context().type_store.module_snapshot(ModuleId(0));
+        let layouts = db.query(SignatureLayoutsQuery(ModuleId(0)));
+        let after_layout = db.context().type_store.module_snapshot(ModuleId(0));
+
+        assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
+        assert!(before_layout.is_prefix_of(&after_layout));
+        assert!(after_layout.iter().any(|(ty, kind)| {
+            before_layout.get(ty).is_none() && matches!(kind, TyKind::Array { .. })
+        }));
+    }
+
+    #[test]
     fn abi_check_uses_abi_signature_index_not_body_signatures() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),

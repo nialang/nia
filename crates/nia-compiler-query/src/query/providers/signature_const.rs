@@ -509,46 +509,51 @@ pub(super) fn signature_layouts_for_types(
             .get(&id)
             .copied()
         };
-        let (layout_interner, roots) =
-            time_module_provider(db, "signature_layouts.roots", module_id, || {
-                let mut layout_interner = type_normalization.interner.clone();
-                let roots = signature_layout_roots(
-                    &mut layout_interner,
-                    &item_signatures,
-                    &program_struct,
-                    &program_union,
-                    type_lowering
-                        .versioned_type_uses_from_active_item_tree(&active_item_tree)
-                        .into_iter()
-                        .map(|(_, ty)| ty),
-                );
-                (layout_interner, roots)
-            });
         let symbols = db.context().symbols();
-        nia_layout::compute_layouts_for_roots_with_program_context(
-            nia_layout::LayoutComputationInput {
-                defs: &defs,
-                interner: &layout_interner,
-                signatures: &item_signatures,
-                normalized: &type_normalization.normalized,
-                array_lengths: &local_array_lengths,
-                target: nia_layout::TargetDataLayout::LP64,
-                program: nia_layout::ProgramLayoutContext {
-                    symbols: Some(&symbols),
-                    array_lengths: Some(&program_array_lengths),
-                    struct_: Some(&program_struct),
-                    union: Some(&program_union),
-                    enum_: Some(&program_enum),
-                    type_alias: Some(&program_type_alias),
-                    ..Default::default()
-                },
-            },
-            nia_layout::LayoutRoots {
-                types: &roots.types,
-                structs: &roots.structs,
-                unions: &roots.unions,
-            },
-        )
+        db.context()
+            .type_store
+            .with_module_interner_for_semantic_migration(module_id, |interner| {
+                assert!(
+                    type_normalization.interner.is_prefix_of(interner),
+                    "Nia ICE: signature layout input is not a prefix of its session type store"
+                );
+                let roots = time_module_provider(db, "signature_layouts.roots", module_id, || {
+                    signature_layout_roots(
+                        interner,
+                        &item_signatures,
+                        &program_struct,
+                        &program_union,
+                        type_lowering
+                            .versioned_type_uses_from_active_item_tree(&active_item_tree)
+                            .into_iter()
+                            .map(|(_, ty)| ty),
+                    )
+                });
+                nia_layout::compute_layouts_for_roots_with_program_context(
+                    nia_layout::LayoutComputationInput {
+                        defs: &defs,
+                        interner,
+                        signatures: &item_signatures,
+                        normalized: &type_normalization.normalized,
+                        array_lengths: &local_array_lengths,
+                        target: nia_layout::TargetDataLayout::LP64,
+                        program: nia_layout::ProgramLayoutContext {
+                            symbols: Some(&symbols),
+                            array_lengths: Some(&program_array_lengths),
+                            struct_: Some(&program_struct),
+                            union: Some(&program_union),
+                            enum_: Some(&program_enum),
+                            type_alias: Some(&program_type_alias),
+                            ..Default::default()
+                        },
+                    },
+                    nia_layout::LayoutRoots {
+                        types: &roots.types,
+                        structs: &roots.structs,
+                        unions: &roots.unions,
+                    },
+                )
+            })
     })
 }
 

@@ -113,9 +113,10 @@ fn main() i32 {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
+    let mut layout_interner = lowered.interner.clone();
     let layouts = nia_layout::compute_layouts(
         &defs,
-        &lowered.interner,
+        &mut layout_interner,
         &signatures,
         nia_layout::TargetDataLayout::LP64,
     );
@@ -278,9 +279,10 @@ fn main() i32 {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
+    let mut layout_interner = lowered.interner.clone();
     let layouts = nia_layout::compute_layouts(
         &defs,
-        &lowered.interner,
+        &mut layout_interner,
         &signatures,
         nia_layout::TargetDataLayout::LP64,
     );

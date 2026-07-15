@@ -353,12 +353,6 @@ impl Analyzer<'_> {
         }
     }
 
-    pub(super) fn interner_for_module(&self, module_id: ModuleId) -> Option<&TyInterner> {
-        self.working_interners
-            .get(&module_id)
-            .map(|interner| &**interner)
-    }
-
     pub(super) fn source_interner_for_module(&self, module_id: ModuleId) -> Option<TyInterner> {
         if module_id == self.input.defs.module_id {
             Some(self.input.interner.clone())
@@ -585,22 +579,29 @@ impl Analyzer<'_> {
                 message: "cannot compute layout without module type interner".to_string(),
             });
         }
-        let Some(defs) = self.global_defs(module_id) else {
+        let defs = if module_id == self.input.defs.module_id {
+            ModuleDefs::Borrowed(self.input.defs)
+        } else if let Some(defs) = self.input.program.defs.and_then(|defs| defs(module_id)) {
+            ModuleDefs::Shared(defs)
+        } else {
             return Err(ConstError {
                 span,
                 message: "cannot compute layout without module definitions".to_string(),
             });
         };
-        let Some(signatures) = self.signatures_for_module(module_id) else {
+        let signatures = if module_id == self.input.defs.module_id {
+            ModuleSignatures::Borrowed(self.input.signatures)
+        } else if let Some(signatures) = self
+            .input
+            .program
+            .signatures
+            .and_then(|signatures| signatures(module_id))
+        {
+            ModuleSignatures::Shared(signatures)
+        } else {
             return Err(ConstError {
                 span,
                 message: "cannot compute layout without module signatures".to_string(),
-            });
-        };
-        let Some(interner) = self.interner_for_module(module_id) else {
-            return Err(ConstError {
-                span,
-                message: "cannot compute layout without module type interner".to_string(),
             });
         };
         let Some(normalized) = self.normalized_for_module(module_id) else {
@@ -609,12 +610,18 @@ impl Analyzer<'_> {
                 message: "cannot compute layout without normalized module types".to_string(),
             });
         };
+        let Some(mut interner) = self.working_interners.remove(&module_id) else {
+            return Err(ConstError {
+                span,
+                message: "cannot compute layout without module type interner".to_string(),
+            });
+        };
         let array_lengths = |id| layout_array_lengths.get(&id).copied();
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
         let layouts = nia_layout::compute_layouts_with_program_context(
             defs.as_ref(),
-            interner,
+            &mut interner,
             signatures.as_ref(),
             &normalized,
             &array_lengths,
@@ -626,6 +633,7 @@ impl Analyzer<'_> {
                 ..Default::default()
             },
         );
+        self.working_interners.insert(module_id, interner);
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
         let ty_module_id = self.type_owner(ty).module_id();
         if let Some(TyKind::Nominal {
@@ -679,22 +687,29 @@ impl Analyzer<'_> {
                 message: "cannot compute field offset without module type interner".to_string(),
             });
         }
-        let Some(defs) = self.global_defs(module_id) else {
+        let defs = if module_id == self.input.defs.module_id {
+            ModuleDefs::Borrowed(self.input.defs)
+        } else if let Some(defs) = self.input.program.defs.and_then(|defs| defs(module_id)) {
+            ModuleDefs::Shared(defs)
+        } else {
             return Err(ConstError {
                 span,
                 message: "cannot compute field offset without module definitions".to_string(),
             });
         };
-        let Some(signatures) = self.signatures_for_module(module_id) else {
+        let signatures = if module_id == self.input.defs.module_id {
+            ModuleSignatures::Borrowed(self.input.signatures)
+        } else if let Some(signatures) = self
+            .input
+            .program
+            .signatures
+            .and_then(|signatures| signatures(module_id))
+        {
+            ModuleSignatures::Shared(signatures)
+        } else {
             return Err(ConstError {
                 span,
                 message: "cannot compute field offset without module signatures".to_string(),
-            });
-        };
-        let Some(interner) = self.interner_for_module(module_id) else {
-            return Err(ConstError {
-                span,
-                message: "cannot compute field offset without module type interner".to_string(),
             });
         };
         let Some(normalized) = self.normalized_for_module(module_id) else {
@@ -703,12 +718,18 @@ impl Analyzer<'_> {
                 message: "cannot compute field offset without normalized module types".to_string(),
             });
         };
+        let Some(mut interner) = self.working_interners.remove(&module_id) else {
+            return Err(ConstError {
+                span,
+                message: "cannot compute field offset without module type interner".to_string(),
+            });
+        };
         let array_lengths = |id| layout_array_lengths.get(&id).copied();
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
         let layouts = nia_layout::compute_layouts_with_program_context(
             defs.as_ref(),
-            interner,
+            &mut interner,
             signatures.as_ref(),
             &normalized,
             &array_lengths,
@@ -720,6 +741,7 @@ impl Analyzer<'_> {
                 ..Default::default()
             },
         );
+        self.working_interners.insert(module_id, interner);
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
         let Some(TyKind::Nominal {
             def_id,
@@ -963,13 +985,13 @@ impl Analyzer<'_> {
     ) -> Option<nia_layout::Layouts> {
         let defs = self.global_defs(module_id)?;
         let signatures = self.signatures_for_module(module_id)?;
-        let interner = self.source_interner_for_module(module_id)?;
+        let mut interner = self.source_interner_for_module(module_id)?;
         let normalized = self.normalized_for_module(module_id)?;
         let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
         let layout_query = |module_id| self.compute_program_layout(module_id, array_lengths);
         Some(nia_layout::compute_layouts_with_program_context(
             defs.as_ref(),
-            &interner,
+            &mut interner,
             signatures.as_ref(),
             &normalized,
             &array_lengths_for_layout,
