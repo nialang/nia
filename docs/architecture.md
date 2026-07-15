@@ -399,19 +399,22 @@ Trait solving no longer creates a frozen clone of its mutable working interner
 for enum classification. The solver holds enum metadata and classifies nominal
 types directly through the same interner it mutates, so types appended during
 solving remain visible. This is the first trait/body migration slice, not the
-completion of that domain: body and const checking still own working
-interner snapshots and still import cross-module signature types.
+completion of that domain: body checking still owns a working interner snapshot,
+while const checking still snapshots foreign modules and imports cross-module
+signature types.
 
-The const phase chain transfers its local working interner explicitly from
-array-length evaluation through enum values, values, typed facts, and the final
-product. Later phases no longer clone the initial normalization snapshot and
-immediately overwrite it with the preceding phase's interner. Each transfer
-requires an append-only extension of the original input, and losing the local
-working shard is an internal error rather than a fallback clone. Within an
-analyzer, a type already present in the target module shard is reused directly;
-snapshot import is reserved for a handle absent from that shard. Query products
-still expose phase snapshots, so const storage is not yet fully migrated to
-the session store.
+Const phase providers mutate the compilation-owned `TypeStore` module shard
+directly. Array lengths, enum values, values, and typed facts are ordinary query
+facts and no longer carry or transfer `TyInterner` snapshots. The analyzer
+borrows the session shard for its local module; temporary working snapshots are
+reserved for foreign modules that have not yet crossed the Phase B boundary.
+Providers resolve local trait and extension facts before entering the mutable
+transaction so nested semantic queries cannot re-enter the same module lock.
+When a foreign source snapshot advances, the analyzer selects the newer
+append-only prefix and reports an internal error only if the two views actually
+diverge. `ConstCheck` still publishes one interner snapshot for the unmigrated
+body/backend boundary; removing that final snapshot belongs to the body-store
+migration rather than to an intermediate const phase.
 
 ### 3.6 `nia-diagnostic`
 

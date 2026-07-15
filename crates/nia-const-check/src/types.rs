@@ -32,14 +32,12 @@ pub struct ConstCheck {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConstArrayLengths {
-    pub interner: TyInterner,
     pub values: HashMap<GlobalConstExprId, u64>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConstEnumValues {
-    pub interner: TyInterner,
     pub values: HashMap<DefId, ConstValue>,
     pub typed_values: HashMap<DefId, TypedConstValue>,
     pub diagnostics: Vec<Diagnostic>,
@@ -47,7 +45,6 @@ pub struct ConstEnumValues {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConstValues {
-    pub interner: TyInterner,
     pub values: HashMap<ConstKey, ConstValue>,
     pub typed_values: HashMap<ConstKey, TypedConstValue>,
     pub diagnostics: Vec<Diagnostic>,
@@ -55,7 +52,6 @@ pub struct ConstValues {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConstTypedFacts {
-    pub interner: TyInterner,
     pub typed_values: HashMap<ConstKey, TypedConstValue>,
     pub diagnostics: Vec<Diagnostic>,
 }

@@ -34,9 +34,10 @@ pub(super) fn provide_const(db: &QueryDb<CompilerContext>, module_id: ModuleId) 
         let values = db.query(ConstValuesQuery(module_id));
         let typed_facts = db.query(ConstTypedFactsQuery(module_id));
 
-        with_const_input(db, module_id, |input, module| {
+        with_const_input(db, module_id, |input, module, interner| {
             let mut const_eval = nia_const_check::check_module_const_with_all_phases(
                 input,
+                interner,
                 array_lengths,
                 enum_values,
                 values,
@@ -52,8 +53,9 @@ pub(super) fn provide_const_array_lengths(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_const_check::ConstArrayLengths {
-    with_const_input(db, module_id, |input, module| {
-        let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input);
+    with_const_input(db, module_id, |input, module, interner| {
+        let mut array_lengths =
+            nia_const_check::compute_module_const_array_lengths(input, interner);
         array_lengths.diagnostics.extend(module.diagnostics.clone());
         array_lengths
     })
@@ -64,9 +66,9 @@ pub(super) fn provide_const_enum_values(
     module_id: ModuleId,
 ) -> nia_const_check::ConstEnumValues {
     let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
-    with_const_input(db, module_id, |input, module| {
+    with_const_input(db, module_id, |input, module, interner| {
         let mut enum_values =
-            nia_const_check::compute_module_const_enum_values(input, array_lengths);
+            nia_const_check::compute_module_const_enum_values(input, interner, array_lengths);
         enum_values.diagnostics.extend(module.diagnostics.clone());
         enum_values
     })
@@ -78,9 +80,13 @@ pub(super) fn provide_const_values(
 ) -> nia_const_check::ConstValues {
     let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
     let enum_values = db.query(ConstEnumValuesQuery(module_id));
-    with_const_input(db, module_id, |input, module| {
-        let mut values =
-            nia_const_check::compute_module_const_values(input, array_lengths, enum_values);
+    with_const_input(db, module_id, |input, module, interner| {
+        let mut values = nia_const_check::compute_module_const_values(
+            input,
+            interner,
+            array_lengths,
+            enum_values,
+        );
         values.diagnostics.extend(module.diagnostics.clone());
         values
     })
@@ -93,15 +99,21 @@ pub(super) fn provide_const_typed_facts(
     let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
     let enum_values = db.query(ConstEnumValuesQuery(module_id));
     let values = db.query(ConstValuesQuery(module_id));
-    with_const_input(db, module_id, |input, _module| {
-        nia_const_check::compute_module_const_typed_facts(input, array_lengths, enum_values, values)
+    with_const_input(db, module_id, |input, _module, interner| {
+        nia_const_check::compute_module_const_typed_facts(
+            input,
+            interner,
+            array_lengths,
+            enum_values,
+            values,
+        )
     })
 }
 
 fn with_const_input<T>(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
+    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering, &mut nia_ty::TyInterner) -> T,
 ) -> T {
     with_const_input_and_program_signatures(db, module_id, None, f)
 }
@@ -110,7 +122,7 @@ pub(super) fn with_const_input_and_program_signatures<T>(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
-    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
+    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering, &mut nia_ty::TyInterner) -> T,
 ) -> T {
     let module = db.query(ConstModuleQuery(module_id));
     let defs = db.query_shared(FullModuleDefsQuery(module_id));
@@ -124,12 +136,24 @@ pub(super) fn with_const_input_and_program_signatures<T>(
             nia_item_tree::SignatureItemSet::Values,
         )))
     };
-    let trait_impls_for_module = |module_id| {
+    let local_trait_impls = non_function_signatures_override
+        .is_none()
+        .then(|| db.query_shared(VisibleTraitImplsQuery(module_id)));
+    let trait_impls_for_module = |requested_module_id| {
+        if requested_module_id == module_id {
+            return non_function_signatures_override
+                .map(|signatures| signatures.trait_impls.clone())
+                .or_else(|| {
+                    local_trait_impls
+                        .as_ref()
+                        .map(|signatures| signatures.trait_impls.clone())
+                });
+        }
         if let Some(signatures) = non_function_signatures_override {
             return Some(signatures.trait_impls.clone());
         }
         Some(
-            db.query(VisibleTraitImplsQuery(module_id))
+            db.query(VisibleTraitImplsQuery(requested_module_id))
                 .trait_impls
                 .clone(),
         )
@@ -153,8 +177,17 @@ pub(super) fn with_const_input_and_program_signatures<T>(
             nia_item_tree::SignatureItemSet::Values,
         )))
     };
-    let visible_extensions_for_module =
-        |module_id| Some(db.query(VisibleExtensionsQuery(module_id)).methods.clone());
+    let local_visible_extensions = db.query_shared(VisibleExtensionsQuery(module_id));
+    let visible_extensions_for_module = |requested_module_id| {
+        if requested_module_id == module_id {
+            return Some(local_visible_extensions.methods.clone());
+        }
+        Some(
+            db.query(VisibleExtensionsQuery(requested_module_id))
+                .methods
+                .clone(),
+        )
+    };
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
@@ -164,35 +197,41 @@ pub(super) fn with_const_input_and_program_signatures<T>(
     let type_normalization = db.query(TypeNormalizationQuery(module_id));
     let target = db.query(CompilerTargetQuery);
     let symbols = db.context().symbols();
-    f(
-        nia_const_check::ConstInput {
-            module: &module.module,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            symbols: &symbols,
-            lowered: &type_lowering,
-            signatures: &item_signatures,
-            interner: &type_normalization.interner,
-            normalized: &type_normalization.normalized,
-            target: &target,
-            source_path: &source_path,
-            program: nia_const_check::ConstProgramContext {
-                module: Some(&program_module),
-                source_path: Some(&program_source_path),
-                defs: Some(&program_defs),
-                type_normalizations: Some(&program_type_normalization),
-                value_type_normalizations: Some(&value_type_normalization),
-                signatures: Some(&item_signatures_for_module),
-                value_signatures: Some(&value_signatures_for_module),
-                const_values: None,
-                global_initializer: None,
-                program_is_enum: Some(&program_is_enum),
-                trait_impls_for_module: Some(&trait_impls_for_module),
-                visible_extensions: Some(&visible_extensions_for_module),
-            },
+    let input = nia_const_check::ConstInput {
+        module: &module.module,
+        defs: &defs,
+        values: &values,
+        locals: &locals,
+        semantic_uses: &semantic_uses,
+        symbols: &symbols,
+        lowered: &type_lowering,
+        signatures: &item_signatures,
+        interner: &type_normalization.interner,
+        normalized: &type_normalization.normalized,
+        target: &target,
+        source_path: &source_path,
+        program: nia_const_check::ConstProgramContext {
+            module: Some(&program_module),
+            source_path: Some(&program_source_path),
+            defs: Some(&program_defs),
+            type_normalizations: Some(&program_type_normalization),
+            value_type_normalizations: Some(&value_type_normalization),
+            signatures: Some(&item_signatures_for_module),
+            value_signatures: Some(&value_signatures_for_module),
+            const_values: None,
+            global_initializer: None,
+            program_is_enum: Some(&program_is_enum),
+            trait_impls_for_module: Some(&trait_impls_for_module),
+            visible_extensions: Some(&visible_extensions_for_module),
         },
-        &module,
-    )
+    };
+    db.context()
+        .type_store
+        .with_module_interner_for_semantic_migration(module_id, |interner| {
+            assert!(
+                type_normalization.interner.is_prefix_of(interner),
+                "Nia ICE: const input is not a prefix of its session type store"
+            );
+            f(input, &module, interner)
+        })
 }

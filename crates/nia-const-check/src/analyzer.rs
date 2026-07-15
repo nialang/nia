@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::ops::{Deref, DerefMut};
 
 use crate::{
     ConstArmType, ConstArrayLengths, ConstCheck, ConstEnumValues, ConstInput, ConstKey,
@@ -120,24 +121,35 @@ pub fn infer_resolved_const_expr_type(
     analyzer.resolved_const_expr_type(expr, expected)
 }
 
-pub fn check_module_const(input: ConstInput<'_>) -> ConstCheck {
-    let array_lengths = compute_module_const_array_lengths(input);
-    let enum_values = compute_module_const_enum_values(input, array_lengths.clone());
-    let values = compute_module_const_values(input, array_lengths.clone(), enum_values.clone());
+pub fn check_module_const(input: ConstInput<'_>, interner: &mut TyInterner) -> ConstCheck {
+    let array_lengths = compute_module_const_array_lengths(input, interner);
+    let enum_values = compute_module_const_enum_values(input, interner, array_lengths.clone());
+    let values =
+        compute_module_const_values(input, interner, array_lengths.clone(), enum_values.clone());
     let typed_facts = compute_module_const_typed_facts(
         input,
+        interner,
         array_lengths.clone(),
         enum_values.clone(),
         values.clone(),
     );
-    check_module_const_with_all_phases(input, array_lengths, enum_values, values, typed_facts)
+    check_module_const_with_all_phases(
+        input,
+        interner,
+        array_lengths,
+        enum_values,
+        values,
+        typed_facts,
+    )
 }
 
-pub fn compute_module_const_array_lengths(input: ConstInput<'_>) -> ConstArrayLengths {
-    let mut analyzer = Analyzer::new(input);
+pub fn compute_module_const_array_lengths(
+    input: ConstInput<'_>,
+    interner: &mut TyInterner,
+) -> ConstArrayLengths {
+    let mut analyzer = Analyzer::new(input, interner);
     analyzer.analyze_array_lengths();
     ConstArrayLengths {
-        interner: analyzer.finish_local_interner(),
         values: analyzer.array_lengths,
         diagnostics: analyzer.diagnostics,
     }
@@ -145,22 +157,23 @@ pub fn compute_module_const_array_lengths(input: ConstInput<'_>) -> ConstArrayLe
 
 pub fn check_module_const_with_array_lengths(
     input: ConstInput<'_>,
+    interner: &mut TyInterner,
     array_lengths: ConstArrayLengths,
 ) -> ConstCheck {
-    let enum_values = compute_module_const_enum_values(input, array_lengths.clone());
-    check_module_const_with_phases(input, array_lengths, enum_values)
+    let enum_values = compute_module_const_enum_values(input, interner, array_lengths.clone());
+    check_module_const_with_phases(input, interner, array_lengths, enum_values)
 }
 
 pub fn compute_module_const_enum_values(
     input: ConstInput<'_>,
+    interner: &mut TyInterner,
     array_lengths: ConstArrayLengths,
 ) -> ConstEnumValues {
-    let mut analyzer = Analyzer::with_local_interner(input, array_lengths.interner);
+    let mut analyzer = Analyzer::new(input, interner);
     analyzer.array_lengths = array_lengths.values;
     analyzer.diagnostics = array_lengths.diagnostics;
     analyzer.analyze_enum_values();
     ConstEnumValues {
-        interner: analyzer.finish_local_interner(),
         values: analyzer.enum_values,
         typed_values: analyzer.typed_enum_values,
         diagnostics: analyzer.diagnostics,
@@ -169,32 +182,42 @@ pub fn compute_module_const_enum_values(
 
 pub fn check_module_const_with_phases(
     input: ConstInput<'_>,
+    interner: &mut TyInterner,
     array_lengths: ConstArrayLengths,
     enum_values: ConstEnumValues,
 ) -> ConstCheck {
-    let values = compute_module_const_values(input, array_lengths.clone(), enum_values.clone());
+    let values =
+        compute_module_const_values(input, interner, array_lengths.clone(), enum_values.clone());
     let typed_facts = compute_module_const_typed_facts(
         input,
+        interner,
         array_lengths.clone(),
         enum_values.clone(),
         values.clone(),
     );
-    check_module_const_with_all_phases(input, array_lengths, enum_values, values, typed_facts)
+    check_module_const_with_all_phases(
+        input,
+        interner,
+        array_lengths,
+        enum_values,
+        values,
+        typed_facts,
+    )
 }
 
 pub fn compute_module_const_values(
     input: ConstInput<'_>,
+    interner: &mut TyInterner,
     array_lengths: ConstArrayLengths,
     enum_values: ConstEnumValues,
 ) -> ConstValues {
-    let mut analyzer = Analyzer::with_local_interner(input, enum_values.interner);
+    let mut analyzer = Analyzer::new(input, interner);
     analyzer.array_lengths = array_lengths.values;
     analyzer.enum_values = enum_values.values;
     analyzer.typed_enum_values = enum_values.typed_values;
     analyzer.diagnostics = enum_values.diagnostics;
     analyzer.analyze_values();
     ConstValues {
-        interner: analyzer.finish_local_interner(),
         values: analyzer.values,
         typed_values: analyzer.typed_values,
         diagnostics: analyzer.diagnostics,
@@ -203,37 +226,35 @@ pub fn compute_module_const_values(
 
 pub fn check_module_const_with_all_phases(
     input: ConstInput<'_>,
+    interner: &mut TyInterner,
     array_lengths: ConstArrayLengths,
     enum_values: ConstEnumValues,
     values: ConstValues,
     typed_facts: ConstTypedFacts,
 ) -> ConstCheck {
-    let diagnostics = typed_facts.diagnostics;
-    let mut analyzer = Analyzer::with_local_interner(input, typed_facts.interner);
-    analyzer.array_lengths = array_lengths.values;
-    analyzer.enum_values = enum_values.values;
-    analyzer.typed_enum_values = enum_values.typed_values;
-    analyzer.values = values.values;
-    analyzer.typed_values = typed_facts.typed_values;
-    analyzer.diagnostics = diagnostics;
+    assert!(
+        input.interner.is_prefix_of(interner),
+        "Nia ICE: const session interner is not an append-only extension of its input"
+    );
     ConstCheck {
-        interner: analyzer.finish_local_interner(),
-        values: analyzer.values,
-        typed_values: analyzer.typed_values,
-        enum_values: analyzer.enum_values,
-        typed_enum_values: analyzer.typed_enum_values,
-        array_lengths: analyzer.array_lengths,
-        diagnostics: analyzer.diagnostics,
+        interner: interner.clone(),
+        values: values.values,
+        typed_values: typed_facts.typed_values,
+        enum_values: enum_values.values,
+        typed_enum_values: enum_values.typed_values,
+        array_lengths: array_lengths.values,
+        diagnostics: typed_facts.diagnostics,
     }
 }
 
 pub fn compute_module_const_typed_facts(
     input: ConstInput<'_>,
+    interner: &mut TyInterner,
     array_lengths: ConstArrayLengths,
     enum_values: ConstEnumValues,
     values: ConstValues,
 ) -> ConstTypedFacts {
-    let mut analyzer = Analyzer::with_local_interner(input, values.interner);
+    let mut analyzer = Analyzer::new(input, interner);
     analyzer.array_lengths = array_lengths.values;
     analyzer.enum_values = enum_values.values;
     analyzer.typed_enum_values = enum_values.typed_values;
@@ -242,9 +263,33 @@ pub fn compute_module_const_typed_facts(
     analyzer.diagnostics = values.diagnostics;
     analyzer.analyze_functions();
     ConstTypedFacts {
-        interner: analyzer.finish_local_interner(),
         typed_values: analyzer.typed_values,
         diagnostics: analyzer.diagnostics,
+    }
+}
+
+enum WorkingInterner<'a> {
+    Session(&'a mut TyInterner),
+    Snapshot(TyInterner),
+}
+
+impl Deref for WorkingInterner<'_> {
+    type Target = TyInterner;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Session(interner) => interner,
+            Self::Snapshot(interner) => interner,
+        }
+    }
+}
+
+impl DerefMut for WorkingInterner<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Session(interner) => interner,
+            Self::Snapshot(interner) => interner,
+        }
     }
 }
 
@@ -260,7 +305,7 @@ pub(crate) struct Analyzer<'a> {
     array_lengths: HashMap<GlobalConstExprId, u64>,
     diagnostics: Vec<Diagnostic>,
     active: HashSet<ConstKey>,
-    working_interners: HashMap<ModuleId, TyInterner>,
+    working_interners: HashMap<ModuleId, WorkingInterner<'a>>,
     program_type_normalizations: RefCell<HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
     program_value_type_normalizations:
         RefCell<HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
@@ -300,13 +345,9 @@ impl Analyzer<'_> {
         symbol_text_or_unresolved(self.input.symbols, symbol)
     }
 
-    fn new(input: ConstInput<'_>) -> Analyzer<'_> {
-        Self::with_local_interner(input, input.interner.clone())
-    }
-
-    fn with_local_interner(input: ConstInput<'_>, local_interner: TyInterner) -> Analyzer<'_> {
+    fn new<'a>(input: ConstInput<'a>, local_interner: &'a mut TyInterner) -> Analyzer<'a> {
         assert!(
-            input.interner.is_prefix_of(&local_interner),
+            input.interner.is_prefix_of(local_interner),
             "Nia ICE: const working interner is not an append-only extension of its input"
         );
         Analyzer {
@@ -321,19 +362,16 @@ impl Analyzer<'_> {
             array_lengths: HashMap::new(),
             diagnostics: Vec::new(),
             active: HashSet::new(),
-            working_interners: HashMap::from([(input.defs.module_id, local_interner)]),
+            working_interners: HashMap::from([(
+                input.defs.module_id,
+                WorkingInterner::Session(local_interner),
+            )]),
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_value_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_type_substitutions: HashMap::new(),
         }
-    }
-
-    fn finish_local_interner(&mut self) -> TyInterner {
-        self.working_interners
-            .remove(&self.input.defs.module_id)
-            .expect("Nia ICE: const analyzer lost its local working interner")
     }
 
     fn for_typed_query(input: TypedConstQueryInput<'_>) -> Analyzer<'_> {
@@ -368,7 +406,10 @@ impl Analyzer<'_> {
             array_lengths: input.array_lengths.clone(),
             diagnostics: Vec::new(),
             active: HashSet::new(),
-            working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
+            working_interners: HashMap::from([(
+                input.defs.module_id,
+                WorkingInterner::Snapshot(input.interner.clone()),
+            )]),
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_value_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),

@@ -339,21 +339,25 @@ fn lower_source_with_body_check_mutation_and_optimization(
         "{:?}",
         const_module.diagnostics
     );
-    let const_eval = nia_const_check::check_module_const(nia_const_check::ConstInput {
-        module: &const_module.module,
-        defs: &defs,
-        values: &values,
-        locals: &locals,
-        semantic_uses: &semantic_uses,
-        symbols: &symbols,
-        lowered: &type_lowering,
-        signatures: &signatures,
-        interner: &normalization.interner,
-        normalized: &normalization.normalized,
-        target: &target,
-        source_path: &source_path,
-        program: nia_const_check::ConstProgramContext::empty(),
-    });
+    let mut const_interner = normalization.interner.clone();
+    let const_eval = nia_const_check::check_module_const(
+        nia_const_check::ConstInput {
+            module: &const_module.module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            symbols: &symbols,
+            lowered: &type_lowering,
+            signatures: &signatures,
+            interner: &normalization.interner,
+            normalized: &normalization.normalized,
+            target: &target,
+            source_path: &source_path,
+            program: nia_const_check::ConstProgramContext::empty(),
+        },
+        &mut const_interner,
+    );
     let layouts = nia_layout::compute_layouts_with_normalized_types(
         &defs,
         &normalization.interner,
@@ -363,22 +367,20 @@ fn lower_source_with_body_check_mutation_and_optimization(
         nia_layout::TargetDataLayout::LP64,
     );
     let const_array_lengths = nia_const_check::ConstArrayLengths {
-        interner: const_eval.interner.clone(),
         values: const_eval.array_lengths.clone(),
         diagnostics: Vec::new(),
     };
     let const_values = nia_const_check::ConstValues {
-        interner: const_eval.interner.clone(),
         values: const_eval.values.clone(),
         typed_values: const_eval.typed_values.clone(),
         diagnostics: Vec::new(),
     };
     let const_typed_facts = nia_const_check::ConstTypedFacts {
-        interner: const_eval.interner.clone(),
         typed_values: const_eval.typed_values.clone(),
         diagnostics: Vec::new(),
     };
     let body_const = nia_body_check::BodyConst::from_phases(
+        &const_eval.interner,
         &const_values,
         &const_array_lengths,
         &const_typed_facts,
@@ -463,7 +465,6 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let mut const_eval = const_eval;
     mutate_const(&mut const_eval, &type_lowering);
     let const_array_lengths = nia_const_check::ConstArrayLengths {
-        interner: const_eval.interner.clone(),
         values: const_eval.array_lengths.clone(),
         diagnostics: Vec::new(),
     };
@@ -519,7 +520,6 @@ fn const_enum_values_from_check(
     const_eval: &nia_const_check::ConstCheck,
 ) -> nia_const_check::ConstEnumValues {
     nia_const_check::ConstEnumValues {
-        interner: const_eval.interner.clone(),
         values: const_eval.enum_values.clone(),
         typed_values: const_eval.typed_enum_values.clone(),
         diagnostics: Vec::new(),

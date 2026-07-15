@@ -60,21 +60,25 @@ fn check_source(source: &str) -> CheckedFixture {
         const_exprs: &lowered.const_exprs,
         source_path: &source_path,
     });
-    let checked = check_module_const(ConstInput {
-        module: &const_module.module,
-        defs: &defs,
-        values: &values,
-        locals: &locals,
-        semantic_uses: &semantic_uses,
-        symbols: &symbols,
-        lowered: &lowered,
-        signatures: &signatures,
-        interner: &lowered.interner,
-        normalized: &HashMap::new(),
-        target: &target,
-        source_path: &source_path,
-        program: ConstProgramContext::empty(),
-    });
+    let mut const_interner = lowered.interner.clone();
+    let checked = check_module_const(
+        ConstInput {
+            module: &const_module.module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            symbols: &symbols,
+            lowered: &lowered,
+            signatures: &signatures,
+            interner: &lowered.interner,
+            normalized: &HashMap::new(),
+            target: &target,
+            source_path: &source_path,
+            program: ConstProgramContext::empty(),
+        },
+        &mut const_interner,
+    );
     assert_eq!(
         lowered.interner.interner_id(),
         checked.interner.interner_id()

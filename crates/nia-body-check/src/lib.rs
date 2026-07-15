@@ -135,12 +135,13 @@ pub struct BodyConst<'a> {
 
 impl<'a> BodyConst<'a> {
     pub fn from_phases(
+        interner: &'a TyInterner,
         values: &'a ConstValues,
         array_lengths: &'a ConstArrayLengths,
         typed_facts: &'a ConstTypedFacts,
     ) -> Self {
         Self {
-            interner: &typed_facts.interner,
+            interner,
             values: &values.values,
             typed_values: &typed_facts.typed_values,
             array_lengths: &array_lengths.values,

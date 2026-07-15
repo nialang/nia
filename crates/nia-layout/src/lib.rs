@@ -1633,21 +1633,25 @@ mod tests {
             "{:?}",
             const_module.diagnostics
         );
-        check_module_const(ConstInput {
-            module: &const_module.module,
-            defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            symbols,
-            lowered,
-            signatures,
-            interner: &lowered.interner,
-            normalized: &HashMap::new(),
-            target: &target,
-            source_path: &source_path,
-            program: ConstProgramContext::empty(),
-        })
+        let mut const_interner = lowered.interner.clone();
+        check_module_const(
+            ConstInput {
+                module: &const_module.module,
+                defs,
+                values: &values,
+                locals: &locals,
+                semantic_uses: &semantic_uses,
+                symbols,
+                lowered,
+                signatures,
+                interner: &lowered.interner,
+                normalized: &HashMap::new(),
+                target: &target,
+                source_path: &source_path,
+                program: ConstProgramContext::empty(),
+            },
+            &mut const_interner,
+        )
     }
 
     fn semantic_use_table(
