@@ -451,6 +451,8 @@ monomorphization have completed and lends that map only for the duration of
 backend lowering. These snapshots are not query values or semantic products.
 `BodyIr.interner`, `ProgramFunctionBodyInterners`, and the body/function snapshot
 merge path have been deleted; backend uses only this final session view. The
+shared backend index borrows that view by interner id rather than cloning the
+whole program map once per module. The
 next migration must jointly replace backend's cloned writable interner,
 cross-interner imports, and `BackendModule.interner`/codegen lookup contract
 rather than preserving the call-stack snapshot protocol as a second API.
