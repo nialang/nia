@@ -439,7 +439,7 @@ pub(crate) fn static_init_simplification_enabled(optimization: &OptimizationPoli
 
 pub(crate) struct ModuleLowerer<'a> {
     pub(crate) input: &'a BackendLowerModuleInput<'a>,
-    shared: &'a BackendLowerShared,
+    shared: &'a BackendLowerShared<'a>,
     pub(crate) monomorphization: &'a Monomorphization,
     pub(crate) optimization: OptimizationPolicy,
     pub(crate) type_context: type_context::BackendTypeContext<'a, 'a>,
@@ -492,7 +492,7 @@ pub(crate) struct ExtensionMethodSource {
     interner: nia_ty::TyInterner,
 }
 
-pub(crate) struct BackendLowerShared {
+pub(crate) struct BackendLowerShared<'a> {
     program_extension_generics_by_method: HashMap<GlobalDefId, Vec<SymbolId>>,
     program_extension_method_sources_by_def: HashMap<GlobalDefId, ExtensionMethodSource>,
     program_trait_impls_by_method: HashMap<GlobalDefId, usize>,
@@ -500,11 +500,11 @@ pub(crate) struct BackendLowerShared {
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
     program_trait_methods_with_defaults: HashSet<GlobalDefId>,
     program_method_symbols_by_def: HashMap<GlobalDefId, SymbolId>,
-    input_type_interners: HashMap<TyInternerId, nia_ty::TyInterner>,
+    input_type_interners: HashMap<TyInternerId, &'a nia_ty::TyInterner>,
 }
 
-impl BackendLowerShared {
-    fn new(modules: &[BackendLowerModuleInput<'_>]) -> Self {
+impl<'a> BackendLowerShared<'a> {
+    fn new(modules: &[BackendLowerModuleInput<'a>]) -> Self {
         let first = modules.first();
         Self {
             program_extension_generics_by_method: first
@@ -855,7 +855,7 @@ impl<'a> ModuleLowerer<'a> {
         input: &'a BackendLowerModuleInput<'a>,
         monomorphization: &'a Monomorphization,
         optimization: OptimizationPolicy,
-        shared: &'a BackendLowerShared,
+        shared: &'a BackendLowerShared<'a>,
         timing: bool,
     ) -> Self {
         let type_context =
@@ -2383,11 +2383,11 @@ fn index_program_extension_method_sources_by_def(
     sources
 }
 
-fn index_input_type_interner_snapshots(
-    modules: &[BackendLowerModuleInput<'_>],
-) -> HashMap<TyInternerId, nia_ty::TyInterner> {
+fn index_input_type_interner_snapshots<'a>(
+    modules: &[BackendLowerModuleInput<'a>],
+) -> HashMap<TyInternerId, &'a nia_ty::TyInterner> {
     let mut interners = HashMap::new();
-    for input in modules {
+    if let Some(input) = modules.first() {
         for interner in input.program_type_interners.values() {
             insert_input_type_interner_snapshot(&mut interners, "session", interner);
         }
@@ -2395,15 +2395,15 @@ fn index_input_type_interner_snapshots(
     interners
 }
 
-fn insert_input_type_interner_snapshot(
-    interners: &mut HashMap<TyInternerId, nia_ty::TyInterner>,
+fn insert_input_type_interner_snapshot<'a>(
+    interners: &mut HashMap<TyInternerId, &'a nia_ty::TyInterner>,
     source: &'static str,
-    interner: &nia_ty::TyInterner,
+    interner: &'a nia_ty::TyInterner,
 ) {
     let interner_id = interner.interner_id();
     if let Some(existing) = interners.get(&interner_id) {
         if existing.is_prefix_of(interner) {
-            interners.insert(interner_id, interner.clone());
+            interners.insert(interner_id, interner);
         } else if !interner.is_prefix_of(existing) {
             panic!(
                 "conflicting type interner snapshots share id {:?} from {}",
@@ -2411,7 +2411,7 @@ fn insert_input_type_interner_snapshot(
             );
         }
     } else {
-        interners.insert(interner_id, interner.clone());
+        interners.insert(interner_id, interner);
     }
 }
 
