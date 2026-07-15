@@ -381,19 +381,19 @@ session. It follows these rules:
 
 The migration has established a compilation-owned `TypeStore`: a
 `TyInternerId` now contains a unique `TypeStoreId` as well as its temporary
-module shard, and every type-lowering and normalization variant appends through
-the same store. Normalization is one algorithm over an explicit mutable
-interner and explicit input handles; compiler query providers supply the store
-transaction, while standalone algorithm tests use that same API. This prevents
-handles from separate compiler sessions with equal `ModuleId`s from comparing
-equal and prevents normalization variants from creating private divergent
-interners. It does not yet satisfy the final contract because the module shard
-remains part of the handle and query products still carry cloned interner
-snapshots for unmigrated consumers. Migration next moves traits/body, then
-layout, monomorphization, backend lowering, and codegen. A domain is migrated
-only when its private mutation/import path is deleted. Temporary snapshots
-exist only at the boundary between the migrated prefix and the next unmigrated
-domain; there is no permanent module-local/session-global API choice.
+module shard, and type lowering, normalization, const analysis, body checking,
+function lowering, and monomorphization append through the same store.
+Normalization remains one algorithm over an explicit mutable interner and
+explicit input handles; compiler query providers supply the store transaction,
+while standalone algorithm tests use that same API. This prevents handles from
+separate compiler sessions with equal `ModuleId`s from comparing equal and
+prevents migrated phases from creating private divergent interners. The final
+contract is not yet satisfied because the module shard remains part of the
+handle and layout/backend consumers still receive cloned snapshots. A domain is
+migrated only when its private mutation/import path is deleted. Temporary
+snapshots exist only at the boundary between the migrated prefix and the next
+unmigrated domain; there is no permanent module-local/session-global API
+choice.
 
 Trait solving no longer creates a frozen clone of its mutable working interner
 for enum classification. The solver holds enum metadata and classifies nominal
@@ -427,16 +427,24 @@ cannot replace it. The next Phase B slice migrates those downstream consumers
 and deletes `BodyIr.interner`; it must not move the snapshot into another
 aggregate product or turn speculative snapshots into a permanent dual API.
 
-Function IR lowering has crossed this boundary for mutation. It borrows the
-session shard and appends synthesized types, while its single-body and batch
-products contain only function IR and diagnostics. Until monomorphization and
-backend lowering migrate, the compiler-query provider takes module snapshots
-after all function lowering completes and lends them only for the duration of
-that downstream call. These snapshots are not query values or semantic
-products. The next writable fork to remove is
-`MonoCollector.working_interners_by_module`, together with the published
-`Monomorphization.type_interners`; only then can backend and reachability stop
-using `BodyIr.interner` and `ProgramFunctionBodyInterners` as type stores.
+Function IR lowering and monomorphization have crossed this boundary for
+mutation. Function lowering borrows the session shard and appends synthesized
+types, while its single-body and batch products contain only function IR and
+diagnostics. `MonoCollector` also borrows the store directly: recursive type
+inspection clones one `TyKind` under a short transaction, projection solving
+locks only the target shard, and type mangling uses a bounded transaction whose
+callbacks cannot reenter the store. The collector no longer owns
+`working_interners_by_module`, and `Monomorphization` no longer publishes a map
+of cloned interners.
+
+Backend lowering is still on the next snapshot boundary. Compiler-query takes
+module snapshots after function lowering and monomorphization have completed
+and lends them only for the duration of backend lowering. These snapshots are
+not query values or semantic products, and backend no longer treats the
+monomorphization result as another type store. The next migration removes
+`BodyIr.interner` and `ProgramFunctionBodyInterners`, then deletes the remaining
+backend cross-interner imports rather than preserving this snapshot protocol as
+a second API.
 
 ### 3.6 `nia-diagnostic`
 
@@ -1057,6 +1065,12 @@ a required correctness invariant at every optimization level; the
 boundary participates in size policy, but it does not make exact-key
 deduplication optional. Future size-oriented passes may use this boundary for
 stronger cross-instance deduplication that preserves symbol identity.
+
+The collector mutates the compilation `TypeStore` for instantiated structural
+types. Its output contains instance keys and diagnostics, not an alternate set
+of type interners. Inputs must be append-only prefixes of their session shards;
+the collector's generated handles therefore remain visible to later backend
+snapshots without a merge or replacement step.
 
 ### 10.2 `nia-mangle`
 

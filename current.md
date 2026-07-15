@@ -268,16 +268,13 @@ Nia 应采用一个单一模型，而不是并列的“typed query 系统”和�
 
 ### 7.1 Nia 的 module-local interner 是当前最深的架构债务
 
-Phase B 开始前，`InternedTyId` 包含 `TyInternerId + TyInternerIndex`，而 `TyInternerId::for_module` 直接来源于 `ModuleId`。第一实现切片已经删除 `for_module`，改为 `TypeStoreId + ModuleId`，因此相同 `ModuleId` 的不同 compiler session 不再产生可误认的 handle；但 module shard 和 `TyInternerIndex` 仍存在，尚未成为最终统一 `TyId`。`TyInterner` 本身仍是可 clone 的 Vec/hash interner。多个后续阶段持有各自 interner，跨模块或跨阶段时仍通过 `try_import_type_into` 按 `TyKind` 递归重建类型。
+Phase B 开始前，`InternedTyId` 包含 `TyInternerId + TyInternerIndex`，而 `TyInternerId::for_module` 直接来源于 `ModuleId`。第一实现切片已经删除 `for_module`，改为 `TypeStoreId + ModuleId`，因此相同 `ModuleId` 的不同 compiler session 不再产生可误认的 handle；但 module shard 和 `TyInternerIndex` 仍存在，尚未成为最终统一 `TyId`。`TyInterner` 本身仍是可 clone 的 Vec/hash interner。type lower、normalize、const、body、function lower 与 monomorphization 的本模块 mutation 已迁入 store；未迁移的 layout/backend 读路径与真正跨模块类型仍通过 snapshot 或 `try_import_type_into` 按 `TyKind` 递归重建。
 
 实际代码中广泛存在：
 
-- `module.interner = ...clone()`；
-- `working_interners_by_module`；
 - `comparison_interner`；
 - `input_type_interner_snapshots`；
 - `ProgramFunctionBodyInterners`；
-- monomorphization 输出再携带 `HashMap<TyInternerId, TyInterner>`；
 - backend module 再内嵌完整 `TyInterner`。
 
 这不是“clone 稍多”的局部问题，而是 identity model 有两层含义：同一结构类型在不同 interner 中可能有不同 ID；某个 ID 的解释依赖它对应的快照。API 因此必须同时传 ID 和能解释 ID 的 interner。
@@ -455,13 +452,13 @@ Zig 的 AIR 路径与 Nia 特别值得对照：`analyzeFuncBody` 产生 `air`，
 
 ## 11. Monomorphization 与 Reachability
 
-Nia 的 monomorphization 会为每个模块 clone `TyInterner` 到 `working_interners_by_module`，然后在多个 map 中跟踪 substitutions、type instantiations、source edges、effective generics、symbols。输出又携带所有 working interners。
+Nia 的 monomorphization 此前会为每个模块 clone `TyInterner` 到 `working_interners_by_module`，然后在多个 map 中跟踪 substitutions、type instantiations、source edges、effective generics、symbols，输出又携带所有 working interners。Phase B 的当前迁移已经删除这条 writable fork：collector 直接借用 session `TypeStore`，输出只保留 instances 与 diagnostics；递归类型检查用短事务读取单个 `TyKind`，投影求解只锁目标 shard，mangling 在不会重入 store 的有界事务中完成。
 
 这套实现功能上已经不简单，但结构上有三个问题：
 
 1. mono identity 仍依赖 `arg_module_id + module-local type IDs`；
 2. collection 不是统一 dependency graph 中的 item traversal，而是先聚合 module inputs；
-3. interner clone 把“发现实例”和“构造新的类型身份空间”绑定。
+3. backend 仍通过 `BodyIr.interner`、`ProgramFunctionBodyInterners` 和调用栈内 snapshot map 消费类型，统一 store 尚未贯穿到最终 IR 产品。
 
 `nia-executable-reachability` 还有自己的循环：按当前 reachable modules 收集 body refs、traits、generic instances 和 fact owner modules，直到 change key 不变。incremental variant 仍通过多组 set 和重复的 current module materialization推进。
 
@@ -966,6 +963,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 进展（2026-07-15）：body 的本模块类型 mutation 也已接入同一 compilation-owned `TypeStore` shard，const -> body 的 snapshot 边界已删除。`BodyConst` 与 `ConstCheck` 均不再携带 `TyInterner`；body checker 的 production working interner 是 store transaction 的 mutable borrow，typed const query 也直接向该 borrow 追加类型。只有 `clone_for_type_compare` 的推测性匹配使用明确的隔离 snapshot，`BodyIr.interner` 则暂时保留为尚未迁移 layout/mono/backend 的唯一边界快照；prechecked body 和 seed 只允许是 session shard 的 append-only prefix，不能再替换 store。迁移首次运行暴露出本模块 function-signature resolver 在持锁期间重入 type lowering 的真实死锁：provider 现在在 transaction 前获取 shared function-subset/interner handle，具体 signature 仍按请求逐项构造并缓存，因此保留 precise/lazy query 依赖而不复制完整 map；`TypeStore` 同时增加同线程同 shard 重入守卫，使类似架构错误立即 ICE 而不是永久挂死 WSL。自动化回归验证 body 新建的 `[3]i32` 类型实际追加到 session shard、`BodyIr` 等于最终边界快照，以及重入会快速失败。无参数、无环境变量的原样 `cargo test` 完整通过，严格 workspace/all-targets/all-features Clippy 以 `-D warnings` 通过。相对 `628a42dc` 的同机六 workload guard 通过；optimized lazy resolver 后 ArrayList / strings / traits / const-eval / emit-exe allocated bytes 分别为 +0.010% / -0.0001% / +0.159% / -0.173% / -0.235%，RSS 全部在 0% 到 +0.72%，query execution 增量与上一 const-store 切片相同（strings +8、ArrayList +6、traits +9，均低于 0.24%），单样本 wall 不作为性能结论。Phase B 下一边界是让 layout/monomorphization/backend 消费 session-owned 类型并删除 `BodyIr.interner`；不能把该快照搬入新的 aggregate product，也不能把 speculative snapshot 扩大成 production 双轨 API。
 
 进展（2026-07-15）：function IR lowering 的本模块类型写入已从 `BodyIr.interner.clone()` 迁到 session `TypeStore` transaction。`LoweredFunctionBody`、`nia_function_lower::LoweredFunctionBodies` 与 compiler-query 的同名 batch product 均不再携带 `TyInterner`；for-in lowering 合成的 optional item type直接追加到调用方 shard，并有 prefix/slot-growth 回归。codegen provider 在所有 function body lowering 完成后才为尚未迁移的 monomorphization/backend 获取短生命周期 module snapshot map，该 map 只存在于一次 provider 调用栈，不进入 query value、checked IR 或 function-lowering product。49 个 function-lower、107 个 compiler-query、98 个 backend-lower、176 个 codegen 与 484 个 driver 测试通过，严格 workspace Clippy 无 warning。相对 body-store candidate 的六 workload perf guard 通过，query executions 全部不变；allocated bytes 在 -0.005% 到 +0.012%，RSS 在 -1.17% 到 0%，单样本 wall 不作为性能结论。下一切片应迁移 `MonoCollector.working_interners_by_module` 与 `Monomorphization.type_interners`，随后让 reachability/backend/codegen 从 session 类型访问读取并删除 `BodyIr.interner` 与 `ProgramFunctionBodyInterners`；provider 临时 snapshot map 不能固化成新的所有权层。
+
+进展（2026-07-15）：monomorphization 的 writable type ownership 已迁入 session `TypeStore`。`MonoCollector.working_interners_by_module`、只读 `interners_by_module` 与 `Monomorphization.type_interners` 已删除；唯一 collector 入口显式接收 store，先验证输入 snapshot 是对应 shard 的 prefix，再让实例化类型直接追加到 shard。递归 generic/depth/import 检查不跨递归持锁，trait projection 只在 solver 调用期间锁目标 shard，mangling callback 只读预取 map；回归测试证明 nested generic body 实际向 session 追加 `&i32` 类型。backend 不再把 mono result 当 type store，而是在 function lowering 与 mono 完成后读取 compiler-query 提供的最新短生命周期 session snapshots；backend fixture 也改为完整 store pipeline，没有测试专用兼容 API。原样根目录 `cargo test`、严格 workspace/all-targets/all-features Clippy 均通过；相对 function-store baseline 的六 workload perf guard 中 query executions 全部不变，allocated bytes 在 -0.052% 到 +0.002%、RSS 在 -1.92% 到 +0.16% 内，单样本 wall 不作为性能结论。Phase B 尚未完成：`BodyIr.interner`、`ProgramFunctionBodyInterners` 与 backend snapshot/import 路径仍存在，下一切片应把 layout/backend 的读路径接到 session type access 并删除这些边界，而不是把 snapshot map 固化成新产品。
 
 ### 阶段 C（P0）：重做 query value/storage 契约
 

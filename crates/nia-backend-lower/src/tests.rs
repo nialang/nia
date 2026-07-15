@@ -21,7 +21,10 @@ use nia_source::SourcePath;
 use nia_static_ir::StaticInit;
 use nia_symbol::SymbolId;
 use nia_symbol_table::SymbolTable;
-use nia_type_lower::{TypeLowering, lower_module_types_with_id};
+use nia_type_lower::{
+    ProgramDefsContext, TypeLowering, TypeLoweringContext, lower_module_types_with_context,
+    lower_module_types_with_id,
+};
 use nia_type_normalize::normalize_module_types;
 use nia_type_resolve::resolve_module_types_with_symbols;
 use nia_value_resolve::resolve_module_values;
@@ -298,7 +301,21 @@ fn lower_source_with_body_check_mutation_and_optimization(
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-    let mut type_lowering = lower_module_types_with_id(ModuleId(0), &module, &type_resolved);
+    let type_store = nia_ty::TypeStore::new();
+    let program_defs =
+        |module_id| (module_id == ModuleId(0)).then(|| std::sync::Arc::new(defs.clone()));
+    let type_lowering = lower_module_types_with_context(
+        ModuleId(0),
+        &module,
+        &type_resolved,
+        TypeLoweringContext::from_program_defs(
+            &type_store,
+            ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
+        )
+        .with_symbols(&symbols),
+    );
     let signatures = collect_item_signatures(&module, &defs, &type_lowering);
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
@@ -315,12 +332,10 @@ fn lower_source_with_body_check_mutation_and_optimization(
         .iter()
         .map(|(ty_id, _)| ty_id)
         .collect::<Vec<_>>();
-    let normalization = normalize_module_types(
-        ModuleId(0),
-        &mut type_lowering.interner,
-        &normalization_input,
-        &signatures,
-    );
+    let normalization = type_store
+        .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+            normalize_module_types(ModuleId(0), interner, &normalization_input, &signatures)
+        });
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-backend-lower-test/main.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
@@ -339,25 +354,25 @@ fn lower_source_with_body_check_mutation_and_optimization(
         "{:?}",
         const_module.diagnostics
     );
-    let mut const_interner = normalization.interner.clone();
-    let const_eval = nia_const_check::check_module_const(
-        nia_const_check::ConstInput {
-            module: &const_module.module,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            symbols: &symbols,
-            lowered: &type_lowering,
-            signatures: &signatures,
-            interner: &normalization.interner,
-            normalized: &normalization.normalized,
-            target: &target,
-            source_path: &source_path,
-            program: nia_const_check::ConstProgramContext::empty(),
-        },
-        &mut const_interner,
-    );
+    let const_input = nia_const_check::ConstInput {
+        module: &const_module.module,
+        defs: &defs,
+        values: &values,
+        locals: &locals,
+        semantic_uses: &semantic_uses,
+        symbols: &symbols,
+        lowered: &type_lowering,
+        signatures: &signatures,
+        interner: &normalization.interner,
+        normalized: &normalization.normalized,
+        target: &target,
+        source_path: &source_path,
+        program: nia_const_check::ConstProgramContext::empty(),
+    };
+    let const_eval = type_store
+        .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+            nia_const_check::check_module_const(const_input, interner)
+        });
     let layouts = nia_layout::compute_layouts_with_normalized_types(
         &defs,
         &normalization.interner,
@@ -388,40 +403,45 @@ fn lower_source_with_body_check_mutation_and_optimization(
     mutate_extensions(&mut extensions, &defs, &type_lowering, &signatures);
     let origins = NodeOriginTable::default();
     let program_signatures = EmptyBodyProgramSignatures::new();
-    let mut body_check = check_module_bodies_with_program_signatures_and_layouts(
-        BodyCheckInput {
-            source_version: None,
-            source_path: &source_path,
-            symbols: &symbols,
-            origins: &origins,
-            active_item_tree: &active_item_tree,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            lowered: &type_lowering,
-            signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
-            const_signatures: &signatures,
-            normalization: &normalization,
-            seed: None,
-            target: &target,
-            const_eval: body_const,
-            const_module: &const_module.module,
-            layouts: &layouts,
-            extensions: &extensions,
-            lazy_extensions: None,
-            program_extension_methods: &nia_defs::ExtensionMethods::default(),
-            extension_interner: None,
-            program: nia_body_check::BodyProgramContext::empty(),
-            program_signatures: program_signatures.context(),
-            function_scope: nia_body_check::FunctionCheckScope::LocalModule,
-            program_const: nia_body_check::ProgramConstMaps::empty(),
-            filter: nia_body_check::BodyCheckFilter::All,
-            product: nia_body_check::BodyCheckProduct::Full,
-            prechecked: None,
-        },
-        &mut const_interner,
-    );
+    let mut body_check =
+        type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+            check_module_bodies_with_program_signatures_and_layouts(
+                BodyCheckInput {
+                    source_version: None,
+                    source_path: &source_path,
+                    symbols: &symbols,
+                    origins: &origins,
+                    active_item_tree: &active_item_tree,
+                    defs: &defs,
+                    values: &values,
+                    locals: &locals,
+                    semantic_uses: &semantic_uses,
+                    lowered: &type_lowering,
+                    signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(
+                        &signatures,
+                    ),
+                    const_signatures: &signatures,
+                    normalization: &normalization,
+                    seed: None,
+                    target: &target,
+                    const_eval: body_const,
+                    const_module: &const_module.module,
+                    layouts: &layouts,
+                    extensions: &extensions,
+                    lazy_extensions: None,
+                    program_extension_methods: &nia_defs::ExtensionMethods::default(),
+                    extension_interner: None,
+                    program: nia_body_check::BodyProgramContext::empty(),
+                    program_signatures: program_signatures.context(),
+                    function_scope: nia_body_check::FunctionCheckScope::LocalModule,
+                    program_const: nia_body_check::ProgramConstMaps::empty(),
+                    filter: nia_body_check::BodyCheckFilter::All,
+                    product: nia_body_check::BodyCheckProduct::Full,
+                    prechecked: None,
+                },
+                interner,
+            )
+        });
     assert!(
         body_check.diagnostics.is_empty(),
         "{:?}",
@@ -444,8 +464,8 @@ fn lower_source_with_body_check_mutation_and_optimization(
         .iter_generic_instantiations()
         .cloned()
         .collect::<Vec<_>>();
-    let monomorphization =
-        nia_monomorphize::collect_monomorphizations(&[nia_monomorphize::MonomorphizeModuleInput {
+    let monomorphization = nia_monomorphize::collect_monomorphizations(
+        &[nia_monomorphize::MonomorphizeModuleInput {
             module_id: ModuleId(0),
             defs: &defs,
             interner: &body_check.ir.interner,
@@ -458,7 +478,9 @@ fn lower_source_with_body_check_mutation_and_optimization(
             trait_impls: &[],
             trait_impl_index: &trait_impl_index,
             instantiations: &semantic_instantiations,
-        }]);
+        }],
+        &type_store,
+    );
     assert!(
         monomorphization.diagnostics.is_empty(),
         "{:?}",
@@ -474,6 +496,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let const_enum_values = const_enum_values_from_check(&const_eval);
     let program_function_body_interners = ProgramFunctionBodyInterners::default();
     let no_program_defs = |_| None;
+    let backend_interner = type_store.module_snapshot(ModuleId(0));
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -487,7 +510,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         signatures: &signatures,
         type_normalization: &normalization,
         body_ir: &body_check.ir,
-        function_interner: &body_check.ir.interner,
+        function_interner: &backend_interner,
         semantic_facts: &body_check.facts,
         extensions: &extensions,
         const_array_lengths: &const_array_lengths,
