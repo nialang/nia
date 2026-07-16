@@ -354,11 +354,10 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn append_view_for_module(&self, module_id: ModuleId) -> Option<TyInterner> {
-        if module_id == self.input.defs.module_id {
-            Some(self.input.interner.clone())
-        } else {
-            Some(self.type_normalization_for_module(module_id)?.interner)
+        if let Some(interner) = self.type_contexts.get(&module_id) {
+            return Some((**interner).clone());
         }
+        Some(self.input.type_store.module_snapshot(module_id))
     }
 
     pub(super) fn type_origin(&self, ty: nia_ids::InternedTyId) -> nia_ids::TypeOrigin {

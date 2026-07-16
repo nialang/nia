@@ -105,7 +105,6 @@ fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave()
     let type_alias = |_def_id| None::<ProgramTypeAliasSignature>;
     let type_store = nia_ty::TypeStore::new();
     let empty_normalization = TypeNormalization {
-        interner: type_store.module_snapshot(entry),
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };

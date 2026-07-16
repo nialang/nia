@@ -15,7 +15,6 @@ use nia_source::SourcePath;
 use nia_symbol::SymbolId;
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
-use nia_ty::TyInterner;
 use nia_type_lower::TypeLowering;
 use nia_value_resolve::ValueResolution;
 
@@ -145,7 +144,6 @@ pub struct ConstInput<'a> {
     pub symbols: &'a SymbolTable,
     pub lowered: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
-    pub interner: &'a TyInterner,
     pub type_store: &'a nia_ty::TypeStore,
     pub normalized: &'a HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>,
     pub target: &'a TargetConfig,

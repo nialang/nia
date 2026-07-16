@@ -1584,7 +1584,6 @@ mod tests {
                 symbols,
                 lowered,
                 signatures,
-                interner: &lowered.interner,
                 normalized: &HashMap::new(),
                 target: &target,
                 source_path: &source_path,

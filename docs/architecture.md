@@ -427,7 +427,9 @@ origin or view membership.
 Const and body providers mutate the compilation-owned `TypeStore` module shard
 directly. Array lengths, enum values, values, typed const facts, `ConstCheck`,
 and `BodyConst` are ordinary semantic products and no longer carry or transfer
-`TyInterner` snapshots. `BodyTypeCx` fixes the body algorithm contract: reads
+`TyInterner` snapshots. `ConstInput` has no base interner; its lowering product
+is only the append-prefix baseline, while const type reads use canonical
+storage. `BodyTypeCx` fixes the body algorithm contract in the same way: reads
 always use canonical storage, while synthesized types append to the current
 session shard. Program and local signatures therefore carry canonical handles
 directly; body checking has no signature-import fallback. Explicitly
@@ -491,9 +493,8 @@ lowering. `BackendTypeContext` reads every `TyId` from `TypeStore`; foreign
 function/global instance worklists carry only stable handles; extension and
 trait candidates carry `ModuleId` for normalization rather than cloned
 interners. Program normalization input borrows only the normalized-ID maps, so
-it does not clone the `TypeNormalization` interner snapshots as an accidental
-backend side channel. Backend checkout remains solely the append capability for
-synthesized types.
+it cannot expose a type view as an accidental backend side channel. Backend
+checkout remains solely the append capability for synthesized types.
 
 Reachability has crossed this boundary completely: its fact input contains one
 canonical store reference, generic instances carry only stable handles, and
@@ -502,15 +503,19 @@ instead of relying on an argument interner identity. It no longer snapshots,
 imports, or recursively adopts types. Program signature products and visible
 extension products likewise contain only canonical handles; body, trait
 solving, layout, reachability, backend, and codegen consume them without an
-embedded interner. Remaining migration work is concentrated in const and
-program-signature analysis now also reads exclusively from the canonical store.
-Signature equivalence, trait decomposition, visibility alias resolution,
-semantic-use projection collection, and array-length dependency scans all take
-an explicit `TypeStore`; substitutions synthesize through `TypeStoreAppend`.
-The remaining migration work is the normalization/type-lowering core and the
-temporary module visibility log itself. Once their root enumeration and append
-contracts no longer require views, `TypeOrigin`, `TyInternerId`, snapshots, and
-the view layer can be deleted.
+embedded interner. Const and program-signature analysis also read exclusively
+from the canonical store. Signature equivalence, trait decomposition,
+visibility alias resolution, semantic-use projection collection, and
+array-length dependency scans all take an explicit `TypeStore`; substitutions
+synthesize through `TypeStoreAppend`. `TypeNormalization` is a pure semantic
+fact containing only normalized-ID mappings and diagnostics. Its single
+algorithm entry receives the canonical store for reads and an explicit mutable
+append target for synthesized aliases; const/body/query inputs no longer use
+normalization as a hidden snapshot carrier. The remaining migration work is the
+type-lowering root product, layout root enumeration, and the temporary module
+visibility log itself. Once their root and append contracts no longer require
+views, `TypeOrigin`, `TyInternerId`, snapshots, and the view layer can be
+deleted.
 
 ### 3.6 `nia-diagnostic`
 
@@ -692,7 +697,10 @@ This phase intentionally ignores function body semantics.
 
 Expands type aliases and canonicalizes type forms where required. It detects
 recursive aliases and keeps normalized type information separate from raw lowered
-types.
+types. `TypeNormalization` contains only normalized-ID facts and diagnostics;
+it never owns a type view. The normalizer reads every input and referenced type
+through the session `TypeStore` and uses its explicit append target only to
+intern synthesized normalized forms.
 
 ## 7. Name Resolution
 

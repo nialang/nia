@@ -1612,9 +1612,8 @@ mod tests {
         }
     }
 
-    fn normalization_for(interner: &TyInterner) -> TypeNormalization {
+    fn normalization_for() -> TypeNormalization {
         TypeNormalization {
-            interner: interner.clone(),
             normalized: HashMap::new(),
             diagnostics: Vec::new(),
         }
@@ -1694,7 +1693,7 @@ mod tests {
             ),
         ];
 
-        let normalization = normalization_for(&interner);
+        let normalization = normalization_for();
         let const_eval = ConstCheck::default();
         let const_exprs = HashMap::new();
         let mono = collect_test_monomorphizations(
@@ -1740,7 +1739,7 @@ fn main() i32 { outer(1) }
             inst(outer_id, vec![i32_ty], Span::new(3, 4), None),
         ];
 
-        let normalization = normalization_for(&interner);
+        let normalization = normalization_for();
         let const_eval = ConstCheck::default();
         let const_exprs = HashMap::new();
         let mono = collect_test_monomorphizations(
@@ -1806,7 +1805,7 @@ fn main() i32 { 0 }
             inst(outer_id, vec![i32_ty], Span::new(3, 4), None),
         ];
 
-        let normalization = normalization_for(&interner);
+        let normalization = normalization_for();
         let const_eval = ConstCheck::default();
         let const_exprs = HashMap::new();
         let mono = collect_test_monomorphizations(
@@ -1873,7 +1872,7 @@ fn main() i32 { 0 }
             inst(recurse_id, vec![i32_ty], Span::new(3, 4), None),
         ];
 
-        let normalization = normalization_for(&interner);
+        let normalization = normalization_for();
         let const_eval = ConstCheck::default();
         let const_exprs = HashMap::new();
         let mono = collect_test_monomorphizations(
@@ -1919,7 +1918,7 @@ fn main() i32 { 0 }
             inst(grow_id, vec![i32_ty], Span::new(1, 2), None),
         ];
 
-        let normalization = normalization_for(&interner);
+        let normalization = normalization_for();
         let const_eval = ConstCheck::default();
         let const_exprs = HashMap::new();
         let mono = collect_test_monomorphizations(
@@ -1989,7 +1988,7 @@ fn main() i32 { 0 }
             },
         );
 
-        let normalization = normalization_for(&interner);
+        let normalization = normalization_for();
         let const_eval = ConstCheck::default();
         let mono = collect_test_monomorphizations(
             &[mono_input(
@@ -2051,7 +2050,7 @@ fn wrap[T](value: T) T { value }
             inst(wrap_id, vec![array_ty], Span::new(3, 4), None),
         ];
 
-        let normalization = normalization_for(&interner);
+        let normalization = normalization_for();
         let const_eval = ConstCheck::default();
         let const_exprs = HashMap::new();
         let mono = collect_test_monomorphizations(

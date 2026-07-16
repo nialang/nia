@@ -75,7 +75,6 @@ pub struct TypedConstQueryInput<'a> {
     pub symbols: &'a nia_symbol_table::SymbolTable,
     pub lowered: &'a nia_type_lower::TypeLowering,
     pub signatures: &'a ItemSignatures,
-    pub base_interner: &'a TyInterner,
     pub interner: &'a mut TyInterner,
     pub type_store: &'a nia_ty::TypeStore,
     pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
@@ -234,7 +233,7 @@ pub fn check_module_const_with_all_phases(
     typed_facts: ConstTypedFacts,
 ) -> ConstCheck {
     assert!(
-        input.interner.is_prefix_of(interner),
+        input.lowered.interner.is_prefix_of(interner),
         "Nia ICE: const session interner is not an append-only extension of its input"
     );
     ConstCheck {
@@ -384,7 +383,7 @@ impl Analyzer<'_> {
 
     fn new<'a>(input: ConstInput<'a>, local_interner: &'a mut TyInterner) -> Analyzer<'a> {
         assert!(
-            input.interner.is_prefix_of(local_interner),
+            input.lowered.interner.is_prefix_of(local_interner),
             "Nia ICE: const type context is not an append-only extension of its input"
         );
         Analyzer {
@@ -421,7 +420,6 @@ impl Analyzer<'_> {
                 symbols: input.symbols,
                 lowered: input.lowered,
                 signatures: input.signatures,
-                interner: input.base_interner,
                 type_store: input.type_store,
                 normalized: input.normalized,
                 target: input.target,
@@ -582,7 +580,12 @@ impl Analyzer<'_> {
                 .enums
                 .get(&enum_id.def_id)
                 .map(|signature| signature.backing_type)
-                .unwrap_or_else(|| self.input.interner.primitive(PrimitiveTy::Isize));
+                .unwrap_or_else(|| {
+                    self.input
+                        .type_store
+                        .append_for_module(self.input.defs.module_id)
+                        .intern(TyKind::Primitive(PrimitiveTy::Isize))
+                });
             self.typed_enum_values.insert(
                 variant_id.def_id,
                 TypedConstValue {

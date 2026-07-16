@@ -708,12 +708,13 @@ mod tests {
             .iter()
             .map(|(ty_id, _)| ty_id)
             .collect::<Vec<_>>();
-        let normalization = normalize_module_types(
+        let normalization = normalize_module_types(nia_type_normalize::TypeNormalizationInput {
             module_id,
-            &mut type_lowering.interner,
-            &normalization_input,
-            &signatures,
-        );
+            type_store: &type_store,
+            interner: &mut type_lowering.interner,
+            input_ids: &normalization_input,
+            signatures: &signatures,
+        });
         let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
             active_item_tree: &active_item_tree,
             defs: &defs,
@@ -740,13 +741,12 @@ mod tests {
             symbols: &symbols,
             lowered: &type_lowering,
             signatures: &signatures,
-            interner: &normalization.interner,
             normalized: &normalization.normalized,
             target: &target,
             source_path: &source_path,
             program: nia_const_check::ConstProgramContext::empty(),
         };
-        let mut const_interner = normalization.interner.clone();
+        let mut const_interner = type_lowering.interner.clone();
         let array_lengths =
             nia_const_check::compute_module_const_array_lengths(const_input, &mut const_interner);
         let enum_values = nia_const_check::compute_module_const_enum_values(

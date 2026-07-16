@@ -110,7 +110,6 @@ fn with_signature_const_input<T>(
         symbols: &symbols,
         lowered: &type_lowering,
         signatures: &signatures,
-        interner: &type_normalization.interner,
         normalized: &type_normalization.normalized,
         target: &target,
         source_path: &source_path,
@@ -132,7 +131,7 @@ fn with_signature_const_input<T>(
         .type_store
         .with_module_interner_for_semantic_migration(module_id, |interner| {
             assert!(
-                type_normalization.interner.is_prefix_of(interner),
+                type_lowering.interner.is_prefix_of(interner),
                 "Nia ICE: signature const input is not a prefix of its session type store"
             );
             f(input, &module, interner)
@@ -488,7 +487,7 @@ pub(super) fn signature_layouts_for_types(
             .type_store
             .with_module_interner_for_semantic_migration(module_id, |interner| {
                 assert!(
-                    type_normalization.interner.is_prefix_of(interner),
+                    type_lowering.interner.is_prefix_of(interner),
                     "Nia ICE: signature layout input is not a prefix of its session type store"
                 );
                 let roots = time_module_provider(db, "signature_layouts.roots", module_id, || {

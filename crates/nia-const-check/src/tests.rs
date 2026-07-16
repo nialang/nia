@@ -80,7 +80,6 @@ fn check_source(source: &str) -> CheckedFixture {
             symbols: &symbols,
             lowered: &lowered,
             signatures: &signatures,
-            interner: &lowered.interner,
             type_store: &type_store,
             normalized: &HashMap::new(),
             target: &target,

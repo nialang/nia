@@ -528,7 +528,6 @@ pub fn check_module_bodies(
     signatures: &ItemSignatures,
 ) -> BodyCheck {
     let empty_normalization = TypeNormalization {
-        interner: lowered.interner.clone(),
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
@@ -742,7 +741,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
     let prechecked = input.prechecked;
     let seed = input.seed;
     assert!(
-        input.normalization.interner.is_prefix_of(interner),
+        input.lowered.interner.is_prefix_of(interner),
         "Nia ICE: body input is not a prefix of its session type store"
     );
     if let Some(seed) = seed {
