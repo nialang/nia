@@ -24,6 +24,7 @@ fn with_signature_const_input<T>(
     let type_resolution = db.query(SignatureConstTypeResolutionQuery(module_id));
     let type_normalization = db.query(SignatureConstTypeNormalizationQuery(module_id));
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
+        &db.context().type_store,
         module_id,
         &active_item_tree,
         &values,
@@ -39,12 +40,6 @@ fn with_signature_const_input<T>(
         Some(db.query(SignatureTypeNormalizationQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
-        )))
-    };
-    let value_type_normalization = |module_id| {
-        Some(db.query(SignatureTypeNormalizationQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Values,
         )))
     };
     let local_trait_impls = non_function_signatures_override
@@ -124,7 +119,6 @@ fn with_signature_const_input<T>(
             source_path: Some(&program_source_path),
             defs: Some(&program_defs),
             type_normalizations: Some(&program_type_normalization),
-            value_type_normalizations: Some(&value_type_normalization),
             signatures: Some(&item_signatures_for_module),
             value_signatures: Some(&value_signatures_for_module),
             const_values: None,
@@ -156,6 +150,7 @@ pub(super) fn provide_signature_const_module(
     let locals = empty_local_resolution();
     let type_resolution = db.query(SignatureConstTypeResolutionQuery(module_id));
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
+        &db.context().type_store,
         module_id,
         &active_item_tree,
         &values,
@@ -247,8 +242,11 @@ fn signature_const_value_resolution(
     active_item_tree: &ActiveModuleItemTree,
 ) -> ValueResolution {
     let type_lowering = db.query(SignatureConstTypeLoweringQuery(module_id));
-    let needed_const_exprs =
-        needed_const_exprs_for_active_item_tree(active_item_tree, &type_lowering);
+    let needed_const_exprs = needed_const_exprs_for_active_item_tree(
+        &db.context().type_store,
+        active_item_tree,
+        &type_lowering,
+    );
     let mut exprs = type_lowering
         .const_exprs
         .iter()
@@ -317,6 +315,7 @@ fn signature_const_value_resolution(
 }
 
 fn signature_semantic_use_table_from_resolution_inputs(
+    type_store: &nia_ty::TypeStore,
     module_id: ModuleId,
     active_item_tree: &ActiveModuleItemTree,
     values: &ValueResolution,
@@ -326,6 +325,7 @@ fn signature_semantic_use_table_from_resolution_inputs(
     let empty_locals = empty_local_resolution();
     semantic_use_table_from_resolution_inputs_with_const_expr_values(SemanticUseInputs {
         module_id,
+        type_store,
         active_item_tree,
         values,
         const_expr_values: None,

@@ -333,8 +333,8 @@ impl ResolvedConstEnv for Analyzer<'_> {
     ) -> Result<ConstValue, ConstError> {
         let module_id = self.current_execution_module_id();
         let ty_id = (|| {
-            self.ensure_working_interner(module_id)?;
-            self.import_ty_into_module_or_none(type_arg.ty(), module_id)
+            self.ensure_type_context(module_id)?;
+            self.type_for_module_or_none(type_arg.ty(), module_id)
         })()
         .map(|ty| self.substitute_ty_generics(ty));
         let Some(ty_id) = ty_id else {
@@ -357,8 +357,8 @@ impl ResolvedConstEnv for Analyzer<'_> {
     ) -> Result<ConstValue, ConstError> {
         let module_id = self.current_execution_module_id();
         let ty_id = (|| {
-            self.ensure_working_interner(module_id)?;
-            self.import_ty_into_module_or_none(type_arg.ty(), module_id)
+            self.ensure_type_context(module_id)?;
+            self.type_for_module_or_none(type_arg.ty(), module_id)
         })()
         .map(|ty| self.substitute_ty_generics(ty));
         let Some(ty_id) = ty_id else {
@@ -542,8 +542,8 @@ impl Analyzer<'_> {
                 message: "associated const value has no initializer".to_string(),
             });
         };
-        self.ensure_working_interner(user.impl_module_id);
-        if !self.working_interners.contains_key(&user.impl_module_id) {
+        self.ensure_type_context(user.impl_module_id);
+        if !self.type_contexts.contains_key(&user.impl_module_id) {
             self.active.remove(&key);
             return Err(ConstError {
                 span,

@@ -11,7 +11,7 @@ use nia_defs::{
 };
 use nia_ids::{GlobalDefId, TraitId, Visibility};
 use nia_item_signatures::{ProgramTraitImplSignature, ProgramTypeAliasSignature};
-use nia_ty::TyKind;
+use nia_ty::{TyKind, TypeStore};
 use nia_type_normalize::TypeNormalization;
 
 pub type TypeNormalizationResolver<'a> = &'a dyn Fn(nia_ids::ModuleId) -> Option<TypeNormalization>;
@@ -48,6 +48,7 @@ where
 
 pub struct VisibleExtensionsInput<'a> {
     pub module_id: nia_ids::ModuleId,
+    pub type_store: &'a TypeStore,
     pub graph: &'a dyn nia_imports::ModuleGraphLookup,
     pub using_scope: &'a nia_defs::ModuleUsingScope,
     pub using_scopes: &'a dyn ProgramUsingScopeResolver,
@@ -105,6 +106,7 @@ pub fn visible_extensions_for_module(
 ) -> VisibleExtensionsForModule {
     let VisibleExtensionsInput {
         module_id,
+        type_store,
         graph,
         using_scope,
         using_scopes,
@@ -125,6 +127,7 @@ pub fn visible_extensions_for_module(
     } else {
         let visibility_context = VisibilityClosureContext {
             module_id,
+            type_store,
             graph,
             using_scope,
             using_scopes,
@@ -231,6 +234,7 @@ pub fn visible_trait_impls_for_module(
 ) -> VisibleTraitImplsForModule {
     let VisibleExtensionsInput {
         module_id,
+        type_store,
         graph,
         using_scope,
         using_scopes,
@@ -250,6 +254,7 @@ pub fn visible_trait_impls_for_module(
     } else {
         let visibility_context = VisibilityClosureContext {
             module_id,
+            type_store,
             graph,
             using_scope,
             using_scopes,
@@ -285,6 +290,7 @@ pub fn visible_trait_impls_for_module(
 
 pub struct VisibleExtensionProviderModulesInput<'a> {
     pub module_id: nia_ids::ModuleId,
+    pub type_store: &'a TypeStore,
     pub graph: &'a dyn nia_imports::ModuleGraphLookup,
     pub using_scope: &'a nia_defs::ModuleUsingScope,
     pub using_scopes: &'a dyn ProgramUsingScopeResolver,
@@ -313,6 +319,7 @@ fn visibility_closure_context<'a>(
 ) -> VisibilityClosureContext<'a> {
     VisibilityClosureContext {
         module_id: input.module_id,
+        type_store: input.type_store,
         graph: input.graph,
         using_scope: input.using_scope,
         using_scopes: input.using_scopes,
@@ -452,6 +459,7 @@ fn enqueue_using_scope_item_target_modules(
 
 struct VisibilityClosureContext<'a> {
     module_id: nia_ids::ModuleId,
+    type_store: &'a TypeStore,
     graph: &'a dyn nia_imports::ModuleGraphLookup,
     using_scope: &'a nia_defs::ModuleUsingScope,
     using_scopes: &'a dyn ProgramUsingScopeResolver,
@@ -477,6 +485,7 @@ fn collect_public_inherent_extension_provider_targets_for_using_scope(
                         module_id: entry.target_module,
                         def_id: entry.target_def_id,
                     },
+                    context.type_store,
                     context.defs,
                     context.normalizations,
                     context.visible_type_signatures,
@@ -509,6 +518,7 @@ fn enqueue_public_inherent_extension_provider_modules_for_targets(
 
 fn nominal_def_id_for_public_type(
     def_id: GlobalDefId,
+    type_store: &TypeStore,
     defs: &dyn ProgramDefsResolver,
     normalizations: TypeNormalizationResolver<'_>,
     visible_type_signatures: VisibleTypeSignatures<'_>,
@@ -527,7 +537,7 @@ fn nominal_def_id_for_public_type(
     let normalization = normalizations(def_id.module_id)?;
     let alias = (visible_type_signatures.type_alias)(def_id)?;
     let normalized = normalization.normalize(alias.signature.target);
-    match normalization.interner.get(normalized) {
+    match type_store.get(normalized) {
         Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
         _ => None,
     }

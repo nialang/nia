@@ -12,9 +12,9 @@ impl Analyzer<'_> {
         let pattern_kind = self.active_ty_kind(pattern_ty);
         match pattern_kind {
             TyKind::GenericParam(name) => {
-                let imported = self.import_ty_into_module(actual_ty, target_module_id)?;
+                let canonical = self.type_for_module(actual_ty, target_module_id)?;
                 if let Some(existing) = substitutions.get(&name) {
-                    if *existing != imported {
+                    if *existing != canonical {
                         let name = self.symbol_name(name);
                         return Err(ConstError {
                             span,
@@ -24,7 +24,7 @@ impl Analyzer<'_> {
                         });
                     }
                 } else {
-                    substitutions.insert(name, imported);
+                    substitutions.insert(name, canonical);
                 }
             }
             TyKind::SelfParam => {}
@@ -318,40 +318,27 @@ impl Analyzer<'_> {
         Some(self.active_ty_kind(ty))
     }
 
-    pub(super) fn import_ty_into_module(
+    pub(super) fn type_for_module(
         &mut self,
         ty: InternedTyId,
         target_module_id: ModuleId,
     ) -> Result<InternedTyId, ConstError> {
-        if self
-            .working_interners
+        self.type_contexts
             .get(&target_module_id)
-            .is_some_and(|target| target.get(ty).is_some())
-        {
-            return Ok(ty);
-        }
-        let source_interner = self.active_interner_for_type(ty);
-        let target = self
-            .working_interners
-            .get_mut(&target_module_id)
-            .expect("target working interner must exist");
-        Ok(import_type_into(target, &source_interner, ty))
+            .expect("target type context must exist");
+        assert!(
+            self.input.type_store.get(ty).is_some(),
+            "Nia ICE: const type belongs to a foreign type store"
+        );
+        Ok(ty)
     }
 
-    pub(super) fn import_ty_into_module_or_none(
+    pub(super) fn type_for_module_or_none(
         &mut self,
         ty: InternedTyId,
         target_module_id: ModuleId,
     ) -> Option<InternedTyId> {
-        if self
-            .working_interners
-            .get(&target_module_id)
-            .is_some_and(|target| target.get(ty).is_some())
-        {
-            return Some(ty);
-        }
-        let source_interner = self.active_interner_for_type(ty);
-        let target = self.working_interners.get_mut(&target_module_id)?;
-        Some(import_type_into(target, &source_interner, ty))
+        self.type_contexts.get(&target_module_id)?;
+        self.input.type_store.get(ty).map(|_| ty)
     }
 }

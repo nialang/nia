@@ -128,8 +128,11 @@ pub(super) fn provide_semantic_use_table(
     let type_resolution = db.query(TypeResolutionQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let needed_const_exprs =
-        needed_const_exprs_for_active_item_tree(&active_item_tree, &type_lowering);
+    let needed_const_exprs = needed_const_exprs_for_active_item_tree(
+        &db.context().type_store,
+        &active_item_tree,
+        &type_lowering,
+    );
     let const_expr_value_resolution = if needed_const_exprs.is_empty() {
         None
     } else {
@@ -160,6 +163,7 @@ pub(super) fn provide_semantic_use_table(
     };
     semantic_use_table_from_resolution_inputs_with_const_expr_values(SemanticUseInputs {
         module_id,
+        type_store: &db.context().type_store,
         active_item_tree: &active_item_tree,
         values: &values,
         const_expr_values: const_expr_value_resolution.as_ref(),
@@ -172,6 +176,7 @@ pub(super) fn provide_semantic_use_table(
 
 pub(super) struct SemanticUseInputs<'a> {
     pub module_id: ModuleId,
+    pub type_store: &'a nia_ty::TypeStore,
     pub active_item_tree: &'a ActiveModuleItemTree,
     pub values: &'a ValueResolution,
     pub const_expr_values: Option<&'a ValueResolution>,
@@ -186,6 +191,7 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
 ) -> nia_sema_ir::SemanticUseTable {
     let SemanticUseInputs {
         module_id,
+        type_store,
         active_item_tree,
         values,
         const_expr_values: const_expr_value_resolution,
@@ -223,10 +229,15 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
             .map(|(key, value)| (key.clone(), *value)),
     );
     builder.extend_node_associated_const_projections(
-        associated_const_projections_from_active_item_tree(active_item_tree, type_lowering),
+        associated_const_projections_from_active_item_tree(
+            type_store,
+            active_item_tree,
+            type_lowering,
+        ),
     );
     builder.extend_node_associated_const_projections(
         associated_const_projections_from_const_exprs(
+            type_store,
             &type_lowering.const_exprs,
             None,
             type_lowering,
@@ -257,6 +268,7 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
         );
         builder.extend_node_associated_const_projections(
             associated_const_projections_from_const_exprs(
+                type_store,
                 &type_lowering.const_exprs,
                 const_expr_value_resolution_ids,
                 type_lowering,
@@ -317,6 +329,7 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
 }
 
 fn associated_const_projections_from_active_item_tree(
+    type_store: &nia_ty::TypeStore,
     active_item_tree: &ActiveModuleItemTree,
     type_lowering: &TypeLowering,
 ) -> Vec<(
@@ -324,6 +337,7 @@ fn associated_const_projections_from_active_item_tree(
     nia_sema_ir::AssociatedConstProjection,
 )> {
     let mut collector = AssociatedConstProjectionCollector {
+        type_store,
         type_lowering,
         projections: Vec::new(),
     };
@@ -334,6 +348,7 @@ fn associated_const_projections_from_active_item_tree(
 }
 
 fn associated_const_projections_from_const_exprs(
+    type_store: &nia_ty::TypeStore,
     const_exprs: &HashMap<GlobalConstExprId, nia_ast::Expr>,
     ids: Option<&HashSet<GlobalConstExprId>>,
     type_lowering: &TypeLowering,
@@ -342,6 +357,7 @@ fn associated_const_projections_from_const_exprs(
     nia_sema_ir::AssociatedConstProjection,
 )> {
     let mut collector = AssociatedConstProjectionCollector {
+        type_store,
         type_lowering,
         projections: Vec::new(),
     };
@@ -355,6 +371,7 @@ fn associated_const_projections_from_const_exprs(
 }
 
 struct AssociatedConstProjectionCollector<'a> {
+    type_store: &'a nia_ty::TypeStore,
     type_lowering: &'a TypeLowering,
     projections: Vec<(
         nia_node_id::VersionedNodeKey,
@@ -441,7 +458,7 @@ impl AssociatedConstProjectionCollector<'_> {
         Vec<InternedTyId>,
         Vec<nia_ty::ConstGenericArg>,
     )> {
-        match self.type_lowering.interner.get(ty)? {
+        match self.type_store.get(ty)? {
             nia_ty::TyKind::Nominal {
                 def_id,
                 args,
@@ -512,6 +529,7 @@ fn const_expr_node_keys(
 }
 
 pub(super) fn needed_const_exprs_for_active_item_tree(
+    type_store: &nia_ty::TypeStore,
     active_item_tree: &ActiveModuleItemTree,
     type_lowering: &TypeLowering,
 ) -> HashSet<GlobalConstExprId> {
@@ -526,13 +544,7 @@ pub(super) fn needed_const_exprs_for_active_item_tree(
     let mut out = HashSet::new();
     let mut seen = HashSet::new();
     for (_, ty) in type_lowering.versioned_type_uses_from_active_item_tree(active_item_tree) {
-        collect_array_len_const_exprs_in_ty(
-            &type_lowering.interner,
-            ty,
-            &candidate_ids,
-            &mut out,
-            &mut seen,
-        );
+        collect_array_len_const_exprs_in_ty(type_store, ty, &candidate_ids, &mut out, &mut seen);
         if out.len() == candidate_ids.len() {
             break;
         }
@@ -551,7 +563,7 @@ pub(super) fn const_expr_subset_for_ids(
 }
 
 fn collect_array_len_const_exprs_in_ty(
-    interner: &nia_ty::TyInterner,
+    type_store: &nia_ty::TypeStore,
     ty: InternedTyId,
     candidate_ids: &HashSet<GlobalConstExprId>,
     out: &mut HashSet<GlobalConstExprId>,
@@ -560,10 +572,10 @@ fn collect_array_len_const_exprs_in_ty(
     if !seen.insert(ty) {
         return;
     }
-    match interner.get(ty) {
+    match type_store.get(ty) {
         Some(TyKind::Array { len, elem }) => {
-            collect_array_len_const_exprs_in_len(interner, len, candidate_ids, out, seen);
-            collect_array_len_const_exprs_in_ty(interner, *elem, candidate_ids, out, seen);
+            collect_array_len_const_exprs_in_len(type_store, len, candidate_ids, out, seen);
+            collect_array_len_const_exprs_in_ty(type_store, *elem, candidate_ids, out, seen);
         }
         Some(
             TyKind::Optional { elem }
@@ -572,16 +584,16 @@ fn collect_array_len_const_exprs_in_ty(
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem },
         ) => {
-            collect_array_len_const_exprs_in_ty(interner, *elem, candidate_ids, out, seen);
+            collect_array_len_const_exprs_in_ty(type_store, *elem, candidate_ids, out, seen);
         }
         Some(TyKind::ErrorUnion { error, value }) => {
-            collect_array_len_const_exprs_in_ty(interner, *error, candidate_ids, out, seen);
-            collect_array_len_const_exprs_in_ty(interner, *value, candidate_ids, out, seen);
+            collect_array_len_const_exprs_in_ty(type_store, *error, candidate_ids, out, seen);
+            collect_array_len_const_exprs_in_ty(type_store, *value, candidate_ids, out, seen);
         }
         Some(TyKind::Range {
             bound: Some(bound), ..
         }) => {
-            collect_array_len_const_exprs_in_ty(interner, *bound, candidate_ids, out, seen);
+            collect_array_len_const_exprs_in_ty(type_store, *bound, candidate_ids, out, seen);
         }
         Some(TyKind::FunctionPointer {
             params,
@@ -589,24 +601,24 @@ fn collect_array_len_const_exprs_in_ty(
             ..
         }) => {
             for param in params {
-                collect_array_len_const_exprs_in_ty(interner, *param, candidate_ids, out, seen);
+                collect_array_len_const_exprs_in_ty(type_store, *param, candidate_ids, out, seen);
             }
-            collect_array_len_const_exprs_in_ty(interner, *return_type, candidate_ids, out, seen);
+            collect_array_len_const_exprs_in_ty(type_store, *return_type, candidate_ids, out, seen);
         }
         Some(TyKind::Nominal {
             args, const_args, ..
         }) => {
             for arg in args {
-                collect_array_len_const_exprs_in_ty(interner, *arg, candidate_ids, out, seen);
+                collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
             }
             for arg in const_args {
-                collect_array_len_const_exprs_in_ty(interner, arg.ty, candidate_ids, out, seen);
+                collect_array_len_const_exprs_in_ty(type_store, arg.ty, candidate_ids, out, seen);
                 collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
             }
         }
         Some(TyKind::BuiltinTrait { args, .. }) => {
             for arg in args {
-                collect_array_len_const_exprs_in_ty(interner, *arg, candidate_ids, out, seen);
+                collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
             }
         }
         Some(
@@ -622,10 +634,16 @@ fn collect_array_len_const_exprs_in_ty(
             },
         ) => {
             for arg in trait_args {
-                collect_array_len_const_exprs_in_ty(interner, *arg, candidate_ids, out, seen);
+                collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
             }
             for binding in associated_type_bindings {
-                collect_array_len_const_exprs_in_ty(interner, binding.ty, candidate_ids, out, seen);
+                collect_array_len_const_exprs_in_ty(
+                    type_store,
+                    binding.ty,
+                    candidate_ids,
+                    out,
+                    seen,
+                );
             }
         }
         Some(TyKind::Projection {
@@ -633,9 +651,9 @@ fn collect_array_len_const_exprs_in_ty(
             trait_args,
             ..
         }) => {
-            collect_array_len_const_exprs_in_ty(interner, *self_ty, candidate_ids, out, seen);
+            collect_array_len_const_exprs_in_ty(type_store, *self_ty, candidate_ids, out, seen);
             for arg in trait_args {
-                collect_array_len_const_exprs_in_ty(interner, *arg, candidate_ids, out, seen);
+                collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
             }
         }
         Some(
@@ -653,7 +671,7 @@ fn collect_array_len_const_exprs_in_ty(
 }
 
 fn collect_array_len_const_exprs_in_len(
-    interner: &nia_ty::TyInterner,
+    type_store: &nia_ty::TypeStore,
     len: &ArrayLenTy,
     candidate_ids: &HashSet<GlobalConstExprId>,
     out: &mut HashSet<GlobalConstExprId>,
@@ -666,7 +684,7 @@ fn collect_array_len_const_exprs_in_len(
             }
         }
         ArrayLenTy::Builtin { ty, .. } => {
-            collect_array_len_const_exprs_in_ty(interner, *ty, candidate_ids, out, seen);
+            collect_array_len_const_exprs_in_ty(type_store, *ty, candidate_ids, out, seen);
         }
         ArrayLenTy::Infer | ArrayLenTy::GenericParam(_) | ArrayLenTy::ConstValue(_) => {}
     }

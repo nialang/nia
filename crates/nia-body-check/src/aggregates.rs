@@ -26,7 +26,7 @@ use nia_sema_ir::{
 use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_symbol::SymbolMap;
-use nia_ty::{ArrayLenTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, TyKind};
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn infer_array_literal_expr(&mut self, expr: &Expr) -> InternedTyId {
@@ -588,10 +588,7 @@ impl<'a> BodyChecker<'a> {
                 .typed_values
                 .get(&ConstKey::Global(def_id))
                 .cloned()
-        }) && let Some(normalizations) = self.program.type_normalizations
-            && let Some(normalization) = normalizations(def_id.module_id)
-            && let Some(ty) =
-                self.import_const_value_runtime_type(&normalization.interner, typed.ty)
+        }) && let Some(ty) = self.const_value_runtime_type(typed.ty)
             && ty != self.error()
         {
             return Some(ty);
@@ -599,17 +596,11 @@ impl<'a> BodyChecker<'a> {
         Some(self.error())
     }
 
-    fn import_const_value_runtime_type(
-        &mut self,
-        source: &TyInterner,
-        ty: ConstValueType,
-    ) -> Option<InternedTyId> {
-        let ConstValueType::Runtime(ty) =
-            nia_const_check::import_const_value_type(source, &mut self.interner, ty)?
-        else {
+    fn const_value_runtime_type(&self, ty: ConstValueType) -> Option<InternedTyId> {
+        let ConstValueType::Runtime(ty) = ty else {
             return None;
         };
-        Some(ty)
+        self.type_store.get(ty).map(|_| ty)
     }
 
     pub(crate) fn resolved_struct_signature(
@@ -1150,7 +1141,6 @@ impl<'a> BodyChecker<'a> {
                     source_path: None,
                     defs: self.program.defs,
                     type_normalizations: self.program.type_normalizations,
-                    value_type_normalizations: self.program.type_normalizations,
                     signatures: self.program.signatures,
                     value_signatures: self.program.signatures,
                     const_values: Some(self.program_const_values),
@@ -1214,7 +1204,6 @@ impl<'a> BodyChecker<'a> {
                 source_path: None,
                 defs: self.program.defs,
                 type_normalizations: self.program.type_normalizations,
-                value_type_normalizations: self.program.type_normalizations,
                 signatures: self.program.signatures,
                 value_signatures: self.program.signatures,
                 const_values: Some(self.program_const_values),

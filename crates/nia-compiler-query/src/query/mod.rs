@@ -2062,7 +2062,6 @@ mod tests {
     }
 
     struct VtableFunctionInstanceRef<'a> {
-        module: &'a nia_backend_ir::BackendModule,
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
         self_arg: Option<InternedTyId>,
@@ -2073,11 +2072,9 @@ mod tests {
     fn backend_function_instance_matches_vtable_ref(
         type_store: &nia_ty::TypeStore,
         vtable: VtableFunctionInstanceRef<'_>,
-        instance_module: &nia_backend_ir::BackendModule,
         instance: &nia_backend_ir::BackendFunctionInstance,
     ) -> bool {
         let VtableFunctionInstanceRef {
-            module: vtable_module,
             def_id,
             arg_module_id,
             self_arg,
@@ -2087,42 +2084,14 @@ mod tests {
         if instance.def_id != def_id || instance.arg_module_id != arg_module_id {
             return false;
         }
-        let mut target_interner = type_store.module_snapshot(instance_module.id);
-        let vtable_interner = type_store.module_snapshot(vtable_module.id);
-        let self_arg = match self_arg {
-            Some(ty) => {
-                let Ok(ty) =
-                    nia_ty::try_import_type_into(&mut target_interner, &vtable_interner, ty)
-                else {
-                    return false;
-                };
-                Some(ty)
-            }
-            None => None,
-        };
-        let Ok(args) = args
-            .iter()
-            .map(|ty| nia_ty::try_import_type_into(&mut target_interner, &vtable_interner, *ty))
-            .collect::<Result<Vec<_>, _>>()
-        else {
+        if self_arg.is_some_and(|ty| type_store.get(ty).is_none())
+            || args.iter().any(|ty| type_store.get(*ty).is_none())
+            || const_args
+                .iter()
+                .any(|arg| type_store.get(arg.ty).is_none())
+        {
             return false;
-        };
-        let Ok(const_args) = const_args
-            .iter()
-            .map(|arg| {
-                Ok(nia_ty::ConstGenericArg {
-                    ty: nia_ty::try_import_type_into(
-                        &mut target_interner,
-                        &vtable_interner,
-                        arg.ty,
-                    )?,
-                    value: arg.value.clone(),
-                })
-            })
-            .collect::<Result<Vec<_>, nia_ty::TypeImportError>>()
-        else {
-            return false;
-        };
+        }
         self_arg == instance.self_arg && args == instance.args && const_args == instance.const_args
     }
 
@@ -7147,13 +7116,9 @@ extend Page : Allocator {
             .program
             .modules
             .iter()
-            .flat_map(|module| {
-                module
-                    .trait_object_vtables
-                    .iter()
-                    .flat_map(move |vtable| vtable.entries.iter().map(move |entry| (module, entry)))
-            })
-            .filter_map(|(module, entry)| match &entry.function {
+            .flat_map(|module| &module.trait_object_vtables)
+            .flat_map(|vtable| &vtable.entries)
+            .filter_map(|entry| match &entry.function {
                 nia_backend_ir::BackendTraitObjectVtableFunction::FunctionInstance {
                     def_id,
                     arg_module_id,
@@ -7161,7 +7126,6 @@ extend Page : Allocator {
                     args,
                     const_args,
                 } => Some((
-                    module,
                     *def_id,
                     *arg_module_id,
                     *self_arg,
@@ -7175,9 +7139,7 @@ extend Page : Allocator {
             !vtable_instance_refs.is_empty(),
             "trait object vtable should reference a default method instance"
         );
-        for (vtable_module, def_id, arg_module_id, self_arg, args, const_args) in
-            vtable_instance_refs
-        {
+        for (def_id, arg_module_id, self_arg, args, const_args) in vtable_instance_refs {
             let matches = backend_lowering
                 .program
                 .modules
@@ -7188,18 +7150,16 @@ extend Page : Allocator {
                         .iter()
                         .map(move |instance| (module, instance))
                 })
-                .filter(|(instance_module, instance)| {
+                .filter(|(_, instance)| {
                     backend_function_instance_matches_vtable_ref(
                         &db.context().type_store,
                         VtableFunctionInstanceRef {
-                            module: vtable_module,
                             def_id,
                             arg_module_id,
                             self_arg,
                             args: &args,
                             const_args: &const_args,
                         },
-                        instance_module,
                         instance,
                     )
                 })

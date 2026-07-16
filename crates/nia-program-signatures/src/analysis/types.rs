@@ -4,34 +4,30 @@ use std::collections::HashMap;
 use nia_ids::{GlobalDefId, InternedTyId, TraitId};
 use nia_item_signatures::{FunctionSignature, ParamSignature, TraitImplSignature};
 use nia_symbol::{SymbolId, SymbolMap};
-use nia_ty::{ArrayLenTy, ConstExprSummary, TyInterner, TyKind, TypeEquivalence, TypeStore};
+use nia_ty::{ArrayLenTy, ConstExprSummary, TyKind, TypeEquivalence, TypeStore, TypeStoreAppend};
 use nia_type_lower::TypeLowering;
 
 use super::ExtensionModuleInput;
 
 pub(super) fn types_equivalent(
+    type_store: &TypeStore,
     lowering: &TypeLowering,
     left: nia_ids::InternedTyId,
     right: nia_ids::InternedTyId,
 ) -> bool {
-    types_equivalent_with_const_exprs(
-        &lowering.interner,
-        &lowering.const_expr_summaries,
-        left,
-        right,
-    )
+    types_equivalent_with_const_exprs(type_store, &lowering.const_expr_summaries, left, right)
 }
 
-pub(super) fn types_equivalent_in_interner(
-    interner: &TyInterner,
+pub(super) fn types_equivalent_in_store(
+    type_store: &TypeStore,
     left: nia_ids::InternedTyId,
     right: nia_ids::InternedTyId,
 ) -> bool {
-    types_equivalent_with_const_exprs(interner, &HashMap::new(), left, right)
+    types_equivalent_with_const_exprs(type_store, &HashMap::new(), left, right)
 }
 
 fn types_equivalent_with_const_exprs(
-    interner: &TyInterner,
+    type_store: &TypeStore,
     const_exprs: &HashMap<nia_ids::GlobalConstExprId, ConstExprSummary>,
     left: nia_ids::InternedTyId,
     right: nia_ids::InternedTyId,
@@ -40,20 +36,20 @@ fn types_equivalent_with_const_exprs(
         return true;
     }
     SignatureTypeEquivalence {
-        interner,
+        type_store,
         const_exprs,
     }
     .compute_same_type_for_equiv(left, right)
 }
 
 struct SignatureTypeEquivalence<'a> {
-    interner: &'a TyInterner,
+    type_store: &'a TypeStore,
     const_exprs: &'a HashMap<nia_ids::GlobalConstExprId, ConstExprSummary>,
 }
 
 impl TypeEquivalence for SignatureTypeEquivalence<'_> {
     fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
-        self.interner.get(ty)
+        self.type_store.get(ty)
     }
 
     fn same_array_len_for_equiv(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
@@ -81,7 +77,7 @@ impl TypeEquivalence for SignatureTypeEquivalence<'_> {
     }
 
     fn same_type_for_equiv(&self, left: InternedTyId, right: InternedTyId) -> bool {
-        types_equivalent_with_const_exprs(self.interner, self.const_exprs, left, right)
+        types_equivalent_with_const_exprs(self.type_store, self.const_exprs, left, right)
     }
 }
 
@@ -98,7 +94,9 @@ impl SignatureTypeEquivalence<'_> {
     }
 }
 
-pub(super) fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> FunctionSignature {
+pub(super) fn lower_trait_method_signature(
+    input: TraitMethodSubstitution<'_>,
+) -> FunctionSignature {
     let substitutions = input
         .trait_generics
         .iter()
@@ -123,10 +121,10 @@ pub(super) fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> Func
         .map(|param| ParamSignature {
             name: param.name,
             receiver: param.receiver,
-            ty: substitute_imported_type(
-                input.target_interner,
+            ty: substitute_type(
+                input.append,
                 input.module,
-                input.source_interner,
+                input.type_store,
                 param.ty,
                 &substitutions,
                 &const_substitutions,
@@ -135,10 +133,10 @@ pub(super) fn lower_trait_method_signature(input: TraitMethodImport<'_>) -> Func
             span: param.span,
         })
         .collect();
-    signature.return_type = substitute_imported_type(
-        input.target_interner,
+    signature.return_type = substitute_type(
+        input.append,
         input.module,
-        input.source_interner,
+        input.type_store,
         signature.return_type,
         &substitutions,
         &const_substitutions,
@@ -169,10 +167,10 @@ pub(super) fn normalize_impl_method_signature(
         .map(|param| ParamSignature {
             name: param.name,
             receiver: param.receiver,
-            ty: substitute_imported_type(
-                input.target_interner,
+            ty: substitute_type(
+                input.append,
                 input.module,
-                input.source_interner,
+                input.type_store,
                 param.ty,
                 &substitutions,
                 &const_substitutions,
@@ -181,10 +179,10 @@ pub(super) fn normalize_impl_method_signature(
             span: param.span,
         })
         .collect();
-    signature.return_type = substitute_imported_type(
-        input.target_interner,
+    signature.return_type = substitute_type(
+        input.append,
         input.module,
-        input.source_interner,
+        input.type_store,
         signature.return_type,
         &substitutions,
         &const_substitutions,
@@ -193,13 +191,13 @@ pub(super) fn normalize_impl_method_signature(
     signature
 }
 
-pub(super) struct TraitMethodImport<'a> {
-    pub(super) target_interner: &'a mut TyInterner,
+pub(super) struct TraitMethodSubstitution<'a> {
+    pub(super) append: &'a TypeStoreAppend,
     pub(super) module: &'a ExtensionModuleInput<'a>,
-    pub(super) source_interner: &'a TypeStore,
+    pub(super) type_store: &'a TypeStore,
     pub(super) signature: &'a FunctionSignature,
-    // Required trait methods are authored in the trait module/interner but are
-    // checked against an impl in the current module/interner. These fields keep
+    // Required trait methods are authored in the trait module but are checked
+    // against an impl in the current module. These fields keep
     // the substitution environment and projection-impl context in one place.
     pub(super) trait_generics: &'a [SymbolId],
     pub(super) trait_args: &'a [nia_ids::InternedTyId],
@@ -210,9 +208,9 @@ pub(super) struct TraitMethodImport<'a> {
 }
 
 pub(super) struct ImplMethodSignatureNormalize<'a> {
-    pub(super) target_interner: &'a mut TyInterner,
+    pub(super) append: &'a TypeStoreAppend,
     pub(super) module: &'a ExtensionModuleInput<'a>,
-    pub(super) source_interner: &'a TypeStore,
+    pub(super) type_store: &'a TypeStore,
     pub(super) signature: &'a FunctionSignature,
     pub(super) trait_args: &'a [nia_ids::InternedTyId],
     pub(super) trait_const_args: &'a [nia_ty::ConstGenericArg],
@@ -236,10 +234,10 @@ pub(super) struct TypeSubstitutionTarget<'a> {
     pub(super) self_ty: Option<nia_ids::InternedTyId>,
 }
 
-pub(super) fn substitute_imported_type(
-    target_interner: &mut TyInterner,
+pub(super) fn substitute_type(
+    append: &TypeStoreAppend,
     module: &ExtensionModuleInput<'_>,
-    source_interner: &TypeStore,
+    type_store: &TypeStore,
     ty: nia_ids::InternedTyId,
     substitutions: &SymbolMap<nia_ids::InternedTyId>,
     const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
@@ -249,15 +247,15 @@ pub(super) fn substitute_imported_type(
         projection: projection_context,
         self_ty: self_substitution,
     } = target;
-    match source_interner.get(ty) {
+    match type_store.get(ty) {
         Some(TyKind::GenericParam(name)) => substitutions.get(name).copied().unwrap_or(ty),
         Some(TyKind::SelfParam) => self_substitution.unwrap_or(ty),
         Some(TyKind::Pointer { is_readonly, elem }) => {
             let is_readonly = *is_readonly;
-            let elem = substitute_imported_type(
-                target_interner,
+            let elem = substitute_type(
+                append,
                 module,
-                source_interner,
+                type_store,
                 *elem,
                 substitutions,
                 const_substitutions,
@@ -266,14 +264,14 @@ pub(super) fn substitute_imported_type(
                     self_ty: self_substitution,
                 },
             );
-            target_interner.intern(TyKind::Pointer { is_readonly, elem })
+            append.intern(TyKind::Pointer { is_readonly, elem })
         }
         Some(TyKind::VolatilePointer { is_readonly, elem }) => {
             let is_readonly = *is_readonly;
-            let elem = substitute_imported_type(
-                target_interner,
+            let elem = substitute_type(
+                append,
                 module,
-                source_interner,
+                type_store,
                 *elem,
                 substitutions,
                 const_substitutions,
@@ -282,14 +280,14 @@ pub(super) fn substitute_imported_type(
                     self_ty: self_substitution,
                 },
             );
-            target_interner.intern(TyKind::VolatilePointer { is_readonly, elem })
+            append.intern(TyKind::VolatilePointer { is_readonly, elem })
         }
         Some(TyKind::Slice { is_readonly, elem }) => {
             let is_readonly = *is_readonly;
-            let elem = substitute_imported_type(
-                target_interner,
+            let elem = substitute_type(
+                append,
                 module,
-                source_interner,
+                type_store,
                 *elem,
                 substitutions,
                 const_substitutions,
@@ -298,13 +296,13 @@ pub(super) fn substitute_imported_type(
                     self_ty: self_substitution,
                 },
             );
-            target_interner.intern(TyKind::Slice { is_readonly, elem })
+            append.intern(TyKind::Slice { is_readonly, elem })
         }
         Some(TyKind::SlicePointee { elem }) => {
-            let elem = substitute_imported_type(
-                target_interner,
+            let elem = substitute_type(
+                append,
                 module,
-                source_interner,
+                type_store,
                 *elem,
                 substitutions,
                 const_substitutions,
@@ -313,14 +311,14 @@ pub(super) fn substitute_imported_type(
                     self_ty: self_substitution,
                 },
             );
-            target_interner.intern(TyKind::SlicePointee { elem })
+            append.intern(TyKind::SlicePointee { elem })
         }
         Some(TyKind::Array { len, elem }) => {
-            let len = substitute_imported_array_len(len.clone(), const_substitutions);
-            let elem = substitute_imported_type(
-                target_interner,
+            let len = substitute_array_len(len.clone(), const_substitutions);
+            let elem = substitute_type(
+                append,
                 module,
-                source_interner,
+                type_store,
                 *elem,
                 substitutions,
                 const_substitutions,
@@ -329,14 +327,14 @@ pub(super) fn substitute_imported_type(
                     self_ty: self_substitution,
                 },
             );
-            target_interner.intern(TyKind::Array { len, elem })
+            append.intern(TyKind::Array { len, elem })
         }
         Some(TyKind::Range { kind, bound }) => {
             let bound = bound.map(|bound| {
-                substitute_imported_type(
-                    target_interner,
+                substitute_type(
+                    append,
                     module,
-                    source_interner,
+                    type_store,
                     bound,
                     substitutions,
                     const_substitutions,
@@ -346,13 +344,13 @@ pub(super) fn substitute_imported_type(
                     },
                 )
             });
-            target_interner.intern(TyKind::Range { kind: *kind, bound })
+            append.intern(TyKind::Range { kind: *kind, bound })
         }
         Some(TyKind::Optional { elem }) => {
-            let elem = substitute_imported_type(
-                target_interner,
+            let elem = substitute_type(
+                append,
                 module,
-                source_interner,
+                type_store,
                 *elem,
                 substitutions,
                 const_substitutions,
@@ -361,13 +359,13 @@ pub(super) fn substitute_imported_type(
                     self_ty: self_substitution,
                 },
             );
-            target_interner.intern(TyKind::Optional { elem })
+            append.intern(TyKind::Optional { elem })
         }
         Some(TyKind::ErrorUnion { error, value }) => {
-            let error = substitute_imported_type(
-                target_interner,
+            let error = substitute_type(
+                append,
                 module,
-                source_interner,
+                type_store,
                 *error,
                 substitutions,
                 const_substitutions,
@@ -376,10 +374,10 @@ pub(super) fn substitute_imported_type(
                     self_ty: self_substitution,
                 },
             );
-            let value = substitute_imported_type(
-                target_interner,
+            let value = substitute_type(
+                append,
                 module,
-                source_interner,
+                type_store,
                 *value,
                 substitutions,
                 const_substitutions,
@@ -388,7 +386,7 @@ pub(super) fn substitute_imported_type(
                     self_ty: self_substitution,
                 },
             );
-            target_interner.intern(TyKind::ErrorUnion { error, value })
+            append.intern(TyKind::ErrorUnion { error, value })
         }
         Some(TyKind::FunctionPointer {
             params,
@@ -398,10 +396,10 @@ pub(super) fn substitute_imported_type(
             let params = params
                 .iter()
                 .map(|param| {
-                    substitute_imported_type(
-                        target_interner,
+                    substitute_type(
+                        append,
                         module,
-                        source_interner,
+                        type_store,
                         *param,
                         substitutions,
                         const_substitutions,
@@ -412,10 +410,10 @@ pub(super) fn substitute_imported_type(
                     )
                 })
                 .collect();
-            let return_type = substitute_imported_type(
-                target_interner,
+            let return_type = substitute_type(
+                append,
                 module,
-                source_interner,
+                type_store,
                 *return_type,
                 substitutions,
                 const_substitutions,
@@ -424,7 +422,7 @@ pub(super) fn substitute_imported_type(
                     self_ty: self_substitution,
                 },
             );
-            target_interner.intern(TyKind::FunctionPointer {
+            append.intern(TyKind::FunctionPointer {
                 params,
                 return_type,
                 is_variadic: *is_variadic,
@@ -438,10 +436,10 @@ pub(super) fn substitute_imported_type(
             let args = args
                 .iter()
                 .map(|arg| {
-                    substitute_imported_type(
-                        target_interner,
+                    substitute_type(
+                        append,
                         module,
-                        source_interner,
+                        type_store,
                         *arg,
                         substitutions,
                         const_substitutions,
@@ -455,10 +453,10 @@ pub(super) fn substitute_imported_type(
             let const_args = const_args
                 .iter()
                 .map(|arg| {
-                    substitute_imported_const_arg(
-                        target_interner,
+                    substitute_const_arg(
+                        append,
                         module,
-                        source_interner,
+                        type_store,
                         arg,
                         substitutions,
                         const_substitutions,
@@ -469,7 +467,7 @@ pub(super) fn substitute_imported_type(
                     )
                 })
                 .collect();
-            target_interner.intern(TyKind::Nominal {
+            append.intern(TyKind::Nominal {
                 def_id: *def_id,
                 args,
                 const_args,
@@ -479,10 +477,10 @@ pub(super) fn substitute_imported_type(
             let args = args
                 .iter()
                 .map(|arg| {
-                    substitute_imported_type(
-                        target_interner,
+                    substitute_type(
+                        append,
                         module,
-                        source_interner,
+                        type_store,
                         *arg,
                         substitutions,
                         const_substitutions,
@@ -493,12 +491,12 @@ pub(super) fn substitute_imported_type(
                     )
                 })
                 .collect();
-            target_interner.intern(TyKind::BuiltinTrait {
+            append.intern(TyKind::BuiltinTrait {
                 trait_id: *trait_id,
                 args,
             })
         }
-        Some(TyKind::BuiltinType(builtin)) => target_interner.intern(TyKind::BuiltinType(*builtin)),
+        Some(TyKind::BuiltinType(builtin)) => append.intern(TyKind::BuiltinType(*builtin)),
         Some(TyKind::TraitObject {
             is_readonly,
             trait_id,
@@ -509,10 +507,10 @@ pub(super) fn substitute_imported_type(
             let trait_args = trait_args
                 .iter()
                 .map(|arg| {
-                    substitute_imported_type(
-                        target_interner,
+                    substitute_type(
+                        append,
                         module,
-                        source_interner,
+                        type_store,
                         *arg,
                         substitutions,
                         const_substitutions,
@@ -526,10 +524,10 @@ pub(super) fn substitute_imported_type(
             let trait_const_args = trait_const_args
                 .iter()
                 .map(|arg| {
-                    substitute_imported_const_arg(
-                        target_interner,
+                    substitute_const_arg(
+                        append,
                         module,
-                        source_interner,
+                        type_store,
                         arg,
                         substitutions,
                         const_substitutions,
@@ -548,10 +546,10 @@ pub(super) fn substitute_imported_type(
                         .trait_args
                         .iter()
                         .map(|arg| {
-                            substitute_imported_type(
-                                target_interner,
+                            substitute_type(
+                                append,
                                 module,
-                                source_interner,
+                                type_store,
                                 *arg,
                                 substitutions,
                                 const_substitutions,
@@ -566,10 +564,10 @@ pub(super) fn substitute_imported_type(
                         .trait_const_args
                         .iter()
                         .map(|arg| {
-                            substitute_imported_const_arg(
-                                target_interner,
+                            substitute_const_arg(
+                                append,
                                 module,
-                                source_interner,
+                                type_store,
                                 arg,
                                 substitutions,
                                 const_substitutions,
@@ -581,10 +579,10 @@ pub(super) fn substitute_imported_type(
                         })
                         .collect(),
                     name: binding.name,
-                    ty: substitute_imported_type(
-                        target_interner,
+                    ty: substitute_type(
+                        append,
                         module,
-                        source_interner,
+                        type_store,
                         binding.ty,
                         substitutions,
                         const_substitutions,
@@ -595,7 +593,7 @@ pub(super) fn substitute_imported_type(
                     ),
                 })
                 .collect();
-            target_interner.intern(TyKind::TraitObject {
+            append.intern(TyKind::TraitObject {
                 is_readonly: *is_readonly,
                 trait_id: *trait_id,
                 trait_args,
@@ -612,10 +610,10 @@ pub(super) fn substitute_imported_type(
             let trait_args = trait_args
                 .iter()
                 .map(|arg| {
-                    substitute_imported_type(
-                        target_interner,
+                    substitute_type(
+                        append,
                         module,
-                        source_interner,
+                        type_store,
                         *arg,
                         substitutions,
                         const_substitutions,
@@ -629,10 +627,10 @@ pub(super) fn substitute_imported_type(
             let trait_const_args = trait_const_args
                 .iter()
                 .map(|arg| {
-                    substitute_imported_const_arg(
-                        target_interner,
+                    substitute_const_arg(
+                        append,
                         module,
-                        source_interner,
+                        type_store,
                         arg,
                         substitutions,
                         const_substitutions,
@@ -651,10 +649,10 @@ pub(super) fn substitute_imported_type(
                         .trait_args
                         .iter()
                         .map(|arg| {
-                            substitute_imported_type(
-                                target_interner,
+                            substitute_type(
+                                append,
                                 module,
-                                source_interner,
+                                type_store,
                                 *arg,
                                 substitutions,
                                 const_substitutions,
@@ -669,10 +667,10 @@ pub(super) fn substitute_imported_type(
                         .trait_const_args
                         .iter()
                         .map(|arg| {
-                            substitute_imported_const_arg(
-                                target_interner,
+                            substitute_const_arg(
+                                append,
                                 module,
-                                source_interner,
+                                type_store,
                                 arg,
                                 substitutions,
                                 const_substitutions,
@@ -684,10 +682,10 @@ pub(super) fn substitute_imported_type(
                         })
                         .collect(),
                     name: binding.name,
-                    ty: substitute_imported_type(
-                        target_interner,
+                    ty: substitute_type(
+                        append,
                         module,
-                        source_interner,
+                        type_store,
                         binding.ty,
                         substitutions,
                         const_substitutions,
@@ -698,7 +696,7 @@ pub(super) fn substitute_imported_type(
                     ),
                 })
                 .collect();
-            target_interner.intern(TyKind::TraitObjectPointee {
+            append.intern(TyKind::TraitObjectPointee {
                 trait_id: *trait_id,
                 trait_args,
                 trait_const_args,
@@ -712,10 +710,10 @@ pub(super) fn substitute_imported_type(
             trait_const_args,
             name,
         }) => {
-            let self_ty = substitute_imported_type(
-                target_interner,
+            let self_ty = substitute_type(
+                append,
                 module,
-                source_interner,
+                type_store,
                 *self_ty,
                 substitutions,
                 const_substitutions,
@@ -727,10 +725,10 @@ pub(super) fn substitute_imported_type(
             let trait_args = trait_args
                 .iter()
                 .map(|arg| {
-                    substitute_imported_type(
-                        target_interner,
+                    substitute_type(
+                        append,
                         module,
-                        source_interner,
+                        type_store,
                         *arg,
                         substitutions,
                         const_substitutions,
@@ -744,10 +742,10 @@ pub(super) fn substitute_imported_type(
             let trait_const_args = trait_const_args
                 .iter()
                 .map(|arg| {
-                    substitute_imported_const_arg(
-                        target_interner,
+                    substitute_const_arg(
+                        append,
                         module,
-                        source_interner,
+                        type_store,
                         arg,
                         substitutions,
                         const_substitutions,
@@ -771,7 +769,7 @@ pub(super) fn substitute_imported_type(
                 let ty = module.normalization.normalize(associated_type.ty);
                 return ty;
             }
-            target_interner.intern(TyKind::Projection {
+            append.intern(TyKind::Projection {
                 self_ty,
                 trait_id: *trait_id,
                 trait_args,
@@ -796,10 +794,10 @@ pub(super) fn const_substitutions_from_self_describing_args(
         .collect()
 }
 
-fn substitute_imported_const_arg(
-    target_interner: &mut TyInterner,
+fn substitute_const_arg(
+    append: &TypeStoreAppend,
     module: &ExtensionModuleInput<'_>,
-    source_interner: &TypeStore,
+    type_store: &TypeStore,
     arg: &nia_ty::ConstGenericArg,
     substitutions: &SymbolMap<nia_ids::InternedTyId>,
     const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
@@ -811,10 +809,10 @@ fn substitute_imported_const_arg(
         return substituted.clone();
     }
     nia_ty::ConstGenericArg {
-        ty: substitute_imported_type(
-            target_interner,
+        ty: substitute_type(
+            append,
             module,
-            source_interner,
+            type_store,
             arg.ty,
             substitutions,
             const_substitutions,
@@ -824,7 +822,7 @@ fn substitute_imported_const_arg(
     }
 }
 
-fn substitute_imported_array_len(
+fn substitute_array_len(
     len: nia_ty::ArrayLenTy,
     const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
 ) -> nia_ty::ArrayLenTy {

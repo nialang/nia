@@ -15,7 +15,7 @@ use nia_source::SourcePath;
 use nia_symbol::SymbolId;
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
-use nia_ty::{TyInterner, import_type_into};
+use nia_ty::TyInterner;
 use nia_type_lower::TypeLowering;
 use nia_value_resolve::ValueResolution;
 
@@ -127,35 +127,6 @@ pub(crate) fn resolved_pattern_local_id(pattern: &ResolvedConstPattern) -> Optio
     }
 }
 
-pub fn import_const_value_type(
-    source: &TyInterner,
-    target: &mut TyInterner,
-    ty: ConstValueType,
-) -> Option<ConstValueType> {
-    match ty {
-        ConstValueType::Runtime(ty) => Some(ConstValueType::Runtime(import_type_into(
-            target, source, ty,
-        ))),
-        ConstValueType::Array { elem, len } => Some(ConstValueType::Array {
-            elem: Box::new(import_const_value_type(source, target, *elem)?),
-            len,
-        }),
-        ConstValueType::Struct(fields) => fields
-            .into_iter()
-            .map(|field| {
-                Some(ConstValueFieldType {
-                    name: field.name,
-                    ty: import_const_value_type(source, target, field.ty)?,
-                })
-            })
-            .collect::<Option<Vec<_>>>()
-            .map(ConstValueType::Struct),
-        ConstValueType::Int => Some(ConstValueType::Int),
-        ConstValueType::Bool => Some(ConstValueType::Bool),
-        ConstValueType::String => Some(ConstValueType::String),
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ConstKey {
     Global(GlobalDefId),
@@ -208,8 +179,6 @@ pub struct ConstProgramContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
     pub type_normalizations:
         Option<&'a dyn Fn(ModuleId) -> Option<nia_type_normalize::TypeNormalization>>,
-    pub value_type_normalizations:
-        Option<&'a dyn Fn(ModuleId) -> Option<nia_type_normalize::TypeNormalization>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
     pub value_signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
     pub const_values: Option<&'a dyn Fn(ModuleId) -> Option<ConstValues>>,
@@ -227,10 +196,6 @@ impl fmt::Debug for ConstProgramContext<'_> {
             .field("source_path", &self.source_path.is_some())
             .field("defs", &self.defs.is_some())
             .field("type_normalizations", &self.type_normalizations.is_some())
-            .field(
-                "value_type_normalizations",
-                &self.value_type_normalizations.is_some(),
-            )
             .field("signatures", &self.signatures.is_some())
             .field("value_signatures", &self.value_signatures.is_some())
             .field("const_values", &self.const_values.is_some())
@@ -251,7 +216,6 @@ impl<'a> ConstProgramContext<'a> {
             source_path: None,
             defs: None,
             type_normalizations: None,
-            value_type_normalizations: None,
             signatures: None,
             value_signatures: None,
             const_values: None,

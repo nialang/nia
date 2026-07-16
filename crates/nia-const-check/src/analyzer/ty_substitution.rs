@@ -1,35 +1,34 @@
 use super::*;
 
-pub(super) fn substitute_ty_generics_in_interner(
-    interner: &mut TyInterner,
+pub(super) fn substitute_ty_generics(
+    interner: &mut ConstTypeCx<'_>,
     ty: InternedTyId,
     lookup: &impl Fn(&SymbolId) -> Option<InternedTyId>,
 ) -> InternedTyId {
     match interner.get(ty).cloned() {
         Some(TyKind::GenericParam(name)) => lookup(&name).unwrap_or(ty),
         Some(TyKind::Pointer { is_readonly, elem }) => {
-            let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
+            let elem = substitute_ty_generics(interner, elem, lookup);
             interner.intern(TyKind::Pointer { is_readonly, elem })
         }
         Some(TyKind::VolatilePointer { is_readonly, elem }) => {
-            let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
+            let elem = substitute_ty_generics(interner, elem, lookup);
             interner.intern(TyKind::VolatilePointer { is_readonly, elem })
         }
         Some(TyKind::Slice { is_readonly, elem }) => {
-            let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
+            let elem = substitute_ty_generics(interner, elem, lookup);
             interner.intern(TyKind::Slice { is_readonly, elem })
         }
         Some(TyKind::SlicePointee { elem }) => {
-            let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
+            let elem = substitute_ty_generics(interner, elem, lookup);
             interner.intern(TyKind::SlicePointee { elem })
         }
         Some(TyKind::Array { len, elem }) => {
-            let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
+            let elem = substitute_ty_generics(interner, elem, lookup);
             interner.intern(TyKind::Array { len, elem })
         }
         Some(TyKind::Range { kind, bound }) => {
-            let bound =
-                bound.map(|bound| substitute_ty_generics_in_interner(interner, bound, lookup));
+            let bound = bound.map(|bound| substitute_ty_generics(interner, bound, lookup));
             interner.intern(TyKind::Range { kind, bound })
         }
         Some(TyKind::FunctionPointer {
@@ -39,9 +38,9 @@ pub(super) fn substitute_ty_generics_in_interner(
         }) => {
             let params = params
                 .into_iter()
-                .map(|param| substitute_ty_generics_in_interner(interner, param, lookup))
+                .map(|param| substitute_ty_generics(interner, param, lookup))
                 .collect();
-            let return_type = substitute_ty_generics_in_interner(interner, return_type, lookup);
+            let return_type = substitute_ty_generics(interner, return_type, lookup);
             interner.intern(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -49,12 +48,12 @@ pub(super) fn substitute_ty_generics_in_interner(
             })
         }
         Some(TyKind::Optional { elem }) => {
-            let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
+            let elem = substitute_ty_generics(interner, elem, lookup);
             interner.intern(TyKind::Optional { elem })
         }
         Some(TyKind::ErrorUnion { error, value }) => {
-            let error = substitute_ty_generics_in_interner(interner, error, lookup);
-            let value = substitute_ty_generics_in_interner(interner, value, lookup);
+            let error = substitute_ty_generics(interner, error, lookup);
+            let value = substitute_ty_generics(interner, value, lookup);
             interner.intern(TyKind::ErrorUnion { error, value })
         }
         Some(TyKind::Nominal {
@@ -64,12 +63,12 @@ pub(super) fn substitute_ty_generics_in_interner(
         }) => {
             let args = args
                 .into_iter()
-                .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                .map(|arg| substitute_ty_generics(interner, arg, lookup))
                 .collect();
             let const_args = const_args
                 .into_iter()
                 .map(|mut arg| {
-                    arg.ty = substitute_ty_generics_in_interner(interner, arg.ty, lookup);
+                    arg.ty = substitute_ty_generics(interner, arg.ty, lookup);
                     arg
                 })
                 .collect();
@@ -82,7 +81,7 @@ pub(super) fn substitute_ty_generics_in_interner(
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
             let args = args
                 .into_iter()
-                .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                .map(|arg| substitute_ty_generics(interner, arg, lookup))
                 .collect();
             interner.intern(TyKind::BuiltinTrait { trait_id, args })
         }
@@ -95,12 +94,12 @@ pub(super) fn substitute_ty_generics_in_interner(
         }) => {
             let trait_args = trait_args
                 .into_iter()
-                .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                .map(|arg| substitute_ty_generics(interner, arg, lookup))
                 .collect();
             let trait_const_args = trait_const_args
                 .into_iter()
                 .map(|mut arg| {
-                    arg.ty = substitute_ty_generics_in_interner(interner, arg.ty, lookup);
+                    arg.ty = substitute_ty_generics(interner, arg.ty, lookup);
                     arg
                 })
                 .collect();
@@ -111,18 +110,18 @@ pub(super) fn substitute_ty_generics_in_interner(
                     trait_args: binding
                         .trait_args
                         .into_iter()
-                        .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                        .map(|arg| substitute_ty_generics(interner, arg, lookup))
                         .collect(),
                     trait_const_args: binding
                         .trait_const_args
                         .into_iter()
                         .map(|mut arg| {
-                            arg.ty = substitute_ty_generics_in_interner(interner, arg.ty, lookup);
+                            arg.ty = substitute_ty_generics(interner, arg.ty, lookup);
                             arg
                         })
                         .collect(),
                     name: binding.name,
-                    ty: substitute_ty_generics_in_interner(interner, binding.ty, lookup),
+                    ty: substitute_ty_generics(interner, binding.ty, lookup),
                 })
                 .collect();
             interner.intern(TyKind::TraitObject {
@@ -141,12 +140,12 @@ pub(super) fn substitute_ty_generics_in_interner(
         }) => {
             let trait_args = trait_args
                 .into_iter()
-                .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                .map(|arg| substitute_ty_generics(interner, arg, lookup))
                 .collect();
             let trait_const_args = trait_const_args
                 .into_iter()
                 .map(|mut arg| {
-                    arg.ty = substitute_ty_generics_in_interner(interner, arg.ty, lookup);
+                    arg.ty = substitute_ty_generics(interner, arg.ty, lookup);
                     arg
                 })
                 .collect();
@@ -157,18 +156,18 @@ pub(super) fn substitute_ty_generics_in_interner(
                     trait_args: binding
                         .trait_args
                         .into_iter()
-                        .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                        .map(|arg| substitute_ty_generics(interner, arg, lookup))
                         .collect(),
                     trait_const_args: binding
                         .trait_const_args
                         .into_iter()
                         .map(|mut arg| {
-                            arg.ty = substitute_ty_generics_in_interner(interner, arg.ty, lookup);
+                            arg.ty = substitute_ty_generics(interner, arg.ty, lookup);
                             arg
                         })
                         .collect(),
                     name: binding.name,
-                    ty: substitute_ty_generics_in_interner(interner, binding.ty, lookup),
+                    ty: substitute_ty_generics(interner, binding.ty, lookup),
                 })
                 .collect();
             interner.intern(TyKind::TraitObjectPointee {
@@ -185,15 +184,15 @@ pub(super) fn substitute_ty_generics_in_interner(
             trait_const_args,
             name,
         }) => {
-            let self_ty = substitute_ty_generics_in_interner(interner, self_ty, lookup);
+            let self_ty = substitute_ty_generics(interner, self_ty, lookup);
             let trait_args = trait_args
                 .into_iter()
-                .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                .map(|arg| substitute_ty_generics(interner, arg, lookup))
                 .collect();
             let trait_const_args = trait_const_args
                 .into_iter()
                 .map(|mut arg| {
-                    arg.ty = substitute_ty_generics_in_interner(interner, arg.ty, lookup);
+                    arg.ty = substitute_ty_generics(interner, arg.ty, lookup);
                     arg
                 })
                 .collect();

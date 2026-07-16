@@ -103,8 +103,9 @@ fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave()
         .insert(sym("Other"), using_type_entry(other));
     let using_scopes = |_module_id| None::<Arc<ModuleUsingScope>>;
     let type_alias = |_def_id| None::<ProgramTypeAliasSignature>;
+    let type_store = nia_ty::TypeStore::new();
     let empty_normalization = TypeNormalization {
-        interner: TyInterner::new(entry),
+        interner: type_store.module_snapshot(entry),
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
@@ -132,6 +133,7 @@ fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave()
 
     let modules = visible_extension_provider_modules(VisibleExtensionProviderModulesInput {
         module_id: entry,
+        type_store: &type_store,
         graph: &graph,
         using_scope: &using_scope,
         using_scopes: &using_scopes,

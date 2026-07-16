@@ -1,4 +1,4 @@
-use super::ty_substitution::substitute_ty_generics_in_interner;
+use super::ty_substitution::substitute_ty_generics;
 use super::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,10 +17,10 @@ impl Analyzer<'_> {
             .map(|(name, ty)| (*name, *ty))
             .collect::<SymbolMap<_>>();
         let interner = self
-            .working_interners
+            .type_contexts
             .get_mut(&module_id)
-            .expect("working interner must exist for current execution module");
-        substitute_ty_generics_in_interner(interner, ty, &|name| substitutions.get(name).copied())
+            .expect("type context must exist for current execution module");
+        substitute_ty_generics(interner, ty, &|name| substitutions.get(name).copied())
     }
 
     pub(super) fn instantiate_resolved_function_generics(
@@ -32,7 +32,7 @@ impl Analyzer<'_> {
         arg_exprs: &[ResolvedConstExpr],
         expected_return: Option<InternedTyId>,
     ) -> Result<ConstGenericInstantiation, ConstError> {
-        if self.ensure_working_interner(signature_module_id).is_none() {
+        if self.ensure_type_context(signature_module_id).is_none() {
             return Err(ConstError {
                 span,
                 message: "cannot instantiate const function without module type interner"
@@ -56,8 +56,7 @@ impl Analyzer<'_> {
         let mut const_substitutions = SymbolMap::default();
         if type_args.is_empty() {
             if let Some(expected) = expected_return
-                && let Some(expected) =
-                    self.import_ty_into_module_or_none(expected, signature_module_id)
+                && let Some(expected) = self.type_for_module_or_none(expected, signature_module_id)
             {
                 self.infer_generics_from_tys(
                     span,
@@ -113,8 +112,8 @@ impl Analyzer<'_> {
             for (generic, arg) in signature.generic_params.iter().zip(type_args) {
                 match &generic.kind {
                     GenericParamSignatureKind::Type => {
-                        let imported = self.import_ty_into_module(arg.ty(), signature_module_id)?;
-                        substitutions.insert(generic.name, imported);
+                        let canonical = self.type_for_module(arg.ty(), signature_module_id)?;
+                        substitutions.insert(generic.name, canonical);
                     }
                     GenericParamSignatureKind::Const { ty } => {
                         let value = self
@@ -136,11 +135,11 @@ impl Analyzer<'_> {
         arg: &ResolvedConstTypeArg,
         module_id: ModuleId,
     ) -> Result<nia_ty::ConstGenericValue, ConstError> {
-        let imported = self.import_ty_into_module(arg.ty(), module_id)?;
+        let canonical = self.type_for_module(arg.ty(), module_id)?;
         match self
-            .working_interners
+            .type_contexts
             .get(&module_id)
-            .and_then(|interner| interner.get(imported))
+            .and_then(|interner| interner.get(canonical))
         {
             Some(TyKind::GenericParam(name)) => Ok(nia_ty::ConstGenericValue::GenericParam(*name)),
             _ => Err(ConstError {
@@ -156,13 +155,11 @@ impl Analyzer<'_> {
         ty: InternedTyId,
         substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<InternedTyId> {
-        self.ensure_working_interner(module_id)?;
-        let interner = self.working_interners.get_mut(&module_id)?;
-        Some(substitute_ty_generics_in_interner(
-            interner,
-            ty,
-            &|generic| substitutions.get(generic).copied(),
-        ))
+        self.ensure_type_context(module_id)?;
+        let interner = self.type_contexts.get_mut(&module_id)?;
+        Some(substitute_ty_generics(interner, ty, &|generic| {
+            substitutions.get(generic).copied()
+        }))
     }
 
     pub(super) fn resolved_const_arg_runtime_type(
@@ -273,38 +270,30 @@ impl Analyzer<'_> {
                     let ty = self
                         .typed_value_for_key(ConstKey::Local(local_id))
                         .map(|typed| typed.ty.clone())?;
-                    self.import_const_value_type(ty, self.current_execution_module_id())
+                    self.value_type_for_module(ty, self.current_execution_module_id())
                 })
                 .or_else(|| {
                     self.explicit_type_for_key(ConstKey::Local(local_id))
                         .and_then(|ty| {
-                            self.import_ty_into_module_or_none(
-                                ty,
-                                self.current_execution_module_id(),
-                            )
+                            self.type_for_module_or_none(ty, self.current_execution_module_id())
                         })
                         .map(ConstValueType::Runtime)
                 }),
             ConstNameResolution::Global(global_id) => self
                 .typed_value_for_key(ConstKey::Global(global_id))
                 .map(|typed| typed.ty.clone())
-                .and_then(|ty| self.import_const_value_type(ty, self.current_execution_module_id()))
+                .and_then(|ty| self.value_type_for_module(ty, self.current_execution_module_id()))
                 .or_else(|| {
                     self.explicit_type_for_key(ConstKey::Global(global_id))
                         .and_then(|ty| {
-                            self.import_ty_into_module_or_none(
-                                ty,
-                                self.current_execution_module_id(),
-                            )
+                            self.type_for_module_or_none(ty, self.current_execution_module_id())
                         })
                         .map(ConstValueType::Runtime)
                 }),
             ConstNameResolution::BuiltinAssociatedValue(value) => {
                 let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, .. } = value;
                 Some(ConstValueType::Runtime(
-                    self.source_interner_for_module(self.current_execution_module_id())
-                        .unwrap_or_else(|| self.input.interner.clone())
-                        .primitive(primitive),
+                    self.current_runtime_primitive_type(primitive),
                 ))
             }
             ConstNameResolution::AssociatedConstProjection(projection) => self
@@ -330,11 +319,7 @@ impl Analyzer<'_> {
             }
             ResolvedConstExprKind::Integer(text) => {
                 integer_literal_suffix_ty(text).map(|primitive| {
-                    ConstValueType::Runtime(
-                        self.source_interner_for_module(self.current_execution_module_id())
-                            .unwrap_or_else(|| self.input.interner.clone())
-                            .primitive(primitive),
-                    )
+                    ConstValueType::Runtime(self.current_runtime_primitive_type(primitive))
                 })
             }
             ResolvedConstExprKind::Float(text) => {
@@ -407,7 +392,7 @@ impl Analyzer<'_> {
                     TyKind::ErrorUnion { value, .. } => value,
                     _ => return None,
                 };
-                self.import_ty_into_module_or_none(payload, self.current_execution_module_id())
+                self.type_for_module_or_none(payload, self.current_execution_module_id())
                     .map(ConstValueType::Runtime)
             }
             ResolvedConstExprKind::Field { lhs, name } => {
@@ -582,9 +567,7 @@ impl Analyzer<'_> {
                     &[],
                     &nia_symbol::known::OUTPUT,
                 )
-                .and_then(|ty| {
-                    self.import_ty_into_module_or_none(ty, self.current_execution_module_id())
-                })
+                .and_then(|ty| self.type_for_module_or_none(ty, self.current_execution_module_id()))
                 .map(ConstValueType::Runtime),
             _ => None,
         }
@@ -635,7 +618,7 @@ impl Analyzer<'_> {
         } else {
             self.probe_resolved_const_int_expr(index)?;
         }
-        self.import_ty_into_module_or_none(elem, self.current_execution_module_id())
+        self.type_for_module_or_none(elem, self.current_execution_module_id())
             .map(ConstValueType::Runtime)
     }
 
@@ -676,7 +659,7 @@ impl Analyzer<'_> {
         let known_len = len.and_then(|len| self.array_len_const_value(len));
         let expected_len = self.expected_const_array_len(expected);
         let actual_len = self.resolved_const_slice_len(known_len, expected_len, range)?;
-        let elem = self.import_ty_into_module_or_none(elem, self.current_execution_module_id())?;
+        let elem = self.type_for_module_or_none(elem, self.current_execution_module_id())?;
         self.const_slice_result_type(ConstValueType::Runtime(elem), actual_len, expected)
     }
 
@@ -772,17 +755,17 @@ impl Analyzer<'_> {
         Some(value)
     }
 
-    pub(super) fn import_const_value_type(
+    pub(super) fn value_type_for_module(
         &mut self,
         ty: ConstValueType,
         target_module_id: ModuleId,
     ) -> Option<ConstValueType> {
         match ty {
             ConstValueType::Runtime(ty) => self
-                .import_ty_into_module_or_none(ty, target_module_id)
+                .type_for_module_or_none(ty, target_module_id)
                 .map(ConstValueType::Runtime),
             ConstValueType::Array { elem, len } => Some(ConstValueType::Array {
-                elem: Box::new(self.import_const_value_type(*elem, target_module_id)?),
+                elem: Box::new(self.value_type_for_module(*elem, target_module_id)?),
                 len,
             }),
             ConstValueType::Struct(fields) => fields
@@ -790,7 +773,7 @@ impl Analyzer<'_> {
                 .map(|field| {
                     Some(ConstValueFieldType {
                         name: field.name,
-                        ty: self.import_const_value_type(field.ty, target_module_id)?,
+                        ty: self.value_type_for_module(field.ty, target_module_id)?,
                     })
                 })
                 .collect::<Option<Vec<_>>>()
@@ -1101,12 +1084,10 @@ impl Analyzer<'_> {
         substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<InternedTyId> {
         let current_module = self.current_execution_module_id();
-        let interner = self.working_interners.get_mut(&current_module)?;
-        Some(substitute_ty_generics_in_interner(
-            interner,
-            ty,
-            &|generic| substitutions.get(generic).copied(),
-        ))
+        let interner = self.type_contexts.get_mut(&current_module)?;
+        Some(substitute_ty_generics(interner, ty, &|generic| {
+            substitutions.get(generic).copied()
+        }))
     }
 
     pub(super) fn expected_nominal_parts(
@@ -1142,7 +1123,7 @@ impl Analyzer<'_> {
         let expected_args = expected_args
             .iter()
             .copied()
-            .map(|arg| self.import_ty_into_module_or_none(arg, current_module))
+            .map(|arg| self.type_for_module_or_none(arg, current_module))
             .collect::<Option<Vec<_>>>()?;
         let substitutions = signature
             .generics
@@ -1152,10 +1133,10 @@ impl Analyzer<'_> {
             .collect::<SymbolMap<_>>();
         let mut fields = SymbolMap::default();
         for field in &signature.fields {
-            let imported = self.import_ty_into_module_or_none(field.ty, current_module)?;
+            let canonical = self.type_for_module_or_none(field.ty, current_module)?;
             let ty = {
-                let interner = self.working_interners.get_mut(&current_module)?;
-                substitute_ty_generics_in_interner(interner, imported, &|generic| {
+                let interner = self.type_contexts.get_mut(&current_module)?;
+                substitute_ty_generics(interner, canonical, &|generic| {
                     substitutions.get(generic).copied()
                 })
             };
@@ -1172,24 +1153,22 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         let current_module = self.current_execution_module_id();
         let args = {
-            let interner = self.working_interners.get_mut(&current_module)?;
+            let interner = self.type_contexts.get_mut(&current_module)?;
             args.into_iter()
                 .map(|arg| {
-                    substitute_ty_generics_in_interner(interner, arg, &|generic| {
+                    substitute_ty_generics(interner, arg, &|generic| {
                         substitutions.get(generic).copied()
                     })
                 })
                 .collect()
         };
-        self.working_interners
-            .get_mut(&current_module)
-            .map(|interner| {
-                interner.intern(TyKind::Nominal {
-                    def_id,
-                    args,
-                    const_args: Vec::new(),
-                })
+        self.type_contexts.get_mut(&current_module).map(|interner| {
+            interner.intern(TyKind::Nominal {
+                def_id,
+                args,
+                const_args: Vec::new(),
             })
+        })
     }
 
     pub(super) fn resolved_const_switch_expr_type(
@@ -1685,8 +1664,7 @@ impl Analyzer<'_> {
         let ConstValueType::Runtime(iter_ty) = iter_ty else {
             return None;
         };
-        let iter_ty =
-            self.import_ty_into_module_or_none(iter_ty, self.current_execution_module_id())?;
+        let iter_ty = self.type_for_module_or_none(iter_ty, self.current_execution_module_id())?;
         if !self.proves_trait_obligation(
             iter_ty,
             TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
@@ -1706,8 +1684,8 @@ impl Analyzer<'_> {
 
     pub(super) fn intern_current_ty(&mut self, kind: TyKind) -> Option<InternedTyId> {
         let module_id = self.current_execution_module_id();
-        self.ensure_working_interner(module_id)?;
-        self.working_interners
+        self.ensure_type_context(module_id)?;
+        self.type_contexts
             .get_mut(&module_id)
             .map(|interner| interner.intern(kind))
     }

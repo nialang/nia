@@ -31,6 +31,7 @@ pub(super) fn provide_module_program_signature_facts(
     Arc::new(
         nia_program_signatures::collect_module_program_signature_facts(ModuleSignatureInput {
             module_id,
+            type_store: &db.context().type_store,
             defs: &defs,
             lowering: &lowering,
             signatures: &signatures,
