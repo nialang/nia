@@ -23,12 +23,30 @@ use nia_symbol::SymbolId;
 use nia_symbol_table::SymbolTable;
 use nia_type_lower::{
     ProgramDefsContext, TypeLowering, TypeLoweringContext, lower_module_types_with_context,
-    lower_module_types_with_id,
 };
 use nia_type_normalize::normalize_module_types;
 use nia_type_resolve::resolve_module_types_with_symbols;
 use nia_value_resolve::resolve_module_values;
 use std::collections::HashMap;
+
+struct TestBackendLowering {
+    lowering: BackendLowering,
+    type_store: nia_ty::TypeStore,
+}
+
+impl std::ops::Deref for TestBackendLowering {
+    type Target = BackendLowering;
+
+    fn deref(&self) -> &Self::Target {
+        &self.lowering
+    }
+}
+
+impl TestBackendLowering {
+    fn interner(&self, module_id: ModuleId) -> nia_ty::TyInterner {
+        self.type_store.module_snapshot(module_id)
+    }
+}
 
 fn local_name(text: &str) -> nia_function_ir::LocalName {
     nia_function_ir::LocalName::named(sym(text))
@@ -205,7 +223,7 @@ mod lowering;
 mod reachability_and_instances;
 mod static_initializers;
 
-fn lower_source(source: &str) -> BackendLowering {
+fn lower_source(source: &str) -> TestBackendLowering {
     let lowering = lower_source_with_const_mutation(source, |_, _| {});
     assert!(
         lowering.diagnostics.is_empty(),
@@ -218,7 +236,7 @@ fn lower_source(source: &str) -> BackendLowering {
 fn lower_source_with_const_mutation(
     source: &str,
     mutate_const: impl FnOnce(&mut nia_const_check::ConstCheck, &TypeLowering),
-) -> BackendLowering {
+) -> TestBackendLowering {
     lower_source_with_body_mutation_const_mutation_and_optimization(
         source,
         |_| {},
@@ -231,7 +249,7 @@ fn lower_source_with_body_mutation_and_optimization(
     source: &str,
     mutate_body: impl FnMut(&mut nia_function_ir::FunctionBody),
     optimization: nia_opt::OptimizationPolicy,
-) -> BackendLowering {
+) -> TestBackendLowering {
     lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
         source,
         mutate_body,
@@ -246,7 +264,7 @@ fn lower_source_with_body_mutation_const_mutation_and_optimization(
     mutate_body: impl FnMut(&mut nia_function_ir::FunctionBody),
     mutate_const: impl FnOnce(&mut nia_const_check::ConstCheck, &TypeLowering),
     optimization: nia_opt::OptimizationPolicy,
-) -> BackendLowering {
+) -> TestBackendLowering {
     lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
         source,
         mutate_body,
@@ -267,7 +285,7 @@ fn lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
     ),
     mutate_const: impl FnOnce(&mut nia_const_check::ConstCheck, &TypeLowering),
     optimization: nia_opt::OptimizationPolicy,
-) -> BackendLowering {
+) -> TestBackendLowering {
     lower_source_with_body_check_mutation_and_optimization(
         source,
         mutate_body,
@@ -296,7 +314,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         &nia_ty::TyInterner,
     ),
     optimization: nia_opt::OptimizationPolicy,
-) -> BackendLowering {
+) -> TestBackendLowering {
     let symbols = SymbolTable::new();
     let (module, errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(errors.is_empty(), "{errors:?}");
@@ -514,9 +532,6 @@ fn lower_source_with_body_check_mutation_and_optimization(
         signatures: &signatures,
         type_normalization: &normalization,
         body_ir: &body_check.ir,
-        type_interner: program_type_interners
-            .get(&ModuleId(0))
-            .expect("backend session interner"),
         semantic_facts: &body_check.facts,
         extensions: &extensions,
         const_array_lengths: &const_array_lengths,
@@ -544,7 +559,11 @@ fn lower_source_with_body_check_mutation_and_optimization(
         trait_impls: &[],
         trait_impl_index: &trait_impl_index,
     };
-    lower_backend_program(&[input], &monomorphization, optimization)
+    let lowering = lower_backend_program(&[input], &type_store, &monomorphization, optimization);
+    TestBackendLowering {
+        lowering,
+        type_store,
+    }
 }
 
 fn const_enum_values_from_check(

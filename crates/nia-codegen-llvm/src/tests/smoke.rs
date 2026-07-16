@@ -13,7 +13,7 @@ fn codegen_program_smoke_matrix_emits_llvm_ir() {
             case.name,
             codegen.diagnostics
         );
-        let output = emit_llvm_ir(&codegen.backend_lowering.program);
+        let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
         assert!(
             output.diagnostics.is_empty(),
             "{} codegen diagnostics: {:?}",
@@ -91,6 +91,7 @@ fn main() i32 {
 
         let output = emit_llvm_ir_with_options(
             &codegen.backend_lowering.program,
+            &codegen.type_store,
             LlvmCodegenOptions {
                 optimization: codegen.optimization,
                 ..LlvmCodegenOptions::default()

@@ -35,7 +35,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert_contains_mangled_symbol(ir, '@', 0, "add");
@@ -79,7 +79,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert_contains_mangled_symbol(ir, '@', 0, "add__inst__t_i32");
@@ -138,7 +138,7 @@ fn main() bool {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert_contains_mangled_symbol(ir, '@', 0, "ne");
@@ -187,7 +187,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert_contains_mangled_symbol(ir, '@', 0, "neg");

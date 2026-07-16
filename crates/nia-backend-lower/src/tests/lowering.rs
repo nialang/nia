@@ -27,7 +27,13 @@ fn main() i32 {
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-    let mut type_lowering = lower_module_types_with_id(ModuleId(0), &module, &type_resolved);
+    let type_store = nia_ty::TypeStore::new();
+    let type_lowering = lower_module_types_with_context(
+        ModuleId(0),
+        &module,
+        &type_resolved,
+        TypeLoweringContext::empty(&type_store).with_symbols(&symbols),
+    );
     let signatures = collect_item_signatures(&module, &defs, &type_lowering);
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
@@ -44,12 +50,10 @@ fn main() i32 {
         .iter()
         .map(|(ty_id, _)| ty_id)
         .collect::<Vec<_>>();
-    let normalization = normalize_module_types(
-        ModuleId(0),
-        &mut type_lowering.interner,
-        &normalization_input,
-        &signatures,
-    );
+    let normalization = type_store
+        .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+            normalize_module_types(ModuleId(0), interner, &normalization_input, &signatures)
+        });
     let target = nia_target_config::TargetConfig::host();
     let source_path = nia_source::SourcePath::new("/tmp/nia-backend-lower-test/lowering.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
@@ -68,34 +72,35 @@ fn main() i32 {
         "{:?}",
         const_module.diagnostics
     );
-    let mut const_interner = normalization.interner.clone();
-    let const_eval = nia_const_check::check_module_const(
-        nia_const_check::ConstInput {
-            module: &const_module.module,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            symbols: &symbols,
-            lowered: &type_lowering,
-            signatures: &signatures,
-            interner: &normalization.interner,
-            normalized: &normalization.normalized,
-            target: &target,
-            source_path: &source_path,
-            program: nia_const_check::ConstProgramContext::empty(),
-        },
-        &mut const_interner,
-    );
-    let mut layout_interner = normalization.interner.clone();
-    let layouts = nia_layout::compute_layouts_with_normalized_types(
-        &defs,
-        &mut layout_interner,
-        &signatures,
-        &normalization.normalized,
-        &|id| const_eval.array_lengths.get(&id).copied(),
-        nia_layout::TargetDataLayout::LP64,
-    );
+    let const_input = nia_const_check::ConstInput {
+        module: &const_module.module,
+        defs: &defs,
+        values: &values,
+        locals: &locals,
+        semantic_uses: &semantic_uses,
+        symbols: &symbols,
+        lowered: &type_lowering,
+        signatures: &signatures,
+        interner: &normalization.interner,
+        normalized: &normalization.normalized,
+        target: &target,
+        source_path: &source_path,
+        program: nia_const_check::ConstProgramContext::empty(),
+    };
+    let const_eval = type_store
+        .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+            nia_const_check::check_module_const(const_input, interner)
+        });
+    let layouts = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+        nia_layout::compute_layouts_with_normalized_types(
+            &defs,
+            interner,
+            &signatures,
+            &normalization.normalized,
+            &|id| const_eval.array_lengths.get(&id).copied(),
+            nia_layout::TargetDataLayout::LP64,
+        )
+    });
     let _abi = check_module_abi(&defs, &type_lowering.interner, &signatures);
     let _flow = check_module_flow(&module, &type_lowering.interner, &signatures);
     let point_id = defs
@@ -165,40 +170,45 @@ fn main() i32 {
         &const_array_lengths,
         &const_typed_facts,
     );
-    let body_check = check_module_bodies_with_program_signatures_and_layouts(
-        BodyCheckInput {
-            source_version: None,
-            source_path: &source_path,
-            symbols: &symbols,
-            origins: &origins,
-            active_item_tree: &active_item_tree,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            lowered: &type_lowering,
-            signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
-            const_signatures: &signatures,
-            normalization: &normalization,
-            seed: None,
-            target: &target,
-            const_eval: body_const,
-            const_module: &const_module.module,
-            layouts: &layouts,
-            extensions: &extensions,
-            lazy_extensions: None,
-            program_extension_methods: &nia_defs::ExtensionMethods::default(),
-            extension_interner: None,
-            program: nia_body_check::BodyProgramContext::empty(),
-            program_signatures: program_signatures.context(),
-            function_scope: nia_body_check::FunctionCheckScope::LocalModule,
-            program_const: nia_body_check::ProgramConstMaps::empty(),
-            filter: nia_body_check::BodyCheckFilter::All,
-            product: nia_body_check::BodyCheckProduct::Full,
-            prechecked: None,
-        },
-        &mut const_interner,
-    );
+    let body_check =
+        type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+            check_module_bodies_with_program_signatures_and_layouts(
+                BodyCheckInput {
+                    source_version: None,
+                    source_path: &source_path,
+                    symbols: &symbols,
+                    origins: &origins,
+                    active_item_tree: &active_item_tree,
+                    defs: &defs,
+                    values: &values,
+                    locals: &locals,
+                    semantic_uses: &semantic_uses,
+                    lowered: &type_lowering,
+                    signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(
+                        &signatures,
+                    ),
+                    const_signatures: &signatures,
+                    normalization: &normalization,
+                    seed: None,
+                    target: &target,
+                    const_eval: body_const,
+                    const_module: &const_module.module,
+                    layouts: &layouts,
+                    extensions: &extensions,
+                    lazy_extensions: None,
+                    program_extension_methods: &nia_defs::ExtensionMethods::default(),
+                    extension_interner: None,
+                    program: nia_body_check::BodyProgramContext::empty(),
+                    program_signatures: program_signatures.context(),
+                    function_scope: nia_body_check::FunctionCheckScope::LocalModule,
+                    program_const: nia_body_check::ProgramConstMaps::empty(),
+                    filter: nia_body_check::BodyCheckFilter::All,
+                    product: nia_body_check::BodyCheckProduct::Full,
+                    prechecked: None,
+                },
+                interner,
+            )
+        });
     assert!(
         body_check.diagnostics.is_empty(),
         "{:?}",
@@ -217,7 +227,8 @@ fn main() i32 {
         .collect::<HashMap<_, _>>();
     let program_const = HashMap::from([(ModuleId(0), &const_array_lengths)]);
     let const_enum_values = const_enum_values_from_check(&const_eval);
-    let program_type_interners = HashMap::from([(ModuleId(0), const_interner.clone())]);
+    let program_type_interners =
+        HashMap::from([(ModuleId(0), type_store.module_snapshot(ModuleId(0)))]);
     let no_program_defs = |_| None;
     let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::default();
 
@@ -233,9 +244,6 @@ fn main() i32 {
         signatures: &signatures,
         type_normalization: &normalization,
         body_ir: &body_check.ir,
-        type_interner: program_type_interners
-            .get(&ModuleId(0))
-            .expect("backend session interner"),
         semantic_facts: &body_check.facts,
         extensions: &extensions,
         const_array_lengths: &const_array_lengths,
@@ -265,6 +273,7 @@ fn main() i32 {
     };
     let lowering = lower_backend_program(
         &[input],
+        &type_store,
         &Monomorphization {
             instances: Vec::new(),
             diagnostics: Vec::new(),
@@ -447,6 +456,7 @@ fn main() i32 {
 "#;
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
+    let interner = lowering.interner(module.id);
     let instance = module
         .function_instances
         .iter()
@@ -456,7 +466,7 @@ fn main() i32 {
         .function_body
         .as_ref()
         .expect("id instance function body");
-    let i32_ty = module.interner.primitive(nia_ty::PrimitiveTy::I32);
+    let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
 
     assert_eq!(instance.params[0].passing_ty, i32_ty);
     assert_eq!(instance.params[0].local_ty, i32_ty);
@@ -478,8 +488,9 @@ fn main() usize {
 "#;
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
-    let u8_ty = module.interner.primitive(nia_ty::PrimitiveTy::U8);
-    let usize_ty = module.interner.primitive(nia_ty::PrimitiveTy::Usize);
+    let interner = lowering.interner(module.id);
+    let u8_ty = interner.primitive(nia_ty::PrimitiveTy::U8);
+    let usize_ty = interner.primitive(nia_ty::PrimitiveTy::Usize);
     let mut instances = module
         .function_instances
         .iter()
@@ -506,7 +517,7 @@ fn main() usize {
             nia_ty::ConstGenericValue::Int(value) if value.bits() == expected_len
         ));
         assert!(matches!(
-            module.interner.get(instance.params[0].local_ty),
+            interner.get(instance.params[0].local_ty),
             Some(nia_ty::TyKind::Array {
                 len: nia_ty::ArrayLenTy::ConstValue(len),
                 elem,
@@ -539,8 +550,9 @@ fn main() usize {
 "#;
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
-    let u8_ty = module.interner.primitive(nia_ty::PrimitiveTy::U8);
-    let usize_ty = module.interner.primitive(nia_ty::PrimitiveTy::Usize);
+    let interner = lowering.interner(module.id);
+    let u8_ty = interner.primitive(nia_ty::PrimitiveTy::U8);
+    let usize_ty = interner.primitive(nia_ty::PrimitiveTy::Usize);
     let mut instances = module
         .struct_instances
         .iter()
@@ -568,7 +580,7 @@ fn main() usize {
         ));
         assert_eq!(instance.fields.len(), 1);
         assert!(matches!(
-            module.interner.get(instance.fields[0].ty),
+            interner.get(instance.fields[0].ty),
             Some(nia_ty::TyKind::Array {
                 len: nia_ty::ArrayLenTy::ConstValue(len),
                 elem,
@@ -595,8 +607,9 @@ fn main() i32 {
 "#;
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
-    let i32_ty = module.interner.primitive(nia_ty::PrimitiveTy::I32);
-    let u64_ty = module.interner.primitive(nia_ty::PrimitiveTy::U64);
+    let interner = lowering.interner(module.id);
+    let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
+    let u64_ty = interner.primitive(nia_ty::PrimitiveTy::U64);
 
     assert!(
         module
@@ -642,9 +655,9 @@ fn main() i32 {
 "#;
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
-    let i32_ty = module.interner.primitive(nia_ty::PrimitiveTy::I32);
-    let i32_ptr = module
-        .interner
+    let interner = lowering.interner(module.id);
+    let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
+    let i32_ptr = interner
         .iter()
         .find_map(|(ty_id, ty)| {
             matches!(
@@ -667,7 +680,7 @@ fn main() i32 {
     assert_eq!(instance.params[0].passing_ty, i32_ptr);
     assert_eq!(instance.params[0].local_ty, i32_ptr);
     assert_eq!(instance.return_type, i32_ptr);
-    assert!(module.interner.get(instance.args[0]).is_some());
+    assert!(interner.get(instance.args[0]).is_some());
 }
 
 #[test]

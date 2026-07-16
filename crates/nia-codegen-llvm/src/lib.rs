@@ -10,32 +10,37 @@ mod program_index;
 use backend_validate::validate_backend_program;
 use module_codegen::ModuleCodegen;
 use nia_backend_ir::{BackendModule, BackendProgram};
+use nia_ids::ModuleId;
 use nia_llvm::{Context, OptimizationLevel as LlvmOptimizationLevel, target::TargetMachine};
 use nia_opt::NiaOptimizationLevel;
+use nia_ty::{TypeStore, TypeStoreModuleCheckout};
 pub use output::{
     LlvmCodegenOptions, LlvmCodegenOutput, LlvmModuleOutput, LlvmObjectModuleOutput,
     LlvmObjectOutput,
 };
 use program_index::ProgramIndex;
 
-pub fn emit_llvm_ir(program: &BackendProgram) -> LlvmCodegenOutput {
-    emit_llvm_ir_with_options(program, LlvmCodegenOptions::default())
+pub fn emit_llvm_ir(program: &BackendProgram, type_store: &TypeStore) -> LlvmCodegenOutput {
+    emit_llvm_ir_with_options(program, type_store, LlvmCodegenOptions::default())
 }
 
 pub fn emit_llvm_ir_with_options(
     program: &BackendProgram,
+    type_store: &TypeStore,
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
-    catch_llvm_codegen_ice(|| emit_llvm_ir_with_options_inner(program, options))
+    catch_llvm_codegen_ice(|| emit_llvm_ir_with_options_inner(program, type_store, options))
 }
 
 fn emit_llvm_ir_with_options_inner(
     program: &BackendProgram,
+    type_store: &TypeStore,
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
     let timings = options.timings;
+    let type_interners = checkout_program_type_interners(program, type_store);
     let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
-        ProgramIndex::new(program)
+        ProgramIndex::new(program, &type_interners)
     });
     let validation_diagnostics = time_codegen_stage(timings, "llvm_codegen.validate", || {
         validate_backend_program(program, &index)
@@ -79,13 +84,15 @@ fn emit_llvm_ir_with_options_inner(
 
 pub fn emit_native_objects(
     program: &BackendProgram,
+    type_store: &TypeStore,
     options: LlvmCodegenOptions,
 ) -> LlvmObjectOutput {
-    catch_llvm_object_ice(|| emit_native_objects_inner(program, options))
+    catch_llvm_object_ice(|| emit_native_objects_inner(program, type_store, options))
 }
 
 fn emit_native_objects_inner(
     program: &BackendProgram,
+    type_store: &TypeStore,
     options: LlvmCodegenOptions,
 ) -> LlvmObjectOutput {
     let timings = options.timings;
@@ -100,8 +107,9 @@ fn emit_native_objects_inner(
             };
         }
     };
+    let type_interners = checkout_program_type_interners(program, type_store);
     let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
-        ProgramIndex::new(program)
+        ProgramIndex::new(program, &type_interners)
     });
     let validation_diagnostics = time_codegen_stage(timings, "llvm_codegen.validate", || {
         validate_backend_program(program, &index)
@@ -114,7 +122,7 @@ fn emit_native_objects_inner(
     }
     let mut outputs = Vec::new();
     let mut diagnostics = Vec::new();
-    let builtin_symbols = compiler_builtins::required_symbols(program);
+    let builtin_symbols = compiler_builtins::required_symbols(program, &index);
     for module in &program.modules {
         if !module_has_object_definitions(module) {
             continue;
@@ -159,6 +167,22 @@ fn emit_native_objects_inner(
         modules: outputs,
         diagnostics,
     }
+}
+
+fn checkout_program_type_interners(
+    program: &BackendProgram,
+    type_store: &TypeStore,
+) -> std::collections::HashMap<ModuleId, TypeStoreModuleCheckout> {
+    program
+        .modules
+        .iter()
+        .map(|module| {
+            (
+                module.id,
+                type_store.checkout_module_for_semantic_migration(module.id),
+            )
+        })
+        .collect()
 }
 
 pub(crate) fn time_codegen_stage<T>(

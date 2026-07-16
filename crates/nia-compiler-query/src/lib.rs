@@ -74,6 +74,7 @@ pub struct CheckedProgram {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodegenProgram {
+    pub type_store: std::sync::Arc<nia_ty::TypeStore>,
     pub graph: ModuleGraph,
     pub optimization: OptimizationPolicy,
     pub modules: Vec<CheckedModule>,

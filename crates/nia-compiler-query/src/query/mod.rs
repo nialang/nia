@@ -212,12 +212,14 @@ impl CompilerDatabase {
         })) {
             Ok(Ok(codegen)) => codegen,
             Ok(Err(err)) => codegen_program_from_query_error(
+                Arc::clone(&self.db.context().type_store),
                 self.current_graph(),
                 self.current_optimization(),
                 err,
             ),
             Err(payload) => match payload.downcast::<QueryError>() {
                 Ok(err) => codegen_program_from_query_error(
+                    Arc::clone(&self.db.context().type_store),
                     self.current_graph(),
                     self.current_optimization(),
                     *err,
@@ -510,11 +512,13 @@ fn checked_program_from_query_error(
 }
 
 fn codegen_program_from_query_error(
+    type_store: Arc<nia_ty::TypeStore>,
     graph: ModuleGraph,
     optimization: OptimizationPolicy,
     err: QueryError,
 ) -> CodegenProgram {
     CodegenProgram {
+        type_store,
         graph,
         optimization,
         modules: Vec::new(),
@@ -2069,6 +2073,7 @@ mod tests {
     }
 
     fn backend_function_instance_matches_vtable_ref(
+        type_store: &nia_ty::TypeStore,
         vtable: VtableFunctionInstanceRef<'_>,
         instance_module: &nia_backend_ir::BackendModule,
         instance: &nia_backend_ir::BackendFunctionInstance,
@@ -2084,11 +2089,12 @@ mod tests {
         if instance.def_id != def_id || instance.arg_module_id != arg_module_id {
             return false;
         }
-        let mut target_interner = instance_module.interner.clone();
+        let mut target_interner = type_store.module_snapshot(instance_module.id);
+        let vtable_interner = type_store.module_snapshot(vtable_module.id);
         let self_arg = match self_arg {
             Some(ty) => {
                 let Ok(ty) =
-                    nia_ty::try_import_type_into(&mut target_interner, &vtable_module.interner, ty)
+                    nia_ty::try_import_type_into(&mut target_interner, &vtable_interner, ty)
                 else {
                     return false;
                 };
@@ -2098,9 +2104,7 @@ mod tests {
         };
         let Ok(args) = args
             .iter()
-            .map(|ty| {
-                nia_ty::try_import_type_into(&mut target_interner, &vtable_module.interner, *ty)
-            })
+            .map(|ty| nia_ty::try_import_type_into(&mut target_interner, &vtable_interner, *ty))
             .collect::<Result<Vec<_>, _>>()
         else {
             return false;
@@ -2111,7 +2115,7 @@ mod tests {
                 Ok(nia_ty::ConstGenericArg {
                     ty: nia_ty::try_import_type_into(
                         &mut target_interner,
-                        &vtable_module.interner,
+                        &vtable_interner,
                         arg.ty,
                     )?,
                     value: arg.value.clone(),
@@ -7191,6 +7195,7 @@ extend Page : Allocator {
                 })
                 .filter(|(instance_module, instance)| {
                     backend_function_instance_matches_vtable_ref(
+                        &db.context().type_store,
                         VtableFunctionInstanceRef {
                             module: vtable_module,
                             def_id,

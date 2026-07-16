@@ -310,6 +310,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         || {
             nia_backend_lower::lower_backend_program_with_timings(
                 &inputs,
+                &db.context().type_store,
                 monomorphization,
                 db.query(CompilerOptimizationQuery),
                 db.context().timings(),

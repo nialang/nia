@@ -137,8 +137,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     }
                 }
             }
-            let pointee_ty =
-                self.llvm_basic_type_in(global_ty, span, &owner.interner, &owner.layouts)?;
+            let pointee_ty = self.llvm_basic_type_in(
+                global_ty,
+                span,
+                self.owner_interner(owner),
+                &owner.layouts,
+            )?;
             unsafe {
                 ptr = ptr.const_in_bounds_gep(pointee_ty, &indices);
             }
@@ -162,9 +166,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             return Err(self.error(span, "missing static array pointer owner module"));
         };
         let llvm_array_ty =
-            self.llvm_basic_type_in(array_ty, span, &owner.interner, &owner.layouts)?;
-        let value =
-            self.static_init_value_in(array_ty, array_init, span, &owner.interner, &owner.layouts)?;
+            self.llvm_basic_type_in(array_ty, span, self.owner_interner(owner), &owner.layouts)?;
+        let value = self.static_init_value_in(
+            array_ty,
+            array_init,
+            span,
+            self.owner_interner(owner),
+            &owner.layouts,
+        )?;
         let ptr = self.materialize_static_array_pointer(llvm_array_ty, value, span)?;
         let target_ptr_ty = self
             .llvm_basic_type_in(ty, span, target_interner, target_layouts)?

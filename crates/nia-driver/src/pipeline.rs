@@ -261,6 +261,7 @@ impl Driver {
         DriverOutput::catch_ice(|| {
             let output = nia_codegen_llvm::emit_llvm_ir_with_options(
                 &program.backend_lowering.program,
+                &program.type_store,
                 codegen_options(program.optimization, timings),
             );
             if !output.diagnostics.is_empty() {
@@ -300,6 +301,7 @@ impl Driver {
         DriverOutput::catch_ice(|| {
             let output = nia_codegen_llvm::emit_native_objects(
                 &program.backend_lowering.program,
+                &program.type_store,
                 codegen_options(program.optimization, timings),
             );
             if !output.diagnostics.is_empty() {

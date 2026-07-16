@@ -7,7 +7,7 @@ use nia_backend_ir::{
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{StructLayout, TypeLayout};
-use nia_ty::{ConstGenericArg, TraitId, TyKind};
+use nia_ty::{ConstGenericArg, TraitId, TyInterner, TyKind, TypeStoreModuleCheckout};
 
 type InstanceArgs = (Vec<InternedTyId>, Vec<ConstGenericArg>);
 type AggregateInstanceIndex<'a, T> = HashMap<GlobalDefId, HashMap<InstanceArgs, &'a T>>;
@@ -25,6 +25,7 @@ type FunctionInstanceIndex<'a> =
 type AggregateLayoutIndex<'a> = HashMap<GlobalDefId, HashMap<InstanceArgs, &'a StructLayout>>;
 
 pub(super) struct ProgramIndex<'a> {
+    type_interners: HashMap<ModuleId, &'a TyInterner>,
     pub(super) modules: HashMap<ModuleId, &'a nia_backend_ir::BackendModule>,
     pub(super) structs: HashMap<GlobalDefId, &'a nia_backend_ir::BackendStruct>,
     pub(super) unions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendUnion>,
@@ -67,8 +68,15 @@ pub(super) struct EnumVariantInfo<'a> {
 }
 
 impl<'a> ProgramIndex<'a> {
-    pub(super) fn new(program: &'a BackendProgram) -> Self {
+    pub(super) fn new(
+        program: &'a BackendProgram,
+        type_interners: &'a HashMap<ModuleId, TypeStoreModuleCheckout>,
+    ) -> Self {
         let mut index = Self {
+            type_interners: type_interners
+                .iter()
+                .map(|(module_id, interner)| (*module_id, &**interner))
+                .collect(),
             modules: HashMap::new(),
             structs: HashMap::new(),
             unions: HashMap::new(),
@@ -214,7 +222,7 @@ impl<'a> ProgramIndex<'a> {
                     .or_default()
                     .push(vtable);
                 if let Some(TyKind::TraitObject { trait_id, .. }) =
-                    module.interner.get(vtable.key.object_ty)
+                    index.ty_kind(vtable.key.object_ty)
                 {
                     index
                         .trait_object_vtables_by_trait
@@ -229,6 +237,14 @@ impl<'a> ProgramIndex<'a> {
 
     pub(super) fn module(&self, module_id: ModuleId) -> Option<&'a nia_backend_ir::BackendModule> {
         self.modules.get(&module_id).copied()
+    }
+
+    pub(super) fn type_interner(&self, module_id: ModuleId) -> Option<&'a TyInterner> {
+        self.type_interners.get(&module_id).copied()
+    }
+
+    pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&'a TyKind> {
+        self.type_interner(ty.interner_id.module_id())?.get(ty)
     }
 
     pub(super) fn type_layout(&self, ty: InternedTyId) -> Option<&'a TypeLayout> {
@@ -360,7 +376,7 @@ mod tests {
     use nia_layout::{StructLayout, TypeLayout};
     use nia_span::Span;
     use nia_symbol::{SymbolId, stable_hash};
-    use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+    use nia_ty::{PrimitiveTy, TyKind, TypeStore};
 
     fn sym(text: &str) -> SymbolId {
         SymbolId::from_stable_hash(stable_hash(text))
@@ -369,7 +385,8 @@ mod tests {
     #[test]
     fn indexes_codegen_lookup_tables_by_exact_keys_and_fallback_groups() {
         let module_id = ModuleId(0);
-        let mut interner = TyInterner::new(module_id);
+        let type_store = TypeStore::new();
+        let mut interner = type_store.checkout_module_for_semantic_migration(module_id);
         let i32_ty = interner.primitive(PrimitiveTy::I32);
         let function_def = global(module_id, 1);
         let struct_def = global(module_id, 2);
@@ -431,7 +448,6 @@ mod tests {
             modules: vec![BackendModule {
                 id: module_id,
                 name: "main".to_string(),
-                interner,
                 const_eval: BackendConstFacts::default(),
                 layouts: BackendLayouts {
                     target: nia_layout::TargetDataLayout::LP64,
@@ -486,7 +502,8 @@ mod tests {
             }],
         };
 
-        let index = ProgramIndex::new(&program);
+        let type_interners = HashMap::from([(module_id, interner)]);
+        let index = ProgramIndex::new(&program, &type_interners);
 
         assert!(index.module(module_id).is_some());
         assert_eq!(
