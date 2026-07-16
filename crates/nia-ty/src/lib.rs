@@ -115,6 +115,12 @@ struct TypeStoreSlots {
 
 impl TypeStoreCore {
     fn intern(&self, origin: TypeOrigin, kind: &TyKind) -> InternedTyId {
+        kind.visit_referenced_types(|referenced| {
+            assert!(
+                self.get(referenced).is_some(),
+                "Nia ICE: interned type references a handle outside its session type store"
+            );
+        });
         let mut slots = self.slots.lock().expect("type store slots lock poisoned");
         if let Some(ty) = slots.canonical.get(kind) {
             return *ty;
@@ -161,6 +167,18 @@ pub struct TypeStoreModuleCheckout {
     slot: Arc<Mutex<Option<TyInterner>>>,
     _guard: ModuleInternerGuard,
     _not_send: PhantomData<Rc<()>>,
+}
+
+#[derive(Clone)]
+pub struct TypeStoreAppend {
+    core: Arc<TypeStoreCore>,
+    origin: TypeOrigin,
+}
+
+impl TypeStoreAppend {
+    pub fn intern(&self, kind: TyKind) -> InternedTyId {
+        self.core.intern(self.origin, &kind)
+    }
 }
 
 impl Deref for TypeStoreModuleCheckout {
@@ -222,6 +240,14 @@ impl TypeStore {
 
     pub fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.core.get(ty)
+    }
+
+    #[doc(hidden)]
+    pub fn append_for_module(&self, module_id: ModuleId) -> TypeStoreAppend {
+        TypeStoreAppend {
+            core: Arc::clone(&self.core),
+            origin: TypeOrigin::Module(module_id),
+        }
     }
 
     #[doc(hidden)]
@@ -679,12 +705,6 @@ impl TyInterner {
         if let Some(ty) = self.map.get(&kind) {
             return *ty;
         }
-        kind.visit_referenced_types(|referenced| {
-            assert!(
-                self.core.get(referenced).is_some(),
-                "Nia ICE: interned type references a handle outside its session type store"
-            );
-        });
         let ty = self
             .core
             .intern(TypeOrigin::Module(self.interner_id.module_id()), &kind);
@@ -1679,6 +1699,39 @@ mod tests {
                 elem: foreign,
             })
         );
+    }
+
+    #[test]
+    fn append_capability_interns_without_a_module_view() {
+        let store = TypeStore::new();
+        let foreign = store.with_module_interner_for_semantic_migration(ModuleId(9), |interner| {
+            interner.intern(TyKind::Nominal {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(9),
+                    def_id: nia_ids::DefId(1),
+                },
+                args: Vec::new(),
+                const_args: Vec::new(),
+            })
+        });
+        let append = store.append_for_module(ModuleId(2));
+        let pointer = append.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem: foreign,
+        });
+
+        assert_eq!(
+            store.get(pointer),
+            Some(&TyKind::Pointer {
+                is_readonly: true,
+                elem: foreign,
+            })
+        );
+        assert_eq!(
+            store.type_origin(pointer),
+            Some(TypeOrigin::Module(ModuleId(2)))
+        );
+        assert!(store.module_snapshot(ModuleId(2)).get(pointer).is_none());
     }
 
     #[test]

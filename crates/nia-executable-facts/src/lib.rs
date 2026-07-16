@@ -16,12 +16,10 @@ use std::collections::{HashMap, HashSet};
 pub struct ReachableModuleInput<'a> {
     pub module_id: ModuleId,
     pub defs: &'a DefCollection,
-    pub interner: &'a nia_ty::TyInterner,
+    pub type_store: &'a nia_ty::TypeStore,
     pub body_ir: &'a BodyIr,
     pub executable_refs: &'a ExecutableModuleRefs,
     pub semantic_facts: &'a SemanticFacts,
-    pub type_lowering: &'a nia_type_lower::TypeLowering,
-    pub type_normalization: &'a nia_type_normalize::TypeNormalization,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -873,7 +871,7 @@ fn collect_trait_object_vtable_ref(
     self_ty: InternedTyId,
     refs: &mut ExecutableItemRefs,
 ) {
-    let Some(ty) = module.interner.get(object_ty) else {
+    let Some(ty) = module.type_store.get(object_ty) else {
         return;
     };
     match ty {
