@@ -2324,17 +2324,13 @@ pub(super) fn executable_flow_check(
 ) -> nia_flow_check::FlowCheck {
     time_module_provider(db, "executable_flow_check", module_id, || {
         let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-        let type_lowering = db.query_shared(SignatureTypeLoweringQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Functions,
-        ));
         let signatures = db.query_shared(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Functions,
         ));
         nia_flow_check::check_active_module_flow_with_signatures_and_filter(
             &active_item_tree,
-            &type_lowering.interner,
+            db.context().type_store(),
             nia_flow_check::FlowCheckSignatures {
                 functions: &signatures.functions,
             },

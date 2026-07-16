@@ -107,8 +107,8 @@ fn main() i32 {
             program: nia_layout::ProgramLayoutContext::default(),
         })
     });
-    let _abi = check_module_abi(&defs, &type_lowering.interner, &signatures);
-    let _flow = check_module_flow(&module, &type_lowering.interner, &signatures);
+    let _abi = check_module_abi(&defs, &type_store, &signatures);
+    let _flow = check_module_flow(&module, &type_store, &signatures);
     let point_id = defs
         .module_scope
         .types

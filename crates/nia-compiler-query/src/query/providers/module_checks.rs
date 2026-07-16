@@ -63,25 +63,13 @@ pub(super) fn provide_abi_check(
     module_id: ModuleId,
 ) -> nia_abi_check::AbiCheck {
     let defs = db.query_shared(FullModuleDefsQuery(module_id));
-    let function_lowering = db.query_shared(SignatureTypeLoweringQuery(
-        module_id,
-        nia_item_tree::SignatureItemSet::Functions,
-    ));
     let function_signatures = db.query_shared(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));
-    let type_lowering = db.query_shared(SignatureTypeLoweringQuery(
-        module_id,
-        nia_item_tree::SignatureItemSet::Types,
-    ));
     let type_signatures = db.query_shared(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
-    ));
-    let value_lowering = db.query_shared(SignatureTypeLoweringQuery(
-        module_id,
-        nia_item_tree::SignatureItemSet::Values,
     ));
     let value_signatures = db.query_shared(SignatureItemSignaturesQuery(
         module_id,
@@ -90,15 +78,13 @@ pub(super) fn provide_abi_check(
     let program = db.query(ProgramAbiSignaturesQuery);
     nia_abi_check::check_module_abi_families_with_program_signatures(
         &defs,
+        db.context().type_store(),
         nia_abi_check::ModuleAbiSignatures {
             functions: &function_signatures.functions,
-            function_interner: &function_lowering.interner,
             structs: &type_signatures.structs,
             unions: &type_signatures.unions,
             enums: &type_signatures.enums,
-            type_interner: &type_lowering.interner,
             globals: &value_signatures.globals,
-            value_interner: &value_lowering.interner,
         },
         nia_abi_check::ProgramAbiSignatures {
             structs: &program.structs,
@@ -149,17 +135,13 @@ pub(super) fn provide_flow_check(
     module_id: ModuleId,
 ) -> nia_flow_check::FlowCheck {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let type_lowering = db.query_shared(SignatureTypeLoweringQuery(
-        module_id,
-        nia_item_tree::SignatureItemSet::Functions,
-    ));
     let signatures = db.query_shared(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));
     nia_flow_check::check_active_module_flow_with_signatures(
         &active_item_tree,
-        &type_lowering.interner,
+        db.context().type_store(),
         nia_flow_check::FlowCheckSignatures {
             functions: &signatures.functions,
         },
