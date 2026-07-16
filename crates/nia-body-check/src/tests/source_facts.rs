@@ -58,7 +58,13 @@ fn main() i32 {
     let active_item_tree = active_item_tree(&module);
     let semantic_uses =
         semantic_use_table(ModuleId(0), &values, &locals, &lowered, &active_item_tree);
-    let signatures = collect_item_signatures(&module, &defs, &lowered);
+    let signatures = collect_item_signatures(ItemSignatureInput {
+        source: ItemSignatureSource::Module(&module),
+        defs: &defs,
+        lowered: &lowered,
+        type_store: &type_store,
+        symbols: None,
+    });
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-body-check-test/source-facts.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
@@ -231,7 +237,13 @@ fn main() i32 {
     let active_item_tree = active_item_tree(&module);
     let semantic_uses =
         semantic_use_table(ModuleId(0), &values, &locals, &lowered, &active_item_tree);
-    let signatures = collect_item_signatures(&module, &defs, &lowered);
+    let signatures = collect_item_signatures(ItemSignatureInput {
+        source: ItemSignatureSource::Module(&module),
+        defs: &defs,
+        lowered: &lowered,
+        type_store: &type_store,
+        symbols: None,
+    });
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-body-check-test/source-facts-red.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {

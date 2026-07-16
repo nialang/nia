@@ -19,7 +19,7 @@ use nia_span::Span;
 use nia_symbol::{
     SymbolId, SymbolText, known, symbol_identity_key, symbol_text_from_optional_resolver,
 };
-use nia_ty::{PrimitiveTy, TraitId};
+use nia_ty::{PrimitiveTy, TraitId, TyKind, TypeStore, TypeStoreAppend};
 use nia_type_lower::TypeLowering;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -568,68 +568,66 @@ fn builtin_type_anchor_primitive(anchor: BuiltinTypeAnchor) -> PrimitiveTy {
     }
 }
 
-pub fn collect_item_signatures(
-    module: &Module,
-    defs: &DefCollection,
-    lowered: &TypeLowering,
-) -> ItemSignatures {
-    let item_tree = ModuleItemTree::from_module(module);
-    collect_item_signatures_from_item_tree(&item_tree, defs, lowered)
+#[derive(Debug, Clone, Copy)]
+pub enum ItemSignatureSource<'a> {
+    Module(&'a Module),
+    ActiveItemTree(&'a ActiveModuleItemTree),
 }
 
-pub fn collect_item_signatures_with_symbols(
-    module: &Module,
-    defs: &DefCollection,
-    lowered: &TypeLowering,
-    symbols: &dyn SymbolText,
-) -> ItemSignatures {
-    let item_tree = ModuleItemTree::from_module(module);
-    collect_item_signatures_from_item_tree_with_symbols(&item_tree, defs, lowered, symbols)
+#[derive(Clone, Copy)]
+pub struct ItemSignatureInput<'a> {
+    pub source: ItemSignatureSource<'a>,
+    pub defs: &'a DefCollection,
+    pub lowered: &'a TypeLowering,
+    pub type_store: &'a TypeStore,
+    pub symbols: Option<&'a dyn SymbolText>,
 }
 
-pub fn collect_item_signatures_from_item_tree(
-    item_tree: &ModuleItemTree,
-    defs: &DefCollection,
-    lowered: &TypeLowering,
-) -> ItemSignatures {
-    collect_item_signatures_from_items(&item_tree.items, defs, lowered, None)
+impl std::fmt::Debug for ItemSignatureInput<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ItemSignatureInput")
+            .field("source", &self.source)
+            .field("module_id", &self.defs.module_id)
+            .field("type_store", &self.type_store.id())
+            .field("symbols", &self.symbols.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
-pub fn collect_item_signatures_from_item_tree_with_symbols(
-    item_tree: &ModuleItemTree,
-    defs: &DefCollection,
-    lowered: &TypeLowering,
-    symbols: &dyn SymbolText,
-) -> ItemSignatures {
-    collect_item_signatures_from_items(&item_tree.items, defs, lowered, Some(symbols))
-}
-
-pub fn collect_item_signatures_from_active_item_tree(
-    item_tree: &ActiveModuleItemTree,
-    defs: &DefCollection,
-    lowered: &TypeLowering,
-) -> ItemSignatures {
-    collect_item_signatures_from_items(&item_tree.items, defs, lowered, None)
-}
-
-pub fn collect_item_signatures_from_active_item_tree_with_symbols(
-    item_tree: &ActiveModuleItemTree,
-    defs: &DefCollection,
-    lowered: &TypeLowering,
-    symbols: &dyn SymbolText,
-) -> ItemSignatures {
-    collect_item_signatures_from_items(&item_tree.items, defs, lowered, Some(symbols))
+pub fn collect_item_signatures(input: ItemSignatureInput<'_>) -> ItemSignatures {
+    let append = input.type_store.append_for_module(input.defs.module_id);
+    let collect = |items| {
+        collect_item_signatures_from_items(
+            items,
+            input.defs,
+            input.lowered,
+            input.type_store,
+            &append,
+            input.symbols,
+        )
+    };
+    match input.source {
+        ItemSignatureSource::Module(module) => {
+            let item_tree = ModuleItemTree::from_module(module);
+            collect(&item_tree.items)
+        }
+        ItemSignatureSource::ActiveItemTree(item_tree) => collect(&item_tree.items),
+    }
 }
 
 fn collect_item_signatures_from_items(
     items: &[ItemTreeNode],
     defs: &DefCollection,
     lowered: &TypeLowering,
+    type_store: &TypeStore,
+    append: &TypeStoreAppend,
     symbols: Option<&dyn SymbolText>,
 ) -> ItemSignatures {
     let mut collector = SignatureCollector {
         defs,
         lowered,
+        type_store,
+        append,
         symbols,
         diagnostics: Vec::new(),
         duplicate_impl_identities: HashMap::new(),
@@ -656,6 +654,8 @@ fn collect_item_signatures_from_items(
 struct SignatureCollector<'a> {
     defs: &'a DefCollection,
     lowered: &'a TypeLowering,
+    type_store: &'a TypeStore,
+    append: &'a TypeStoreAppend,
     symbols: Option<&'a dyn SymbolText>,
     diagnostics: Vec<Diagnostic>,
     duplicate_impl_identities: HashMap<TraitImplIdentity, u32>,
@@ -1015,7 +1015,9 @@ impl<'a> SignatureCollector<'a> {
             return self.error();
         };
         match builtin {
-            BuiltinTypeDeclaration::Opaque(builtin) => self.lowered.interner.builtin_type(builtin),
+            BuiltinTypeDeclaration::Opaque(builtin) => {
+                self.append.intern(TyKind::BuiltinType(builtin))
+            }
             BuiltinTypeDeclaration::Primitive(anchor) => {
                 self.primitive(builtin_type_anchor_primitive(anchor))
             }
@@ -1629,7 +1631,21 @@ impl<'a> SignatureCollector<'a> {
 
     fn ty_for_type(&mut self, ty_ref: &TypeRef) -> InternedTyId {
         if let Some(ty) = self.lowered.ty_for_key(&ty_ref.node_key) {
-            ty
+            if self.type_store.get(ty).is_some() {
+                ty
+            } else {
+                self.diagnostics.push(
+                    Diagnostic::internal_error(
+                        codes::ITEM_SIGNATURE_LOWERED_TYPE,
+                        "lowered type is outside the session type store",
+                    )
+                    .primary(ty_ref.span, "this type belongs to a different type store")
+                    .debug("node_key", &ty_ref.node_key)
+                    .debug("ty", ty)
+                    .finish(),
+                );
+                self.error()
+            }
         } else {
             self.diagnostics.push(
                 Diagnostic::internal_error(
@@ -1640,16 +1656,16 @@ impl<'a> SignatureCollector<'a> {
                 .debug("node_key", &ty_ref.node_key)
                 .finish(),
             );
-            self.lowered.interner.error()
+            self.error()
         }
     }
 
     fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
-        self.lowered.interner.primitive(primitive)
+        self.append.intern(TyKind::Primitive(primitive))
     }
 
     fn error(&self) -> InternedTyId {
-        self.lowered.interner.error()
+        self.append.intern(TyKind::Error)
     }
 }
 
@@ -1664,7 +1680,7 @@ mod tests {
     use nia_item_tree::ModuleItemTree;
     use nia_parser::parse_module;
     use nia_symbol::{ToSymbolId, stable_hash};
-    use nia_type_lower::lower_module_types;
+    use nia_type_lower::{TypeLoweringContext, lower_module_types_with_context};
     use nia_type_resolve::resolve_module_types;
 
     fn sym(text: &str) -> SymbolId {
@@ -1710,9 +1726,21 @@ fn add(a: i32, b: i32) i32 {
             "{:?}",
             resolved.diagnostics
         );
-        let lowered = lower_module_types(&module, &resolved);
+        let type_store = TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            ModuleId(0),
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(&module),
+            defs: &defs,
+            lowered: &lowered,
+            type_store: &type_store,
+            symbols: None,
+        });
         assert!(
             signatures.diagnostics.is_empty(),
             "{:?}",
@@ -1774,10 +1802,22 @@ fn selected() i32 { 1 }
             "{:?}",
             resolved.diagnostics
         );
-        let lowered = lower_module_types(&active_module, &resolved);
+        let type_store = TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            ModuleId(0),
+            &active_module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
 
-        let signatures = collect_item_signatures_from_active_item_tree(&active, &defs, &lowered);
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::ActiveItemTree(&active),
+            defs: &defs,
+            lowered: &lowered,
+            type_store: &type_store,
+            symbols: None,
+        });
         assert!(
             signatures.diagnostics.is_empty(),
             "{:?}",
@@ -2110,13 +2150,54 @@ extend[T, N: usize] [N]T : Len {
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
-        let lowering = lower_module_types(&module, &resolved);
-        let signatures = collect_item_signatures(&module, &defs, &lowering);
+        let type_store = TypeStore::new();
+        let lowering = lower_module_types_with_context(
+            ModuleId(0),
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(&module),
+            defs: &defs,
+            lowered: &lowering,
+            type_store: &type_store,
+            symbols: None,
+        });
 
         assert!(signatures.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .summary
                 .contains("bodyless non-extern functions require `@[builtin]`")
+        }));
+    }
+
+    #[test]
+    fn rejects_lowered_types_from_another_type_store() {
+        let (module, errors) = parse_module("fn id(value: i32) i32 { value }");
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let lowering_store = TypeStore::new();
+        let lowering = lower_module_types_with_context(
+            ModuleId(0),
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&lowering_store),
+        );
+        let signature_store = TypeStore::new();
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(&module),
+            defs: &defs,
+            lowered: &lowering,
+            type_store: &signature_store,
+            symbols: None,
+        });
+
+        assert!(signatures.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("outside the session type store")
         }));
     }
 
@@ -2454,9 +2535,21 @@ extend[T, N: usize] [N]T : Len {
             "{:?}",
             resolved.diagnostics
         );
-        let lowered = lower_module_types(&module, &resolved);
+        let type_store = TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            ModuleId(0),
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(&module),
+            defs: &defs,
+            lowered: &lowered,
+            type_store: &type_store,
+            symbols: None,
+        });
         assert!(
             signatures.diagnostics.is_empty(),
             "{:?}",

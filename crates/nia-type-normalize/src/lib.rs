@@ -621,7 +621,7 @@ impl TypeNormalization {
 mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs};
-    use nia_item_signatures::collect_item_signatures;
+    use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
     use nia_parser::parse_module;
     use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeStore};
     use nia_type_lower::{TypeLowering, TypeLoweringContext, lower_module_types_with_context};
@@ -643,6 +643,21 @@ mod tests {
         })
     }
 
+    fn collect_test_signatures(
+        source: ItemSignatureSource<'_>,
+        defs: &nia_defs::DefCollection,
+        lowered: &TypeLowering,
+        type_store: &TypeStore,
+    ) -> ItemSignatures {
+        collect_item_signatures(ItemSignatureInput {
+            source,
+            defs,
+            lowered,
+            type_store,
+            symbols: None,
+        })
+    }
+
     #[test]
     fn expands_simple_type_aliases() {
         let (module, errors) = parse_module(
@@ -661,7 +676,12 @@ fn id(x: Byte) u8 { x }
             &resolved,
             TypeLoweringContext::empty(&type_store),
         );
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(
+            ItemSignatureSource::Module(&module),
+            &defs,
+            &lowered,
+            &type_store,
+        );
         let normalization = normalize_lowered(ModuleId(0), &type_store, &mut lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
@@ -695,7 +715,12 @@ fn id(p: RawPtr[u8]) &u8 { p }
             &resolved,
             TypeLoweringContext::empty(&type_store),
         );
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(
+            ItemSignatureSource::Module(&module),
+            &defs,
+            &lowered,
+            &type_store,
+        );
         let normalization = normalize_lowered(ModuleId(0), &type_store, &mut lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
@@ -733,7 +758,12 @@ fn id(x: [std::builtin::size[Byte]()]u8) [std::builtin::size[u8]()]u8 { x }
             &resolved,
             TypeLoweringContext::empty(&type_store),
         );
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(
+            ItemSignatureSource::Module(&module),
+            &defs,
+            &lowered,
+            &type_store,
+        );
         let normalization = normalize_lowered(ModuleId(0), &type_store, &mut lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
@@ -782,7 +812,12 @@ fn id(x: SizedBytes[u16]) [std::builtin::size[u16]()]u8 { x }
             &resolved,
             TypeLoweringContext::empty(&type_store),
         );
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(
+            ItemSignatureSource::Module(&module),
+            &defs,
+            &lowered,
+            &type_store,
+        );
         let normalization = normalize_lowered(ModuleId(0), &type_store, &mut lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
@@ -823,7 +858,12 @@ type B = A;
             &resolved,
             TypeLoweringContext::empty(&type_store),
         );
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(
+            ItemSignatureSource::Module(&module),
+            &defs,
+            &lowered,
+            &type_store,
+        );
         let normalization = normalize_lowered(ModuleId(0), &type_store, &mut lowered, &signatures);
         assert!(
             normalization
@@ -850,7 +890,12 @@ fn take(xs: [2 + 3]u8) void {}
             &resolved,
             TypeLoweringContext::empty(&type_store),
         );
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(
+            ItemSignatureSource::Module(&module),
+            &defs,
+            &lowered,
+            &type_store,
+        );
         let normalization = normalize_lowered(ModuleId(0), &type_store, &mut lowered, &signatures);
         assert!(normalization.normalized.values().any(|ty| matches!(
             type_store.get(*ty),

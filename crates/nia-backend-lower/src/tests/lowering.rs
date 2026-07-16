@@ -34,7 +34,13 @@ fn main() i32 {
         &type_resolved,
         TypeLoweringContext::empty(&type_store).with_symbols(&symbols),
     );
-    let signatures = collect_item_signatures(&module, &defs, &type_lowering);
+    let signatures = collect_item_signatures(ItemSignatureInput {
+        source: ItemSignatureSource::Module(&module),
+        defs: &defs,
+        lowered: &type_lowering,
+        type_store: &type_store,
+        symbols: None,
+    });
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let active_item_tree = active_item_tree(&module);

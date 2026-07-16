@@ -1498,7 +1498,7 @@ mod tests {
         lower_module_const,
     };
     use nia_defs::{ModuleId, collect_module_defs};
-    use nia_item_signatures::collect_item_signatures;
+    use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
     use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
     use nia_local_resolve::resolve_module_locals;
     use nia_parser::parse_module_with_symbols;
@@ -1593,6 +1593,21 @@ mod tests {
         (type_store, lowered)
     }
 
+    fn collect_test_signatures(
+        module: &nia_ast::Module,
+        defs: &nia_defs::DefCollection,
+        lowered: &nia_type_lower::TypeLowering,
+        type_store: &TypeStore,
+    ) -> ItemSignatures {
+        collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(module),
+            defs,
+            lowered,
+            type_store,
+            symbols: None,
+        })
+    }
+
     fn semantic_use_table(
         module_id: ModuleId,
         values: &nia_value_resolve::ValueResolution,
@@ -1665,7 +1680,7 @@ fn main(p: &Pair, xs: [3]u16) {}
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
         let root_types = signatures.type_roots();
@@ -1718,7 +1733,7 @@ fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8)
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
         let root_types = signatures.type_roots();
@@ -1774,7 +1789,7 @@ fn main(buf: Buffer[u8, 4]) {}
         );
         let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
         let root_types = signatures.type_roots();
@@ -1810,7 +1825,7 @@ fn main(value: Empty) {}
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
         let root_types = signatures.type_roots();
@@ -1850,7 +1865,7 @@ struct Mixed {
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let mixed_id = defs
             .module_scope
             .types
@@ -1892,7 +1907,7 @@ fn main() {
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         assert!(lowered.interner.iter().any(|(_, ty)| matches!(
             ty,
             TyKind::Array {
@@ -1923,7 +1938,7 @@ extern struct CPair {
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let cpair_id = defs
             .module_scope
             .types
@@ -1964,7 +1979,7 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
         let root_types = signatures.type_roots();
@@ -2020,7 +2035,7 @@ fn main(a: Bits[i32]) {}
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let layouts = compute_layouts(
             &type_store,
             &defs,

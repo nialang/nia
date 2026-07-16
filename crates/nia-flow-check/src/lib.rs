@@ -631,7 +631,7 @@ impl FlowChecker<'_> {
 mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs};
-    use nia_item_signatures::collect_item_signatures;
+    use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
     use nia_parser::parse_module;
     use nia_type_lower::{TypeLoweringContext, lower_module_types_with_context};
     use nia_type_resolve::resolve_module_types;
@@ -648,7 +648,13 @@ mod tests {
             &resolved,
             TypeLoweringContext::empty(&type_store),
         );
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(&module),
+            defs: &defs,
+            lowered: &lowered,
+            type_store: &type_store,
+            symbols: None,
+        });
         check_module_flow(&module, &type_store, &signatures)
     }
 
