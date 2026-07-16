@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::{FunctionSignature, ModuleCodegen};
 use nia_backend_ir::{
-    BackendField, BackendFunction, BackendFunctionInstance, BackendLayouts, BackendStructInstance,
+    BackendField, BackendFunction, BackendFunctionInstance, BackendStructInstance,
     BackendUnionInstance,
 };
 use nia_diagnostic::Diagnostic;
@@ -12,7 +12,7 @@ use nia_llvm::{
 };
 use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyInterner, TyKind, TypeEquivalence};
+use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeEquivalence};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AbiParam {
@@ -30,25 +30,13 @@ pub(crate) enum AbiReturn {
 }
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
-    pub(super) fn type_view_module(&self, ty: InternedTyId) -> ModuleId {
-        self.program
-            .type_view_module(ty)
-            .expect("codegen type is visible in a program module")
-    }
-
-    fn module_interner(&self, module_id: ModuleId) -> Option<&'a TyInterner> {
-        self.program.type_interner(module_id)
-    }
-
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&'a TyKind> {
-        self.module_interner(self.type_view_module(ty))?.get(ty)
+        self.program.ty_kind(ty)
     }
 
     pub(super) fn function_type_in(
         &self,
         function: &BackendFunction,
-        interner: &TyInterner,
-        layouts: &BackendLayouts,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
         self.function_signature_type_in(FunctionSignature {
             param_tys: function
@@ -59,14 +47,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             is_extern: function.is_extern,
             is_variadic: function.is_variadic,
             span: function.span,
-            interner,
-            layouts,
         })
     }
 
     pub(super) fn function_signature_type_in<P>(
         &self,
-        signature: FunctionSignature<'_, P>,
+        signature: FunctionSignature<P>,
     ) -> Result<FunctionType<'ctx>, Diagnostic>
     where
         P: IntoIterator<Item = (InternedTyId, Span)>,
@@ -77,50 +63,26 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 signature.return_type,
                 signature.is_variadic,
                 signature.span,
-                signature.interner,
-                signature.layouts,
             );
         }
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        if let AbiReturn::IndirectOut(ty) =
-            self.classify_return_in(signature.return_type, signature.interner, signature.layouts)
-        {
-            llvm_params.push(self.pointer_abi_type(
-                ty,
-                signature.span,
-                signature.interner,
-                signature.layouts,
-            )?);
+        if let AbiReturn::IndirectOut(ty) = self.classify_return_in(signature.return_type) {
+            llvm_params.push(self.pointer_abi_type(ty, signature.span)?);
         }
-        for param in self.classify_params_in(
-            signature.param_tys.into_iter().map(|(ty, _)| ty),
-            signature.interner,
-            signature.layouts,
-        ) {
+        for param in self.classify_params_in(signature.param_tys.into_iter().map(|(ty, _)| ty)) {
             match param {
                 AbiParam::Direct(ty) => {
-                    llvm_params.push(self.llvm_basic_type_in(
-                        ty,
-                        signature.span,
-                        signature.interner,
-                        signature.layouts,
-                    )?);
+                    llvm_params.push(self.llvm_basic_type_in(ty, signature.span)?);
                 }
                 AbiParam::IndirectReadonly(ty) => {
-                    llvm_params.push(self.pointer_abi_type(
-                        ty,
-                        signature.span,
-                        signature.interner,
-                        signature.layouts,
-                    )?);
+                    llvm_params.push(self.pointer_abi_type(ty, signature.span)?);
                 }
                 AbiParam::Omit => {}
             }
         }
-        match self.classify_return_in(signature.return_type, signature.interner, signature.layouts)
-        {
+        match self.classify_return_in(signature.return_type) {
             AbiReturn::Direct(ty) => Ok(self
-                .llvm_basic_type_in(ty, signature.span, signature.interner, signature.layouts)?
+                .llvm_basic_type_in(ty, signature.span)?
                 .fn_type(&llvm_params, signature.is_variadic)),
             AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => Ok(self
                 .context
@@ -135,51 +97,46 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         return_type: InternedTyId,
         is_variadic: bool,
         span: Span,
-        interner: &TyInterner,
-        layouts: &BackendLayouts,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
         for (param_ty, param_span) in param_tys {
-            llvm_params.push(self.llvm_basic_type_in(param_ty, param_span, interner, layouts)?);
+            llvm_params.push(self.llvm_basic_type_in(param_ty, param_span)?);
         }
         match self.ty_kind(return_type) {
             Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never)) => {
                 Ok(self.context.void_type().fn_type(&llvm_params, is_variadic))
             }
             _ => Ok(self
-                .llvm_basic_type_in(return_type, span, interner, layouts)?
+                .llvm_basic_type_in(return_type, span)?
                 .fn_type(&llvm_params, is_variadic)),
         }
     }
 
     pub(crate) fn function_pointer_type_in(
         &self,
-        interner: &TyInterner,
-        layouts: &BackendLayouts,
         params: &[InternedTyId],
         return_type: InternedTyId,
         is_variadic: bool,
         span: Span,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        if let AbiReturn::IndirectOut(ty) = self.classify_return_in(return_type, interner, layouts)
-        {
-            llvm_params.push(self.pointer_abi_type(ty, span, interner, layouts)?);
+        if let AbiReturn::IndirectOut(ty) = self.classify_return_in(return_type) {
+            llvm_params.push(self.pointer_abi_type(ty, span)?);
         }
-        for param in self.classify_params_in(params.iter().copied(), interner, layouts) {
+        for param in self.classify_params_in(params.iter().copied()) {
             match param {
                 AbiParam::Direct(ty) => {
-                    llvm_params.push(self.llvm_basic_type_in(ty, span, interner, layouts)?);
+                    llvm_params.push(self.llvm_basic_type_in(ty, span)?);
                 }
                 AbiParam::IndirectReadonly(ty) => {
-                    llvm_params.push(self.pointer_abi_type(ty, span, interner, layouts)?);
+                    llvm_params.push(self.pointer_abi_type(ty, span)?);
                 }
                 AbiParam::Omit => {}
             }
         }
-        match self.classify_return_in(return_type, interner, layouts) {
+        match self.classify_return_in(return_type) {
             AbiReturn::Direct(ty) => Ok(self
-                .llvm_basic_type_in(ty, span, interner, layouts)?
+                .llvm_basic_type_in(ty, span)?
                 .fn_type(&llvm_params, is_variadic)),
             AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => {
                 Ok(self.context.void_type().fn_type(&llvm_params, is_variadic))
@@ -196,12 +153,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
         if let AbiReturn::IndirectOut(ty) = self.classify_function_return(return_type) {
-            llvm_params.push(self.pointer_abi_type(
-                ty,
-                span,
-                self.interner(),
-                &self.source.layouts,
-            )?);
+            llvm_params.push(self.pointer_abi_type(ty, span)?);
         }
         llvm_params.push(self.context.ptr_type(Default::default()).into());
         for param in self.classify_function_params(params.iter().copied()) {
@@ -210,12 +162,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     llvm_params.push(self.llvm_basic_type(ty, span)?);
                 }
                 AbiParam::IndirectReadonly(ty) => {
-                    llvm_params.push(self.pointer_abi_type(
-                        ty,
-                        span,
-                        self.interner(),
-                        &self.source.layouts,
-                    )?);
+                    llvm_params.push(self.pointer_abi_type(ty, span)?);
                 }
                 AbiParam::Omit => {}
             }
@@ -234,31 +181,21 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         params: impl IntoIterator<Item = InternedTyId>,
     ) -> Vec<AbiParam> {
-        self.classify_params_in(params, self.interner(), &self.source.layouts)
+        self.classify_params_in(params)
     }
 
     pub(crate) fn classify_function_return(&self, ty: InternedTyId) -> AbiReturn {
-        self.classify_return_in(ty, self.interner(), &self.source.layouts)
+        self.classify_return_in(ty)
     }
 
-    fn classify_params_in(
-        &self,
-        params: impl IntoIterator<Item = InternedTyId>,
-        interner: &TyInterner,
-        layouts: &BackendLayouts,
-    ) -> Vec<AbiParam> {
+    fn classify_params_in(&self, params: impl IntoIterator<Item = InternedTyId>) -> Vec<AbiParam> {
         params
             .into_iter()
-            .map(|ty| self.classify_param_in(ty, interner, layouts))
+            .map(|ty| self.classify_param_in(ty))
             .collect()
     }
 
-    fn classify_param_in(
-        &self,
-        ty: InternedTyId,
-        _interner: &TyInterner,
-        _layouts: &BackendLayouts,
-    ) -> AbiParam {
+    fn classify_param_in(&self, ty: InternedTyId) -> AbiParam {
         if self.layout_of(ty).is_some_and(|layout| layout.size == 0) {
             return AbiParam::Omit;
         }
@@ -295,12 +232,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
-    fn classify_return_in(
-        &self,
-        ty: InternedTyId,
-        _interner: &TyInterner,
-        _layouts: &BackendLayouts,
-    ) -> AbiReturn {
+    fn classify_return_in(&self, ty: InternedTyId) -> AbiReturn {
         match self.ty_kind(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Never)) => return AbiReturn::Never,
             Some(TyKind::Primitive(PrimitiveTy::Void)) => return AbiReturn::Void,
@@ -344,8 +276,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         _ty: InternedTyId,
         _span: Span,
-        _interner: &TyInterner,
-        _layouts: &BackendLayouts,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
         Ok(self.context.ptr_type(Default::default()).into())
     }
@@ -355,7 +285,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         ty: InternedTyId,
         span: Span,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
-        self.llvm_basic_type_in(ty, span, self.interner(), &self.source.layouts)
+        self.llvm_basic_type_in(ty, span)
     }
 
     pub(crate) fn slice_type(&self) -> StructType<'ctx> {
@@ -382,8 +312,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         ty: InternedTyId,
         span: Span,
-        _interner: &TyInterner,
-        layouts: &BackendLayouts,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
         if self.layout_of(ty).is_some_and(|layout| layout.size == 0)
             && !matches!(
@@ -413,12 +341,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 self.error_union_type(*error, *value, span)
             }
             Some(TyKind::Array { len, elem }) => {
-                let elem_layouts = self
-                    .program
-                    .module(self.type_view_module(*elem))
-                    .map(|module| &module.layouts)
-                    .unwrap_or(layouts);
-                let elem = self.llvm_basic_type_in(*elem, span, self.interner(), elem_layouts)?;
+                let elem = self.llvm_basic_type_in(*elem, span)?;
                 let len = self.array_len_in(len, span)?;
                 if len > u32::MAX as u64 {
                     return Err(
@@ -445,16 +368,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     return Ok(union_ty.into());
                 }
                 if let Some(item) = self.program.enums.get(def_id).copied() {
-                    let owner = self
-                        .program
-                        .module(self.type_view_module(item.backing_type))
-                        .ok_or_else(|| self.error(item.span, "missing enum owner module"))?;
-                    return self.llvm_basic_type_in(
-                        item.backing_type,
-                        item.span,
-                        self.owner_interner(owner),
-                        &owner.layouts,
-                    );
+                    return self.llvm_basic_type_in(item.backing_type, item.span);
                 }
                 Err(self.error(span, "unknown nominal type during LLVM lowering"))
             }
@@ -696,13 +610,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .iter()
             .find(|candidate| candidate.def_id == field)
             .ok_or_else(|| self.error(span, "missing struct field"))
-    }
-
-    pub(crate) fn layouts_for(&self, ty: InternedTyId) -> &'a BackendLayouts {
-        self.program
-            .module(self.type_view_module(ty))
-            .map(|module| &module.layouts)
-            .unwrap_or(&self.source.layouts)
     }
 
     pub(crate) fn field_ty(

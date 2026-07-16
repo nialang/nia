@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::ModuleCodegen;
 use crate::literals::parse_float_literal;
-use nia_backend_ir::BackendLayouts;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_llvm::{types::BasicTypeEnum, values::BasicValueEnum};
 use nia_span::Span;
 use nia_static_ir::{StaticAddressElem, StaticFieldInit, StaticInit};
-use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{PrimitiveTy, TyKind};
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn static_init_value_in(
@@ -15,13 +14,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         ty: InternedTyId,
         init: &StaticInit,
         span: Span,
-        interner: &TyInterner,
-        layouts: &BackendLayouts,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         match init {
-            StaticInit::Zero => Ok(self
-                .llvm_basic_type_in(ty, span, interner, layouts)?
-                .const_zero()?),
+            StaticInit::Zero => Ok(self.llvm_basic_type_in(ty, span)?.const_zero()?),
             StaticInit::Int(value) => {
                 let Some(TyKind::Primitive(primitive)) = self.ty_kind(ty) else {
                     return Err(
@@ -41,30 +36,24 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .i8_type()
                 .const_int(*value as u64, false)
                 .into()),
-            StaticInit::Chars(scalars) => {
-                self.static_chars_init_value_in(interner, ty, scalars, span)
-            }
+            StaticInit::Chars(scalars) => self.static_chars_init_value_in(ty, scalars, span),
             StaticInit::Bytes(bytes) => {
                 if self.layout_of(ty).is_some_and(|layout| layout.size == 0) {
                     return self
-                        .llvm_basic_type_in(ty, span, interner, layouts)?
+                        .llvm_basic_type_in(ty, span)?
                         .const_zero()
                         .map_err(Self::diagnostic_from_llvm_error);
                 }
                 Ok(self.context.const_string(bytes, true).into())
             }
             StaticInit::Float(text) => self.static_float_init_value(ty, text, span),
-            StaticInit::Char(value) => self.static_char_init_value_in(interner, ty, *value, span),
-            StaticInit::Array(elems) => {
-                self.static_array_init_value_in(interner, layouts, ty, elems, span)
-            }
+            StaticInit::Char(value) => self.static_char_init_value_in(ty, *value, span),
+            StaticInit::Array(elems) => self.static_array_init_value_in(ty, elems, span),
             StaticInit::Repeat { value, count } => {
-                self.static_repeat_init_value_in(interner, layouts, ty, value, *count, span)
+                self.static_repeat_init_value_in(ty, value, *count, span)
             }
-            StaticInit::Struct(fields) => {
-                self.static_struct_init_value_in(interner, layouts, ty, fields, span)
-            }
-            StaticInit::NullPtr => match self.llvm_basic_type_in(ty, span, interner, layouts)? {
+            StaticInit::Struct(fields) => self.static_struct_init_value_in(ty, fields, span),
+            StaticInit::NullPtr => match self.llvm_basic_type_in(ty, span)? {
                 BasicTypeEnum::PointerType(ptr_ty) => Ok(ptr_ty.const_null().into()),
                 _ => Err(self.error(
                     span,
@@ -72,17 +61,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 )),
             },
             StaticInit::AddrOfGlobal { global, path } => {
-                self.static_addr_of_global_value(ty, *global, path, span, interner, layouts)
+                self.static_addr_of_global_value(ty, *global, path, span)
             }
             StaticInit::AddrOfFunction { function, args } => {
-                self.static_addr_of_function_value(ty, *function, args, span, interner, layouts)
+                self.static_addr_of_function_value(ty, *function, args, span)
             }
             StaticInit::StaticArrayPointer {
                 array_ty,
                 array_init,
-            } => {
-                self.static_array_pointer_value(ty, *array_ty, array_init, span, interner, layouts)
-            }
+            } => self.static_array_pointer_value(ty, *array_ty, array_init, span),
         }
     }
 
@@ -92,7 +79,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         init: &StaticInit,
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        self.static_init_value_in(ty, init, span, self.interner(), &self.source.layouts)
+        self.static_init_value_in(ty, init, span)
     }
 
     fn static_addr_of_global_value(
@@ -101,14 +88,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         global: GlobalDefId,
         path: &[StaticAddressElem],
         span: Span,
-        target_interner: &TyInterner,
-        target_layouts: &BackendLayouts,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let Some(global_value) = self.globals.get(&global).copied() else {
             return Err(self.error(span, "missing global for static address initializer"));
-        };
-        let Some(owner) = self.program.module(global.module_id) else {
-            return Err(self.error(span, "missing global owner module"));
         };
         let Some(global_ty) = self.program.globals.get(&global).map(|item| item.ty) else {
             return Err(self.error(span, "missing global type for static address initializer"));
@@ -137,19 +119,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     }
                 }
             }
-            let pointee_ty = self.llvm_basic_type_in(
-                global_ty,
-                span,
-                self.owner_interner(owner),
-                &owner.layouts,
-            )?;
+            let pointee_ty = self.llvm_basic_type_in(global_ty, span)?;
             unsafe {
                 ptr = ptr.const_in_bounds_gep(pointee_ty, &indices);
             }
         }
-        let target_ptr_ty = self
-            .llvm_basic_type_in(ty, span, target_interner, target_layouts)?
-            .into_pointer_type()?;
+        let target_ptr_ty = self.llvm_basic_type_in(ty, span)?.into_pointer_type()?;
         Ok(ptr.const_bitcast(target_ptr_ty).into())
     }
 
@@ -159,25 +134,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         array_ty: InternedTyId,
         array_init: &StaticInit,
         span: Span,
-        target_interner: &TyInterner,
-        target_layouts: &BackendLayouts,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let Some(owner) = self.program.module(self.type_view_module(array_ty)) else {
-            return Err(self.error(span, "missing static array pointer owner module"));
-        };
-        let llvm_array_ty =
-            self.llvm_basic_type_in(array_ty, span, self.owner_interner(owner), &owner.layouts)?;
-        let value = self.static_init_value_in(
-            array_ty,
-            array_init,
-            span,
-            self.owner_interner(owner),
-            &owner.layouts,
-        )?;
+        let llvm_array_ty = self.llvm_basic_type_in(array_ty, span)?;
+        let value = self.static_init_value_in(array_ty, array_init, span)?;
         let ptr = self.materialize_static_array_pointer(llvm_array_ty, value, span)?;
-        let target_ptr_ty = self
-            .llvm_basic_type_in(ty, span, target_interner, target_layouts)?
-            .into_pointer_type()?;
+        let target_ptr_ty = self.llvm_basic_type_in(ty, span)?.into_pointer_type()?;
         Ok(ptr.const_bitcast(target_ptr_ty).into())
     }
 
@@ -187,8 +148,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         function: GlobalDefId,
         args: &[InternedTyId],
         span: Span,
-        target_interner: &TyInterner,
-        target_layouts: &BackendLayouts,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let function = if args.is_empty() {
             self.function(function)
@@ -205,9 +164,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 })
         }
         .ok_or_else(|| self.error(span, "missing function for static address initializer"))?;
-        let target_ptr_ty = self
-            .llvm_basic_type_in(ty, span, target_interner, target_layouts)?
-            .into_pointer_type()?;
+        let target_ptr_ty = self.llvm_basic_type_in(ty, span)?.into_pointer_type()?;
         Ok(function
             .as_global_value()
             .as_pointer_value()
@@ -236,7 +193,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn static_char_init_value_in(
         &self,
-        _interner: &TyInterner,
         ty: InternedTyId,
         value: u32,
         span: Span,
@@ -250,18 +206,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn static_chars_init_value_in(
         &self,
-        interner: &TyInterner,
         ty: InternedTyId,
         scalars: &[u32],
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         if self.layout_of(ty).is_some_and(|layout| layout.size == 0) {
             return self
-                .llvm_basic_type_in(ty, span, interner, self.layouts_for(ty))?
+                .llvm_basic_type_in(ty, span)?
                 .const_zero()
                 .map_err(Self::diagnostic_from_llvm_error);
         }
-        let Some(TyKind::Array { elem, .. }) = interner.get(ty) else {
+        let Some(TyKind::Array { elem, .. }) = self.ty_kind(ty) else {
             return Err(self.error(
                 span,
                 "char string static initializer target is not an array",
@@ -269,15 +224,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         };
         let values = scalars
             .iter()
-            .map(|scalar| self.static_char_init_value_in(interner, *elem, *scalar, span))
+            .map(|scalar| self.static_char_init_value_in(*elem, *scalar, span))
             .collect::<Result<Vec<_>, _>>()?;
-        self.const_array_from_values_in(*elem, &values, span, interner, self.layouts_for(*elem))
+        self.const_array_from_values_in(*elem, &values, span)
     }
 
     fn static_array_init_value_in(
         &self,
-        interner: &TyInterner,
-        layouts: &BackendLayouts,
         ty: InternedTyId,
         elems: &[StaticInit],
         span: Span,
@@ -287,15 +240,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         };
         let values = elems
             .iter()
-            .map(|elem_init| self.static_init_value_in(*elem, elem_init, span, interner, layouts))
+            .map(|elem_init| self.static_init_value_in(*elem, elem_init, span))
             .collect::<Result<Vec<_>, _>>()?;
-        self.const_array_from_values_in(*elem, &values, span, interner, layouts)
+        self.const_array_from_values_in(*elem, &values, span)
     }
 
     fn static_repeat_init_value_in(
         &self,
-        interner: &TyInterner,
-        layouts: &BackendLayouts,
         ty: InternedTyId,
         value: &StaticInit,
         count: u64,
@@ -306,14 +257,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         };
         if count == 0 || is_zero_static_init(value) {
             return self
-                .llvm_basic_type_in(ty, span, interner, layouts)?
+                .llvm_basic_type_in(ty, span)?
                 .const_zero()
                 .map_err(Self::diagnostic_from_llvm_error);
         }
         if let StaticInit::Byte(byte) = value
-            && let Some(TyKind::Array { elem, .. }) = interner.get(ty)
+            && let Some(TyKind::Array { elem, .. }) = self.ty_kind(ty)
             && matches!(
-                interner.get(*elem),
+                self.ty_kind(*elem),
                 Some(TyKind::Primitive(PrimitiveTy::U8))
             )
         {
@@ -322,22 +273,18 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .const_string(&vec![*byte; count as usize], true)
                 .into());
         }
-        let value = self.static_init_value_in(*elem, value, span, interner, layouts)?;
+        let value = self.static_init_value_in(*elem, value, span)?;
         let values = std::iter::repeat_n(value, count as usize).collect::<Vec<_>>();
-        self.const_array_from_values_in(*elem, &values, span, interner, layouts)
+        self.const_array_from_values_in(*elem, &values, span)
     }
 
     fn static_struct_init_value_in(
         &self,
-        interner: &TyInterner,
-        layouts: &BackendLayouts,
         ty: InternedTyId,
         fields: &[StaticFieldInit],
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let struct_ty = self
-            .llvm_basic_type_in(ty, span, interner, layouts)?
-            .into_struct_type()?;
+        let struct_ty = self.llvm_basic_type_in(ty, span)?.into_struct_type()?;
         let Some(TyKind::Nominal {
             def_id,
             args,
@@ -354,8 +301,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 return Err(self.error(span, "invalid union static field initializer"));
             };
             let field_ty = self.field_ty(ty, field_id, span)?;
-            let value =
-                self.static_init_value_in(field_ty, &init.value, span, interner, layouts)?;
+            let value = self.static_init_value_in(field_ty, &init.value, span)?;
             let mut values = vec![value];
             for index in 1..struct_ty.count_fields() {
                 let Some(field_ty) = struct_ty.get_field_type_at_index(index) else {
@@ -373,7 +319,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .iter()
                     .find(|init| init.field == Some(field.def_id))
                     .ok_or_else(|| self.error(field.span, "missing static field initializer"))?;
-                self.static_init_value_in(field.ty, &init.value, field.span, interner, layouts)
+                self.static_init_value_in(field.ty, &init.value, field.span)
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(struct_ty.const_named_struct(&values).into())
@@ -384,10 +330,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         elem_ty: InternedTyId,
         values: &[BasicValueEnum<'ctx>],
         span: Span,
-        interner: &TyInterner,
-        layouts: &BackendLayouts,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        match self.llvm_basic_type_in(elem_ty, span, interner, layouts)? {
+        match self.llvm_basic_type_in(elem_ty, span)? {
             BasicTypeEnum::IntType(ty) => Ok(ty
                 .const_array(
                     &values
@@ -441,13 +385,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         values: &[BasicValueEnum<'ctx>],
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        self.const_array_from_values_in(
-            elem_ty,
-            values,
-            span,
-            self.interner(),
-            self.layouts_for(elem_ty),
-        )
+        self.const_array_from_values_in(elem_ty, values, span)
     }
 }
 

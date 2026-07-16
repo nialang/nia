@@ -7,7 +7,7 @@ use nia_backend_ir::{
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{StructLayout, TypeLayout};
-use nia_ty::{ConstGenericArg, TraitId, TyInterner, TyKind, TypeStoreModuleCheckout};
+use nia_ty::{ConstGenericArg, TraitId, TyKind, TypeStore};
 
 type InstanceArgs = (Vec<InternedTyId>, Vec<ConstGenericArg>);
 type AggregateInstanceIndex<'a, T> = HashMap<GlobalDefId, HashMap<InstanceArgs, &'a T>>;
@@ -25,7 +25,7 @@ type FunctionInstanceIndex<'a> =
 type AggregateLayoutIndex<'a> = HashMap<GlobalDefId, HashMap<InstanceArgs, &'a StructLayout>>;
 
 pub(super) struct ProgramIndex<'a> {
-    type_interners: HashMap<ModuleId, &'a TyInterner>,
+    type_store: &'a TypeStore,
     pub(super) modules: HashMap<ModuleId, &'a nia_backend_ir::BackendModule>,
     pub(super) structs: HashMap<GlobalDefId, &'a nia_backend_ir::BackendStruct>,
     pub(super) unions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendUnion>,
@@ -68,15 +68,9 @@ pub(super) struct EnumVariantInfo<'a> {
 }
 
 impl<'a> ProgramIndex<'a> {
-    pub(super) fn new(
-        program: &'a BackendProgram,
-        type_interners: &'a HashMap<ModuleId, TypeStoreModuleCheckout>,
-    ) -> Self {
+    pub(super) fn new(program: &'a BackendProgram, type_store: &'a TypeStore) -> Self {
         let mut index = Self {
-            type_interners: type_interners
-                .iter()
-                .map(|(module_id, interner)| (*module_id, &**interner))
-                .collect(),
+            type_store,
             modules: HashMap::new(),
             structs: HashMap::new(),
             unions: HashMap::new(),
@@ -239,24 +233,12 @@ impl<'a> ProgramIndex<'a> {
         self.modules.get(&module_id).copied()
     }
 
-    pub(super) fn type_interner(&self, module_id: ModuleId) -> Option<&'a TyInterner> {
-        self.type_interners.get(&module_id).copied()
-    }
-
-    pub(super) fn type_view_module(&self, ty: InternedTyId) -> Option<ModuleId> {
-        self.type_interners
-            .iter()
-            .filter(|(_, interner)| interner.get(ty).is_some())
-            .map(|(module_id, _)| *module_id)
-            .min()
-    }
-
-    pub(super) fn type_interner_for_type(&self, ty: InternedTyId) -> Option<&'a TyInterner> {
-        self.type_interner(self.type_view_module(ty)?)
+    pub(super) fn type_store(&self) -> &'a TypeStore {
+        self.type_store
     }
 
     pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&'a TyKind> {
-        self.type_interner_for_type(ty)?.get(ty)
+        self.type_store.get(ty)
     }
 
     pub(super) fn type_layout(&self, ty: InternedTyId) -> Option<&'a TypeLayout> {
@@ -388,7 +370,7 @@ mod tests {
     use nia_layout::{StructLayout, TypeLayout};
     use nia_span::Span;
     use nia_symbol::{SymbolId, stable_hash};
-    use nia_ty::{PrimitiveTy, TyKind, TypeStore, import_type_into};
+    use nia_ty::{PrimitiveTy, TyKind, TypeStore};
 
     fn sym(text: &str) -> SymbolId {
         SymbolId::from_stable_hash(stable_hash(text))
@@ -514,8 +496,7 @@ mod tests {
             }],
         };
 
-        let type_interners = HashMap::from([(module_id, interner)]);
-        let index = ProgramIndex::new(&program, &type_interners);
+        let index = ProgramIndex::new(&program, &type_store);
 
         assert!(index.module(module_id).is_some());
         assert_eq!(
@@ -556,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn selects_minimum_active_type_view_independent_of_physical_origin() {
+    fn resolves_types_without_a_program_module_view() {
         let type_store = TypeStore::new();
         let ty = type_store.with_module_interner_for_semantic_migration(ModuleId(9), |interner| {
             let elem = interner.primitive(PrimitiveTy::U32);
@@ -565,28 +546,18 @@ mod tests {
                 elem,
             })
         });
-        let source = type_store.module_snapshot(ModuleId(9));
-        for module_id in [ModuleId(7), ModuleId(3)] {
-            type_store.with_module_interner_for_semantic_migration(module_id, |interner| {
-                import_type_into(interner, &source, ty);
-            });
-        }
-        let type_interners = HashMap::from([
-            (
-                ModuleId(7),
-                type_store.checkout_module_for_semantic_migration(ModuleId(7)),
-            ),
-            (
-                ModuleId(3),
-                type_store.checkout_module_for_semantic_migration(ModuleId(3)),
-            ),
-        ]);
         let program = BackendProgram {
             modules: Vec::new(),
         };
-        let index = ProgramIndex::new(&program, &type_interners);
+        let index = ProgramIndex::new(&program, &type_store);
 
-        assert_eq!(index.type_view_module(ty), Some(ModuleId(3)));
+        assert!(matches!(
+            index.ty_kind(ty),
+            Some(TyKind::Pointer {
+                is_readonly: true,
+                ..
+            })
+        ));
     }
 
     fn global(module_id: ModuleId, def_id: u64) -> GlobalDefId {

@@ -258,14 +258,14 @@ Current Nia-owned optimization consumers:
   each query. Exact instance-layout keys are indexed as a fast path, enum
   variants are indexed with their owning enum and ordinal for emission, trait
   object vtables are indexed both by exact object type and by object trait for
-  bounded cross-interner fallback, and type-layout lookup is served directly
+  bounded semantic-equivalence fallback, and type-layout lookup is served directly
   from the index. Module codegen also memoizes trait-object vtable global
   lookup results after the exact key fast path, so repeated coercions avoid
-  rescanning declared vtables. Structural type-argument matching is retained as
-  a fallback for cross-interner cases, and module codegen memoizes structural
-  type equality pairs so repeated layout, function-instance, and vtable fallback
-  lookups do not recursively compare the same nested types. Function-instance
-  declarations derive
+  rescanning declared vtables. Structural type-argument matching is retained for
+  types whose const expressions normalize to the same value, and module codegen
+  memoizes semantic type-equality pairs so repeated layout, function-instance,
+  and vtable fallback lookups do not recursively compare the same nested types.
+  Function-instance declarations derive
   their LLVM function type directly from the signature helper, so declarations
   do not need to construct temporary backend function bodies or clone instance
   bodies. Function-instance body emission also uses a borrowed codegen signature
@@ -405,10 +405,13 @@ The direct `InternedTyId::owner()` operation has been removed. The temporary
 `TypeOrigin` table records the module view that won the first canonical insert,
 which can be arbitrary for shared primitives and structural types. It is not a
 semantic owner and must not affect equality, reachability, mangling, visibility,
-or dependency edges. Whole-program backend and codegen lookup ignore it and
-select the minimum active `ModuleId` whose view contains the slot, so concurrent
-first-insert order cannot affect output. A foreign-session handle has no origin.
-This metadata disappears when remaining frontend migration paths no longer use
+or dependency edges. The canonical store is the sole `TyId -> TyKind` read
+source for migrated consumers: it validates `TypeStoreId`, indexes an immutable
+append-only kind arena, and returns a borrow tied to the store lifetime. The
+arena is a sparse four-level `OnceLock` trie over the four bytes of a `u32` slot,
+so reads neither acquire the canonicalization mutex nor require unsafe lifetime
+extension. A foreign-session handle has neither a kind nor an origin. This
+metadata disappears when remaining frontend migration paths no longer use
 module visibility logs.
 
 Trait solving no longer creates a frozen clone of its mutable working interner
@@ -466,20 +469,24 @@ the whole-program lowering fixed point. Synthesized instance types append
 directly to the session store; the previous cloned writable interner and
 `BackendModule.interner` have been deleted. `BackendProgram` therefore contains
 typed handles and backend facts, not a second type database. `CodegenProgram`
-retains only a lightweight handle to the same session store, and LLVM codegen
-checks out the program shards for one complete validation/emission call before
-returning them to the store. Checkout is deliberately thread-bound and rejects
-same-shard reentry instead of allowing a hidden lock wait or detached ownership.
+retains only a lightweight handle to the same session store. LLVM validation,
+compiler-builtin collection, ABI/type lowering, static initialization, and
+mangling all resolve handles directly from the canonical store; they neither
+check out module shards nor reconstruct a program module-view map. Missing or
+foreign handles fail at this store boundary. Backend lowering still uses
+thread-bound checkout while it appends synthesized types; same-shard reentry
+remains an immediate internal error.
 
 Compiler-query still takes one final snapshot per module after function
 lowering, layout, and monomorphization and lends that map only for the duration
 of backend lowering. Backend, const, trait, body, and reachability code still
-use module visibility logs to interpret some handles; their recursive import
+use module visibility logs for some algorithm inputs; their recursive import
 walks now preserve IDs but remain unnecessary data movement. Instance work
 queues likewise still carry paired `arg_interner` views. These are call-stack
 migration adapters, not query values or Backend IR fields. The next slices must
 delete view snapshots, recursive imports, and paired interner data in dependency
-order, then move kind lookup to the canonical store and remove `TypeOrigin`.
+order, migrate every affected algorithm to the canonical store contract, and
+then remove `TypeOrigin`.
 
 ### 3.6 `nia-diagnostic`
 
@@ -1221,14 +1228,14 @@ The backend validator also memoizes layout probes during pre-codegen validation,
 so repeated runtime-type checks do not recursively recompute the same ABI
 layout. Its structural type equality fallback uses the same pair-cache shape as
 module codegen, keeping generic instance validation from repeatedly comparing
-the same cross-interner type arguments.
+type arguments whose const expressions normalize to the same value.
 
 LLVM entry points receive the compilation `TypeStore` alongside Backend IR.
-They check out the required module shards for the complete validation and
-emission call, build the whole-program type lookup from those stable borrows,
-and return the shards when codegen finishes. Type access is therefore explicit
-without copying an interner into every `BackendModule` or taking a short mutex
-for every recursive type lookup.
+The whole-program index borrows that store directly, so validation and emission
+resolve every handle through the canonical immutable kind arena without module
+checkout, copied interners, owner-module discovery, or a lock per recursive
+type lookup. Module maps remain indexes for backend items and layout facts, not
+a second type-interpretation path.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level and a reported codegen size policy. Size-oriented levels

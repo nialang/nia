@@ -11,7 +11,58 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
+
+const TYPE_KIND_ARENA_FANOUT: usize = 256;
+
+type TypeKindLeaf = [OnceLock<Arc<TyKind>>; TYPE_KIND_ARENA_FANOUT];
+type TypeKindBranch = [OnceLock<Box<TypeKindLeaf>>; TYPE_KIND_ARENA_FANOUT];
+type TypeKindTrunk = [OnceLock<Box<TypeKindBranch>>; TYPE_KIND_ARENA_FANOUT];
+
+fn empty_type_kind_level<T>() -> [OnceLock<T>; TYPE_KIND_ARENA_FANOUT] {
+    std::array::from_fn(|_| OnceLock::new())
+}
+
+#[derive(Debug)]
+struct TypeKindArena {
+    roots: [OnceLock<Box<TypeKindTrunk>>; TYPE_KIND_ARENA_FANOUT],
+}
+
+impl Default for TypeKindArena {
+    fn default() -> Self {
+        Self {
+            roots: empty_type_kind_level(),
+        }
+    }
+}
+
+impl TypeKindArena {
+    fn insert(&self, index: u32, kind: Arc<TyKind>) {
+        let [root_index, trunk_index, branch_index, leaf_index] =
+            index.to_be_bytes().map(usize::from);
+        let trunk = self.roots[root_index].get_or_init(|| Box::new(empty_type_kind_level()));
+        let branch = trunk[trunk_index].get_or_init(|| Box::new(empty_type_kind_level()));
+        let leaf = branch[branch_index].get_or_init(|| Box::new(empty_type_kind_level()));
+        assert!(
+            leaf[leaf_index].set(kind).is_ok(),
+            "Nia ICE: type store kind slot was published twice"
+        );
+    }
+
+    fn get(&self, index: u32) -> Option<&TyKind> {
+        let [root_index, trunk_index, branch_index, leaf_index] =
+            index.to_be_bytes().map(usize::from);
+        self.roots[root_index]
+            .get()?
+            .get(trunk_index)?
+            .get()?
+            .get(branch_index)?
+            .get()?
+            .get(leaf_index)?
+            .get()
+            .map(Arc::as_ref)
+    }
+}
 
 thread_local! {
     static HELD_MODULE_INTERNERS: RefCell<FastHashSet<(TypeStoreId, ModuleId)>> =
@@ -53,11 +104,12 @@ pub struct TypeStore {
 struct TypeStoreCore {
     id: TypeStoreId,
     slots: Mutex<TypeStoreSlots>,
+    kinds: TypeKindArena,
 }
 
 #[derive(Debug, Default)]
 struct TypeStoreSlots {
-    canonical: FastHashMap<TyKind, InternedTyId>,
+    canonical: FastHashMap<Arc<TyKind>, InternedTyId>,
     origins: Vec<TypeOrigin>,
 }
 
@@ -69,9 +121,18 @@ impl TypeStoreCore {
         }
         let index = u32::try_from(slots.origins.len()).expect("type store slot space exhausted");
         let ty = InternedTyId::new(self.id, TyInternerIndex::from_interner_index(index));
+        let kind = Arc::new(kind.clone());
+        self.kinds.insert(index, Arc::clone(&kind));
         slots.origins.push(origin);
-        slots.canonical.insert(kind.clone(), ty);
+        slots.canonical.insert(kind, ty);
         ty
+    }
+
+    fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
+        if ty.store_id != self.id {
+            return None;
+        }
+        self.kinds.get(ty.index.index())
     }
 
     fn type_origin(&self, ty: InternedTyId) -> Option<TypeOrigin> {
@@ -145,6 +206,7 @@ impl TypeStore {
             core: Arc::new(TypeStoreCore {
                 id,
                 slots: Mutex::new(TypeStoreSlots::default()),
+                kinds: TypeKindArena::default(),
             }),
             modules: RwLock::new(FastHashMap::default()),
         }
@@ -156,6 +218,10 @@ impl TypeStore {
 
     pub fn type_origin(&self, ty: InternedTyId) -> Option<TypeOrigin> {
         self.core.type_origin(ty)
+    }
+
+    pub fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.core.get(ty)
     }
 
     #[doc(hidden)]
@@ -565,6 +631,7 @@ impl TyInterner {
             Arc::new(TypeStoreCore {
                 id,
                 slots: Mutex::new(TypeStoreSlots::default()),
+                kinds: TypeKindArena::default(),
             }),
             module_id,
         )
@@ -1460,6 +1527,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn type_kind_arena_resolves_sparse_u32_slot_boundaries() {
+        let arena = TypeKindArena::default();
+        let populated = [0, 255, 256, 65_535, 65_536, u32::MAX];
+
+        for index in populated {
+            arena.insert(index, Arc::new(TyKind::Error));
+        }
+
+        for index in populated {
+            assert_eq!(arena.get(index), Some(&TyKind::Error));
+        }
+        for index in [1, 254, 257, 65_534, 65_537, u32::MAX - 1] {
+            assert_eq!(arena.get(index), None);
+        }
+    }
+
+    #[test]
     fn interns_identical_types_once() {
         let mut interner = TyInterner::new(ModuleId(0));
         let initial_len = interner.len();
@@ -1490,6 +1574,16 @@ mod tests {
         assert_ne!(first.id(), second.id());
         assert_ne!(first_interner.interner_id(), second_interner.interner_id());
         assert_ne!(first_i32, second_i32);
+        assert_eq!(
+            first.get(first_i32),
+            Some(&TyKind::Primitive(PrimitiveTy::I32))
+        );
+        assert_eq!(first.get(second_i32), None);
+        assert_eq!(second.get(first_i32), None);
+        assert_eq!(
+            second.get(second_i32),
+            Some(&TyKind::Primitive(PrimitiveTy::I32))
+        );
         assert_eq!(second_interner.get(first_i32), None);
         assert_eq!(first_interner.get(second_i32), None);
         assert_eq!(
@@ -1570,6 +1664,13 @@ mod tests {
         let source = store.module_snapshot(ModuleId(3));
         let imported = store.with_module_interner_for_semantic_migration(ModuleId(8), |target| {
             assert!(target.get(pointer).is_none());
+            assert_eq!(
+                store.get(pointer),
+                Some(&TyKind::Pointer {
+                    is_readonly: false,
+                    elem: source.primitive(PrimitiveTy::U16),
+                })
+            );
             let imported = import_type_into(target, &source, pointer);
             assert!(target.get(pointer).is_some());
             imported
