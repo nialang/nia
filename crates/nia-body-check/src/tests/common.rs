@@ -4,7 +4,8 @@ pub(super) use nia_defs::{
     DefKind, ModuleId, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs,
 };
 pub(super) use nia_item_signatures::{
-    ProgramFunctionSignature, ProgramTraitImplSignature, collect_item_signatures,
+    ItemSignatureInput, ItemSignatureSource, ProgramFunctionSignature, ProgramTraitImplSignature,
+    collect_item_signatures,
 };
 pub(super) use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 pub(super) use nia_local_resolve::resolve_module_locals;
@@ -204,7 +205,13 @@ fn pipeline_with_options(
     let active_item_tree = active_item_tree(&module);
     let semantic_uses =
         semantic_use_table(ModuleId(0), &values, &locals, &lowered, &active_item_tree);
-    let signatures = collect_item_signatures(&module, &defs, &lowered);
+    let signatures = collect_item_signatures(ItemSignatureInput {
+        source: ItemSignatureSource::Module(&module),
+        defs: &defs,
+        lowered: &lowered,
+        type_store: &type_store,
+        symbols: None,
+    });
     assert!(
         signatures.diagnostics.is_empty(),
         "{:?}",

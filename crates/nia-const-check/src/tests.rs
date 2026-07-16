@@ -5,7 +5,7 @@ use crate::{
 use nia_const_ir::{EarlyConstExpr, EarlyConstExprKind, EarlyConstTypeArg};
 use nia_defs::{DefCollection, DefKind, ModuleId, collect_module_defs};
 use nia_ids::GlobalDefId;
-use nia_item_signatures::collect_item_signatures;
+use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::{LocalResolution, resolve_module_locals};
 use nia_parser::parse_module_with_symbols;
@@ -17,7 +17,7 @@ use nia_symbol_table::SymbolTable;
 use nia_ty::{PrimitiveTy, TyKind, TypeStore};
 use nia_type_lower::{
     TypeLowering, TypeLoweringContext, lower_module_types_from_item_tree_with_context,
-    lower_module_types_with_id,
+    lower_module_types_with_context,
 };
 use nia_type_resolve::resolve_module_types_with_symbols;
 use nia_value_resolve::resolve_module_values;
@@ -49,7 +49,13 @@ fn check_source(source: &str) -> CheckedFixture {
         &type_names,
         TypeLoweringContext::empty(&type_store),
     );
-    let signatures = collect_item_signatures(&module, &defs, &lowered);
+    let signatures = collect_item_signatures(ItemSignatureInput {
+        source: ItemSignatureSource::Module(&module),
+        defs: &defs,
+        lowered: &lowered,
+        type_store: &type_store,
+        symbols: None,
+    });
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let active_item_tree =
@@ -292,8 +298,20 @@ y
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
     let type_names = resolve_module_types_with_symbols(&module, &defs, &symbols);
-    let lowered = lower_module_types_with_id(ModuleId(0), &module, &type_names);
-    let signatures = collect_item_signatures(&module, &defs, &lowered);
+    let type_store = TypeStore::new();
+    let lowered = lower_module_types_with_context(
+        ModuleId(0),
+        &module,
+        &type_names,
+        TypeLoweringContext::empty(&type_store),
+    );
+    let signatures = collect_item_signatures(ItemSignatureInput {
+        source: ItemSignatureSource::Module(&module),
+        defs: &defs,
+        lowered: &lowered,
+        type_store: &type_store,
+        symbols: None,
+    });
     let values = resolve_module_values(&module, &defs);
     let mut locals = resolve_module_locals(&module, &defs, &values);
     let removed_key = locals.node_local_defs.iter().find_map(|(key, local_id)| {

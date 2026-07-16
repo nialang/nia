@@ -662,7 +662,7 @@ impl StaticConstEnv<'_> {
 mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs};
-    use nia_item_signatures::collect_item_signatures;
+    use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
     use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
     use nia_local_resolve::resolve_module_locals;
     use nia_parser::parse_module_with_symbols;
@@ -688,7 +688,13 @@ mod tests {
             &type_resolution,
             TypeLoweringContext::empty(&type_store),
         );
-        let signatures = collect_item_signatures(&module, &defs, &type_lowering);
+        let signatures = collect_item_signatures(ItemSignatureInput {
+            source: ItemSignatureSource::Module(&module),
+            defs: &defs,
+            lowered: &type_lowering,
+            type_store: &type_store,
+            symbols: None,
+        });
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
         let item_tree = ModuleItemTree::from_module(&module);

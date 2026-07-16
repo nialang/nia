@@ -419,10 +419,11 @@ fn collect_body_signature_subset(
 ) -> ItemSignatures {
     let active_item_tree = db.query_shared(SignatureItemTreeQuery(module_id, set));
     let symbols = db.context().symbols();
-    nia_item_signatures::collect_item_signatures_from_active_item_tree_with_symbols(
-        &active_item_tree,
+    nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
+        source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
         defs,
         lowered,
-        &symbols,
-    )
+        type_store: db.context().type_store(),
+        symbols: Some(&symbols),
+    })
 }

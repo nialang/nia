@@ -340,12 +340,13 @@ pub(super) fn provide_item_signatures(
     let defs = db.query_shared(ModuleDefsQuery(module_id));
     let type_lowering = db.query(DeclarationTypeLoweringQuery(module_id));
     let symbols = db.context().symbols();
-    nia_item_signatures::collect_item_signatures_from_active_item_tree_with_symbols(
-        &active_item_tree,
-        &defs,
-        &type_lowering,
-        &symbols,
-    )
+    nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
+        source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
+        defs: &defs,
+        lowered: &type_lowering,
+        type_store: db.context().type_store(),
+        symbols: Some(&symbols),
+    })
 }
 
 pub(super) fn provide_signature_item_signatures(
@@ -357,12 +358,13 @@ pub(super) fn provide_signature_item_signatures(
     let defs = db.query_shared(ModuleDefsQuery(module_id));
     let type_lowering = db.query_shared(SignatureTypeLoweringQuery(module_id, set));
     let symbols = db.context().symbols();
-    nia_item_signatures::collect_item_signatures_from_active_item_tree_with_symbols(
-        &active_item_tree,
-        &defs,
-        &type_lowering,
-        &symbols,
-    )
+    nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
+        source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
+        defs: &defs,
+        lowered: &type_lowering,
+        type_store: db.context().type_store(),
+        symbols: Some(&symbols),
+    })
 }
 
 pub(super) fn provide_signature_const_item_signatures(
@@ -373,12 +375,13 @@ pub(super) fn provide_signature_const_item_signatures(
     let defs = db.query_shared(ModuleDefsQuery(module_id));
     let type_lowering = db.query(SignatureConstTypeLoweringQuery(module_id));
     let symbols = db.context().symbols();
-    nia_item_signatures::collect_item_signatures_from_active_item_tree_with_symbols(
-        &active_item_tree,
-        &defs,
-        &type_lowering,
-        &symbols,
-    )
+    nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
+        source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
+        defs: &defs,
+        lowered: &type_lowering,
+        type_store: db.context().type_store(),
+        symbols: Some(&symbols),
+    })
 }
 
 pub(super) fn provide_type_normalization(
