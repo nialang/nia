@@ -29,6 +29,7 @@ nia-item-signatures.workspace = true
 nia-parser.workspace = true
 nia-source.workspace = true
 nia-target-config.workspace = true
+nia-ty.workspace = true
 nia-type-lower.workspace = true
 nia-type-normalize.workspace = true
 nia-type-resolve.workspace = true

@@ -669,7 +669,7 @@ mod tests {
     use nia_sema_ir::SemanticUseTable;
     use nia_source::SourcePath;
     use nia_symbol_table::SymbolTable;
-    use nia_type_lower::lower_module_types_with_id;
+    use nia_type_lower::{TypeLoweringContext, lower_module_types_with_context};
     use nia_type_normalize::normalize_module_types;
     use nia_type_resolve::resolve_module_types_with_symbols;
     use nia_value_resolve::resolve_module_values;
@@ -681,7 +681,13 @@ mod tests {
         let module_id = ModuleId(0);
         let defs = collect_module_defs(module_id, &module);
         let type_resolution = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let mut type_lowering = lower_module_types_with_id(module_id, &module, &type_resolution);
+        let type_store = nia_ty::TypeStore::new();
+        let mut type_lowering = lower_module_types_with_context(
+            module_id,
+            &module,
+            &type_resolution,
+            TypeLoweringContext::empty(&type_store),
+        );
         let signatures = collect_item_signatures(&module, &defs, &type_lowering);
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
@@ -725,6 +731,7 @@ mod tests {
             const_module.diagnostics
         );
         let const_input = nia_const_check::ConstInput {
+            type_store: &type_store,
             module: &const_module.module,
             defs: &defs,
             values: &values,

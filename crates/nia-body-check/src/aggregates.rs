@@ -15,7 +15,6 @@ use nia_const_ir::{
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
-use nia_item_signatures::{EnumSignature, StructSignature};
 use nia_local_resolve::LocalKind;
 use nia_mangle::mangle_symbol_id;
 use nia_sema::{
@@ -573,7 +572,7 @@ impl<'a> BodyChecker<'a> {
             .signature
             .explicit_type
             .unwrap_or_else(|| self.error());
-        Some(self.import_type_from(&program_signature.interner, ty))
+        Some(ty)
     }
 
     pub(crate) fn qualified_program_const_type(
@@ -582,7 +581,7 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let program_signature = self.program_signature_scope.const_eval(def_id)?;
         if let Some(ty) = program_signature.signature.explicit_type {
-            return Some(self.import_type_from(&program_signature.interner, ty));
+            return Some(ty);
         }
         if let Some(typed) = (self.program_const_values)(def_id.module_id).and_then(|const_eval| {
             const_eval
@@ -622,26 +621,7 @@ impl<'a> BodyChecker<'a> {
             return Some(ResolvedStructSignature { signature });
         }
         let program_signature = self.program_signature_scope.struct_(def_id)?;
-        let signature = StructSignature {
-            generics: program_signature.signature.generics,
-            where_predicates: self.import_where_predicates_from(
-                &program_signature.interner,
-                &program_signature.signature.where_predicates,
-            ),
-            fields: program_signature
-                .signature
-                .fields
-                .into_iter()
-                .map(|field| nia_item_signatures::FieldSignature {
-                    def_id: field.def_id,
-                    name: field.name,
-                    ty: self.import_type_from(&program_signature.interner, field.ty),
-                    span: field.span,
-                })
-                .collect(),
-            is_extern: program_signature.signature.is_extern,
-            span: program_signature.signature.span,
-        };
+        let signature = program_signature.signature;
         Some(ResolvedStructSignature { signature })
     }
 
@@ -654,26 +634,7 @@ impl<'a> BodyChecker<'a> {
             return Some(ResolvedUnionSignature { signature });
         }
         let program_signature = self.program_signature_scope.union(def_id)?;
-        let signature = nia_item_signatures::UnionSignature {
-            generics: program_signature.signature.generics,
-            where_predicates: self.import_where_predicates_from(
-                &program_signature.interner,
-                &program_signature.signature.where_predicates,
-            ),
-            fields: program_signature
-                .signature
-                .fields
-                .into_iter()
-                .map(|field| nia_item_signatures::FieldSignature {
-                    def_id: field.def_id,
-                    name: field.name,
-                    ty: self.import_type_from(&program_signature.interner, field.ty),
-                    span: field.span,
-                })
-                .collect(),
-            is_extern: program_signature.signature.is_extern,
-            span: program_signature.signature.span,
-        };
+        let signature = program_signature.signature;
         Some(ResolvedUnionSignature { signature })
     }
 
@@ -686,15 +647,7 @@ impl<'a> BodyChecker<'a> {
             return Some(ResolvedEnumSignature { signature });
         }
         let program_signature = self.program_signature_scope.enum_(def_id)?;
-        let signature = EnumSignature {
-            backing_type: self.import_type_from(
-                &program_signature.interner,
-                program_signature.signature.backing_type,
-            ),
-            is_open: program_signature.signature.is_open,
-            variants: program_signature.signature.variants,
-            span: program_signature.signature.span,
-        };
+        let signature = program_signature.signature;
         Some(ResolvedEnumSignature { signature })
     }
 
@@ -880,16 +833,12 @@ impl ConstCommonEnv for BodyChecker<'_> {
         substitutions: Vec<(SymbolId, InternedTyId)>,
         const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
     ) -> Result<(), ConstError> {
-        let substitutions = substitutions
-            .into_iter()
-            .map(|(name, ty)| (name, self.import_type_to_working_interner(ty)))
-            .collect::<Vec<_>>();
+        let substitutions = substitutions.into_iter().collect::<Vec<_>>();
         let resolved_const_substitutions = const_substitutions
             .into_iter()
             .map(|(name, arg)| {
-                let arg = self.import_const_generic_arg_to_working_interner(arg);
                 let arg = self.resolve_const_const_generic_arg(arg);
-                (name, self.import_const_generic_arg_to_working_interner(arg))
+                (name, arg)
             })
             .collect::<Vec<_>>();
         let Some(frame) = self.const_call_locals.last_mut() else {
@@ -1182,6 +1131,7 @@ impl<'a> BodyChecker<'a> {
         let program_is_enum = |def_id| program_signature_scope.has_enum(def_id);
         nia_const_check::instantiate_resolved_const_function_generics(
             nia_const_check::TypedConstQueryInput {
+                type_store: self.type_store,
                 module: self.const_module,
                 defs: self.defs,
                 values: self.values,
@@ -1245,6 +1195,7 @@ impl<'a> BodyChecker<'a> {
         let program_signature_scope = self.program_signature_scope;
         let program_is_enum = |def_id| program_signature_scope.has_enum(def_id);
         let input = nia_const_check::TypedConstQueryInput {
+            type_store: self.type_store,
             module: self.const_module,
             defs: self.defs,
             values: self.values,
@@ -1286,7 +1237,7 @@ impl<'a> BodyChecker<'a> {
     ) -> nia_const_check::ConstValueType {
         match ty {
             nia_const_check::ConstValueType::Runtime(ty) => {
-                nia_const_check::ConstValueType::Runtime(self.import_type_to_working_interner(ty))
+                nia_const_check::ConstValueType::Runtime(ty)
             }
             nia_const_check::ConstValueType::Array { elem, len } => {
                 nia_const_check::ConstValueType::Array {
@@ -1325,14 +1276,6 @@ impl<'a> BodyChecker<'a> {
             .map(|(name, arg)| (*name, arg.clone()))
             .collect::<SymbolMap<_>>();
         self.substitute_generics_and_consts(ty, &substitutions, &const_substitutions)
-    }
-
-    fn import_const_generic_arg_to_working_interner(
-        &mut self,
-        mut arg: nia_ty::ConstGenericArg,
-    ) -> nia_ty::ConstGenericArg {
-        arg.ty = self.import_type_to_working_interner(arg.ty);
-        arg
     }
 
     fn resolve_const_const_generic_arg(

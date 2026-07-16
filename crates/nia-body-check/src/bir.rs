@@ -1329,7 +1329,7 @@ impl<'a> BodyChecker<'a> {
         let nia_const_check::ConstValueType::Runtime(ty) = typed.ty else {
             return None;
         };
-        Some(self.import_type_to_working_interner(ty))
+        Some(ty)
     }
 
     pub(crate) fn expr_runtime_ty(&mut self, expr: &Expr) -> nia_ids::InternedTyId {

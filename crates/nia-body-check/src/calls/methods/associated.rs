@@ -641,7 +641,6 @@ impl<'a> BodyChecker<'a> {
         }
         if let ExprKind::TypeTarget { ty } = &expr.kind
             && let Some(ty) = self.type_lowering.ty_for_key(&ty.node_key)
-            && let ty = self.import_type_to_working_interner(ty)
             && let Some(nia_ty::TyKind::Nominal {
                 def_id,
                 args,

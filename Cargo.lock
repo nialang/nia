@@ -840,6 +840,7 @@ dependencies = [
  "nia-symbol",
  "nia-symbol-table",
  "nia-target-config",
+ "nia-ty",
  "nia-type-lower",
  "nia-type-normalize",
  "nia-type-resolve",

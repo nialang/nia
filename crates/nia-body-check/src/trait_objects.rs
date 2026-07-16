@@ -311,6 +311,7 @@ impl<'a> BodyChecker<'a> {
         let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
         let visible_trait_witness_impls = self.visible_extension_trait_witness_impls();
         let context = TraitSolverContext {
+            type_store: self.type_store,
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
             trait_impl_index: self.program_trait_impl_index,
@@ -428,24 +429,18 @@ impl<'a> BodyChecker<'a> {
             {
                 continue;
             }
-            let Some(impl_signature) = self.program_trait_impls.iter().find(|impl_signature| {
+            if !self.program_trait_impls.iter().any(|impl_signature| {
                 impl_signature.module_id == method.def_id.module_id
                     && impl_signature.impl_id == method.impl_id
-            }) else {
+            }) {
                 continue;
-            };
-            let impl_interner = impl_signature.interner.clone();
-            let target_ty =
-                nia_ty::import_type_into(&mut self.interner, &impl_interner, method.target_ty);
+            }
+            let target_ty = method.target_ty;
             let mut substitutions = nia_symbol::SymbolMap::default();
             if !self.match_type_pattern(target_ty, self_ty, &mut substitutions) {
                 continue;
             }
-            let method_trait_args = method
-                .trait_args
-                .iter()
-                .map(|arg| nia_ty::import_type_into(&mut self.interner, &impl_interner, *arg))
-                .collect::<Vec<_>>();
+            let method_trait_args = method.trait_args.to_vec();
             if !method_trait_args
                 .iter()
                 .zip(trait_args)

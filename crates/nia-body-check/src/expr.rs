@@ -345,12 +345,7 @@ impl<'a> BodyChecker<'a> {
                 false => self
                     .program_signature_scope
                     .const_eval(def_id)
-                    .and_then(|signature| {
-                        signature
-                            .signature
-                            .explicit_type
-                            .map(|ty| self.import_type_from(&signature.interner, ty))
-                    }),
+                    .and_then(|signature| signature.signature.explicit_type),
             })
             .or_else(|| {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -521,7 +516,6 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         expected: InternedTyId,
     ) -> Option<InternedTyId> {
-        let expected = self.import_type_to_working_interner(expected);
         let const_expr = self.lower_const_expr(expr).ok()?;
         match self.const_expr_type_for_ir_with_expected(&const_expr, Some(expected))? {
             nia_const_check::ConstValueType::Runtime(actual)

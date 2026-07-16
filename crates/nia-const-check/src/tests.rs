@@ -14,8 +14,11 @@ use nia_source::SourcePath;
 use nia_span::Span;
 use nia_symbol::{SymbolId, stable_hash};
 use nia_symbol_table::SymbolTable;
-use nia_ty::{PrimitiveTy, TyKind};
-use nia_type_lower::{TypeLowering, lower_module_types_with_id};
+use nia_ty::{PrimitiveTy, TyKind, TypeStore};
+use nia_type_lower::{
+    TypeLowering, TypeLoweringContext, lower_module_types_from_item_tree_with_context,
+    lower_module_types_with_id,
+};
 use nia_type_resolve::resolve_module_types_with_symbols;
 use nia_value_resolve::resolve_module_values;
 use std::collections::HashMap;
@@ -38,11 +41,17 @@ fn check_source(source: &str) -> CheckedFixture {
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
     let type_names = resolve_module_types_with_symbols(&module, &defs, &symbols);
-    let lowered = lower_module_types_with_id(ModuleId(0), &module, &type_names);
+    let item_tree = ModuleItemTree::from_module(&module);
+    let type_store = TypeStore::new();
+    let lowered = lower_module_types_from_item_tree_with_context(
+        ModuleId(0),
+        &item_tree,
+        &type_names,
+        TypeLoweringContext::empty(&type_store),
+    );
     let signatures = collect_item_signatures(&module, &defs, &lowered);
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
-    let item_tree = ModuleItemTree::from_module(&module);
     let active_item_tree =
         ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default());
     let semantic_uses =
@@ -72,6 +81,7 @@ fn check_source(source: &str) -> CheckedFixture {
             lowered: &lowered,
             signatures: &signatures,
             interner: &lowered.interner,
+            type_store: &type_store,
             normalized: &HashMap::new(),
             target: &target,
             source_path: &source_path,

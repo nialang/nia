@@ -260,7 +260,6 @@ pub(super) fn executable_program_functions_for_modules(
             let lowered = db.query(TypeLoweringQuery(module_id));
             let signatures = body_local_item_signatures(db, module_id, &lowered);
             let defs = db.query_shared(ModuleDefsQuery(module_id));
-            let interner = lowered.interner;
             signatures
                 .functions
                 .into_iter()
@@ -271,14 +270,7 @@ pub(super) fn executable_program_functions_for_modules(
                         .get(def_id)
                         .map(|def| def.name)
                         .unwrap_or_default();
-                    (
-                        global_def_id,
-                        ProgramFunctionSignature {
-                            name,
-                            signature,
-                            interner: interner.clone(),
-                        },
-                    )
+                    (global_def_id, ProgramFunctionSignature { name, signature })
                 })
         })
         .collect()

@@ -2,13 +2,18 @@
 use super::*;
 
 pub(super) struct LazyAssociatedValueResolver<'a> {
+    type_store: &'a nia_ty::TypeStore,
     visible_extensions: &'a dyn Fn() -> VisibleExtensionsValue,
     cache: RefCell<Option<VisibleExtensionsValue>>,
 }
 
 impl<'a> LazyAssociatedValueResolver<'a> {
-    pub(super) fn new(visible_extensions: &'a dyn Fn() -> VisibleExtensionsValue) -> Self {
+    pub(super) fn new(
+        type_store: &'a nia_ty::TypeStore,
+        visible_extensions: &'a dyn Fn() -> VisibleExtensionsValue,
+    ) -> Self {
         Self {
+            type_store,
             visible_extensions,
             cache: RefCell::new(None),
         }
@@ -24,16 +29,16 @@ impl<'a> LazyAssociatedValueResolver<'a> {
     }
 
     fn target_matches(
-        interner: &nia_ty::TyInterner,
+        type_store: &nia_ty::TypeStore,
         target_ty: InternedTyId,
         target: nia_value_resolve::AssociatedValueTarget,
     ) -> bool {
         match target {
             nia_value_resolve::AssociatedValueTarget::Primitive(primitive) => {
-                matches!(interner.get(target_ty), Some(TyKind::Primitive(found)) if *found == primitive)
+                matches!(type_store.get(target_ty), Some(TyKind::Primitive(found)) if *found == primitive)
             }
             nia_value_resolve::AssociatedValueTarget::Nominal(type_id) => {
-                matches!(interner.get(target_ty), Some(TyKind::Nominal { def_id, .. }) if *def_id == type_id)
+                matches!(type_store.get(target_ty), Some(TyKind::Nominal { def_id, .. }) if *def_id == type_id)
             }
         }
     }
@@ -48,11 +53,7 @@ impl nia_value_resolve::AssociatedValueResolver for LazyAssociatedValueResolver<
         let visible_extensions = self.visible_extensions();
         let mut matches = Vec::new();
         for extension_target in visible_extensions.methods.targets() {
-            if !Self::target_matches(
-                &visible_extensions.interner,
-                extension_target.target_ty,
-                target,
-            ) {
+            if !Self::target_matches(self.type_store, extension_target.target_ty, target) {
                 continue;
             }
             for value in &extension_target.associated_values {
@@ -82,7 +83,8 @@ pub(super) fn provide_value_resolution(
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
-        let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+        let associated_values =
+            LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let symbols = db.context().symbols();
         nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
             &active_item_tree,
@@ -135,7 +137,8 @@ pub(super) fn provide_semantic_use_table(
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
-        let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+        let associated_values =
+            LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
         let symbols = db.context().symbols();
         Some(

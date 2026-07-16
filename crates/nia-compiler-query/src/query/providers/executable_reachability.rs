@@ -262,10 +262,6 @@ fn executable_check(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Functions,
         ));
-        let lowering = db.query_shared(SignatureTypeLoweringQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Functions,
-        ));
         let signature = signatures
             .functions
             .get(&def_id.def_id)
@@ -278,7 +274,6 @@ fn executable_check(
                     .map(|def| def.name)
                     .unwrap_or_default(),
                 signature,
-                interner: lowering.interner.clone(),
             })?;
         let signature = Arc::new(signature);
         caches
@@ -295,14 +290,7 @@ fn executable_check(
         .structs
         .get(&def_id.def_id)
         .cloned()
-        .map(|signature| ProgramStructSignature {
-            signature,
-            interner: signature_type_interner(
-                db,
-                def_id.module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            ),
-        })
+        .map(|signature| ProgramStructSignature { signature })
     };
     let union_signature = |def_id: GlobalDefId| {
         db.query_shared(SignatureItemSignaturesQuery(
@@ -312,14 +300,7 @@ fn executable_check(
         .unions
         .get(&def_id.def_id)
         .cloned()
-        .map(|signature| ProgramUnionSignature {
-            signature,
-            interner: signature_type_interner(
-                db,
-                def_id.module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            ),
-        })
+        .map(|signature| ProgramUnionSignature { signature })
     };
     let trait_signature = |def_id: GlobalDefId| {
         db.query_shared(SignatureItemSignaturesQuery(
@@ -329,14 +310,7 @@ fn executable_check(
         .traits
         .get(&def_id.def_id)
         .cloned()
-        .map(|signature| ProgramTraitSignature {
-            signature,
-            interner: signature_type_interner(
-                db,
-                def_id.module_id,
-                nia_item_tree::SignatureItemSet::Traits,
-            ),
-        })
+        .map(|signature| ProgramTraitSignature { signature })
     };
     let trait_default_method = |def_id: GlobalDefId| {
         let signatures = db.query_shared(SignatureItemSignaturesQuery(
@@ -359,11 +333,6 @@ fn executable_check(
                             },
                             ProgramTraitSignature {
                                 signature: signature.clone(),
-                                interner: signature_type_interner(
-                                    db,
-                                    def_id.module_id,
-                                    nia_item_tree::SignatureItemSet::Traits,
-                                ),
                             },
                         )
                     })
@@ -851,6 +820,7 @@ fn executable_check(
         "executable_checked_modules.final.aggregate_roots",
         || {
             executable_reachable_aggregate_roots(
+                &db.context().type_store,
                 &struct_signature,
                 &union_signature,
                 &codegen_modules,

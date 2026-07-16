@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use nia_ids::{GlobalDefId, InternedTyId, TraitId};
 use nia_item_signatures::{FunctionSignature, ParamSignature, TraitImplSignature};
 use nia_symbol::{SymbolId, SymbolMap};
-use nia_ty::{ArrayLenTy, ConstExprSummary, TyInterner, TyKind, TypeEquivalence, import_type_into};
+use nia_ty::{ArrayLenTy, ConstExprSummary, TyInterner, TyKind, TypeEquivalence, TypeStore};
 use nia_type_lower::TypeLowering;
 
 use super::ExtensionModuleInput;
@@ -196,7 +196,7 @@ pub(super) fn normalize_impl_method_signature(
 pub(super) struct TraitMethodImport<'a> {
     pub(super) target_interner: &'a mut TyInterner,
     pub(super) module: &'a ExtensionModuleInput<'a>,
-    pub(super) source_interner: &'a TyInterner,
+    pub(super) source_interner: &'a TypeStore,
     pub(super) signature: &'a FunctionSignature,
     // Required trait methods are authored in the trait module/interner but are
     // checked against an impl in the current module/interner. These fields keep
@@ -212,7 +212,7 @@ pub(super) struct TraitMethodImport<'a> {
 pub(super) struct ImplMethodSignatureNormalize<'a> {
     pub(super) target_interner: &'a mut TyInterner,
     pub(super) module: &'a ExtensionModuleInput<'a>,
-    pub(super) source_interner: &'a TyInterner,
+    pub(super) source_interner: &'a TypeStore,
     pub(super) signature: &'a FunctionSignature,
     pub(super) trait_args: &'a [nia_ids::InternedTyId],
     pub(super) trait_const_args: &'a [nia_ty::ConstGenericArg],
@@ -239,7 +239,7 @@ pub(super) struct TypeSubstitutionTarget<'a> {
 pub(super) fn substitute_imported_type(
     target_interner: &mut TyInterner,
     module: &ExtensionModuleInput<'_>,
-    source_interner: &TyInterner,
+    source_interner: &TypeStore,
     ty: nia_ids::InternedTyId,
     substitutions: &SymbolMap<nia_ids::InternedTyId>,
     const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
@@ -250,12 +250,8 @@ pub(super) fn substitute_imported_type(
         self_ty: self_substitution,
     } = target;
     match source_interner.get(ty) {
-        Some(TyKind::GenericParam(name)) => substitutions
-            .get(name)
-            .copied()
-            .unwrap_or_else(|| import_type_into(target_interner, source_interner, ty)),
-        Some(TyKind::SelfParam) => self_substitution
-            .unwrap_or_else(|| import_type_into(target_interner, source_interner, ty)),
+        Some(TyKind::GenericParam(name)) => substitutions.get(name).copied().unwrap_or(ty),
+        Some(TyKind::SelfParam) => self_substitution.unwrap_or(ty),
         Some(TyKind::Pointer { is_readonly, elem }) => {
             let is_readonly = *is_readonly;
             let elem = substitute_imported_type(
@@ -773,7 +769,7 @@ pub(super) fn substitute_imported_type(
                     .find(|associated_type| associated_type.name == *name)
             {
                 let ty = module.normalization.normalize(associated_type.ty);
-                return import_type_into(target_interner, &module.normalization.interner, ty);
+                return ty;
             }
             target_interner.intern(TyKind::Projection {
                 self_ty,
@@ -784,7 +780,7 @@ pub(super) fn substitute_imported_type(
             })
         }
         Some(TyKind::Error | TyKind::ConstOnly | TyKind::Primitive(_) | TyKind::Vector { .. })
-        | None => import_type_into(target_interner, source_interner, ty),
+        | None => ty,
     }
 }
 
@@ -803,7 +799,7 @@ pub(super) fn const_substitutions_from_self_describing_args(
 fn substitute_imported_const_arg(
     target_interner: &mut TyInterner,
     module: &ExtensionModuleInput<'_>,
-    source_interner: &TyInterner,
+    source_interner: &TypeStore,
     arg: &nia_ty::ConstGenericArg,
     substitutions: &SymbolMap<nia_ids::InternedTyId>,
     const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,

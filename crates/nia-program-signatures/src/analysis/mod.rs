@@ -22,7 +22,7 @@ use nia_symbol_table::SymbolTable;
 use nia_trait_solve::{
     AssociatedTypeProjectionEq, IntrinsicOverlap, TraitGoal, TraitSolverContext,
 };
-use nia_ty::{PrimitiveTy, TraitId, TyInterner, TyKind, import_type_into};
+use nia_ty::{PrimitiveTy, TraitId, TyInterner, TyKind, TypeStore};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
@@ -76,6 +76,7 @@ pub struct ExtensionTraitSignatureIndex {
 
 #[derive(Clone, Copy)]
 pub struct ExtensionMethodValidationInput<'a> {
+    pub type_store: &'a TypeStore,
     pub trait_defs: &'a HashSet<GlobalDefId>,
     pub trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
     pub trait_impls_for_trait: &'a dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
@@ -599,7 +600,6 @@ fn associated_type_ty(
 #[derive(Clone, Copy)]
 struct TraitSignatureRef<'a> {
     signature: &'a TraitSignature,
-    interner: &'a TyInterner,
 }
 
 fn trait_signature_ref(
@@ -610,7 +610,6 @@ fn trait_signature_ref(
         .get(&trait_id)
         .map(|signature| TraitSignatureRef {
             signature: &signature.signature,
-            interner: &signature.interner,
         })
 }
 
@@ -726,6 +725,7 @@ fn validate_trait_impl(
             continue;
         };
         if !trait_associated_const_type_matches(TraitAssociatedConstTypeMatch {
+            type_store: input.type_store,
             module,
             trait_signature,
             required_ty: required.ty,
@@ -821,7 +821,7 @@ fn validate_trait_impl(
         let required_signature = lower_trait_method_signature(TraitMethodImport {
             target_interner: &mut comparison_interner,
             module,
-            source_interner: trait_signature.interner,
+            source_interner: input.type_store,
             signature: &required.signature,
             trait_generics: &trait_signature.signature.generics,
             trait_args: &trait_args,
@@ -833,7 +833,7 @@ fn validate_trait_impl(
         let actual_signature = normalize_impl_method_signature(ImplMethodSignatureNormalize {
             target_interner: &mut comparison_interner,
             module,
-            source_interner: &module.lowering.interner,
+            source_interner: input.type_store,
             signature: actual,
             trait_args: &trait_args,
             trait_const_args: &trait_const_args,
@@ -842,6 +842,7 @@ fn validate_trait_impl(
             impl_signature,
         });
         let goal_context = TraitGoalExpansionContext {
+            type_store: input.type_store,
             module,
             trait_signatures: input.trait_signatures,
         };
@@ -858,6 +859,7 @@ fn validate_trait_impl(
             input.trait_impls_for_trait,
         );
         if !trait_method_signature_matches(TraitMethodSignatureMatch {
+            type_store: input.type_store,
             module,
             trait_impls: &validation_trait_impls,
             interner: &mut comparison_interner,
@@ -881,6 +883,7 @@ fn validate_trait_impl(
 }
 
 struct TraitAssociatedConstTypeMatch<'a> {
+    type_store: &'a TypeStore,
     module: &'a ExtensionModuleInput<'a>,
     trait_signature: TraitSignatureRef<'a>,
     required_ty: nia_ids::InternedTyId,
@@ -913,7 +916,7 @@ fn trait_associated_const_type_matches(input: TraitAssociatedConstTypeMatch<'_>)
     let required = substitute_imported_type(
         &mut comparison_interner,
         input.module,
-        input.trait_signature.interner,
+        input.type_store,
         input.required_ty,
         &substitutions,
         &const_substitutions,
@@ -925,7 +928,7 @@ fn trait_associated_const_type_matches(input: TraitAssociatedConstTypeMatch<'_>)
     let actual = substitute_imported_type(
         &mut comparison_interner,
         input.module,
-        &input.module.lowering.interner,
+        input.type_store,
         input.actual_ty,
         &SymbolMap::default(),
         &SymbolMap::default(),
@@ -1353,7 +1356,7 @@ fn validate_supertrait_impls(
         let supertrait = import_trait_bound(
             &mut comparison_interner,
             module,
-            trait_signature.interner,
+            input.type_store,
             supertrait.ty,
             &trait_signature.signature.generics,
             trait_args,
@@ -1390,7 +1393,7 @@ fn validate_supertrait_impls(
 fn import_trait_bound(
     target_interner: &mut TyInterner,
     module: &ExtensionModuleInput<'_>,
-    source_interner: &TyInterner,
+    source_interner: &TypeStore,
     ty: nia_ids::InternedTyId,
     trait_generics: &[SymbolId],
     trait_args: &[nia_ids::InternedTyId],
@@ -1422,22 +1425,13 @@ fn has_matching_trait_impl(
         if impl_signature.trait_id != trait_id {
             return false;
         }
-        let mut comparison_interner = interner.clone();
-        let impl_target_ty = import_type_into(
-            &mut comparison_interner,
-            &impl_signature.interner,
-            impl_signature.target_ty,
-        );
-        let impl_trait_args = impl_signature
-            .trait_args
-            .iter()
-            .map(|arg| import_type_into(&mut comparison_interner, &impl_signature.interner, *arg))
-            .collect::<Vec<_>>();
-        types_equivalent_in_interner(&comparison_interner, impl_target_ty, target_ty)
-            && impl_trait_args.len() == trait_args.len()
-            && impl_trait_args.iter().zip(trait_args).all(|(left, right)| {
-                types_equivalent_in_interner(&comparison_interner, *left, *right)
-            })
+        types_equivalent_in_interner(interner, impl_signature.target_ty, target_ty)
+            && impl_signature.trait_args.len() == trait_args.len()
+            && impl_signature
+                .trait_args
+                .iter()
+                .zip(trait_args)
+                .all(|(left, right)| types_equivalent_in_interner(interner, *left, *right))
     })
 }
 
@@ -1456,6 +1450,7 @@ fn trait_name(
 }
 
 struct TraitMethodSignatureMatch<'a> {
+    type_store: &'a TypeStore,
     module: &'a ExtensionModuleInput<'a>,
     trait_impls: &'a [ProgramTraitImplSignature],
     interner: &'a mut TyInterner,
@@ -1476,6 +1471,7 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
     let mut assumptions = Vec::new();
     push_trait_goal_assumption_with_supertraits(
         TraitGoalExpansionContext {
+            type_store: input.type_store,
             module: input.module,
             trait_signatures: input.trait_signatures,
         },
@@ -1495,22 +1491,20 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
                 trait_const_args: trait_const_args.clone(),
             },
             name: associated_type.name,
-            ty: import_type_into(
-                input.interner,
-                &input.module.normalization.interner,
-                input.module.normalization.normalize(associated_type.ty),
-            ),
+            ty: input.module.normalization.normalize(associated_type.ty),
         })
         .collect::<Vec<_>>();
     push_where_predicate_solver_assumptions(
         input.module,
         input.interner,
+        input.type_store,
         &input.impl_signature.where_predicates,
         input.trait_signatures,
         &mut assumptions,
         &mut associated_type_assumptions,
     );
     let context = TraitSolverContext {
+        type_store: input.type_store,
         normalization: input.module.normalization,
         trait_impls: input.trait_impls,
         trait_impl_index: None,
@@ -1544,6 +1538,7 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
 
 #[derive(Clone, Copy)]
 struct TraitGoalExpansionContext<'a> {
+    type_store: &'a TypeStore,
     module: &'a ExtensionModuleInput<'a>,
     trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
 }
@@ -1567,23 +1562,16 @@ fn trait_impls_for_trait_goal_and_supertraits(
 fn push_where_predicate_solver_assumptions(
     module: &ExtensionModuleInput<'_>,
     interner: &mut TyInterner,
+    type_store: &TypeStore,
     predicates: &[WherePredicateSignature],
     trait_signatures: &HashMap<GlobalDefId, ProgramTraitSignature>,
     assumptions: &mut Vec<TraitGoal>,
     associated_type_assumptions: &mut Vec<AssociatedTypeProjectionEq>,
 ) {
     for predicate in predicates {
-        let self_ty = import_type_into(
-            interner,
-            &module.normalization.interner,
-            module.normalization.normalize(predicate.ty),
-        );
+        let self_ty = module.normalization.normalize(predicate.ty);
         for bound in &predicate.bounds {
-            let trait_ty = import_type_into(
-                interner,
-                &module.normalization.interner,
-                module.normalization.normalize(bound.trait_ty),
-            );
+            let trait_ty = module.normalization.normalize(bound.trait_ty);
             let Some((trait_id, trait_args, trait_const_args)) =
                 trait_id_and_args(interner, trait_ty)
             else {
@@ -1591,6 +1579,7 @@ fn push_where_predicate_solver_assumptions(
             };
             push_trait_goal_assumption_with_supertraits(
                 TraitGoalExpansionContext {
+                    type_store,
                     module,
                     trait_signatures,
                 },
@@ -1604,11 +1593,7 @@ fn push_where_predicate_solver_assumptions(
                 assumptions,
             );
             for binding in &bound.associated_type_bindings {
-                let ty = import_type_into(
-                    interner,
-                    &module.normalization.interner,
-                    module.normalization.normalize(binding.ty),
-                );
+                let ty = module.normalization.normalize(binding.ty);
                 associated_type_assumptions.push(AssociatedTypeProjectionEq {
                     goal: TraitGoal {
                         self_ty,
@@ -1708,7 +1693,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                 let supertrait = substitute_imported_type(
                     interner,
                     context.module,
-                    trait_signature.interner,
+                    context.type_store,
                     supertrait.ty,
                     &substitutions,
                     &const_substitutions,

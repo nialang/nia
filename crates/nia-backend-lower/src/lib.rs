@@ -2146,8 +2146,12 @@ impl<'a> ModuleLowerer<'a> {
         struct_instances: &[nia_backend_ir::BackendStructInstance],
         union_instances: &[nia_backend_ir::BackendUnionInstance],
     ) {
-        layout_extender::BackendLayoutExtender::new(self.input, &mut self.type_context.interner)
-            .extend_for_instances(layouts, struct_instances, union_instances);
+        layout_extender::BackendLayoutExtender::new(
+            self.input,
+            self.type_store,
+            &mut self.type_context.interner,
+        )
+        .extend_for_instances(layouts, struct_instances, union_instances);
     }
 
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {

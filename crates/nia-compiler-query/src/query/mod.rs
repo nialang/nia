@@ -3650,7 +3650,7 @@ fn main() i32 {
             "body_check",
             "signature_item_signatures"
         ));
-        assert!(trace_has_dependency(
+        assert!(!trace_has_dependency(
             &trace,
             "body_check",
             "signature_type_lowering"
@@ -3959,7 +3959,7 @@ extend Value : Ops {
     }
 
     #[test]
-    fn signature_layout_imports_append_to_the_session_type_store() {
+    fn signature_layout_reads_canonical_types_without_module_view_growth() {
         let loaded = loaded_program_with_modules(vec![
             loaded_module(
                 ModuleId(0),
@@ -3985,10 +3985,7 @@ extend Value : Ops {
         let after_layout = db.context().type_store.module_snapshot(ModuleId(0));
 
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
-        assert!(before_layout.is_prefix_of(&after_layout));
-        assert!(after_layout.iter().any(|(ty, kind)| {
-            before_layout.get(ty).is_none() && matches!(kind, TyKind::Array { .. })
-        }));
+        assert_eq!(before_layout, after_layout);
     }
 
     #[test]
@@ -4597,7 +4594,7 @@ fn main() usize {
     }
 
     #[test]
-    fn body_check_imports_full_lowering_types_before_working_interner_lookup() {
+    fn body_check_reads_full_lowering_types_from_canonical_store() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -6998,7 +6995,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn executable_backend_lowering_imports_external_extension_owner_where_predicates() {
+    fn executable_backend_lowering_uses_canonical_external_extension_where_predicates() {
         let main = loaded_module(
             ModuleId(0),
             "main.nia",

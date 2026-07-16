@@ -5,7 +5,7 @@ mod builtins;
 mod function_calls;
 mod generic_args;
 mod methods;
-mod signature_import;
+mod signatures;
 
 use crate::BodyChecker;
 use builtins::BuiltinCallTypeArgs;

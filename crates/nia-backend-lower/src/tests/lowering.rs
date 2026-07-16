@@ -73,6 +73,7 @@ fn main() i32 {
         const_module.diagnostics
     );
     let const_input = nia_const_check::ConstInput {
+        type_store: &type_store,
         module: &const_module.module,
         defs: &defs,
         values: &values,
@@ -93,6 +94,7 @@ fn main() i32 {
         });
     let layouts = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
         nia_layout::compute_layouts_with_normalized_types(
+            &type_store,
             &defs,
             interner,
             &signatures,
@@ -174,6 +176,7 @@ fn main() i32 {
         type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
             check_module_bodies_with_program_signatures_and_layouts(
                 BodyCheckInput {
+                    type_store: &type_store,
                     source_version: None,
                     source_path: &source_path,
                     symbols: &symbols,
@@ -197,7 +200,6 @@ fn main() i32 {
                     extensions: &extensions,
                     lazy_extensions: None,
                     program_extension_methods: &nia_defs::ExtensionMethods::default(),
-                    extension_interner: None,
                     program: nia_body_check::BodyProgramContext::empty(),
                     program_signatures: program_signatures.context(),
                     function_scope: nia_body_check::FunctionCheckScope::LocalModule,

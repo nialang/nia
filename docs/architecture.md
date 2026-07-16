@@ -418,21 +418,21 @@ extension. A foreign-session handle has neither a kind nor an origin. This
 metadata disappears when remaining frontend migration paths no longer use
 module visibility logs.
 
-Trait solving no longer creates a frozen clone of its mutable working interner
-for enum classification. The solver holds enum metadata and classifies nominal
-types directly through the same interner it mutates, so types appended during
-solving remain visible. Const and body checking have since moved their local
-mutation into the session store; foreign const modules and cross-module
-signature imports remain explicit migration boundaries.
+Trait solving reads every input handle from the canonical `TypeStore`. Its
+working interner is only an append target for synthesized types, so program
+trait implementations and signatures no longer need recursive import or paired
+views. Enum classification uses explicit program metadata rather than type
+origin or view membership.
 
 Const and body providers mutate the compilation-owned `TypeStore` module shard
 directly. Array lengths, enum values, values, typed const facts, `ConstCheck`,
 and `BodyConst` are ordinary semantic products and no longer carry or transfer
-`TyInterner` snapshots. The const analyzer and production body checker borrow
-the session shard for their local module, and typed const queries issued while
-checking a body append through that same borrow. Temporary working snapshots
-are reserved for foreign const modules and explicitly speculative body type
-comparison; neither is a second production ownership path.
+`TyInterner` snapshots. `BodyTypeCx` fixes the body algorithm contract: reads
+always use canonical storage, while synthesized types append to the current
+session shard. Program and local signatures therefore carry canonical handles
+directly; body checking has no signature-import fallback. Explicitly
+speculative body type comparison may clone the append target, but it retains
+the same canonical read source.
 
 A store transaction must not invoke a provider that mutates the same module
 shard. Providers acquire shared local trait, extension, and function-signature
@@ -463,14 +463,14 @@ callbacks cannot reenter the store. The collector no longer owns
 `working_interners_by_module`, and `Monomorphization` no longer publishes a map
 of cloned interners.
 
-Layout computation is also one mutable-interner algorithm. Production query
-providers run root collection and layout computation inside the owning module's
-`TypeStore` transaction, so imported signature types and substituted generic
-types append to the session shard. `Layouts` contains only layout facts and
-diagnostics; it does not publish an interner snapshot. Standalone analysis and
-backend lowering use the same API with their current working interner rather
-than a second read-only layout API. Array-length facts are prepared before a
-store transaction when evaluating them could reenter the same shard.
+Layout root traversal and computation use a single `LayoutComputationInput`.
+`LayoutTypeCx` reads every handle from canonical storage and appends substituted
+generic types through `TypeStoreAppend`, so consuming a foreign signature does
+not grow a module visibility log. The mutable module interner remains only as
+the temporary source of the local full-scan set while that view is being
+removed. `Layouts` contains only layout facts and diagnostics; there is no
+read-only/owned overload or interner snapshot. Array-length facts are prepared
+before a store transaction when evaluating them could reenter the same shard.
 
 Backend lowering now checks out each owning module shard for the duration of
 the whole-program lowering fixed point. Synthesized instance types append
@@ -498,14 +498,14 @@ Reachability has crossed this boundary completely: its fact input contains one
 canonical store reference, generic instances carry only stable handles, and
 trait method/vtable deduplication includes the use-module visibility context
 instead of relying on an argument interner identity. It no longer snapshots,
-imports, or recursively adopts types. Const, trait, body, and program-signature
-algorithms still contain module-view reads and recursive imports; trait solving
-and layout APIs also still accept a mutable working interner whose internal
-reads assume the old algorithm contract. These consumers must be redesigned to
-read canonical storage and use an explicit append capability. They are not a
-reason to restore transitively closed module views or a second store API.
-`TypeOrigin` can be removed after these remaining migration paths stop using
-visibility logs.
+imports, or recursively adopts types. Program signature products and visible
+extension products likewise contain only canonical handles; body, trait
+solving, layout, reachability, backend, and codegen consume them without an
+embedded interner. Remaining migration work is concentrated in const and
+program-signature analysis helpers that still inspect normalization/lowering
+views, plus the temporary module visibility log itself. These paths must move
+to canonical reads before recursive import, `TypeOrigin`, and the view layer can
+be deleted.
 
 ### 3.6 `nia-diagnostic`
 

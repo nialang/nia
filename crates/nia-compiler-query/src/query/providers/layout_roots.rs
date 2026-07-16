@@ -52,6 +52,8 @@ fn collect_builtin_value_layout_roots(
 }
 
 pub(super) struct LayoutRootCollector<'a> {
+    type_store: &'a nia_ty::TypeStore,
+    append: nia_ty::TypeStoreAppend,
     interner: &'a mut nia_ty::TyInterner,
     program_struct: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>>,
     program_union: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>>,
@@ -68,8 +70,13 @@ pub(super) struct LayoutRootCollector<'a> {
 }
 
 impl<'a> LayoutRootCollector<'a> {
-    pub(super) fn new(interner: &'a mut nia_ty::TyInterner) -> Self {
+    pub(super) fn new(
+        type_store: &'a nia_ty::TypeStore,
+        interner: &'a mut nia_ty::TyInterner,
+    ) -> Self {
         Self {
+            type_store,
+            append: type_store.append_for_module(interner.interner_id().module_id()),
             interner,
             program_struct: None,
             program_union: None,
@@ -87,11 +94,12 @@ impl<'a> LayoutRootCollector<'a> {
     }
 
     pub(super) fn with_program(
+        type_store: &'a nia_ty::TypeStore,
         interner: &'a mut nia_ty::TyInterner,
         program_struct: &'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
         program_union: &'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
     ) -> Self {
-        let mut collector = Self::new(interner);
+        let mut collector = Self::new(type_store, interner);
         collector.program_struct = Some(program_struct);
         collector.program_union = Some(program_union);
         collector
@@ -102,7 +110,7 @@ impl<'a> LayoutRootCollector<'a> {
             return;
         }
         self.types.push(ty);
-        match self.interner.get(ty).cloned() {
+        match self.type_store.get(ty).cloned() {
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
@@ -185,59 +193,15 @@ impl<'a> LayoutRootCollector<'a> {
         if let Some(program_struct) = self.program_struct
             && let Some(signature) = program_struct(def_id)
         {
-            let signature = self.import_program_struct_signature(signature);
+            let signature = signature.signature;
             self.add_aggregate_fields(&signature.generics, &signature.fields, args);
             return;
         }
         if let Some(program_union) = self.program_union
             && let Some(signature) = program_union(def_id)
         {
-            let signature = self.import_program_union_signature(signature);
+            let signature = signature.signature;
             self.add_aggregate_fields(&signature.generics, &signature.fields, args);
-        }
-    }
-
-    fn import_program_struct_signature(
-        &mut self,
-        signature: ProgramStructSignature,
-    ) -> StructSignature {
-        StructSignature {
-            generics: signature.signature.generics,
-            where_predicates: signature.signature.where_predicates,
-            fields: signature
-                .signature
-                .fields
-                .into_iter()
-                .map(|mut field| {
-                    field.ty =
-                        nia_ty::import_type_into(self.interner, &signature.interner, field.ty);
-                    field
-                })
-                .collect(),
-            is_extern: signature.signature.is_extern,
-            span: signature.signature.span,
-        }
-    }
-
-    fn import_program_union_signature(
-        &mut self,
-        signature: ProgramUnionSignature,
-    ) -> UnionSignature {
-        UnionSignature {
-            generics: signature.signature.generics,
-            where_predicates: signature.signature.where_predicates,
-            fields: signature
-                .signature
-                .fields
-                .into_iter()
-                .map(|mut field| {
-                    field.ty =
-                        nia_ty::import_type_into(self.interner, &signature.interner, field.ty);
-                    field
-                })
-                .collect(),
-            is_extern: signature.signature.is_extern,
-            span: signature.signature.span,
         }
     }
 
@@ -266,7 +230,7 @@ impl<'a> LayoutRootCollector<'a> {
         ty: InternedTyId,
         substitutions: &SymbolMap<InternedTyId>,
     ) -> InternedTyId {
-        match self.interner.get(ty).cloned() {
+        match self.type_store.get(ty).cloned() {
             Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.substitute_generics(elem, substitutions);
@@ -494,7 +458,7 @@ impl<'a> LayoutRootCollector<'a> {
     }
 
     fn intern(&mut self, kind: TyKind) -> InternedTyId {
-        self.interner.intern(kind)
+        self.append.intern(kind)
     }
 
     pub(super) fn add_struct(&mut self, def_id: nia_defs::DefId) {

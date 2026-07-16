@@ -380,7 +380,7 @@ impl<'a> BodyChecker<'a> {
             }
             let (substitutions, const_substitutions) =
                 self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
-            let target = self.import_type_from(&alias.interner, alias.signature.target);
+            let target = alias.signature.target;
             let target =
                 self.substitute_generics_and_consts(target, &substitutions, &const_substitutions);
             return Some(self.normalize_aliases_in_type(target));

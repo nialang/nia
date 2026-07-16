@@ -613,20 +613,22 @@ impl Analyzer<'_> {
         let array_lengths = |id| layout_array_lengths.get(&id).copied();
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
-        let layouts = nia_layout::compute_layouts_with_program_context(
-            defs.as_ref(),
-            &mut interner,
-            signatures.as_ref(),
-            &normalized,
-            &array_lengths,
-            nia_layout::TargetDataLayout::LP64,
-            nia_layout::ProgramLayoutContext {
-                symbols: Some(self.input.symbols),
-                layouts: Some(&layout_query),
-                array_lengths: Some(&array_lengths),
-                ..Default::default()
-            },
-        );
+        let layouts =
+            nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
+                type_store: self.input.type_store,
+                defs: defs.as_ref(),
+                interner: &mut interner,
+                signatures: signatures.as_ref(),
+                normalized: &normalized,
+                array_lengths: &array_lengths,
+                target: nia_layout::TargetDataLayout::LP64,
+                program: nia_layout::ProgramLayoutContext {
+                    symbols: Some(self.input.symbols),
+                    layouts: Some(&layout_query),
+                    array_lengths: Some(&array_lengths),
+                    ..Default::default()
+                },
+            });
         self.working_interners.insert(module_id, interner);
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
         let ty_module_id = self.type_origin(ty).module_id();
@@ -721,20 +723,22 @@ impl Analyzer<'_> {
         let array_lengths = |id| layout_array_lengths.get(&id).copied();
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
-        let layouts = nia_layout::compute_layouts_with_program_context(
-            defs.as_ref(),
-            &mut interner,
-            signatures.as_ref(),
-            &normalized,
-            &array_lengths,
-            nia_layout::TargetDataLayout::LP64,
-            nia_layout::ProgramLayoutContext {
-                symbols: Some(self.input.symbols),
-                layouts: Some(&layout_query),
-                array_lengths: Some(&array_lengths),
-                ..Default::default()
-            },
-        );
+        let layouts =
+            nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
+                type_store: self.input.type_store,
+                defs: defs.as_ref(),
+                interner: &mut interner,
+                signatures: signatures.as_ref(),
+                normalized: &normalized,
+                array_lengths: &array_lengths,
+                target: nia_layout::TargetDataLayout::LP64,
+                program: nia_layout::ProgramLayoutContext {
+                    symbols: Some(self.input.symbols),
+                    layouts: Some(&layout_query),
+                    array_lengths: Some(&array_lengths),
+                    ..Default::default()
+                },
+            });
         self.working_interners.insert(module_id, interner);
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
         let Some(TyKind::Nominal {
@@ -984,17 +988,20 @@ impl Analyzer<'_> {
         let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
         let layout_query = |module_id| self.compute_program_layout(module_id, array_lengths);
         Some(nia_layout::compute_layouts_with_program_context(
-            defs.as_ref(),
-            &mut interner,
-            signatures.as_ref(),
-            &normalized,
-            &array_lengths_for_layout,
-            nia_layout::TargetDataLayout::LP64,
-            nia_layout::ProgramLayoutContext {
-                symbols: Some(self.input.symbols),
-                layouts: Some(&layout_query),
-                array_lengths: Some(&array_lengths_for_layout),
-                ..Default::default()
+            nia_layout::LayoutComputationInput {
+                type_store: self.input.type_store,
+                defs: defs.as_ref(),
+                interner: &mut interner,
+                signatures: signatures.as_ref(),
+                normalized: &normalized,
+                array_lengths: &array_lengths_for_layout,
+                target: nia_layout::TargetDataLayout::LP64,
+                program: nia_layout::ProgramLayoutContext {
+                    symbols: Some(self.input.symbols),
+                    layouts: Some(&layout_query),
+                    array_lengths: Some(&array_lengths_for_layout),
+                    ..Default::default()
+                },
             },
         ))
     }
