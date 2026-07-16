@@ -5,7 +5,7 @@ use nia_backend_ir::{
     BackendEnum, BackendEnumVariant, BackendFunctionInstance, BackendProgram,
     BackendStructInstanceKey, BackendTraitObjectVtable,
 };
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TypeOwner};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{StructLayout, TypeLayout};
 use nia_ty::{ConstGenericArg, TraitId, TyInterner, TyKind, TypeStoreModuleCheckout};
 
@@ -243,12 +243,20 @@ impl<'a> ProgramIndex<'a> {
         self.type_interners.get(&module_id).copied()
     }
 
-    pub(super) fn type_owner(&self, ty: InternedTyId) -> Option<TypeOwner> {
-        self.type_interners.values().next()?.type_owner(ty)
+    pub(super) fn type_view_module(&self, ty: InternedTyId) -> Option<ModuleId> {
+        self.type_interners
+            .iter()
+            .filter(|(_, interner)| interner.get(ty).is_some())
+            .map(|(module_id, _)| *module_id)
+            .min()
+    }
+
+    pub(super) fn type_interner_for_type(&self, ty: InternedTyId) -> Option<&'a TyInterner> {
+        self.type_interner(self.type_view_module(ty)?)
     }
 
     pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&'a TyKind> {
-        self.type_interner(ty.interner_id.module_id())?.get(ty)
+        self.type_interner_for_type(ty)?.get(ty)
     }
 
     pub(super) fn type_layout(&self, ty: InternedTyId) -> Option<&'a TypeLayout> {
@@ -380,7 +388,7 @@ mod tests {
     use nia_layout::{StructLayout, TypeLayout};
     use nia_span::Span;
     use nia_symbol::{SymbolId, stable_hash};
-    use nia_ty::{PrimitiveTy, TyKind, TypeStore};
+    use nia_ty::{PrimitiveTy, TyKind, TypeStore, import_type_into};
 
     fn sym(text: &str) -> SymbolId {
         SymbolId::from_stable_hash(stable_hash(text))
@@ -545,6 +553,40 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![object_ty]
         );
+    }
+
+    #[test]
+    fn selects_minimum_active_type_view_independent_of_physical_origin() {
+        let type_store = TypeStore::new();
+        let ty = type_store.with_module_interner_for_semantic_migration(ModuleId(9), |interner| {
+            let elem = interner.primitive(PrimitiveTy::U32);
+            interner.intern(TyKind::Pointer {
+                is_readonly: true,
+                elem,
+            })
+        });
+        let source = type_store.module_snapshot(ModuleId(9));
+        for module_id in [ModuleId(7), ModuleId(3)] {
+            type_store.with_module_interner_for_semantic_migration(module_id, |interner| {
+                import_type_into(interner, &source, ty);
+            });
+        }
+        let type_interners = HashMap::from([
+            (
+                ModuleId(7),
+                type_store.checkout_module_for_semantic_migration(ModuleId(7)),
+            ),
+            (
+                ModuleId(3),
+                type_store.checkout_module_for_semantic_migration(ModuleId(3)),
+            ),
+        ]);
+        let program = BackendProgram {
+            modules: Vec::new(),
+        };
+        let index = ProgramIndex::new(&program, &type_interners);
+
+        assert_eq!(index.type_view_module(ty), Some(ModuleId(3)));
     }
 
     fn global(module_id: ModuleId, def_id: u64) -> GlobalDefId {

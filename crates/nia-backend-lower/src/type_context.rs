@@ -40,34 +40,29 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
-        if ty.interner_id == self.interner.interner_id() {
-            return self.interner.get(ty);
+        if let Some(kind) = self.interner.get(ty) {
+            return Some(kind);
         }
         if let Some(extension_interner) = self.input.extension_interner
-            && ty.interner_id == extension_interner.interner_id()
+            && let Some(kind) = extension_interner.get(ty)
         {
-            return extension_interner.get(ty);
+            return Some(kind);
         }
         self.input_interner_for_type(ty)
             .and_then(|interner| interner.get(ty))
     }
 
     pub(crate) fn active_interner_for_type(&self, ty: InternedTyId) -> &nia_ty::TyInterner {
-        if ty.interner_id == self.interner.interner_id() {
-            require_type_in_interner(&self.interner, ty, "current");
+        if self.interner.get(ty).is_some() {
             return &self.interner;
         }
         if let Some(extension_interner) = self.input.extension_interner
-            && ty.interner_id == extension_interner.interner_id()
+            && extension_interner.get(ty).is_some()
         {
-            require_type_in_interner(extension_interner, ty, "extension");
             return extension_interner;
         }
         let active = self.input_interner_for_type(ty).unwrap_or_else(|| {
-            panic!(
-                "Nia ICE: missing backend input type interner {:?} for type {:?}",
-                ty.interner_id, ty
-            )
+            panic!("Nia ICE: backend type {ty:?} is missing from all active input type views")
         });
         require_type_in_interner(active, ty, "input");
         active
@@ -82,8 +77,10 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
     fn input_interner_for_type(&self, ty: InternedTyId) -> Option<&nia_ty::TyInterner> {
         self.shared
             .input_type_interners
-            .get(&ty.interner_id)
-            .copied()
+            .iter()
+            .filter(|(_, interner)| interner.get(ty).is_some())
+            .min_by_key(|(module_id, _)| *module_id)
+            .map(|(_, interner)| *interner)
     }
 
     pub(crate) fn type_interner_for_module(

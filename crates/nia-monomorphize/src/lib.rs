@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use nia_const_check::ConstCheck;
 use nia_defs::{DefCollection, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TypeOwner};
+use nia_ids::{DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TypeOrigin};
 use nia_item_signatures::{
     EnumSignature, ProgramEnumSignature, ProgramTraitImplIndex, ProgramTraitImplSignature,
 };
@@ -221,9 +221,9 @@ const MAX_MONOMORPHIZED_INSTANCES: usize = 1024;
 const MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH: usize = 256;
 
 impl MonoCollector<'_> {
-    fn type_owner(&self, ty: InternedTyId) -> TypeOwner {
+    fn type_origin(&self, ty: InternedTyId) -> TypeOrigin {
         self.type_store
-            .type_owner(ty)
+            .type_origin(ty)
             .expect("monomorphization type belongs to its session store")
     }
 
@@ -1114,7 +1114,7 @@ impl MonoCollector<'_> {
         target_module_id: ModuleId,
         ty: InternedTyId,
     ) -> InternedTyId {
-        let source_module_id = self.type_owner(ty).module_id();
+        let source_module_id = self.type_origin(ty).module_id();
         if source_module_id == target_module_id {
             return ty;
         }

@@ -239,6 +239,7 @@ fn lowering_for_in_appends_synthesized_optional_item_type() {
     let span = Span::default();
     let mut interner = TyInterner::new(ModuleId(0));
     let item_ty = interner.primitive(PrimitiveTy::I32);
+    let bool_ty = interner.primitive(PrimitiveTy::Bool);
     let body = TypedBody {
         span,
         locals: vec![
@@ -269,6 +270,7 @@ fn lowering_for_in_appends_synthesized_optional_item_type() {
                     },
                 },
                 item_ty,
+                bool_ty,
                 iterable_self_ty: item_ty,
                 iterator_ty: item_ty,
                 iter: TypedExpr {
@@ -290,7 +292,7 @@ fn lowering_for_in_appends_synthesized_optional_item_type() {
     );
     let before_lowering = interner.clone();
 
-    let _ = lower_function_body_with_interner(ModuleId(0), &body, &mut interner)
+    let lowered = lower_function_body_with_interner(ModuleId(0), &body, &mut interner)
         .expect("valid typed body");
 
     assert!(before_lowering.is_prefix_of(&interner));
@@ -300,6 +302,19 @@ fn lowering_for_in_appends_synthesized_optional_item_type() {
             .iter()
             .any(|(_, ty)| matches!(ty, TyKind::Optional { elem } if *elem == item_ty))
     );
+    let condition = lowered
+        .body
+        .blocks
+        .iter()
+        .find_map(|block| match &block.terminator {
+            FunctionTerminator::Loop {
+                header: FunctionForHeader::Condition(condition),
+                ..
+            } => Some(condition),
+            _ => None,
+        })
+        .expect("for-in loop condition");
+    assert_eq!(condition.ty, bool_ty);
 }
 
 #[test]

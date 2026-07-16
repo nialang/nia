@@ -1375,7 +1375,7 @@ impl<'a> BodyChecker<'a> {
                     })
             }
             Some(nia_trait_solve::AssociatedConstResolution::User(user)) => {
-                self.eval_user_associated_const_for_env(span, projection.name, user)
+                self.eval_user_associated_const_for_env(span, projection.name, *user)
             }
             None => Err(ConstError {
                 span,

@@ -345,13 +345,14 @@ Defines typed cross-phase ids:
 - `ModuleId`;
 - `DefId`;
 - `LocalId`;
-- the current store-scoped migration handle `InternedTyId`;
+- the session-scoped type handle `InternedTyId`;
 - `GlobalDefId`.
 
 It stores no semantic tables and has no filesystem, parser, or diagnostic
 responsibility. In particular, `InternedTyId` does not expose a semantic owner
-operation: owner and kind are storage facts queried through `TypeStore` or an
-active type view, not properties interpreted independently by every consumer.
+operation. A type's kind is a store fact, while the temporary `TypeOrigin`
+metadata records only which migration view first materialized a slot; neither
+is a property interpreted independently by every consumer.
 
 ### 3.5 Semantic Identity Lifecycle
 
@@ -381,31 +382,34 @@ session. It follows these rules:
   not receive general mutable access to the semantic context. The store owns
   synchronization, canonicalization, and any future sharding policy.
 
-The migration has established a compilation-owned `TypeStore`: a
-`TyInternerId` now contains a unique `TypeStoreId` as well as its temporary
-module shard, and type lowering, normalization, const analysis, body checking,
-function lowering, layout, and monomorphization append through the same store.
-Normalization remains one algorithm over an explicit mutable interner and
-explicit input handles; compiler query providers supply the store transaction,
-while standalone algorithm tests use that same API. This prevents handles from
-separate compiler sessions with equal `ModuleId`s from comparing equal and
-prevents migrated phases from creating private divergent interners. The final
-contract is not yet satisfied because the module shard remains part of the
-handle and cross-module consumers still recursively import structural types.
-A domain is migrated only when its private mutation/import path is deleted.
-Temporary snapshots exist only at the boundary between the migrated prefix and
-the next unmigrated domain; there is no permanent module-local/session-global
-API choice.
+The migration has established a compilation-owned `TypeStore` and a real
+session-wide identity space. `InternedTyId` is exactly one 64-bit word containing
+`TypeStoreId` plus a global append-only slot; it contains no module or interner
+identity. The shared canonical core maps `TyKind` to that global slot, so the
+same primitive or structural kind interned through different module views has
+the same ID. Handles from different stores remain distinct and are rejected at
+the store boundary.
 
-The direct `InternedTyId::owner()` operation has been removed. Monomorphization
-queries `TypeStore`; const/body/reachability query their active type view; and
-backend validation/codegen query the whole-program type index. During the
-module-sharded migration these storage APIs still recover the temporary module
-owner from the old physical handle, but that detail is now centralized behind
-the storage contract. A foreign-session handle returns no owner, while any view
-from the same session can resolve an external module handle. This makes the
-next session-wide index change a storage-layout migration rather than another
-cross-compiler API rewrite.
+`TyInternerId` now identifies only a temporary module view, never a type identity
+domain. Each `TyInterner` is an append-only visibility log of `(InternedTyId,
+TyKind)` pairs backed by the same canonical core. Importing a same-session type
+recursively makes the target view aware of the existing type graph and preserves
+every ID; it does not reconstruct a parallel identity. The canonical core lock
+is held only for one lookup-or-insert operation, not across recursive import or
+compiler algorithms. A view refuses to intern a kind whose referenced handles
+are not already visible in that view, which rejects foreign-session children
+and preserves closure of the migration log. Module checkout and its same-shard
+reentry guard remain a separate migration mechanism.
+
+The direct `InternedTyId::owner()` operation has been removed. The temporary
+`TypeOrigin` table records the module view that won the first canonical insert,
+which can be arbitrary for shared primitives and structural types. It is not a
+semantic owner and must not affect equality, reachability, mangling, visibility,
+or dependency edges. Whole-program backend and codegen lookup ignore it and
+select the minimum active `ModuleId` whose view contains the slot, so concurrent
+first-insert order cannot affect output. A foreign-session handle has no origin.
+This metadata disappears when remaining frontend migration paths no longer use
+module visibility logs.
 
 Trait solving no longer creates a frozen clone of its mutable working interner
 for enum classification. The solver holds enum metadata and classifies nominal
@@ -469,14 +473,13 @@ same-shard reentry instead of allowing a hidden lock wait or detached ownership.
 
 Compiler-query still takes one final snapshot per module after function
 lowering, layout, and monomorphization and lends that map only for the duration
-of backend lowering. The backend uses this map to interpret foreign handles and
-still recursively imports some cross-module structural types into an owning
-shard; instance work queues also carry temporary interner views for types
-created during the same lowering fixed point. These are call-stack migration
-adapters, not query values or Backend IR fields. The next identity slice must
-replace the temporary module-sharded handle with the session-wide typed index,
-then delete these snapshot/import paths and their paired `arg_interner` data in
-one direction rather than preserving them as a second API.
+of backend lowering. Backend, const, trait, body, and reachability code still
+use module visibility logs to interpret some handles; their recursive import
+walks now preserve IDs but remain unnecessary data movement. Instance work
+queues likewise still carry paired `arg_interner` views. These are call-stack
+migration adapters, not query values or Backend IR fields. The next slices must
+delete view snapshots, recursive imports, and paired interner data in dependency
+order, then move kind lookup to the canonical store and remove `TypeOrigin`.
 
 ### 3.6 `nia-diagnostic`
 
@@ -633,9 +636,9 @@ them into canonical type ids.
 
 ### 6.2 `nia-ty`
 
-Defines the compiler type model, temporary module-sharded `TyInterner`, and the
-compilation-session `TypeStore` described in section 3.5. Later phases will
-consume a unified `TyId` without an interner snapshot.
+Defines the compiler type model, the session-wide canonical `TypeStore`, and
+temporary module visibility views described in section 3.5. Later migration
+slices will read a unified `TyId` directly without an interner snapshot.
 
 ### 6.3 `nia-type-lower`
 

@@ -311,7 +311,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
                         })
                     }
                     Some(nia_trait_solve::AssociatedConstResolution::User(user)) => {
-                        self.eval_user_associated_const(span, user)
+                        self.eval_user_associated_const(span, *user)
                     }
                     None => Err(ConstError {
                         span,

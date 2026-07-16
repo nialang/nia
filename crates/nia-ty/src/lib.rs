@@ -3,7 +3,7 @@ use nia_hash::{FastHashMap, FastHashSet};
 pub use nia_ids::{BuiltinTrait, BuiltinType, LayoutBuiltin, TraitId};
 use nia_ids::{
     GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerId, TyInternerIndex,
-    TypeOwner, TypeStoreId,
+    TypeOrigin, TypeStoreId,
 };
 use nia_span::Span;
 use nia_symbol::SymbolId;
@@ -45,7 +45,46 @@ impl Drop for ModuleInternerGuard {
 #[derive(Debug)]
 pub struct TypeStore {
     id: TypeStoreId,
+    core: Arc<TypeStoreCore>,
     modules: RwLock<FastHashMap<ModuleId, Arc<Mutex<Option<TyInterner>>>>>,
+}
+
+#[derive(Debug)]
+struct TypeStoreCore {
+    id: TypeStoreId,
+    slots: Mutex<TypeStoreSlots>,
+}
+
+#[derive(Debug, Default)]
+struct TypeStoreSlots {
+    canonical: FastHashMap<TyKind, InternedTyId>,
+    origins: Vec<TypeOrigin>,
+}
+
+impl TypeStoreCore {
+    fn intern(&self, origin: TypeOrigin, kind: &TyKind) -> InternedTyId {
+        let mut slots = self.slots.lock().expect("type store slots lock poisoned");
+        if let Some(ty) = slots.canonical.get(kind) {
+            return *ty;
+        }
+        let index = u32::try_from(slots.origins.len()).expect("type store slot space exhausted");
+        let ty = InternedTyId::new(self.id, TyInternerIndex::from_interner_index(index));
+        slots.origins.push(origin);
+        slots.canonical.insert(kind.clone(), ty);
+        ty
+    }
+
+    fn type_origin(&self, ty: InternedTyId) -> Option<TypeOrigin> {
+        if ty.store_id != self.id {
+            return None;
+        }
+        self.slots
+            .lock()
+            .expect("type store slots lock poisoned")
+            .origins
+            .get(ty.index.index() as usize)
+            .copied()
+    }
 }
 
 impl PartialEq for TypeStore {
@@ -100,8 +139,13 @@ impl Default for TypeStore {
 
 impl TypeStore {
     pub fn new() -> Self {
+        let id = TypeStoreId::fresh();
         Self {
-            id: TypeStoreId::fresh(),
+            id,
+            core: Arc::new(TypeStoreCore {
+                id,
+                slots: Mutex::new(TypeStoreSlots::default()),
+            }),
             modules: RwLock::new(FastHashMap::default()),
         }
     }
@@ -110,9 +154,8 @@ impl TypeStore {
         self.id
     }
 
-    pub fn type_owner(&self, ty: InternedTyId) -> Option<TypeOwner> {
-        (ty.interner_id.store_id() == self.id)
-            .then(|| TypeOwner::Module(ty.interner_id.module_id()))
+    pub fn type_origin(&self, ty: InternedTyId) -> Option<TypeOrigin> {
+        self.core.type_origin(ty)
     }
 
     #[doc(hidden)]
@@ -167,9 +210,10 @@ impl TypeStore {
         }
         let mut modules = self.modules.write().expect("type store lock poisoned");
         Arc::clone(modules.entry(module_id).or_insert_with(|| {
-            Arc::new(Mutex::new(Some(TyInterner::with_id(TyInternerId::new(
-                self.id, module_id,
-            )))))
+            Arc::new(Mutex::new(Some(TyInterner::with_core(
+                Arc::clone(&self.core),
+                module_id,
+            ))))
         }))
     }
 }
@@ -250,6 +294,104 @@ pub enum TyKind {
     },
     GenericParam(SymbolId),
     SelfParam,
+}
+
+impl TyKind {
+    fn visit_referenced_types(&self, mut visit: impl FnMut(InternedTyId)) {
+        fn visit_const_args(args: &[ConstGenericArg], visit: &mut impl FnMut(InternedTyId)) {
+            for arg in args {
+                visit(arg.ty);
+            }
+        }
+        match self {
+            Self::Pointer { elem, .. }
+            | Self::VolatilePointer { elem, .. }
+            | Self::Slice { elem, .. }
+            | Self::SlicePointee { elem }
+            | Self::Optional { elem } => visit(*elem),
+            Self::Array { len, elem } => {
+                if let ArrayLenTy::Builtin { ty, .. } = len {
+                    visit(*ty);
+                }
+                visit(*elem);
+            }
+            Self::Range { bound, .. } => {
+                if let Some(bound) = bound {
+                    visit(*bound);
+                }
+            }
+            Self::FunctionPointer {
+                params,
+                return_type,
+                ..
+            } => {
+                for param in params {
+                    visit(*param);
+                }
+                visit(*return_type);
+            }
+            Self::ErrorUnion { error, value } => {
+                visit(*error);
+                visit(*value);
+            }
+            Self::Nominal {
+                args, const_args, ..
+            } => {
+                for arg in args {
+                    visit(*arg);
+                }
+                visit_const_args(const_args, &mut visit);
+            }
+            Self::BuiltinTrait { args, .. } => {
+                for arg in args {
+                    visit(*arg);
+                }
+            }
+            Self::TraitObject {
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+                ..
+            }
+            | Self::TraitObjectPointee {
+                trait_args,
+                trait_const_args,
+                associated_type_bindings,
+                ..
+            } => {
+                for arg in trait_args {
+                    visit(*arg);
+                }
+                visit_const_args(trait_const_args, &mut visit);
+                for binding in associated_type_bindings {
+                    for arg in &binding.trait_args {
+                        visit(*arg);
+                    }
+                    visit_const_args(&binding.trait_const_args, &mut visit);
+                    visit(binding.ty);
+                }
+            }
+            Self::Projection {
+                self_ty,
+                trait_args,
+                trait_const_args,
+                ..
+            } => {
+                visit(*self_ty);
+                for arg in trait_args {
+                    visit(*arg);
+                }
+                visit_const_args(trait_const_args, &mut visit);
+            }
+            Self::Error
+            | Self::ConstOnly
+            | Self::Primitive(_)
+            | Self::Vector { .. }
+            | Self::BuiltinType(_)
+            | Self::GenericParam(_)
+            | Self::SelfParam => {}
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -392,14 +534,22 @@ pub struct ConstExprSummary {
     pub literal_array_len: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct TyInterner {
+    core: Arc<TypeStoreCore>,
     interner_id: TyInternerId,
-    tys: Vec<TyKind>,
-    map: nia_hash::FastHashMap<TyKind, TyInternerIndex>,
-    error_ty: TyInternerIndex,
-    primitive_tys: nia_hash::FastHashMap<PrimitiveTy, TyInternerIndex>,
-    builtin_tys: nia_hash::FastHashMap<BuiltinType, TyInternerIndex>,
+    tys: Vec<(InternedTyId, TyKind)>,
+    map: nia_hash::FastHashMap<TyKind, InternedTyId>,
+    positions: nia_hash::FastHashMap<InternedTyId, usize>,
+    error_ty: InternedTyId,
+    primitive_tys: nia_hash::FastHashMap<PrimitiveTy, InternedTyId>,
+    builtin_tys: nia_hash::FastHashMap<BuiltinType, InternedTyId>,
+}
+
+impl PartialEq for TyInterner {
+    fn eq(&self, other: &Self) -> bool {
+        self.interner_id == other.interner_id && self.tys == other.tys
+    }
 }
 
 impl Default for TyInterner {
@@ -410,15 +560,26 @@ impl Default for TyInterner {
 
 impl TyInterner {
     pub fn new(module_id: ModuleId) -> Self {
-        Self::with_id(TyInternerId::new(TypeStoreId::fresh(), module_id))
+        let id = TypeStoreId::fresh();
+        Self::with_core(
+            Arc::new(TypeStoreCore {
+                id,
+                slots: Mutex::new(TypeStoreSlots::default()),
+            }),
+            module_id,
+        )
     }
 
-    pub fn with_id(interner_id: TyInternerId) -> Self {
+    fn with_core(core: Arc<TypeStoreCore>, module_id: ModuleId) -> Self {
+        let interner_id = TyInternerId::new(core.id, module_id);
+        let placeholder = InternedTyId::new(core.id, TyInternerIndex::from_interner_index(0));
         let mut interner = Self {
+            core,
             interner_id,
             tys: Vec::new(),
             map: nia_hash::FastHashMap::default(),
-            error_ty: TyInternerIndex::from_interner_index(0),
+            positions: nia_hash::FastHashMap::default(),
+            error_ty: placeholder,
             primitive_tys: nia_hash::FastHashMap::default(),
             builtin_tys: nia_hash::FastHashMap::default(),
         };
@@ -439,67 +600,61 @@ impl TyInterner {
         self.interner_id
     }
 
-    pub fn type_owner(&self, ty: InternedTyId) -> Option<TypeOwner> {
-        (ty.interner_id.store_id() == self.interner_id.store_id())
-            .then(|| TypeOwner::Module(ty.interner_id.module_id()))
+    pub fn type_origin(&self, ty: InternedTyId) -> Option<TypeOrigin> {
+        self.core.type_origin(ty)
     }
 
     pub fn intern(&mut self, kind: TyKind) -> InternedTyId {
-        InternedTyId::new(self.interner_id, self.intern_local(kind))
+        self.intern_local(kind)
     }
 
-    fn intern_local(&mut self, kind: TyKind) -> TyInternerIndex {
-        if let Some(local_id) = self.map.get(&kind) {
-            return *local_id;
+    fn intern_local(&mut self, kind: TyKind) -> InternedTyId {
+        if let Some(ty) = self.map.get(&kind) {
+            return *ty;
         }
-        let local_id = TyInternerIndex::from_interner_index(self.tys.len() as u32);
-        self.tys.push(kind.clone());
-        self.map.insert(kind, local_id);
-        local_id
+        kind.visit_referenced_types(|referenced| {
+            assert!(
+                self.get(referenced).is_some(),
+                "Nia ICE: interned type references a handle outside its active type view"
+            );
+        });
+        let ty = self
+            .core
+            .intern(TypeOrigin::Module(self.interner_id.module_id()), &kind);
+        self.positions.insert(ty, self.tys.len());
+        self.tys.push((ty, kind.clone()));
+        self.map.insert(kind, ty);
+        ty
     }
 
     pub fn get(&self, id: InternedTyId) -> Option<&TyKind> {
-        if id.interner_id != self.interner_id {
+        if id.store_id != self.interner_id.store_id() {
             return None;
         }
-        self.tys.get(id.index.index() as usize)
+        let position = self.positions.get(&id)?;
+        self.tys.get(*position).map(|(_, kind)| kind)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (InternedTyId, &TyKind)> {
-        let interner_id = self.interner_id;
-        self.tys.iter().enumerate().map(move |(index, ty)| {
-            (
-                InternedTyId::new(
-                    interner_id,
-                    TyInternerIndex::from_interner_index(index as u32),
-                ),
-                ty,
-            )
-        })
+        self.tys.iter().map(|(ty, kind)| (*ty, kind))
     }
 
     pub fn error(&self) -> InternedTyId {
-        InternedTyId::new(self.interner_id, self.error_ty)
+        self.error_ty
     }
 
     pub fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
-        InternedTyId::new(
-            self.interner_id,
-            *self
-                .primitive_tys
-                .get(&primitive)
-                .expect("primitive type must be preinterned"),
-        )
+        *self
+            .primitive_tys
+            .get(&primitive)
+            .expect("primitive type must be preinterned")
     }
 
     pub fn builtin_type(&self, builtin: BuiltinType) -> InternedTyId {
-        InternedTyId::new(
-            self.interner_id,
-            *self
-                .builtin_tys
-                .get(&builtin)
-                .expect("builtin type must be preinterned"),
-        )
+        *self
+            .builtin_tys
+            .get(&builtin)
+            .expect("builtin type must be preinterned")
     }
 
     pub fn len(&self) -> usize {
@@ -1338,33 +1493,97 @@ mod tests {
         assert_eq!(second_interner.get(first_i32), None);
         assert_eq!(first_interner.get(second_i32), None);
         assert_eq!(
-            first.type_owner(first_i32),
-            Some(TypeOwner::Module(ModuleId(7)))
+            first.type_origin(first_i32),
+            Some(TypeOrigin::Module(ModuleId(7)))
         );
-        assert_eq!(first.type_owner(second_i32), None);
+        assert_eq!(first.type_origin(second_i32), None);
         assert_eq!(
-            first_interner.type_owner(first_i32),
-            Some(TypeOwner::Module(ModuleId(7)))
+            first_interner.type_origin(first_i32),
+            Some(TypeOrigin::Module(ModuleId(7)))
         );
-        assert_eq!(first_interner.type_owner(second_i32), None);
+        assert_eq!(first_interner.type_origin(second_i32), None);
     }
 
     #[test]
-    fn type_views_resolve_foreign_module_owners_within_one_session() {
+    fn type_views_share_canonical_ids_and_resolve_physical_origins() {
         let store = TypeStore::new();
         let local = store.module_snapshot(ModuleId(2));
         let foreign = store.module_snapshot(ModuleId(9));
         let foreign_ty = foreign.primitive(PrimitiveTy::U32);
 
+        assert_eq!(foreign_ty, local.primitive(PrimitiveTy::U32));
         assert_eq!(
-            local.type_owner(foreign_ty),
-            Some(TypeOwner::Module(ModuleId(9)))
+            local.type_origin(foreign_ty),
+            Some(TypeOrigin::Module(ModuleId(2)))
         );
     }
 
     #[test]
-    fn store_scoped_type_handle_stays_compact_during_migration() {
-        assert!(std::mem::size_of::<InternedTyId>() <= 2 * std::mem::size_of::<u64>());
+    fn module_views_intern_structural_types_to_one_session_id() {
+        let store = TypeStore::new();
+        let first_pointer =
+            store.with_module_interner_for_semantic_migration(ModuleId(2), |interner| {
+                let elem = interner.primitive(PrimitiveTy::U32);
+                interner.intern(TyKind::Pointer {
+                    is_readonly: true,
+                    elem,
+                })
+            });
+        let second_pointer =
+            store.with_module_interner_for_semantic_migration(ModuleId(9), |interner| {
+                let elem = interner.primitive(PrimitiveTy::U32);
+                interner.intern(TyKind::Pointer {
+                    is_readonly: true,
+                    elem,
+                })
+            });
+
+        assert_eq!(first_pointer, second_pointer);
+        assert_eq!(
+            store.type_origin(first_pointer),
+            Some(TypeOrigin::Module(ModuleId(2)))
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "outside its active type view")]
+    fn interning_rejects_foreign_session_type_dependencies() {
+        let mut local = TyInterner::new(ModuleId(2));
+        let foreign = TyInterner::new(ModuleId(9));
+
+        local.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem: foreign.primitive(PrimitiveTy::U32),
+        });
+    }
+
+    #[test]
+    fn same_session_import_preserves_id_and_adopts_the_type_view() {
+        let store = TypeStore::new();
+        let pointer = store.with_module_interner_for_semantic_migration(ModuleId(3), |interner| {
+            let elem = interner.primitive(PrimitiveTy::U16);
+            interner.intern(TyKind::Pointer {
+                is_readonly: false,
+                elem,
+            })
+        });
+        let source = store.module_snapshot(ModuleId(3));
+        let imported = store.with_module_interner_for_semantic_migration(ModuleId(8), |target| {
+            assert!(target.get(pointer).is_none());
+            let imported = import_type_into(target, &source, pointer);
+            assert!(target.get(pointer).is_some());
+            imported
+        });
+
+        assert_eq!(imported, pointer);
+    }
+
+    #[test]
+    fn session_type_handle_is_word_sized() {
+        assert_eq!(
+            std::mem::size_of::<InternedTyId>(),
+            std::mem::size_of::<u64>()
+        );
     }
 
     #[test]
@@ -1547,7 +1766,7 @@ mod tests {
         else {
             panic!("expected imported array type");
         };
-        assert_eq!(imported_len_ty.interner_id, target.interner_id());
+        assert_eq!(imported_len_ty.store_id, target.interner_id().store_id());
         assert_eq!(*imported_len_ty, target.primitive(PrimitiveTy::I32));
         assert_eq!(*elem, target.primitive(PrimitiveTy::I32));
     }

@@ -31,7 +31,7 @@ use nia_body_ir::BodyIr;
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::FunctionBody;
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TraitId, TyInternerId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_item_signatures::{
     ItemSignatures, ProgramEnumSignature, ProgramFunctionSignature, ProgramStructSignature,
     ProgramTraitImplIndex, ProgramTraitImplSignature, ProgramTraitSignature, ProgramUnionSignature,
@@ -519,7 +519,7 @@ pub(crate) struct BackendLowerShared<'a> {
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
     program_trait_methods_with_defaults: HashSet<GlobalDefId>,
     program_method_symbols_by_def: HashMap<GlobalDefId, SymbolId>,
-    input_type_interners: HashMap<TyInternerId, &'a nia_ty::TyInterner>,
+    input_type_interners: HashMap<ModuleId, &'a nia_ty::TyInterner>,
 }
 
 impl<'a> BackendLowerShared<'a> {
@@ -2401,33 +2401,33 @@ fn index_program_extension_method_sources_by_def(
 
 fn index_input_type_interner_snapshots<'a>(
     modules: &[BackendLowerModuleInput<'a>],
-) -> HashMap<TyInternerId, &'a nia_ty::TyInterner> {
+) -> HashMap<ModuleId, &'a nia_ty::TyInterner> {
     let mut interners = HashMap::new();
     if let Some(input) = modules.first() {
-        for interner in input.program_type_interners.values() {
-            insert_input_type_interner_snapshot(&mut interners, "session", interner);
+        for (module_id, interner) in input.program_type_interners {
+            insert_input_type_interner_snapshot(&mut interners, *module_id, "session", interner);
         }
     }
     interners
 }
 
 fn insert_input_type_interner_snapshot<'a>(
-    interners: &mut HashMap<TyInternerId, &'a nia_ty::TyInterner>,
+    interners: &mut HashMap<ModuleId, &'a nia_ty::TyInterner>,
+    module_id: ModuleId,
     source: &'static str,
     interner: &'a nia_ty::TyInterner,
 ) {
-    let interner_id = interner.interner_id();
-    if let Some(existing) = interners.get(&interner_id) {
+    if let Some(existing) = interners.get(&module_id) {
         if existing.is_prefix_of(interner) {
-            interners.insert(interner_id, interner);
+            interners.insert(module_id, interner);
         } else if !interner.is_prefix_of(existing) {
             panic!(
-                "conflicting type interner snapshots share id {:?} from {}",
-                interner_id, source
+                "conflicting type view snapshots for module {:?} from {}",
+                module_id, source
             );
         }
     } else {
-        interners.insert(interner_id, interner);
+        interners.insert(module_id, interner);
     }
 }
 

@@ -1679,7 +1679,7 @@ impl<'a> BodyChecker<'a> {
         if self.interner.get(ty).is_some() {
             return Some(self.interner.clone());
         }
-        let module_id = self.interner.type_owner(ty)?.module_id();
+        let module_id = self.interner.type_origin(ty)?.module_id();
         if !self
             .program_type_normalizations
             .borrow()
@@ -1692,8 +1692,7 @@ impl<'a> BodyChecker<'a> {
         }
         let normalizations = self.program_type_normalizations.borrow();
         let interner = &normalizations.get(&module_id)?.interner;
-        (ty.interner_id == interner.interner_id() && interner.get(ty).is_some())
-            .then(|| interner.clone())
+        interner.get(ty).is_some().then(|| interner.clone())
     }
 
     fn current_function_facts(&mut self) -> Option<&mut FunctionSemanticFacts> {

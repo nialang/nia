@@ -93,6 +93,7 @@ pub(super) fn for_iterator_stmt(local_id: LocalId, body: TypedBody) -> TypedStmt
                 },
             },
             item_ty: ty,
+            bool_ty: ty,
             iterable_self_ty: ty,
             iterator_ty: ty,
             iter: TypedExpr {

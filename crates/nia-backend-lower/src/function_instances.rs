@@ -264,7 +264,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn instance_arg_debug_name(&self, ty: InternedTyId) -> String {
-        if ty.interner_id == self.type_context.interner.interner_id() {
+        if self.type_context.interner.get(ty).is_some() {
             return self
                 .type_context
                 .interner
@@ -670,13 +670,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn canonicalize_instance_arg(&mut self, arg: InternedTyId) -> InternedTyId {
-        let local = if arg.interner_id == self.type_context.interner.interner_id() {
-            if self.type_context.interner.get(arg).is_none() {
-                panic!(
-                    "Nia ICE: backend instance argument {:?} is missing from current interner",
-                    arg
-                );
-            }
+        let local = if self.type_context.interner.get(arg).is_some() {
             arg
         } else {
             let source = self.active_interner_for_type(arg).clone();
@@ -695,10 +689,8 @@ impl<'a> ModuleLowerer<'a> {
             .copied()
             .map(|arg| {
                 if let Some(interner) = &instance.arg_interner
-                    && arg.interner_id == interner.interner_id()
                     && interner.get(arg).is_some()
-                    && (arg.interner_id != self.type_context.interner.interner_id()
-                        || self.type_context.interner.get(arg).is_none())
+                    && self.type_context.interner.get(arg).is_none()
                 {
                     let local = self.import_type_from_known_interner(interner, arg);
                     return self.instantiate_ty(local, &SymbolMap::default());
@@ -721,10 +713,8 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<InternedTyId> {
         instance.self_arg.map(|self_arg| {
             if let Some(interner) = &instance.arg_interner
-                && self_arg.interner_id == interner.interner_id()
                 && interner.get(self_arg).is_some()
-                && (self_arg.interner_id != self.type_context.interner.interner_id()
-                    || self.type_context.interner.get(self_arg).is_none())
+                && self.type_context.interner.get(self_arg).is_none()
             {
                 let local = self.import_type_from_known_interner(interner, self_arg);
                 return self.instantiate_ty(local, &SymbolMap::default());
@@ -743,10 +733,8 @@ impl<'a> ModuleLowerer<'a> {
             .copied()
             .map(|arg| {
                 if let Some(interner) = &instance.arg_interner
-                    && arg.interner_id == interner.interner_id()
                     && interner.get(arg).is_some()
-                    && (arg.interner_id != self.type_context.interner.interner_id()
-                        || self.type_context.interner.get(arg).is_none())
+                    && self.type_context.interner.get(arg).is_none()
                 {
                     let local = self.import_type_from_known_interner(interner, arg);
                     return self.instantiate_ty(local, &SymbolMap::default());
@@ -777,9 +765,9 @@ impl<'a> ModuleLowerer<'a> {
         contains_generic_param(
             ty,
             &mut |ty| {
-                (ty.interner_id == current_interner.interner_id())
-                    .then(|| current_interner.get(ty).cloned())
-                    .flatten()
+                current_interner
+                    .get(ty)
+                    .cloned()
                     .or_else(|| self.ty_kind(ty).cloned())
             },
             None,
@@ -789,9 +777,9 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn cached_ty_contains_unresolved_projection(&mut self, ty: InternedTyId) -> bool {
         let current_interner = self.type_context.interner.clone();
         contains_unresolved_projection(ty, &mut |ty| {
-            (ty.interner_id == current_interner.interner_id())
-                .then(|| current_interner.get(ty).cloned())
-                .flatten()
+            current_interner
+                .get(ty)
+                .cloned()
                 .or_else(|| self.ty_kind(ty).cloned())
         })
     }
@@ -801,9 +789,9 @@ impl<'a> ModuleLowerer<'a> {
         contains_error(
             ty,
             &mut |ty| {
-                (ty.interner_id == current_interner.interner_id())
-                    .then(|| current_interner.get(ty).cloned())
-                    .flatten()
+                current_interner
+                    .get(ty)
+                    .cloned()
                     .or_else(|| self.ty_kind(ty).cloned())
             },
             None,
@@ -814,13 +802,7 @@ impl<'a> ModuleLowerer<'a> {
         args.iter()
             .copied()
             .map(|arg| {
-                if arg.interner_id == self.type_context.interner.interner_id() {
-                    if self.type_context.interner.get(arg).is_none() {
-                        panic!(
-                            "Nia ICE: monomorphized instance argument {:?} is missing from backend interner",
-                            arg
-                        );
-                    }
+                if self.type_context.interner.get(arg).is_some() {
                     return arg;
                 }
                 let source = self.type_context.active_interner_for_type(arg).clone();
@@ -1173,7 +1155,7 @@ mod tests {
         static INTERNER: std::sync::OnceLock<nia_ty::TyInterner> = std::sync::OnceLock::new();
         let interner = INTERNER.get_or_init(|| nia_ty::TyInterner::new(ModuleId(0)));
         InternedTyId::new(
-            interner.interner_id(),
+            interner.interner_id().store_id(),
             TyInternerIndex::from_interner_index(index),
         )
     }

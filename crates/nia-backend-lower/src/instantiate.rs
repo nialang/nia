@@ -60,11 +60,12 @@ impl<'a> ModuleLowerer<'a> {
         &self,
         ty: InternedTyId,
     ) -> Option<&nia_type_normalize::TypeNormalization> {
-        let module_id = self.type_context.interner.type_owner(ty)?.module_id();
         self.input
             .program_type_normalizations
-            .get(&module_id)
-            .filter(|normalization| normalization.interner.interner_id() == ty.interner_id)
+            .iter()
+            .filter(|(_, normalization)| normalization.interner.get(ty).is_some())
+            .min_by_key(|(module_id, _)| *module_id)
+            .map(|(_, normalization)| normalization)
     }
 
     fn type_normalization_for_module_interner(
@@ -335,14 +336,12 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn import_instance_arg_type(&mut self, ty: InternedTyId) -> InternedTyId {
         if let Some(interner) = self.instantiation.body_interner
-            && ty.interner_id == interner.interner_id()
             && let Some(kind) = interner.get(ty)
             && !matches!(kind, TyKind::Error)
         {
             return self.import_type_from_known_interner(interner, ty);
         }
-        if ty.interner_id == self.input.type_normalization.interner.interner_id()
-            && let Some(kind) = self.input.type_normalization.interner.get(ty)
+        if let Some(kind) = self.input.type_normalization.interner.get(ty)
             && !matches!(kind, TyKind::Error)
         {
             let normalized = self.input.type_normalization.normalize(ty);
@@ -355,31 +354,15 @@ impl<'a> ModuleLowerer<'a> {
         if let Some((source, normalized)) = self.normalized_program_type_source_for_ty(ty) {
             return nia_ty::import_type_into(&mut self.type_context.interner, &source, normalized);
         }
-        if ty.interner_id == self.type_context.interner.interner_id()
-            && let Some(kind) = self.type_context.interner.get(ty)
-            && !matches!(kind, TyKind::Error)
-        {
-            return self.normalize_type_in_current_interner(ty);
+        if let Some(kind) = self.type_context.interner.get(ty) {
+            return if matches!(kind, TyKind::Error) {
+                ty
+            } else {
+                self.normalize_type_in_current_interner(ty)
+            };
         }
-        if ty.interner_id != self.type_context.interner.interner_id() {
-            let interner = self.active_interner_for_type(ty).clone();
-            if let Some(kind) = interner.get(ty)
-                && !matches!(kind, TyKind::Error)
-            {
-                return self.import_type_from_known_interner(&interner, ty);
-            }
-            return self.import_type_from_known_interner(&interner, ty);
-        }
-        if ty.interner_id == self.type_context.interner.interner_id()
-            && self.type_context.interner.get(ty).is_some()
-        {
-            return ty;
-        }
-        panic!(
-            "Nia ICE: backend type {:?} is missing from current interner {:?}",
-            ty,
-            self.type_context.interner.interner_id()
-        )
+        let interner = self.active_interner_for_type(ty).clone();
+        self.import_type_from_known_interner(&interner, ty)
     }
 
     pub(crate) fn import_const_generic_arg(
@@ -783,28 +766,28 @@ impl<'a> ModuleLowerer<'a> {
         let extension_interner = self.input.extension_interner;
         let mut ty_kind = |ty: InternedTyId| {
             if let Some(interner) = self.instantiation.body_interner
-                && ty.interner_id == interner.interner_id()
+                && let Some(kind) = interner.get(ty)
             {
-                return interner.get(ty).cloned();
+                return Some(kind.clone());
             }
-            if ty.interner_id == body_interner.interner_id() {
-                return body_interner.get(ty).cloned();
+            if let Some(kind) = body_interner.get(ty) {
+                return Some(kind.clone());
             }
             if let Some(current) = self.instantiation.function
                 && let Some(interner) = self
                     .type_context
                     .type_interner_for_module(current.module_id)
-                && ty.interner_id == interner.interner_id()
+                && let Some(kind) = interner.get(ty)
             {
-                return interner.get(ty).cloned();
+                return Some(kind.clone());
             }
             if let Some(extension_interner) = extension_interner
-                && ty.interner_id == extension_interner.interner_id()
+                && let Some(kind) = extension_interner.get(ty)
             {
-                return extension_interner.get(ty).cloned();
+                return Some(kind.clone());
             }
-            if ty.interner_id == current_interner.interner_id() {
-                return current_interner.get(ty).cloned();
+            if let Some(kind) = current_interner.get(ty) {
+                return Some(kind.clone());
             }
             Some(self.type_context.active_ty_kind(ty).clone())
         };
