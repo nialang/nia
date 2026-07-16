@@ -10,10 +10,9 @@ mod program_index;
 use backend_validate::validate_backend_program;
 use module_codegen::ModuleCodegen;
 use nia_backend_ir::{BackendModule, BackendProgram};
-use nia_ids::ModuleId;
 use nia_llvm::{Context, OptimizationLevel as LlvmOptimizationLevel, target::TargetMachine};
 use nia_opt::NiaOptimizationLevel;
-use nia_ty::{TypeStore, TypeStoreModuleCheckout};
+use nia_ty::TypeStore;
 pub use output::{
     LlvmCodegenOptions, LlvmCodegenOutput, LlvmModuleOutput, LlvmObjectModuleOutput,
     LlvmObjectOutput,
@@ -38,9 +37,8 @@ fn emit_llvm_ir_with_options_inner(
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
     let timings = options.timings;
-    let type_interners = checkout_program_type_interners(program, type_store);
     let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
-        ProgramIndex::new(program, &type_interners)
+        ProgramIndex::new(program, type_store)
     });
     let validation_diagnostics = time_codegen_stage(timings, "llvm_codegen.validate", || {
         validate_backend_program(program, &index)
@@ -107,9 +105,8 @@ fn emit_native_objects_inner(
             };
         }
     };
-    let type_interners = checkout_program_type_interners(program, type_store);
     let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
-        ProgramIndex::new(program, &type_interners)
+        ProgramIndex::new(program, type_store)
     });
     let validation_diagnostics = time_codegen_stage(timings, "llvm_codegen.validate", || {
         validate_backend_program(program, &index)
@@ -167,22 +164,6 @@ fn emit_native_objects_inner(
         modules: outputs,
         diagnostics,
     }
-}
-
-fn checkout_program_type_interners(
-    program: &BackendProgram,
-    type_store: &TypeStore,
-) -> std::collections::HashMap<ModuleId, TypeStoreModuleCheckout> {
-    program
-        .modules
-        .iter()
-        .map(|module| {
-            (
-                module.id,
-                type_store.checkout_module_for_semantic_migration(module.id),
-            )
-        })
-        .collect()
 }
 
 pub(crate) fn time_codegen_stage<T>(

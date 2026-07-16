@@ -304,15 +304,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let Some(global_info) = self.module.program.globals.get(def_id).copied() else {
                         return Err(self.error(expr.span, "missing global metadata"));
                     };
-                    let Some(owner) = self.module.program.module(def_id.module_id) else {
-                        return Err(self.error(expr.span, "missing global owner module"));
-                    };
-                    let ty = self.module.llvm_basic_type_in(
-                        global_info.ty,
-                        expr.span,
-                        self.module.owner_interner(owner),
-                        &owner.layouts,
-                    )?;
+                    let ty = self.module.llvm_basic_type_in(global_info.ty, expr.span)?;
                     self.builder
                         .build_load(ty, global.as_pointer_value(), "loadglobal")
                         .map_err(|_| self.error(expr.span, "failed to load global"))
@@ -343,15 +335,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     else {
                         return Err(self.error(expr.span, "missing global instance metadata"));
                     };
-                    let Some(owner) = self.module.program.module(def_id.module_id) else {
-                        return Err(self.error(expr.span, "missing global instance owner module"));
-                    };
-                    let ty = self.module.llvm_basic_type_in(
-                        global_info.ty,
-                        expr.span,
-                        self.module.owner_interner(owner),
-                        &owner.layouts,
-                    )?;
+                    let ty = self.module.llvm_basic_type_in(global_info.ty, expr.span)?;
                     self.builder
                         .build_load(ty, global.as_pointer_value(), "loadglobal.instance")
                         .map_err(|_| self.error(expr.span, "failed to load global instance"))

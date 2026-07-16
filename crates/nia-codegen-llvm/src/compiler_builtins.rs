@@ -14,7 +14,7 @@ use nia_llvm::{
     target::TargetMachine,
     values::{BasicMetadataValueEnum, BasicValueEnum, IntValue, PointerValue},
 };
-use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{PrimitiveTy, TyKind};
 
 use crate::program_index::ProgramIndex;
 
@@ -47,80 +47,77 @@ struct CompilerBuiltinCollector {
 impl CompilerBuiltinCollector {
     fn collect_program(&mut self, program: &BackendProgram, index: &ProgramIndex<'_>) {
         for module in &program.modules {
-            let interner = index
-                .type_interner(module.id)
-                .expect("backend module type interner");
             for function in &module.functions {
                 if let Some(body) = &function.function_body {
-                    self.collect_body(interner, body);
+                    self.collect_body(index, body);
                 }
             }
             for function in &module.function_instances {
                 if let Some(body) = &function.function_body {
-                    self.collect_body(interner, body);
+                    self.collect_body(index, body);
                 }
             }
         }
     }
 
-    fn collect_body(&mut self, interner: &TyInterner, body: &FunctionBody) {
+    fn collect_body(&mut self, index: &ProgramIndex<'_>, body: &FunctionBody) {
         for block in &body.blocks {
             for op in &block.ops {
-                self.collect_op(interner, op);
+                self.collect_op(index, op);
             }
-            self.collect_terminator(interner, &block.terminator);
+            self.collect_terminator(index, &block.terminator);
         }
     }
 
-    fn collect_defer_body(&mut self, interner: &TyInterner, body: &FunctionDeferBody) {
+    fn collect_defer_body(&mut self, index: &ProgramIndex<'_>, body: &FunctionDeferBody) {
         for block in &body.blocks {
             for op in &block.ops {
-                self.collect_op(interner, op);
+                self.collect_op(index, op);
             }
-            self.collect_terminator(interner, &block.terminator);
+            self.collect_terminator(index, &block.terminator);
         }
     }
 
-    fn collect_op(&mut self, interner: &TyInterner, op: &FunctionOp) {
+    fn collect_op(&mut self, index: &ProgramIndex<'_>, op: &FunctionOp) {
         match op {
             FunctionOp::Binding(binding) => {
                 if let Some(value) = &binding.value {
-                    self.collect_expr(interner, value);
+                    self.collect_expr(index, value);
                 }
             }
             FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
-                self.collect_expr(interner, value);
+                self.collect_expr(index, value);
             }
             FunctionOp::MemoryIntrinsic(memory) => {
-                self.collect_expr(interner, &memory.dest);
+                self.collect_expr(index, &memory.dest);
                 match &memory.source {
                     FunctionMemoryIntrinsicSource::Slice(expr)
                     | FunctionMemoryIntrinsicSource::Byte(expr) => {
-                        self.collect_expr(interner, expr);
+                        self.collect_expr(index, expr);
                     }
                 }
             }
-            FunctionOp::Defer(body) => self.collect_defer_body(interner, body),
+            FunctionOp::Defer(body) => self.collect_defer_body(index, body),
         }
     }
 
-    fn collect_terminator(&mut self, interner: &TyInterner, terminator: &FunctionTerminator) {
+    fn collect_terminator(&mut self, index: &ProgramIndex<'_>, terminator: &FunctionTerminator) {
         match terminator {
-            FunctionTerminator::If { cond, .. } => self.collect_expr(interner, cond),
+            FunctionTerminator::If { cond, .. } => self.collect_expr(index, cond),
             FunctionTerminator::Switch { target, arms, .. } => {
-                self.collect_expr(interner, target);
+                self.collect_expr(index, target);
                 for arm in arms {
-                    self.collect_expr(interner, &arm.pattern);
+                    self.collect_expr(index, &arm.pattern);
                 }
             }
-            FunctionTerminator::Try { value, .. } => self.collect_expr(interner, value),
+            FunctionTerminator::Try { value, .. } => self.collect_expr(index, value),
             FunctionTerminator::Loop { header, .. } => match header {
                 FunctionForHeader::Infinite => {}
-                FunctionForHeader::Condition(expr) => self.collect_expr(interner, expr),
+                FunctionForHeader::Condition(expr) => self.collect_expr(index, expr),
             },
             FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
                 if let Some(value) = value {
-                    self.collect_expr(interner, value);
+                    self.collect_expr(index, value);
                 }
             }
             FunctionTerminator::Error { .. }
@@ -129,54 +126,52 @@ impl CompilerBuiltinCollector {
         }
     }
 
-    fn collect_expr(&mut self, interner: &TyInterner, expr: &FunctionExpr) {
+    fn collect_expr(&mut self, index: &ProgramIndex<'_>, expr: &FunctionExpr) {
         match &expr.kind {
             FunctionExprKind::Binary { lhs, op, rhs } => {
-                self.collect_binary(interner, lhs, *op);
-                self.collect_expr(interner, lhs);
-                self.collect_expr(interner, rhs);
+                self.collect_binary(index, lhs, *op);
+                self.collect_expr(index, lhs);
+                self.collect_expr(index, rhs);
             }
             FunctionExprKind::Assign { place, op, rhs } => {
-                self.collect_assign(interner, place, *op);
-                self.collect_place(interner, place);
-                self.collect_expr(interner, rhs);
+                self.collect_assign(index, place, *op);
+                self.collect_place(index, place);
+                self.collect_expr(index, rhs);
             }
             FunctionExprKind::Range(range) => {
                 if let Some(start) = &range.start {
-                    self.collect_expr(interner, start);
+                    self.collect_expr(index, start);
                 }
                 if let Some(end) = &range.end {
-                    self.collect_expr(interner, end);
+                    self.collect_expr(index, end);
                 }
             }
-            FunctionExprKind::RangeBound { range, .. } => self.collect_expr(interner, range),
+            FunctionExprKind::RangeBound { range, .. } => self.collect_expr(index, range),
             FunctionExprKind::InlineAsm(asm) => {
                 for input in &asm.inputs {
-                    self.collect_expr(interner, &input.value);
+                    self.collect_expr(index, &input.value);
                 }
                 for output in &asm.outputs {
-                    self.collect_place(interner, &output.place);
+                    self.collect_place(index, &output.place);
                 }
             }
-            FunctionExprKind::Atomic(atomic) => self.collect_atomic(interner, atomic),
-            FunctionExprKind::StaticArrayPointer { array, .. } => {
-                self.collect_expr(interner, array)
-            }
+            FunctionExprKind::Atomic(atomic) => self.collect_atomic(index, atomic),
+            FunctionExprKind::StaticArrayPointer { array, .. } => self.collect_expr(index, array),
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
                     for elem in elems {
-                        self.collect_expr(interner, elem);
+                        self.collect_expr(index, elem);
                     }
                 }
-                FunctionArrayElements::Repeat { value, .. } => self.collect_expr(interner, value),
+                FunctionArrayElements::Repeat { value, .. } => self.collect_expr(index, value),
             },
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
-                    self.collect_expr(interner, &field.value);
+                    self.collect_expr(index, &field.value);
                 }
             }
             FunctionExprKind::UnionLiteral { field, .. } => {
-                self.collect_expr(interner, &field.value);
+                self.collect_expr(index, &field.value);
             }
             FunctionExprKind::Unary { expr, .. }
             | FunctionExprKind::OptionalSome { expr }
@@ -193,37 +188,41 @@ impl CompilerBuiltinCollector {
             | FunctionExprKind::Discard(expr)
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
-            | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
-                self.collect_expr(interner, expr)
-            }
-            FunctionExprKind::AddrOf(place) => self.collect_place(interner, place),
-            FunctionExprKind::ExtractElement { vector, index } => {
-                self.collect_expr(interner, vector);
-                self.collect_expr(interner, index);
+            | FunctionExprKind::TraitObjectCoercion { expr, .. } => self.collect_expr(index, expr),
+            FunctionExprKind::AddrOf(place) => self.collect_place(index, place),
+            FunctionExprKind::ExtractElement {
+                vector,
+                index: element_index,
+            } => {
+                self.collect_expr(index, vector);
+                self.collect_expr(index, element_index);
             }
             FunctionExprKind::InsertElement {
                 vector,
-                index,
+                index: element_index,
                 value,
             } => {
-                self.collect_expr(interner, vector);
-                self.collect_expr(interner, index);
-                self.collect_expr(interner, value);
+                self.collect_expr(index, vector);
+                self.collect_expr(index, element_index);
+                self.collect_expr(index, value);
             }
             FunctionExprKind::Call { callee, args } => {
-                self.collect_callee(interner, callee, args);
+                self.collect_callee(index, callee, args);
                 for arg in args {
-                    self.collect_expr(interner, arg);
+                    self.collect_expr(index, arg);
                 }
             }
-            FunctionExprKind::Field { lhs, .. } => self.collect_expr(interner, lhs),
-            FunctionExprKind::Index { lhs, index } => {
-                self.collect_expr(interner, lhs);
-                self.collect_expr(interner, index);
+            FunctionExprKind::Field { lhs, .. } => self.collect_expr(index, lhs),
+            FunctionExprKind::Index {
+                lhs,
+                index: element_index,
+            } => {
+                self.collect_expr(index, lhs);
+                self.collect_expr(index, element_index);
             }
             FunctionExprKind::Slice { lhs, range, .. } => {
-                self.collect_expr(interner, lhs);
-                self.collect_slice_range(interner, range);
+                self.collect_expr(index, lhs);
+                self.collect_slice_range(index, range);
             }
             FunctionExprKind::Error
             | FunctionExprKind::Integer(_)
@@ -246,35 +245,39 @@ impl CompilerBuiltinCollector {
         }
     }
 
-    fn collect_binary(&mut self, interner: &TyInterner, lhs: &FunctionExpr, op: BinaryOp) {
+    fn collect_binary(&mut self, index: &ProgramIndex<'_>, lhs: &FunctionExpr, op: BinaryOp) {
         if !matches!(op, BinaryOp::Div | BinaryOp::Rem) {
             return;
         }
-        match interner.get(lhs.ty) {
+        match index.ty_kind(lhs.ty) {
             Some(TyKind::Primitive(PrimitiveTy::U128)) => self.symbols.u128_div_rem = true,
             Some(TyKind::Primitive(PrimitiveTy::I128)) => self.symbols.i128_div_rem = true,
             _ => {}
         }
     }
 
-    fn collect_assign(&mut self, interner: &TyInterner, place: &FunctionPlace, op: AssignOp) {
+    fn collect_assign(&mut self, index: &ProgramIndex<'_>, place: &FunctionPlace, op: AssignOp) {
         if !matches!(op, AssignOp::Div | AssignOp::Rem) {
             return;
         }
-        match interner.get(place.ty) {
+        match index.ty_kind(place.ty) {
             Some(TyKind::Primitive(PrimitiveTy::U128)) => self.symbols.u128_div_rem = true,
             Some(TyKind::Primitive(PrimitiveTy::I128)) => self.symbols.i128_div_rem = true,
             _ => {}
         }
     }
 
-    fn collect_atomic(&mut self, interner: &TyInterner, atomic: &nia_function_ir::FunctionAtomic) {
+    fn collect_atomic(
+        &mut self,
+        index: &ProgramIndex<'_>,
+        atomic: &nia_function_ir::FunctionAtomic,
+    ) {
         match atomic {
-            nia_function_ir::FunctionAtomic::Load { ptr, .. } => self.collect_expr(interner, ptr),
+            nia_function_ir::FunctionAtomic::Load { ptr, .. } => self.collect_expr(index, ptr),
             nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
             | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
-                self.collect_expr(interner, ptr);
-                self.collect_expr(interner, value);
+                self.collect_expr(index, ptr);
+                self.collect_expr(index, value);
             }
             nia_function_ir::FunctionAtomic::Cmpxchg {
                 ptr,
@@ -282,9 +285,9 @@ impl CompilerBuiltinCollector {
                 desired,
                 ..
             } => {
-                self.collect_expr(interner, ptr);
-                self.collect_expr(interner, expected);
-                self.collect_expr(interner, desired);
+                self.collect_expr(index, ptr);
+                self.collect_expr(index, expected);
+                self.collect_expr(index, desired);
             }
             nia_function_ir::FunctionAtomic::Fence { .. } => {}
         }
@@ -292,7 +295,7 @@ impl CompilerBuiltinCollector {
 
     fn collect_callee(
         &mut self,
-        interner: &TyInterner,
+        index: &ProgramIndex<'_>,
         callee: &FunctionCallee,
         args: &[FunctionExpr],
     ) {
@@ -301,7 +304,7 @@ impl CompilerBuiltinCollector {
                 if let FunctionBuiltinOperatorOp::Binary(op) = operator.op
                     && let Some(lhs) = args.first()
                 {
-                    self.collect_binary(interner, lhs, op);
+                    self.collect_binary(index, lhs, op);
                 }
             }
             FunctionCallee::Method { receiver, .. }
@@ -309,16 +312,16 @@ impl CompilerBuiltinCollector {
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
-            | FunctionCallee::FunctionPointer(receiver) => self.collect_expr(interner, receiver),
+            | FunctionCallee::FunctionPointer(receiver) => self.collect_expr(index, receiver),
             FunctionCallee::Function(_)
             | FunctionCallee::FunctionInstance { .. }
             | FunctionCallee::TraitAssociatedFunction { .. } => {}
         }
     }
 
-    fn collect_place(&mut self, interner: &TyInterner, place: &FunctionPlace) {
+    fn collect_place(&mut self, index: &ProgramIndex<'_>, place: &FunctionPlace) {
         match &place.base {
-            FunctionPlaceBase::Deref(expr) => self.collect_expr(interner, expr),
+            FunctionPlaceBase::Deref(expr) => self.collect_expr(index, expr),
             FunctionPlaceBase::Local(_)
             | FunctionPlaceBase::Global(_)
             | FunctionPlaceBase::GlobalInstance { .. }
@@ -326,18 +329,18 @@ impl CompilerBuiltinCollector {
         }
         for elem in &place.elems {
             match elem {
-                FunctionPlaceElem::Index(expr) => self.collect_expr(interner, expr),
+                FunctionPlaceElem::Index(expr) => self.collect_expr(index, expr),
                 FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
             }
         }
     }
 
-    fn collect_slice_range(&mut self, interner: &TyInterner, range: &FunctionSliceRange) {
+    fn collect_slice_range(&mut self, index: &ProgramIndex<'_>, range: &FunctionSliceRange) {
         if let Some(start) = &range.start {
-            self.collect_expr(interner, start);
+            self.collect_expr(index, start);
         }
         if let Some(end) = &range.end {
-            self.collect_expr(interner, end);
+            self.collect_expr(index, end);
         }
     }
 }

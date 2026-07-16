@@ -309,6 +309,8 @@ Zig 的 `InternPool.Index`、`Nav.Index`、`TrackedInst.Index` 等是 `Zcu` 内�
 
 Phase B 开始时进一步核对现有创建路径后，需要把 identity contract 收紧为以下规则：
 
+**根部重构原则：架构目标优先于现有调用面的数量。** 当统一 identity/storage 模型与“多数算法仍依赖 module view、snapshot 或 recursive import”的现状冲突时，应判定这些算法的输入契约和实现仍属于旧架构，而不是据此削弱 type store、增加兼容 facade，或把旧读取模型永久化。影响面大只说明架构债务横跨多个域，不构成保留债务的理由；应沿依赖方向重构全部受影响算法，并用编译错误迫使调用点一次性收敛。迁移 adapter 只能位于一个明确、持续前移的边界，不能因调用者多而扩展为双轨 API。该原则同样适用于后续 query storage、provider graph、IR ownership 和 executor 重构。
+
 1. `TyId` 是 compilation-session local typed index，不携带 module owner；primitive/structural type 本来没有源码模块归属，nominal type 通过 `TyKind` 内的 stable definition identity 表达来源。
 2. session type store append-only，已发布 slot 在 session 生命周期内 immutable 且永不复用。revision 改变 syntax/def -> type 的 fact，不重编号整个 type store；否则 incremental query 无法保留稳定 handle。
 3. 不同 compiler session 由 store identity 隔离，store API 必须拒绝 foreign handle。当前 owned query product 尚不能用 Rust lifetime 静态限制时，以该检查作为 stale-handle 边界；session drop 后 handle 不具备可解释性。
@@ -945,6 +947,8 @@ Acceptance：基准命令不依赖隐藏环境变量，结果写 machine-readabl
 
 ### 阶段 B（P0）：统一 semantic context 和类型身份
 
+执行约束：不能用“多数算法当前依赖旧 view”限制重构范围。若 canonical store 的自然 API 暴露出 trait solver、normalization、body、layout、reachability 或 backend 的输入契约不成立，就重构这些算法及其调用链；不能在 store 侧复制旧 module-local 语义来迁就调用者。完成度以旧数据流实际删除为准，不以新 API 已可选使用为准。
+
 1. 定义 session-local typed index、跨 revision stable key、generation/reuse 规则及 stale-handle 不变量。
 2. 引入 session-owned type store 与统一 `TyId`。
 3. 为现有 module-local interner 建一次性迁移 adapter。
@@ -977,6 +981,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 进展（2026-07-16）：session-wide `TyId` 的前置 identity contract 已收紧：`InternedTyId::owner()` 从 `nia-ids` 删除，纯 handle 不再自行解释语义 owner。monomorphization 统一查询 `TypeStore`，const/body/reachability 查询当前 type view，backend validation/codegen 查询 `ProgramIndex`；没有保留 direct-owner fallback。当前 storage 实现仍从旧 `TyInternerId` 物理布局恢复 temporary module owner，但这一细节只存在于 `nia-ty`，后续改成 global index + owner metadata 不再需要穿透各编译阶段。回归覆盖同 session 的任意 module view 可解析 foreign module handle、不同 session handle 无 owner；全仓 `.owner()` 搜索为零。`cargo check --workspace --all-targets`、nia-ty 15、backend-lower 96、body-check 139、codegen 176、monomorphize 9、const-check 15 与 driver 484 个定向测试均通过，严格 workspace/all-targets/all-features Clippy 无 warning。下一切片应实现 session-wide slot/owner table 与 canonicalization contract；只有 handle 不再含 module shard 且跨模块同一类型直接复用同一 ID 后，才能开始按域删除 recursive import。
 
 进展（2026-07-16）：session-wide canonical type identity 已真正落地。`InternedTyId` 从 `TyInternerId + local slot` 收敛为 `TypeStoreId + global slot`，尺寸由 16 bytes 降为一个 64-bit word；共享 `TypeStoreCore` 负责全 session 的 `TyKind -> TyId` canonicalization 和 append-only slot，module `TyInterner` 只保存 `(TyId, TyKind)` visibility log 与 prefix/snapshot 迁移语义。跨模块 primitive、structural type 得到同一 ID；同 session `import_type_into` 只让 target view 看见现有 type graph并保持 ID，不同 session handle 继续被拒绝，且 interning 会拒绝引用当前 view 不可见或 foreign-session 的子类型。旧 `TypeOwner` 已改名为物理含义明确的 `TypeOrigin`，reachability 不再把它当 module dependency；backend/codegen 完全忽略 origin，从实际包含 handle 的 active views 中按最小 `ModuleId` 确定性选择，避免并发 first-insert 顺序影响输出。core lock 只覆盖单次 canonical lookup/insert，不跨 recursive import 或编译算法。handle 缩小暴露的 `AssociatedConstResolution` large-enum-variant 由仅装箱大 payload 修正，没有 Clippy allow；function lowering 伪造固定 slot `15` 作为 `bool` 的旧布局依赖也已删除，for-in typed IR 显式携带真实 canonical bool handle。`cargo check --workspace --all-targets`、nia-ty 18、function-lower 49、backend-lower 96、body-check 139、codegen 177、compiler-query 108、driver 484 个定向测试、严格 workspace/all-targets/all-features Clippy，以及无环境变量、无线程参数的原样 `cargo test` 全部通过，WSL 未发生 OOM 或退出。Phase B 仍未关闭：下一切片应让 canonical store 直接提供 kind lookup，随后按依赖方向删除 module snapshot/view adapter、identity-preserving recursive import、`arg_interner` paired data 和临时 trait/comparison views，最终删除非语义 `TypeOrigin`；不能因 ID 已统一就保留旧读取体系。
+
+进展（2026-07-16）：canonical store 已成为迁移完成域唯一的 `TyId -> TyKind` 读取源。`TypeStore` 的 append-only canonical core 现在同时保有稀疏四级 `OnceLock` kind arena；直接 lookup 会验证 store identity，通过 `u32` slot 的四个字节定位 immutable cell，并返回绑定于 store 生命周期的 kind borrow，不获取 canonicalization mutex，也不使用 unsafe；不同 session handle 不能被解释。mangling 的全部公开与递归 API 已原子迁移为只接收 `TypeStore`，没有 interner overload；monomorphization 与 backend symbol generation 不再为 mangling checkout module view。LLVM 的 `ProgramIndex` 直接借用 store，validation、compiler-builtin 扫描、layout/ABI/type lowering、static initializer 与 type mangling 均删除 module checkout、owner-interner discovery 和 view-existence 验证；backend module map 只索引 item/layout facts，不再承担类型可解释性。审计同时确认 codegen 的 semantic-equivalence fallback 仍用于 const expression 求值相等，而不是跨 interner identity 补偿，文档已据此纠正。nia-ty 19、backend-lower 96、codegen 177、mangle 2 与 monomorphize 9 个定向测试通过；`cargo check --workspace --all-targets`、严格 workspace/all-targets/all-features Clippy 和无环境变量、无线程参数的原样 `cargo test` 全部通过，WSL 未发生 OOM 或退出。Phase B 仍未关闭：compiler-query/backend 输入、trait/body/reachability 仍存在 module snapshot、recursive import、paired `arg_interner` 与 speculative view；下一切片必须重构这些算法契约并删除旧数据流，不能以调用者数量为由给 store 增加第二套 view API。
 
 ### 阶段 C（P0）：重做 query value/storage 契约
 

@@ -11,7 +11,7 @@ use std::{cell::RefCell, collections::HashMap};
 use crate::function_codegen::{FunctionCodegen, FunctionCodegenInput};
 use crate::program_index::ProgramIndex;
 use crate::time_codegen_module_stage;
-use nia_backend_ir::{BackendFunction, BackendLayouts, BackendModule};
+use nia_backend_ir::{BackendFunction, BackendModule};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::TypeLayout;
@@ -25,7 +25,7 @@ use nia_llvm::{
 use nia_mangle::{mangle_base_symbol_id, mangle_symbol_id, mangle_type_with};
 use nia_span::Span;
 use nia_symbol::SymbolId;
-use nia_ty::{ConstGenericArg, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ConstGenericArg, PrimitiveTy, TyKind};
 
 type InstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>);
 type AggregateInstanceArgs = (Vec<InternedTyId>, Vec<ConstGenericArg>);
@@ -75,14 +75,12 @@ type TraitObjectAdapterKey = (
     Vec<ConstGenericArg>,
 );
 
-struct FunctionSignature<'a, P> {
+struct FunctionSignature<P> {
     param_tys: P,
     return_type: InternedTyId,
     is_extern: bool,
     is_variadic: bool,
     span: Span,
-    interner: &'a TyInterner,
-    layouts: &'a BackendLayouts,
 }
 
 pub(super) struct ModuleCodegen<'ctx, 'a> {
@@ -268,11 +266,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn compute_layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
-        let owner = self.program.module(self.type_view_module(ty))?;
         if let Some(layout) = self.program.type_layout(ty) {
             return Some(layout.clone());
         }
-        match self.owner_interner(owner).get(ty) {
+        let target = &self.source.layouts.target;
+        match self.ty_kind(ty) {
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(*primitive),
             Some(TyKind::Vector { elem, lanes }) => self.vector_layout(*elem, *lanes),
             Some(
@@ -280,12 +278,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::VolatilePointer { .. }
                 | TyKind::FunctionPointer { .. },
             ) => Some(TypeLayout {
-                size: owner.layouts.target.pointer_size,
-                align: owner.layouts.target.pointer_align,
+                size: target.pointer_size,
+                align: target.pointer_align,
             }),
             Some(TyKind::Slice { .. } | TyKind::TraitObject { .. }) => Some(TypeLayout {
-                size: owner.layouts.target.pointer_size * 2,
-                align: owner.layouts.target.pointer_align,
+                size: target.pointer_size * 2,
+                align: target.pointer_align,
             }),
             Some(TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. }) => None,
             Some(TyKind::Range { bound: None, .. }) => Some(TypeLayout { size: 0, align: 1 }),
@@ -496,16 +494,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         Ok(())
     }
 
-    pub(super) fn interner(&self) -> &TyInterner {
-        self.owner_interner(self.source)
-    }
-
-    pub(super) fn owner_interner(&self, owner: &BackendModule) -> &'a TyInterner {
-        self.program
-            .type_interner(owner.id)
-            .expect("backend module type interner")
-    }
-
     pub(super) fn symbol_debug_name(&self, name: SymbolId) -> String {
         mangle_symbol_id(name)
     }
@@ -564,11 +552,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if let Some(mangled) = self.mangled_types.borrow().get(&ty) {
             return mangled.clone();
         }
-        let Some(owner) = self.program.module(self.type_view_module(ty)) else {
-            panic!("Nia ICE: cannot mangle type {ty:?} without owner module");
-        };
         let mangled = mangle_type_with(
-            self.owner_interner(owner),
+            self.program.type_store(),
             ty,
             |def_id| {
                 self.program

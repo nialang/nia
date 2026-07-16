@@ -211,6 +211,7 @@ pub fn lower_backend_program_with_timings(
                 );
                 ModuleLowerer::new(
                     input,
+                    type_store,
                     monomorphization,
                     optimization,
                     &shared,
@@ -458,6 +459,7 @@ pub(crate) fn static_init_simplification_enabled(optimization: &OptimizationPoli
 
 pub(crate) struct ModuleLowerer<'a> {
     pub(crate) input: &'a BackendLowerModuleInput<'a>,
+    pub(crate) type_store: &'a nia_ty::TypeStore,
     shared: &'a BackendLowerShared<'a>,
     pub(crate) monomorphization: &'a Monomorphization,
     pub(crate) optimization: OptimizationPolicy,
@@ -872,6 +874,7 @@ pub(crate) struct TypeSubstitutionKey {
 impl<'a> ModuleLowerer<'a> {
     fn new(
         input: &'a BackendLowerModuleInput<'a>,
+        type_store: &'a nia_ty::TypeStore,
         monomorphization: &'a Monomorphization,
         optimization: OptimizationPolicy,
         shared: &'a BackendLowerShared<'a>,
@@ -908,6 +911,7 @@ impl<'a> ModuleLowerer<'a> {
         );
         Self {
             input,
+            type_store,
             shared,
             monomorphization,
             optimization,
@@ -2234,7 +2238,7 @@ impl<'a> ModuleLowerer<'a> {
             name,
             &args,
             const_args,
-            &self.type_context.interner,
+            self.type_store,
             |def_id| {
                 if let Some(name) = def_names.get(&def_id) {
                     return name.clone();

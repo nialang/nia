@@ -1443,25 +1443,17 @@ impl MonoCollector<'_> {
         let const_expr_summaries_by_module = &self.const_expr_summaries_by_module;
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
         let diagnostics = &mut self.diagnostics;
-        let symbol = self.type_store.with_module_interner_for_semantic_migration(
-            module_id,
-            |interner| {
-                if interner.get(ty).is_none() {
-                    panic!("Nia ICE: cannot mangle missing type {ty:?} in module interner {module_id:?}");
-                }
-                mangle_type_with(
-                    interner,
-                    ty,
-                    |def_id| cached_def_name(defs_by_module, def_names, def_id),
-                    |id| {
-                        array_len(
-                            const_by_module,
-                            const_expr_summaries_by_module,
-                            missing_array_len_diagnostics,
-                            diagnostics,
-                            id,
-                        )
-                    },
+        let symbol = mangle_type_with(
+            self.type_store,
+            ty,
+            |def_id| cached_def_name(defs_by_module, def_names, def_id),
+            |id| {
+                array_len(
+                    const_by_module,
+                    const_expr_summaries_by_module,
+                    missing_array_len_diagnostics,
+                    diagnostics,
+                    id,
                 )
             },
         );

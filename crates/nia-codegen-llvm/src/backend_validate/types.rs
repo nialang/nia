@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use nia_backend_ir::BackendField;
 use nia_diagnostic::Diagnostic;
-use nia_ids::{InternedTyId, ModuleId};
+use nia_ids::InternedTyId;
 use nia_layout::TypeLayout;
 use nia_mangle::mangle_symbol_id;
 use nia_span::Span;
@@ -12,10 +12,6 @@ use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyKind, TypeEq
 use super::{BackendValidator, align_to, primitive_layout};
 
 impl BackendValidator<'_> {
-    fn type_view_module(&self, ty: InternedTyId) -> Option<ModuleId> {
-        self.index.type_view_module(ty)
-    }
-
     pub(super) fn validate_runtime_type(&mut self, ty: InternedTyId, span: Span) {
         self.validate_type(ty, span);
         if self.layout_of(ty).is_none() {
@@ -40,12 +36,6 @@ impl BackendValidator<'_> {
 
     pub(super) fn validate_trait_object_self_type(&mut self, ty: InternedTyId, span: Span) {
         self.validate_type(ty, span);
-        let Some(type_module) = self.type_view_module(ty) else {
-            return;
-        };
-        let Some(_module) = self.index.module(type_module) else {
-            return;
-        };
         if matches!(
             self.index.ty_kind(ty),
             Some(TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. })
@@ -65,27 +55,11 @@ impl BackendValidator<'_> {
         if !self.seen_types.insert(ty) {
             return;
         }
-        let Some(owner_module) = self.type_view_module(ty) else {
-            self.diagnostics.push(Diagnostic::internal_error_at(
-                nia_diagnostic::codes::INVALID_BACKEND_IR,
-                span,
-                "type belongs to a different compilation session",
-            ));
-            return;
-        };
-        let Some(_module) = self.index.module(owner_module) else {
-            self.diagnostics.push(Diagnostic::internal_error_at(
-                nia_diagnostic::codes::INVALID_BACKEND_IR,
-                span,
-                format!("backend IR type {ty:?} belongs to missing module {owner_module:?}"),
-            ));
-            return;
-        };
         let Some(kind) = self.index.ty_kind(ty).cloned() else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
-                format!("backend IR type {ty:?} is missing from its owner interner"),
+                "type belongs to a different compilation session",
             ));
             return;
         };
@@ -312,7 +286,6 @@ impl BackendValidator<'_> {
         ty: InternedTyId,
         active: &mut HashSet<InternedTyId>,
     ) -> Option<TypeLayout> {
-        self.index.module(self.type_view_module(ty)?)?;
         if let Some(layout) = self.index.type_layout(ty) {
             return Some(layout.clone());
         }

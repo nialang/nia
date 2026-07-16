@@ -483,8 +483,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     return Err(self.error(callee.span, "callee is not a function pointer"));
                 };
                 let function_type = self.module.function_pointer_type_in(
-                    self.module.interner(),
-                    &self.module.source.layouts,
                     params,
                     *return_type,
                     *is_variadic,

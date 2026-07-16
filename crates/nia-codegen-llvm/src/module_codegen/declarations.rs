@@ -93,9 +93,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn define_struct_bodies(&mut self) -> Result<(), Diagnostic> {
         for item in self.program.structs.values() {
-            let Some(owner) = self.program.module(item.def_id.module_id) else {
-                return Err(self.error(item.span, "missing struct owner module"));
-            };
             let Some(struct_ty) = self.structs.get(&item.def_id).copied() else {
                 return Err(self.error(
                     item.span,
@@ -107,19 +104,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             };
             let mut fields = Vec::new();
             for field in self.physical_struct_fields(item.def_id, &[], &[], item.span)? {
-                fields.push(self.llvm_basic_type_in(
-                    field.ty,
-                    field.span,
-                    self.owner_interner(owner),
-                    &owner.layouts,
-                )?);
+                fields.push(self.llvm_basic_type_in(field.ty, field.span)?);
             }
             struct_ty.set_body(&fields, false);
         }
         for item in self.program.struct_instances_by_def.values().flatten() {
-            let Some(owner) = self.program.module(item.def_id.module_id) else {
-                return Err(self.error(item.span, "missing struct owner module"));
-            };
             let Some(struct_ty) = self
                 .struct_instances
                 .get(&item.def_id)
@@ -132,12 +121,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             for field in
                 self.physical_struct_fields(item.def_id, &item.args, &item.const_args, item.span)?
             {
-                fields.push(self.llvm_basic_type_in(
-                    field.ty,
-                    field.span,
-                    self.owner_interner(owner),
-                    &owner.layouts,
-                )?);
+                fields.push(self.llvm_basic_type_in(field.ty, field.span)?);
             }
             struct_ty.set_body(&fields, false);
         }
@@ -178,10 +162,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             if !function.generics.is_empty() {
                 continue;
             }
-            let Some(owner) = self.program.module(function.def_id.module_id) else {
-                return Err(self.error(function.span, "missing function owner module"));
-            };
-            let ty = self.function_type_in(function, self.owner_interner(owner), &owner.layouts)?;
+            let ty = self.function_type_in(function)?;
             let is_local = function.def_id.module_id == self.source.id;
             let linkage = if function.is_extern {
                 Some(Linkage::External)
@@ -198,9 +179,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.functions.insert(function.def_id, value);
         }
         for instance in self.program.function_instances_by_def.values().flatten() {
-            let Some(owner) = self.program.module(instance.def_id.module_id) else {
-                return Err(self.error(instance.span, "missing function owner module"));
-            };
             let ty = self.function_signature_type_in(FunctionSignature {
                 param_tys: instance
                     .params
@@ -210,8 +188,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 is_extern: instance.is_extern,
                 is_variadic: instance.is_variadic,
                 span: instance.span,
-                interner: self.owner_interner(owner),
-                layouts: &owner.layouts,
             })?;
             let value = self
                 .module
@@ -274,15 +250,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn declare_globals(&mut self) -> Result<(), Diagnostic> {
         for global in self.program.globals.values() {
-            let Some(owner) = self.program.module(global.def_id.module_id) else {
-                return Err(self.error(global.span, "missing global owner module"));
-            };
-            let ty = self.llvm_basic_type_in(
-                global.ty,
-                global.span,
-                self.owner_interner(owner),
-                &owner.layouts,
-            )?;
+            let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let value = self
                 .module
                 .add_global(ty, None, &self.global_symbol_name(global))
@@ -297,15 +265,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.globals.insert(global.def_id, value);
         }
         for global in self.program.global_instances_by_def.values().flatten() {
-            let Some(owner) = self.program.module(global.def_id.module_id) else {
-                return Err(self.error(global.span, "missing global instance owner module"));
-            };
-            let ty = self.llvm_basic_type_in(
-                global.ty,
-                global.span,
-                self.owner_interner(owner),
-                &owner.layouts,
-            )?;
+            let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let value = self
                 .module
                 .add_global(ty, None, &global.symbol)
@@ -330,26 +290,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             if global.def_id.module_id != self.source.id || global.is_extern {
                 continue;
             }
-            let Some(owner) = self.program.module(global.def_id.module_id) else {
-                return Err(self.error(global.span, "missing global owner module"));
-            };
-            let ty = self.llvm_basic_type_in(
-                global.ty,
-                global.span,
-                self.owner_interner(owner),
-                &owner.layouts,
-            )?;
+            let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let Some(value) = self.globals.get(&global.def_id).copied() else {
                 return Err(self.error(global.span, "missing global declaration"));
             };
             let init = match &global.init {
-                Some(init) => self.static_init_value_in(
-                    global.ty,
-                    init,
-                    global.span,
-                    self.owner_interner(owner),
-                    &owner.layouts,
-                )?,
+                Some(init) => self.static_init_value_in(global.ty, init, global.span)?,
                 None => ty.const_zero().map_err(Self::diagnostic_from_llvm_error)?,
             };
             let init_ty = init.get_type().map_err(Self::diagnostic_from_llvm_error)?;
@@ -368,15 +314,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             if global.def_id.module_id != self.source.id {
                 continue;
             }
-            let Some(owner) = self.program.module(global.def_id.module_id) else {
-                return Err(self.error(global.span, "missing global instance owner module"));
-            };
-            let ty = self.llvm_basic_type_in(
-                global.ty,
-                global.span,
-                self.owner_interner(owner),
-                &owner.layouts,
-            )?;
+            let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let Some(value) = self
                 .global_instances
                 .get(&(
@@ -390,13 +328,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 return Err(self.error(global.span, "missing global instance declaration"));
             };
             let init = match &global.init {
-                Some(init) => self.static_init_value_in(
-                    global.ty,
-                    init,
-                    global.span,
-                    self.owner_interner(owner),
-                    &owner.layouts,
-                )?,
+                Some(init) => self.static_init_value_in(global.ty, init, global.span)?,
                 None => ty.const_zero().map_err(Self::diagnostic_from_llvm_error)?,
             };
             let init_ty = init.get_type().map_err(Self::diagnostic_from_llvm_error)?;
