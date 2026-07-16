@@ -392,7 +392,7 @@ impl<'a> ModuleLowerer<'a> {
             trait_id,
             trait_args,
             ..
-        }) = self.type_context.interner.get(key.object_ty).cloned()
+        }) = self.ty_kind(key.object_ty).cloned()
         else {
             return None;
         };
@@ -501,17 +501,14 @@ impl<'a> ModuleLowerer<'a> {
         let substitutions =
             ModuleLowerer::generic_substitutions(&trait_signature.generics, trait_args);
         for supertrait in &trait_signature.supertraits {
-            let supertrait = nia_ty::import_type_into(
-                &mut self.type_context.interner,
-                &program_trait.interner,
-                supertrait.ty,
-            );
+            let supertrait =
+                self.normalized_type_from_module(source_trait_id.module_id, supertrait.ty);
             let supertrait = self.instantiate_ty(supertrait, &substitutions);
             let Some(TyKind::Nominal {
                 def_id: supertrait_id,
                 args: supertrait_args,
                 ..
-            }) = self.type_context.interner.get(supertrait).cloned()
+            }) = self.ty_kind(supertrait).cloned()
             else {
                 continue;
             };

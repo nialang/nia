@@ -397,8 +397,12 @@ recursively makes the target view aware of the existing type graph and preserves
 every ID; it does not reconstruct a parallel identity. The canonical core lock
 is held only for one lookup-or-insert operation, not across recursive import or
 compiler algorithms. A view refuses to intern a kind whose referenced handles
-are not already visible in that view, which rejects foreign-session children
-and preserves closure of the migration log. Module checkout and its same-shard
+do not exist in the same canonical core. It therefore rejects foreign-session
+or unpublished children, while allowing a synthesized type to refer directly
+to a valid same-session handle that was first exposed by another module. A
+module visibility log is no longer required to be transitively closed over the
+type graph; algorithms that still assume that closure are migration targets,
+not constraints on the canonical store. Module checkout and its same-shard
 reentry guard remain a separate migration mechanism.
 
 The direct `InternedTyId::owner()` operation has been removed. The temporary
@@ -477,16 +481,23 @@ foreign handles fail at this store boundary. Backend lowering still uses
 thread-bound checkout while it appends synthesized types; same-shard reentry
 remains an immediate internal error.
 
-Compiler-query still takes one final snapshot per module after function
-lowering, layout, and monomorphization and lends that map only for the duration
-of backend lowering. Backend, const, trait, body, and reachability code still
-use module visibility logs for some algorithm inputs; their recursive import
-walks now preserve IDs but remain unnecessary data movement. Instance work
-queues likewise still carry paired `arg_interner` views. These are call-stack
-migration adapters, not query values or Backend IR fields. The next slices must
-delete view snapshots, recursive imports, and paired interner data in dependency
-order, migrate every affected algorithm to the canonical store contract, and
-then remove `TypeOrigin`.
+Compiler-query no longer constructs a final module-snapshot map for backend
+lowering. `BackendTypeContext` reads every `TyId` from `TypeStore`; foreign
+function/global instance worklists carry only stable handles; extension and
+trait candidates carry `ModuleId` for normalization rather than cloned
+interners. Program normalization input borrows only the normalized-ID maps, so
+it does not clone the `TypeNormalization` interner snapshots as an accidental
+backend side channel. Backend checkout remains solely the append capability for
+synthesized types.
+
+Const, trait, body, program-signature, and reachability algorithms still contain
+module-view reads and recursive imports. Reachability in particular still pairs
+instance arguments with an `arg_interner`; trait solving and layout APIs still
+accept a mutable working interner whose internal reads assume the old algorithm
+contract. These consumers must be redesigned to read canonical storage and use
+an explicit append capability. They are not a reason to restore transitively
+closed module views or a second store API. `TypeOrigin` can be removed after
+these remaining migration paths stop using visibility logs.
 
 ### 3.6 `nia-diagnostic`
 

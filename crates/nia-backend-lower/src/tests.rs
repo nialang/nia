@@ -517,8 +517,6 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let program_const = HashMap::from([(ModuleId(0), &const_array_lengths)]);
     let const_enum_values = const_enum_values_from_check(&const_eval);
     let no_program_defs = |_| None;
-    let backend_interner = type_store.module_snapshot(ModuleId(0));
-    let program_type_interners = HashMap::from([(ModuleId(0), backend_interner)]);
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -544,11 +542,9 @@ fn lower_source_with_body_check_mutation_and_optimization(
         reachable_structs: None,
         reachable_unions: None,
         program_function_bodies: &function_bodies,
-        extension_interner: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
         program_defs: &no_program_defs,
-        program_type_interners: &program_type_interners,
         program_type_normalizations: &HashMap::new(),
         program_functions: &HashMap::new(),
         program_structs: &HashMap::new(),

@@ -1114,33 +1114,17 @@ impl<'a> ModuleLowerer<'a> {
         specific: &crate::ExtensionTraitMethodCandidate,
         general: &crate::ExtensionTraitMethodCandidate,
     ) -> bool {
-        let specific_interner = self.candidate_type_interner(specific).clone();
-        let general_interner = self.candidate_type_interner(general).clone();
-        let specific_target = nia_ty::import_type_into(
-            &mut self.type_context.interner,
-            &specific_interner,
-            specific.target_ty,
-        );
-        let general_target = nia_ty::import_type_into(
-            &mut self.type_context.interner,
-            &general_interner,
-            general.target_ty,
-        );
+        let specific_target =
+            self.normalized_type_from_module(specific.module_id, specific.target_ty);
+        let general_target = self.normalized_type_from_module(general.module_id, general.target_ty);
         let target_subsumes = self.extension_pattern_subsumes(general_target, specific_target);
         let mut any_strict =
             self.extension_pattern_strictly_more_specific(specific_target, general_target);
         let args_subsume = specific.trait_args.iter().zip(&general.trait_args).all(
             |(specific_arg, general_arg)| {
-                let specific_arg = nia_ty::import_type_into(
-                    &mut self.type_context.interner,
-                    &specific_interner,
-                    *specific_arg,
-                );
-                let general_arg = nia_ty::import_type_into(
-                    &mut self.type_context.interner,
-                    &general_interner,
-                    *general_arg,
-                );
+                let specific_arg =
+                    self.normalized_type_from_module(specific.module_id, *specific_arg);
+                let general_arg = self.normalized_type_from_module(general.module_id, *general_arg);
                 any_strict |=
                     self.extension_pattern_strictly_more_specific(specific_arg, general_arg);
                 self.extension_pattern_subsumes(general_arg, specific_arg)

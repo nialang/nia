@@ -113,16 +113,13 @@ pub struct BackendLowerModuleInput<'a> {
     pub reachable_structs: Option<&'a std::collections::HashSet<GlobalDefId>>,
     pub reachable_unions: Option<&'a std::collections::HashSet<GlobalDefId>>,
     pub program_function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
-    pub extension_interner: Option<&'a nia_ty::TyInterner>,
     pub program_extension_methods: &'a ExtensionMethods,
-    pub program_extensions: &'a std::collections::HashMap<
-        ModuleId,
-        (&'a VisibleExtensionMethods, &'a nia_ty::TyInterner),
-    >,
+    pub program_extensions: &'a std::collections::HashMap<ModuleId, &'a VisibleExtensionMethods>,
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
-    pub program_type_interners: &'a std::collections::HashMap<ModuleId, nia_ty::TyInterner>,
-    pub program_type_normalizations:
-        &'a std::collections::HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
+    pub program_type_normalizations: &'a std::collections::HashMap<
+        ModuleId,
+        &'a std::collections::HashMap<InternedTyId, InternedTyId>,
+    >,
     pub program_functions: &'a std::collections::HashMap<GlobalDefId, ProgramFunctionSignature>,
     pub program_structs: &'a std::collections::HashMap<GlobalDefId, ProgramStructSignature>,
     pub program_unions: &'a std::collections::HashMap<GlobalDefId, ProgramUnionSignature>,
@@ -201,14 +198,6 @@ pub fn lower_backend_program_with_timings(
             .iter()
             .map(|input| {
                 let interner = type_store.checkout_module_for_semantic_migration(input.module_id);
-                let input_interner = input
-                    .program_type_interners
-                    .get(&input.module_id)
-                    .expect("backend session interner");
-                assert!(
-                    input_interner.is_prefix_of(&interner),
-                    "Nia ICE: backend input is not a prefix of its session type store"
-                );
                 ModuleLowerer::new(
                     input,
                     type_store,
@@ -460,17 +449,17 @@ pub(crate) fn static_init_simplification_enabled(optimization: &OptimizationPoli
 pub(crate) struct ModuleLowerer<'a> {
     pub(crate) input: &'a BackendLowerModuleInput<'a>,
     pub(crate) type_store: &'a nia_ty::TypeStore,
-    shared: &'a BackendLowerShared<'a>,
+    shared: &'a BackendLowerShared,
     pub(crate) monomorphization: &'a Monomorphization,
     pub(crate) optimization: OptimizationPolicy,
-    pub(crate) type_context: type_context::BackendTypeContext<'a, 'a>,
+    pub(crate) type_context: type_context::BackendTypeContext<'a>,
     pub(crate) diagnostics: Vec<Diagnostic>,
     optimization_report: BackendOptimizationReport,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     extension_generics_by_method: HashMap<GlobalDefId, Vec<SymbolId>>,
     extension_method_sources_by_def: HashMap<GlobalDefId, ExtensionMethodSource>,
     trait_context: trait_context::BackendTraitContext,
-    instantiation: instantiation_context::BackendInstantiationContext<'a>,
+    instantiation: instantiation_context::BackendInstantiationContext,
     foreign_function_refs: Vec<GlobalDefId>,
     foreign_function_instance_refs: Vec<function_refs::FunctionInstanceRef>,
     foreign_global_instance_refs: Vec<function_refs::GlobalInstanceRef>,
@@ -498,22 +487,22 @@ pub(crate) struct ExtensionTraitMethodKey {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ExtensionTraitMethodCandidate {
+    module_id: ModuleId,
     target_ty: InternedTyId,
     method_def_id: GlobalDefId,
     trait_args: Vec<InternedTyId>,
     where_predicates: Vec<WherePredicateSignature>,
     effective_generics: Vec<SymbolId>,
-    interner: Arc<nia_ty::TyInterner>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct ExtensionMethodSource {
+    module_id: ModuleId,
     target_ty: InternedTyId,
     where_predicates: Vec<WherePredicateSignature>,
-    interner: nia_ty::TyInterner,
 }
 
-pub(crate) struct BackendLowerShared<'a> {
+pub(crate) struct BackendLowerShared {
     program_extension_generics_by_method: HashMap<GlobalDefId, Vec<SymbolId>>,
     program_extension_method_sources_by_def: HashMap<GlobalDefId, ExtensionMethodSource>,
     program_trait_impls_by_method: HashMap<GlobalDefId, usize>,
@@ -521,11 +510,10 @@ pub(crate) struct BackendLowerShared<'a> {
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
     program_trait_methods_with_defaults: HashSet<GlobalDefId>,
     program_method_symbols_by_def: HashMap<GlobalDefId, SymbolId>,
-    input_type_interners: HashMap<ModuleId, &'a nia_ty::TyInterner>,
 }
 
-impl<'a> BackendLowerShared<'a> {
-    fn new(modules: &[BackendLowerModuleInput<'a>]) -> Self {
+impl BackendLowerShared {
+    fn new(modules: &[BackendLowerModuleInput<'_>]) -> Self {
         let first = modules.first();
         Self {
             program_extension_generics_by_method: first
@@ -545,7 +533,6 @@ impl<'a> BackendLowerShared<'a> {
             program_method_symbols_by_def: first
                 .map(index_program_method_symbols_by_def)
                 .unwrap_or_default(),
-            input_type_interners: index_input_type_interner_snapshots(modules),
         }
     }
 }
@@ -836,7 +823,6 @@ impl ReachabilityWorklist {
                     self_arg: *self_arg,
                     args: args.clone(),
                     const_args: const_args.clone(),
-                    arg_interner: None,
                     span: vtable.span,
                 }]),
             }
@@ -877,13 +863,13 @@ impl<'a> ModuleLowerer<'a> {
         type_store: &'a nia_ty::TypeStore,
         monomorphization: &'a Monomorphization,
         optimization: OptimizationPolicy,
-        shared: &'a BackendLowerShared<'a>,
+        shared: &'a BackendLowerShared,
         interner: nia_ty::TypeStoreModuleCheckout,
         timing: bool,
     ) -> Self {
         let type_context =
             time_backend_stage(timing, "backend_lower.new_lowerer.type_context", || {
-                type_context::BackendTypeContext::new(input, shared, interner)
+                type_context::BackendTypeContext::new(input, type_store, interner)
             });
         let extension_generics_by_method = time_backend_stage(
             timing,
@@ -897,7 +883,7 @@ impl<'a> ModuleLowerer<'a> {
         );
         let trait_context =
             time_backend_stage(timing, "backend_lower.new_lowerer.trait_context", || {
-                trait_context::BackendTraitContext::new(input, &type_context.interner)
+                trait_context::BackendTraitContext::new(input)
             });
         let struct_layout_instances_by_def = time_backend_stage(
             timing,
@@ -1838,8 +1824,7 @@ impl<'a> ModuleLowerer<'a> {
             .collect::<HashSet<_>>();
         for instance in refs {
             if instance.def_id.module_id != self.input.module_id {
-                self.foreign_global_instance_refs
-                    .push(self.with_current_arg_interner_global(instance));
+                self.foreign_global_instance_refs.push(instance);
                 continue;
             }
             let args = self.canonicalize_global_instance_ref_args(&instance);
@@ -1907,7 +1892,7 @@ impl<'a> ModuleLowerer<'a> {
             .to_vec();
         let imported_args = args
             .iter()
-            .map(|arg| self.import_instance_arg_type(*arg))
+            .map(|arg| self.normalize_instance_arg_type(*arg))
             .collect::<Vec<_>>();
         let substitutions =
             ModuleLowerer::generic_substitutions(&effective_generics, &imported_args);
@@ -2074,7 +2059,6 @@ impl<'a> ModuleLowerer<'a> {
                             self_arg: *self_arg,
                             args: args.clone(),
                             const_args: const_args.clone(),
-                            arg_interner: None,
                             span: vtable.span,
                         }),
                     }
@@ -2225,7 +2209,7 @@ impl<'a> ModuleLowerer<'a> {
         let input = self.input;
         let const_expr_summaries = &self.input.type_lowering.const_expr_summaries;
         let const_array_lengths = self.input.const_array_lengths;
-        let self_arg = self_arg.map(|ty| self.import_instance_arg_type(ty));
+        let self_arg = self_arg.map(|ty| self.normalize_instance_arg_type(ty));
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
         let diagnostics = &mut self.diagnostics;
         let def_names = &mut self.def_names;
@@ -2331,10 +2315,6 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.type_context.ty_kind(ty)
     }
-
-    pub(crate) fn active_interner_for_type(&self, ty: InternedTyId) -> &nia_ty::TyInterner {
-        self.type_context.active_interner_for_type(ty)
-    }
 }
 
 fn index_extension_generics_by_method(
@@ -2363,18 +2343,16 @@ fn index_local_extension_method_sources_by_def(
     input: &BackendLowerModuleInput<'_>,
 ) -> HashMap<GlobalDefId, ExtensionMethodSource> {
     let mut sources = HashMap::new();
-    if let Some(interner) = input.extension_interner {
-        for target in input.extensions.targets() {
-            for method in &target.methods {
-                sources.insert(
-                    method.def_id,
-                    ExtensionMethodSource {
-                        target_ty: target.target_ty,
-                        where_predicates: method.where_predicates.clone(),
-                        interner: interner.clone(),
-                    },
-                );
-            }
+    for target in input.extensions.targets() {
+        for method in &target.methods {
+            sources.insert(
+                method.def_id,
+                ExtensionMethodSource {
+                    module_id: input.module_id,
+                    target_ty: target.target_ty,
+                    where_predicates: method.where_predicates.clone(),
+                },
+            );
         }
     }
     sources
@@ -2385,54 +2363,16 @@ fn index_program_extension_method_sources_by_def(
 ) -> HashMap<GlobalDefId, ExtensionMethodSource> {
     let mut sources = HashMap::new();
     for method in input.program_extension_methods.all_methods() {
-        let Some(type_normalization) = input
-            .program_type_normalizations
-            .get(&method.def_id.module_id)
-        else {
-            continue;
-        };
         sources.insert(
             method.def_id,
             ExtensionMethodSource {
+                module_id: method.def_id.module_id,
                 target_ty: method.target_ty,
                 where_predicates: method.where_predicates.clone(),
-                interner: type_normalization.interner.clone(),
             },
         );
     }
     sources
-}
-
-fn index_input_type_interner_snapshots<'a>(
-    modules: &[BackendLowerModuleInput<'a>],
-) -> HashMap<ModuleId, &'a nia_ty::TyInterner> {
-    let mut interners = HashMap::new();
-    if let Some(input) = modules.first() {
-        for (module_id, interner) in input.program_type_interners {
-            insert_input_type_interner_snapshot(&mut interners, *module_id, "session", interner);
-        }
-    }
-    interners
-}
-
-fn insert_input_type_interner_snapshot<'a>(
-    interners: &mut HashMap<ModuleId, &'a nia_ty::TyInterner>,
-    module_id: ModuleId,
-    source: &'static str,
-    interner: &'a nia_ty::TyInterner,
-) {
-    if let Some(existing) = interners.get(&module_id) {
-        if existing.is_prefix_of(interner) {
-            interners.insert(module_id, interner);
-        } else if !interner.is_prefix_of(existing) {
-            panic!(
-                "conflicting type view snapshots for module {:?} from {}",
-                module_id, source
-            );
-        }
-    } else {
-        interners.insert(module_id, interner);
-    }
 }
 
 fn index_local_trait_impls_by_method(
@@ -2490,11 +2430,10 @@ fn index_program_trait_impls_by_method(
 
 fn index_extension_trait_method_candidates(
     extensions: &VisibleExtensionMethods,
-    source_interner: &nia_ty::TyInterner,
+    module_id: ModuleId,
 ) -> HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> {
     let mut candidates: HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> =
         HashMap::new();
-    let source_interner = Arc::new(source_interner.clone());
     for target in extensions.targets() {
         for method in &target.methods {
             if !method.is_trait_witness {
@@ -2511,12 +2450,12 @@ fn index_extension_trait_method_candidates(
                 })
                 .or_default()
                 .push(ExtensionTraitMethodCandidate {
+                    module_id,
                     target_ty: target.target_ty,
                     method_def_id: method.def_id,
                     trait_args: method.trait_args.clone(),
                     where_predicates: method.where_predicates.clone(),
                     effective_generics: method.effective_generics.clone(),
-                    interner: source_interner.clone(),
                 });
         }
     }
@@ -2541,7 +2480,6 @@ fn index_program_extension_trait_method_candidates(
         .collect::<HashMap<_, _>>();
     let mut candidates: HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> =
         HashMap::new();
-    let mut interner_cache = CandidateInternerCache::default();
     for method in input.program_extension_methods.all_methods() {
         let Some(trait_id) = method.trait_id else {
             continue;
@@ -2550,12 +2488,12 @@ fn index_program_extension_trait_method_candidates(
             continue;
         };
         let candidate = ExtensionTraitMethodCandidate {
+            module_id: impl_signature.module_id,
             target_ty: impl_signature.target_ty,
             method_def_id: method.def_id,
             trait_args: impl_signature.trait_args.clone(),
             where_predicates: impl_signature.where_predicates.clone(),
             effective_generics: impl_signature.generics.clone(),
-            interner: interner_cache.intern(&impl_signature.interner),
         };
         candidates
             .entry(ExtensionTraitMethodKey {
@@ -2578,26 +2516,6 @@ fn index_program_extension_trait_method_candidates(
         });
     }
     candidates
-}
-
-#[derive(Default)]
-struct CandidateInternerCache {
-    interners: Vec<Arc<nia_ty::TyInterner>>,
-}
-
-impl CandidateInternerCache {
-    fn intern(&mut self, interner: &nia_ty::TyInterner) -> Arc<nia_ty::TyInterner> {
-        if let Some(existing) = self
-            .interners
-            .iter()
-            .find(|existing| existing.as_ref() == interner)
-        {
-            return existing.clone();
-        }
-        let interner = Arc::new(interner.clone());
-        self.interners.push(interner.clone());
-        interner
-    }
 }
 
 fn index_local_trait_methods_with_defaults(

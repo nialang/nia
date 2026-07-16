@@ -681,8 +681,8 @@ impl TyInterner {
         }
         kind.visit_referenced_types(|referenced| {
             assert!(
-                self.get(referenced).is_some(),
-                "Nia ICE: interned type references a handle outside its active type view"
+                self.core.get(referenced).is_some(),
+                "Nia ICE: interned type references a handle outside its session type store"
             );
         });
         let ty = self
@@ -1640,7 +1640,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "outside its active type view")]
+    #[should_panic(expected = "outside its session type store")]
     fn interning_rejects_foreign_session_type_dependencies() {
         let mut local = TyInterner::new(ModuleId(2));
         let foreign = TyInterner::new(ModuleId(9));
@@ -1649,6 +1649,36 @@ mod tests {
             is_readonly: true,
             elem: foreign.primitive(PrimitiveTy::U32),
         });
+    }
+
+    #[test]
+    fn interning_accepts_same_session_dependencies_outside_the_module_view() {
+        let store = TypeStore::new();
+        let foreign = store.with_module_interner_for_semantic_migration(ModuleId(9), |interner| {
+            interner.intern(TyKind::Nominal {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(9),
+                    def_id: nia_ids::DefId(1),
+                },
+                args: Vec::new(),
+                const_args: Vec::new(),
+            })
+        });
+        let pointer = store.with_module_interner_for_semantic_migration(ModuleId(2), |interner| {
+            assert!(interner.get(foreign).is_none());
+            interner.intern(TyKind::Pointer {
+                is_readonly: true,
+                elem: foreign,
+            })
+        });
+
+        assert_eq!(
+            store.get(pointer),
+            Some(&TyKind::Pointer {
+                is_readonly: true,
+                elem: foreign,
+            })
+        );
     }
 
     #[test]

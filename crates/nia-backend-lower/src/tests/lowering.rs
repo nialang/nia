@@ -227,8 +227,6 @@ fn main() i32 {
         .collect::<HashMap<_, _>>();
     let program_const = HashMap::from([(ModuleId(0), &const_array_lengths)]);
     let const_enum_values = const_enum_values_from_check(&const_eval);
-    let program_type_interners =
-        HashMap::from([(ModuleId(0), type_store.module_snapshot(ModuleId(0)))]);
     let no_program_defs = |_| None;
     let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::default();
 
@@ -256,11 +254,9 @@ fn main() i32 {
         reachable_structs: None,
         reachable_unions: None,
         program_function_bodies: &function_bodies,
-        extension_interner: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
         program_defs: &no_program_defs,
-        program_type_interners: &program_type_interners,
         program_type_normalizations: &HashMap::new(),
         program_functions: &HashMap::new(),
         program_structs: &HashMap::new(),

@@ -51,7 +51,6 @@ impl<'a> ModuleLowerer<'a> {
                     self_arg: instance.self_arg,
                     args,
                     const_args: instance.const_args.clone(),
-                    arg_interner: Some(self.type_context.interner.clone()),
                     span: instance.span,
                 }
             })
@@ -98,8 +97,7 @@ impl<'a> ModuleLowerer<'a> {
 
         while let Some(instance) = pending.pop_front() {
             if instance.def_id.module_id != self.input.module_id {
-                self.foreign_function_instance_refs
-                    .push(self.with_current_arg_interner(instance));
+                self.foreign_function_instance_refs.push(instance);
                 continue;
             }
             let self_arg = self.canonicalize_instance_ref_self_arg(&instance);
@@ -183,7 +181,6 @@ impl<'a> ModuleLowerer<'a> {
                             self_arg: discovered_self_arg,
                             args: discovered_args,
                             const_args: discovered_const_args,
-                            arg_interner: Some(self.type_context.interner.clone()),
                             span: discovered.span,
                         },
                     );
@@ -264,16 +261,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn instance_arg_debug_name(&self, ty: InternedTyId) -> String {
-        if self.type_context.interner.get(ty).is_some() {
-            return self
-                .type_context
-                .interner
-                .get(ty)
-                .map(|kind| format!("{kind:?}"))
-                .unwrap_or_else(|| format!("{ty:?}"));
-        }
-        self.active_interner_for_type(ty)
-            .get(ty)
+        self.ty_kind(ty)
             .map(|kind| format!("{kind:?}"))
             .unwrap_or_else(|| format!("{ty:?}"))
     }
@@ -399,7 +387,7 @@ impl<'a> ModuleLowerer<'a> {
         let base = functions_by_def.get(&def_id).cloned()?;
         let imported_args = args
             .iter()
-            .map(|arg| self.import_instance_arg_type(*arg))
+            .map(|arg| self.normalize_instance_arg_type(*arg))
             .collect::<Vec<_>>();
         let substitutions = ModuleLowerer::generic_substitutions(&base.generics, &imported_args);
         let const_substitutions = self.const_generic_substitutions_for_def(def_id, &const_args);
@@ -469,11 +457,6 @@ impl<'a> ModuleLowerer<'a> {
         {
             return None;
         }
-        let source_interner = &signature.interner;
-        let body_interner = self
-            .type_context
-            .type_interner_for_module(def_id.module_id)
-            .unwrap_or(source_interner);
         let own_generics = &signature.signature.generics;
         let effective_generics = self.effective_generics(def_id, own_generics).to_vec();
         let identity_substitutions = effective_generics
@@ -520,21 +503,11 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .enumerate()
                 .map(|(index, param)| {
-                    let signature_ty = self.import_normalized_type_from_module(
-                        def_id.module_id,
-                        source_interner,
-                        param.ty,
-                    );
+                    let signature_ty = self.normalized_type_from_module(def_id.module_id, param.ty);
                     let param_local = param_locals.get(index).copied();
                     let local_ty = if param.receiver.is_some() {
                         param_local
-                            .map(|(_, ty)| {
-                                self.import_normalized_type_from_module(
-                                    def_id.module_id,
-                                    body_interner,
-                                    ty,
-                                )
-                            })
+                            .map(|(_, ty)| self.normalized_type_from_module(def_id.module_id, ty))
                             .unwrap_or(signature_ty)
                     } else {
                         signature_ty
@@ -553,11 +526,8 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 })
                 .collect(),
-            return_type: self.import_normalized_type_from_module(
-                def_id.module_id,
-                source_interner,
-                signature.signature.return_type,
-            ),
+            return_type: self
+                .normalized_type_from_module(def_id.module_id, signature.signature.return_type),
             is_extern: signature.signature.is_extern,
             is_variadic: signature.signature.is_variadic,
             attributes: signature
@@ -670,34 +640,14 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn canonicalize_instance_arg(&mut self, arg: InternedTyId) -> InternedTyId {
-        let local = if self.type_context.interner.get(arg).is_some() {
-            arg
-        } else {
-            let source = self.active_interner_for_type(arg).clone();
-            self.import_type_from_known_interner(&source, arg)
-        };
-        self.instantiate_ty(local, &SymbolMap::default())
+        self.instantiate_ty(arg, &SymbolMap::default())
     }
 
     pub(crate) fn canonicalize_instance_ref_args(
         &mut self,
         instance: &FunctionInstanceRef,
     ) -> Vec<InternedTyId> {
-        instance
-            .args
-            .iter()
-            .copied()
-            .map(|arg| {
-                if let Some(interner) = &instance.arg_interner
-                    && interner.get(arg).is_some()
-                    && self.type_context.interner.get(arg).is_none()
-                {
-                    let local = self.import_type_from_known_interner(interner, arg);
-                    return self.instantiate_ty(local, &SymbolMap::default());
-                }
-                self.canonicalize_instance_arg(arg)
-            })
-            .collect()
+        self.canonicalize_instance_args(&instance.args)
     }
 
     pub(crate) fn canonicalize_instance_self_arg(
@@ -711,104 +661,30 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         instance: &FunctionInstanceRef,
     ) -> Option<InternedTyId> {
-        instance.self_arg.map(|self_arg| {
-            if let Some(interner) = &instance.arg_interner
-                && interner.get(self_arg).is_some()
-                && self.type_context.interner.get(self_arg).is_none()
-            {
-                let local = self.import_type_from_known_interner(interner, self_arg);
-                return self.instantiate_ty(local, &SymbolMap::default());
-            }
-            self.canonicalize_instance_arg(self_arg)
-        })
+        self.canonicalize_instance_self_arg(instance.self_arg)
     }
 
     pub(crate) fn canonicalize_global_instance_ref_args(
         &mut self,
         instance: &crate::function_refs::GlobalInstanceRef,
     ) -> Vec<InternedTyId> {
-        instance
-            .args
-            .iter()
-            .copied()
-            .map(|arg| {
-                if let Some(interner) = &instance.arg_interner
-                    && interner.get(arg).is_some()
-                    && self.type_context.interner.get(arg).is_none()
-                {
-                    let local = self.import_type_from_known_interner(interner, arg);
-                    return self.instantiate_ty(local, &SymbolMap::default());
-                }
-                self.canonicalize_instance_arg(arg)
-            })
-            .collect()
-    }
-
-    pub(crate) fn with_current_arg_interner(
-        &self,
-        mut instance: FunctionInstanceRef,
-    ) -> FunctionInstanceRef {
-        instance.arg_interner = Some(self.type_context.interner.clone());
-        instance
-    }
-
-    pub(crate) fn with_current_arg_interner_global(
-        &self,
-        mut instance: crate::function_refs::GlobalInstanceRef,
-    ) -> crate::function_refs::GlobalInstanceRef {
-        instance.arg_interner = Some(self.type_context.interner.clone());
-        instance
+        self.canonicalize_instance_args(&instance.args)
     }
 
     pub(crate) fn cached_ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
-        let current_interner = self.type_context.interner.clone();
-        contains_generic_param(
-            ty,
-            &mut |ty| {
-                current_interner
-                    .get(ty)
-                    .cloned()
-                    .or_else(|| self.ty_kind(ty).cloned())
-            },
-            None,
-        )
+        contains_generic_param(ty, &mut |ty| self.ty_kind(ty).cloned(), None)
     }
 
     pub(crate) fn cached_ty_contains_unresolved_projection(&mut self, ty: InternedTyId) -> bool {
-        let current_interner = self.type_context.interner.clone();
-        contains_unresolved_projection(ty, &mut |ty| {
-            current_interner
-                .get(ty)
-                .cloned()
-                .or_else(|| self.ty_kind(ty).cloned())
-        })
+        contains_unresolved_projection(ty, &mut |ty| self.ty_kind(ty).cloned())
     }
 
     pub(crate) fn cached_ty_contains_error(&mut self, ty: InternedTyId) -> bool {
-        let current_interner = self.type_context.interner.clone();
-        contains_error(
-            ty,
-            &mut |ty| {
-                current_interner
-                    .get(ty)
-                    .cloned()
-                    .or_else(|| self.ty_kind(ty).cloned())
-            },
-            None,
-        )
+        contains_error(ty, &mut |ty| self.ty_kind(ty).cloned(), None)
     }
 
     fn import_monomorphized_instance_args(&mut self, args: &[InternedTyId]) -> Vec<InternedTyId> {
-        args.iter()
-            .copied()
-            .map(|arg| {
-                if self.type_context.interner.get(arg).is_some() {
-                    return arg;
-                }
-                let source = self.type_context.active_interner_for_type(arg).clone();
-                nia_ty::import_type_into(&mut self.type_context.interner, &source, arg)
-            })
-            .collect()
+        self.canonicalize_instance_args(args)
     }
 }
 

@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ids::{InternedTyId, ModuleId};
+use nia_ids::InternedTyId;
 use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{ConstGenericArg, TyKind};
 
 use crate::{
-    BackendLowerModuleInput, BackendLowerShared, TypeInstantiationKey, TypeSubstitutionId,
-    TypeSubstitutionKey,
+    BackendLowerModuleInput, TypeInstantiationKey, TypeSubstitutionId, TypeSubstitutionKey,
 };
 
-pub(crate) struct BackendTypeContext<'input, 'shared> {
+pub(crate) struct BackendTypeContext<'input> {
     input: &'input BackendLowerModuleInput<'input>,
-    shared: &'shared BackendLowerShared<'input>,
+    type_store: &'input nia_ty::TypeStore,
     pub(crate) interner: nia_ty::TypeStoreModuleCheckout,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
     self_substitutions: Vec<Option<InternedTyId>>,
@@ -21,15 +20,15 @@ pub(crate) struct BackendTypeContext<'input, 'shared> {
     type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
 }
 
-impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
+impl<'input> BackendTypeContext<'input> {
     pub(crate) fn new(
         input: &'input BackendLowerModuleInput<'input>,
-        shared: &'shared BackendLowerShared<'input>,
+        type_store: &'input nia_ty::TypeStore,
         interner: nia_ty::TypeStoreModuleCheckout,
     ) -> Self {
         Self {
             input,
-            shared,
+            type_store,
             interner,
             type_instantiations: HashMap::new(),
             self_substitutions: Vec::new(),
@@ -40,54 +39,7 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
-        if let Some(kind) = self.interner.get(ty) {
-            return Some(kind);
-        }
-        if let Some(extension_interner) = self.input.extension_interner
-            && let Some(kind) = extension_interner.get(ty)
-        {
-            return Some(kind);
-        }
-        self.input_interner_for_type(ty)
-            .and_then(|interner| interner.get(ty))
-    }
-
-    pub(crate) fn active_interner_for_type(&self, ty: InternedTyId) -> &nia_ty::TyInterner {
-        if self.interner.get(ty).is_some() {
-            return &self.interner;
-        }
-        if let Some(extension_interner) = self.input.extension_interner
-            && extension_interner.get(ty).is_some()
-        {
-            return extension_interner;
-        }
-        let active = self.input_interner_for_type(ty).unwrap_or_else(|| {
-            panic!("Nia ICE: backend type {ty:?} is missing from all active input type views")
-        });
-        require_type_in_interner(active, ty, "input");
-        active
-    }
-
-    pub(crate) fn active_ty_kind(&self, ty: InternedTyId) -> &TyKind {
-        self.active_interner_for_type(ty)
-            .get(ty)
-            .unwrap_or_else(|| panic!("Nia ICE: backend type {:?} is missing", ty))
-    }
-
-    fn input_interner_for_type(&self, ty: InternedTyId) -> Option<&nia_ty::TyInterner> {
-        self.shared
-            .input_type_interners
-            .iter()
-            .filter(|(_, interner)| interner.get(ty).is_some())
-            .min_by_key(|(module_id, _)| *module_id)
-            .map(|(_, interner)| *interner)
-    }
-
-    pub(crate) fn type_interner_for_module(
-        &self,
-        module_id: ModuleId,
-    ) -> Option<&'input nia_ty::TyInterner> {
-        self.input.program_type_interners.get(&module_id)
+        self.type_store.get(ty)
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
@@ -193,15 +145,5 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
             .get(substitutions.0)?
             .get(name)
             .cloned()
-    }
-}
-
-fn require_type_in_interner(interner: &nia_ty::TyInterner, ty: InternedTyId, source: &str) {
-    if interner.get(ty).is_none() {
-        panic!(
-            "Nia ICE: backend type {:?} is not present in {source} interner {:?}",
-            ty,
-            interner.interner_id()
-        );
     }
 }

@@ -1056,10 +1056,7 @@ impl<'a> ModuleLowerer<'a> {
 
     fn is_u32(&self, ty: InternedTyId) -> bool {
         let ty = self.input.type_normalization.normalize(ty);
-        matches!(
-            self.type_context.active_interner_for_type(ty).get(ty),
-            Some(TyKind::Primitive(PrimitiveTy::U32))
-        )
+        matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::U32)))
     }
 
     fn resolve_builtin_operator_impl_method(

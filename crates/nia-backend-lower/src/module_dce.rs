@@ -91,7 +91,6 @@ impl<'a> ModuleLowerer<'a> {
                             self_arg: *self_arg,
                             args: args.clone(),
                             const_args: const_args.clone(),
-                            arg_interner: None,
                             span: vtable.span,
                         });
                     }
@@ -180,7 +179,6 @@ impl From<&BackendFunctionInstance> for FunctionInstanceRef {
             self_arg: instance.self_arg,
             args: instance.args.clone(),
             const_args: instance.const_args.clone(),
-            arg_interner: None,
             span: instance.span,
         }
     }
