@@ -12,8 +12,8 @@ use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyKind, TypeEq
 use super::{BackendValidator, align_to, primitive_layout};
 
 impl BackendValidator<'_> {
-    fn type_owner(&self, ty: InternedTyId) -> TypeOwner {
-        ty.owner()
+    fn type_owner(&self, ty: InternedTyId) -> Option<TypeOwner> {
+        self.index.type_owner(ty)
     }
 
     pub(super) fn validate_runtime_type(&mut self, ty: InternedTyId, span: Span) {
@@ -40,7 +40,10 @@ impl BackendValidator<'_> {
 
     pub(super) fn validate_trait_object_self_type(&mut self, ty: InternedTyId, span: Span) {
         self.validate_type(ty, span);
-        let Some(_module) = self.index.module(self.type_owner(ty).module_id()) else {
+        let Some(owner) = self.type_owner(ty) else {
+            return;
+        };
+        let Some(_module) = self.index.module(owner.module_id()) else {
             return;
         };
         if matches!(
@@ -62,7 +65,15 @@ impl BackendValidator<'_> {
         if !self.seen_types.insert(ty) {
             return;
         }
-        let owner_module = self.type_owner(ty).module_id();
+        let Some(owner) = self.type_owner(ty) else {
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                "type belongs to a different compilation session",
+            ));
+            return;
+        };
+        let owner_module = owner.module_id();
         let Some(_module) = self.index.module(owner_module) else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -302,7 +313,7 @@ impl BackendValidator<'_> {
         ty: InternedTyId,
         active: &mut HashSet<InternedTyId>,
     ) -> Option<TypeLayout> {
-        self.index.module(self.type_owner(ty).module_id())?;
+        self.index.module(self.type_owner(ty)?.module_id())?;
         if let Some(layout) = self.index.type_layout(ty) {
             return Some(layout.clone());
         }

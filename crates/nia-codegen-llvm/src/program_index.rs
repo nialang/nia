@@ -5,7 +5,7 @@ use nia_backend_ir::{
     BackendEnum, BackendEnumVariant, BackendFunctionInstance, BackendProgram,
     BackendStructInstanceKey, BackendTraitObjectVtable,
 };
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TypeOwner};
 use nia_layout::{StructLayout, TypeLayout};
 use nia_ty::{ConstGenericArg, TraitId, TyInterner, TyKind, TypeStoreModuleCheckout};
 
@@ -241,6 +241,10 @@ impl<'a> ProgramIndex<'a> {
 
     pub(super) fn type_interner(&self, module_id: ModuleId) -> Option<&'a TyInterner> {
         self.type_interners.get(&module_id).copied()
+    }
+
+    pub(super) fn type_owner(&self, ty: InternedTyId) -> Option<TypeOwner> {
+        self.type_interners.values().next()?.type_owner(ty)
     }
 
     pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&'a TyKind> {

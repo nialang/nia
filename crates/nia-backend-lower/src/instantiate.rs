@@ -60,9 +60,10 @@ impl<'a> ModuleLowerer<'a> {
         &self,
         ty: InternedTyId,
     ) -> Option<&nia_type_normalize::TypeNormalization> {
+        let module_id = self.type_context.interner.type_owner(ty)?.module_id();
         self.input
             .program_type_normalizations
-            .get(&ty.owner().module_id())
+            .get(&module_id)
             .filter(|normalization| normalization.interner.interner_id() == ty.interner_id)
     }
 

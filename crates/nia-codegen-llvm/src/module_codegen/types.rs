@@ -31,7 +31,9 @@ pub(crate) enum AbiReturn {
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn type_owner(&self, ty: InternedTyId) -> TypeOwner {
-        ty.owner()
+        self.program
+            .type_owner(ty)
+            .expect("codegen type belongs to its session store")
     }
 
     fn module_interner(&self, module_id: ModuleId) -> Option<&'a TyInterner> {
