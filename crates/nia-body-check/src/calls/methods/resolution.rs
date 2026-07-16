@@ -124,7 +124,7 @@ impl<'a> BodyChecker<'a> {
                 if let Some(lookup) = self.extension_method_lookup_for_id(method.def_id).cloned() {
                     lookup
                 } else {
-                    let Some(lookup) = self.import_program_extension_method_lookup(&method) else {
+                    let Some(lookup) = self.program_extension_method_lookup(&method) else {
                         continue;
                     };
                     self.extension_method_lookup_cache
@@ -504,7 +504,6 @@ impl<'a> BodyChecker<'a> {
         let Some(self_ty) = self.trait_receiver_self_ty(receiver_ty) else {
             return Vec::new();
         };
-        let self_ty = self.import_type_for_method_resolution(self_ty);
         self.push_visible_impl_trait_method_candidates(&mut candidates, self_ty, name);
         candidates
     }
@@ -518,10 +517,8 @@ impl<'a> BodyChecker<'a> {
             return Vec::new();
         };
         let mut candidates = Vec::new();
-        let self_ty = self.import_type_for_method_resolution(self_ty);
         for goal in self.current_trait_goals() {
-            let goal_self_ty = self.import_type_for_method_resolution(goal.self_ty);
-            if !self.types_match(goal_self_ty, self_ty) {
+            if !self.types_match(goal.self_ty, self_ty) {
                 continue;
             }
             let TraitId::Source(trait_id) = goal.trait_id else {
@@ -530,11 +527,7 @@ impl<'a> BodyChecker<'a> {
             let Some(trait_signature) = self.resolved_trait_signature(trait_id) else {
                 continue;
             };
-            let trait_args = goal
-                .trait_args
-                .into_iter()
-                .map(|arg| self.import_type_for_method_resolution(arg))
-                .collect();
+            let trait_args = goal.trait_args;
             let trait_const_args = goal.trait_const_args;
             self.push_trait_method_candidates(
                 &mut candidates,
@@ -557,11 +550,10 @@ impl<'a> BodyChecker<'a> {
         target_ty: InternedTyId,
         name: &SymbolId,
     ) -> Vec<TraitMethodCandidate> {
-        let self_ty = self.import_type_for_method_resolution(target_ty);
+        let self_ty = target_ty;
         let mut candidates = Vec::new();
         for goal in self.current_trait_goals() {
-            let goal_self_ty = self.import_type_for_method_resolution(goal.self_ty);
-            if !self.types_match(goal_self_ty, self_ty) {
+            if !self.types_match(goal.self_ty, self_ty) {
                 continue;
             }
             let TraitId::Source(trait_id) = goal.trait_id else {
@@ -570,11 +562,7 @@ impl<'a> BodyChecker<'a> {
             let Some(trait_signature) = self.resolved_trait_signature(trait_id) else {
                 continue;
             };
-            let trait_args = goal
-                .trait_args
-                .into_iter()
-                .map(|arg| self.import_type_for_method_resolution(arg))
-                .collect();
+            let trait_args = goal.trait_args;
             let trait_const_args = goal.trait_const_args;
             self.push_trait_method_candidates(
                 &mut candidates,
@@ -594,17 +582,6 @@ impl<'a> BodyChecker<'a> {
         }
         self.push_visible_impl_trait_method_candidates(&mut candidates, self_ty, name);
         candidates
-    }
-
-    fn import_type_for_method_resolution(&mut self, ty: InternedTyId) -> InternedTyId {
-        if self.interner.get(ty).is_some() {
-            return ty;
-        }
-        if self.normalization.interner.get(ty).is_some() {
-            let source = self.normalization.interner.clone();
-            return self.import_type_from(&source, ty);
-        }
-        ty
     }
 
     fn push_visible_impl_trait_method_candidates(

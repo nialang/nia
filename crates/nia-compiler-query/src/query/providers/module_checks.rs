@@ -25,17 +25,20 @@ pub(super) fn provide_layouts(
                     "Nia ICE: layout input is not a prefix of its session type store"
                 );
                 nia_layout::compute_layouts_with_program_context(
-                    &defs,
-                    interner,
-                    &item_signatures,
-                    &type_normalization.normalized,
-                    &local_array_lengths,
-                    nia_layout::TargetDataLayout::LP64,
-                    nia_layout::ProgramLayoutContext {
-                        symbols: Some(&symbols),
-                        layouts: Some(&layout_query),
-                        array_lengths: Some(&program_array_lengths),
-                        ..Default::default()
+                    nia_layout::LayoutComputationInput {
+                        type_store: &db.context().type_store,
+                        defs: &defs,
+                        interner,
+                        signatures: &item_signatures,
+                        normalized: &type_normalization.normalized,
+                        array_lengths: &local_array_lengths,
+                        target: nia_layout::TargetDataLayout::LP64,
+                        program: nia_layout::ProgramLayoutContext {
+                            symbols: Some(&symbols),
+                            layouts: Some(&layout_query),
+                            array_lengths: Some(&program_array_lengths),
+                            ..Default::default()
+                        },
                     },
                 )
             })

@@ -45,7 +45,14 @@ fn main() i32 {
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-    let lowered = lower_module_types(&module, &type_resolved);
+    let item_tree = ModuleItemTree::from_module(&module);
+    let type_store = TypeStore::new();
+    let lowered = lower_module_types_from_item_tree_with_context(
+        ModuleId(0),
+        &item_tree,
+        &type_resolved,
+        TypeLoweringContext::empty(&type_store),
+    );
     let values = nia_value_resolve::resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let active_item_tree = active_item_tree(&module);
@@ -71,6 +78,7 @@ fn main() i32 {
         const_module.diagnostics
     );
     let const_input = nia_const_check::ConstInput {
+        type_store: &type_store,
         module: &const_module.module,
         defs: &defs,
         values: &values,
@@ -115,6 +123,7 @@ fn main() i32 {
     };
     let mut layout_interner = lowered.interner.clone();
     let layouts = nia_layout::compute_layouts(
+        &type_store,
         &defs,
         &mut layout_interner,
         &signatures,
@@ -123,6 +132,7 @@ fn main() i32 {
     let program_signatures = EmptyBodyProgramSignatures::new();
     let checked = check_module_bodies_with_program_signatures_and_layouts(
         BodyCheckInput {
+            type_store: &type_store,
             source_version: Some(version),
             source_path: &source_path,
             symbols: &symbols,
@@ -144,7 +154,6 @@ fn main() i32 {
             extensions: &VisibleExtensionMethods::default(),
             lazy_extensions: None,
             program_extension_methods: &nia_defs::ExtensionMethods::default(),
-            extension_interner: None,
             program: BodyProgramContext::empty(),
             program_signatures: program_signatures.context(),
             function_scope: FunctionCheckScope::LocalModule,
@@ -205,7 +214,14 @@ fn main() i32 {
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-    let lowered = lower_module_types(&module, &type_resolved);
+    let item_tree = ModuleItemTree::from_module(&module);
+    let type_store = TypeStore::new();
+    let lowered = lower_module_types_from_item_tree_with_context(
+        ModuleId(0),
+        &item_tree,
+        &type_resolved,
+        TypeLoweringContext::empty(&type_store),
+    );
     let values = nia_value_resolve::resolve_module_values(&module, &defs);
     let locals = nia_local_resolve::resolve_module_locals_with_origins(
         &module,
@@ -237,6 +253,7 @@ fn main() i32 {
         const_module.diagnostics
     );
     let const_input = nia_const_check::ConstInput {
+        type_store: &type_store,
         module: &const_module.module,
         defs: &defs,
         values: &values,
@@ -281,6 +298,7 @@ fn main() i32 {
     };
     let mut layout_interner = lowered.interner.clone();
     let layouts = nia_layout::compute_layouts(
+        &type_store,
         &defs,
         &mut layout_interner,
         &signatures,
@@ -289,6 +307,7 @@ fn main() i32 {
     let program_signatures = EmptyBodyProgramSignatures::new();
     let checked = check_module_bodies_with_program_signatures_and_layouts(
         BodyCheckInput {
+            type_store: &type_store,
             source_version: Some(version),
             source_path: &source_path,
             symbols: &symbols,
@@ -310,7 +329,6 @@ fn main() i32 {
             extensions: &VisibleExtensionMethods::default(),
             lazy_extensions: None,
             program_extension_methods: &nia_defs::ExtensionMethods::default(),
-            extension_interner: None,
             program: BodyProgramContext::empty(),
             program_signatures: program_signatures.context(),
             function_scope: FunctionCheckScope::LocalModule,

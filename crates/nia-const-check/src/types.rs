@@ -175,6 +175,7 @@ pub struct ConstInput<'a> {
     pub lowered: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub interner: &'a TyInterner,
+    pub type_store: &'a nia_ty::TypeStore,
     pub normalized: &'a HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>,
     pub target: &'a TargetConfig,
     pub source_path: &'a SourcePath,

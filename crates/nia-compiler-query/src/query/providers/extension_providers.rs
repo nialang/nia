@@ -284,6 +284,7 @@ pub(super) fn provide_extension_provider_validation_facts(
         let (methods, diagnostics) = collect_extension_methods_for_module(
             &input.module(),
             ExtensionMethodValidationInput {
+                type_store: &db.context().type_store,
                 trait_defs: &trait_index.trait_defs,
                 trait_signatures: &trait_index.trait_signatures,
                 trait_impls_for_trait: &trait_impls_for_trait,

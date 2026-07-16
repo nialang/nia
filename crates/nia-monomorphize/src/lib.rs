@@ -1085,6 +1085,7 @@ impl MonoCollector<'_> {
         let layouts = self.layouts_by_module.get(&module_id).copied();
         let program_is_enum = |def_id| self.program_enums.contains_key(&def_id);
         let context = TraitSolverContext {
+            type_store: self.type_store,
             normalization,
             trait_impls: self.trait_impls,
             trait_impl_index: Some(self.trait_impl_index),

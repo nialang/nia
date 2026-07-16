@@ -616,6 +616,7 @@ impl<'a> ModuleLowerer<'a> {
         let assumptions = self.current_trait_assumptions();
         let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
         let context = TraitSolverContext {
+            type_store: self.type_store,
             normalization: self.input.type_normalization,
             trait_impls: self.input.trait_impls,
             trait_impl_index: Some(self.input.trait_impl_index),
@@ -645,6 +646,7 @@ impl<'a> ModuleLowerer<'a> {
         let assumptions = self.current_trait_assumptions();
         let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
         let context = TraitSolverContext {
+            type_store: self.type_store,
             normalization: self.input.type_normalization,
             trait_impls: self.input.trait_impls,
             trait_impl_index: Some(self.input.trait_impl_index),
@@ -1272,6 +1274,7 @@ impl<'a> ModuleLowerer<'a> {
             self.current_associated_type_assumptions(substitutions, active_projections);
         let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
         let context = TraitSolverContext {
+            type_store: self.type_store,
             normalization: self.input.type_normalization,
             trait_impls: self.input.trait_impls,
             trait_impl_index: Some(self.input.trait_impl_index),

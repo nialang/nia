@@ -543,30 +543,17 @@ impl Analyzer<'_> {
             });
         };
         self.ensure_working_interner(user.impl_module_id);
-        let Some(interner) = self.working_interners.get_mut(&user.impl_module_id) else {
+        if !self.working_interners.contains_key(&user.impl_module_id) {
             self.active.remove(&key);
             return Err(ConstError {
                 span,
                 message: "failed to prepare associated const evaluation".to_string(),
             });
-        };
-        let type_substitutions = user
-            .substitutions
-            .into_iter()
-            .map(|(name, ty)| {
-                (
-                    name,
-                    nia_ty::import_type_into(interner, &user.resolution_interner, ty),
-                )
-            })
-            .collect::<SymbolMap<_>>();
+        }
+        let type_substitutions = user.substitutions.into_iter().collect::<SymbolMap<_>>();
         let const_substitutions = user
             .const_substitutions
             .into_iter()
-            .map(|(name, mut arg)| {
-                arg.ty = nia_ty::import_type_into(interner, &user.resolution_interner, arg.ty);
-                (name, arg)
-            })
             .collect::<SymbolMap<_>>();
         let frame = ConstCallFrame {
             module_id: Some(user.impl_module_id),

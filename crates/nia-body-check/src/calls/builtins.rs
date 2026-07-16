@@ -458,11 +458,7 @@ impl<'a> BodyChecker<'a> {
         name: &SymbolId,
     ) -> Option<(GlobalDefId, GlobalDefId)> {
         let ty = self.normalization.normalize(ty);
-        let Some(TyKind::Nominal { def_id, .. }) = self
-            .interner
-            .get(ty)
-            .or_else(|| self.normalization.interner.get(ty))
-        else {
+        let Some(TyKind::Nominal { def_id, .. }) = self.interner.get(ty) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
@@ -489,11 +485,7 @@ impl<'a> BodyChecker<'a> {
         field: GlobalDefId,
     ) -> Option<u64> {
         let ty = self.normalization.normalize(ty);
-        let Some(TyKind::Nominal { args, .. }) = self
-            .interner
-            .get(ty)
-            .or_else(|| self.normalization.interner.get(ty))
-        else {
+        let Some(TyKind::Nominal { args, .. }) = self.interner.get(ty) else {
             return None;
         };
         if nominal.module_id == self.defs.module_id {

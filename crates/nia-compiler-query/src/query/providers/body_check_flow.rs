@@ -97,16 +97,6 @@ fn body_check_filter_includes_global(
     body_check_filter_includes_def(module_id, defs, node_key, filter, false)
 }
 
-pub(super) fn signature_type_interner(
-    db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-    set: nia_item_tree::SignatureItemSet,
-) -> nia_ty::TyInterner {
-    db.query_shared(SignatureTypeLoweringQuery(module_id, set))
-        .interner
-        .clone()
-}
-
 fn body_check_filter_includes_def(
     module_id: ModuleId,
     defs: &DefCollection,
@@ -207,7 +197,8 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                     || db.query(VisibleExtensionsQuery(module_id)),
                 )
             };
-            let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+            let associated_values =
+                LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
             let symbols = db.context().symbols();
             let filtered_values = time_module_provider(
                 db,

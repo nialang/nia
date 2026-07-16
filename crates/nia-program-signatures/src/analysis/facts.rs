@@ -123,7 +123,6 @@ pub fn collect_program_functions_excluding(
                         .map(|def| def.name)
                         .unwrap_or_default(),
                     signature: signature.clone(),
-                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -144,7 +143,6 @@ pub fn collect_program_globals(
                 },
                 ProgramGlobalSignature {
                     signature: signature.clone(),
-                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -165,7 +163,6 @@ pub fn collect_program_consts(
                 },
                 ProgramConstSignature {
                     signature: signature.clone(),
-                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -186,7 +183,6 @@ pub fn collect_program_structs(
                 },
                 ProgramStructSignature {
                     signature: signature.clone(),
-                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -207,7 +203,6 @@ pub fn collect_program_unions(
                 },
                 ProgramUnionSignature {
                     signature: signature.clone(),
-                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -228,7 +223,6 @@ pub fn collect_program_enums(
                 },
                 ProgramEnumSignature {
                     signature: signature.clone(),
-                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -249,7 +243,6 @@ pub fn collect_program_traits(
                 },
                 ProgramTraitSignature {
                     signature: signature.clone(),
-                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -270,7 +263,6 @@ pub fn collect_program_type_aliases(
                 },
                 ProgramTypeAliasSignature {
                     signature: signature.clone(),
-                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -307,7 +299,6 @@ pub fn collect_program_trait_impls(
                 where_predicates: impl_signature.where_predicates.clone(),
                 associated_types: impl_signature.associated_types.clone(),
                 associated_values: impl_signature.associated_values.clone(),
-                interner: module.lowering.interner.clone(),
             });
         }
     }

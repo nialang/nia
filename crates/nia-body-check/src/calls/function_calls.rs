@@ -37,7 +37,7 @@ impl<'a> BodyChecker<'a> {
             .cloned()
             .map(|signature| ResolvedFunctionSignature {
                 def_id: self.global_def_id(def_id),
-                signature: self.import_local_function_signature(&signature),
+                signature: self.local_function_signature(&signature),
             })
     }
 

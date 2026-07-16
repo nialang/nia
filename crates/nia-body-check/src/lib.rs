@@ -21,8 +21,6 @@ mod symbols;
 mod trait_objects;
 mod type_support;
 
-pub use nia_ty::import_type_into;
-
 use nia_ast::{
     Attribute, AttributeKind, BindingStmt, Block, Expr, ExprKind, FunctionItem, Module, Stmt,
     StmtKind,
@@ -375,8 +373,7 @@ impl<'a> BodyProgramContext<'a> {
 #[derive(Clone, Copy)]
 pub struct BodyVisibleExtensions<'a> {
     pub methods: &'a VisibleExtensionMethods,
-    pub interner: Option<&'a TyInterner>,
-    pub lazy: Option<&'a dyn Fn() -> (VisibleExtensionMethods, TyInterner)>,
+    pub lazy: Option<&'a dyn Fn() -> VisibleExtensionMethods>,
 }
 
 enum ModuleDefs<'a> {
@@ -418,6 +415,7 @@ impl fmt::Debug for BodyProgramContext<'_> {
 
 #[derive(Clone)]
 pub struct BodyCheckInput<'a> {
+    pub type_store: &'a nia_ty::TypeStore,
     pub source_version: Option<SourceVersion>,
     pub source_path: &'a SourcePath,
     pub symbols: &'a SymbolTable,
@@ -437,9 +435,8 @@ pub struct BodyCheckInput<'a> {
     pub const_module: &'a ResolvedConstModule,
     pub layouts: &'a Layouts,
     pub extensions: &'a VisibleExtensionMethods,
-    pub lazy_extensions: Option<&'a dyn Fn() -> (VisibleExtensionMethods, TyInterner)>,
+    pub lazy_extensions: Option<&'a dyn Fn() -> VisibleExtensionMethods>,
     pub program_extension_methods: &'a ExtensionMethods,
-    pub extension_interner: Option<&'a TyInterner>,
     pub program: BodyProgramContext<'a>,
     pub program_signatures: ProgramSignatureContext<'a>,
     pub function_scope: FunctionCheckScope,
@@ -486,6 +483,7 @@ impl<'a> BodyLocalSignatures<'a> {
 
 #[derive(Clone, Copy)]
 pub struct BodyCheckWithProgramSignaturesInput<'a> {
+    pub type_store: &'a nia_ty::TypeStore,
     pub source_version: Option<SourceVersion>,
     pub source_path: &'a SourcePath,
     pub symbols: &'a SymbolTable,
@@ -521,6 +519,7 @@ struct ResolvedFunctionSignature {
 }
 
 pub fn check_module_bodies(
+    type_store: &nia_ty::TypeStore,
     module: &Module,
     defs: &DefCollection,
     values: &ValueResolution,
@@ -535,6 +534,7 @@ pub fn check_module_bodies(
     };
     let mut layout_interner = lowered.interner.clone();
     let layouts = nia_layout::compute_layouts(
+        type_store,
         defs,
         &mut layout_interner,
         signatures,
@@ -565,6 +565,7 @@ pub fn check_module_bodies(
         &active_item_tree,
     );
     let input = BodyCheckInput {
+        type_store,
         source_version: None,
         source_path: &source_path,
         symbols: &symbols,
@@ -586,7 +587,6 @@ pub fn check_module_bodies(
         extensions: &empty_extensions,
         lazy_extensions: None,
         program_extension_methods: &empty_program_extension_methods,
-        extension_interner: None,
         program: BodyProgramContext::empty(),
         program_signatures: ProgramSignatureContext::empty(),
         program_const: ProgramConstMaps::empty(),
@@ -617,6 +617,7 @@ pub fn check_module_bodies_with_program_signatures(
     interner: &mut TyInterner,
 ) -> BodyCheck {
     let layouts = nia_layout::compute_layouts_with_normalized_types(
+        input.type_store,
         input.defs,
         interner,
         input.signatures,
@@ -626,6 +627,7 @@ pub fn check_module_bodies_with_program_signatures(
     );
     let mut checked = check_module_bodies_with_layouts(
         BodyCheckInput {
+            type_store: input.type_store,
             source_version: input.source_version,
             source_path: input.source_path,
             symbols: input.symbols,
@@ -647,7 +649,6 @@ pub fn check_module_bodies_with_program_signatures(
             extensions: input.extensions,
             lazy_extensions: None,
             program_extension_methods: input.program_extension_methods,
-            extension_interner: None,
             program: input.program,
             program_signatures: input.program_signatures,
             function_scope: input.function_scope,
@@ -752,7 +753,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
     }
     let visible_extensions = BodyVisibleExtensions {
         methods: input.extensions,
-        interner: input.extension_interner,
         lazy: input.lazy_extensions,
     };
     let extension_methods_by_id = time_body_stage(
@@ -765,40 +765,28 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
                 input.defs,
                 input.signatures,
                 visible_extensions,
-                interner,
-                &input.lowered.interner,
                 input.normalization,
             )
         },
     );
-    let extensions = if let Some(lazy) = input.lazy_extensions {
+    let extensions = if let Some(load) = input.lazy_extensions {
         BodyVisibleExtensionSource::Lazy {
-            load: lazy,
-            imported: RefCell::new(None),
+            load,
+            loaded: RefCell::new(None),
         }
     } else {
-        BodyVisibleExtensionSource::Eager(time_body_stage(
-            timing,
-            "body_check.import_visible_extensions",
-            module_id,
-            || {
-                import_visible_extensions_into_working_interner(
-                    input.extensions,
-                    input.extension_interner,
-                    interner,
-                )
-            },
-        ))
+        BodyVisibleExtensionSource::Eager(input.extensions.clone())
     };
     let void_ty = interner.primitive(PrimitiveTy::Void);
     let mut checker = time_body_stage(timing, "body_check.init", module_id, || BodyChecker {
+        type_store: input.type_store,
         active_item_tree: input.active_item_tree,
         defs: input.defs,
         program: input.program,
         values: input.values,
         locals: input.locals,
         semantic_uses: input.semantic_uses,
-        interner: BodyWorkingInterner::Session(interner),
+        interner: BodyTypeCx::session(input.type_store, interner),
         type_lowering: input.lowered,
         signatures: input.signatures,
         const_signatures: input.const_signatures,
@@ -851,7 +839,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         def_trait_obligations_cache: HashMap::new(),
         trait_obligation_resolution_cache: HashMap::new(),
         type_match_cache: HashMap::new(),
-        program_type_normalizations: RefCell::new(HashMap::new()),
         diagnostics: Vec::new(),
         diagnostic_owners: Vec::new(),
         timing,
@@ -972,6 +959,45 @@ enum BodyWorkingInterner<'a> {
     Snapshot(TyInterner),
 }
 
+struct BodyTypeCx<'a> {
+    store: &'a nia_ty::TypeStore,
+    append: BodyWorkingInterner<'a>,
+}
+
+impl<'a> BodyTypeCx<'a> {
+    fn session(store: &'a nia_ty::TypeStore, interner: &'a mut TyInterner) -> Self {
+        Self {
+            store,
+            append: BodyWorkingInterner::Session(interner),
+        }
+    }
+
+    fn snapshot(store: &'a nia_ty::TypeStore, interner: TyInterner) -> Self {
+        Self {
+            store,
+            append: BodyWorkingInterner::Snapshot(interner),
+        }
+    }
+
+    fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.store.get(ty)
+    }
+}
+
+impl Deref for BodyTypeCx<'_> {
+    type Target = TyInterner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.append
+    }
+}
+
+impl DerefMut for BodyTypeCx<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.append
+    }
+}
+
 impl Deref for BodyWorkingInterner<'_> {
     type Target = TyInterner;
 
@@ -993,13 +1019,14 @@ impl DerefMut for BodyWorkingInterner<'_> {
 }
 
 struct BodyChecker<'a> {
+    type_store: &'a nia_ty::TypeStore,
     active_item_tree: &'a ActiveModuleItemTree,
     defs: &'a DefCollection,
     program: BodyProgramContext<'a>,
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
     semantic_uses: &'a SemanticUseTable,
-    interner: BodyWorkingInterner<'a>,
+    interner: BodyTypeCx<'a>,
     type_lowering: &'a TypeLowering,
     signatures: BodyLocalSignatures<'a>,
     const_signatures: &'a ItemSignatures,
@@ -1048,7 +1075,6 @@ struct BodyChecker<'a> {
     trait_obligation_resolution_cache:
         HashMap<TraitObligationResolutionKey, nia_trait_solve::TraitResolution>,
     type_match_cache: HashMap<(InternedTyId, InternedTyId), bool>,
-    program_type_normalizations: RefCell<HashMap<ModuleId, TypeNormalization>>,
     diagnostics: Vec<Diagnostic>,
     diagnostic_owners: Vec<Option<GlobalDefId>>,
     timing: bool,
@@ -1226,8 +1252,8 @@ struct CallableExtensionMethods {
 enum BodyVisibleExtensionSource<'a> {
     Eager(VisibleExtensionMethods),
     Lazy {
-        load: &'a dyn Fn() -> (VisibleExtensionMethods, TyInterner),
-        imported: RefCell<Option<VisibleExtensionMethods>>,
+        load: &'a dyn Fn() -> VisibleExtensionMethods,
+        loaded: RefCell<Option<VisibleExtensionMethods>>,
     },
 }
 
@@ -1235,107 +1261,34 @@ impl Clone for BodyVisibleExtensionSource<'_> {
     fn clone(&self) -> Self {
         match self {
             Self::Eager(methods) => Self::Eager(methods.clone()),
-            Self::Lazy { load, imported } => Self::Lazy {
+            Self::Lazy { load, loaded } => Self::Lazy {
                 load: *load,
-                imported: RefCell::new(imported.borrow().clone()),
+                loaded: RefCell::new(loaded.borrow().clone()),
             },
         }
     }
 }
 
 impl<'a> BodyVisibleExtensionSource<'a> {
-    fn with_methods<T>(
-        &self,
-        target: &mut TyInterner,
-        f: impl FnOnce(&VisibleExtensionMethods) -> T,
-    ) -> T {
+    fn with_methods<T>(&self, f: impl FnOnce(&VisibleExtensionMethods) -> T) -> T {
         match self {
             Self::Eager(methods) => f(methods),
-            Self::Lazy { load, imported } => {
-                if imported.borrow().is_none() {
-                    let (methods, source) = load();
-                    let methods = import_visible_extensions_into_working_interner(
-                        &methods,
-                        Some(&source),
-                        target,
-                    );
-                    *imported.borrow_mut() = Some(methods);
+            Self::Lazy { load, loaded } => {
+                if loaded.borrow().is_none() {
+                    *loaded.borrow_mut() = Some(load());
                 }
-                let borrowed = imported.borrow();
+                let borrowed = loaded.borrow();
                 f(borrowed
                     .as_ref()
-                    .expect("lazy visible extensions must be imported"))
+                    .expect("lazy visible extensions must be loaded"))
             }
         }
     }
 }
 
-fn import_visible_extensions_into_working_interner(
-    extensions: &VisibleExtensionMethods,
-    source: Option<&TyInterner>,
-    target: &mut TyInterner,
-) -> VisibleExtensionMethods {
-    let Some(source) = source else {
-        return extensions.clone();
-    };
-    let mut imported = VisibleExtensionMethods::default();
-    for extension_target in extensions.targets() {
-        let target_ty = nia_ty::import_type_into(target, source, extension_target.target_ty);
-        for method in &extension_target.methods {
-            let mut method = method.clone();
-            method.trait_args = method
-                .trait_args
-                .iter()
-                .map(|arg| nia_ty::import_type_into(target, source, *arg))
-                .collect();
-            method.where_predicates =
-                import_where_predicates_between_interners(target, source, &method.where_predicates);
-            imported.insert(extension_target.impl_id, target_ty, method);
-        }
-        for value in &extension_target.associated_values {
-            imported.insert_associated_value(extension_target.impl_id, target_ty, value.clone());
-        }
-    }
-    for (module_id, impl_id) in extensions.trait_witness_impls() {
-        imported.insert_trait_witness_impl(module_id, impl_id);
-    }
-    imported
-}
-
-fn import_where_predicates_between_interners(
-    target: &mut TyInterner,
-    source: &TyInterner,
-    predicates: &[nia_defs::WherePredicateSignature],
-) -> Vec<nia_defs::WherePredicateSignature> {
-    predicates
-        .iter()
-        .map(|predicate| nia_defs::WherePredicateSignature {
-            ty: nia_ty::import_type_into(target, source, predicate.ty),
-            bounds: predicate
-                .bounds
-                .iter()
-                .map(|bound| nia_defs::WhereBoundSignature {
-                    trait_ty: nia_ty::import_type_into(target, source, bound.trait_ty),
-                    associated_type_bindings: bound
-                        .associated_type_bindings
-                        .iter()
-                        .map(|binding| nia_defs::AssociatedTypeBindingSignature {
-                            name: binding.name,
-                            ty: nia_ty::import_type_into(target, source, binding.ty),
-                            span: binding.span,
-                        })
-                        .collect(),
-                    span: bound.span,
-                })
-                .collect(),
-            span: predicate.span,
-        })
-        .collect()
-}
-
 impl<'a> BodyChecker<'a> {
     fn with_visible_extensions<T>(&mut self, f: impl FnOnce(&VisibleExtensionMethods) -> T) -> T {
-        self.extensions.with_methods(&mut self.interner, f)
+        self.extensions.with_methods(f)
     }
 
     fn visible_extension_trait_witness_impls(
@@ -1349,8 +1302,6 @@ impl<'a> BodyChecker<'a> {
         defs: &DefCollection,
         signatures: BodyLocalSignatures<'_>,
         extensions: BodyVisibleExtensions<'_>,
-        interner: &mut TyInterner,
-        local_type_interner: &TyInterner,
         local_normalization: &TypeNormalization,
     ) -> Arc<HashMap<GlobalDefId, ExtensionMethodLookup>> {
         let mut methods = HashMap::new();
@@ -1359,7 +1310,6 @@ impl<'a> BodyChecker<'a> {
                 continue;
             }
             let target_ty = local_normalization.normalize(impl_signature.target_ty);
-            let target_ty = nia_ty::import_type_into(interner, local_type_interner, target_ty);
             for method in &impl_signature.methods {
                 let mut effective_generics = impl_signature.generics.clone();
                 if let Some(def) = defs.defs.get(method.def_id) {
@@ -1383,24 +1333,8 @@ impl<'a> BodyChecker<'a> {
             return Arc::new(methods);
         }
         for target in extensions.methods.targets() {
-            let target_ty = extensions
-                .interner
-                .map(|source| nia_ty::import_type_into(interner, source, target.target_ty))
-                .unwrap_or(target.target_ty);
+            let target_ty = target.target_ty;
             for method in &target.methods {
-                let mut method = method.clone();
-                if let Some(source) = extensions.interner {
-                    method.trait_args = method
-                        .trait_args
-                        .iter()
-                        .map(|arg| nia_ty::import_type_into(interner, source, *arg))
-                        .collect();
-                    method.where_predicates = import_where_predicates_between_interners(
-                        interner,
-                        source,
-                        &method.where_predicates,
-                    );
-                }
                 methods
                     .entry(method.def_id)
                     .or_insert_with(|| ExtensionMethodLookup {
@@ -1430,14 +1364,14 @@ impl<'a> BodyChecker<'a> {
         if self.extension_method_lookup_for_id(method_id).is_none()
             && let Some(method_by_id) = self.program.extension_method_by_id
             && let Some(method) = method_by_id(method_id)
-            && let Some(lookup) = self.import_program_extension_method_lookup(&method)
+            && let Some(lookup) = self.program_extension_method_lookup(&method)
         {
             self.extension_method_lookup_cache.insert(method_id, lookup);
         }
         self.extension_method_lookup_for_id(method_id)
     }
 
-    fn import_program_extension_method_lookup(
+    fn program_extension_method_lookup(
         &mut self,
         method: &nia_defs::ExtensionMethod,
     ) -> Option<ExtensionMethodLookup> {
@@ -1447,24 +1381,16 @@ impl<'a> BodyChecker<'a> {
         }
         let program_normalizations = self.program.extension_type_normalizations?;
         let normalization = program_normalizations(method.def_id.module_id)?;
-        let source_interner = &normalization.interner;
         let target_ty = normalization.normalize(method.target_ty);
-        let target_ty = nia_ty::import_type_into(&mut self.interner, source_interner, target_ty);
-        let where_predicates = import_where_predicates_between_interners(
-            &mut self.interner,
-            source_interner,
-            &method.where_predicates,
-        );
         Some(ExtensionMethodLookup {
             target_ty,
             impl_id: method.impl_id,
             effective_generics: method.effective_generics.clone(),
-            where_predicates,
+            where_predicates: method.where_predicates.clone(),
         })
     }
 
     fn record_expr_node_type(&mut self, expr: &Expr, ty: InternedTyId) {
-        let ty = self.import_type_to_working_interner(ty);
         let ty = self.normalize_projection(ty);
         self.node_expr_types.insert(expr.node_key.clone(), ty);
         let global_value_use = match self.semantic_uses.node_value_use(&expr.node_key) {
@@ -1646,53 +1572,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn record_local_type(&mut self, local_id: LocalId, ty: InternedTyId) {
-        let ty = self.import_type_to_working_interner(ty);
         let ty = self.normalize_aliases_in_type(ty);
         self.local_types.insert(local_id, ty);
         if let Some(facts) = self.current_function_facts() {
             facts.local_types.insert(local_id, ty);
         }
-    }
-
-    fn import_type_to_working_interner(&mut self, ty: InternedTyId) -> InternedTyId {
-        if self.interner.get(ty).is_some() {
-            return ty;
-        }
-        if let Some(source) = self.interner_containing_ty(ty) {
-            nia_ty::import_type_into(&mut self.interner, &source, ty)
-        } else {
-            ty
-        }
-    }
-
-    fn import_lowered_type_to_working_interner(&mut self, ty: InternedTyId) -> InternedTyId {
-        if self.type_lowering.interner.get(ty).is_some() {
-            return nia_ty::import_type_into(&mut self.interner, &self.type_lowering.interner, ty);
-        }
-        self.import_type_to_working_interner(ty)
-    }
-
-    fn interner_containing_ty(&self, ty: InternedTyId) -> Option<TyInterner> {
-        if self.normalization.interner.get(ty).is_some() {
-            return Some(self.normalization.interner.clone());
-        }
-        if self.interner.get(ty).is_some() {
-            return Some(self.interner.clone());
-        }
-        let module_id = self.interner.type_origin(ty)?.module_id();
-        if !self
-            .program_type_normalizations
-            .borrow()
-            .contains_key(&module_id)
-        {
-            let normalization = (self.program.type_normalizations?)(module_id)?;
-            self.program_type_normalizations
-                .borrow_mut()
-                .insert(module_id, normalization);
-        }
-        let normalizations = self.program_type_normalizations.borrow();
-        let interner = &normalizations.get(&module_id)?.interner;
-        interner.get(ty).is_some().then(|| interner.clone())
     }
 
     fn current_function_facts(&mut self) -> Option<&mut FunctionSemanticFacts> {
@@ -1710,7 +1594,7 @@ impl<'a> BodyChecker<'a> {
             return Some(ty);
         }
         let ty = self.type_lowering.ty_for_key(&expr.node_key)?;
-        Some(self.import_lowered_type_to_working_interner(ty))
+        Some(ty)
     }
 
     fn bracket_suffix_resolution(&self, expr: &Expr) -> Option<BracketSuffixResolution> {
@@ -2505,10 +2389,10 @@ impl<'a> BodyChecker<'a> {
         global_def_id: GlobalDefId,
     ) -> Option<FunctionSignature> {
         if let Some(program_signature) = self.program_signature_scope.function(global_def_id) {
-            Some(self.import_program_function_signature(&program_signature))
+            Some(self.program_function_signature(&program_signature))
         } else {
             let raw_signature = self.signatures.functions.get(&def_id).cloned()?;
-            Some(self.import_local_function_signature(&raw_signature))
+            Some(self.local_function_signature(&raw_signature))
         }
     }
 

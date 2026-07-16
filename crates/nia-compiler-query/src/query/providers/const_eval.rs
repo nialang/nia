@@ -219,6 +219,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
     let target = db.query(CompilerTargetQuery);
     let symbols = db.context().symbols();
     let input = nia_const_check::ConstInput {
+        type_store: &db.context().type_store,
         module: &module.module,
         defs: &defs,
         values: &values,

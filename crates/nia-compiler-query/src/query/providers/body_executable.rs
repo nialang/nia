@@ -268,7 +268,8 @@ fn filtered_const_global_initializer_for_body_check(
         global_id.module_id,
         || {
             let visible_extensions = || db.query(VisibleExtensionsQuery(global_id.module_id));
-            let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+            let associated_values =
+                LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
             nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
                 lowered.const_exprs.iter().filter_map(|(id, expr)| {
                     needed_const_exprs.contains(id).then_some(expr.clone())
@@ -366,7 +367,8 @@ fn filtered_const_global_initializer_for_body_check(
                     || db.query(VisibleExtensionsQuery(global_id.module_id)),
                 )
             };
-            let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+            let associated_values =
+                LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
             let symbols = db.context().symbols();
             nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
                 &filtered_active_item_tree,
@@ -564,6 +566,7 @@ fn const_inputs_for_body_check(
     let target = db.query(CompilerTargetQuery);
     let symbols = db.context().symbols();
     let const_input = nia_const_check::ConstInput {
+        type_store: &db.context().type_store,
         module: &module.module,
         defs,
         values: &inputs.values,
@@ -832,7 +835,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let empty_extensions = nia_defs::VisibleExtensionMethods::default();
     let lazy_extensions = || {
         let extensions = db.query(VisibleExtensionsQuery(module_id));
-        (extensions.methods.clone(), extensions.interner.clone())
+        extensions.methods.clone()
     };
     let empty_program_extension_methods = nia_defs::ExtensionMethods::default();
     let program_extension_methods = &empty_program_extension_methods;
@@ -853,8 +856,6 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));
-    let local_function_interner =
-        signature_type_interner(db, module_id, nia_item_tree::SignatureItemSet::Functions);
     let local_program_function_signature_cache =
         RefCell::new(HashMap::<GlobalDefId, ProgramFunctionSignature>::new());
     let program_function_signature = |def_id: GlobalDefId| {
@@ -879,7 +880,6 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                             .map(|def| def.name)
                             .unwrap_or_default(),
                         signature,
-                        interner: local_function_interner.clone(),
                     };
                     local_program_function_signature_cache
                         .borrow_mut()
@@ -903,11 +903,6 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     .map(|def| def.name)
                     .unwrap_or_default(),
                 signature,
-                interner: signature_type_interner(
-                    db,
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Functions,
-                ),
             };
             if let Some(cache) = program_function_signature_cache {
                 cache.borrow_mut().insert(def_id, signature.clone());
@@ -927,14 +922,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .globals
         .get(&def_id.def_id)
         .cloned()
-        .map(|signature| ProgramGlobalSignature {
-            signature,
-            interner: signature_type_interner(
-                db,
-                def_id.module_id,
-                nia_item_tree::SignatureItemSet::Values,
-            ),
-        })
+        .map(|signature| ProgramGlobalSignature { signature })
     };
     let program_const_signature = |def_id: GlobalDefId| {
         db.query_shared(SignatureItemSignaturesQuery(
@@ -944,14 +932,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .consts
         .get(&def_id.def_id)
         .cloned()
-        .map(|signature| ProgramConstSignature {
-            signature,
-            interner: signature_type_interner(
-                db,
-                def_id.module_id,
-                nia_item_tree::SignatureItemSet::Values,
-            ),
-        })
+        .map(|signature| ProgramConstSignature { signature })
     };
     let program_struct_signature = |def_id: GlobalDefId| {
         db.query_shared(SignatureItemSignaturesQuery(
@@ -961,14 +942,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .structs
         .get(&def_id.def_id)
         .cloned()
-        .map(|signature| ProgramStructSignature {
-            signature,
-            interner: signature_type_interner(
-                db,
-                def_id.module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            ),
-        })
+        .map(|signature| ProgramStructSignature { signature })
     };
     let program_union_signature = |def_id: GlobalDefId| {
         db.query_shared(SignatureItemSignaturesQuery(
@@ -978,14 +952,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .unions
         .get(&def_id.def_id)
         .cloned()
-        .map(|signature| ProgramUnionSignature {
-            signature,
-            interner: signature_type_interner(
-                db,
-                def_id.module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            ),
-        })
+        .map(|signature| ProgramUnionSignature { signature })
     };
     let program_enum_signature = |def_id: GlobalDefId| {
         db.query_shared(SignatureItemSignaturesQuery(
@@ -995,14 +962,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .enums
         .get(&def_id.def_id)
         .cloned()
-        .map(|signature| ProgramEnumSignature {
-            signature,
-            interner: signature_type_interner(
-                db,
-                def_id.module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            ),
-        })
+        .map(|signature| ProgramEnumSignature { signature })
     };
     let program_trait_signature = |def_id: GlobalDefId| {
         db.query_shared(SignatureItemSignaturesQuery(
@@ -1012,14 +972,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .traits
         .get(&def_id.def_id)
         .cloned()
-        .map(|signature| ProgramTraitSignature {
-            signature,
-            interner: signature_type_interner(
-                db,
-                def_id.module_id,
-                nia_item_tree::SignatureItemSet::Traits,
-            ),
-        })
+        .map(|signature| ProgramTraitSignature { signature })
     };
     let program_type_alias_signature = |def_id: GlobalDefId| {
         db.query_shared(SignatureItemSignaturesQuery(
@@ -1029,14 +982,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .type_aliases
         .get(&def_id.def_id)
         .cloned()
-        .map(|signature| ProgramTypeAliasSignature {
-            signature,
-            interner: signature_type_interner(
-                db,
-                def_id.module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            ),
-        })
+        .map(|signature| ProgramTypeAliasSignature { signature })
     };
     let program_traits_by_method_name = |name: &SymbolId| {
         db.query(ProgramTraitMethodIndexQuery)
@@ -1233,6 +1179,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                           interner: &mut nia_ty::TyInterner| {
         nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
             nia_body_check::BodyCheckInput {
+                type_store: &db.context().type_store,
                 source_version: Some(source_version),
                 source_path: &source_path,
                 symbols: &db.context().symbols(),
@@ -1254,7 +1201,6 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 extensions: &empty_extensions,
                 lazy_extensions: Some(&lazy_extensions),
                 program_extension_methods,
-                extension_interner: None,
                 program: nia_body_check::BodyProgramContext {
                     defs: Some(&program_defs),
                     type_normalizations: Some(&program_type_normalization),
@@ -1361,14 +1307,7 @@ pub(super) fn executable_layouts_for_reachable_items(
             .structs
             .get(&def_id.def_id)
             .cloned()
-            .map(|signature| ProgramStructSignature {
-                signature,
-                interner: signature_type_interner(
-                    db,
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ),
-            })
+            .map(|signature| ProgramStructSignature { signature })
         };
         let program_union = |def_id: GlobalDefId| {
             db.query_shared(SignatureItemSignaturesQuery(
@@ -1378,14 +1317,7 @@ pub(super) fn executable_layouts_for_reachable_items(
             .unions
             .get(&def_id.def_id)
             .cloned()
-            .map(|signature| ProgramUnionSignature {
-                signature,
-                interner: signature_type_interner(
-                    db,
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ),
-            })
+            .map(|signature| ProgramUnionSignature { signature })
         };
         let program_enum = |def_id: GlobalDefId| {
             db.query_shared(SignatureItemSignaturesQuery(
@@ -1395,14 +1327,7 @@ pub(super) fn executable_layouts_for_reachable_items(
             .enums
             .get(&def_id.def_id)
             .cloned()
-            .map(|signature| ProgramEnumSignature {
-                signature,
-                interner: signature_type_interner(
-                    db,
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ),
-            })
+            .map(|signature| ProgramEnumSignature { signature })
         };
         let program_type_alias = |def_id: GlobalDefId| {
             db.query_shared(SignatureItemSignaturesQuery(
@@ -1412,14 +1337,7 @@ pub(super) fn executable_layouts_for_reachable_items(
             .type_aliases
             .get(&def_id.def_id)
             .cloned()
-            .map(|signature| ProgramTypeAliasSignature {
-                signature,
-                interner: signature_type_interner(
-                    db,
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ),
-            })
+            .map(|signature| ProgramTypeAliasSignature { signature })
         };
         let load_filtered_array_lengths = |target_module_id| {
             let has_reachable_body_items = reachable_body_modules_override
@@ -1528,6 +1446,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                                     program_struct: &program_struct,
                                     program_union: &program_union,
                                 },
+                                &db.context().type_store,
                                 interner,
                                 type_lowering
                                     .versioned_type_uses_from_active_item_tree(&active_item_tree)
@@ -1539,6 +1458,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                         });
                     nia_layout::compute_layouts_for_roots_with_program_context(
                         nia_layout::LayoutComputationInput {
+                            type_store: &db.context().type_store,
                             defs: &defs,
                             interner,
                             signatures: &item_signatures,
@@ -1638,7 +1558,7 @@ fn rooted_layouts_for_checked_module(
         return module.layouts.clone();
     }
     let item_signatures = db.query(ItemSignaturesQuery(module.id));
-    let roots = checked_module_layout_roots(module);
+    let roots = checked_module_layout_roots(&db.context().type_store, module);
     let array_lengths = &module.const_eval.array_lengths;
     let symbols = db.context().symbols();
     let local_array_lengths = |id| array_lengths.get(&id).copied();
@@ -1664,6 +1584,7 @@ fn rooted_layouts_for_checked_module(
             );
             nia_layout::compute_layouts_for_roots_with_program_context(
                 nia_layout::LayoutComputationInput {
+                    type_store: &db.context().type_store,
                     defs: &module.defs,
                     interner,
                     signatures: &item_signatures,
@@ -1695,6 +1616,7 @@ struct ExecutableLayoutModule<'a> {
 
 fn executable_layout_roots(
     module: ExecutableLayoutModule<'_>,
+    type_store: &nia_ty::TypeStore,
     interner: &mut nia_ty::TyInterner,
     type_uses: impl IntoIterator<Item = InternedTyId>,
     reachable_functions: &HashSet<GlobalDefId>,
@@ -1706,7 +1628,8 @@ fn executable_layout_roots(
         program_struct,
         program_union,
     } = module;
-    let mut roots = LayoutRootCollector::with_program(interner, program_struct, program_union);
+    let mut roots =
+        LayoutRootCollector::with_program(type_store, interner, program_struct, program_union);
     for ty in type_uses {
         roots.add(ty);
     }
@@ -1746,9 +1669,12 @@ fn executable_layout_roots(
     roots.finish()
 }
 
-fn checked_module_layout_roots(module: &CheckedModule) -> CollectedLayoutRoots {
+fn checked_module_layout_roots(
+    type_store: &nia_ty::TypeStore,
+    module: &CheckedModule,
+) -> CollectedLayoutRoots {
     let mut interner = module.type_normalization.interner.clone();
-    let mut roots = LayoutRootCollector::new(&mut interner);
+    let mut roots = LayoutRootCollector::new(type_store, &mut interner);
     collect_semantic_layout_roots(&module.semantic_facts, &mut roots);
     roots.finish()
 }
@@ -1993,7 +1919,8 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, owner.module_id);
         let visible_extensions = || db.query(VisibleExtensionsQuery(owner.module_id));
-        let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+        let associated_values =
+            LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let symbols = db.context().symbols();
         let values = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
             &active_item_tree,
@@ -2358,6 +2285,7 @@ pub(super) fn filter_checked_module_for_codegen(
 }
 
 pub(super) fn executable_reachable_aggregate_roots(
+    type_store: &nia_ty::TypeStore,
     struct_signature: &dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
     union_signature: &dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
     modules: &[CheckedModule],
@@ -2366,8 +2294,12 @@ pub(super) fn executable_reachable_aggregate_roots(
     let mut unions = HashSet::new();
     for module in modules {
         let mut interner = module.type_normalization.interner.clone();
-        let mut roots =
-            LayoutRootCollector::with_program(&mut interner, struct_signature, union_signature);
+        let mut roots = LayoutRootCollector::with_program(
+            type_store,
+            &mut interner,
+            struct_signature,
+            union_signature,
+        );
         collect_semantic_layout_roots(&module.semantic_facts, &mut roots);
         let roots = roots.finish_global();
         structs.extend(roots.structs);

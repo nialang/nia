@@ -106,6 +106,7 @@ fn with_signature_const_input<T>(
     let target = db.query(CompilerTargetQuery);
     let symbols = db.context().symbols();
     let input = nia_const_check::ConstInput {
+        type_store: &db.context().type_store,
         module: &module.module,
         defs: &defs,
         values: &values,
@@ -265,7 +266,8 @@ fn signature_const_value_resolution(
     let public_surfaces = db.query(PublicSurfacesQuery);
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
     let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
-    let associated_values = LazyAssociatedValueResolver::new(&visible_extensions);
+    let associated_values =
+        LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
     let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
     let mut values =
@@ -421,14 +423,7 @@ pub(super) fn signature_layouts_for_types(
             .structs
             .get(&def_id.def_id)
             .cloned()
-            .map(|signature| ProgramStructSignature {
-                signature,
-                interner: signature_type_interner(
-                    db,
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ),
-            })
+            .map(|signature| ProgramStructSignature { signature })
         };
         let program_union = |def_id: GlobalDefId| {
             db.query_shared(SignatureItemSignaturesQuery(
@@ -438,14 +433,7 @@ pub(super) fn signature_layouts_for_types(
             .unions
             .get(&def_id.def_id)
             .cloned()
-            .map(|signature| ProgramUnionSignature {
-                signature,
-                interner: signature_type_interner(
-                    db,
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ),
-            })
+            .map(|signature| ProgramUnionSignature { signature })
         };
         let program_enum = |def_id: GlobalDefId| {
             db.query_shared(SignatureItemSignaturesQuery(
@@ -455,14 +443,7 @@ pub(super) fn signature_layouts_for_types(
             .enums
             .get(&def_id.def_id)
             .cloned()
-            .map(|signature| ProgramEnumSignature {
-                signature,
-                interner: signature_type_interner(
-                    db,
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ),
-            })
+            .map(|signature| ProgramEnumSignature { signature })
         };
         let program_type_alias = |def_id: GlobalDefId| {
             db.query_shared(SignatureItemSignaturesQuery(
@@ -472,14 +453,7 @@ pub(super) fn signature_layouts_for_types(
             .type_aliases
             .get(&def_id.def_id)
             .cloned()
-            .map(|signature| ProgramTypeAliasSignature {
-                signature,
-                interner: signature_type_interner(
-                    db,
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                ),
-            })
+            .map(|signature| ProgramTypeAliasSignature { signature })
         };
         let array_lengths = with_type_signature_const_input(
             db,
@@ -519,6 +493,7 @@ pub(super) fn signature_layouts_for_types(
                 );
                 let roots = time_module_provider(db, "signature_layouts.roots", module_id, || {
                     signature_layout_roots(
+                        &db.context().type_store,
                         interner,
                         &item_signatures,
                         &program_struct,
@@ -531,6 +506,7 @@ pub(super) fn signature_layouts_for_types(
                 });
                 nia_layout::compute_layouts_for_roots_with_program_context(
                     nia_layout::LayoutComputationInput {
+                        type_store: &db.context().type_store,
                         defs: &defs,
                         interner,
                         signatures: &item_signatures,
@@ -558,13 +534,15 @@ pub(super) fn signature_layouts_for_types(
 }
 
 fn signature_layout_roots(
+    type_store: &nia_ty::TypeStore,
     interner: &mut nia_ty::TyInterner,
     signatures: &ItemSignatures,
     program_struct: &dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
     program_union: &dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
     type_uses: impl IntoIterator<Item = InternedTyId>,
 ) -> CollectedLayoutRoots {
-    let mut roots = LayoutRootCollector::with_program(interner, program_struct, program_union);
+    let mut roots =
+        LayoutRootCollector::with_program(type_store, interner, program_struct, program_union);
     for ty in type_uses {
         roots.add(ty);
     }

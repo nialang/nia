@@ -5,13 +5,13 @@ use std::{
 };
 
 use nia_defs::{
-    AssociatedTypeBindingSignature, DefCollection, ExtensionAssociatedValues, ExtensionMethods,
-    PublicNamespace, PublicSurfaceLookup, VisibleExtensionAssociatedValue, VisibleExtensionMethod,
-    VisibleExtensionMethods, WhereBoundSignature, WherePredicateSignature,
+    DefCollection, ExtensionAssociatedValues, ExtensionMethods, PublicNamespace,
+    PublicSurfaceLookup, VisibleExtensionAssociatedValue, VisibleExtensionMethod,
+    VisibleExtensionMethods,
 };
 use nia_ids::{GlobalDefId, TraitId, Visibility};
 use nia_item_signatures::{ProgramTraitImplSignature, ProgramTypeAliasSignature};
-use nia_ty::{TyInterner, TyKind, import_type_into};
+use nia_ty::TyKind;
 use nia_type_normalize::TypeNormalization;
 
 pub type TypeNormalizationResolver<'a> = &'a dyn Fn(nia_ids::ModuleId) -> Option<TypeNormalization>;
@@ -21,7 +21,6 @@ pub type NominalExtensionProviderResolver<'a> =
 #[derive(Debug, Clone, PartialEq)]
 pub struct VisibleExtensionsForModule {
     pub methods: VisibleExtensionMethods,
-    pub interner: TyInterner,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -138,18 +137,11 @@ pub fn visible_extensions_for_module(
         &computed_visible_modules
     };
     let witness_modules = visible_modules;
-    let Some(current_normalization) = resolver_cache.normalization(module_id).cloned() else {
-        return VisibleExtensionsForModule {
-            methods: VisibleExtensionMethods::default(),
-            interner: TyInterner::default(),
-        };
-    };
     let imported_visible_modules = visible_modules
         .iter()
         .copied()
         .filter(|visible_module| *visible_module != module_id)
         .collect::<Vec<_>>();
-    let mut target_interner = current_normalization.interner.clone();
     let mut visible = VisibleExtensionMethods::default();
     let extension_visibility_allows = |visibility, defining_module| {
         nia_imports::visibility_allows(visibility, graph, defining_module, module_id)
@@ -180,11 +172,6 @@ pub fn visible_extensions_for_module(
                 return;
             };
             let target_ty = method_normalization.normalize(method.target_ty);
-            let target_ty = import_type_into(
-                &mut target_interner,
-                &method_normalization.interner,
-                target_ty,
-            );
             visible.insert(
                 method.impl_id,
                 target_ty,
@@ -197,20 +184,9 @@ pub fn visible_extensions_for_module(
                     trait_args: method
                         .trait_args
                         .iter()
-                        .map(|arg| {
-                            let arg = method_normalization.normalize(*arg);
-                            import_type_into(
-                                &mut target_interner,
-                                &method_normalization.interner,
-                                arg,
-                            )
-                        })
+                        .map(|arg| method_normalization.normalize(*arg))
                         .collect(),
-                    where_predicates: import_where_predicates(
-                        &mut target_interner,
-                        &method_normalization.interner,
-                        &method.where_predicates,
-                    ),
+                    where_predicates: method.where_predicates.clone(),
                     is_callable: extension_visibility_allows(
                         method.visibility,
                         method.def_id.module_id,
@@ -236,11 +212,6 @@ pub fn visible_extensions_for_module(
                 return;
             };
             let target_ty = value_normalization.normalize(value.target_ty);
-            let target_ty = import_type_into(
-                &mut target_interner,
-                &value_normalization.interner,
-                target_ty,
-            );
             visible.insert_associated_value(
                 value.impl_id,
                 target_ty,
@@ -252,10 +223,7 @@ pub fn visible_extensions_for_module(
             visible.insert_trait_witness_impl(value.def_id.module_id, value.impl_id);
         },
     );
-    VisibleExtensionsForModule {
-        methods: visible,
-        interner: target_interner,
-    }
+    VisibleExtensionsForModule { methods: visible }
 }
 
 pub fn visible_trait_impls_for_module(
@@ -394,37 +362,6 @@ fn public_surface_exports_type(
                     && item.namespace == PublicNamespace::Type
             })
         })
-}
-
-fn import_where_predicates(
-    target_interner: &mut TyInterner,
-    source_interner: &TyInterner,
-    predicates: &[WherePredicateSignature],
-) -> Vec<WherePredicateSignature> {
-    predicates
-        .iter()
-        .map(|predicate| WherePredicateSignature {
-            ty: import_type_into(target_interner, source_interner, predicate.ty),
-            bounds: predicate
-                .bounds
-                .iter()
-                .map(|bound| WhereBoundSignature {
-                    trait_ty: import_type_into(target_interner, source_interner, bound.trait_ty),
-                    associated_type_bindings: bound
-                        .associated_type_bindings
-                        .iter()
-                        .map(|binding| AssociatedTypeBindingSignature {
-                            name: binding.name,
-                            ty: import_type_into(target_interner, source_interner, binding.ty),
-                            span: binding.span,
-                        })
-                        .collect(),
-                    span: bound.span,
-                })
-                .collect(),
-            span: predicate.span,
-        })
-        .collect()
 }
 
 fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_ids::ModuleId> {

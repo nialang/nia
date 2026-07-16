@@ -11,15 +11,21 @@ use crate::BackendLowerModuleInput;
 
 pub(crate) struct BackendLayoutExtender<'input, 'ctx> {
     input: &'ctx BackendLowerModuleInput<'input>,
+    type_store: &'ctx nia_ty::TypeStore,
     interner: &'ctx mut nia_ty::TyInterner,
 }
 
 impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
     pub(crate) fn new(
         input: &'ctx BackendLowerModuleInput<'input>,
+        type_store: &'ctx nia_ty::TypeStore,
         interner: &'ctx mut nia_ty::TyInterner,
     ) -> Self {
-        Self { input, interner }
+        Self {
+            input,
+            type_store,
+            interner,
+        }
     }
 
     pub(crate) fn extend_for_instances(
@@ -57,15 +63,17 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             unions: Some(self.input.program_unions),
             ..Default::default()
         };
-        let computed = nia_layout::compute_layouts_with_program_context(
-            self.input.defs,
-            self.interner,
-            self.input.signatures,
-            &normalization.normalized,
-            &array_lengths,
-            self.input.layouts.target,
-            program,
-        );
+        let computed =
+            nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
+                type_store: self.type_store,
+                defs: self.input.defs,
+                interner: self.interner,
+                signatures: self.input.signatures,
+                normalized: &normalization.normalized,
+                array_lengths: &array_lengths,
+                target: self.input.layouts.target,
+                program,
+            });
         append_missing_type_layouts(&mut layouts.types, computed.types);
         append_missing_nominal_layouts(
             &mut layouts.structs,
@@ -74,6 +82,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
         );
         append_missing_nominal_layouts(&mut layouts.unions, computed.unions, self.input.module_id);
         let mut layout_input = nia_layout::LayoutComputationInput {
+            type_store: self.type_store,
             defs: self.input.defs,
             interner: self.interner,
             signatures: self.input.signatures,

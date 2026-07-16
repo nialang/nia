@@ -651,8 +651,7 @@ impl<'a> BodyChecker<'a> {
     ) {
         for impl_index in self.trait_impl_indexes_for_trait(trait_id) {
             let impl_signature = self.program_trait_impls[impl_index].clone();
-            let impl_target_ty =
-                self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
+            let impl_target_ty = impl_signature.target_ty;
             let mut impl_substitutions = SymbolMap::default();
             if !self.match_type_pattern(impl_target_ty, self_ty, &mut impl_substitutions) {
                 continue;
@@ -661,7 +660,7 @@ impl<'a> BodyChecker<'a> {
             let mut candidate = substitutions.clone();
             let mut ok = true;
             for (required_arg, impl_arg) in trait_args.iter().zip(&impl_signature.trait_args) {
-                let impl_arg = self.import_type_from(&impl_signature.interner, *impl_arg);
+                let impl_arg = *impl_arg;
                 let impl_arg = self.substitute_generics(impl_arg, &impl_substitutions);
                 if !self.match_where_candidate_type(*required_arg, impl_arg, &mut candidate) {
                     ok = false;
@@ -677,7 +676,6 @@ impl<'a> BodyChecker<'a> {
                     .zip(&impl_signature.trait_const_args)
                 {
                     let mut impl_arg = impl_arg.clone();
-                    impl_arg.ty = self.import_type_from(&impl_signature.interner, impl_arg.ty);
                     impl_arg.ty = self.substitute_generics(impl_arg.ty, &impl_substitutions);
                     if !self.const_generic_args_match(required_arg, &impl_arg) {
                         ok = false;
@@ -1158,23 +1156,18 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         signature: &TraitImplSignature,
     ) -> Option<MethodTraitImplContext> {
-        let source = self.normalization.interner.clone();
-        let target_ty = self.import_type_from(&source, signature.target_ty);
         let trait_ref = match signature.trait_ty {
             Some(trait_ty) => {
-                let trait_ty = self.import_type_from(&source, trait_ty);
                 let trait_ty = self.normalization.normalize(trait_ty);
                 Some(self.trait_id_and_args(trait_ty)?)
             }
             None => None,
         };
         Some(MethodTraitImplContext {
-            target_ty,
+            target_ty: signature.target_ty,
             trait_ref,
-            where_predicates: self
-                .import_where_predicates_from(&source, &signature.where_predicates),
-            associated_types: self
-                .import_trait_impl_associated_types_from(&source, &signature.associated_types),
+            where_predicates: signature.where_predicates.clone(),
+            associated_types: signature.associated_types.clone(),
         })
     }
 
@@ -1182,47 +1175,23 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         signature: &ProgramTraitImplSignature,
     ) -> MethodTraitImplContext {
-        let source = signature.interner.clone();
         MethodTraitImplContext {
-            target_ty: self.import_type_from(&source, signature.target_ty),
+            target_ty: signature.target_ty,
             trait_ref: Some((
                 signature.trait_id,
-                signature
-                    .trait_args
-                    .iter()
-                    .map(|arg| self.import_type_from(&source, *arg))
-                    .collect(),
+                signature.trait_args.to_vec(),
                 signature
                     .trait_const_args
                     .iter()
                     .map(|arg| nia_ty::ConstGenericArg {
-                        ty: self.import_type_from(&source, arg.ty),
+                        ty: arg.ty,
                         value: arg.value.clone(),
                     })
                     .collect(),
             )),
-            where_predicates: self
-                .import_where_predicates_from(&source, &signature.where_predicates),
-            associated_types: self
-                .import_trait_impl_associated_types_from(&source, &signature.associated_types),
+            where_predicates: signature.where_predicates.clone(),
+            associated_types: signature.associated_types.clone(),
         }
-    }
-
-    fn import_trait_impl_associated_types_from(
-        &mut self,
-        source: &nia_ty::TyInterner,
-        associated_types: &[nia_item_signatures::TraitImplAssociatedTypeSignature],
-    ) -> Vec<nia_item_signatures::TraitImplAssociatedTypeSignature> {
-        associated_types
-            .iter()
-            .map(
-                |associated_type| nia_item_signatures::TraitImplAssociatedTypeSignature {
-                    name: associated_type.name,
-                    ty: self.import_type_from(source, associated_type.ty),
-                    span: associated_type.span,
-                },
-            )
-            .collect()
     }
 
     fn push_trait_obligation_from_bound(
@@ -1385,8 +1354,7 @@ impl<'a> BodyChecker<'a> {
 
         for impl_index in self.trait_impl_indexes_for_trait(trait_id) {
             let impl_signature = self.program_trait_impls[impl_index].clone();
-            let target_ty =
-                self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
+            let target_ty = impl_signature.target_ty;
             let target_ty = self.normalization.normalize(target_ty);
             let mut substitutions = SymbolMap::default();
             let mut const_substitutions = SymbolMap::default();
@@ -1398,10 +1366,7 @@ impl<'a> BodyChecker<'a> {
             ) {
                 continue;
             }
-            let where_predicates = self.import_where_predicates_from(
-                &impl_signature.interner,
-                &impl_signature.where_predicates,
-            );
+            let where_predicates = impl_signature.where_predicates.clone();
             if !self.where_predicates_can_hold_with_consts(
                 &where_predicates,
                 &substitutions,
@@ -1413,7 +1378,7 @@ impl<'a> BodyChecker<'a> {
                 .trait_args
                 .iter()
                 .map(|arg| {
-                    let arg = self.import_type_from(&impl_signature.interner, *arg);
+                    let arg = *arg;
                     let arg = self.substitute_generics_and_consts(
                         arg,
                         &substitutions,
@@ -1427,7 +1392,6 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .map(|arg| {
                     let mut arg = arg.clone();
-                    arg.ty = self.import_type_from(&impl_signature.interner, arg.ty);
                     arg.ty = self.substitute_generics_and_consts(
                         arg.ty,
                         &substitutions,
@@ -1864,8 +1828,7 @@ impl<'a> BodyChecker<'a> {
         for impl_signature in self.program_trait_impls {
             if impl_signature.trait_id == required.trait_id {
                 for arg in &impl_signature.trait_const_args {
-                    let mut arg = arg.clone();
-                    arg.ty = self.import_type_from(&impl_signature.interner, arg.ty);
+                    let arg = arg.clone();
                     self.collect_const_expr_values_for_trait_solver(&arg, &mut const_expr_values);
                 }
             }
@@ -1874,6 +1837,7 @@ impl<'a> BodyChecker<'a> {
         let program_signature_scope = self.program_signature_scope;
         let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
         let context = TraitSolverContext {
+            type_store: self.type_store,
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
             trait_impl_index: self.program_trait_impl_index,

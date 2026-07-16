@@ -4,7 +4,7 @@ use crate::literals::{
     has_numeric_literal_suffix, integer_literal_suffix_ty, integer_literal_value, integer_range,
     numeric_literal_suffix, parse_float_literal, string_literal_char_len,
 };
-use crate::{BodyChecker, BodyWorkingInterner};
+use crate::{BodyChecker, BodyTypeCx};
 use nia_ast::{Expr, ExprKind, TypeRef, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
@@ -36,16 +36,15 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn expect_ty_kind(&self, ty: InternedTyId) -> &TyKind {
         self.interner.get(ty).unwrap_or_else(|| {
             panic!(
-                "Nia ICE: body-check type {:?} is missing from interner {:?}",
+                "Nia ICE: body-check type {:?} is missing from type store {:?}",
                 ty,
-                self.interner.interner_id()
+                self.type_store.id()
             )
         })
     }
 
     pub(crate) fn is_error_ty(&self, ty: InternedTyId) -> bool {
         matches!(self.interner.get(ty), Some(TyKind::Error))
-            || matches!(self.normalization.interner.get(ty), Some(TyKind::Error))
     }
 
     pub(crate) fn non_error_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
@@ -53,27 +52,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn normalize_aliases(&mut self, ty: InternedTyId) -> InternedTyId {
-        if self
-            .interner
-            .get(ty)
-            .is_some_and(|kind| !matches!(kind, TyKind::Error))
-        {
-            return ty;
-        }
-        if let Some(normalized) = self
-            .normalization
+        self.normalization
             .normalized
             .get(&ty)
             .copied()
-            .filter(|normalized| *normalized != ty)
-        {
-            return nia_ty::import_type_into(
-                &mut self.interner,
-                &self.normalization.interner,
-                normalized,
-            );
-        }
-        ty
+            .unwrap_or(ty)
     }
 
     pub(crate) fn optional_elem_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
@@ -368,6 +351,7 @@ impl<'a> BodyChecker<'a> {
         let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
         let visible_trait_witness_impls = self.visible_extension_trait_witness_impls();
         let context = TraitSolverContext {
+            type_store: self.type_store,
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
             trait_impl_index: self.program_trait_impl_index,
@@ -404,6 +388,7 @@ impl<'a> BodyChecker<'a> {
         let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
         let visible_trait_witness_impls = self.visible_extension_trait_witness_impls();
         let context = TraitSolverContext {
+            type_store: self.type_store,
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
             trait_impl_index: self.program_trait_impl_index,
@@ -781,8 +766,6 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn types_match(&mut self, expected: InternedTyId, actual: InternedTyId) -> bool {
-        let expected = self.import_type_to_working_interner(expected);
-        let actual = self.import_type_to_working_interner(actual);
         if let Some(matches) = self.type_match_cache.get(&(expected, actual)).copied() {
             return matches;
         }
@@ -1183,13 +1166,14 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn clone_for_type_compare(&self) -> BodyChecker<'a> {
         BodyChecker {
+            type_store: self.type_store,
             active_item_tree: self.active_item_tree,
             defs: self.defs,
             program: self.program,
             values: self.values,
             locals: self.locals,
             semantic_uses: self.semantic_uses,
-            interner: BodyWorkingInterner::Snapshot(self.interner.clone()),
+            interner: BodyTypeCx::snapshot(self.type_store, self.interner.clone()),
             type_lowering: self.type_lowering,
             signatures: self.signatures,
             const_signatures: self.const_signatures,
@@ -1237,9 +1221,6 @@ impl<'a> BodyChecker<'a> {
             def_trait_obligations_cache: HashMap::new(),
             trait_obligation_resolution_cache: HashMap::new(),
             type_match_cache: HashMap::new(),
-            program_type_normalizations: std::cell::RefCell::new(
-                self.program_type_normalizations.borrow().clone(),
-            ),
             diagnostics: Vec::new(),
             diagnostic_owners: Vec::new(),
             timing: self.timing,
@@ -1360,12 +1341,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn ty_for_type(&mut self, ty: &TypeRef) -> InternedTyId {
-        let lowered_ty = self
-            .type_lowering
+        self.type_lowering
             .ty_for_key(&ty.node_key)
-            .unwrap_or_else(|| self.error());
-
-        self.import_lowered_type_to_working_interner(lowered_ty)
+            .unwrap_or_else(|| self.error())
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
@@ -1378,10 +1356,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn nominal_layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
-        let kind = self
-            .interner
-            .get(ty)
-            .or_else(|| self.normalization.interner.get(ty))?;
+        let kind = self.interner.get(ty)?;
         let TyKind::Nominal { def_id, args, .. } = kind else {
             return None;
         };

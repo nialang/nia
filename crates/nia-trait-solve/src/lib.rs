@@ -10,7 +10,7 @@ use nia_layout::Layouts;
 use nia_symbol::{SymbolId, SymbolMap, known};
 use nia_ty::{
     ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy, RangeTyKind, TyInterner, TyKind,
-    TypeEquivalence, import_type_into,
+    TypeEquivalence, TypeStore, TypeStoreAppend,
 };
 use nia_type_normalize::TypeNormalization;
 
@@ -76,11 +76,10 @@ pub struct UserAssociatedConst {
     pub substitutions: SymbolMap<InternedTyId>,
     pub const_substitutions: SymbolMap<ConstGenericArg>,
     pub impl_module_id: ModuleId,
-    pub resolution_interner: TyInterner,
 }
 
 pub struct TraitSolver<'a> {
-    pub interner: &'a mut TyInterner,
+    interner: TraitSolverTypeCx<'a>,
     pub normalization: &'a TypeNormalization,
     pub trait_impls: &'a [ProgramTraitImplSignature],
     pub trait_impl_index: Option<&'a ProgramTraitImplIndex>,
@@ -96,6 +95,7 @@ pub struct TraitSolver<'a> {
 }
 
 pub struct TraitSolverContext<'a> {
+    pub type_store: &'a TypeStore,
     pub normalization: &'a TypeNormalization,
     pub trait_impls: &'a [ProgramTraitImplSignature],
     pub trait_impl_index: Option<&'a ProgramTraitImplIndex>,
@@ -106,6 +106,26 @@ pub struct TraitSolverContext<'a> {
     pub const_expr_value:
         Option<&'a dyn Fn(GlobalConstExprId, InternedTyId) -> Option<ConstGenericValue>>,
     pub impl_is_visible: Option<&'a dyn Fn(ModuleId, TraitImplId) -> bool>,
+}
+
+struct TraitSolverTypeCx<'a> {
+    store: &'a TypeStore,
+    append: &'a mut TyInterner,
+    canonical_append: TypeStoreAppend,
+}
+
+impl TraitSolverTypeCx<'_> {
+    fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.store.get(ty)
+    }
+
+    fn intern(&mut self, kind: TyKind) -> InternedTyId {
+        self.append.intern(kind)
+    }
+
+    fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+        self.canonical_append.intern(TyKind::Primitive(primitive))
+    }
 }
 
 fn builtin_associated_type_from_symbol(name: SymbolId) -> Option<BuiltinAssociatedType> {
@@ -130,17 +150,6 @@ fn trait_impl_visible_by_default(_: ModuleId, _: TraitImplId) -> bool {
     true
 }
 
-fn import_const_generic_arg_into(
-    target: &mut TyInterner,
-    source: &TyInterner,
-    arg: &ConstGenericArg,
-) -> ConstGenericArg {
-    ConstGenericArg {
-        ty: import_type_into(target, source, arg.ty),
-        value: arg.value.clone(),
-    }
-}
-
 impl<'a> TraitSolverContext<'a> {
     pub fn solver<'b>(
         &'b self,
@@ -148,7 +157,11 @@ impl<'a> TraitSolverContext<'a> {
         assumptions: &'b [TraitGoal],
     ) -> TraitSolver<'b> {
         TraitSolver {
-            interner,
+            interner: TraitSolverTypeCx {
+                store: self.type_store,
+                append: interner,
+                canonical_append: self.type_store.append_for_module(self.local_module_id),
+            },
             normalization: self.normalization,
             trait_impls: self.trait_impls,
             trait_impl_index: self.trait_impl_index,
@@ -172,7 +185,11 @@ impl<'a> TraitSolverContext<'a> {
         associated_type_assumptions: &'b [AssociatedTypeProjectionEq],
     ) -> TraitSolver<'b> {
         TraitSolver {
-            interner,
+            interner: TraitSolverTypeCx {
+                store: self.type_store,
+                append: interner,
+                canonical_append: self.type_store.append_for_module(self.local_module_id),
+            },
             normalization: self.normalization,
             trait_impls: self.trait_impls,
             trait_impl_index: self.trait_impl_index,
@@ -708,7 +725,6 @@ impl TraitSolver<'_> {
                         substitutions: user_impl.substitutions,
                         const_substitutions: user_impl.const_substitutions,
                         impl_module_id: impl_signature.module_id,
-                        resolution_interner: self.interner.clone(),
                     },
                 )))
             }
@@ -774,9 +790,7 @@ impl TraitSolver<'_> {
                     .associated_types
                     .iter()
                     .find(|associated_type| &associated_type.name == name)?;
-                let ty =
-                    import_type_into(self.interner, &impl_signature.interner, associated_type.ty);
-                Some(self.substitute_ty(ty, &user_impl.substitutions))
+                Some(self.substitute_ty(associated_type.ty, &user_impl.substitutions))
             }
             TraitResolution::Intrinsic(intrinsic) => self.resolve_intrinsic_associated_type(
                 intrinsic.goal.self_ty,
@@ -1753,21 +1767,9 @@ impl TraitSolver<'_> {
         if impl_signature.trait_id != goal.trait_id {
             return None;
         }
-        let target_ty = import_type_into(
-            self.interner,
-            &impl_signature.interner,
-            impl_signature.target_ty,
-        );
-        let trait_args = impl_signature
-            .trait_args
-            .iter()
-            .map(|arg| import_type_into(self.interner, &impl_signature.interner, *arg))
-            .collect::<Vec<_>>();
-        let trait_const_args = impl_signature
-            .trait_const_args
-            .iter()
-            .map(|arg| import_const_generic_arg_into(self.interner, &impl_signature.interner, arg))
-            .collect::<Vec<_>>();
+        let target_ty = impl_signature.target_ty;
+        let trait_args = &impl_signature.trait_args;
+        let trait_const_args = &impl_signature.trait_const_args;
         if trait_args.len() != goal.trait_args.len()
             || trait_const_args.len() != goal.trait_const_args.len()
         {
@@ -1833,19 +1835,15 @@ impl TraitSolver<'_> {
         {
             return false;
         }
-        let specific_target =
-            import_type_into(self.interner, &specific.interner, specific.target_ty);
-        let general_target = import_type_into(self.interner, &general.interner, general.target_ty);
+        let specific_target = specific.target_ty;
+        let general_target = general.target_ty;
         let target_subsumes = self.pattern_subsumes(general_target, specific_target);
         let target_strict = self.strictly_more_specific_pattern(specific_target, general_target);
         let mut any_strict = target_strict;
         let args_subsume = specific.trait_args.iter().zip(&general.trait_args).all(
             |(specific_arg, general_arg)| {
-                let specific_arg =
-                    import_type_into(self.interner, &specific.interner, *specific_arg);
-                let general_arg = import_type_into(self.interner, &general.interner, *general_arg);
-                any_strict |= self.strictly_more_specific_pattern(specific_arg, general_arg);
-                self.pattern_subsumes(general_arg, specific_arg)
+                any_strict |= self.strictly_more_specific_pattern(*specific_arg, *general_arg);
+                self.pattern_subsumes(*general_arg, *specific_arg)
             },
         );
         target_subsumes && args_subsume && any_strict
@@ -1883,12 +1881,9 @@ impl TraitSolver<'_> {
         substitutions: &SymbolMap<InternedTyId>,
     ) -> bool {
         for predicate in &impl_signature.where_predicates {
-            let self_ty = import_type_into(self.interner, &impl_signature.interner, predicate.ty);
-            let self_ty = self.substitute_ty(self_ty, substitutions);
+            let self_ty = self.substitute_ty(predicate.ty, substitutions);
             for bound in &predicate.bounds {
-                let trait_ty =
-                    import_type_into(self.interner, &impl_signature.interner, bound.trait_ty);
-                let trait_ty = self.substitute_ty(trait_ty, substitutions);
+                let trait_ty = self.substitute_ty(bound.trait_ty, substitutions);
                 let Some((trait_id, trait_args, trait_const_args)) =
                     self.trait_id_and_args(trait_ty)
                 else {
@@ -1903,9 +1898,7 @@ impl TraitSolver<'_> {
                     return false;
                 }
                 for binding in &bound.associated_type_bindings {
-                    let binding_ty =
-                        import_type_into(self.interner, &impl_signature.interner, binding.ty);
-                    let binding_ty = self.substitute_ty(binding_ty, substitutions);
+                    let binding_ty = self.substitute_ty(binding.ty, substitutions);
                     let Some(actual_ty) = self.resolve_associated_type(
                         self_ty,
                         trait_id,
@@ -3071,12 +3064,15 @@ mod tests {
             module_id,
             def_id: local_enum_id,
         };
-        let mut interner = TyInterner::new(module_id);
-        let ty = interner.intern(TyKind::Nominal {
-            def_id: local_enum,
-            args: Vec::new(),
-            const_args: Vec::new(),
+        let type_store = TypeStore::new();
+        let ty = type_store.with_module_interner_for_semantic_migration(module_id, |interner| {
+            interner.intern(TyKind::Nominal {
+                def_id: local_enum,
+                args: Vec::new(),
+                const_args: Vec::new(),
+            })
         });
+        let mut interner = type_store.module_snapshot(module_id);
         let normalization = TypeNormalization {
             interner: interner.clone(),
             normalized: HashMap::new(),
@@ -3094,6 +3090,7 @@ mod tests {
         );
         let trait_impls = Vec::new();
         let context = TraitSolverContext {
+            type_store: &type_store,
             normalization: &normalization,
             trait_impls: &trait_impls,
             trait_impl_index: None,

@@ -15,8 +15,10 @@ pub(super) use nia_sema_ir::{BracketSuffixResolution, BuiltinValue, SemanticUseT
 pub(super) use nia_source::{SourceId, SourcePath, SourceRevision, SourceVersion};
 pub(super) use nia_symbol::{SymbolId, stable_hash};
 pub(super) use nia_symbol_table::SymbolTable;
-pub(super) use nia_ty::{TraitId, TyKind};
-pub(super) use nia_type_lower::lower_module_types;
+pub(super) use nia_ty::{TraitId, TyKind, TypeStore};
+pub(super) use nia_type_lower::{
+    TypeLoweringContext, lower_module_types_from_item_tree_with_context,
+};
 pub(super) use nia_type_resolve::resolve_module_types_with_symbols;
 pub(super) use std::collections::HashMap;
 
@@ -185,7 +187,14 @@ fn pipeline_with_options(
         "{:?}",
         type_resolved.diagnostics
     );
-    let mut lowered = lower_module_types(&module, &type_resolved);
+    let item_tree = ModuleItemTree::from_module(&module);
+    let type_store = TypeStore::new();
+    let mut lowered = lower_module_types_from_item_tree_with_context(
+        ModuleId(0),
+        &item_tree,
+        &type_resolved,
+        TypeLoweringContext::empty(&type_store),
+    );
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
     let mut values = nia_value_resolve::resolve_module_values(&module, &defs);
     adjust_values(&module, &defs, &mut values);
@@ -220,6 +229,7 @@ fn pipeline_with_options(
         const_module.diagnostics
     );
     let const_input = nia_const_check::ConstInput {
+        type_store: &type_store,
         module: &const_module.module,
         defs: &defs,
         values: &values,
@@ -330,6 +340,7 @@ fn pipeline_with_options(
     }
     let mut layout_interner = lowered.interner.clone();
     let layouts = nia_layout::compute_layouts(
+        &type_store,
         &defs,
         &mut layout_interner,
         &signatures,
@@ -340,6 +351,7 @@ fn pipeline_with_options(
     let origins = NodeOriginTable::default();
     let check = check_module_bodies_with_program_signatures_and_layouts(
         BodyCheckInput {
+            type_store: &type_store,
             source_version: None,
             source_path: &source_path,
             symbols: &symbols,
@@ -361,7 +373,6 @@ fn pipeline_with_options(
             extensions: &extensions,
             lazy_extensions: None,
             program_extension_methods: &nia_defs::ExtensionMethods::default(),
-            extension_interner: None,
             program: BodyProgramContext::empty(),
             program_signatures: program_signatures.context(),
             function_scope: FunctionCheckScope::LocalModule,
@@ -407,7 +418,6 @@ fn single_module_trait_impls(
                 where_predicates: impl_signature.where_predicates.clone(),
                 associated_types: impl_signature.associated_types.clone(),
                 associated_values: impl_signature.associated_values.clone(),
-                interner: lowered.interner.clone(),
             })
         })
         .collect()

@@ -40,49 +40,41 @@ pub struct ItemSignatures {
 pub struct ProgramFunctionSignature {
     pub name: SymbolId,
     pub signature: FunctionSignature,
-    pub interner: nia_ty::TyInterner,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramGlobalSignature {
     pub signature: GlobalSignature,
-    pub interner: nia_ty::TyInterner,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramConstSignature {
     pub signature: ConstSignature,
-    pub interner: nia_ty::TyInterner,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramStructSignature {
     pub signature: StructSignature,
-    pub interner: nia_ty::TyInterner,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramUnionSignature {
     pub signature: UnionSignature,
-    pub interner: nia_ty::TyInterner,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramEnumSignature {
     pub signature: EnumSignature,
-    pub interner: nia_ty::TyInterner,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramTraitSignature {
     pub signature: TraitSignature,
-    pub interner: nia_ty::TyInterner,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramTypeAliasSignature {
     pub signature: TypeAliasSignature,
-    pub interner: nia_ty::TyInterner,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -98,7 +90,6 @@ pub struct ProgramTraitImplSignature {
     pub where_predicates: Vec<WherePredicateSignature>,
     pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
     pub associated_values: Vec<TraitImplAssociatedValueSignature>,
-    pub interner: nia_ty::TyInterner,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
