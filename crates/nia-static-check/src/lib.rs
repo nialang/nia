@@ -682,7 +682,7 @@ mod tests {
         let defs = collect_module_defs(module_id, &module);
         let type_resolution = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let type_store = nia_ty::TypeStore::new();
-        let mut type_lowering = lower_module_types_with_context(
+        let type_lowering = lower_module_types_with_context(
             module_id,
             &module,
             &type_resolution,
@@ -710,13 +710,16 @@ mod tests {
         let target = nia_target_config::TargetConfig::host();
         let source_path = SourcePath::new("/tmp/nia-static-check-test/main.nia");
         let normalization_input = type_lowering.explicit_type_roots();
-        let normalization = normalize_module_types(nia_type_normalize::TypeNormalizationInput {
-            module_id,
-            type_store: &type_store,
-            interner: &mut type_lowering.interner,
-            input_ids: &normalization_input,
-            signatures: &signatures,
-        });
+        let normalization =
+            type_store.with_module_interner_for_semantic_migration(module_id, |interner| {
+                normalize_module_types(nia_type_normalize::TypeNormalizationInput {
+                    module_id,
+                    type_store: &type_store,
+                    interner,
+                    input_ids: &normalization_input,
+                    signatures: &signatures,
+                })
+            });
         let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
             active_item_tree: &active_item_tree,
             defs: &defs,
@@ -748,20 +751,22 @@ mod tests {
             source_path: &source_path,
             program: nia_const_check::ConstProgramContext::empty(),
         };
-        let mut const_interner = type_lowering.interner.clone();
-        let array_lengths =
-            nia_const_check::compute_module_const_array_lengths(const_input, &mut const_interner);
-        let enum_values = nia_const_check::compute_module_const_enum_values(
-            const_input,
-            &mut const_interner,
-            array_lengths.clone(),
-        );
-        let const_eval = nia_const_check::compute_module_const_values(
-            const_input,
-            &mut const_interner,
-            array_lengths,
-            enum_values,
-        );
+        let const_eval =
+            type_store.with_module_interner_for_semantic_migration(module_id, |interner| {
+                let array_lengths =
+                    nia_const_check::compute_module_const_array_lengths(const_input, interner);
+                let enum_values = nia_const_check::compute_module_const_enum_values(
+                    const_input,
+                    interner,
+                    array_lengths.clone(),
+                );
+                nia_const_check::compute_module_const_values(
+                    const_input,
+                    interner,
+                    array_lengths,
+                    enum_values,
+                )
+            });
         assert!(
             const_eval.diagnostics.is_empty(),
             "{:?}",

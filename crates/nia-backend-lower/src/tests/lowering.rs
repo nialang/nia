@@ -129,18 +129,17 @@ fn main() i32 {
         .expect("make def");
     let mut extensions = VisibleExtensionMethods::default();
     let point_ty = type_lowering
-        .interner
-        .iter()
-        .find_map(|(ty_id, ty)| {
+        .explicit_type_roots()
+        .into_iter()
+        .find(|ty_id| {
             matches!(
-                ty,
-                nia_ty::TyKind::Nominal {
+                type_store.get(*ty_id),
+                Some(nia_ty::TyKind::Nominal {
                     def_id,
                     args,
                     ..
-                } if def_id.module_id == ModuleId(0) && def_id.def_id == point_id && args.is_empty()
+                }) if def_id.module_id == ModuleId(0) && def_id.def_id == point_id && args.is_empty()
             )
-            .then_some(ty_id)
         })
         .expect("Point type");
     let impl_id = signatures.trait_impls[0].impl_id;

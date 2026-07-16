@@ -34,10 +34,8 @@ pub(super) fn provide_const(db: &QueryDb<CompilerContext>, module_id: ModuleId) 
         let values = db.query(ConstValuesQuery(module_id));
         let typed_facts = db.query(ConstTypedFactsQuery(module_id));
 
-        with_const_input(db, module_id, |input, module, interner| {
+        with_const_input(db, module_id, |_input, module, _interner| {
             let mut const_eval = nia_const_check::check_module_const_with_all_phases(
-                input,
-                interner,
                 array_lengths,
                 enum_values,
                 values,
@@ -242,10 +240,6 @@ pub(super) fn with_const_input_and_program_facts<T>(
     db.context()
         .type_store
         .with_module_interner_for_semantic_migration(module_id, |interner| {
-            assert!(
-                type_lowering.interner.is_prefix_of(interner),
-                "Nia ICE: const input is not a prefix of its session type store"
-            );
             f(input, &module, interner)
         })
 }

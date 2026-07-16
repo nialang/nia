@@ -600,10 +600,6 @@ fn const_inputs_for_body_check(
         .context()
         .type_store
         .with_module_interner_for_semantic_migration(module_id, |interner| {
-            assert!(
-                lowered.interner.is_prefix_of(interner),
-                "Nia ICE: body const input is not a prefix of its session type store"
-            );
             let mut array_lengths = time_module_provider(
                 db,
                 "executable_body_check.const_eval.array_lengths",
@@ -1435,10 +1431,6 @@ pub(super) fn executable_layouts_for_reachable_items(
             db.context()
                 .type_store
                 .with_module_interner_for_semantic_migration(module_id, |interner| {
-                    assert!(
-                        type_lowering.interner.is_prefix_of(interner),
-                        "Nia ICE: executable layout input is not a prefix of its session type store"
-                    );
                     let roots =
                         time_module_provider(db, "executable_layouts.roots", module_id, || {
                             executable_layout_roots(
@@ -1581,10 +1573,6 @@ fn rooted_layouts_for_checked_module(
     db.context()
         .type_store
         .with_module_interner_for_semantic_migration(module.id, |interner| {
-            assert!(
-                module.type_lowering.interner.is_prefix_of(interner),
-                "Nia ICE: rooted layout input is not a prefix of its session type store"
-            );
             nia_layout::compute_layouts_for_roots_with_program_context(
                 nia_layout::LayoutComputationInput {
                     type_store: &db.context().type_store,

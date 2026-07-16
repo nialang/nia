@@ -190,7 +190,7 @@ fn pipeline_with_options(
     );
     let item_tree = ModuleItemTree::from_module(&module);
     let type_store = TypeStore::new();
-    let mut lowered = lower_module_types_from_item_tree_with_context(
+    let lowered = lower_module_types_from_item_tree_with_context(
         ModuleId(0),
         &item_tree,
         &type_resolved,
@@ -250,27 +250,30 @@ fn pipeline_with_options(
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext::empty(),
     };
-    let mut const_interner = lowered.interner.clone();
-    let const_array_lengths =
-        nia_const_check::compute_module_const_array_lengths(const_input, &mut const_interner);
-    let const_enum_values = nia_const_check::compute_module_const_enum_values(
-        const_input,
-        &mut const_interner,
-        const_array_lengths.clone(),
-    );
-    let const_values = nia_const_check::compute_module_const_values(
-        const_input,
-        &mut const_interner,
-        const_array_lengths.clone(),
-        const_enum_values.clone(),
-    );
-    let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
-        const_input,
-        &mut const_interner,
-        const_array_lengths.clone(),
-        const_enum_values,
-        const_values.clone(),
-    );
+    let (const_array_lengths, const_values, const_typed_facts) = type_store
+        .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+            let const_array_lengths =
+                nia_const_check::compute_module_const_array_lengths(const_input, interner);
+            let const_enum_values = nia_const_check::compute_module_const_enum_values(
+                const_input,
+                interner,
+                const_array_lengths.clone(),
+            );
+            let const_values = nia_const_check::compute_module_const_values(
+                const_input,
+                interner,
+                const_array_lengths.clone(),
+                const_enum_values.clone(),
+            );
+            let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
+                const_input,
+                interner,
+                const_array_lengths.clone(),
+                const_enum_values,
+                const_values.clone(),
+            );
+            (const_array_lengths, const_values, const_typed_facts)
+        });
     let const_eval =
         crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     assert!(
@@ -280,12 +283,14 @@ fn pipeline_with_options(
     );
     let normalization_input = lowered.explicit_type_roots();
     let normalization =
-        nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
-            module_id: ModuleId(0),
-            type_store: &type_store,
-            interner: &mut lowered.interner,
-            input_ids: &normalization_input,
-            signatures: &signatures,
+        type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+            nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
+                module_id: ModuleId(0),
+                type_store: &type_store,
+                interner,
+                input_ids: &normalization_input,
+                signatures: &signatures,
+            })
         });
     assert!(
         normalization.diagnostics.is_empty(),
@@ -342,55 +347,55 @@ fn pipeline_with_options(
             }
         }
     }
-    let mut layout_interner = lowered.interner.clone();
-    let layouts = nia_layout::compute_layouts(
-        &type_store,
-        &defs,
-        &mut layout_interner,
-        &signatures,
-        nia_layout::TargetDataLayout::LP64,
-    );
+    let layouts = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+        nia_layout::compute_layouts(
+            &type_store,
+            &defs,
+            interner,
+            &signatures,
+            nia_layout::TargetDataLayout::LP64,
+        )
+    });
     let mut program_signatures = EmptyBodyProgramSignatures::new();
-    program_signatures.trait_impls = single_module_trait_impls(ModuleId(0), &signatures, &lowered);
+    program_signatures.trait_impls =
+        single_module_trait_impls(ModuleId(0), &signatures, &type_store);
     let origins = NodeOriginTable::default();
-    let check = check_module_bodies_with_program_signatures_and_layouts(
-        BodyCheckInput {
-            type_store: &type_store,
-            source_version: None,
-            source_path: &source_path,
-            symbols: &symbols,
-            origins: &origins,
-            active_item_tree: &active_item_tree,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            lowered: &lowered,
-            signatures: BodyLocalSignatures::from_item_signatures(&signatures),
-            const_signatures: &signatures,
-            normalization: &normalization,
-            seed: None,
-            target: &target,
-            const_eval,
-            const_module: &const_module.module,
-            layouts: &layouts,
-            extensions: &extensions,
-            lazy_extensions: None,
-            program_extension_methods: &nia_defs::ExtensionMethods::default(),
-            program: BodyProgramContext::empty(),
-            program_signatures: program_signatures.context(),
-            function_scope: FunctionCheckScope::LocalModule,
-            program_const: ProgramConstMaps::empty(),
-            filter: crate::BodyCheckFilter::All,
-            product: crate::BodyCheckProduct::Full,
-            prechecked: None,
-        },
-        &mut const_interner,
-    );
-    TestBodyCheck {
-        check,
-        interner: const_interner,
-    }
+    let body_input = BodyCheckInput {
+        type_store: &type_store,
+        source_version: None,
+        source_path: &source_path,
+        symbols: &symbols,
+        origins: &origins,
+        active_item_tree: &active_item_tree,
+        defs: &defs,
+        values: &values,
+        locals: &locals,
+        semantic_uses: &semantic_uses,
+        lowered: &lowered,
+        signatures: BodyLocalSignatures::from_item_signatures(&signatures),
+        const_signatures: &signatures,
+        normalization: &normalization,
+        seed: None,
+        target: &target,
+        const_eval,
+        const_module: &const_module.module,
+        layouts: &layouts,
+        extensions: &extensions,
+        lazy_extensions: None,
+        program_extension_methods: &nia_defs::ExtensionMethods::default(),
+        program: BodyProgramContext::empty(),
+        program_signatures: program_signatures.context(),
+        function_scope: FunctionCheckScope::LocalModule,
+        program_const: ProgramConstMaps::empty(),
+        filter: crate::BodyCheckFilter::All,
+        product: crate::BodyCheckProduct::Full,
+        prechecked: None,
+    };
+    let check = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+        check_module_bodies_with_program_signatures_and_layouts(body_input, interner)
+    });
+    let interner = type_store.module_snapshot(ModuleId(0));
+    TestBodyCheck { check, interner }
 }
 
 pub(super) fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {
@@ -401,15 +406,14 @@ pub(super) fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree
 fn single_module_trait_impls(
     module_id: ModuleId,
     signatures: &nia_item_signatures::ItemSignatures,
-    lowered: &nia_type_lower::TypeLowering,
+    type_store: &TypeStore,
 ) -> Vec<ProgramTraitImplSignature> {
     signatures
         .trait_impls
         .iter()
         .filter_map(|impl_signature| {
             let trait_ty = impl_signature.trait_ty?;
-            let (trait_id, trait_args, trait_const_args) =
-                trait_id_and_args(&lowered.interner, trait_ty)?;
+            let (trait_id, trait_args, trait_const_args) = trait_id_and_args(type_store, trait_ty)?;
             Some(ProgramTraitImplSignature {
                 module_id,
                 impl_id: impl_signature.impl_id,
@@ -428,14 +432,14 @@ fn single_module_trait_impls(
 }
 
 fn trait_id_and_args(
-    interner: &nia_ty::TyInterner,
+    type_store: &TypeStore,
     ty: nia_ids::InternedTyId,
 ) -> Option<(
     TraitId,
     Vec<nia_ids::InternedTyId>,
     Vec<nia_ty::ConstGenericArg>,
 )> {
-    match interner.get(ty) {
+    match type_store.get(ty) {
         Some(TyKind::Nominal {
             def_id,
             args,

@@ -915,20 +915,23 @@ fn main() i32 {
     };
     let setup_extensions = |extensions: &mut VisibleExtensionMethods,
                             defs: &nia_defs::DefCollection,
+                            type_store: &nia_ty::TypeStore,
                             type_lowering: &TypeLowering,
                             _signatures: &ItemSignatures| {
         let counter_id = global_def_id_by_name(defs, "Counter");
         let source_id = global_def_id_by_name(defs, "Source");
         let add_id = global_def_id_by_name(defs, "add");
-        let counter_type = nominal_type_by_def(&type_lowering.interner, counter_id);
-        let source_object = nominal_type_by_def(&type_lowering.interner, source_id);
+        let counter_type = nominal_type_by_def(type_store, type_lowering, counter_id);
+        let source_object = nominal_type_by_def(type_store, type_lowering, source_id);
         counter.set(Some(counter_id));
         source_trait.set(Some(source_id));
         add_method.set(Some(add_id));
         counter_ty.set(Some(counter_type));
         source_object_ty.set(Some(source_object));
         i32_ty.set(Some(
-            type_lowering.interner.primitive(nia_ty::PrimitiveTy::I32),
+            type_store
+                .append_for_module(ModuleId(0))
+                .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32)),
         ));
         let impl_id = _signatures.trait_impls[0].impl_id;
         extensions.insert(
@@ -1095,26 +1098,29 @@ fn main() i32 {
     };
     let setup_extensions = |extensions: &mut VisibleExtensionMethods,
                             defs: &nia_defs::DefCollection,
+                            type_store: &nia_ty::TypeStore,
                             type_lowering: &TypeLowering,
                             signatures: &ItemSignatures| {
         let box_id = global_def_id_by_name(defs, "Box");
         let source_id = global_def_id_by_name(defs, "Source");
         let add_id = global_def_id_by_name(defs, "add");
-        let i32_type = type_lowering.interner.primitive(nia_ty::PrimitiveTy::I32);
+        let i32_type = type_store
+            .append_for_module(ModuleId(0))
+            .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
         let box_pattern = signatures
             .trait_impls
             .iter()
             .find_map(|signature| {
                 matches!(
-                    type_lowering.interner.get(signature.target_ty),
+                    type_store.get(signature.target_ty),
                     Some(nia_ty::TyKind::Nominal { def_id, .. }) if *def_id == box_id
                 )
                 .then_some(signature.target_ty)
             })
             .expect("Box[T] trait impl target");
         let box_i32_type =
-            nominal_type_by_def_with_args(&type_lowering.interner, box_id, &[i32_type]);
-        let source_object = nominal_type_by_def(&type_lowering.interner, source_id);
+            nominal_type_by_def_with_args(type_store, type_lowering, box_id, &[i32_type]);
+        let source_object = nominal_type_by_def(type_store, type_lowering, source_id);
         box_def.set(Some(box_id));
         source_trait.set(Some(source_id));
         add_method.set(Some(add_id));

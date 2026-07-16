@@ -630,17 +630,29 @@ mod tests {
     fn normalize_lowered(
         module_id: ModuleId,
         type_store: &TypeStore,
-        lowered: &mut TypeLowering,
+        lowered: &TypeLowering,
         signatures: &ItemSignatures,
     ) -> TypeNormalization {
         let input_ids = lowered.explicit_type_roots();
-        normalize_module_types(TypeNormalizationInput {
-            module_id,
-            type_store,
-            interner: &mut lowered.interner,
-            input_ids: &input_ids,
-            signatures,
+        type_store.with_module_interner_for_semantic_migration(module_id, |interner| {
+            normalize_module_types(TypeNormalizationInput {
+                module_id,
+                type_store,
+                interner,
+                input_ids: &input_ids,
+                signatures,
+            })
         })
+    }
+
+    fn lowered_types<'a>(
+        lowered: &'a TypeLowering,
+        type_store: &'a TypeStore,
+    ) -> impl Iterator<Item = (InternedTyId, &'a TyKind)> {
+        lowered
+            .explicit_type_roots()
+            .into_iter()
+            .filter_map(|ty| type_store.get(ty).map(|kind| (ty, kind)))
     }
 
     fn collect_test_signatures(
@@ -670,7 +682,7 @@ fn id(x: Byte) u8 { x }
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
-        let mut lowered = lower_module_types_with_context(
+        let lowered = lower_module_types_with_context(
             ModuleId(0),
             &module,
             &resolved,
@@ -682,13 +694,13 @@ fn id(x: Byte) u8 { x }
             &lowered,
             &type_store,
         );
-        let normalization = normalize_lowered(ModuleId(0), &type_store, &mut lowered, &signatures);
+        let normalization = normalize_lowered(ModuleId(0), &type_store, &lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
             "{:?}",
             normalization.diagnostics
         );
-        assert!(lowered.interner.iter().any(|(ty_id, ty)| {
+        assert!(lowered_types(&lowered, &type_store).any(|(ty_id, ty)| {
             matches!(ty, TyKind::Nominal { .. })
                 && matches!(
                     type_store.get(normalization.normalize(ty_id)),
@@ -709,7 +721,7 @@ fn id(p: RawPtr[u8]) &u8 { p }
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
-        let mut lowered = lower_module_types_with_context(
+        let lowered = lower_module_types_with_context(
             ModuleId(0),
             &module,
             &resolved,
@@ -721,13 +733,13 @@ fn id(p: RawPtr[u8]) &u8 { p }
             &lowered,
             &type_store,
         );
-        let normalization = normalize_lowered(ModuleId(0), &type_store, &mut lowered, &signatures);
+        let normalization = normalize_lowered(ModuleId(0), &type_store, &lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
             "{:?}",
             normalization.diagnostics
         );
-        assert!(lowered.interner.iter().any(|(ty_id, ty)| {
+        assert!(lowered_types(&lowered, &type_store).any(|(ty_id, ty)| {
             matches!(ty, TyKind::Nominal { .. })
                 && matches!(
                     type_store.get(normalization.normalize(ty_id)),
@@ -752,7 +764,7 @@ fn id(x: [std::builtin::size[Byte]()]u8) [std::builtin::size[u8]()]u8 { x }
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
-        let mut lowered = lower_module_types_with_context(
+        let lowered = lower_module_types_with_context(
             ModuleId(0),
             &module,
             &resolved,
@@ -764,13 +776,13 @@ fn id(x: [std::builtin::size[Byte]()]u8) [std::builtin::size[u8]()]u8 { x }
             &lowered,
             &type_store,
         );
-        let normalization = normalize_lowered(ModuleId(0), &type_store, &mut lowered, &signatures);
+        let normalization = normalize_lowered(ModuleId(0), &type_store, &lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
             "{:?}",
             normalization.diagnostics
         );
-        assert!(lowered.interner.iter().any(|(ty_id, ty)| {
+        assert!(lowered_types(&lowered, &type_store).any(|(ty_id, ty)| {
             matches!(
                 ty,
                 TyKind::Array {
@@ -806,7 +818,7 @@ fn id(x: SizedBytes[u16]) [std::builtin::size[u16]()]u8 { x }
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
-        let mut lowered = lower_module_types_with_context(
+        let lowered = lower_module_types_with_context(
             ModuleId(0),
             &module,
             &resolved,
@@ -818,13 +830,13 @@ fn id(x: SizedBytes[u16]) [std::builtin::size[u16]()]u8 { x }
             &lowered,
             &type_store,
         );
-        let normalization = normalize_lowered(ModuleId(0), &type_store, &mut lowered, &signatures);
+        let normalization = normalize_lowered(ModuleId(0), &type_store, &lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
             "{:?}",
             normalization.diagnostics
         );
-        assert!(lowered.interner.iter().any(|(ty_id, ty)| {
+        assert!(lowered_types(&lowered, &type_store).any(|(ty_id, ty)| {
             matches!(ty, TyKind::Nominal { .. })
                 && matches!(
                     type_store.get(normalization.normalize(ty_id)),
@@ -852,7 +864,7 @@ type B = A;
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
-        let mut lowered = lower_module_types_with_context(
+        let lowered = lower_module_types_with_context(
             ModuleId(0),
             &module,
             &resolved,
@@ -864,7 +876,7 @@ type B = A;
             &lowered,
             &type_store,
         );
-        let normalization = normalize_lowered(ModuleId(0), &type_store, &mut lowered, &signatures);
+        let normalization = normalize_lowered(ModuleId(0), &type_store, &lowered, &signatures);
         assert!(
             normalization
                 .diagnostics
@@ -884,7 +896,7 @@ fn take(xs: [2 + 3]u8) void {}
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
-        let mut lowered = lower_module_types_with_context(
+        let lowered = lower_module_types_with_context(
             ModuleId(0),
             &module,
             &resolved,
@@ -896,7 +908,7 @@ fn take(xs: [2 + 3]u8) void {}
             &lowered,
             &type_store,
         );
-        let normalization = normalize_lowered(ModuleId(0), &type_store, &mut lowered, &signatures);
+        let normalization = normalize_lowered(ModuleId(0), &type_store, &lowered, &signatures);
         assert!(normalization.normalized.values().any(|ty| matches!(
             type_store.get(*ty),
             Some(TyKind::Array {

@@ -28,7 +28,6 @@ use nia_type_resolve::{TypeNameResolution, TypeResolution};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeLowering {
-    pub interner: TyInterner,
     pub type_uses: HashMap<NodeSite, InternedTyId>,
     pub const_exprs: HashMap<GlobalConstExprId, Expr>,
     pub const_expr_summaries: HashMap<GlobalConstExprId, ConstExprSummary>,
@@ -250,46 +249,6 @@ impl std::fmt::Debug for TypeLoweringContext<'_> {
     }
 }
 
-pub fn lower_module_types(module: &Module, resolved: &TypeResolution) -> TypeLowering {
-    let item_tree = ModuleItemTree::from_module(module);
-    lower_module_types_from_item_tree(ModuleId(0), &item_tree, resolved)
-}
-
-pub fn lower_module_types_with_id(
-    module_id: ModuleId,
-    module: &Module,
-    resolved: &TypeResolution,
-) -> TypeLowering {
-    let defs = nia_defs::collect_module_defs(module_id, module);
-    let mut program_defs = HashMap::new();
-    program_defs.insert(module_id, Arc::new(defs));
-    let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
-    let item_tree = ModuleItemTree::from_module(module);
-    lower_module_types_from_item_tree_with_defs(
-        module_id,
-        &item_tree,
-        resolved,
-        ProgramDefsContext {
-            defs: Some(&program_defs_by_module),
-        },
-    )
-}
-
-pub fn lower_module_types_with_defs(
-    module_id: ModuleId,
-    module: &Module,
-    resolved: &TypeResolution,
-    program_defs: ProgramDefsContext<'_>,
-) -> TypeLowering {
-    let type_store = nia_ty::TypeStore::new();
-    lower_module_types_with_context(
-        module_id,
-        module,
-        resolved,
-        TypeLoweringContext::from_program_defs(&type_store, program_defs),
-    )
-}
-
 pub fn lower_module_types_with_context(
     module_id: ModuleId,
     module: &Module,
@@ -298,34 +257,6 @@ pub fn lower_module_types_with_context(
 ) -> TypeLowering {
     let item_tree = ModuleItemTree::from_module(module);
     lower_module_types_from_item_tree_with_context(module_id, &item_tree, resolved, context)
-}
-
-pub fn lower_module_types_from_item_tree(
-    module_id: ModuleId,
-    item_tree: &ModuleItemTree,
-    resolved: &TypeResolution,
-) -> TypeLowering {
-    lower_module_types_from_item_tree_with_defs(
-        module_id,
-        item_tree,
-        resolved,
-        ProgramDefsContext::empty(),
-    )
-}
-
-pub fn lower_module_types_from_active_item_tree(
-    module_id: ModuleId,
-    item_tree: &ActiveModuleItemTree,
-    resolved: &TypeResolution,
-    program_defs: ProgramDefsContext<'_>,
-) -> TypeLowering {
-    let type_store = nia_ty::TypeStore::new();
-    lower_module_types_from_active_item_tree_with_context(
-        module_id,
-        item_tree,
-        resolved,
-        TypeLoweringContext::from_program_defs(&type_store, program_defs),
-    )
 }
 
 pub fn lower_module_types_from_active_item_tree_with_context(
@@ -343,21 +274,6 @@ pub fn lower_module_types_from_active_item_tree_with_context(
     )
 }
 
-pub fn lower_module_declaration_types_from_active_item_tree(
-    module_id: ModuleId,
-    item_tree: &ActiveModuleItemTree,
-    resolved: &TypeResolution,
-    program_defs: ProgramDefsContext<'_>,
-) -> TypeLowering {
-    let type_store = nia_ty::TypeStore::new();
-    lower_module_declaration_types_from_active_item_tree_with_context(
-        module_id,
-        item_tree,
-        resolved,
-        TypeLoweringContext::from_program_defs(&type_store, program_defs),
-    )
-}
-
 pub fn lower_module_declaration_types_from_active_item_tree_with_context(
     module_id: ModuleId,
     item_tree: &ActiveModuleItemTree,
@@ -370,21 +286,6 @@ pub fn lower_module_declaration_types_from_active_item_tree_with_context(
         resolved,
         context,
         TypeLowerMode::Declarations,
-    )
-}
-
-pub fn lower_module_types_from_item_tree_with_defs(
-    module_id: ModuleId,
-    item_tree: &ModuleItemTree,
-    resolved: &TypeResolution,
-    program_defs: ProgramDefsContext<'_>,
-) -> TypeLowering {
-    let type_store = nia_ty::TypeStore::new();
-    lower_module_types_from_item_tree_with_context(
-        module_id,
-        item_tree,
-        resolved,
-        TypeLoweringContext::from_program_defs(&type_store, program_defs),
     )
 }
 
@@ -434,7 +335,6 @@ fn lower_module_types_from_items(
                 lowerer.visit_item_tree_node(item);
             }
             TypeLowering {
-                interner: lowerer.interner.clone(),
                 type_uses: lowerer.type_uses,
                 const_exprs: lowerer.const_exprs,
                 const_expr_summaries: lowerer.const_expr_summaries,
@@ -2338,6 +2238,29 @@ mod tests {
         SymbolId::from_stable_hash(nia_symbol::stable_hash(text))
     }
 
+    fn lower_test_module(
+        module: &Module,
+        defs: &DefCollection,
+        resolved: &TypeResolution,
+    ) -> (nia_ty::TypeStore, TypeLowering) {
+        let module_id = defs.module_id;
+        let program_defs = HashMap::from([(module_id, Arc::new(defs.clone()))]);
+        let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
+        let type_store = nia_ty::TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            module_id,
+            module,
+            resolved,
+            TypeLoweringContext::from_program_defs(
+                &type_store,
+                ProgramDefsContext {
+                    defs: Some(&program_defs_by_module),
+                },
+            ),
+        );
+        (type_store, lowered)
+    }
+
     #[test]
     fn lowers_primitive_pointer_array_function_and_nominal_types() {
         let (module, errors) = parse_module(
@@ -2360,37 +2283,34 @@ fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
             "{:?}",
             resolved.diagnostics
         );
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let (type_store, lowered) = lower_test_module(&module, &defs, &resolved);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+        let append = type_store.append_for_module(ModuleId(0));
+        assert!(matches!(
+            type_store.get(append.intern(TyKind::Error)),
+            Some(TyKind::Error)
+        ));
+        assert!(matches!(
+            type_store.get(append.intern(TyKind::Primitive(PrimitiveTy::I8))),
+            Some(TyKind::Primitive(PrimitiveTy::I8))
+        ));
         assert!(
             lowered
-                .interner
-                .get(lowered.interner.error())
-                .is_some_and(|ty| matches!(ty, TyKind::Error))
-        );
-        assert!(
-            lowered
-                .interner
-                .get(lowered.interner.primitive(PrimitiveTy::I8))
-                .is_some_and(|_| lowered.interner.len() > 1)
+                .type_uses
+                .values()
+                .any(|ty_id| matches!(type_store.get(*ty_id), Some(TyKind::Nominal { .. })))
         );
         assert!(
             lowered
                 .type_uses
                 .values()
-                .any(|ty_id| matches!(lowered.interner.get(*ty_id), Some(TyKind::Nominal { .. })))
+                .any(|ty_id| matches!(type_store.get(*ty_id), Some(TyKind::Array { .. })))
         );
         assert!(
             lowered
                 .type_uses
                 .values()
-                .any(|ty_id| matches!(lowered.interner.get(*ty_id), Some(TyKind::Array { .. })))
-        );
-        assert!(
-            lowered
-                .type_uses
-                .values()
-                .any(|ty_id| matches!(lowered.interner.get(*ty_id), Some(TyKind::Pointer { .. })))
+                .any(|ty_id| matches!(type_store.get(*ty_id), Some(TyKind::Pointer { .. })))
         );
     }
 
@@ -2414,30 +2334,42 @@ fn use_buffer(buf: Buffer[u8, 4]) void {}
             "{:?}",
             resolved.diagnostics
         );
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let (type_store, lowered) = lower_test_module(&module, &defs, &resolved);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
-        assert!(lowered.interner.iter().any(|(_, ty)| {
-            matches!(
-                ty,
-                TyKind::Array {
-                    len: ArrayLenTy::GenericParam(name),
-                    ..
-                } if *name == sym("N")
-            )
-        }));
-        assert!(lowered.interner.iter().any(|(_, ty)| {
-            matches!(
-                ty,
-                TyKind::Nominal { const_args, .. }
-                    if matches!(
-                        const_args.as_slice(),
-                        [ConstGenericArg {
-                            value: ConstGenericValue::Int(value),
+        assert!(
+            lowered
+                .type_uses
+                .values()
+                .filter_map(|ty| type_store.get(*ty))
+                .any(|ty| {
+                    matches!(
+                        ty,
+                        TyKind::Array {
+                            len: ArrayLenTy::GenericParam(name),
                             ..
-                        }] if value.bits() == 4
+                        } if *name == sym("N")
                     )
-            )
-        }));
+                })
+        );
+        assert!(
+            lowered
+                .type_uses
+                .values()
+                .filter_map(|ty| type_store.get(*ty))
+                .any(|ty| {
+                    matches!(
+                        ty,
+                        TyKind::Nominal { const_args, .. }
+                            if matches!(
+                                const_args.as_slice(),
+                                [ConstGenericArg {
+                                    value: ConstGenericValue::Int(value),
+                                    ..
+                                }] if value.bits() == 4
+                            )
+                    )
+                })
+        );
     }
 
     #[test]
@@ -2475,14 +2407,14 @@ extend Sink : Writer {
             "{:?}",
             resolved.diagnostics
         );
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let (type_store, lowered) = lower_test_module(&module, &defs, &resolved);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         let shorthand_projections = lowered
             .type_uses
             .values()
             .filter(|ty_id| {
                 matches!(
-                    lowered.interner.get(**ty_id),
+                    type_store.get(**ty_id),
                     Some(TyKind::Projection { name, .. }) if *name == sym("Error")
                 )
             })
@@ -2509,7 +2441,7 @@ extend[T] [T] {
             "{:?}",
             resolved.diagnostics
         );
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let (type_store, lowered) = lower_test_module(&module, &defs, &resolved);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         let nia_ast::ItemKind::Extend(extend) = &module.items[0].kind else {
             panic!("expected extend");
@@ -2518,7 +2450,7 @@ extend[T] [T] {
             .ty_for_key(&extend.target.node_key)
             .expect("expected lowered extend target");
         assert!(matches!(
-            lowered.interner.get(target_ty),
+            type_store.get(target_ty),
             Some(TyKind::SlicePointee { .. })
         ));
     }
@@ -2539,7 +2471,7 @@ fn make() Box[4] {
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types(&module, &resolved);
+        let (_type_store, lowered) = lower_test_module(&module, &defs, &resolved);
         assert!(
             lowered
                 .diagnostics
@@ -2570,16 +2502,7 @@ fn non_generic_arg(a: Point[i32]) {}
             "{:?}",
             resolved.diagnostics
         );
-        let program_defs = HashMap::from([(ModuleId(0), Arc::new(defs.clone()))]);
-        let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
-        let lowered = lower_module_types_with_defs(
-            ModuleId(0),
-            &module,
-            &resolved,
-            ProgramDefsContext {
-                defs: Some(&program_defs_by_module),
-            },
-        );
+        let (_type_store, lowered) = lower_test_module(&module, &defs, &resolved);
         let mismatch_count = lowered
             .diagnostics
             .iter()
@@ -2617,7 +2540,7 @@ static mut global_void: void;
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types(&module, &resolved);
+        let (_type_store, lowered) = lower_test_module(&module, &defs, &resolved);
         assert!(
             lowered.diagnostics.iter().any(|diagnostic| diagnostic
                 .summary
@@ -2657,21 +2580,12 @@ fn write(source: &mut Source[i32, Item = i32]) void {}
             "{:?}",
             resolved.diagnostics
         );
-        let program_defs = HashMap::from([(ModuleId(0), Arc::new(defs.clone()))]);
-        let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
-        let lowered = lower_module_types_with_defs(
-            ModuleId(0),
-            &module,
-            &resolved,
-            ProgramDefsContext {
-                defs: Some(&program_defs_by_module),
-            },
-        );
+        let (type_store, lowered) = lower_test_module(&module, &defs, &resolved);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         let trait_objects = lowered
             .type_uses
             .values()
-            .filter_map(|ty| match lowered.interner.get(*ty) {
+            .filter_map(|ty| match type_store.get(*ty) {
                 Some(TyKind::TraitObject {
                     is_readonly,
                     trait_args,
@@ -2759,16 +2673,7 @@ fn bad(value: Show) void {}
             "{:?}",
             resolved.diagnostics
         );
-        let program_defs = HashMap::from([(ModuleId(0), Arc::new(defs.clone()))]);
-        let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
-        let lowered = lower_module_types_with_defs(
-            ModuleId(0),
-            &module,
-            &resolved,
-            ProgramDefsContext {
-                defs: Some(&program_defs_by_module),
-            },
-        );
+        let (_type_store, lowered) = lower_test_module(&module, &defs, &resolved);
         assert!(
             lowered
                 .diagnostics
@@ -2806,21 +2711,22 @@ fn selected(value: i32) void {}
             "{:?}",
             resolved.diagnostics
         );
-        let lowered = lower_module_types_from_active_item_tree(
+        let type_store = nia_ty::TypeStore::new();
+        let lowered = lower_module_types_from_active_item_tree_with_context(
             ModuleId(0),
             &active,
             &resolved,
-            ProgramDefsContext::empty(),
+            TypeLoweringContext::empty(&type_store),
         );
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         assert!(lowered.type_uses.values().any(|ty| matches!(
-            lowered.interner.get(*ty),
+            type_store.get(*ty),
             Some(TyKind::Primitive(PrimitiveTy::I32))
         )));
     }
 
     #[test]
-    fn lowering_variants_share_one_append_only_store_shard() {
+    fn lowering_variants_publish_to_one_canonical_store() {
         let (module, errors) = parse_module(
             r#"
 struct Pair {
@@ -2864,14 +2770,11 @@ fn first(pair: &Pair) i32 {
             TypeLoweringContext::empty(&store),
         );
 
-        assert_eq!(declarations.interner.interner_id().store_id(), store.id());
-        assert_eq!(
-            full.interner.interner_id(),
-            declarations.interner.interner_id()
-        );
-        assert!(declarations.interner.is_prefix_of(&full.interner));
-        for (ty, kind) in declarations.interner.iter() {
-            assert_eq!(full.interner.get(ty), Some(kind));
+        for ty in declarations.explicit_type_roots() {
+            assert!(store.get(ty).is_some());
+        }
+        for ty in full.explicit_type_roots() {
+            assert!(store.get(ty).is_some());
         }
     }
 

@@ -94,7 +94,7 @@ fn main() i32 {
     let lowering = lower_source_with_body_check_mutation_and_optimization(
         source,
         |_| {},
-        |_, _, _, _| {},
+        |_, _, _, _, _| {},
         |_, _| {},
         |body_check, _, defs, _, _| {
             let values = global_def_id_by_name(defs, "values");
@@ -179,7 +179,7 @@ fn main() i32 {
     let lowering = lower_source_with_body_check_mutation_and_optimization(
         source,
         |_| {},
-        |_, _, _, _| {},
+        |_, _, _, _, _| {},
         |_, _| {},
         |body_check, _, defs, _, interner| {
             let values = global_def_id_by_name(defs, "values");

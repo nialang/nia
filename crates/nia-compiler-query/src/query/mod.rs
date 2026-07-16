@@ -3029,8 +3029,9 @@ pub fn expensive_or_invalid() i32 {
                     SourceRevision(0),
                 ),
             ])));
-        let first = database.db.query(TypeLoweringQuery(module_id));
-        let first_i32 = first.interner.primitive(nia_ty::PrimitiveTy::I32);
+        let _ = database.db.query(TypeLoweringQuery(module_id));
+        let first = database.db.context().type_store.module_snapshot(module_id);
+        let first_i32 = first.primitive(nia_ty::PrimitiveTy::I32);
 
         database.update(CompileRequest::new(loaded_program_with_modules(vec![
             loaded_module_with_revision(
@@ -3040,15 +3041,16 @@ pub fn expensive_or_invalid() i32 {
                 SourceRevision(1),
             ),
         ])));
-        let second = database.db.query(TypeLoweringQuery(module_id));
+        let _ = database.db.query(TypeLoweringQuery(module_id));
+        let second = database.db.context().type_store.module_snapshot(module_id);
 
-        assert_eq!(first.interner.interner_id(), second.interner.interner_id());
-        assert!(first.interner.is_prefix_of(&second.interner));
+        assert_eq!(first.interner_id(), second.interner_id());
+        assert!(first.is_prefix_of(&second));
         assert_eq!(
-            second.interner.get(first_i32),
+            second.get(first_i32),
             Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))
         );
-        assert!(second.interner.len() > first.interner.len());
+        assert!(second.len() > first.len());
     }
 
     #[test]
@@ -3066,9 +3068,8 @@ pub fn expensive_or_invalid() i32 {
         let normalization = database.db.query(TypeNormalizationQuery(module_id));
         let stored = database.db.context().type_store.module_snapshot(module_id);
 
-        assert!(lowering.interner.is_prefix_of(&stored));
-        for (ty_id, kind) in lowering.interner.iter() {
-            assert_eq!(stored.get(ty_id), Some(kind));
+        for ty_id in lowering.explicit_type_roots() {
+            assert!(stored.get(ty_id).is_some());
         }
         for normalized in normalization.normalized.values() {
             assert!(stored.get(*normalized).is_some());
@@ -3113,7 +3114,9 @@ fn main() i32 { 0 }
         let _ = database.db.query(ConstQuery(module_id));
         let after_check = database.db.context().type_store.module_snapshot(module_id);
 
-        assert!(lowering.interner.is_prefix_of(&before_const));
+        for ty in lowering.explicit_type_roots() {
+            assert!(before_const.get(ty).is_some());
+        }
         assert!(before_const.is_prefix_of(&after_array_lengths));
         assert!(after_array_lengths.is_prefix_of(&after_enum_values));
         assert!(after_enum_values.is_prefix_of(&after_values));
@@ -3218,18 +3221,21 @@ fn main() i32 {
         };
         let first = CompilerDatabase::new(CompileRequest::new(loaded()));
         let second = CompilerDatabase::new(CompileRequest::new(loaded()));
-        let first_types = first.db.query(TypeLoweringQuery(ModuleId(0)));
-        let second_types = second.db.query(TypeLoweringQuery(ModuleId(0)));
-        let first_i32 = first_types.interner.primitive(nia_ty::PrimitiveTy::I32);
-        let second_i32 = second_types.interner.primitive(nia_ty::PrimitiveTy::I32);
+        let _ = first.db.query(TypeLoweringQuery(ModuleId(0)));
+        let _ = second.db.query(TypeLoweringQuery(ModuleId(0)));
+        let first_store = &first.db.context().type_store;
+        let second_store = &second.db.context().type_store;
+        let first_i32 = first_store
+            .append_for_module(ModuleId(0))
+            .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
+        let second_i32 = second_store
+            .append_for_module(ModuleId(0))
+            .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
 
-        assert_ne!(
-            first_types.interner.interner_id().store_id(),
-            second_types.interner.interner_id().store_id()
-        );
+        assert_ne!(first_store.id(), second_store.id());
         assert_ne!(first_i32, second_i32);
-        assert_eq!(first_types.interner.get(second_i32), None);
-        assert_eq!(second_types.interner.get(first_i32), None);
+        assert_eq!(first_store.get(second_i32), None);
+        assert_eq!(second_store.get(first_i32), None);
     }
 
     #[test]
@@ -5866,10 +5872,6 @@ extend Sink : Writer {
             ModuleId(0),
             nia_item_tree::SignatureItemSet::Traits,
         ));
-        let lowering = db.query(SignatureTypeLoweringQuery(
-            ModuleId(0),
-            nia_item_tree::SignatureItemSet::Traits,
-        ));
         let impl_signature = signatures
             .trait_impls
             .iter()
@@ -5878,7 +5880,7 @@ extend Sink : Writer {
 
         assert!(
             !matches!(
-                lowering.interner.get(impl_signature.target_ty),
+                db.context().type_store.get(impl_signature.target_ty),
                 Some(TyKind::Error)
             ),
             "trait signature subset should resolve local extend target types"
@@ -5936,10 +5938,6 @@ pub enum Errno: i32 {
             ModuleId(0),
             nia_item_tree::SignatureItemSet::Traits,
         ));
-        let lowering = db.query(SignatureTypeLoweringQuery(
-            ModuleId(0),
-            nia_item_tree::SignatureItemSet::Traits,
-        ));
         let impl_signature = signatures
             .trait_impls
             .iter()
@@ -5948,7 +5946,7 @@ pub enum Errno: i32 {
 
         assert!(
             !matches!(
-                lowering.interner.get(impl_signature.target_ty),
+                db.context().type_store.get(impl_signature.target_ty),
                 Some(TyKind::Error)
             ),
             "trait signature subset should resolve imported extend target types"
@@ -6022,10 +6020,6 @@ pub enum Errno: i32 {
             ModuleId(0),
             nia_item_tree::SignatureItemSet::Traits,
         ));
-        let lowering = db.query(SignatureTypeLoweringQuery(
-            ModuleId(0),
-            nia_item_tree::SignatureItemSet::Traits,
-        ));
         let impl_signature = signatures
             .trait_impls
             .iter()
@@ -6034,7 +6028,7 @@ pub enum Errno: i32 {
 
         assert!(
             !matches!(
-                lowering.interner.get(impl_signature.target_ty),
+                db.context().type_store.get(impl_signature.target_ty),
                 Some(TyKind::Error)
             ),
             "trait signature subset should resolve re-exported extend target types"

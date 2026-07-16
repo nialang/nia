@@ -110,10 +110,6 @@ fn function_bodies_from_checked_modules(
                         .context()
                         .type_store
                         .with_module_interner_for_semantic_migration(module.id, |interner| {
-                            assert!(
-                                module.type_lowering.interner.is_prefix_of(interner),
-                                "Nia ICE: function lowering input is not a prefix of its session type store"
-                            );
                             nia_function_lower::lower_function_bodies_with_interner(
                                 module.id,
                                 module.body_ir.function_bodies.iter(),

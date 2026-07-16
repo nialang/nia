@@ -427,9 +427,9 @@ origin or view membership.
 Const and body providers mutate the compilation-owned `TypeStore` module shard
 directly. Array lengths, enum values, values, typed const facts, `ConstCheck`,
 and `BodyConst` are ordinary semantic products and no longer carry or transfer
-`TyInterner` snapshots. `ConstInput` has no base interner; its lowering product
-is only the append-prefix baseline, while const type reads use canonical
-storage. `BodyTypeCx` fixes the body algorithm contract in the same way: reads
+`TyInterner` snapshots. `ConstInput` has no base interner, and `TypeLowering`
+contains semantic facts rather than an append-prefix view; const type reads use
+canonical storage. `BodyTypeCx` fixes the body algorithm contract in the same way: reads
 always use canonical storage, while synthesized types append to the current
 session shard. Program and local signatures therefore carry canonical handles
 directly; body checking has no signature-import fallback. Explicitly
@@ -517,10 +517,15 @@ algorithm entry receives the canonical store for reads and an explicit mutable
 append target for synthesized aliases; const/body/query inputs no longer use
 normalization as a hidden snapshot carrier. Type lowering exposes deterministic,
 deduplicated source type roots, so normalization also does not enumerate a
-module view. The remaining migration work is the `TypeLowering` view product,
-temporary append ownership, and the module visibility log itself. Once their
-append contracts no longer require views, `TypeOrigin`, `TyInternerId`,
-snapshots, and the view layer can be deleted.
+module view. `TypeLowering` itself contains only source type facts, const
+expressions, and diagnostics; all lowering entry points require an explicit
+session `TypeStore` through `TypeLoweringContext`. ABI and flow checks read that
+store directly. Item-signature collection has one input-object API, validates
+that lowering handles belong to the same store, and uses a short-lived append
+capability for synthesized builtin/error types. The remaining migration work is
+temporary append ownership and the module visibility log itself. Once append
+contracts no longer require views, `TypeOrigin`, `TyInternerId`, snapshots, and
+the view layer can be deleted.
 
 ### 3.6 `nia-diagnostic`
 

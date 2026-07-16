@@ -25,10 +25,6 @@ pub(super) fn provide_layouts(
         db.context()
             .type_store
             .with_module_interner_for_semantic_migration(module_id, |interner| {
-                assert!(
-                    type_lowering.interner.is_prefix_of(interner),
-                    "Nia ICE: layout input is not a prefix of its session type store"
-                );
                 nia_layout::compute_layouts_with_program_context(
                     nia_layout::LayoutComputationInput {
                         type_store: &db.context().type_store,
