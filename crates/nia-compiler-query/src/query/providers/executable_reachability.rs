@@ -377,19 +377,10 @@ fn executable_check(
     let mut reachability_state = reachability;
     let extension_lookup = QueryExecutableExtensionLookup::new(db);
     loop {
-        let reachable_type_interners = fact_by_id
-            .keys()
-            .map(|module_id| {
-                (
-                    *module_id,
-                    db.context().type_store.module_snapshot(*module_id),
-                )
-            })
-            .collect::<HashMap<_, _>>();
         let reachable_inputs = time_provider(
             db.context().timings(),
             "executable_checked_modules.inputs",
-            || reachable_fact_module_inputs(&fact_by_id, &reachable_type_interners),
+            || reachable_fact_module_inputs(&fact_by_id, &db.context().type_store),
         );
         time_provider(
             db.context().timings(),
@@ -606,21 +597,20 @@ fn executable_check(
                 db,
                 "executable_checked_modules.fact_merge",
                 module_id,
-                || {
-                    let interner = db.context().type_store.module_snapshot(module_id);
-                    match fact_by_id.get_mut(&module_id) {
-                        Some(state) => state.extend(body_check, module_globals, &interner),
-                        None => {
-                            fact_by_id.insert(
+                || match fact_by_id.get_mut(&module_id) {
+                    Some(state) => {
+                        state.extend(body_check, module_globals, &db.context().type_store)
+                    }
+                    None => {
+                        fact_by_id.insert(
+                            module_id,
+                            ExecutableFactModuleState::new(
+                                db,
                                 module_id,
-                                ExecutableFactModuleState::new(
-                                    db,
-                                    module_id,
-                                    body_check,
-                                    module_globals,
-                                ),
-                            );
-                        }
+                                body_check,
+                                module_globals,
+                            ),
+                        );
                     }
                 },
             );
@@ -655,19 +645,10 @@ fn executable_check(
                 checked_functions: checked_this_round,
             });
         }
-        let checked_type_interners = fact_by_id
-            .keys()
-            .map(|module_id| {
-                (
-                    *module_id,
-                    db.context().type_store.module_snapshot(*module_id),
-                )
-            })
-            .collect::<HashMap<_, _>>();
         let checked_inputs = time_provider(
             db.context().timings(),
             "executable_checked_modules.batch_inputs",
-            || reachable_fact_module_inputs(&fact_by_id, &checked_type_interners),
+            || reachable_fact_module_inputs(&fact_by_id, &db.context().type_store),
         );
         let checked_inputs_by_id = time_provider(
             db.context().timings(),

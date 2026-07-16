@@ -445,9 +445,13 @@ append-only prefix and report an internal error only when two views diverge.
 `BodyIr` no longer publishes an interner snapshot. Prechecked body facts and
 incremental seeds borrow an explicit current session view, which must be a
 prefix of the session shard and cannot replace it. Executable fact extraction
-and reachability likewise receive an explicit short-lived view; typed body data
-is not also a type-store product. This removes the former hidden requirement to
-merge every body increment into a second snapshot.
+and reachability now read every handle directly from the canonical `TypeStore`;
+typed body data is not also a type-store product. Reachability receives a
+separate append-only capability only while generic substitution synthesizes a
+new structural type. That capability records physical origin but does not add
+the type to a module visibility log, so reads cannot accidentally fall back to
+the old view contract. This removes the former hidden requirement to merge
+every body increment into a second snapshot.
 
 Function IR lowering and monomorphization have crossed this boundary for
 mutation. Function lowering borrows the session shard and appends synthesized
@@ -490,14 +494,18 @@ it does not clone the `TypeNormalization` interner snapshots as an accidental
 backend side channel. Backend checkout remains solely the append capability for
 synthesized types.
 
-Const, trait, body, program-signature, and reachability algorithms still contain
-module-view reads and recursive imports. Reachability in particular still pairs
-instance arguments with an `arg_interner`; trait solving and layout APIs still
-accept a mutable working interner whose internal reads assume the old algorithm
-contract. These consumers must be redesigned to read canonical storage and use
-an explicit append capability. They are not a reason to restore transitively
-closed module views or a second store API. `TypeOrigin` can be removed after
-these remaining migration paths stop using visibility logs.
+Reachability has crossed this boundary completely: its fact input contains one
+canonical store reference, generic instances carry only stable handles, and
+trait method/vtable deduplication includes the use-module visibility context
+instead of relying on an argument interner identity. It no longer snapshots,
+imports, or recursively adopts types. Const, trait, body, and program-signature
+algorithms still contain module-view reads and recursive imports; trait solving
+and layout APIs also still accept a mutable working interner whose internal
+reads assume the old algorithm contract. These consumers must be redesigned to
+read canonical storage and use an explicit append capability. They are not a
+reason to restore transitively closed module views or a second store API.
+`TypeOrigin` can be removed after these remaining migration paths stop using
+visibility logs.
 
 ### 3.6 `nia-diagnostic`
 
@@ -1111,7 +1119,10 @@ This crate deliberately returns reachability sets instead of owning
 `CheckedModule`. `nia-compiler-query` keeps query orchestration and module
 filtering, while this crate owns the executable pruning analysis. That boundary
 prevents provider code from becoming a typed-body traversal or semantic-fact
-analysis module.
+analysis module. Its inputs borrow the session `TypeStore` as the sole type read
+source. Generic substitution uses a separate canonical append capability, so
+the analysis cannot depend on module snapshots, recursive import, or paired
+argument interners.
 
 ## 10. Monomorphization And Symbols
 

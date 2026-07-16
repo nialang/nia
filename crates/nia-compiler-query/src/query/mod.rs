@@ -846,9 +846,7 @@ impl CompilerContext {
         self.executable_fact_session
             .lock()
             .expect("executable fact session lock poisoned")
-            .retain_after_graph_growth(body_activated, provider_changes, |module_id| {
-                self.type_store.module_snapshot(module_id)
-            });
+            .retain_after_graph_growth(body_activated, provider_changes, &self.type_store);
     }
 
     fn executable_root_modules(&self) -> (ModuleId, Vec<ModuleId>) {
