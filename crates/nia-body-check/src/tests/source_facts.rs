@@ -98,76 +98,80 @@ fn main() i32 {
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext::empty(),
     };
-    let mut const_interner = lowered.interner.clone();
-    let const_array_lengths =
-        nia_const_check::compute_module_const_array_lengths(const_input, &mut const_interner);
-    let const_enum_values = nia_const_check::compute_module_const_enum_values(
-        const_input,
-        &mut const_interner,
-        const_array_lengths.clone(),
-    );
-    let const_values = nia_const_check::compute_module_const_values(
-        const_input,
-        &mut const_interner,
-        const_array_lengths.clone(),
-        const_enum_values.clone(),
-    );
-    let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
-        const_input,
-        &mut const_interner,
-        const_array_lengths.clone(),
-        const_enum_values,
-        const_values.clone(),
-    );
+    let (const_array_lengths, const_values, const_typed_facts) = type_store
+        .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+            let const_array_lengths =
+                nia_const_check::compute_module_const_array_lengths(const_input, interner);
+            let const_enum_values = nia_const_check::compute_module_const_enum_values(
+                const_input,
+                interner,
+                const_array_lengths.clone(),
+            );
+            let const_values = nia_const_check::compute_module_const_values(
+                const_input,
+                interner,
+                const_array_lengths.clone(),
+                const_enum_values.clone(),
+            );
+            let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
+                const_input,
+                interner,
+                const_array_lengths.clone(),
+                const_enum_values,
+                const_values.clone(),
+            );
+            (const_array_lengths, const_values, const_typed_facts)
+        });
     let const_eval =
         crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    let mut layout_interner = lowered.interner.clone();
-    let layouts = nia_layout::compute_layouts(
-        &type_store,
-        &defs,
-        &mut layout_interner,
-        &signatures,
-        nia_layout::TargetDataLayout::LP64,
-    );
+    let layouts = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+        nia_layout::compute_layouts(
+            &type_store,
+            &defs,
+            interner,
+            &signatures,
+            nia_layout::TargetDataLayout::LP64,
+        )
+    });
     let program_signatures = EmptyBodyProgramSignatures::new();
-    let checked = check_module_bodies_with_program_signatures_and_layouts(
-        BodyCheckInput {
-            type_store: &type_store,
-            source_version: Some(version),
-            source_path: &source_path,
-            symbols: &symbols,
-            origins: &origins,
-            active_item_tree: &active_item_tree,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            lowered: &lowered,
-            signatures: BodyLocalSignatures::from_item_signatures(&signatures),
-            const_signatures: &signatures,
-            normalization: &normalization,
-            seed: None,
-            target: &target,
-            const_eval,
-            const_module: &const_module.module,
-            layouts: &layouts,
-            extensions: &VisibleExtensionMethods::default(),
-            lazy_extensions: None,
-            program_extension_methods: &nia_defs::ExtensionMethods::default(),
-            program: BodyProgramContext::empty(),
-            program_signatures: program_signatures.context(),
-            function_scope: FunctionCheckScope::LocalModule,
-            program_const: ProgramConstMaps::empty(),
-            filter: crate::BodyCheckFilter::All,
-            product: crate::BodyCheckProduct::Full,
-            prechecked: None,
-        },
-        &mut const_interner,
-    );
+    let body_input = BodyCheckInput {
+        type_store: &type_store,
+        source_version: Some(version),
+        source_path: &source_path,
+        symbols: &symbols,
+        origins: &origins,
+        active_item_tree: &active_item_tree,
+        defs: &defs,
+        values: &values,
+        locals: &locals,
+        semantic_uses: &semantic_uses,
+        lowered: &lowered,
+        signatures: BodyLocalSignatures::from_item_signatures(&signatures),
+        const_signatures: &signatures,
+        normalization: &normalization,
+        seed: None,
+        target: &target,
+        const_eval,
+        const_module: &const_module.module,
+        layouts: &layouts,
+        extensions: &VisibleExtensionMethods::default(),
+        lazy_extensions: None,
+        program_extension_methods: &nia_defs::ExtensionMethods::default(),
+        program: BodyProgramContext::empty(),
+        program_signatures: program_signatures.context(),
+        function_scope: FunctionCheckScope::LocalModule,
+        program_const: ProgramConstMaps::empty(),
+        filter: crate::BodyCheckFilter::All,
+        product: crate::BodyCheckProduct::Full,
+        prechecked: None,
+    };
+    let checked = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+        check_module_bodies_with_program_signatures_and_layouts(body_input, interner)
+    });
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(checked.facts.iter_node_expr_types().next().is_some());
@@ -277,76 +281,80 @@ fn main() i32 {
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext::empty(),
     };
-    let mut const_interner = lowered.interner.clone();
-    let const_array_lengths =
-        nia_const_check::compute_module_const_array_lengths(const_input, &mut const_interner);
-    let const_enum_values = nia_const_check::compute_module_const_enum_values(
-        const_input,
-        &mut const_interner,
-        const_array_lengths.clone(),
-    );
-    let const_values = nia_const_check::compute_module_const_values(
-        const_input,
-        &mut const_interner,
-        const_array_lengths.clone(),
-        const_enum_values.clone(),
-    );
-    let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
-        const_input,
-        &mut const_interner,
-        const_array_lengths.clone(),
-        const_enum_values,
-        const_values.clone(),
-    );
+    let (const_array_lengths, const_values, const_typed_facts) = type_store
+        .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+            let const_array_lengths =
+                nia_const_check::compute_module_const_array_lengths(const_input, interner);
+            let const_enum_values = nia_const_check::compute_module_const_enum_values(
+                const_input,
+                interner,
+                const_array_lengths.clone(),
+            );
+            let const_values = nia_const_check::compute_module_const_values(
+                const_input,
+                interner,
+                const_array_lengths.clone(),
+                const_enum_values.clone(),
+            );
+            let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
+                const_input,
+                interner,
+                const_array_lengths.clone(),
+                const_enum_values,
+                const_values.clone(),
+            );
+            (const_array_lengths, const_values, const_typed_facts)
+        });
     let const_eval =
         crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    let mut layout_interner = lowered.interner.clone();
-    let layouts = nia_layout::compute_layouts(
-        &type_store,
-        &defs,
-        &mut layout_interner,
-        &signatures,
-        nia_layout::TargetDataLayout::LP64,
-    );
+    let layouts = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+        nia_layout::compute_layouts(
+            &type_store,
+            &defs,
+            interner,
+            &signatures,
+            nia_layout::TargetDataLayout::LP64,
+        )
+    });
     let program_signatures = EmptyBodyProgramSignatures::new();
-    let checked = check_module_bodies_with_program_signatures_and_layouts(
-        BodyCheckInput {
-            type_store: &type_store,
-            source_version: Some(version),
-            source_path: &source_path,
-            symbols: &symbols,
-            origins: &origins,
-            active_item_tree: &active_item_tree,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            lowered: &lowered,
-            signatures: BodyLocalSignatures::from_item_signatures(&signatures),
-            const_signatures: &signatures,
-            normalization: &normalization,
-            seed: None,
-            target: &target,
-            const_eval,
-            const_module: &const_module.module,
-            layouts: &layouts,
-            extensions: &VisibleExtensionMethods::default(),
-            lazy_extensions: None,
-            program_extension_methods: &nia_defs::ExtensionMethods::default(),
-            program: BodyProgramContext::empty(),
-            program_signatures: program_signatures.context(),
-            function_scope: FunctionCheckScope::LocalModule,
-            program_const: ProgramConstMaps::empty(),
-            filter: crate::BodyCheckFilter::All,
-            product: crate::BodyCheckProduct::Full,
-            prechecked: None,
-        },
-        &mut const_interner,
-    );
+    let body_input = BodyCheckInput {
+        type_store: &type_store,
+        source_version: Some(version),
+        source_path: &source_path,
+        symbols: &symbols,
+        origins: &origins,
+        active_item_tree: &active_item_tree,
+        defs: &defs,
+        values: &values,
+        locals: &locals,
+        semantic_uses: &semantic_uses,
+        lowered: &lowered,
+        signatures: BodyLocalSignatures::from_item_signatures(&signatures),
+        const_signatures: &signatures,
+        normalization: &normalization,
+        seed: None,
+        target: &target,
+        const_eval,
+        const_module: &const_module.module,
+        layouts: &layouts,
+        extensions: &VisibleExtensionMethods::default(),
+        lazy_extensions: None,
+        program_extension_methods: &nia_defs::ExtensionMethods::default(),
+        program: BodyProgramContext::empty(),
+        program_signatures: program_signatures.context(),
+        function_scope: FunctionCheckScope::LocalModule,
+        program_const: ProgramConstMaps::empty(),
+        filter: crate::BodyCheckFilter::All,
+        product: crate::BodyCheckProduct::Full,
+        prechecked: None,
+    };
+    let checked = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+        check_module_bodies_with_program_signatures_and_layouts(body_input, interner)
+    });
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(checked.facts.iter_node_expr_types().any(|(key, _)| {

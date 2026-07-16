@@ -28,9 +28,9 @@ fn sym(text: &str) -> SymbolId {
 }
 
 struct CheckedFixture {
+    type_store: TypeStore,
     defs: DefCollection,
     locals: LocalResolution,
-    lowered: TypeLowering,
     const_module: ConstModuleLowering,
     checked: ConstCheck,
 }
@@ -75,31 +75,28 @@ fn check_source(source: &str) -> CheckedFixture {
         const_exprs: &lowered.const_exprs,
         source_path: &source_path,
     });
-    let mut const_interner = lowered.interner.clone();
-    let checked = check_module_const(
-        ConstInput {
-            module: &const_module.module,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            semantic_uses: &semantic_uses,
-            symbols: &symbols,
-            lowered: &lowered,
-            signatures: &signatures,
-            type_store: &type_store,
-            normalized: &HashMap::new(),
-            target: &target,
-            source_path: &source_path,
-            program: ConstProgramContext::empty(),
-        },
-        &mut const_interner,
-    );
-    assert_eq!(lowered.interner.interner_id(), const_interner.interner_id());
-    assert!(lowered.interner.is_prefix_of(&const_interner));
+    let input = ConstInput {
+        module: &const_module.module,
+        defs: &defs,
+        values: &values,
+        locals: &locals,
+        semantic_uses: &semantic_uses,
+        symbols: &symbols,
+        lowered: &lowered,
+        signatures: &signatures,
+        type_store: &type_store,
+        normalized: &HashMap::new(),
+        target: &target,
+        source_path: &source_path,
+        program: ConstProgramContext::empty(),
+    };
+    let checked = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+        check_module_const(input, interner)
+    });
     CheckedFixture {
+        type_store,
         defs,
         locals,
-        lowered,
         const_module,
         checked,
     }
@@ -177,7 +174,10 @@ xs[0]
         "{:?}",
         fixture.checked.diagnostics
     );
-    let usize_ty = fixture.lowered.interner.primitive(PrimitiveTy::Usize);
+    let usize_ty = fixture
+        .type_store
+        .append_for_module(ModuleId(0))
+        .intern(TyKind::Primitive(PrimitiveTy::Usize));
     let width_def = fixture
         .defs
         .module_scope
@@ -260,7 +260,10 @@ fail = 2,
         "{:?}",
         fixture.checked.diagnostics
     );
-    let u8_ty = fixture.lowered.interner.primitive(PrimitiveTy::U8);
+    let u8_ty = fixture
+        .type_store
+        .append_for_module(ModuleId(0))
+        .intern(TyKind::Primitive(PrimitiveTy::U8));
     let variants = fixture
         .defs
         .defs
@@ -274,10 +277,7 @@ fail = 2,
             .expect("typed enum variant value");
         assert_eq!(typed.ty, ConstValueType::Runtime(u8_ty));
         assert!(matches!(
-            typed
-                .ty
-                .runtime()
-                .and_then(|ty| fixture.lowered.interner.get(ty)),
+            typed.ty.runtime().and_then(|ty| fixture.type_store.get(ty)),
             Some(TyKind::Primitive(PrimitiveTy::U8))
         ));
     }

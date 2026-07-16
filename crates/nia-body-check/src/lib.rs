@@ -531,14 +531,16 @@ pub fn check_module_bodies(
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    let mut layout_interner = lowered.interner.clone();
-    let layouts = nia_layout::compute_layouts(
-        type_store,
-        defs,
-        &mut layout_interner,
-        signatures,
-        nia_layout::TargetDataLayout::LP64,
-    );
+    let layouts =
+        type_store.with_module_interner_for_semantic_migration(defs.module_id, |interner| {
+            nia_layout::compute_layouts(
+                type_store,
+                defs,
+                interner,
+                signatures,
+                nia_layout::TargetDataLayout::LP64,
+            )
+        });
     let empty_const_module = ResolvedConstModule::default();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_program_extension_methods = ExtensionMethods::default();
@@ -594,12 +596,14 @@ pub fn check_module_bodies(
         product: BodyCheckProduct::Full,
         prechecked: None,
     };
-    let mut interner = lowered.interner.clone();
-    let mut checked = check_module_bodies_with_program_signatures_and_layouts_with_timings(
-        input,
-        &mut interner,
-        nia_timing::TimingMode::Off,
-    );
+    let mut checked =
+        type_store.with_module_interner_for_semantic_migration(defs.module_id, |interner| {
+            check_module_bodies_with_program_signatures_and_layouts_with_timings(
+                input,
+                interner,
+                nia_timing::TimingMode::Off,
+            )
+        });
     checked.diagnostics.extend(layouts.diagnostics);
     checked
 }
@@ -745,10 +749,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
     let module_id = input.defs.module_id;
     let prechecked = input.prechecked;
     let seed = input.seed;
-    assert!(
-        input.lowered.interner.is_prefix_of(interner),
-        "Nia ICE: body input is not a prefix of its session type store"
-    );
     if let Some(seed) = seed {
         assert!(
             seed.interner.is_prefix_of(interner),

@@ -133,14 +133,7 @@ pub fn check_module_const(input: ConstInput<'_>, interner: &mut TyInterner) -> C
         enum_values.clone(),
         values.clone(),
     );
-    check_module_const_with_all_phases(
-        input,
-        interner,
-        array_lengths,
-        enum_values,
-        values,
-        typed_facts,
-    )
+    check_module_const_with_all_phases(array_lengths, enum_values, values, typed_facts)
 }
 
 pub fn compute_module_const_array_lengths(
@@ -195,14 +188,7 @@ pub fn check_module_const_with_phases(
         enum_values.clone(),
         values.clone(),
     );
-    check_module_const_with_all_phases(
-        input,
-        interner,
-        array_lengths,
-        enum_values,
-        values,
-        typed_facts,
-    )
+    check_module_const_with_all_phases(array_lengths, enum_values, values, typed_facts)
 }
 
 pub fn compute_module_const_values(
@@ -225,17 +211,11 @@ pub fn compute_module_const_values(
 }
 
 pub fn check_module_const_with_all_phases(
-    input: ConstInput<'_>,
-    interner: &mut TyInterner,
     array_lengths: ConstArrayLengths,
     enum_values: ConstEnumValues,
     values: ConstValues,
     typed_facts: ConstTypedFacts,
 ) -> ConstCheck {
-    assert!(
-        input.lowered.interner.is_prefix_of(interner),
-        "Nia ICE: const session interner is not an append-only extension of its input"
-    );
     ConstCheck {
         values: values.values,
         typed_values: typed_facts.typed_values,
@@ -382,10 +362,6 @@ impl Analyzer<'_> {
     }
 
     fn new<'a>(input: ConstInput<'a>, local_interner: &'a mut TyInterner) -> Analyzer<'a> {
-        assert!(
-            input.lowered.interner.is_prefix_of(local_interner),
-            "Nia ICE: const type context is not an append-only extension of its input"
-        );
         Analyzer {
             input,
             values: HashMap::new(),

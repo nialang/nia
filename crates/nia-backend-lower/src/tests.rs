@@ -255,7 +255,7 @@ fn lower_source_with_body_mutation_and_optimization(
     lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
         source,
         mutate_body,
-        |_, _, _, _| {},
+        |_, _, _, _, _| {},
         |_, _| {},
         optimization,
     )
@@ -270,7 +270,7 @@ fn lower_source_with_body_mutation_const_mutation_and_optimization(
     lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
         source,
         mutate_body,
-        |_, _, _, _| {},
+        |_, _, _, _, _| {},
         mutate_const,
         optimization,
     )
@@ -282,6 +282,7 @@ fn lower_source_with_body_mutation_extensions_const_mutation_and_optimization(
     mutate_extensions: impl FnOnce(
         &mut VisibleExtensionMethods,
         &nia_defs::DefCollection,
+        &nia_ty::TypeStore,
         &TypeLowering,
         &ItemSignatures,
     ),
@@ -304,6 +305,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     mutate_extensions: impl FnOnce(
         &mut VisibleExtensionMethods,
         &nia_defs::DefCollection,
+        &nia_ty::TypeStore,
         &TypeLowering,
         &ItemSignatures,
     ),
@@ -435,7 +437,13 @@ fn lower_source_with_body_check_mutation_and_optimization(
         &const_typed_facts,
     );
     let mut extensions = VisibleExtensionMethods::default();
-    mutate_extensions(&mut extensions, &defs, &type_lowering, &signatures);
+    mutate_extensions(
+        &mut extensions,
+        &defs,
+        &type_store,
+        &type_lowering,
+        &signatures,
+    );
     let origins = NodeOriginTable::default();
     let program_signatures = EmptyBodyProgramSignatures::new();
     let mut body_check =
@@ -604,27 +612,32 @@ fn global_def_id_by_name(defs: &nia_defs::DefCollection, name: &str) -> GlobalDe
         .unwrap_or_else(|| panic!("missing def `{name}`"))
 }
 
-fn nominal_type_by_def(interner: &nia_ty::TyInterner, target: GlobalDefId) -> InternedTyId {
-    nominal_type_by_def_with_args(interner, target, &[])
+fn nominal_type_by_def(
+    type_store: &nia_ty::TypeStore,
+    lowering: &TypeLowering,
+    target: GlobalDefId,
+) -> InternedTyId {
+    nominal_type_by_def_with_args(type_store, lowering, target, &[])
 }
 
 fn nominal_type_by_def_with_args(
-    interner: &nia_ty::TyInterner,
+    type_store: &nia_ty::TypeStore,
+    lowering: &TypeLowering,
     target: GlobalDefId,
     target_args: &[InternedTyId],
 ) -> InternedTyId {
-    interner
-        .iter()
-        .find_map(|(ty, kind)| {
+    lowering
+        .explicit_type_roots()
+        .into_iter()
+        .find(|ty| {
             matches!(
-                kind,
-                nia_ty::TyKind::Nominal {
+                type_store.get(*ty),
+                Some(nia_ty::TyKind::Nominal {
                     def_id,
                     args,
                     ..
-                } if *def_id == target && args == target_args
+                }) if *def_id == target && args == target_args
             )
-            .then_some(ty)
         })
         .unwrap_or_else(|| panic!("missing nominal type {target:?} with args {target_args:?}"))
 }

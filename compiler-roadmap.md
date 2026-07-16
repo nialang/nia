@@ -6,7 +6,7 @@
 >
 > 结论强度标记：**确认**表示可直接由当前源码或实测得到；**推断**表示有明确结构证据、但仍需专项 profiling 验证比例；**建议**表示目标架构判断
 
-## 当前执行状态（2026-07-16）
+## 当前执行状态（2026-07-17）
 
 本文件使用 `compiler-roadmap.md`，而不是 `plan.md` 或 `task.md`：它同时包含长期架构审查、目标模型、阶段路线图和滚动验证记录，不是一次维护任务，也不是执行完即可删除的短期计划。
 
@@ -15,7 +15,7 @@
 | 阶段 | 当前估算 | 判断 |
 |---|---:|---|
 | A 基线与防回归 | 约 80% | 六 workload、machine-readable 指标、allocator/query/LLVM counters 与同机 guard 已完成；可运行 LLVM suite 的 CI 和 main-branch trend storage 未完成。 |
-| B semantic context / 类型身份 | 约 85–90% | session-wide canonical `TypeStore`、直接 handle 比较、backend/product/normalization 去 snapshot、显式 normalization/layout roots 与全仓 recursive import 删除已完成；`TypeLowering` 和临时 append ownership 仍依赖 module view，stable key、`TypeOrigin`、`TyInternerId` 与 migration checkout 尚未删除。 |
+| B semantic context / 类型身份 | 约 90–95% | session-wide canonical `TypeStore`、直接 handle 比较、backend/product/normalization/type-lowering 去 snapshot、显式 roots 与全仓 recursive import 删除已完成；剩余临时 mutable-interner 算法、module visibility log、`TypeOrigin`、`TyInternerId` 与 migration checkout 尚未删除。 |
 | C query value/storage | 约 5% | clone/bytes instrumentation 已提供测量基础，但 `Value: Clone`、`query`/`query_shared` 双入口、aggregate product 与 cache ownership 契约尚未重构；当前仍有大量 `query_shared` 调用。 |
 | D 统一依赖图 | 约 5% | 已有 typed query 和若干 fact index，但 loader/compiler/driver/reachability 仍未共享一个 revisioned fact graph，`module_graph_state` 与多层 fixed point 尚在。 |
 | E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；`query_many` 仍创建临时 OS 线程，`NIA_QUERY_THREADS`、持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
@@ -24,9 +24,9 @@
 | H 持久 frontend incremental | 约 0–5% | 只有局部 artifact cache 和进程内 query 复用，不具备 stable module/def key、序列化 dep graph 与持久 frontend product。 |
 | I 错误、诊断与工程重组 | 约 10% | 已删除一批旧 API 并强化部分诊断边界；panic-based query flow、diagnostic store、data-driven harness、测试 permit 和 crate/巨型文件重组均未系统推进。 |
 
-综合判断：**Phase B 已进入收尾，但整份路线图只完成约 25–30%；A–E 的 P0 基础约完成 35–40%。** 当前投入看起来集中且进展很大，是因为完成的主要是最先阻塞后续工作的类型身份主线；C、D、E 以及 F–H 仍是独立的大型工程，不能按 Phase B 的提交密度外推为“路线图已过半”。
+综合判断：**Phase B 已进入最后的 view-layer 删除阶段，但整份路线图只完成约 25–30%；A–E 的 P0 基础约完成 35–40%。** 当前投入看起来集中且进展很大，是因为完成的主要是最先阻塞后续工作的类型身份主线；C、D、E 以及 F–H 仍是独立的大型工程，不能按 Phase B 的提交密度外推为“路线图已过半”。
 
-最近的临界路径是先完成 Phase B 的 type-lowering/append-view 删除，再进入 Phase C 的 query storage 契约；如果不先消除默认深拷贝和双查询入口，就不应提前扩张持久增量或 CGU cache。
+最近的临界路径是删除 Phase B 剩余的 temporary mutable-interner/module-view 实现，再进入 Phase C 的 query storage 契约；如果不先消除默认深拷贝和双查询入口，就不应提前扩张持久增量或 CGU cache。
 
 ## 1. 范围、版本与方法
 
@@ -47,7 +47,7 @@ Nia 当前的主要瓶颈不是某个慢 pass，也不是“查询数量太多�
 
 四个问题互相强化：
 
-1. **会话级类型身份已经统一，但 view 层尚未完成退场。** `InternedTyId` 已是 session-wide 8-byte handle，跨 interner recursive import、paired product、normalization snapshot 与 layout full-scan 已删除；`TypeLowering` 和少数 append ownership 仍依赖 module `TyInterner` visibility log、snapshot 和 migration transaction。
+1. **会话级类型身份与 semantic product 已统一，但 append 实现层尚未完成退场。** `InternedTyId` 已是 session-wide 8-byte handle，跨 interner recursive import、paired product、normalization/type-lowering snapshot 与 layout full-scan 已删除；少数 mutable algorithms 仍通过 module `TyInterner` visibility log 和 migration transaction 追加类型。
 2. **查询存储契约鼓励复制。** `QueryKey::Value: Clone` 是通用约束，普通 cache hit 深拷贝值；大产品又常由完整 module/program aggregate 承载。细粒度查询因此没有自动带来细粒度数据流。
 3. **依赖图和 fixed point 分裂。** loader query DB、compiler query DB、driver 的 provider discovery 循环、reachability 自己的 fixed point 分别维护“什么依赖什么”。统一增量正确性只能靠多层同步约定维持。
 4. **真实工作单元没有进入统一调度器。** `query_many` 临时创建 OS 线程，而 backend lowering、LLVM module codegen 等关键重任务仍主要串行；没有持久 worker pool、jobserver、任务权重、内存预算和 codegen queue。
@@ -56,7 +56,7 @@ Nia 当前的主要瓶颈不是某个慢 pass，也不是“查询数量太多�
 
 - 冷 `check` 已有 7 秒级耗时和约 490 MiB RSS；
 - 70,000 级 query slot/dependency 访问，却只有接近单核的 CPU 利用率；
-- 剩余 type-lowering/append interner view 和 migration transaction 仍会扩大回归面；
+- 剩余 append interner view 和 migration transaction 仍会扩大回归面；
 - provider、type alias、resolver 等 API 容易出现新旧双轨或大量 callback/context glue；
 - 64 个 crate 并没有消除巨型实现文件，反而增加依赖扇出和跨边界 DTO；
 - 测试已能原样 `cargo test`，但仍依赖侵入各测试入口的全局 permit，在 harness 层补偿单次编译的高 RSS 与内部调度缺失。
@@ -69,7 +69,7 @@ Nia 不应回到 Kern 的粗粒度全量流水线，也不应继续在当前基�
 
 | 优先级 | 结论 | 当前后果 | 目标 |
 |---|---|---|---|
-| P0 | session type identity 已统一，但旧 view/migration 层尚未删除 | type lower/temporary append 仍携带 snapshot、`TypeOrigin` 与 module-log 约束 | canonical store + explicit append/root set；删除 view、origin 与 migration API |
+| P0 | session type identity 与 type-lowering product 已统一，但旧 view/migration 实现层尚未删除 | temporary append 仍受 `TypeOrigin`、module-log 与 checkout 约束 | canonical store + explicit append capability；删除 view、origin 与 migration API |
 | P0 | query 默认 owned clone | cache hit 复制大型产品；首次存储也复制；API 被 `Clone` 反向塑形 | 默认 shared/arena handle；显式 owned extraction 只用于少数消费端 |
 | P0 | loader/compiler/driver/reachability 有多套依赖收敛 | 重复分析、手写失效传播、正确性由同步约定维持 | 单一依赖引擎或至少单一事实注册表与统一 revision |
 | P0 | `query_many` 不是调度系统 | 临时线程、嵌套并行失控、重任务仍串行 | 长寿命 worker pool、jobserver、任务预算、backpressure |
@@ -288,19 +288,18 @@ Nia 应采用一个单一模型，而不是并列的“typed query 系统”和�
 
 ## 7. 类型、符号、ID 与内存模型
 
-### 7.1 Session-wide 类型身份已建立，module view 仍是当前迁移债务
+### 7.1 Session-wide 类型身份与 semantic product 已建立，module view 仅剩追加债务
 
 Phase B 开始前，`InternedTyId` 包含 `TyInternerId + TyInternerIndex`，同一结构类型在不同 module interner 中可以有不同 ID，且解释 handle 必须同时携带对应快照。当前实现已经把 identity model 收敛为 `TypeStoreId + global slot`：handle 恰好 8 bytes，不再包含 module/interner identity；共享 canonical core 对 `TyKind` 做 session-wide canonicalization，因此不同模块 intern 的同一 primitive 或 structural type 直接得到同一 ID，不同 compiler session 则仍由 store identity 隔离。
 
-module `TyInterner` 现在只是共享 core 上的 append-only visibility log，保留 prefix/snapshot 语义供尚未迁移的 type-lowering 与临时 append 边界使用。recursive import 已整体删除，同 session handle 由 canonical store 直接解释；normalization 和 layout 也已改用显式、确定序的 semantic roots，不再扫描 view 发现输入。`TypeOrigin` 只是首次 canonical insert 发生在哪个 view 的物理记录：对于 primitive 和共享结构类型，这个模块是执行顺序决定的，不能承担相等性、可见性、reachability、mangling 或依赖语义。
+module `TyInterner` 现在只是共享 core 上的 append-only visibility log，prefix/snapshot 已不再作为 type-lowering 或其他 semantic product 的契约，只为尚未迁移的 mutable append 算法与测试迁移工具保留。recursive import 已整体删除，同 session handle 由 canonical store 直接解释；normalization 和 layout 也已改用显式、确定序的 semantic roots，不再扫描 view 发现输入。`TypeOrigin` 只是首次 canonical insert 发生在哪个 view 的物理记录：对于 primitive 和共享结构类型，这个模块是执行顺序决定的，不能承担相等性、可见性、reachability、mangling 或依赖语义。
 
 当前仍存在的主要过渡结构是：
 
-- `TypeLowering.interner` 仍作为 prefix 基线和 legacy append view 随产品传播；
-- compiler-query 中的 `module_snapshot`、module transaction/checkout 与同 shard prefix 断言；
+- compiler-query 与测试中的 `module_snapshot`、module transaction/checkout；
 - const、trait、program-signature comparison 等少数路径为旧 mutable-interner 算法构造临时 append view，但读取已固定走 canonical store。
 
-因此当前债务已经不是“双重 type identity”、双重读取源或隐式 root enumeration，而是 canonical identity 上仍残留一套用于 type-lowering 产品和追加 ownership 的 module visibility log。下一步必须让 type lowering 自身只产出 semantic facts，并把剩余 mutable-interner 算法改为独立 append capability；随后删除 snapshot/checkout migration API、`TypeOrigin`、`TyInternerId` 和 view 层，不能把 module view 固化成第二套公开 API。
+`TypeLowering` 现在只包含 source-addressable type facts、const expressions 与 diagnostics；所有会内部创建孤立 `TypeStore` 的 convenience 入口已删除，调用者必须显式提供 `TypeLoweringContext`。ABI、flow 与 item-signature collection 读取唯一 session store，signature collector 的合成类型通过短生命周期 append capability 发布，并拒绝来自其他 store 的 lowering handle。当前债务因此已经不是“双重 type identity”、双重读取源、隐式 root enumeration 或 product snapshot，而只是 canonical identity 上仍残留一套追加实现用 module visibility log。下一步应把剩余 mutable-interner 算法改为独立 append capability，随后删除 snapshot/checkout migration API、`TypeOrigin`、`TyInternerId` 和 view 层，不能把 module view 固化成第二套公开 API。
 
 ### 7.2 Rust 与 Zig 的差异
 
@@ -1018,6 +1017,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 进展（2026-07-16）：normalization 产品的最后一个 type view 已删除。`TypeNormalization` 现在只包含 `TyId -> normalized TyId` facts 与 diagnostics；唯一 `normalize_module_types(TypeNormalizationInput)` 入口显式区分 canonical `TypeStore` 读取、mutable append target 和本次 lowering 的 input roots，算法内部不再通过 interner 解释任何 handle，也没有旧参数入口或 compatibility facade。所有 production、standalone 与测试调用点已原子迁移；query/const/body/layout 的 prefix assertion 改为比较真实 `TypeLowering` 与 session shard，layout-root 和 comparison 等尚未迁移的 append 场景直接从 store 取得短生命周期 module view，不再借 normalization DTO 携带 snapshot。进一步沿根部删除了 `ConstInput.interner` 与 `TypedConstQueryInput.base_interner`：const 的读取固定走 store，local prefix 基线来自 lowering，primitive fallback 走 `TypeStoreAppend`，foreign append context 从 store 临时取得；为构造 normalization snapshot 而存在的 test/helper locals 与参数链也全部删除。normalization 测试使用同一个 `TypeStore` fixture，并只从 store 断言 alias expansion、layout builtin 和显式 root 行为；compiler-query 回归改为验证 normalized handles 已发布到 canonical/session store，而不再验证 DTO interner identity。8 个受影响 crate 的 364 项定向测试、`cargo check --workspace --all-targets`、严格 workspace/all-targets/all-features Clippy，以及无环境变量、无线程参数的原样 `cargo test` 全部通过；CLI commands 50 项自然并发约 239.92 秒完成，WSL 未 OOM 或退出。Phase B 现约完成 85%，下一切片只应继续消除 `TypeLowering.interner`、layout full-scan/root enumeration 和 temporary append-view ownership，最终删除 module visibility log、snapshot/checkout migration API、`TypeOrigin` 与 `TyInternerId`；不能把纯 normalization facts 再扩展成 storage/view 产品。
 
 进展（2026-07-16）：normalization 与 layout 的输入发现已从 module visibility log 分离。`TypeLowering::explicit_type_roots` 从 source-addressable type-use facts 生成确定序、去重的 roots，所有 frontend/standalone normalization 调用只处理这些 roots，不再通过 `interner.iter()` 把整个 module log 当语义输入。`ItemSignatures::type_roots` 同样显式覆盖 function/generic/where/aggregate/trait/impl/enum/alias/global/const signature handles；`LayoutComputer` 的普通计算从 signature 与 source type-use roots 递归布局，并继续显式计算本模块非泛型 struct/union，删除了会在 append 过程中反复复制并扫描完整 interner 的 full-scan loop。精确 executable/signature layout 保留已有的 `LayoutRoots`，不退化为全模块扫描。新增 root 参数使旧 `compute_layouts_with_normalized_types` 超过 Clippy 的合理参数边界后，该 convenience API 被整体删除，所有调用统一使用 `LayoutComputationInput`，没有 allow 或 overload。第一次原样全测准确暴露出只出现在 const `@size/@align` operand 或 imported source type-use 中的六个 roots 没有进入普通 module layout；修复让 const builtin 把实际 operand 显式加入单次 layout 请求，并让 module provider 合并 signature 与 lowering roots，没有恢复 view scan。normalization/backend/query 211 项首轮定向测试、layout/const/body/query 261 项串联测试、相关 const aggregate/layout-builtin 回归与 driver 484 项均通过；`cargo check --workspace --all-targets`、严格 workspace/all-targets/all-features Clippy，以及无参数、无环境变量的原样 `cargo test` 最终全部通过，CLI commands 50 项约 241.29 秒完成，WSL 未 OOM 或退出。Phase B 现约完成 85–90%；剩余根部是让 `TypeLowering` 不再携带 `TyInterner`，把 prefix/temporary append ownership 改为 store capability，随后删除 module visibility log、snapshot/checkout migration API、`TypeOrigin` 与 `TyInternerId`。
+
+进展（2026-07-17）：type-lowering 与检查器的最后一批 product view 已删除。`TypeLowering` 不再携带 `TyInterner`，只发布 source-addressable type facts、const expressions 与 diagnostics；所有会内部创建孤立 store 的 `lower_module_types*` convenience/with-defs 入口整体删除，唯一入口族要求显式 `TypeLoweringContext`。compiler-query 的 normalization/layout/const/body/codegen provider 不再用 lowering snapshot 做 prefix 证明，store transaction 本身成为 append ownership contract；standalone 与测试 pipeline 也改为从同一个 `TypeStore` checkout，而不是 clone lowering view。ABI 与 flow check 只读取 canonical store，ABI 的 function/type/value 三份 interner 字段删除；item signatures 的六个旧入口收敛为单一 `ItemSignatureInput`，collector 验证 lowering handle 的 store identity，并通过短生命周期 `TypeStoreAppend` 合成 builtin/primitive/error 类型，没有 overload 或 compatibility facade。纯汇总的 `check_module_const_with_all_phases` 同时删除了无效 mutable-interner/input 参数。两次独立提交分别完成 checking view 与 signature ownership；393 项定向测试、workspace all-targets check、严格 all-targets/all-features Clippy，以及无环境变量、无线程参数的原样 `cargo test` 全部通过；CLI commands 50 项自然并发 242.03 秒完成，filesystem/process/allocator/ArrayList/LLVM/driver/doc tests 均通过，WSL 未 OOM 或退出。Phase B 现约完成 90–95%；剩余工作不再是 semantic product 迁移，而是把仍接收 `&mut TyInterner` 的临时算法改为 canonical append capability，随后删除 module visibility log、snapshot/checkout migration API、`TypeOrigin` 与 `TyInternerId`。
 
 ### 阶段 C（P0）：重做 query value/storage 契约
 

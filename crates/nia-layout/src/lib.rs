@@ -1548,25 +1548,24 @@ mod tests {
             "{:?}",
             const_module.diagnostics
         );
-        let mut const_interner = lowered.interner.clone();
-        check_module_const(
-            ConstInput {
-                type_store,
-                module: &const_module.module,
-                defs,
-                values: &values,
-                locals: &locals,
-                semantic_uses: &semantic_uses,
-                symbols,
-                lowered,
-                signatures,
-                normalized: &HashMap::new(),
-                target: &target,
-                source_path: &source_path,
-                program: ConstProgramContext::empty(),
-            },
-            &mut const_interner,
-        )
+        let input = ConstInput {
+            type_store,
+            module: &const_module.module,
+            defs,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            symbols,
+            lowered,
+            signatures,
+            normalized: &HashMap::new(),
+            target: &target,
+            source_path: &source_path,
+            program: ConstProgramContext::empty(),
+        };
+        type_store.with_module_interner_for_semantic_migration(defs.module_id, |interner| {
+            check_module_const(input, interner)
+        })
     }
 
     fn lower_test_module(
@@ -1679,15 +1678,16 @@ fn main(p: &Pair, xs: [3]u16) {}
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
+        let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
+        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
-            interner: &mut lowered.interner,
+            interner: &mut interner,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &HashMap::new(),
@@ -1699,15 +1699,15 @@ fn main(p: &Pair, xs: [3]u16) {}
         assert_eq!(
             layouts
                 .types
-                .get(&lowered.interner.primitive(PrimitiveTy::U8))
+                .get(&interner.primitive(PrimitiveTy::U8))
                 .expect("u8 layout"),
             &TypeLayout { size: 1, align: 1 }
         );
-        assert!(lowered.interner.iter().any(|(ty_id, ty)| {
+        assert!(interner.iter().any(|(ty_id, ty)| {
             matches!(ty, TyKind::Pointer { .. })
                 && layouts.types.get(&ty_id) == Some(&TypeLayout { size: 8, align: 8 })
         }));
-        assert!(lowered.interner.iter().any(|(ty_id, ty)| {
+        assert!(interner.iter().any(|(ty_id, ty)| {
             matches!(ty, TyKind::Array { .. })
                 && layouts.types.get(&ty_id) == Some(&TypeLayout { size: 6, align: 2 })
         }));
@@ -1732,15 +1732,16 @@ fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8)
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
+        let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
+        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
-            interner: &mut lowered.interner,
+            interner: &mut interner,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &HashMap::new(),
@@ -1749,7 +1750,7 @@ fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8)
             program: ProgramLayoutContext::default(),
         });
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
-        assert!(lowered.interner.iter().any(|(ty_id, ty)| {
+        assert!(interner.iter().any(|(ty_id, ty)| {
             matches!(
                 ty,
                 TyKind::Array {
@@ -1758,7 +1759,7 @@ fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8)
                 } if *builtin == LayoutBuiltin::Size
             ) && layouts.types.get(&ty_id) == Some(&TypeLayout { size: 8, align: 1 })
         }));
-        assert!(lowered.interner.iter().any(|(ty_id, ty)| {
+        assert!(interner.iter().any(|(ty_id, ty)| {
             matches!(
                 ty,
                 TyKind::Array {
@@ -1787,16 +1788,17 @@ fn main(buf: Buffer[u8, 4]) {}
             "{:?}",
             resolved.diagnostics
         );
-        let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
+        let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
+        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
-            interner: &mut lowered.interner,
+            interner: &mut interner,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &HashMap::new(),
@@ -1824,15 +1826,16 @@ fn main(value: Empty) {}
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
+        let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
+        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
-            interner: &mut lowered.interner,
+            interner: &mut interner,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &HashMap::new(),
@@ -1864,7 +1867,7 @@ struct Mixed {
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
+        let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let mixed_id = defs
             .module_scope
@@ -1875,10 +1878,11 @@ struct Mixed {
         let a_id = signature.fields[0].def_id;
         let b_id = signature.fields[1].def_id;
         let c_id = signature.fields[2].def_id;
+        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let layouts = compute_layouts(
             &type_store,
             &defs,
-            &mut lowered.interner,
+            &mut interner,
             &signatures,
             TargetDataLayout::LP64,
         );
@@ -1906,9 +1910,10 @@ fn main() {
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
+        let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
-        assert!(lowered.interner.iter().any(|(_, ty)| matches!(
+        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
+        assert!(interner.iter().any(|(_, ty)| matches!(
             ty,
             TyKind::Array {
                 len: ArrayLenTy::Infer,
@@ -1918,7 +1923,7 @@ fn main() {
         let layouts = compute_layouts(
             &type_store,
             &defs,
-            &mut lowered.interner,
+            &mut interner,
             &signatures,
             TargetDataLayout::LP64,
         );
@@ -1937,7 +1942,7 @@ extern struct CPair {
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
+        let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let cpair_id = defs
             .module_scope
@@ -1951,10 +1956,11 @@ extern struct CPair {
                 .expect("CPair signature")
                 .is_extern
         );
+        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let layouts = compute_layouts(
             &type_store,
             &defs,
-            &mut lowered.interner,
+            &mut interner,
             &signatures,
             TargetDataLayout::LP64,
         );
@@ -1978,15 +1984,16 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
+        let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
+        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
-            interner: &mut lowered.interner,
+            interner: &mut interner,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &HashMap::new(),
@@ -2004,7 +2011,7 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
             .struct_instances
             .get(&StructLayoutKey {
                 def_id: array_box_id,
-                args: vec![lowered.interner.primitive(PrimitiveTy::U8)],
+                args: vec![interner.primitive(PrimitiveTy::U8)],
                 const_args: Vec::new(),
             })
             .expect("ArrayBox[u8] layout");
@@ -2012,7 +2019,7 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
             .struct_instances
             .get(&StructLayoutKey {
                 def_id: array_box_id,
-                args: vec![lowered.interner.primitive(PrimitiveTy::I32)],
+                args: vec![interner.primitive(PrimitiveTy::I32)],
                 const_args: Vec::new(),
             })
             .expect("ArrayBox[i32] layout");
@@ -2034,12 +2041,13 @@ fn main(a: Bits[i32]) {}
         );
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
-        let (type_store, mut lowered) = lower_test_module(&module, &resolved, &defs);
+        let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
+        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let layouts = compute_layouts(
             &type_store,
             &defs,
-            &mut lowered.interner,
+            &mut interner,
             &signatures,
             TargetDataLayout::LP64,
         );
@@ -2049,7 +2057,7 @@ fn main(a: Bits[i32]) {}
             .union_instances
             .get(&StructLayoutKey {
                 def_id: bits_id,
-                args: vec![lowered.interner.primitive(PrimitiveTy::I32)],
+                args: vec![interner.primitive(PrimitiveTy::I32)],
                 const_args: Vec::new(),
             })
             .expect("Bits[i32] layout");
