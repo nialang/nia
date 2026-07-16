@@ -1,10 +1,32 @@
-# Nia 编译器架构深度审查：与 Rust、Zig 的实现对照
+# Nia 编译器架构审查与重构路线图
 
 > 审查日期：2026-07-14
 >
-> 性质：只读架构审查，不包含语言 feature 横向比较，也不包含本轮代码修改方案的实现
+> 性质：以 Rust/Zig/Kern 对照审查为基线，持续记录目标架构、分阶段重构计划与已验证进展；不比较语言 feature 数量
 >
 > 结论强度标记：**确认**表示可直接由当前源码或实测得到；**推断**表示有明确结构证据、但仍需专项 profiling 验证比例；**建议**表示目标架构判断
+
+## 当前执行状态（2026-07-16）
+
+本文件使用 `compiler-roadmap.md`，而不是 `plan.md` 或 `task.md`：它同时包含长期架构审查、目标模型、阶段路线图和滚动验证记录，不是一次维护任务，也不是执行完即可删除的短期计划。
+
+完成度按各阶段的 acceptance 和旧数据流是否真实删除估算，不按提交数量、代码行数或进展段落长度计算。百分比只表示当前决策尺度，避免把尚未建立的 CI、executor、持久增量或 work product 算成“已有基础所以接近完成”。
+
+| 阶段 | 当前估算 | 判断 |
+|---|---:|---|
+| A 基线与防回归 | 约 80% | 六 workload、machine-readable 指标、allocator/query/LLVM counters 与同机 guard 已完成；可运行 LLVM suite 的 CI 和 main-branch trend storage 未完成。 |
+| B semantic context / 类型身份 | 约 80–85% | session-wide canonical `TypeStore`、直接 handle 比较、backend/product 去 snapshot、全仓 recursive import 删除已完成；`TypeLowering`/`TypeNormalization` 仍携带 view，layout root 仍依赖 module log，stable key、`TypeOrigin`、`TyInternerId` 与 migration checkout 尚未删除。 |
+| C query value/storage | 约 5% | clone/bytes instrumentation 已提供测量基础，但 `Value: Clone`、`query`/`query_shared` 双入口、aggregate product 与 cache ownership 契约尚未重构；当前仍有大量 `query_shared` 调用。 |
+| D 统一依赖图 | 约 5% | 已有 typed query 和若干 fact index，但 loader/compiler/driver/reachability 仍未共享一个 revisioned fact graph，`module_graph_state` 与多层 fixed point 尚在。 |
+| E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；`query_many` 仍创建临时 OS 线程，`NIA_QUERY_THREADS`、持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
+| F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
+| G CGU / 异步 codegen / work products | 约 5% | 已有多 object 输出和 reuse 指标占位，但没有正式 CGU partition、codegen queue、frontend/LLVM overlap、CGU fingerprint 或 object work-product cache。 |
+| H 持久 frontend incremental | 约 0–5% | 只有局部 artifact cache 和进程内 query 复用，不具备 stable module/def key、序列化 dep graph 与持久 frontend product。 |
+| I 错误、诊断与工程重组 | 约 10% | 已删除一批旧 API 并强化部分诊断边界；panic-based query flow、diagnostic store、data-driven harness、测试 permit 和 crate/巨型文件重组均未系统推进。 |
+
+综合判断：**Phase B 已进入收尾，但整份路线图只完成约 25–30%；A–E 的 P0 基础约完成 35–40%。** 当前投入看起来集中且进展很大，是因为完成的主要是最先阻塞后续工作的类型身份主线；C、D、E 以及 F–H 仍是独立的大型工程，不能按 Phase B 的提交密度外推为“路线图已过半”。
+
+最近的临界路径是先完成 Phase B 的 normalization/type-lowering/view 删除，再进入 Phase C 的 query storage 契约；如果不先消除默认深拷贝和双查询入口，就不应提前扩张持久增量或 CGU cache。
 
 ## 1. 范围、版本与方法
 
@@ -25,7 +47,7 @@ Nia 当前的主要瓶颈不是某个慢 pass，也不是“查询数量太多�
 
 四个问题互相强化：
 
-1. **会话级类型身份已经统一，但旧视图数据流尚未删除。** `InternedTyId` 已是 session-wide 8-byte handle；module `TyInterner` 只剩可见性日志，部分阶段仍通过 snapshot、recursive import 和 paired interner 传递本可直接读取的类型。
+1. **会话级类型身份已经统一，但 view 层尚未完成退场。** `InternedTyId` 已是 session-wide 8-byte handle，跨 interner recursive import 和 paired product 已删除；`TypeLowering`、`TypeNormalization` 与 layout root enumeration 仍依赖 module `TyInterner` visibility log、snapshot 和 migration transaction。
 2. **查询存储契约鼓励复制。** `QueryKey::Value: Clone` 是通用约束，普通 cache hit 深拷贝值；大产品又常由完整 module/program aggregate 承载。细粒度查询因此没有自动带来细粒度数据流。
 3. **依赖图和 fixed point 分裂。** loader query DB、compiler query DB、driver 的 provider discovery 循环、reachability 自己的 fixed point 分别维护“什么依赖什么”。统一增量正确性只能靠多层同步约定维持。
 4. **真实工作单元没有进入统一调度器。** `query_many` 临时创建 OS 线程，而 backend lowering、LLVM module codegen 等关键重任务仍主要串行；没有持久 worker pool、jobserver、任务权重、内存预算和 codegen queue。
@@ -34,10 +56,10 @@ Nia 当前的主要瓶颈不是某个慢 pass，也不是“查询数量太多�
 
 - 冷 `check` 已有 7 秒级耗时和约 490 MiB RSS；
 - 70,000 级 query slot/dependency 访问，却只有接近单核的 CPU 利用率；
-- interner snapshot/seed 同步遗漏会变成回归；
+- 剩余 interner view、normalization snapshot 和 migration transaction 仍会扩大回归面；
 - provider、type alias、resolver 等 API 容易出现新旧双轨或大量 callback/context glue；
 - 64 个 crate 并没有消除巨型实现文件，反而增加依赖扇出和跨边界 DTO；
-- 测试需要额外的全局 permit 和并发限制，实际是在外部补偿单次编译的高 RSS 与内部调度缺失。
+- 测试已能原样 `cargo test`，但仍依赖侵入各测试入口的全局 permit，在 harness 层补偿单次编译的高 RSS 与内部调度缺失。
 
 Rust 的核心优势不是“查询更多”，而是 `GlobalCtxt/TyCtxt`、arena、统一 interner、稳定 dep-node、生成式 query plumbing 和 codegen unit 构成一个经过性能设计的 compiler kernel。Zig 的核心优势不是“单体文件”，而是 `Compilation/Zcu/InternPool/PerThread` 对状态、紧凑 ID、增量依赖和任务所有权有清楚定义。
 
@@ -47,7 +69,7 @@ Nia 不应回到 Kern 的粗粒度全量流水线，也不应继续在当前基�
 
 | 优先级 | 结论 | 当前后果 | 目标 |
 |---|---|---|---|
-| P0 | 类型、符号、常量缺少统一 session identity | 跨 interner import、snapshot 同步、深递归复制、回归风险 | 一个 compilation-owned semantic context 与全局稳定 handle |
+| P0 | session type identity 已统一，但旧 view/migration 层尚未删除 | type lower/normalize/layout root 仍携带 snapshot、`TypeOrigin` 与 module-log 约束 | canonical store + explicit append/root set；删除 view、origin 与 migration API |
 | P0 | query 默认 owned clone | cache hit 复制大型产品；首次存储也复制；API 被 `Clone` 反向塑形 | 默认 shared/arena handle；显式 owned extraction 只用于少数消费端 |
 | P0 | loader/compiler/driver/reachability 有多套依赖收敛 | 重复分析、手写失效传播、正确性由同步约定维持 | 单一依赖引擎或至少单一事实注册表与统一 revision |
 | P0 | `query_many` 不是调度系统 | 临时线程、嵌套并行失控、重任务仍串行 | 长寿命 worker pool、jobserver、任务预算、backpressure |
