@@ -778,7 +778,7 @@ impl<'a> ModuleLowerer<'a> {
     fn ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
         let ty = self.import_instance_arg_type(ty);
         let current_interner = self.type_context.interner.clone();
-        let body_interner = self.input.type_interner;
+        let body_interner = &*self.type_context.interner;
         let extension_interner = self.input.extension_interner;
         let mut ty_kind = |ty: InternedTyId| {
             if let Some(interner) = self.instantiation.body_interner

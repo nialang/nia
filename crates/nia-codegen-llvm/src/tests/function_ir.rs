@@ -2,7 +2,6 @@
 use super::common::*;
 
 fn single_module_program(
-    interner: nia_ty::TyInterner,
     layouts: BackendLayouts,
     structs: Vec<BackendStruct>,
     unions: Vec<BackendUnion>,
@@ -13,7 +12,6 @@ fn single_module_program(
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: BackendConstFacts::default(),
             layouts,
             structs,
@@ -33,14 +31,14 @@ fn single_module_program(
 
 #[test]
 fn emits_function_body_from_function_ir_when_available() {
-    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: Default::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -104,7 +102,8 @@ fn emits_function_body_from_function_ir_when_available() {
         }],
     };
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
@@ -133,7 +132,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("if.then") || ir.contains("fir.bb"), "{ir}");
@@ -168,7 +167,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("switch i32"), "{ir}");
@@ -200,7 +199,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("fir.bb"), "{ir}");
@@ -237,7 +236,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("store i32 10"));
@@ -275,7 +274,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program);
+    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert_contains_mangled_symbol(ir, '@', 0, "print_i32");
@@ -284,7 +283,8 @@ fn main() i32 {
 
 #[test]
 fn rejects_field_access_with_mismatched_base_struct() {
-    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let point_id = GlobalDefId {
         module_id: ModuleId(0),
@@ -336,7 +336,6 @@ fn rejects_field_access_with_mismatched_base_struct() {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -426,7 +425,8 @@ fn rejects_field_access_with_mismatched_base_struct() {
         }],
     };
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
     assert!(
         has_internal_diagnostic(
             &output.diagnostics,
@@ -440,7 +440,8 @@ fn rejects_field_access_with_mismatched_base_struct() {
 
 #[test]
 fn validates_backend_ir_missing_array_length_before_llvm() {
-    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let span = Span::default();
     let len_id = GlobalConstExprId {
         module_id: ModuleId(0),
@@ -457,7 +458,6 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval,
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -497,7 +497,8 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
     };
     program.modules[0].const_eval.array_lengths.clear();
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -511,7 +512,8 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_runtime_layout_before_llvm() {
-    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let box_id = GlobalDefId {
         module_id: ModuleId(0),
@@ -527,7 +529,6 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -589,7 +590,8 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
         }],
     };
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -604,7 +606,8 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
 
 #[test]
 fn validates_backend_ir_error_type_before_llvm() {
-    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let error_ty = interner.error();
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
@@ -612,7 +615,6 @@ fn validates_backend_ir_error_type_before_llvm() {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -659,7 +661,8 @@ fn validates_backend_ir_error_type_before_llvm() {
         }],
     };
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -674,7 +677,8 @@ fn validates_backend_ir_error_type_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
-    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let callee_id = GlobalDefId {
@@ -685,7 +689,6 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -758,7 +761,8 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
         }],
     };
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -774,7 +778,8 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
 
 #[test]
 fn validates_indexed_function_instances_with_equivalent_type_args() {
-    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let struct_id = GlobalDefId {
         module_id: ModuleId(0),
@@ -799,7 +804,6 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -929,7 +933,8 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
         }],
     };
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     assert!(output.modules[0].ir.contains("@make_marker()"));
@@ -937,7 +942,8 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
 
 #[test]
 fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
-    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let object_ty = interner.intern(TyKind::TraitObject {
         is_readonly: true,
@@ -958,7 +964,6 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -1003,7 +1008,8 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
         }],
     };
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1017,7 +1023,8 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
 
 #[test]
 fn validates_backend_ir_static_initializer_refs_before_llvm() {
-    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let ptr_ty = interner.intern(TyKind::Pointer {
         is_readonly: true,
@@ -1032,7 +1039,6 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -1074,7 +1080,8 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
         }],
     };
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1088,7 +1095,8 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
 
 #[test]
 fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
-    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let struct_id = GlobalDefId {
         module_id: ModuleId(0),
@@ -1112,7 +1120,6 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -1176,7 +1183,8 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
         }],
     };
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1190,7 +1198,8 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
-    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let missing_variant = GlobalDefId {
         module_id: ModuleId(0),
@@ -1201,7 +1210,6 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -1282,7 +1290,8 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
         }],
     };
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1296,14 +1305,14 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
 
 #[test]
 fn validates_function_ir_missing_entry_before_llvm() {
-    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -1354,7 +1363,8 @@ fn validates_function_ir_missing_entry_before_llvm() {
         }],
     };
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1379,14 +1389,14 @@ fn validates_function_ir_missing_entry_before_llvm() {
 
 #[test]
 fn validates_function_ir_missing_successor_before_llvm() {
-    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: ModuleId(0),
             name: "main".to_string(),
-            interner,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -1446,7 +1456,8 @@ fn validates_function_ir_missing_successor_before_llvm() {
         }],
     };
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1460,7 +1471,8 @@ fn validates_function_ir_missing_successor_before_llvm() {
 
 #[test]
 fn validates_backend_ir_static_function_address_refs_before_llvm() {
-    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let fn_ptr_ty = interner.intern(TyKind::FunctionPointer {
         params: Vec::new(),
@@ -1473,7 +1485,6 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
         def_id: DefId(9),
     };
     let program = single_module_program(
-        interner,
         BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![
@@ -1506,7 +1517,8 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
         Vec::new(),
     );
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1520,7 +1532,8 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
 
 #[test]
 fn validates_backend_ir_static_address_path_shape_before_llvm() {
-    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let ptr_ty = interner.intern(TyKind::Pointer {
         is_readonly: true,
@@ -1532,7 +1545,6 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
         def_id: DefId(0),
     };
     let program = single_module_program(
-        interner,
         BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![
@@ -1577,7 +1589,8 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
         Vec::new(),
     );
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1592,7 +1605,8 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
-    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let struct_id = GlobalDefId {
         module_id: ModuleId(0),
@@ -1666,7 +1680,6 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
         span,
     };
     let program = single_module_program(
-        interner,
         BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![
@@ -1706,7 +1719,8 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
         vec![function],
     );
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1720,7 +1734,8 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_local_place_before_llvm() {
-    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let function = BackendFunction {
@@ -1774,7 +1789,6 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
         span,
     };
     let program = single_module_program(
-        interner,
         BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
@@ -1789,7 +1803,8 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
         vec![function],
     );
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1803,7 +1818,8 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
 
 #[test]
 fn validates_backend_ir_unresolved_trait_method_before_llvm() {
-    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let trait_id = GlobalDefId {
@@ -1872,7 +1888,6 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
         span,
     };
     let program = single_module_program(
-        interner,
         BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
@@ -1887,7 +1902,8 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
         vec![function],
     );
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1902,7 +1918,8 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
 
 #[test]
 fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
-    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let type_store = nia_ty::TypeStore::new();
+    let interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let function = BackendFunction {
@@ -1960,7 +1977,6 @@ fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
         span,
     };
     let program = single_module_program(
-        interner,
         BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
@@ -1975,7 +1991,8 @@ fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
         vec![function],
     );
 
-    let output = emit_llvm_ir(&program);
+    drop(interner);
+    let output = emit_llvm_ir(&program, &type_store);
 
     assert!(output.modules.is_empty());
     assert!(

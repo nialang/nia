@@ -13,7 +13,7 @@ use crate::{
 pub(crate) struct BackendTypeContext<'input, 'shared> {
     input: &'input BackendLowerModuleInput<'input>,
     shared: &'shared BackendLowerShared<'input>,
-    pub(crate) interner: nia_ty::TyInterner,
+    pub(crate) interner: nia_ty::TypeStoreModuleCheckout,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
     self_substitutions: Vec<Option<InternedTyId>>,
     type_substitutions: Vec<SymbolMap<InternedTyId>>,
@@ -25,11 +25,12 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
     pub(crate) fn new(
         input: &'input BackendLowerModuleInput<'input>,
         shared: &'shared BackendLowerShared<'input>,
+        interner: nia_ty::TypeStoreModuleCheckout,
     ) -> Self {
         Self {
             input,
             shared,
-            interner: input.type_interner.clone(),
+            interner,
             type_instantiations: HashMap::new(),
             self_substitutions: Vec::new(),
             type_substitutions: Vec::new(),
@@ -89,9 +90,6 @@ impl<'input, 'shared> BackendTypeContext<'input, 'shared> {
         &self,
         module_id: ModuleId,
     ) -> Option<&'input nia_ty::TyInterner> {
-        if module_id == self.input.module_id {
-            return Some(self.input.type_interner);
-        }
         self.input.program_type_interners.get(&module_id)
     }
 

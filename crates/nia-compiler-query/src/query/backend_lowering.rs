@@ -114,10 +114,6 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     signatures: item_signatures,
                     type_normalization: &checked_module.type_normalization,
                     body_ir: &checked_module.body_ir,
-                    type_interner: input
-                        .type_interners
-                        .get(&checked_module.id)
-                        .expect("backend session interner snapshot"),
                     semantic_facts: &checked_module.semantic_facts,
                     const_array_lengths,
                     const_enum_values,

@@ -7,7 +7,7 @@ use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
 use nia_span::Span;
 use nia_static_ir::StaticInit;
 use nia_symbol::SymbolId;
-use nia_ty::{ConstGenericArg, TraitId, TyInterner};
+use nia_ty::{ConstGenericArg, TraitId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendProgram {
@@ -18,7 +18,6 @@ pub struct BackendProgram {
 pub struct BackendModule {
     pub id: ModuleId,
     pub name: String,
-    pub interner: TyInterner,
     pub const_eval: BackendConstFacts,
     pub layouts: BackendLayouts,
     pub structs: Vec<BackendStruct>,

@@ -389,11 +389,11 @@ while standalone algorithm tests use that same API. This prevents handles from
 separate compiler sessions with equal `ModuleId`s from comparing equal and
 prevents migrated phases from creating private divergent interners. The final
 contract is not yet satisfied because the module shard remains part of the
-handle and backend lowering/codegen still use a cloned working view. A domain is
-migrated only when its private mutation/import path is deleted. Temporary
-snapshots exist only at the boundary between the migrated prefix and the next
-unmigrated domain; there is no permanent module-local/session-global API
-choice.
+handle and cross-module consumers still recursively import structural types.
+A domain is migrated only when its private mutation/import path is deleted.
+Temporary snapshots exist only at the boundary between the migrated prefix and
+the next unmigrated domain; there is no permanent module-local/session-global
+API choice.
 
 Trait solving no longer creates a frozen clone of its mutable working interner
 for enum classification. The solver holds enum metadata and classifies nominal
@@ -445,17 +445,26 @@ backend lowering use the same API with their current working interner rather
 than a second read-only layout API. Array-length facts are prepared before a
 store transaction when evaluating them could reenter the same shard.
 
-Backend lowering is still on the next snapshot boundary. Compiler-query takes
-one final snapshot per module after function lowering, layout, and
-monomorphization have completed and lends that map only for the duration of
-backend lowering. These snapshots are not query values or semantic products.
-`BodyIr.interner`, `ProgramFunctionBodyInterners`, and the body/function snapshot
-merge path have been deleted; backend uses only this final session view. The
-shared backend index borrows that view by interner id rather than cloning the
-whole program map once per module. The
-next migration must jointly replace backend's cloned writable interner,
-cross-interner imports, and `BackendModule.interner`/codegen lookup contract
-rather than preserving the call-stack snapshot protocol as a second API.
+Backend lowering now checks out each owning module shard for the duration of
+the whole-program lowering fixed point. Synthesized instance types append
+directly to the session store; the previous cloned writable interner and
+`BackendModule.interner` have been deleted. `BackendProgram` therefore contains
+typed handles and backend facts, not a second type database. `CodegenProgram`
+retains only a lightweight handle to the same session store, and LLVM codegen
+checks out the program shards for one complete validation/emission call before
+returning them to the store. Checkout is deliberately thread-bound and rejects
+same-shard reentry instead of allowing a hidden lock wait or detached ownership.
+
+Compiler-query still takes one final snapshot per module after function
+lowering, layout, and monomorphization and lends that map only for the duration
+of backend lowering. The backend uses this map to interpret foreign handles and
+still recursively imports some cross-module structural types into an owning
+shard; instance work queues also carry temporary interner views for types
+created during the same lowering fixed point. These are call-stack migration
+adapters, not query values or Backend IR fields. The next identity slice must
+replace the temporary module-sharded handle with the session-wide typed index,
+then delete these snapshot/import paths and their paired `arg_interner` data in
+one direction rather than preserving them as a second API.
 
 ### 3.6 `nia-diagnostic`
 
@@ -1115,7 +1124,9 @@ container around specialized IRs:
 - layout and ABI-ready item metadata for codegen.
 
 Backend IR should be explicit enough for LLVM codegen without forcing codegen to
-re-run semantic analysis.
+re-run semantic analysis. It stores typed handles but does not own or snapshot
+the compilation type store; consumers receive the session store explicitly at
+the backend boundary.
 
 Before LLVM emission, `nia-codegen-llvm` validates Backend IR for Function IR
 structure, cross-module function/global references, static initializer address
@@ -1196,6 +1207,13 @@ so repeated runtime-type checks do not recursively recompute the same ABI
 layout. Its structural type equality fallback uses the same pair-cache shape as
 module codegen, keeping generic instance validation from repeatedly comparing
 the same cross-interner type arguments.
+
+LLVM entry points receive the compilation `TypeStore` alongside Backend IR.
+They check out the required module shards for the complete validation and
+emission call, build the whole-program type lookup from those stable borrows,
+and return the shards when codegen finishes. Type access is therefore explicit
+without copying an interner into every `BackendModule` or taking a short mutex
+for every recursive type lookup.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level and a reported codegen size policy. Size-oriented levels

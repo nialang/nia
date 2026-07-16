@@ -40,11 +40,11 @@ impl BackendValidator<'_> {
 
     pub(super) fn validate_trait_object_self_type(&mut self, ty: InternedTyId, span: Span) {
         self.validate_type(ty, span);
-        let Some(module) = self.index.module(self.type_owner(ty).module_id()) else {
+        let Some(_module) = self.index.module(self.type_owner(ty).module_id()) else {
             return;
         };
         if matches!(
-            module.interner.get(ty),
+            self.index.ty_kind(ty),
             Some(TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. })
         ) {
             return;
@@ -63,7 +63,7 @@ impl BackendValidator<'_> {
             return;
         }
         let owner_module = self.type_owner(ty).module_id();
-        let Some(module) = self.index.module(owner_module) else {
+        let Some(_module) = self.index.module(owner_module) else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
@@ -71,7 +71,7 @@ impl BackendValidator<'_> {
             ));
             return;
         };
-        let Some(kind) = module.interner.get(ty).cloned() else {
+        let Some(kind) = self.index.ty_kind(ty).cloned() else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
@@ -302,11 +302,11 @@ impl BackendValidator<'_> {
         ty: InternedTyId,
         active: &mut HashSet<InternedTyId>,
     ) -> Option<TypeLayout> {
-        let owner = self.index.module(self.type_owner(ty).module_id())?;
+        self.index.module(self.type_owner(ty).module_id())?;
         if let Some(layout) = self.index.type_layout(ty) {
             return Some(layout.clone());
         }
-        match owner.interner.get(ty)? {
+        match self.index.ty_kind(ty)? {
             TyKind::Primitive(primitive) => Some(primitive_layout(*primitive)),
             TyKind::Vector { elem, lanes } => self.vector_layout(*elem, *lanes),
             TyKind::Pointer { .. }
@@ -570,10 +570,7 @@ impl BackendValidator<'_> {
     }
 
     pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
-        self.index
-            .module(self.type_owner(ty).module_id())?
-            .interner
-            .get(ty)
+        self.index.ty_kind(ty)
     }
 }
 

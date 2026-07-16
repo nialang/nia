@@ -8,6 +8,9 @@ use nia_ids::{
 use nia_span::Span;
 use nia_symbol::SymbolId;
 use std::cell::RefCell;
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
 
 thread_local! {
@@ -42,7 +45,51 @@ impl Drop for ModuleInternerGuard {
 #[derive(Debug)]
 pub struct TypeStore {
     id: TypeStoreId,
-    modules: RwLock<FastHashMap<ModuleId, Arc<Mutex<TyInterner>>>>,
+    modules: RwLock<FastHashMap<ModuleId, Arc<Mutex<Option<TyInterner>>>>>,
+}
+
+impl PartialEq for TypeStore {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for TypeStore {}
+
+pub struct TypeStoreModuleCheckout {
+    interner: Option<TyInterner>,
+    slot: Arc<Mutex<Option<TyInterner>>>,
+    _guard: ModuleInternerGuard,
+    _not_send: PhantomData<Rc<()>>,
+}
+
+impl Deref for TypeStoreModuleCheckout {
+    type Target = TyInterner;
+
+    fn deref(&self) -> &Self::Target {
+        self.interner
+            .as_ref()
+            .expect("type store checkout returned")
+    }
+}
+
+impl DerefMut for TypeStoreModuleCheckout {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.interner
+            .as_mut()
+            .expect("type store checkout returned")
+    }
+}
+
+impl Drop for TypeStoreModuleCheckout {
+    fn drop(&mut self) {
+        let interner = self.interner.take().expect("type store checkout returned");
+        let mut slot = self.slot.lock().expect("type store module lock poisoned");
+        assert!(
+            slot.replace(interner).is_none(),
+            "Nia ICE: occupied type store slot returned from checkout"
+        );
+    }
 }
 
 impl Default for TypeStore {
@@ -72,7 +119,11 @@ impl TypeStore {
         let _guard = ModuleInternerGuard::acquire((self.id, module_id));
         let interner = self.module_interner(module_id);
         let mut interner = interner.lock().expect("type store module lock poisoned");
-        f(&mut interner)
+        if interner.is_none() {
+            drop(interner);
+            panic!("Nia ICE: type store module shard is checked out");
+        }
+        f(interner.as_mut().expect("checked type store module slot"))
     }
 
     #[doc(hidden)]
@@ -80,7 +131,27 @@ impl TypeStore {
         self.with_module_interner_for_semantic_migration(module_id, |interner| interner.clone())
     }
 
-    fn module_interner(&self, module_id: ModuleId) -> Arc<Mutex<TyInterner>> {
+    #[doc(hidden)]
+    pub fn checkout_module_for_semantic_migration(
+        &self,
+        module_id: ModuleId,
+    ) -> TypeStoreModuleCheckout {
+        let guard = ModuleInternerGuard::acquire((self.id, module_id));
+        let slot = self.module_interner(module_id);
+        let interner = slot
+            .lock()
+            .expect("type store module lock poisoned")
+            .take()
+            .unwrap_or_else(|| panic!("Nia ICE: type store module shard is already checked out"));
+        TypeStoreModuleCheckout {
+            interner: Some(interner),
+            slot,
+            _guard: guard,
+            _not_send: PhantomData,
+        }
+    }
+
+    fn module_interner(&self, module_id: ModuleId) -> Arc<Mutex<Option<TyInterner>>> {
         if let Some(interner) = self
             .modules
             .read()
@@ -91,9 +162,9 @@ impl TypeStore {
         }
         let mut modules = self.modules.write().expect("type store lock poisoned");
         Arc::clone(modules.entry(module_id).or_insert_with(|| {
-            Arc::new(Mutex::new(TyInterner::with_id(TyInternerId::new(
+            Arc::new(Mutex::new(Some(TyInterner::with_id(TyInternerId::new(
                 self.id, module_id,
-            ))))
+            )))))
         }))
     }
 }
@@ -1288,6 +1359,43 @@ mod tests {
         assert_eq!(before.get(pointer), after.get(pointer));
         assert_eq!(before.get(slice), None);
         assert!(matches!(after.get(slice), Some(TyKind::Slice { .. })));
+    }
+
+    #[test]
+    fn type_store_checkout_returns_appended_slots_to_the_session() {
+        let store = TypeStore::new();
+        let module_id = ModuleId(4);
+        let before = store.module_snapshot(module_id);
+        let pointer = {
+            let mut checkout = store.checkout_module_for_semantic_migration(module_id);
+            assert_eq!(checkout.interner_id(), before.interner_id());
+            let elem = checkout.primitive(PrimitiveTy::U16);
+            checkout.intern(TyKind::Pointer {
+                is_readonly: false,
+                elem,
+            })
+        };
+        let after = store.module_snapshot(module_id);
+
+        assert!(before.is_prefix_of(&after));
+        assert!(matches!(after.get(pointer), Some(TyKind::Pointer { .. })));
+    }
+
+    #[test]
+    fn type_store_checkout_rejects_reentry_and_restores_the_shard() {
+        let store = TypeStore::new();
+        let module_id = ModuleId(5);
+        let checkout = store.checkout_module_for_semantic_migration(module_id);
+        let reentry = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            store.module_snapshot(module_id)
+        }));
+
+        assert!(reentry.is_err());
+        drop(checkout);
+        assert_eq!(
+            store.module_snapshot(module_id).interner_id(),
+            TyInternerId::new(store.id(), module_id)
+        );
     }
 
     #[test]

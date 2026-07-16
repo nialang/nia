@@ -310,7 +310,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let ty = self.module.llvm_basic_type_in(
                         global_info.ty,
                         expr.span,
-                        &owner.interner,
+                        self.module.owner_interner(owner),
                         &owner.layouts,
                     )?;
                     self.builder
@@ -349,7 +349,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let ty = self.module.llvm_basic_type_in(
                         global_info.ty,
                         expr.span,
-                        &owner.interner,
+                        self.module.owner_interner(owner),
                         &owner.layouts,
                     )?;
                     self.builder

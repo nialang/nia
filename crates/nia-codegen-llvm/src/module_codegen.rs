@@ -272,7 +272,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if let Some(layout) = self.program.type_layout(ty) {
             return Some(layout.clone());
         }
-        match owner.interner.get(ty) {
+        match self.owner_interner(owner).get(ty) {
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(*primitive),
             Some(TyKind::Vector { elem, lanes }) => self.vector_layout(*elem, *lanes),
             Some(
@@ -497,7 +497,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(super) fn interner(&self) -> &TyInterner {
-        &self.source.interner
+        self.owner_interner(self.source)
+    }
+
+    pub(super) fn owner_interner(&self, owner: &BackendModule) -> &'a TyInterner {
+        self.program
+            .type_interner(owner.id)
+            .expect("backend module type interner")
     }
 
     pub(super) fn symbol_debug_name(&self, name: SymbolId) -> String {
@@ -562,7 +568,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             panic!("Nia ICE: cannot mangle type {ty:?} without owner module");
         };
         let mangled = mangle_type_with(
-            &owner.interner,
+            self.owner_interner(owner),
             ty,
             |def_id| {
                 self.program

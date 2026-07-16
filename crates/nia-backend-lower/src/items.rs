@@ -356,14 +356,20 @@ impl<'a> ModuleLowerer<'a> {
             {
                 local_ty
             }
-            ReceiverKind::RefReadOnly => self.type_context.interner.intern(TyKind::Pointer {
-                is_readonly: true,
-                elem: self.receiver_base_ty(local_ty).unwrap_or(local_ty),
-            }),
-            ReceiverKind::Ref => self.type_context.interner.intern(TyKind::Pointer {
-                is_readonly: false,
-                elem: self.receiver_base_ty(local_ty).unwrap_or(local_ty),
-            }),
+            ReceiverKind::RefReadOnly => {
+                let elem = self.receiver_base_ty(local_ty).unwrap_or(local_ty);
+                self.type_context.interner.intern(TyKind::Pointer {
+                    is_readonly: true,
+                    elem,
+                })
+            }
+            ReceiverKind::Ref => {
+                let elem = self.receiver_base_ty(local_ty).unwrap_or(local_ty);
+                self.type_context.interner.intern(TyKind::Pointer {
+                    is_readonly: false,
+                    elem,
+                })
+            }
         }
     }
 

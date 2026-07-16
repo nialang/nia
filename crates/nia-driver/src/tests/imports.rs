@@ -2118,7 +2118,13 @@ extend[T] &T {
                 .program
                 .modules
                 .iter()
-                .any(|module| module.interner.get(instance.args[0]).is_some()),
+                .any(|module| {
+                    program
+                        .type_store
+                        .module_snapshot(module.id)
+                        .get(instance.args[0])
+                        .is_some()
+                }),
             "{instance:?}"
         );
     }

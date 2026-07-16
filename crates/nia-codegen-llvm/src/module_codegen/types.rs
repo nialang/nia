@@ -35,9 +35,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn module_interner(&self, module_id: ModuleId) -> Option<&'a TyInterner> {
-        self.program
-            .module(module_id)
-            .map(|module| &module.interner)
+        self.program.type_interner(module_id)
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&'a TyKind> {
@@ -453,7 +451,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     return self.llvm_basic_type_in(
                         item.backing_type,
                         item.span,
-                        &owner.interner,
+                        self.owner_interner(owner),
                         &owner.layouts,
                     );
                 }

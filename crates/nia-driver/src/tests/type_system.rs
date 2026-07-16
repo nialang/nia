@@ -1244,7 +1244,10 @@ fn main() i32 {
     assert_eq!(module.function_instances[0].args.len(), 1);
     assert_eq!(
         module.function_instances[0].args[0],
-        module.interner.primitive(nia_ty::PrimitiveTy::I32)
+        program
+            .type_store
+            .module_snapshot(module.id)
+            .primitive(nia_ty::PrimitiveTy::I32)
     );
     assert_eq!(known::I32, test_symbol("i32"));
 }

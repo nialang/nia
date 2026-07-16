@@ -16,9 +16,14 @@ use nia_llvm::{
 };
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 
-pub(crate) fn required_symbols(program: &BackendProgram) -> CompilerBuiltinSymbols {
+use crate::program_index::ProgramIndex;
+
+pub(crate) fn required_symbols(
+    program: &BackendProgram,
+    index: &ProgramIndex<'_>,
+) -> CompilerBuiltinSymbols {
     let mut collector = CompilerBuiltinCollector::default();
-    collector.collect_program(program);
+    collector.collect_program(program, index);
     collector.symbols
 }
 
@@ -40,16 +45,19 @@ struct CompilerBuiltinCollector {
 }
 
 impl CompilerBuiltinCollector {
-    fn collect_program(&mut self, program: &BackendProgram) {
+    fn collect_program(&mut self, program: &BackendProgram, index: &ProgramIndex<'_>) {
         for module in &program.modules {
+            let interner = index
+                .type_interner(module.id)
+                .expect("backend module type interner");
             for function in &module.functions {
                 if let Some(body) = &function.function_body {
-                    self.collect_body(&module.interner, body);
+                    self.collect_body(interner, body);
                 }
             }
             for function in &module.function_instances {
                 if let Some(body) = &function.function_body {
-                    self.collect_body(&module.interner, body);
+                    self.collect_body(interner, body);
                 }
             }
         }

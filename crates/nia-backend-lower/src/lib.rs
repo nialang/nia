@@ -100,7 +100,6 @@ pub struct BackendLowerModuleInput<'a> {
     pub signatures: &'a ItemSignatures,
     pub type_normalization: &'a TypeNormalization,
     pub body_ir: &'a BodyIr,
-    pub type_interner: &'a nia_ty::TyInterner,
     pub semantic_facts: &'a SemanticFacts,
     pub extensions: &'a VisibleExtensionMethods,
     pub const_array_lengths: &'a nia_const_check::ConstArrayLengths,
@@ -156,11 +155,13 @@ pub enum BackendFunctionRoots {
 
 pub fn lower_backend_program(
     modules: &[BackendLowerModuleInput<'_>],
+    type_store: &nia_ty::TypeStore,
     monomorphization: &Monomorphization,
     optimization: OptimizationPolicy,
 ) -> BackendLowering {
     lower_backend_program_with_timings(
         modules,
+        type_store,
         monomorphization,
         optimization,
         nia_timing::TimingMode::Off,
@@ -169,6 +170,7 @@ pub fn lower_backend_program(
 
 pub fn lower_backend_program_with_timings(
     modules: &[BackendLowerModuleInput<'_>],
+    type_store: &nia_ty::TypeStore,
     monomorphization: &Monomorphization,
     optimization: OptimizationPolicy,
     timings: nia_timing::TimingMode,
@@ -197,7 +199,25 @@ pub fn lower_backend_program_with_timings(
     let mut lowerers = time_backend_stage(timing, "backend_lower.new_lowerers", || {
         modules
             .iter()
-            .map(|input| ModuleLowerer::new(input, monomorphization, optimization, &shared, timing))
+            .map(|input| {
+                let interner = type_store.checkout_module_for_semantic_migration(input.module_id);
+                let input_interner = input
+                    .program_type_interners
+                    .get(&input.module_id)
+                    .expect("backend session interner");
+                assert!(
+                    input_interner.is_prefix_of(&interner),
+                    "Nia ICE: backend input is not a prefix of its session type store"
+                );
+                ModuleLowerer::new(
+                    input,
+                    monomorphization,
+                    optimization,
+                    &shared,
+                    interner,
+                    timing,
+                )
+            })
             .collect::<Vec<_>>()
     });
     let mut lowered_modules = Vec::new();
@@ -401,7 +421,6 @@ fn append_function_instances(
         &module.union_instances,
     );
     module.layouts = backend_layouts;
-    module.interner = lowerer.type_context.interner.clone();
 }
 
 fn enabled_module_passes(optimization: &OptimizationPolicy) -> Vec<&'static str> {
@@ -856,11 +875,12 @@ impl<'a> ModuleLowerer<'a> {
         monomorphization: &'a Monomorphization,
         optimization: OptimizationPolicy,
         shared: &'a BackendLowerShared<'a>,
+        interner: nia_ty::TypeStoreModuleCheckout,
         timing: bool,
     ) -> Self {
         let type_context =
             time_backend_stage(timing, "backend_lower.new_lowerer.type_context", || {
-                type_context::BackendTypeContext::new(input, shared)
+                type_context::BackendTypeContext::new(input, shared, interner)
             });
         let extension_generics_by_method = time_backend_stage(
             timing,
@@ -874,7 +894,7 @@ impl<'a> ModuleLowerer<'a> {
         );
         let trait_context =
             time_backend_stage(timing, "backend_lower.new_lowerer.trait_context", || {
-                trait_context::BackendTraitContext::new(input)
+                trait_context::BackendTraitContext::new(input, &type_context.interner)
             });
         let struct_layout_instances_by_def = time_backend_stage(
             timing,
@@ -1120,7 +1140,6 @@ impl<'a> ModuleLowerer<'a> {
         BackendModule {
             id: self.input.module_id,
             name: self.input.module_name.clone(),
-            interner: self.type_context.interner.clone(),
             const_eval: nia_backend_ir::BackendConstFacts {
                 array_lengths: self.input.const_array_lengths.values.clone(),
             },
@@ -1680,7 +1699,6 @@ impl<'a> ModuleLowerer<'a> {
             &module.union_instances,
         );
         module.layouts = backend_layouts;
-        module.interner = self.type_context.interner.clone();
     }
 
     fn lower_additional_global_instances(
@@ -1701,7 +1719,6 @@ impl<'a> ModuleLowerer<'a> {
             &module.union_instances,
         );
         module.layouts = backend_layouts;
-        module.interner = self.type_context.interner.clone();
     }
 
     fn lower_reachable_instances_and_vtables(
@@ -2000,7 +2017,6 @@ impl<'a> ModuleLowerer<'a> {
             &module.union_instances,
         );
         module.layouts = backend_layouts;
-        module.interner = self.type_context.interner.clone();
     }
 
     fn complete_reachable_backend_items(
@@ -2305,7 +2321,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn error_ty(&self) -> InternedTyId {
-        self.input.type_interner.error()
+        self.type_context.interner.error()
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {

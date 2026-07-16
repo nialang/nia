@@ -62,6 +62,7 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
         ));
         if crate::has_error_diagnostics(&diagnostics) {
             return CodegenProgram {
+                type_store: Arc::clone(&db.context().type_store),
                 graph,
                 optimization,
                 modules,
@@ -80,6 +81,7 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
         ));
         if crate::has_error_diagnostics(&diagnostics) {
             return CodegenProgram {
+                type_store: Arc::clone(&db.context().type_store),
                 graph,
                 optimization,
                 modules,
@@ -97,6 +99,7 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
             || backend_lowering_diagnostics(&modules, &backend_lowering),
         ));
         CodegenProgram {
+            type_store: Arc::clone(&db.context().type_store),
             graph,
             optimization,
             modules,

@@ -127,25 +127,30 @@ fn codegen_program_request(
     }
 }
 
-pub(super) fn emit_llvm_ir(program: &BackendProgram) -> LlvmCodegenOutput {
+pub(super) fn emit_llvm_ir(
+    program: &BackendProgram,
+    type_store: &nia_ty::TypeStore,
+) -> LlvmCodegenOutput {
     let _permit = nia_test_support::compiler_permit();
-    crate::emit_llvm_ir(program)
+    crate::emit_llvm_ir(program, type_store)
 }
 
 pub(super) fn emit_llvm_ir_with_options(
     program: &BackendProgram,
+    type_store: &nia_ty::TypeStore,
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
     let _permit = nia_test_support::compiler_permit();
-    crate::emit_llvm_ir_with_options(program, options)
+    crate::emit_llvm_ir_with_options(program, type_store, options)
 }
 
 pub(super) fn emit_native_objects(
     program: &BackendProgram,
+    type_store: &nia_ty::TypeStore,
     options: LlvmCodegenOptions,
 ) -> LlvmObjectOutput {
     let _permit = nia_test_support::compiler_permit();
-    crate::emit_native_objects(program, options)
+    crate::emit_native_objects(program, type_store, options)
 }
 
 pub(super) struct EmitSmokeCase {
