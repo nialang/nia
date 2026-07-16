@@ -149,7 +149,7 @@ pub(super) fn provide_extension_trait_solving_module_facts(
     module_id: ModuleId,
 ) -> ExtensionTraitSolvingModuleFactsValue {
     let input = db.query(ExtensionSignatureModuleInputQuery(module_id));
-    let modules = [input.module()];
+    let modules = [input.module(&db.context().type_store)];
     Arc::new(ExtensionTraitSolvingModuleFactsQueryValue {
         trait_impls: nia_program_signatures::collect_valid_program_trait_impls(&modules),
         invalid_trait_impl_method_ids:
@@ -242,6 +242,7 @@ pub(super) fn provide_extension_provider_module_facts(
         ));
         let module = ExtensionMethodIndexModuleInput {
             module_id,
+            type_store: &db.context().type_store,
             defs: &defs,
             lowering: &lowering,
             signatures: &signatures,
@@ -282,7 +283,7 @@ pub(super) fn provide_extension_provider_validation_facts(
         };
         let symbols = db.context().symbols();
         let (methods, diagnostics) = collect_extension_methods_for_module(
-            &input.module(),
+            &input.module(&db.context().type_store),
             ExtensionMethodValidationInput {
                 type_store: &db.context().type_store,
                 trait_defs: &trait_index.trait_defs,
@@ -338,6 +339,7 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
             ));
             let module = ExtensionMethodIndexModuleInput {
                 module_id,
+                type_store: &db.context().type_store,
                 defs: &defs,
                 lowering: &lowering,
                 signatures: &signatures,
@@ -559,6 +561,7 @@ fn visible_modules_for_module(
     let provider_modules = compute(
         nia_program_signatures::VisibleExtensionProviderModulesInput {
             module_id,
+            type_store: &db.context().type_store,
             graph: &graph,
             using_scope: &using_scope,
             using_scopes: &using_scopes,
@@ -612,6 +615,7 @@ pub(super) fn provide_visible_extensions(
     }
     Arc::new(visible_extensions_for_module(VisibleExtensionsInput {
         module_id,
+        type_store: &db.context().type_store,
         graph: &graph,
         using_scope: &using_scope,
         using_scopes: &using_scopes,
@@ -665,6 +669,7 @@ pub(super) fn provide_visible_trait_impls(
     }
     Arc::new(visible_trait_impls_for_module(VisibleExtensionsInput {
         module_id,
+        type_store: &db.context().type_store,
         graph: &graph,
         using_scope: &using_scope,
         using_scopes: &using_scopes,

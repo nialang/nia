@@ -283,7 +283,7 @@ pub fn collect_program_trait_impls(
                 continue;
             };
             let Some((trait_id, trait_args, trait_const_args)) =
-                trait_id_and_args(&module.lowering.interner, trait_ty)
+                trait_id_and_args(module.type_store, trait_ty)
             else {
                 continue;
             };

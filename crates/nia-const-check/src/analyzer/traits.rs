@@ -1,4 +1,4 @@
-use super::ty_substitution::substitute_ty_generics_in_interner;
+use super::ty_substitution::substitute_ty_generics;
 use super::*;
 
 type ActiveProjectionSet = HashSet<(
@@ -126,7 +126,7 @@ impl Analyzer<'_> {
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
         let Some(interner_snapshot) = self
-            .working_interners
+            .type_contexts
             .get(&module_id)
             .map(|interner| (**interner).clone())
         else {
@@ -151,7 +151,7 @@ impl Analyzer<'_> {
                         visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
                     })
         };
-        let Some(interner) = self.working_interners.get_mut(&module_id) else {
+        let Some(interner) = self.type_contexts.get_mut(&module_id) else {
             return false;
         };
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
@@ -201,7 +201,7 @@ impl Analyzer<'_> {
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
         let interner_snapshot = self
-            .working_interners
+            .type_contexts
             .get(&module_id)
             .map(|interner| (**interner).clone())?;
         let normalization = nia_type_normalize::TypeNormalization {
@@ -223,7 +223,7 @@ impl Analyzer<'_> {
                         visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
                     })
         };
-        let interner = self.working_interners.get_mut(&module_id)?;
+        let interner = self.type_contexts.get_mut(&module_id)?;
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
@@ -281,7 +281,7 @@ impl Analyzer<'_> {
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
         let interner_snapshot = self
-            .working_interners
+            .type_contexts
             .get(&module_id)
             .map(|interner| (**interner).clone())?;
         let normalization = nia_type_normalize::TypeNormalization {
@@ -303,7 +303,7 @@ impl Analyzer<'_> {
                         visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
                     })
         };
-        let interner = self.working_interners.get_mut(&module_id)?;
+        let interner = self.type_contexts.get_mut(&module_id)?;
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
@@ -345,7 +345,7 @@ impl Analyzer<'_> {
                     .associated_values
                     .iter()
                     .find(|value| value.name == projection.name)?;
-                self.import_ty_into_module_or_none(
+                self.type_for_module_or_none(
                     associated_value.ty,
                     self.current_execution_module_id(),
                 )
@@ -365,9 +365,7 @@ impl Analyzer<'_> {
 
     fn primitive_ty_for_current_module(&mut self, primitive: PrimitiveTy) -> InternedTyId {
         let module_id = self.current_execution_module_id();
-        self.source_interner_for_module(module_id)
-            .unwrap_or_else(|| self.input.interner.clone())
-            .primitive(primitive)
+        self.primitive_ty_for_module(module_id, primitive)
     }
 
     pub(super) fn ensure_trait_solver_module(
@@ -376,9 +374,9 @@ impl Analyzer<'_> {
         trait_args: &[InternedTyId],
     ) -> Option<ModuleId> {
         let module_id = self.type_origin(self_ty).module_id();
-        self.ensure_working_interner(module_id)?;
+        self.ensure_type_context(module_id)?;
         for arg in trait_args {
-            self.ensure_working_interner(self.type_origin(*arg).module_id())?;
+            self.ensure_type_context(self.type_origin(*arg).module_id())?;
         }
         Some(module_id)
     }
@@ -461,14 +459,14 @@ impl Analyzer<'_> {
         substitutions: &SymbolMap<InternedTyId>,
     ) -> InternedTyId {
         let module_id = self.type_origin(ty).module_id();
-        if self.ensure_working_interner(module_id).is_none() {
+        if self.ensure_type_context(module_id).is_none() {
             return ty;
         }
         let interner = self
-            .working_interners
+            .type_contexts
             .get_mut(&module_id)
-            .expect("working interner must exist");
-        substitute_ty_generics_in_interner(interner, ty, &|name| substitutions.get(name).copied())
+            .expect("type context must exist");
+        substitute_ty_generics(interner, ty, &|name| substitutions.get(name).copied())
     }
 
     pub(super) fn substitute_const_generic_arg_from_maps(

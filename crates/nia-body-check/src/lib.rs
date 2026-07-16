@@ -954,28 +954,28 @@ fn time_body_stage_if_slow<T>(
     )
 }
 
-enum BodyWorkingInterner<'a> {
+enum BodyAppendView<'a> {
     Session(&'a mut TyInterner),
     Snapshot(TyInterner),
 }
 
 struct BodyTypeCx<'a> {
     store: &'a nia_ty::TypeStore,
-    append: BodyWorkingInterner<'a>,
+    append: BodyAppendView<'a>,
 }
 
 impl<'a> BodyTypeCx<'a> {
     fn session(store: &'a nia_ty::TypeStore, interner: &'a mut TyInterner) -> Self {
         Self {
             store,
-            append: BodyWorkingInterner::Session(interner),
+            append: BodyAppendView::Session(interner),
         }
     }
 
     fn snapshot(store: &'a nia_ty::TypeStore, interner: TyInterner) -> Self {
         Self {
             store,
-            append: BodyWorkingInterner::Snapshot(interner),
+            append: BodyAppendView::Snapshot(interner),
         }
     }
 
@@ -998,7 +998,7 @@ impl DerefMut for BodyTypeCx<'_> {
     }
 }
 
-impl Deref for BodyWorkingInterner<'_> {
+impl Deref for BodyAppendView<'_> {
     type Target = TyInterner;
 
     fn deref(&self) -> &Self::Target {
@@ -1009,7 +1009,7 @@ impl Deref for BodyWorkingInterner<'_> {
     }
 }
 
-impl DerefMut for BodyWorkingInterner<'_> {
+impl DerefMut for BodyAppendView<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             Self::Session(interner) => interner,

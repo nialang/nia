@@ -259,7 +259,13 @@ fn filtered_const_global_initializer_for_body_check(
         db,
         "executable_body_check.const_eval.global_initializer.needed_const_exprs",
         global_id.module_id,
-        || needed_const_exprs_for_active_item_tree(&filtered_active_item_tree, &lowered),
+        || {
+            needed_const_exprs_for_active_item_tree(
+                &db.context().type_store,
+                &filtered_active_item_tree,
+                &lowered,
+            )
+        },
     );
     let symbols = db.context().symbols();
     let const_expr_value_resolution = time_module_provider(
@@ -312,6 +318,7 @@ fn filtered_const_global_initializer_for_body_check(
                 semantic_use_table_from_resolution_inputs_with_const_expr_values(
                     SemanticUseInputs {
                         module_id: global_id.module_id,
+                        type_store: &db.context().type_store,
                         active_item_tree: &filtered_active_item_tree,
                         values: &values,
                         const_expr_values: Some(&const_expr_value_resolution),
@@ -431,8 +438,11 @@ fn const_inputs_for_body_check(
         lowered,
         resolution: inputs,
     } = module;
-    let needed_const_exprs =
-        needed_const_exprs_for_active_item_tree(&inputs.active_item_tree, lowered);
+    let needed_const_exprs = needed_const_exprs_for_active_item_tree(
+        &db.context().type_store,
+        &inputs.active_item_tree,
+        lowered,
+    );
     let filtered_const_exprs = const_expr_subset_for_ids(&lowered.const_exprs, &needed_const_exprs);
     let lower_module = || {
         time_module_provider(
@@ -484,12 +494,6 @@ fn const_inputs_for_body_check(
             )));
         }
         Some(db.query(TypeNormalizationQuery(module_id)))
-    };
-    let value_type_normalization = |module_id| {
-        Some(db.query(SignatureTypeNormalizationQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Values,
-        )))
     };
     let local_trait_impls = fact_mode
         .non_function_signatures
@@ -584,7 +588,6 @@ fn const_inputs_for_body_check(
             source_path: Some(&program_source_path),
             defs: Some(&program_defs),
             type_normalizations: Some(&program_type_normalization),
-            value_type_normalizations: Some(&value_type_normalization),
             signatures: Some(&item_signatures_for_module),
             value_signatures: Some(&value_signatures_for_module),
             const_values: None,

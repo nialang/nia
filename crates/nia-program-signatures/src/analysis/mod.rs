@@ -22,7 +22,7 @@ use nia_symbol_table::SymbolTable;
 use nia_trait_solve::{
     AssociatedTypeProjectionEq, IntrinsicOverlap, TraitGoal, TraitSolverContext,
 };
-use nia_ty::{PrimitiveTy, TraitId, TyInterner, TyKind, TypeStore};
+use nia_ty::{PrimitiveTy, TraitId, TyInterner, TyKind, TypeStore, TypeStoreAppend};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
@@ -45,6 +45,7 @@ pub struct NominalExtensionProviderEntry {
 
 pub struct ModuleSignatureInput<'a> {
     pub module_id: nia_ids::ModuleId,
+    pub type_store: &'a TypeStore,
     pub defs: &'a DefCollection,
     pub lowering: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
@@ -52,6 +53,7 @@ pub struct ModuleSignatureInput<'a> {
 
 pub struct ExtensionModuleInput<'a> {
     pub module_id: nia_ids::ModuleId,
+    pub type_store: &'a TypeStore,
     pub defs: &'a DefCollection,
     pub lowering: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
@@ -62,6 +64,7 @@ pub struct ExtensionModuleInput<'a> {
 
 pub struct ExtensionMethodIndexModuleInput<'a> {
     pub module_id: nia_ids::ModuleId,
+    pub type_store: &'a TypeStore,
     pub defs: &'a DefCollection,
     pub lowering: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
@@ -95,6 +98,7 @@ pub fn collect_valid_program_trait_impls(
             .iter()
             .map(|module| ModuleSignatureInput {
                 module_id: module.module_id,
+                type_store: module.type_store,
                 defs: module.defs,
                 lowering: module.lowering,
                 signatures: module.signatures,
@@ -133,8 +137,7 @@ pub fn collect_invalid_trait_impl_method_ids(
         for impl_signature in &module.signatures.trait_impls {
             let target_ty = module.normalization.normalize(impl_signature.target_ty);
             let trait_id = impl_signature.trait_ty.and_then(|trait_ty| {
-                trait_id_and_args(&module.lowering.interner, trait_ty)
-                    .map(|(trait_id, _, _)| trait_id)
+                trait_id_and_args(module.type_store, trait_ty).map(|(trait_id, _, _)| trait_id)
             });
             let is_invalid = matches!(trait_id, Some(TraitId::Builtin(trait_id))
                 if builtin_trait_impl_overlaps_intrinsic(module, target_ty, trait_id, impl_signature));
@@ -151,14 +154,14 @@ pub fn collect_invalid_trait_impl_method_ids(
 }
 
 fn trait_id_and_args(
-    interner: &TyInterner,
+    type_store: &TypeStore,
     ty: nia_ids::InternedTyId,
 ) -> Option<(
     TraitId,
     Vec<nia_ids::InternedTyId>,
     Vec<nia_ty::ConstGenericArg>,
 )> {
-    match interner.get(ty) {
+    match type_store.get(ty) {
         Some(TyKind::Nominal {
             def_id,
             args,
@@ -205,7 +208,7 @@ pub fn collect_extension_methods_for_module(
             continue;
         }
         let target_ty = module.normalization.normalize(impl_signature.target_ty);
-        if !is_extendable_target(&module.normalization.interner, target_ty) {
+        if !is_extendable_target(module.type_store, target_ty) {
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
@@ -268,7 +271,7 @@ pub fn collect_extension_methods_for_module(
                     where_predicates: where_predicates.clone(),
                     visibility: method.visibility,
                 },
-                nominal_target_def_id(&module.normalization.interner, target_ty),
+                nominal_target_def_id(module.type_store, target_ty),
             );
         }
     }
@@ -282,7 +285,7 @@ pub fn collect_extension_method_index_for_module(
     let mut extensions = ExtensionMethods::default();
     for impl_signature in &module.signatures.trait_impls {
         let target_ty = module.normalization.normalize(impl_signature.target_ty);
-        if !is_extendable_target(&module.normalization.interner, target_ty) {
+        if !is_extendable_target(module.type_store, target_ty) {
             continue;
         }
         let trait_id = impl_trait_id_for_index_with_defs(module, impl_signature, defs);
@@ -309,7 +312,7 @@ pub fn collect_extension_method_index_for_module(
                     where_predicates: where_predicates.clone(),
                     visibility: method.visibility,
                 },
-                nominal_target_def_id(&module.normalization.interner, target_ty),
+                nominal_target_def_id(module.type_store, target_ty),
             );
         }
     }
@@ -323,10 +326,10 @@ pub fn collect_nominal_extension_providers_for_module(
     let mut providers = Vec::new();
     for impl_signature in &module.signatures.trait_impls {
         let target_ty = module.normalization.normalize(impl_signature.target_ty);
-        if !is_extendable_target(&module.normalization.interner, target_ty) {
+        if !is_extendable_target(module.type_store, target_ty) {
             continue;
         }
-        let Some(target) = nominal_target_def_id(&module.normalization.interner, target_ty) else {
+        let Some(target) = nominal_target_def_id(module.type_store, target_ty) else {
             continue;
         };
         let trait_id = impl_trait_id_for_index_with_defs(module, impl_signature, defs);
@@ -433,7 +436,7 @@ pub fn collect_extension_associated_value_index_for_module(
     let mut diagnostics = Vec::new();
     for impl_signature in &module.signatures.trait_impls {
         let target_ty = module.normalization.normalize(impl_signature.target_ty);
-        if !is_extendable_target(&module.normalization.interner, target_ty) {
+        if !is_extendable_target(module.type_store, target_ty) {
             diagnostics.push(Diagnostic::user_error_at(
                 codes::NAME_RESOLUTION,
                 impl_signature.span,
@@ -454,7 +457,7 @@ pub fn collect_extension_associated_value_index_for_module(
                     target_ty,
                     visibility: associated_value.visibility,
                 },
-                nominal_target_def_id(&module.normalization.interner, target_ty),
+                nominal_target_def_id(module.type_store, target_ty),
             );
         }
     }
@@ -470,7 +473,7 @@ fn impl_trait_id(
     let trait_ty = impl_signature.trait_ty?;
     let span = impl_signature.trait_span.unwrap_or(impl_signature.span);
     let ty = module.normalization.normalize(trait_ty);
-    match module.lowering.interner.get(ty).cloned() {
+    match module.type_store.get(ty).cloned() {
         Some(TyKind::Nominal { def_id, .. }) => {
             if !trait_defs.contains(&def_id) {
                 diagnostics.push(Diagnostic::user_error_at(
@@ -501,7 +504,7 @@ fn impl_trait_id_for_index_with_defs(
 ) -> Option<TraitId> {
     let trait_ty = impl_signature.trait_ty?;
     let ty = module.normalization.normalize(trait_ty);
-    match module.lowering.interner.get(ty).cloned() {
+    match module.type_store.get(ty).cloned() {
         Some(TyKind::Nominal { def_id, .. }) => defs.defs(def_id.module_id).and_then(|defs| {
             matches!(
                 defs.defs.get(def_id.def_id).map(|def| def.kind),
@@ -520,7 +523,7 @@ fn impl_trait_args(
     expected_trait_id: Option<TraitId>,
 ) -> Option<Vec<nia_ids::InternedTyId>> {
     let ty = module.normalization.normalize(impl_signature.trait_ty?);
-    match (expected_trait_id, module.normalization.interner.get(ty)) {
+    match (expected_trait_id, module.type_store.get(ty)) {
         (Some(TraitId::Source(expected)), Some(TyKind::Nominal { def_id, args, .. }))
             if *def_id == expected =>
         {
@@ -543,7 +546,7 @@ fn impl_trait_args_and_consts(
     expected_trait_id: Option<TraitId>,
 ) -> Option<(Vec<nia_ids::InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
     let ty = module.normalization.normalize(impl_signature.trait_ty?);
-    match (expected_trait_id, module.normalization.interner.get(ty)) {
+    match (expected_trait_id, module.type_store.get(ty)) {
         (
             Some(TraitId::Source(expected)),
             Some(TyKind::Nominal {
@@ -569,7 +572,7 @@ fn impl_trait_args_for_index(
     expected_trait_id: Option<TraitId>,
 ) -> Option<Vec<nia_ids::InternedTyId>> {
     let ty = module.normalization.normalize(impl_signature.trait_ty?);
-    match (expected_trait_id, module.normalization.interner.get(ty)) {
+    match (expected_trait_id, module.type_store.get(ty)) {
         (Some(TraitId::Source(expected)), Some(TyKind::Nominal { def_id, args, .. }))
             if *def_id == expected =>
         {
@@ -639,7 +642,7 @@ fn supertrait_id(
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<TraitId> {
     let ty = module.normalization.normalize(ty);
-    match module.lowering.interner.get(ty).cloned() {
+    match module.type_store.get(ty).cloned() {
         Some(TyKind::Nominal { def_id, .. }) => {
             if !trait_defs.contains(&def_id) {
                 diagnostics.push(Diagnostic::user_error_at(
@@ -798,6 +801,7 @@ fn validate_trait_impl(
         input,
         diagnostics,
     );
+    let append = input.type_store.append_for_module(module.module_id);
     let mut comparison_interner = module.normalization.interner.clone();
     for required in &trait_signature.signature.methods {
         let Some(method) = impl_signature
@@ -818,10 +822,10 @@ fn validate_trait_impl(
         let Some(actual) = module.function_signatures.functions.get(&method.def_id) else {
             continue;
         };
-        let required_signature = lower_trait_method_signature(TraitMethodImport {
-            target_interner: &mut comparison_interner,
+        let required_signature = lower_trait_method_signature(TraitMethodSubstitution {
+            append: &append,
             module,
-            source_interner: input.type_store,
+            type_store: input.type_store,
             signature: &required.signature,
             trait_generics: &trait_signature.signature.generics,
             trait_args: &trait_args,
@@ -831,9 +835,9 @@ fn validate_trait_impl(
             impl_signature,
         });
         let actual_signature = normalize_impl_method_signature(ImplMethodSignatureNormalize {
-            target_interner: &mut comparison_interner,
+            append: &append,
             module,
-            source_interner: input.type_store,
+            type_store: input.type_store,
             signature: actual,
             trait_args: &trait_args,
             trait_const_args: &trait_const_args,
@@ -854,7 +858,6 @@ fn validate_trait_impl(
         };
         let validation_trait_impls = trait_impls_for_trait_goal_and_supertraits(
             goal_context,
-            &mut comparison_interner,
             trait_goal.clone(),
             input.trait_impls_for_trait,
         );
@@ -896,7 +899,7 @@ struct TraitAssociatedConstTypeMatch<'a> {
 }
 
 fn trait_associated_const_type_matches(input: TraitAssociatedConstTypeMatch<'_>) -> bool {
-    let mut comparison_interner = input.module.normalization.interner.clone();
+    let append = input.type_store.append_for_module(input.module.module_id);
     let substitutions = input
         .trait_signature
         .signature
@@ -913,8 +916,8 @@ fn trait_associated_const_type_matches(input: TraitAssociatedConstTypeMatch<'_>)
         self_ty: input.target_ty,
         associated_types: &input.impl_signature.associated_types,
     });
-    let required = substitute_imported_type(
-        &mut comparison_interner,
+    let required = substitute_type(
+        &append,
         input.module,
         input.type_store,
         input.required_ty,
@@ -925,8 +928,8 @@ fn trait_associated_const_type_matches(input: TraitAssociatedConstTypeMatch<'_>)
             self_ty: Some(input.target_ty),
         },
     );
-    let actual = substitute_imported_type(
-        &mut comparison_interner,
+    let actual = substitute_type(
+        &append,
         input.module,
         input.type_store,
         input.actual_ty,
@@ -937,7 +940,7 @@ fn trait_associated_const_type_matches(input: TraitAssociatedConstTypeMatch<'_>)
             self_ty: None,
         },
     );
-    types_equivalent_in_interner(&comparison_interner, required, actual)
+    types_equivalent_in_store(input.type_store, required, actual)
 }
 
 fn validate_builtin_trait_impl(
@@ -1078,7 +1081,7 @@ fn validate_builtin_supertrait_impls(
         let supertrait_id = TraitId::Builtin(supertrait.trait_id);
         let trait_impls = trait_impls_for_trait(supertrait_id);
         if !has_matching_trait_impl(
-            &module.lowering.interner,
+            module.type_store,
             target_ty,
             supertrait_id,
             &supertrait_args,
@@ -1105,13 +1108,9 @@ fn builtin_trait_impl_overlaps_intrinsic(
     let target_ty = module.normalization.normalize(target_ty);
     let trait_args = builtin_impl_trait_args(module, impl_signature, trait_id).unwrap_or_default();
     IntrinsicOverlap {
-        interner: &module.lowering.interner,
+        type_store: module.type_store,
         normalization: module.normalization,
-        is_enum: |ty| match module
-            .lowering
-            .interner
-            .get(module.normalization.normalize(ty))
-        {
+        is_enum: |ty| match module.type_store.get(module.normalization.normalize(ty)) {
             Some(TyKind::Nominal { def_id, .. }) if def_id.module_id == module.module_id => {
                 module.type_signatures.enums.contains_key(&def_id.def_id)
             }
@@ -1129,7 +1128,11 @@ fn builtin_trait_method_signature_matches(
     method: BuiltinTraitMethod,
 ) -> bool {
     if actual.params.len() != method.param_count()
-        || actual.return_type == module.lowering.interner.error()
+        || actual.return_type
+            == module
+                .type_store
+                .append_for_module(module.module_id)
+                .intern(TyKind::Error)
     {
         return false;
     }
@@ -1192,8 +1195,7 @@ fn builtin_place_trait_method_signature_matches(
     if receiver != expected_receiver {
         return false;
     }
-    let Some(TyKind::Pointer { is_readonly, elem }) =
-        module.lowering.interner.get(actual.return_type)
+    let Some(TyKind::Pointer { is_readonly, elem }) = module.type_store.get(actual.return_type)
     else {
         return false;
     };
@@ -1209,7 +1211,7 @@ fn builtin_place_trait_method_signature_matches(
     let Some(associated_type) = associated_type_ty(impl_signature, assoc_name) else {
         return false;
     };
-    types_equivalent(module.lowering, *elem, associated_type)
+    types_equivalent(module.type_store, module.lowering, *elem, associated_type)
 }
 
 fn builtin_slice_trait_method_signature_matches(
@@ -1233,7 +1235,7 @@ fn builtin_slice_trait_method_signature_matches(
     else {
         return false;
     };
-    if !types_equivalent(module.lowering, range_param.ty, range_ty) {
+    if !types_equivalent(module.type_store, module.lowering, range_param.ty, range_ty) {
         return false;
     }
     let Some(output) =
@@ -1241,7 +1243,12 @@ fn builtin_slice_trait_method_signature_matches(
     else {
         return false;
     };
-    types_equivalent(module.lowering, actual.return_type, output)
+    types_equivalent(
+        module.type_store,
+        module.lowering,
+        actual.return_type,
+        output,
+    )
 }
 
 fn builtin_iterator_method_signature_matches(
@@ -1257,10 +1264,10 @@ fn builtin_iterator_method_signature_matches(
         return false;
     };
     let actual_return = module.normalization.normalize(actual.return_type);
-    let Some(TyKind::Optional { elem }) = module.lowering.interner.get(actual_return) else {
+    let Some(TyKind::Optional { elem }) = module.type_store.get(actual_return) else {
         return false;
     };
-    types_equivalent(module.lowering, *elem, item)
+    types_equivalent(module.type_store, module.lowering, *elem, item)
 }
 
 fn builtin_iterable_method_signature_matches(
@@ -1275,7 +1282,7 @@ fn builtin_iterable_method_signature_matches(
     else {
         return false;
     };
-    types_equivalent(module.lowering, actual.return_type, iter)
+    types_equivalent(module.type_store, module.lowering, actual.return_type, iter)
 }
 
 fn builtin_len_method_signature_matches(
@@ -1286,9 +1293,13 @@ fn builtin_len_method_signature_matches(
         return false;
     }
     types_equivalent(
+        module.type_store,
         module.lowering,
         actual.return_type,
-        module.lowering.interner.primitive(PrimitiveTy::Usize),
+        module
+            .type_store
+            .append_for_module(module.module_id)
+            .intern(TyKind::Primitive(PrimitiveTy::Usize)),
     )
 }
 
@@ -1305,7 +1316,12 @@ fn builtin_bound_method_signature_matches(
     else {
         return false;
     };
-    types_equivalent(module.lowering, actual.return_type, output)
+    types_equivalent(
+        module.type_store,
+        module.lowering,
+        actual.return_type,
+        output,
+    )
 }
 
 fn builtin_char_method_signature_matches(
@@ -1316,13 +1332,17 @@ fn builtin_char_method_signature_matches(
         return false;
     }
     let actual_return = module.normalization.normalize(actual.return_type);
-    let Some(TyKind::Optional { elem }) = module.lowering.interner.get(actual_return) else {
+    let Some(TyKind::Optional { elem }) = module.type_store.get(actual_return) else {
         return false;
     };
     types_equivalent(
+        module.type_store,
         module.lowering,
         *elem,
-        module.lowering.interner.primitive(PrimitiveTy::Char),
+        module
+            .type_store
+            .append_for_module(module.module_id)
+            .intern(TyKind::Primitive(PrimitiveTy::Char)),
     )
 }
 
@@ -1333,7 +1353,7 @@ fn builtin_impl_trait_args(
 ) -> Option<Vec<nia_ids::InternedTyId>> {
     let ty = impl_signature.trait_ty?;
     let ty = module.normalization.normalize(ty);
-    match module.lowering.interner.get(ty) {
+    match module.type_store.get(ty) {
         Some(TyKind::BuiltinTrait {
             trait_id: found,
             args,
@@ -1351,10 +1371,10 @@ fn validate_supertrait_impls(
     input: ExtensionMethodValidationInput<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    let append = input.type_store.append_for_module(module.module_id);
     for supertrait in &trait_signature.signature.supertraits {
-        let mut comparison_interner = module.lowering.interner.clone();
-        let supertrait = import_trait_bound(
-            &mut comparison_interner,
+        let supertrait = substitute_trait_bound(
+            &append,
             module,
             input.type_store,
             supertrait.ty,
@@ -1365,14 +1385,14 @@ fn validate_supertrait_impls(
             def_id: supertrait_def_id,
             args: supertrait_args,
             ..
-        }) = comparison_interner.get(supertrait).cloned()
+        }) = input.type_store.get(supertrait).cloned()
         else {
             continue;
         };
         let supertrait_id = TraitId::Source(supertrait_def_id);
         let trait_impls = (input.trait_impls_for_trait)(supertrait_id);
         if !has_matching_trait_impl(
-            &comparison_interner,
+            input.type_store,
             target_ty,
             supertrait_id,
             &supertrait_args,
@@ -1390,10 +1410,10 @@ fn validate_supertrait_impls(
     }
 }
 
-fn import_trait_bound(
-    target_interner: &mut TyInterner,
+fn substitute_trait_bound(
+    append: &TypeStoreAppend,
     module: &ExtensionModuleInput<'_>,
-    source_interner: &TypeStore,
+    type_store: &TypeStore,
     ty: nia_ids::InternedTyId,
     trait_generics: &[SymbolId],
     trait_args: &[nia_ids::InternedTyId],
@@ -1403,10 +1423,10 @@ fn import_trait_bound(
         .zip(trait_args)
         .map(|(generic, arg)| (*generic, *arg))
         .collect::<SymbolMap<_>>();
-    substitute_imported_type(
-        target_interner,
+    substitute_type(
+        append,
         module,
-        source_interner,
+        type_store,
         ty,
         &substitutions,
         &SymbolMap::default(),
@@ -1415,7 +1435,7 @@ fn import_trait_bound(
 }
 
 fn has_matching_trait_impl(
-    interner: &TyInterner,
+    interner: &TypeStore,
     target_ty: nia_ids::InternedTyId,
     trait_id: TraitId,
     trait_args: &[nia_ids::InternedTyId],
@@ -1425,13 +1445,13 @@ fn has_matching_trait_impl(
         if impl_signature.trait_id != trait_id {
             return false;
         }
-        types_equivalent_in_interner(interner, impl_signature.target_ty, target_ty)
+        types_equivalent_in_store(interner, impl_signature.target_ty, target_ty)
             && impl_signature.trait_args.len() == trait_args.len()
             && impl_signature
                 .trait_args
                 .iter()
                 .zip(trait_args)
-                .all(|(left, right)| types_equivalent_in_interner(interner, *left, *right))
+                .all(|(left, right)| types_equivalent_in_store(interner, *left, *right))
     })
 }
 
@@ -1475,7 +1495,6 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
             module: input.module,
             trait_signatures: input.trait_signatures,
         },
-        input.interner,
         input.trait_goal.clone(),
         &mut assumptions,
     );
@@ -1496,7 +1515,6 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
         .collect::<Vec<_>>();
     push_where_predicate_solver_assumptions(
         input.module,
-        input.interner,
         input.type_store,
         &input.impl_signature.where_predicates,
         input.trait_signatures,
@@ -1545,12 +1563,11 @@ struct TraitGoalExpansionContext<'a> {
 
 fn trait_impls_for_trait_goal_and_supertraits(
     context: TraitGoalExpansionContext<'_>,
-    interner: &mut TyInterner,
     goal: TraitGoal,
     trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
 ) -> Vec<ProgramTraitImplSignature> {
     let mut goals = Vec::new();
-    push_trait_goal_assumption_with_supertraits(context, interner, goal, &mut goals);
+    push_trait_goal_assumption_with_supertraits(context, goal, &mut goals);
     let mut seen = HashSet::new();
     goals
         .into_iter()
@@ -1561,7 +1578,6 @@ fn trait_impls_for_trait_goal_and_supertraits(
 
 fn push_where_predicate_solver_assumptions(
     module: &ExtensionModuleInput<'_>,
-    interner: &mut TyInterner,
     type_store: &TypeStore,
     predicates: &[WherePredicateSignature],
     trait_signatures: &HashMap<GlobalDefId, ProgramTraitSignature>,
@@ -1573,7 +1589,7 @@ fn push_where_predicate_solver_assumptions(
         for bound in &predicate.bounds {
             let trait_ty = module.normalization.normalize(bound.trait_ty);
             let Some((trait_id, trait_args, trait_const_args)) =
-                trait_id_and_args(interner, trait_ty)
+                trait_id_and_args(type_store, trait_ty)
             else {
                 continue;
             };
@@ -1583,7 +1599,6 @@ fn push_where_predicate_solver_assumptions(
                     module,
                     trait_signatures,
                 },
-                interner,
                 TraitGoal {
                     self_ty,
                     trait_id,
@@ -1611,13 +1626,11 @@ fn push_where_predicate_solver_assumptions(
 
 fn push_trait_goal_assumption_with_supertraits(
     context: TraitGoalExpansionContext<'_>,
-    interner: &mut TyInterner,
     goal: TraitGoal,
     assumptions: &mut Vec<TraitGoal>,
 ) {
     push_trait_goal_assumption_with_supertraits_inner(
         context,
-        interner,
         goal,
         assumptions,
         &mut HashSet::new(),
@@ -1626,7 +1639,6 @@ fn push_trait_goal_assumption_with_supertraits(
 
 fn push_trait_goal_assumption_with_supertraits_inner(
     context: TraitGoalExpansionContext<'_>,
-    interner: &mut TyInterner,
     goal: TraitGoal,
     assumptions: &mut Vec<TraitGoal>,
     visited: &mut HashSet<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)>,
@@ -1663,7 +1675,6 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                 };
                 push_trait_goal_assumption_with_supertraits_inner(
                     context,
-                    interner,
                     TraitGoal {
                         self_ty,
                         trait_id: TraitId::Builtin(supertrait.trait_id),
@@ -1689,9 +1700,12 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                 .collect::<SymbolMap<_>>();
             let const_substitutions =
                 const_substitutions_from_self_describing_args(&trait_const_args);
+            let append = context
+                .type_store
+                .append_for_module(context.module.module_id);
             for supertrait in &trait_signature.signature.supertraits {
-                let supertrait = substitute_imported_type(
-                    interner,
+                let supertrait = substitute_type(
+                    &append,
                     context.module,
                     context.type_store,
                     supertrait.ty,
@@ -1703,13 +1717,12 @@ fn push_trait_goal_assumption_with_supertraits_inner(
                     },
                 );
                 let Some((supertrait_id, supertrait_args, supertrait_const_args)) =
-                    trait_id_and_args(interner, supertrait)
+                    trait_id_and_args(context.type_store, supertrait)
                 else {
                     continue;
                 };
                 push_trait_goal_assumption_with_supertraits_inner(
                     context,
-                    interner,
                     TraitGoal {
                         self_ty,
                         trait_id: supertrait_id,
@@ -1724,7 +1737,7 @@ fn push_trait_goal_assumption_with_supertraits_inner(
     }
 }
 
-fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> bool {
+fn is_extendable_target(interner: &TypeStore, ty: nia_ids::InternedTyId) -> bool {
     match interner.get(ty) {
         Some(TyKind::Error | TyKind::ConstOnly) | None => false,
         Some(TyKind::Primitive(PrimitiveTy::Never)) => false,
@@ -1752,7 +1765,7 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
     }
 }
 
-fn nominal_target_def_id(interner: &TyInterner, ty: InternedTyId) -> Option<GlobalDefId> {
+fn nominal_target_def_id(interner: &TypeStore, ty: InternedTyId) -> Option<GlobalDefId> {
     match interner.get(ty) {
         Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
         _ => None,

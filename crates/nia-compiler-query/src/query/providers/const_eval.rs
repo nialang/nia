@@ -144,12 +144,6 @@ pub(super) fn with_const_input_and_program_facts<T>(
         }
         Some(db.query(TypeNormalizationQuery(module_id)))
     };
-    let value_type_normalization = |module_id| {
-        Some(db.query(SignatureTypeNormalizationQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Values,
-        )))
-    };
     let local_trait_impls = non_function_signatures_override
         .is_none()
         .then(|| db.query_shared(VisibleTraitImplsQuery(module_id)));
@@ -237,7 +231,6 @@ pub(super) fn with_const_input_and_program_facts<T>(
             source_path: Some(&program_source_path),
             defs: Some(&program_defs),
             type_normalizations: Some(&program_type_normalization),
-            value_type_normalizations: Some(&value_type_normalization),
             signatures: Some(&item_signatures_for_module),
             value_signatures: Some(&value_signatures_for_module),
             const_values: None,

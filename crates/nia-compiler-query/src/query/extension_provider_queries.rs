@@ -14,9 +14,13 @@ pub(super) struct ExtensionSignatureModuleInputQueryValue {
 }
 
 impl ExtensionSignatureModuleInputQueryValue {
-    pub(super) fn module(&self) -> ExtensionModuleInput<'_> {
+    pub(super) fn module<'a>(
+        &'a self,
+        type_store: &'a nia_ty::TypeStore,
+    ) -> ExtensionModuleInput<'a> {
         ExtensionModuleInput {
             module_id: self.module_id,
+            type_store,
             defs: &self.defs,
             lowering: &self.lowering,
             signatures: &self.signatures,

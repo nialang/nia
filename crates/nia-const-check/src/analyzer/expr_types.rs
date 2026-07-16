@@ -1,4 +1,4 @@
-use super::ty_substitution::substitute_ty_generics_in_interner;
+use super::ty_substitution::substitute_ty_generics;
 use super::*;
 
 impl Analyzer<'_> {
@@ -52,7 +52,7 @@ impl Analyzer<'_> {
                 let TyKind::Pointer { elem, .. } = self.ty_kind(inner_ty)? else {
                     return None;
                 };
-                self.import_ty_into_module_or_none(elem, self.current_execution_module_id())
+                self.type_for_module_or_none(elem, self.current_execution_module_id())
                     .map(ConstValueType::Runtime)
             }
             ConstUnaryOp::RefReadOnly | ConstUnaryOp::Ref => None,
@@ -102,11 +102,11 @@ impl Analyzer<'_> {
         };
         let module_id = self.current_execution_module_id();
         let bound = match bound {
-            Some(bound) => Some(self.import_ty_into_module_or_none(bound, module_id)?),
+            Some(bound) => Some(self.type_for_module_or_none(bound, module_id)?),
             None => None,
         };
         let ty = self
-            .working_interners
+            .type_contexts
             .get_mut(&module_id)?
             .intern(TyKind::Range { kind, bound });
         Some(ConstValueType::Runtime(ty))
@@ -165,8 +165,7 @@ impl Analyzer<'_> {
         target: InternedTyId,
     ) -> Option<ConstValueType> {
         let source = self.resolved_const_arg_runtime_type(expr, None)?;
-        let target =
-            self.import_ty_into_module_or_none(target, self.current_execution_module_id())?;
+        let target = self.type_for_module_or_none(target, self.current_execution_module_id())?;
         self.const_runtime_cast_is_supported(source, target)
             .then_some(ConstValueType::Runtime(target))
     }
@@ -239,9 +238,7 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn current_runtime_primitive_type(&self, primitive: PrimitiveTy) -> InternedTyId {
-        self.source_interner_for_module(self.current_execution_module_id())
-            .unwrap_or_else(|| self.input.interner.clone())
-            .primitive(primitive)
+        self.primitive_ty_for_module(self.current_execution_module_id(), primitive)
     }
 
     pub(super) fn const_string_literal_type(
@@ -385,14 +382,12 @@ impl Analyzer<'_> {
         ty: InternedTyId,
         substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<InternedTyId> {
-        self.ensure_working_interner(source_module_id)?;
+        self.ensure_type_context(source_module_id)?;
         let substituted = {
-            let interner = self.working_interners.get_mut(&source_module_id)?;
-            substitute_ty_generics_in_interner(interner, ty, &|generic| {
-                substitutions.get(generic).copied()
-            })
+            let interner = self.type_contexts.get_mut(&source_module_id)?;
+            substitute_ty_generics(interner, ty, &|generic| substitutions.get(generic).copied())
         };
-        self.import_ty_into_module_or_none(substituted, self.current_execution_module_id())
+        self.type_for_module_or_none(substituted, self.current_execution_module_id())
     }
 
     pub(super) fn expected_error_union_parts(
@@ -411,10 +406,10 @@ impl Analyzer<'_> {
         kind: impl FnOnce(InternedTyId) -> TyKind,
         target_module_id: ModuleId,
     ) -> Option<InternedTyId> {
-        let imported_elem = self.import_ty_into_module_or_none(elem, target_module_id)?;
-        self.working_interners
+        let elem = self.type_for_module_or_none(elem, target_module_id)?;
+        self.type_contexts
             .get_mut(&target_module_id)
-            .map(|interner| interner.intern(kind(imported_elem)))
+            .map(|interner| interner.intern(kind(elem)))
     }
 
     pub(super) fn const_error_union_type(
@@ -423,9 +418,9 @@ impl Analyzer<'_> {
         value: InternedTyId,
     ) -> Option<InternedTyId> {
         let target_module_id = self.current_execution_module_id();
-        let error = self.import_ty_into_module_or_none(error, target_module_id)?;
-        let value = self.import_ty_into_module_or_none(value, target_module_id)?;
-        self.working_interners
+        let error = self.type_for_module_or_none(error, target_module_id)?;
+        let value = self.type_for_module_or_none(value, target_module_id)?;
+        self.type_contexts
             .get_mut(&target_module_id)
             .map(|interner| interner.intern(TyKind::ErrorUnion { error, value }))
     }

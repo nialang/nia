@@ -241,6 +241,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                 module_id,
                 || {
                     let needed_const_exprs = needed_const_exprs_for_active_item_tree(
+                        &db.context().type_store,
                         &filtered_active_item_tree,
                         context.lowered,
                     );
@@ -268,6 +269,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                     semantic_use_table_from_resolution_inputs_with_const_expr_values(
                         SemanticUseInputs {
                             module_id,
+                            type_store: &db.context().type_store,
                             active_item_tree: &filtered_active_item_tree,
                             values: &filtered_values,
                             const_expr_values: Some(&const_expr_value_resolution),

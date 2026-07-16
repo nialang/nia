@@ -392,12 +392,12 @@ the store boundary.
 
 `TyInternerId` now identifies only a temporary module view, never a type identity
 domain. Each `TyInterner` is an append-only visibility log of `(InternedTyId,
-TyKind)` pairs backed by the same canonical core. Importing a same-session type
-recursively makes the target view aware of the existing type graph and preserves
-every ID; it does not reconstruct a parallel identity. The canonical core lock
-is held only for one lookup-or-insert operation, not across recursive import or
-compiler algorithms. A view refuses to intern a kind whose referenced handles
-do not exist in the same canonical core. It therefore rejects foreign-session
+TyKind)` pairs backed by the same canonical core. The former recursive
+`import_type_into` / `try_import_type_into` API and its view-adoption error type
+have been deleted; same-session handles are passed directly and interpreted by
+the store. The canonical core lock is held only for one lookup-or-insert
+operation, not across compiler algorithms. A view refuses to intern a kind
+whose referenced handles do not exist in the same canonical core. It therefore rejects foreign-session
 or unpublished children, while allowing a synthesized type to refer directly
 to a valid same-session handle that was first exposed by another module. A
 module visibility log is no longer required to be transitively closed over the
@@ -419,7 +419,7 @@ metadata disappears when remaining frontend migration paths no longer use
 module visibility logs.
 
 Trait solving reads every input handle from the canonical `TypeStore`. Its
-working interner is only an append target for synthesized types, so program
+temporary interner is only an append target for synthesized types, so program
 trait implementations and signatures no longer need recursive import or paired
 views. Enum classification uses explicit program metadata rather than type
 origin or view membership.
@@ -439,8 +439,9 @@ shard. Providers acquire shared local trait, extension, and function-signature
 facts before entering the transaction, while preserving item-level lazy
 materialization inside resolvers. `TypeStore` rejects same-thread reentry into
 one module shard so an ownership violation becomes an immediate internal error
-instead of a mutex deadlock. Foreign const snapshots still select the newer
-append-only prefix and report an internal error only when two views diverge.
+instead of a mutex deadlock. Foreign const append views remain only where trait
+solving or layout still requires a mutable legacy append handle; const
+algorithms never read through those views or copy canonical handles into them.
 
 `BodyIr` no longer publishes an interner snapshot. Prechecked body facts and
 incremental seeds borrow an explicit current session view, which must be a
@@ -502,10 +503,14 @@ imports, or recursively adopts types. Program signature products and visible
 extension products likewise contain only canonical handles; body, trait
 solving, layout, reachability, backend, and codegen consume them without an
 embedded interner. Remaining migration work is concentrated in const and
-program-signature analysis helpers that still inspect normalization/lowering
-views, plus the temporary module visibility log itself. These paths must move
-to canonical reads before recursive import, `TypeOrigin`, and the view layer can
-be deleted.
+program-signature analysis now also reads exclusively from the canonical store.
+Signature equivalence, trait decomposition, visibility alias resolution,
+semantic-use projection collection, and array-length dependency scans all take
+an explicit `TypeStore`; substitutions synthesize through `TypeStoreAppend`.
+The remaining migration work is the normalization/type-lowering core and the
+temporary module visibility log itself. Once their root enumeration and append
+contracts no longer require views, `TypeOrigin`, `TyInternerId`, snapshots, and
+the view layer can be deleted.
 
 ### 3.6 `nia-diagnostic`
 

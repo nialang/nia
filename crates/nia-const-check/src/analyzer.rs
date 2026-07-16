@@ -45,7 +45,6 @@ use nia_target_config::TargetConfig;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
 use nia_ty::{
     ArrayLenTy, ConstGenericArg, IntConst, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind,
-    import_type_into,
 };
 use nia_value_resolve::ValueResolution;
 
@@ -269,12 +268,51 @@ pub fn compute_module_const_typed_facts(
     }
 }
 
-enum WorkingInterner<'a> {
+enum ConstAppendView<'a> {
     Session(&'a mut TyInterner),
     Snapshot(TyInterner),
 }
 
-impl Deref for WorkingInterner<'_> {
+struct ConstTypeCx<'a> {
+    store: &'a nia_ty::TypeStore,
+    append: ConstAppendView<'a>,
+}
+
+impl<'a> ConstTypeCx<'a> {
+    fn session(store: &'a nia_ty::TypeStore, interner: &'a mut TyInterner) -> Self {
+        Self {
+            store,
+            append: ConstAppendView::Session(interner),
+        }
+    }
+
+    fn snapshot(store: &'a nia_ty::TypeStore, interner: TyInterner) -> Self {
+        Self {
+            store,
+            append: ConstAppendView::Snapshot(interner),
+        }
+    }
+
+    fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.store.get(ty)
+    }
+}
+
+impl Deref for ConstTypeCx<'_> {
+    type Target = TyInterner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.append
+    }
+}
+
+impl DerefMut for ConstTypeCx<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.append
+    }
+}
+
+impl Deref for ConstAppendView<'_> {
     type Target = TyInterner;
 
     fn deref(&self) -> &Self::Target {
@@ -285,7 +323,7 @@ impl Deref for WorkingInterner<'_> {
     }
 }
 
-impl DerefMut for WorkingInterner<'_> {
+impl DerefMut for ConstAppendView<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             Self::Session(interner) => interner,
@@ -306,10 +344,8 @@ pub(crate) struct Analyzer<'a> {
     array_lengths: HashMap<GlobalConstExprId, u64>,
     diagnostics: Vec<Diagnostic>,
     active: HashSet<ConstKey>,
-    working_interners: HashMap<ModuleId, WorkingInterner<'a>>,
+    type_contexts: HashMap<ModuleId, ConstTypeCx<'a>>,
     program_type_normalizations: RefCell<HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
-    program_value_type_normalizations:
-        RefCell<HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
     program_trait_impls: RefCell<HashMap<ModuleId, Vec<ProgramTraitImplSignature>>>,
     program_global_initializers:
         RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>,
@@ -349,7 +385,7 @@ impl Analyzer<'_> {
     fn new<'a>(input: ConstInput<'a>, local_interner: &'a mut TyInterner) -> Analyzer<'a> {
         assert!(
             input.interner.is_prefix_of(local_interner),
-            "Nia ICE: const working interner is not an append-only extension of its input"
+            "Nia ICE: const type context is not an append-only extension of its input"
         );
         Analyzer {
             input,
@@ -363,12 +399,11 @@ impl Analyzer<'_> {
             array_lengths: HashMap::new(),
             diagnostics: Vec::new(),
             active: HashSet::new(),
-            working_interners: HashMap::from([(
+            type_contexts: HashMap::from([(
                 input.defs.module_id,
-                WorkingInterner::Session(local_interner),
+                ConstTypeCx::session(input.type_store, local_interner),
             )]),
             program_type_normalizations: RefCell::new(HashMap::new()),
-            program_value_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_type_substitutions: HashMap::new(),
@@ -408,12 +443,11 @@ impl Analyzer<'_> {
             array_lengths: input.array_lengths.clone(),
             diagnostics: Vec::new(),
             active: HashSet::new(),
-            working_interners: HashMap::from([(
+            type_contexts: HashMap::from([(
                 input.defs.module_id,
-                WorkingInterner::Session(input.interner),
+                ConstTypeCx::session(input.type_store, input.interner),
             )]),
             program_type_normalizations: RefCell::new(HashMap::new()),
-            program_value_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
             resolved_call_type_substitutions: HashMap::new(),
@@ -562,7 +596,7 @@ impl Analyzer<'_> {
 
     fn enum_backing_range(&self, enum_id: DefId) -> Option<(i128, i128)> {
         let signature = self.input.signatures.enums.get(&enum_id)?;
-        let Some(TyKind::Primitive(primitive)) = self.input.interner.get(signature.backing_type)
+        let Some(TyKind::Primitive(primitive)) = self.input.type_store.get(signature.backing_type)
         else {
             return None;
         };

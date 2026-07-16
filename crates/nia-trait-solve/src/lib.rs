@@ -211,7 +211,7 @@ pub struct IntrinsicOverlap<'a, F>
 where
     F: Fn(InternedTyId) -> bool,
 {
-    pub interner: &'a TyInterner,
+    pub type_store: &'a TypeStore,
     pub normalization: &'a TypeNormalization,
     pub is_enum: F,
 }
@@ -320,7 +320,7 @@ where
         if self.types_equivalent(left, right) {
             return true;
         }
-        match (self.interner.get(left), self.interner.get(right)) {
+        match (self.type_store.get(left), self.type_store.get(right)) {
             (Some(TyKind::GenericParam(_)), _) | (_, Some(TyKind::GenericParam(_))) => true,
             (
                 Some(TyKind::Pointer {
@@ -383,7 +383,7 @@ where
         if left == right {
             return true;
         }
-        match (self.interner.get(left), self.interner.get(right)) {
+        match (self.type_store.get(left), self.type_store.get(right)) {
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
             _ => false,
@@ -393,7 +393,7 @@ where
     fn can_be_numeric(&self, ty: InternedTyId) -> bool {
         self.can_be_integer(ty)
             || matches!(
-                self.interner.get(self.normalize(ty)),
+                self.type_store.get(self.normalize(ty)),
                 Some(TyKind::GenericParam(_))
                     | Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
                     | Some(TyKind::Vector {
@@ -405,7 +405,7 @@ where
 
     fn can_be_integer(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.interner.get(self.normalize(ty)),
+            self.type_store.get(self.normalize(ty)),
             Some(TyKind::GenericParam(_))
                 | Some(TyKind::Primitive(
                     PrimitiveTy::I8
@@ -442,28 +442,28 @@ where
 
     fn can_be_bool(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.interner.get(self.normalize(ty)),
+            self.type_store.get(self.normalize(ty)),
             Some(TyKind::GenericParam(_)) | Some(TyKind::Primitive(PrimitiveTy::Bool))
         )
     }
 
     fn can_be_char(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.interner.get(self.normalize(ty)),
+            self.type_store.get(self.normalize(ty)),
             Some(TyKind::GenericParam(_)) | Some(TyKind::Primitive(PrimitiveTy::Char))
         )
     }
 
     fn can_be_simd(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.interner.get(self.normalize(ty)),
+            self.type_store.get(self.normalize(ty)),
             Some(TyKind::GenericParam(_)) | Some(TyKind::Vector { .. })
         )
     }
 
     fn can_be_simd_mask(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.interner.get(self.normalize(ty)),
+            self.type_store.get(self.normalize(ty)),
             Some(TyKind::GenericParam(_))
                 | Some(TyKind::Vector {
                     elem: PrimitiveTy::Bool,
@@ -474,7 +474,7 @@ where
 
     fn can_be_pointer(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.interner.get(self.normalize(ty)),
+            self.type_store.get(self.normalize(ty)),
             Some(TyKind::GenericParam(_))
                 | Some(
                     TyKind::Pointer { .. }
@@ -486,7 +486,7 @@ where
 
     fn can_be_enum(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.interner.get(self.normalize(ty)),
+            self.type_store.get(self.normalize(ty)),
             Some(TyKind::GenericParam(_))
         ) || (self.is_enum)(ty)
     }
@@ -503,13 +503,13 @@ where
     }
 
     fn can_be_non_void_pointer(&self, ty: InternedTyId, mutable: bool) -> bool {
-        match self.interner.get(self.normalize(ty)) {
+        match self.type_store.get(self.normalize(ty)) {
             Some(TyKind::GenericParam(_)) => true,
             Some(TyKind::Pointer { is_readonly, elem })
             | Some(TyKind::VolatilePointer { is_readonly, elem }) => {
                 (!mutable || !*is_readonly)
                     && !matches!(
-                        self.interner.get(self.normalize(*elem)),
+                        self.type_store.get(self.normalize(*elem)),
                         Some(TyKind::Primitive(PrimitiveTy::Void))
                     )
             }
@@ -518,7 +518,7 @@ where
     }
 
     fn can_be_array_pointer_or_slice(&self, ty: InternedTyId, mutable: bool) -> bool {
-        match self.interner.get(self.normalize(ty)) {
+        match self.type_store.get(self.normalize(ty)) {
             Some(TyKind::GenericParam(_)) | Some(TyKind::Array { .. }) => true,
             Some(
                 TyKind::Pointer { is_readonly, .. }
@@ -530,7 +530,7 @@ where
     }
 
     fn can_be_slice(&self, ty: InternedTyId, mutable: bool) -> bool {
-        match self.interner.get(self.normalize(ty)) {
+        match self.type_store.get(self.normalize(ty)) {
             Some(TyKind::GenericParam(_)) => true,
             Some(TyKind::Slice { is_readonly, .. }) => !mutable || !*is_readonly,
             _ => false,
@@ -538,13 +538,13 @@ where
     }
 
     fn can_be_usize_range(&self, ty: InternedTyId) -> bool {
-        match self.interner.get(self.normalize(ty)) {
+        match self.type_store.get(self.normalize(ty)) {
             Some(TyKind::GenericParam(_)) => true,
             Some(TyKind::Range { bound: None, .. }) => true,
             Some(TyKind::Range {
                 bound: Some(bound), ..
             }) => matches!(
-                self.interner.get(self.normalize(*bound)),
+                self.type_store.get(self.normalize(*bound)),
                 Some(TyKind::GenericParam(_)) | Some(TyKind::Primitive(PrimitiveTy::Usize))
             ),
             _ => false,
@@ -553,13 +553,13 @@ where
 
     fn can_have_len(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.interner.get(self.normalize(ty)),
+            self.type_store.get(self.normalize(ty)),
             Some(TyKind::GenericParam(_) | TyKind::Array { .. } | TyKind::Slice { .. })
         )
     }
 
     fn can_have_range_start(&self, ty: InternedTyId) -> bool {
-        match self.interner.get(self.normalize(ty)) {
+        match self.type_store.get(self.normalize(ty)) {
             Some(TyKind::GenericParam(_)) => true,
             Some(TyKind::Range { kind, bound }) => {
                 bound.is_some()
@@ -573,7 +573,7 @@ where
     }
 
     fn can_have_range_end(&self, ty: InternedTyId) -> bool {
-        match self.interner.get(self.normalize(ty)) {
+        match self.type_store.get(self.normalize(ty)) {
             Some(TyKind::GenericParam(_)) => true,
             Some(TyKind::Range { kind, bound }) => {
                 bound.is_some()
@@ -591,7 +591,7 @@ where
 
     fn can_convert_to_char(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.interner.get(self.normalize(ty)),
+            self.type_store.get(self.normalize(ty)),
             Some(TyKind::GenericParam(_) | TyKind::Primitive(PrimitiveTy::U32))
         )
     }
@@ -602,17 +602,7 @@ where
 
     fn kind(&self, ty: InternedTyId) -> Option<&TyKind> {
         let ty = self.normalize(ty);
-        if let Some(kind) = self.interner.get(ty) {
-            return Some(kind);
-        }
-        if self.interner.type_origin(ty)?.module_id() == self.interner.interner_id().module_id() {
-            panic!(
-                "Nia ICE: trait overlap type {:?} is missing from interner {:?}",
-                ty,
-                self.interner.interner_id()
-            );
-        }
-        None
+        self.type_store.get(ty)
     }
 }
 
@@ -3057,7 +3047,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn enum_classification_reads_new_types_from_working_interner() {
+    fn enum_classification_reads_new_types_from_canonical_store() {
         let module_id = ModuleId(0);
         let local_enum_id = DefId(7);
         let local_enum = GlobalDefId {
