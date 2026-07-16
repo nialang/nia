@@ -8,7 +8,7 @@ use nia_ids::{DefId, GlobalDefId, ModuleId};
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_symbol::SymbolId;
-use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{PrimitiveTy, TyKind, TypeStore};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,23 +74,23 @@ enum ExprFingerprint {
 
 pub fn check_module_flow(
     module: &Module,
-    interner: &TyInterner,
+    type_store: &TypeStore,
     signatures: &ItemSignatures,
 ) -> FlowCheck {
     let item_tree = ModuleItemTree::from_module(module);
     let active_item_tree =
         ActiveModuleItemTree::new(item_tree.active_items_without_const(), HashSet::new());
-    check_active_module_flow(&active_item_tree, interner, signatures)
+    check_active_module_flow(&active_item_tree, type_store, signatures)
 }
 
 pub fn check_active_module_flow(
     item_tree: &ActiveModuleItemTree,
-    interner: &TyInterner,
+    type_store: &TypeStore,
     signatures: &ItemSignatures,
 ) -> FlowCheck {
     check_active_module_flow_with_signatures(
         item_tree,
-        interner,
+        type_store,
         FlowCheckSignatures {
             functions: &signatures.functions,
         },
@@ -99,12 +99,12 @@ pub fn check_active_module_flow(
 
 pub fn check_active_module_flow_with_signatures(
     item_tree: &ActiveModuleItemTree,
-    interner: &TyInterner,
+    type_store: &TypeStore,
     signatures: FlowCheckSignatures<'_>,
 ) -> FlowCheck {
     check_active_module_flow_with_signatures_and_filter(
         item_tree,
-        interner,
+        type_store,
         signatures,
         FlowCheckFilter::All,
     )
@@ -112,12 +112,12 @@ pub fn check_active_module_flow_with_signatures(
 
 pub fn check_active_module_flow_with_signatures_and_filter(
     item_tree: &ActiveModuleItemTree,
-    interner: &TyInterner,
+    type_store: &TypeStore,
     signatures: FlowCheckSignatures<'_>,
     filter: FlowCheckFilter<'_>,
 ) -> FlowCheck {
     let mut checker = FlowChecker {
-        interner,
+        type_store,
         signatures,
         filter,
         diagnostics: Vec::new(),
@@ -130,7 +130,7 @@ pub fn check_active_module_flow_with_signatures_and_filter(
 }
 
 struct FlowChecker<'a> {
-    interner: &'a TyInterner,
+    type_store: &'a TypeStore,
     signatures: FlowCheckSignatures<'a>,
     filter: FlowCheckFilter<'a>,
     diagnostics: Vec<Diagnostic>,
@@ -196,7 +196,7 @@ impl FlowChecker<'_> {
             return false;
         };
         !matches!(
-            self.interner.get(signature.return_type),
+            self.type_store.get(signature.return_type),
             Some(TyKind::Primitive(PrimitiveTy::Void))
         )
     }
@@ -633,7 +633,7 @@ mod tests {
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_item_signatures::collect_item_signatures;
     use nia_parser::parse_module;
-    use nia_type_lower::lower_module_types_with_id;
+    use nia_type_lower::{TypeLoweringContext, lower_module_types_with_context};
     use nia_type_resolve::resolve_module_types;
 
     fn pipeline(source: &str) -> FlowCheck {
@@ -641,9 +641,15 @@ mod tests {
         assert!(parse_errors.is_empty(), "{parse_errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let type_store = TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            ModuleId(0),
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        check_module_flow(&module, &lowered.interner, &signatures)
+        check_module_flow(&module, &type_store, &signatures)
     }
 
     #[test]

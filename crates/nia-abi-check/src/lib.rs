@@ -9,7 +9,7 @@ use nia_item_signatures::{
     StructSignature, UnionSignature,
 };
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind, TypeStore};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ProgramAbiSignatures<'a> {
@@ -26,18 +26,15 @@ pub struct AbiCheck {
 #[derive(Debug, Clone, Copy)]
 pub struct ModuleAbiSignatures<'a> {
     pub functions: &'a HashMap<DefId, FunctionSignature>,
-    pub function_interner: &'a TyInterner,
     pub structs: &'a HashMap<DefId, StructSignature>,
     pub unions: &'a HashMap<DefId, UnionSignature>,
     pub enums: &'a HashMap<DefId, EnumSignature>,
-    pub type_interner: &'a TyInterner,
     pub globals: &'a HashMap<DefId, GlobalSignature>,
-    pub value_interner: &'a TyInterner,
 }
 
 pub fn check_module_abi(
     defs: &DefCollection,
-    interner: &TyInterner,
+    type_store: &TypeStore,
     signatures: &ItemSignatures,
 ) -> AbiCheck {
     let empty_structs = HashMap::new();
@@ -45,7 +42,7 @@ pub fn check_module_abi(
     let empty_enums = HashMap::new();
     check_module_abi_with_program_signatures(
         defs,
-        interner,
+        type_store,
         signatures,
         ProgramAbiSignatures {
             structs: &empty_structs,
@@ -57,21 +54,19 @@ pub fn check_module_abi(
 
 pub fn check_module_abi_with_program_signatures(
     defs: &DefCollection,
-    interner: &TyInterner,
+    type_store: &TypeStore,
     signatures: &ItemSignatures,
     program_signatures: ProgramAbiSignatures<'_>,
 ) -> AbiCheck {
     check_module_abi_families_with_program_signatures(
         defs,
+        type_store,
         ModuleAbiSignatures {
             functions: &signatures.functions,
-            function_interner: interner,
             structs: &signatures.structs,
             unions: &signatures.unions,
             enums: &signatures.enums,
-            type_interner: interner,
             globals: &signatures.globals,
-            value_interner: interner,
         },
         program_signatures,
     )
@@ -79,11 +74,13 @@ pub fn check_module_abi_with_program_signatures(
 
 pub fn check_module_abi_families_with_program_signatures(
     defs: &DefCollection,
+    type_store: &TypeStore,
     signatures: ModuleAbiSignatures<'_>,
     program_signatures: ProgramAbiSignatures<'_>,
 ) -> AbiCheck {
     let mut checker = AbiChecker {
         defs,
+        type_store,
         signatures,
         program_signatures,
         diagnostics: Vec::new(),
@@ -96,6 +93,7 @@ pub fn check_module_abi_families_with_program_signatures(
 
 struct AbiChecker<'a> {
     defs: &'a DefCollection,
+    type_store: &'a TypeStore,
     signatures: ModuleAbiSignatures<'a>,
     program_signatures: ProgramAbiSignatures<'a>,
     diagnostics: Vec<Diagnostic>,
@@ -128,7 +126,7 @@ impl AbiChecker<'_> {
     fn check(&mut self) {
         for (def_id, signature) in self.signatures.functions {
             if signature.is_extern {
-                self.check_extern_function(*def_id, signature, self.signatures.function_interner);
+                self.check_extern_function(*def_id, signature);
             }
         }
         for signature in self.signatures.structs.values() {
@@ -145,12 +143,7 @@ impl AbiChecker<'_> {
 
     fn check_extern_struct(&mut self, signature: &nia_item_signatures::StructSignature) {
         for field in &signature.fields {
-            self.check_extern_ty(
-                self.signatures.type_interner,
-                field.span,
-                field.ty,
-                ExternTyContext::StructField,
-            );
+            self.check_extern_ty(field.span, field.ty, ExternTyContext::StructField);
         }
     }
 
@@ -163,20 +156,10 @@ impl AbiChecker<'_> {
             ));
             return;
         };
-        self.check_extern_ty(
-            self.signatures.value_interner,
-            signature.span,
-            ty,
-            ExternTyContext::Global,
-        );
+        self.check_extern_ty(signature.span, ty, ExternTyContext::Global);
     }
 
-    fn check_extern_function(
-        &mut self,
-        def_id: DefId,
-        signature: &FunctionSignature,
-        interner: &TyInterner,
-    ) {
+    fn check_extern_function(&mut self, def_id: DefId, signature: &FunctionSignature) {
         if signature
             .attributes
             .iter()
@@ -206,22 +189,16 @@ impl AbiChecker<'_> {
             ));
         }
         for param in &signature.params {
-            self.check_extern_ty(
-                interner,
-                param.span,
-                param.ty,
-                ExternTyContext::FunctionParameter,
-            );
+            self.check_extern_ty(param.span, param.ty, ExternTyContext::FunctionParameter);
         }
-        if self.is_never(interner, signature.return_type) {
+        if self.is_never(signature.return_type) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::STATIC_CHECK,
                 signature.span,
                 "extern return type cannot use `never`",
             ));
-        } else if !self.is_void(interner, signature.return_type) {
+        } else if !self.is_void(signature.return_type) {
             self.check_extern_ty(
-                interner,
                 signature.span,
                 signature.return_type,
                 ExternTyContext::FunctionReturn,
@@ -238,15 +215,9 @@ impl AbiChecker<'_> {
         }
     }
 
-    fn check_extern_ty(
-        &mut self,
-        interner: &TyInterner,
-        span: Span,
-        ty: nia_ids::InternedTyId,
-        context: ExternTyContext,
-    ) {
+    fn check_extern_ty(&mut self, span: Span, ty: nia_ids::InternedTyId, context: ExternTyContext) {
         let context_desc = context.description();
-        match interner.get(ty) {
+        match self.type_store.get(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Bool)) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::STATIC_CHECK,
@@ -318,16 +289,10 @@ impl AbiChecker<'_> {
                     ));
                 }
                 for param in params {
-                    self.check_extern_ty(
-                        interner,
-                        span,
-                        *param,
-                        ExternTyContext::FunctionPointerParameter,
-                    );
+                    self.check_extern_ty(span, *param, ExternTyContext::FunctionPointerParameter);
                 }
-                if !self.is_void(interner, *return_type) {
+                if !self.is_void(*return_type) {
                     self.check_extern_ty(
-                        interner,
                         span,
                         *return_type,
                         ExternTyContext::FunctionPointerReturn,
@@ -343,7 +308,7 @@ impl AbiChecker<'_> {
                             "extern struct field cannot use inferred array length",
                         ));
                     }
-                    self.check_extern_ty(interner, span, *elem, ExternTyContext::StructField);
+                    self.check_extern_ty(span, *elem, ExternTyContext::StructField);
                 } else {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::STATIC_CHECK,
@@ -435,13 +400,16 @@ impl AbiChecker<'_> {
             None => self.diagnostics.push(Diagnostic::internal_error_at(
                 codes::STATIC_CHECK,
                 span,
-                format!("extern ABI type {ty:?} is missing from type interner"),
+                format!("extern ABI type {ty:?} is missing from the session type store"),
             )),
         }
     }
 
-    fn is_void(&self, interner: &TyInterner, ty: nia_ids::InternedTyId) -> bool {
-        matches!(interner.get(ty), Some(TyKind::Primitive(PrimitiveTy::Void)))
+    fn is_void(&self, ty: nia_ids::InternedTyId) -> bool {
+        matches!(
+            self.type_store.get(ty),
+            Some(TyKind::Primitive(PrimitiveTy::Void))
+        )
     }
 
     fn struct_signature(&self, def_id: GlobalDefId) -> Option<&StructSignature> {
@@ -468,9 +436,9 @@ impl AbiChecker<'_> {
         }
     }
 
-    fn is_never(&self, interner: &TyInterner, ty: nia_ids::InternedTyId) -> bool {
+    fn is_never(&self, ty: nia_ids::InternedTyId) -> bool {
         matches!(
-            interner.get(ty),
+            self.type_store.get(ty),
             Some(TyKind::Primitive(PrimitiveTy::Never))
         )
     }
@@ -482,7 +450,7 @@ mod tests {
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_item_signatures::collect_item_signatures;
     use nia_parser::parse_module;
-    use nia_type_lower::lower_module_types_with_id;
+    use nia_type_lower::{TypeLoweringContext, lower_module_types_with_context};
     use nia_type_resolve::resolve_module_types;
 
     #[test]
@@ -507,9 +475,15 @@ extern fn bad_union(bits: Bits);
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let type_store = TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            ModuleId(0),
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let checked = check_module_abi(&defs, &lowered.interner, &signatures);
+        let checked = check_module_abi(&defs, &type_store, &signatures);
         for expected in [
             "`bool`",
             "`char`",
@@ -549,9 +523,15 @@ extern fn consume(header: Header);
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let resolved = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let type_store = TypeStore::new();
+        let lowered = lower_module_types_with_context(
+            ModuleId(0),
+            &module,
+            &resolved,
+            TypeLoweringContext::empty(&type_store),
+        );
         let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let checked = check_module_abi(&defs, &lowered.interner, &signatures);
+        let checked = check_module_abi(&defs, &type_store, &signatures);
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
 }
