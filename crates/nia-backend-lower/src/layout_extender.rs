@@ -66,12 +66,14 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             unions: Some(self.input.program_unions),
             ..Default::default()
         };
+        let root_types = self.input.signatures.type_roots();
         let computed =
             nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
                 type_store: self.type_store,
                 defs: self.input.defs,
                 interner: self.interner,
                 signatures: self.input.signatures,
+                root_types: &root_types,
                 normalized: &normalization.normalized,
                 array_lengths: &array_lengths,
                 target: self.input.layouts.target,
@@ -89,6 +91,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             defs: self.input.defs,
             interner: self.interner,
             signatures: self.input.signatures,
+            root_types: &root_types,
             normalized: &normalization.normalized,
             array_lengths: &array_lengths,
             target: self.input.layouts.target,

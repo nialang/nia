@@ -509,6 +509,7 @@ pub(super) fn signature_layouts_for_types(
                         defs: &defs,
                         interner,
                         signatures: &item_signatures,
+                        root_types: &[],
                         normalized: &type_normalization.normalized,
                         array_lengths: &local_array_lengths,
                         target: nia_layout::TargetDataLayout::LP64,

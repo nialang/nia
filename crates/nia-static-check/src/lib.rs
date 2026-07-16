@@ -703,11 +703,7 @@ mod tests {
         );
         let target = nia_target_config::TargetConfig::host();
         let source_path = SourcePath::new("/tmp/nia-static-check-test/main.nia");
-        let normalization_input = type_lowering
-            .interner
-            .iter()
-            .map(|(ty_id, _)| ty_id)
-            .collect::<Vec<_>>();
+        let normalization_input = type_lowering.explicit_type_roots();
         let normalization = normalize_module_types(nia_type_normalize::TypeNormalizationInput {
             module_id,
             type_store: &type_store,

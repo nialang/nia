@@ -271,11 +271,7 @@ fn pipeline_with_options(
         "{:?}",
         const_values.diagnostics
     );
-    let normalization_input = lowered
-        .interner
-        .iter()
-        .map(|(ty_id, _)| ty_id)
-        .collect::<Vec<_>>();
+    let normalization_input = lowered.explicit_type_roots();
     let normalization =
         nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
             module_id: ModuleId(0),

@@ -424,11 +424,7 @@ fn normalize_types_in_session_store(
     type_lowering: &nia_type_lower::TypeLowering,
     item_signatures: &ItemSignatures,
 ) -> TypeNormalization {
-    let input_ids = type_lowering
-        .interner
-        .iter()
-        .map(|(ty_id, _)| ty_id)
-        .collect::<Vec<_>>();
+    let input_ids = type_lowering.explicit_type_roots();
     db.context()
         .type_store
         .with_module_interner_for_semantic_migration(module_id, |interner| {

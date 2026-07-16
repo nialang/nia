@@ -36,6 +36,13 @@ pub struct TypeLowering {
 }
 
 impl TypeLowering {
+    pub fn explicit_type_roots(&self) -> Vec<InternedTyId> {
+        let mut roots = self.type_uses.values().copied().collect::<Vec<_>>();
+        roots.sort_unstable();
+        roots.dedup();
+        roots
+    }
+
     pub fn ty_for_site(&self, site: &NodeSite) -> Option<InternedTyId> {
         self.type_uses.get(site).copied()
     }

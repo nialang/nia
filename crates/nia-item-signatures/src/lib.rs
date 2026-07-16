@@ -36,6 +36,79 @@ pub struct ItemSignatures {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+impl ItemSignatures {
+    pub fn type_roots(&self) -> Vec<InternedTyId> {
+        let mut roots = Vec::new();
+        for signature in self.functions.values() {
+            collect_function_type_roots(signature, &mut roots);
+        }
+        for signature in self.structs.values() {
+            collect_where_type_roots(&signature.where_predicates, &mut roots);
+            roots.extend(signature.fields.iter().map(|field| field.ty));
+        }
+        for signature in self.unions.values() {
+            collect_where_type_roots(&signature.where_predicates, &mut roots);
+            roots.extend(signature.fields.iter().map(|field| field.ty));
+        }
+        for signature in self.traits.values() {
+            collect_where_type_roots(&signature.where_predicates, &mut roots);
+            roots.extend(signature.supertraits.iter().map(|supertrait| supertrait.ty));
+            roots.extend(signature.associated_values.iter().map(|value| value.ty));
+            for method in &signature.methods {
+                collect_function_type_roots(&method.signature, &mut roots);
+            }
+        }
+        for signature in &self.trait_impls {
+            roots.push(signature.target_ty);
+            roots.extend(signature.trait_ty);
+            collect_where_type_roots(&signature.where_predicates, &mut roots);
+            roots.extend(signature.associated_types.iter().map(|binding| binding.ty));
+        }
+        roots.extend(self.enums.values().map(|signature| signature.backing_type));
+        roots.extend(self.type_aliases.values().map(|signature| signature.target));
+        roots.extend(
+            self.globals
+                .values()
+                .filter_map(|signature| signature.explicit_type),
+        );
+        roots.extend(
+            self.consts
+                .values()
+                .filter_map(|signature| signature.explicit_type),
+        );
+        roots.sort_unstable();
+        roots.dedup();
+        roots
+    }
+}
+
+fn collect_function_type_roots(signature: &FunctionSignature, roots: &mut Vec<InternedTyId>) {
+    roots.extend(signature.generic_params.iter().filter_map(|param| {
+        let GenericParamSignatureKind::Const { ty } = param.kind else {
+            return None;
+        };
+        Some(ty)
+    }));
+    collect_where_type_roots(&signature.where_predicates, roots);
+    roots.extend(signature.params.iter().map(|param| param.ty));
+    roots.push(signature.return_type);
+}
+
+fn collect_where_type_roots(predicates: &[WherePredicateSignature], roots: &mut Vec<InternedTyId>) {
+    for predicate in predicates {
+        roots.push(predicate.ty);
+        for bound in &predicate.bounds {
+            roots.push(bound.trait_ty);
+            roots.extend(
+                bound
+                    .associated_type_bindings
+                    .iter()
+                    .map(|binding| binding.ty),
+            );
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramFunctionSignature {
     pub name: SymbolId,

@@ -615,15 +615,20 @@ pub fn check_module_bodies_with_program_signatures(
     input: BodyCheckWithProgramSignaturesInput<'_>,
     interner: &mut TyInterner,
 ) -> BodyCheck {
-    let layouts = nia_layout::compute_layouts_with_normalized_types(
-        input.type_store,
-        input.defs,
-        interner,
-        input.signatures,
-        &input.normalization.normalized,
-        &|id| input.const_eval.array_lengths.get(&id).copied(),
-        nia_layout::TargetDataLayout::LP64,
-    );
+    let root_types = input.signatures.type_roots();
+    let array_lengths = |id| input.const_eval.array_lengths.get(&id).copied();
+    let layouts =
+        nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
+            type_store: input.type_store,
+            defs: input.defs,
+            interner,
+            signatures: input.signatures,
+            root_types: &root_types,
+            normalized: &input.normalization.normalized,
+            array_lengths: &array_lengths,
+            target: nia_layout::TargetDataLayout::LP64,
+            program: nia_layout::ProgramLayoutContext::default(),
+        });
     let mut checked = check_module_bodies_with_layouts(
         BodyCheckInput {
             type_store: input.type_store,
