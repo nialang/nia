@@ -3838,7 +3838,10 @@ fn collect_ty_ids_owner_modules<'a>(
     let mut seen = HashSet::new();
     while let Some(pending_ty) = pending.pop_front() {
         let ty_id = pending_ty.ty;
-        add_reachable_type_module(type_owner(ty_id).module_id(), type_modules);
+        let owner = body_interner
+            .type_owner(ty_id)
+            .expect("reachable type belongs to its session store");
+        add_reachable_type_module(owner.module_id(), type_modules);
         let interner_id = pending_ty.interner.map(TyInterner::interner_id);
         if !seen.insert((ty_id, interner_id)) {
             continue;
@@ -3868,10 +3871,6 @@ fn collect_ty_ids_owner_modules<'a>(
 struct PendingTy<'a> {
     ty: InternedTyId,
     interner: Option<&'a TyInterner>,
-}
-
-fn type_owner(ty: InternedTyId) -> nia_ids::TypeOwner {
-    ty.owner()
 }
 
 fn collect_ty_owner_modules<'a>(
@@ -4080,7 +4079,10 @@ fn collect_ty_ids_owner_modules_with_interner<'a>(
         .collect::<VecDeque<_>>();
     while let Some(pending_ty) = pending.pop_front() {
         let ty_id = pending_ty.ty;
-        add_reachable_type_module(type_owner(ty_id).module_id(), type_modules);
+        let owner = interner
+            .type_owner(ty_id)
+            .expect("reachable type belongs to its session store");
+        add_reachable_type_module(owner.module_id(), type_modules);
         let interner_id = pending_ty.interner.map(TyInterner::interner_id);
         if !seen.insert((ty_id, interner_id)) {
             continue;

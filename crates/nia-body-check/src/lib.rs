@@ -1679,7 +1679,7 @@ impl<'a> BodyChecker<'a> {
         if self.interner.get(ty).is_some() {
             return Some(self.interner.clone());
         }
-        let module_id = ty.owner().module_id();
+        let module_id = self.interner.type_owner(ty)?.module_id();
         if !self
             .program_type_normalizations
             .borrow()

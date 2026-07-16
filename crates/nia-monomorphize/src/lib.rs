@@ -221,8 +221,10 @@ const MAX_MONOMORPHIZED_INSTANCES: usize = 1024;
 const MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH: usize = 256;
 
 impl MonoCollector<'_> {
-    fn type_owner(ty: InternedTyId) -> TypeOwner {
-        ty.owner()
+    fn type_owner(&self, ty: InternedTyId) -> TypeOwner {
+        self.type_store
+            .type_owner(ty)
+            .expect("monomorphization type belongs to its session store")
     }
 
     fn collect_module(&mut self, input: &MonomorphizeModuleInput<'_>) {
@@ -1112,7 +1114,7 @@ impl MonoCollector<'_> {
         target_module_id: ModuleId,
         ty: InternedTyId,
     ) -> InternedTyId {
-        let source_module_id = Self::type_owner(ty).module_id();
+        let source_module_id = self.type_owner(ty).module_id();
         if source_module_id == target_module_id {
             return ty;
         }

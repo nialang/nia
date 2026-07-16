@@ -362,7 +362,10 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn type_owner(&self, ty: nia_ids::InternedTyId) -> nia_ids::TypeOwner {
-        ty.owner()
+        self.input
+            .interner
+            .type_owner(ty)
+            .expect("const type belongs to its session store")
     }
 
     fn source_interner_for_type(&self, ty: nia_ids::InternedTyId) -> Option<TyInterner> {

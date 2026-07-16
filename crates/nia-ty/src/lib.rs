@@ -3,7 +3,7 @@ use nia_hash::{FastHashMap, FastHashSet};
 pub use nia_ids::{BuiltinTrait, BuiltinType, LayoutBuiltin, TraitId};
 use nia_ids::{
     GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerId, TyInternerIndex,
-    TypeStoreId,
+    TypeOwner, TypeStoreId,
 };
 use nia_span::Span;
 use nia_symbol::SymbolId;
@@ -108,6 +108,11 @@ impl TypeStore {
 
     pub fn id(&self) -> TypeStoreId {
         self.id
+    }
+
+    pub fn type_owner(&self, ty: InternedTyId) -> Option<TypeOwner> {
+        (ty.interner_id.store_id() == self.id)
+            .then(|| TypeOwner::Module(ty.interner_id.module_id()))
     }
 
     #[doc(hidden)]
@@ -432,6 +437,11 @@ impl TyInterner {
 
     pub fn interner_id(&self) -> TyInternerId {
         self.interner_id
+    }
+
+    pub fn type_owner(&self, ty: InternedTyId) -> Option<TypeOwner> {
+        (ty.interner_id.store_id() == self.interner_id.store_id())
+            .then(|| TypeOwner::Module(ty.interner_id.module_id()))
     }
 
     pub fn intern(&mut self, kind: TyKind) -> InternedTyId {
@@ -1327,6 +1337,29 @@ mod tests {
         assert_ne!(first_i32, second_i32);
         assert_eq!(second_interner.get(first_i32), None);
         assert_eq!(first_interner.get(second_i32), None);
+        assert_eq!(
+            first.type_owner(first_i32),
+            Some(TypeOwner::Module(ModuleId(7)))
+        );
+        assert_eq!(first.type_owner(second_i32), None);
+        assert_eq!(
+            first_interner.type_owner(first_i32),
+            Some(TypeOwner::Module(ModuleId(7)))
+        );
+        assert_eq!(first_interner.type_owner(second_i32), None);
+    }
+
+    #[test]
+    fn type_views_resolve_foreign_module_owners_within_one_session() {
+        let store = TypeStore::new();
+        let local = store.module_snapshot(ModuleId(2));
+        let foreign = store.module_snapshot(ModuleId(9));
+        let foreign_ty = foreign.primitive(PrimitiveTy::U32);
+
+        assert_eq!(
+            local.type_owner(foreign_ty),
+            Some(TypeOwner::Module(ModuleId(9)))
+        );
     }
 
     #[test]

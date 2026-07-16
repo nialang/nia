@@ -345,11 +345,13 @@ Defines typed cross-phase ids:
 - `ModuleId`;
 - `DefId`;
 - `LocalId`;
-- the current module-interner `InternedTyId`;
+- the current store-scoped migration handle `InternedTyId`;
 - `GlobalDefId`.
 
 It stores no semantic tables and has no filesystem, parser, or diagnostic
-responsibility.
+responsibility. In particular, `InternedTyId` does not expose a semantic owner
+operation: owner and kind are storage facts queried through `TypeStore` or an
+active type view, not properties interpreted independently by every consumer.
 
 ### 3.5 Semantic Identity Lifecycle
 
@@ -394,6 +396,16 @@ A domain is migrated only when its private mutation/import path is deleted.
 Temporary snapshots exist only at the boundary between the migrated prefix and
 the next unmigrated domain; there is no permanent module-local/session-global
 API choice.
+
+The direct `InternedTyId::owner()` operation has been removed. Monomorphization
+queries `TypeStore`; const/body/reachability query their active type view; and
+backend validation/codegen query the whole-program type index. During the
+module-sharded migration these storage APIs still recover the temporary module
+owner from the old physical handle, but that detail is now centralized behind
+the storage contract. A foreign-session handle returns no owner, while any view
+from the same session can resolve an external module handle. This makes the
+next session-wide index change a storage-layout migration rather than another
+cross-compiler API rewrite.
 
 Trait solving no longer creates a frozen clone of its mutable working interner
 for enum classification. The solver holds enum metadata and classifies nominal

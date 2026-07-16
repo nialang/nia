@@ -99,10 +99,6 @@ impl InternedTyId {
     pub const fn new(interner_id: TyInternerId, index: TyInternerIndex) -> Self {
         Self { interner_id, index }
     }
-
-    pub const fn owner(self) -> TypeOwner {
-        TypeOwner::Module(self.interner_id.module_id())
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
