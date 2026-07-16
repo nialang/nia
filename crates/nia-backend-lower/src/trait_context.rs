@@ -23,14 +23,11 @@ pub(crate) struct BackendTraitContext {
 }
 
 impl BackendTraitContext {
-    pub(crate) fn new(
-        input: &BackendLowerModuleInput<'_>,
-        current_interner: &nia_ty::TyInterner,
-    ) -> Self {
+    pub(crate) fn new(input: &BackendLowerModuleInput<'_>) -> Self {
         Self {
             extension_trait_method_candidates: index_extension_trait_method_candidates(
                 input.extensions,
-                input.extension_interner.unwrap_or(current_interner),
+                input.module_id,
             ),
             builtin_trait_resolutions: HashMap::new(),
             trait_impls_by_method: index_local_trait_impls_by_method(input),

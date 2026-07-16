@@ -168,7 +168,6 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         visible_extensions,
         extension_methods,
         function_bodies,
-        type_interners,
     ) = time_provider(db.context().timings(), "backend_lowering.inputs", || {
         let timings = db.context().timings();
         let all_visible_extensions = time_provider(
@@ -233,15 +232,6 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 db.query(ExtensionMethodIndexQuery)
             });
         let function_bodies = function_bodies_from_checked_modules(db, checked_modules);
-        let type_interners = checked_modules
-            .iter()
-            .map(|module| {
-                (
-                    module.id,
-                    db.context().type_store.module_snapshot(module.id),
-                )
-            })
-            .collect::<HashMap<_, _>>();
         (
             all_visible_extensions,
             active_item_trees,
@@ -251,7 +241,6 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             visible_extensions,
             extension_methods,
             function_bodies,
-            type_interners,
         )
     });
     let function_lowering_diagnostics =
@@ -296,7 +285,6 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 const_enum_values: &const_enum_values,
                 visible_extensions: &visible_extensions,
                 function_bodies: &function_bodies,
-                type_interners: &type_interners,
                 extension_methods: &extension_methods.methods,
                 program_defs: &program_defs,
                 program_signatures,

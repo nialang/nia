@@ -631,7 +631,7 @@ impl<'a> ModuleLowerer<'a> {
         seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendStructInstance>,
     ) {
-        match self.type_context.interner.get(ty).cloned() {
+        match self.ty_kind(ty).cloned() {
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
@@ -783,13 +783,7 @@ impl<'a> ModuleLowerer<'a> {
                 .signature
                 .fields
                 .iter()
-                .map(|field| {
-                    nia_ty::import_type_into(
-                        &mut self.type_context.interner,
-                        &program_signature.interner,
-                        field.ty,
-                    )
-                })
+                .map(|field| self.normalized_type_from_module(def_id.module_id, field.ty))
                 .collect();
         }
         let Some(signature) = self.input.signatures.structs.get(&def_id.def_id) else {
@@ -829,11 +823,7 @@ impl<'a> ModuleLowerer<'a> {
                 .fields
                 .iter()
                 .map(|field| {
-                    let ty = nia_ty::import_type_into(
-                        &mut self.type_context.interner,
-                        &program_signature.interner,
-                        field.ty,
-                    );
+                    let ty = self.normalized_type_from_module(def_id.module_id, field.ty);
                     BackendField {
                         def_id: GlobalDefId {
                             module_id: def_id.module_id,
@@ -1266,7 +1256,7 @@ impl<'a> ModuleLowerer<'a> {
         seen: &mut HashSet<AggregateInstanceKey>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
-        match self.type_context.interner.get(ty).cloned() {
+        match self.ty_kind(ty).cloned() {
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::VolatilePointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
@@ -1418,13 +1408,7 @@ impl<'a> ModuleLowerer<'a> {
                 .signature
                 .fields
                 .iter()
-                .map(|field| {
-                    nia_ty::import_type_into(
-                        &mut self.type_context.interner,
-                        &program_signature.interner,
-                        field.ty,
-                    )
-                })
+                .map(|field| self.normalized_type_from_module(def_id.module_id, field.ty))
                 .collect();
         }
         let Some(signature) = self.input.signatures.unions.get(&def_id.def_id) else {
@@ -1464,11 +1448,7 @@ impl<'a> ModuleLowerer<'a> {
                 .fields
                 .iter()
                 .map(|field| {
-                    let ty = nia_ty::import_type_into(
-                        &mut self.type_context.interner,
-                        &program_signature.interner,
-                        field.ty,
-                    );
+                    let ty = self.normalized_type_from_module(def_id.module_id, field.ty);
                     BackendField {
                         def_id: GlobalDefId {
                             module_id: def_id.module_id,
@@ -1486,13 +1466,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn instance_args_contain_generic_param(&mut self, args: &[InternedTyId]) -> bool {
-        let current_interner = self.type_context.interner.clone();
-        let mut ty_kind = |ty: InternedTyId| {
-            current_interner
-                .get(ty)
-                .cloned()
-                .or_else(|| self.ty_kind(ty).cloned())
-        };
+        let mut ty_kind = |ty: InternedTyId| self.ty_kind(ty).cloned();
         args.iter()
             .any(|arg| contains_generic_param(*arg, &mut ty_kind, None))
     }

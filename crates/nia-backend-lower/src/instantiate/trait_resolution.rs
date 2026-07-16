@@ -21,9 +21,8 @@ impl<'a> ModuleLowerer<'a> {
         if impl_signature.trait_id != key.trait_id {
             return None;
         }
-        let impl_interner = impl_signature.interner.clone();
         let target_ty =
-            self.import_type_from_known_interner(&impl_interner, impl_signature.target_ty);
+            self.normalized_type_from_module(impl_signature.module_id, impl_signature.target_ty);
         let mut substitutions = SymbolMap::default();
         if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
             return None;
@@ -34,7 +33,7 @@ impl<'a> ModuleLowerer<'a> {
         let impl_trait_args = impl_signature
             .trait_args
             .iter()
-            .map(|arg| self.import_type_from_known_interner(&impl_interner, *arg))
+            .map(|arg| self.normalized_type_from_module(impl_signature.module_id, *arg))
             .collect::<Vec<_>>();
         if !impl_trait_args.iter().zip(trait_args).all(|(left, right)| {
             self.match_extension_type_pattern(*left, *right, &mut substitutions)
@@ -102,12 +101,12 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             };
             let candidate = ExtensionTraitMethodCandidate {
+                module_id: impl_signature.module_id,
                 target_ty: impl_signature.target_ty,
                 method_def_id: method.def_id,
                 trait_args: impl_signature.trait_args.clone(),
                 where_predicates: impl_signature.where_predicates.clone(),
                 effective_generics: impl_signature.generics.clone(),
-                interner: std::sync::Arc::new(impl_signature.interner.clone()),
             };
             if let Some(resolved) =
                 self.trait_impl_method_for_candidate(&candidate, trait_args, self_ty)
@@ -194,9 +193,8 @@ impl<'a> ModuleLowerer<'a> {
         candidate: &ExtensionTraitMethodCandidate,
         substitutions: &SymbolMap<InternedTyId>,
     ) -> bool {
-        let candidate_interner = self.candidate_type_interner(candidate).clone();
         let predicates =
-            self.import_where_predicates(&candidate.where_predicates, &candidate_interner);
+            self.normalize_where_predicates(&candidate.where_predicates, candidate.module_id);
         let predicates = predicates
             .iter()
             .map(|predicate| self.substitute_where_predicate(predicate, substitutions))
@@ -285,8 +283,8 @@ impl<'a> ModuleLowerer<'a> {
             .type_substitutions(substitutions)
             .cloned()
             .unwrap_or_default();
-        for (predicates, source_interner) in self.current_where_predicate_sources(current) {
-            let predicates = self.import_where_predicates(&predicates, &source_interner);
+        for (predicates, module_id) in self.current_where_predicate_sources(current) {
+            let predicates = self.normalize_where_predicates(&predicates, module_id);
             let predicates = predicates
                 .iter()
                 .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
@@ -294,12 +292,7 @@ impl<'a> ModuleLowerer<'a> {
             for predicate in predicates {
                 for bound in predicate.bounds {
                     if let Some((trait_id, trait_args, trait_const_args)) =
-                        Self::trait_id_and_args_from(
-                            &self.type_context.interner,
-                            self.input.type_normalization,
-                            self.input.program_traits,
-                            bound.trait_ty,
-                        )
+                        self.trait_id_and_args(bound.trait_ty)
                     {
                         assumptions.push(TraitGoal {
                             self_ty: predicate.ty,
@@ -369,10 +362,7 @@ impl<'a> ModuleLowerer<'a> {
     fn current_where_predicate_sources(
         &mut self,
         current: GlobalDefId,
-    ) -> Vec<(
-        Vec<nia_item_signatures::WherePredicateSignature>,
-        nia_ty::TyInterner,
-    )> {
+    ) -> Vec<(Vec<nia_item_signatures::WherePredicateSignature>, ModuleId)> {
         let mut sources = Vec::new();
         if let Some(source) = self.current_extension_where_predicates(current) {
             sources.push(source);
@@ -383,16 +373,13 @@ impl<'a> ModuleLowerer<'a> {
         if current.module_id == self.input.module_id
             && let Some(signature) = self.input.signatures.functions.get(&current.def_id)
         {
-            sources.push((
-                signature.where_predicates.clone(),
-                self.input.type_lowering.interner.clone(),
-            ));
+            sources.push((signature.where_predicates.clone(), current.module_id));
             return sources;
         }
         if let Some(signature) = self.input.program_functions.get(&current) {
             sources.push((
                 signature.signature.where_predicates.clone(),
-                signature.interner.clone(),
+                current.module_id,
             ));
         }
         sources
@@ -401,26 +388,15 @@ impl<'a> ModuleLowerer<'a> {
     fn current_extension_owner_where_predicates(
         &mut self,
         current: GlobalDefId,
-    ) -> Option<(
-        Vec<nia_item_signatures::WherePredicateSignature>,
-        nia_ty::TyInterner,
-    )> {
+    ) -> Option<(Vec<nia_item_signatures::WherePredicateSignature>, ModuleId)> {
         let source = self.extension_method_source(current)?;
-        let interner = source.interner.clone();
-        let (target_interner, target_ty) = self
-            .normalized_program_type_source_for_module(
-                interner.interner_id().module_id(),
-                &interner,
-                source.target_ty,
-            )
-            .unwrap_or_else(|| (interner.clone(), source.target_ty));
-        let Some(TyKind::Nominal { def_id, args, .. }) = target_interner.get(target_ty).cloned()
-        else {
+        let target_ty = self.normalized_type_from_module(source.module_id, source.target_ty);
+        let Some(TyKind::Nominal { def_id, args, .. }) = self.ty_kind(target_ty).cloned() else {
             return None;
         };
         let args = args
             .iter()
-            .map(|arg| self.import_type_from_known_interner(&target_interner, *arg))
+            .map(|arg| self.normalized_type_from_module(source.module_id, *arg))
             .collect::<Vec<_>>();
         let predicates = if def_id.module_id == self.input.module_id {
             self.input
@@ -431,7 +407,7 @@ impl<'a> ModuleLowerer<'a> {
                     (
                         signature.generics.clone(),
                         signature.where_predicates.clone(),
-                        self.input.type_lowering.interner.clone(),
+                        def_id.module_id,
                     )
                 })
                 .or_else(|| {
@@ -443,7 +419,7 @@ impl<'a> ModuleLowerer<'a> {
                             (
                                 signature.generics.clone(),
                                 signature.where_predicates.clone(),
-                                self.input.type_lowering.interner.clone(),
+                                def_id.module_id,
                             )
                         })
                 })?
@@ -455,7 +431,7 @@ impl<'a> ModuleLowerer<'a> {
                     (
                         signature.signature.generics.clone(),
                         signature.signature.where_predicates.clone(),
-                        signature.interner.clone(),
+                        def_id.module_id,
                     )
                 })
                 .or_else(|| {
@@ -463,7 +439,7 @@ impl<'a> ModuleLowerer<'a> {
                         (
                             signature.signature.generics.clone(),
                             signature.signature.where_predicates.clone(),
-                            signature.interner.clone(),
+                            def_id.module_id,
                         )
                     })
                 })?
@@ -474,60 +450,39 @@ impl<'a> ModuleLowerer<'a> {
             .cloned()
             .zip(args)
             .collect::<SymbolMap<_>>();
-        let imported_predicates = self.import_where_predicates(&predicates.1, &predicates.2);
-        let predicates = imported_predicates
+        let normalized_predicates = self.normalize_where_predicates(&predicates.1, predicates.2);
+        let predicates = normalized_predicates
             .iter()
             .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
             .collect();
-        Some((predicates, self.type_context.interner.clone()))
+        Some((predicates, self.input.module_id))
     }
 
     fn current_extension_where_predicates(
         &self,
         current: GlobalDefId,
-    ) -> Option<(
-        Vec<nia_item_signatures::WherePredicateSignature>,
-        nia_ty::TyInterner,
-    )> {
+    ) -> Option<(Vec<nia_item_signatures::WherePredicateSignature>, ModuleId)> {
         if let Some(source) = self.extension_method_source(current) {
-            return Some((source.where_predicates.clone(), source.interner.clone()));
+            return Some((source.where_predicates.clone(), source.module_id));
         }
         let program_index = self.trait_impl_index_for_method(current)?;
-        self.input.trait_impls.get(program_index).map(|signature| {
-            (
-                signature.where_predicates.clone(),
-                signature.interner.clone(),
-            )
-        })
+        self.input
+            .trait_impls
+            .get(program_index)
+            .map(|signature| (signature.where_predicates.clone(), signature.module_id))
     }
 
     fn trait_id_and_args(
         &self,
         ty: InternedTyId,
     ) -> Option<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
-        Self::trait_id_and_args_from(
-            &self.type_context.interner,
-            self.input.type_normalization,
-            self.input.program_traits,
-            ty,
-        )
-    }
-
-    fn trait_id_and_args_from(
-        interner: &nia_ty::TyInterner,
-        normalization: &nia_type_normalize::TypeNormalization,
-        program_traits: &std::collections::HashMap<
-            GlobalDefId,
-            nia_item_signatures::ProgramTraitSignature,
-        >,
-        ty: InternedTyId,
-    ) -> Option<(TraitId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
-        match interner.get(normalization.normalize(ty)) {
+        let ty = self.normalize_instance_arg_type(ty);
+        match self.ty_kind(ty) {
             Some(TyKind::Nominal {
                 def_id,
                 args,
                 const_args,
-            }) if program_traits.contains_key(def_id) => {
+            }) if self.input.program_traits.contains_key(def_id) => {
                 Some((TraitId::Source(*def_id), args.clone(), const_args.clone()))
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {

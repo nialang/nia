@@ -56,71 +56,46 @@ fn array_len_from_const_arg(arg: &nia_ty::ConstGenericArg) -> Option<nia_ty::Arr
 }
 
 impl<'a> ModuleLowerer<'a> {
-    fn type_normalization_for_ty(
-        &self,
-        ty: InternedTyId,
-    ) -> Option<&nia_type_normalize::TypeNormalization> {
+    fn normalized_program_type_for_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
+        if matches!(self.ty_kind(ty), Some(TyKind::Error)) {
+            return None;
+        }
+        if let Some(normalized) = self.input.type_normalization.normalized.get(&ty) {
+            return Some(*normalized);
+        }
         self.input
             .program_type_normalizations
             .iter()
-            .filter(|(_, normalization)| normalization.interner.get(ty).is_some())
+            .filter_map(|(module_id, normalized_types)| {
+                normalized_types
+                    .get(&ty)
+                    .copied()
+                    .map(|normalized| (*module_id, normalized))
+            })
             .min_by_key(|(module_id, _)| *module_id)
-            .map(|(_, normalization)| normalization)
+            .map(|(_, normalized)| normalized)
     }
 
-    fn type_normalization_for_module_interner(
+    pub(crate) fn normalized_type_from_module(
         &self,
         module_id: ModuleId,
-        source_interner: &nia_ty::TyInterner,
-    ) -> Option<&nia_type_normalize::TypeNormalization> {
+        ty: InternedTyId,
+    ) -> InternedTyId {
+        let kind = self.ty_kind(ty).unwrap_or_else(|| {
+            panic!("Nia ICE: backend type {ty:?} is missing from the session store")
+        });
+        if matches!(kind, TyKind::Error) {
+            return ty;
+        }
+        if module_id == self.input.module_id {
+            return self.input.type_normalization.normalize(ty);
+        }
         self.input
             .program_type_normalizations
             .get(&module_id)
-            .filter(|normalization| {
-                normalization.interner == *source_interner
-                    || source_interner.is_prefix_of(&normalization.interner)
-            })
-    }
-
-    fn normalized_program_type_source_for_module(
-        &self,
-        module_id: ModuleId,
-        source_interner: &nia_ty::TyInterner,
-        ty: InternedTyId,
-    ) -> Option<(nia_ty::TyInterner, InternedTyId)> {
-        let normalization =
-            self.type_normalization_for_module_interner(module_id, source_interner)?;
-        let kind = normalization.interner.get(ty)?;
-        if matches!(kind, TyKind::Error) {
-            return None;
-        }
-        Some((normalization.interner.clone(), normalization.normalize(ty)))
-    }
-
-    fn normalized_program_type_source_for_ty(
-        &self,
-        ty: InternedTyId,
-    ) -> Option<(nia_ty::TyInterner, InternedTyId)> {
-        let normalization = self.type_normalization_for_ty(ty)?;
-        let kind = normalization.interner.get(ty)?;
-        if matches!(kind, TyKind::Error) {
-            return None;
-        }
-        Some((normalization.interner.clone(), normalization.normalize(ty)))
-    }
-
-    pub(crate) fn import_normalized_type_from_module(
-        &mut self,
-        module_id: ModuleId,
-        source_interner: &nia_ty::TyInterner,
-        ty: InternedTyId,
-    ) -> InternedTyId {
-        if let Some((source, normalized)) =
-            self.normalized_program_type_source_for_module(module_id, source_interner, ty)
-        {
-            return nia_ty::import_type_into(&mut self.type_context.interner, &source, normalized);
-        }
-        nia_ty::import_type_into(&mut self.type_context.interner, source_interner, ty)
+            .and_then(|normalized_types| normalized_types.get(&ty))
+            .copied()
+            .unwrap_or(ty)
     }
 
     fn instantiate_external_type_alias(
@@ -139,40 +114,10 @@ impl<'a> ModuleLowerer<'a> {
             self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
         let alias_substitutions = self
             .intern_type_and_const_substitutions(&alias_substitutions, &alias_const_substitutions);
-        let target = self.import_normalized_type_from_module(
-            def_id.module_id,
-            &alias.interner,
-            alias.signature.target,
-        );
+        let target = self.normalized_type_from_module(def_id.module_id, alias.signature.target);
         let target =
             self.instantiate_ty_with_id_inner(target, alias_substitutions, active_projections);
         Some(self.instantiate_ty_with_id_inner(target, substitutions, active_projections))
-    }
-
-    fn normalize_type_in_current_interner(&mut self, ty: InternedTyId) -> InternedTyId {
-        if let Some((source, normalized)) = self.normalized_program_type_source_for_module(
-            self.type_context.interner.interner_id().module_id(),
-            &self.type_context.interner,
-            ty,
-        ) {
-            return nia_ty::import_type_into(&mut self.type_context.interner, &source, normalized);
-        }
-        ty
-    }
-
-    pub(crate) fn import_type_from_known_interner(
-        &mut self,
-        source_interner: &nia_ty::TyInterner,
-        ty: InternedTyId,
-    ) -> InternedTyId {
-        if let Some((source, normalized)) = self.normalized_program_type_source_for_module(
-            source_interner.interner_id().module_id(),
-            source_interner,
-            ty,
-        ) {
-            return nia_ty::import_type_into(&mut self.type_context.interner, &source, normalized);
-        }
-        nia_ty::import_type_into(&mut self.type_context.interner, source_interner, ty)
     }
 
     pub(crate) fn generic_substitutions(
@@ -334,43 +279,22 @@ impl<'a> ModuleLowerer<'a> {
             })
     }
 
-    pub(crate) fn import_instance_arg_type(&mut self, ty: InternedTyId) -> InternedTyId {
-        if let Some(interner) = self.instantiation.body_interner
-            && let Some(kind) = interner.get(ty)
-            && !matches!(kind, TyKind::Error)
-        {
-            return self.import_type_from_known_interner(interner, ty);
+    pub(crate) fn normalize_instance_arg_type(&self, ty: InternedTyId) -> InternedTyId {
+        let kind = self.ty_kind(ty).unwrap_or_else(|| {
+            panic!("Nia ICE: backend type {ty:?} is missing from the session store")
+        });
+        if matches!(kind, TyKind::Error) {
+            return ty;
         }
-        if let Some(kind) = self.input.type_normalization.interner.get(ty)
-            && !matches!(kind, TyKind::Error)
-        {
-            let normalized = self.input.type_normalization.normalize(ty);
-            return nia_ty::import_type_into(
-                &mut self.type_context.interner,
-                &self.input.type_normalization.interner,
-                normalized,
-            );
-        }
-        if let Some((source, normalized)) = self.normalized_program_type_source_for_ty(ty) {
-            return nia_ty::import_type_into(&mut self.type_context.interner, &source, normalized);
-        }
-        if let Some(kind) = self.type_context.interner.get(ty) {
-            return if matches!(kind, TyKind::Error) {
-                ty
-            } else {
-                self.normalize_type_in_current_interner(ty)
-            };
-        }
-        let interner = self.active_interner_for_type(ty).clone();
-        self.import_type_from_known_interner(&interner, ty)
+        self.normalized_program_type_for_ty(ty).unwrap_or(ty)
     }
 
-    pub(crate) fn import_const_generic_arg(
-        &mut self,
+    pub(crate) fn normalize_const_generic_arg(
+        &self,
         arg: &nia_ty::ConstGenericArg,
     ) -> nia_ty::ConstGenericArg {
         nia_ty::ConstGenericArg {
-            ty: self.import_instance_arg_type(arg.ty),
+            ty: self.normalize_instance_arg_type(arg.ty),
             value: arg.value.clone(),
         }
     }
@@ -407,7 +331,7 @@ impl<'a> ModuleLowerer<'a> {
     fn const_generic_expr_from_arg(&mut self, arg: nia_ty::ConstGenericArg) -> FunctionExprKind {
         match arg.value {
             nia_ty::ConstGenericValue::Int(value) => {
-                let ty = self.type_context.interner.get(arg.ty).cloned();
+                let ty = self.ty_kind(arg.ty).cloned();
                 match ty {
                     Some(TyKind::Primitive(PrimitiveTy::Usize)) => FunctionExprKind::BuiltinValue(
                         nia_function_ir::FunctionBuiltinValue::Usize(value.bits() as u64),
@@ -458,9 +382,6 @@ impl<'a> ModuleLowerer<'a> {
             const_substitutions,
         } = input;
         let instantiation_snapshot = self.instantiation.take_snapshot();
-        let body_interner = self
-            .type_context
-            .type_interner_for_module(function.module_id);
         let substitutions = self.intern_type_and_const_substitutions_with_self(
             self_arg,
             substitutions,
@@ -469,19 +390,16 @@ impl<'a> ModuleLowerer<'a> {
         self.instantiation.set_instance_scope(
             function,
             instantiation_module_id,
-            body_interner,
             substitutions,
             !is_instance || type_arg_count == 0,
         );
         if instantiation_module_id != self.input.module_id
-            && let Some((extensions, interner)) =
-                self.input.program_extensions.get(&instantiation_module_id)
+            && let Some(extensions) = self.input.program_extensions.get(&instantiation_module_id)
         {
             self.instantiation.extension_trait_method_candidates = Some((
                 instantiation_module_id,
-                crate::index_extension_trait_method_candidates(extensions, interner),
+                crate::index_extension_trait_method_candidates(extensions, instantiation_module_id),
             ));
-            self.instantiation.extension_interner = Some(*interner);
         }
         let body = FunctionBody {
             span: body.span,
@@ -534,9 +452,7 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> Option<SymbolMap<InternedTyId>> {
         let mut substitutions = SymbolMap::default();
-        let candidate_interner = self.candidate_type_interner(candidate).clone();
-        let target_ty =
-            self.import_type_from_known_interner(&candidate_interner, candidate.target_ty);
+        let target_ty = self.normalized_type_from_module(candidate.module_id, candidate.target_ty);
         if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
             return None;
         }
@@ -546,7 +462,7 @@ impl<'a> ModuleLowerer<'a> {
         let candidate_trait_args = candidate
             .trait_args
             .iter()
-            .map(|arg| self.import_type_from_known_interner(&candidate_interner, *arg))
+            .map(|arg| self.normalized_type_from_module(candidate.module_id, *arg))
             .collect::<Vec<_>>();
         if !candidate_trait_args
             .iter()
@@ -563,31 +479,27 @@ impl<'a> ModuleLowerer<'a> {
         Some(substitutions)
     }
 
-    pub(crate) fn import_where_predicates(
-        &mut self,
+    pub(crate) fn normalize_where_predicates(
+        &self,
         predicates: &[nia_item_signatures::WherePredicateSignature],
-        source_interner: &nia_ty::TyInterner,
+        module_id: ModuleId,
     ) -> Vec<nia_item_signatures::WherePredicateSignature> {
         predicates
             .iter()
             .map(|predicate| nia_item_signatures::WherePredicateSignature {
-                ty: self.import_type_from_known_interner(source_interner, predicate.ty),
+                ty: self.normalized_type_from_module(module_id, predicate.ty),
                 bounds: predicate
                     .bounds
                     .iter()
                     .map(|bound| nia_item_signatures::WhereBoundSignature {
-                        trait_ty: self
-                            .import_type_from_known_interner(source_interner, bound.trait_ty),
+                        trait_ty: self.normalized_type_from_module(module_id, bound.trait_ty),
                         associated_type_bindings: bound
                             .associated_type_bindings
                             .iter()
                             .map(
                                 |binding| nia_item_signatures::AssociatedTypeBindingSignature {
                                     name: binding.name,
-                                    ty: self.import_type_from_known_interner(
-                                        source_interner,
-                                        binding.ty,
-                                    ),
+                                    ty: self.normalized_type_from_module(module_id, binding.ty),
                                     span: binding.span,
                                 },
                             )
@@ -635,13 +547,6 @@ impl<'a> ModuleLowerer<'a> {
         candidate: &'b ExtensionTraitMethodCandidate,
     ) -> &'b [SymbolId] {
         &candidate.effective_generics
-    }
-
-    pub(crate) fn candidate_type_interner<'b>(
-        &self,
-        candidate: &'b ExtensionTraitMethodCandidate,
-    ) -> &'b nia_ty::TyInterner {
-        candidate.interner.as_ref()
     }
 
     pub(crate) fn trait_method_call_is_concrete(
@@ -760,37 +665,8 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
-        let ty = self.import_instance_arg_type(ty);
-        let current_interner = self.type_context.interner.clone();
-        let body_interner = &*self.type_context.interner;
-        let extension_interner = self.input.extension_interner;
-        let mut ty_kind = |ty: InternedTyId| {
-            if let Some(interner) = self.instantiation.body_interner
-                && let Some(kind) = interner.get(ty)
-            {
-                return Some(kind.clone());
-            }
-            if let Some(kind) = body_interner.get(ty) {
-                return Some(kind.clone());
-            }
-            if let Some(current) = self.instantiation.function
-                && let Some(interner) = self
-                    .type_context
-                    .type_interner_for_module(current.module_id)
-                && let Some(kind) = interner.get(ty)
-            {
-                return Some(kind.clone());
-            }
-            if let Some(extension_interner) = extension_interner
-                && let Some(kind) = extension_interner.get(ty)
-            {
-                return Some(kind.clone());
-            }
-            if let Some(kind) = current_interner.get(ty) {
-                return Some(kind.clone());
-            }
-            Some(self.type_context.active_ty_kind(ty).clone())
-        };
+        let ty = self.normalize_instance_arg_type(ty);
+        let mut ty_kind = |ty: InternedTyId| self.ty_kind(ty).cloned();
         crate::function_instances::contains_generic_param(ty, &mut ty_kind, None)
     }
 
@@ -817,7 +693,7 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: TypeSubstitutionId,
         active_projections: &mut HashSet<ProjectionInstantiationKey>,
     ) -> InternedTyId {
-        let ty = self.import_instance_arg_type(ty);
+        let ty = self.normalize_instance_arg_type(ty);
         let key = TypeInstantiationKey {
             ty,
             substitutions,
@@ -827,7 +703,7 @@ impl<'a> ModuleLowerer<'a> {
         if can_use_cache && let Some(instantiated) = self.type_context.type_instantiation(&key) {
             return instantiated;
         }
-        match self.type_context.interner.get(ty).cloned() {
+        match self.ty_kind(ty).cloned() {
             Some(TyKind::GenericParam(name)) => {
                 let instantiated = self.type_substitution(substitutions, &name).unwrap_or(ty);
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
@@ -839,7 +715,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
-                let instantiated = match self.type_context.interner.get(elem).cloned() {
+                let instantiated = match self.ty_kind(elem).cloned() {
                     Some(TyKind::SlicePointee { elem }) => self
                         .type_context
                         .interner
@@ -1232,15 +1108,15 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     ) -> TypeSubstitutionId {
-        let self_arg = self_arg.map(|ty| self.import_instance_arg_type(ty));
+        let self_arg = self_arg.map(|ty| self.normalize_instance_arg_type(ty));
         let mut substitutions = substitutions
             .iter()
-            .map(|(name, ty)| (*name, self.import_instance_arg_type(*ty)))
+            .map(|(name, ty)| (*name, self.normalize_instance_arg_type(*ty)))
             .collect::<Vec<_>>();
         substitutions.sort_by_key(|left| left.0);
         let mut const_substitutions = const_substitutions
             .iter()
-            .map(|(name, arg)| (*name, self.import_const_generic_arg(arg)))
+            .map(|(name, arg)| (*name, self.normalize_const_generic_arg(arg)))
             .collect::<Vec<_>>();
         const_substitutions.sort_by_key(|left| left.0);
         self.type_context
@@ -1443,18 +1319,17 @@ impl<'a> ModuleLowerer<'a> {
         let Some(impl_signature) = self.input.trait_impls.get(impl_index) else {
             return Vec::new();
         };
-        let target_ty = self
-            .import_type_from_known_interner(&impl_signature.interner, impl_signature.target_ty);
+        let target_ty =
+            self.normalized_type_from_module(impl_signature.module_id, impl_signature.target_ty);
         let target_ty =
             self.instantiate_ty_with_id_inner(target_ty, substitutions, active_projections);
         let trait_id = impl_signature.trait_id;
-        let impl_interner = impl_signature.interner.clone();
         let trait_args = impl_signature.trait_args.clone();
         let associated_types = impl_signature.associated_types.clone();
         let trait_args = trait_args
             .into_iter()
             .map(|arg| {
-                let actual = self.import_type_from_known_interner(&impl_interner, arg);
+                let actual = self.normalized_type_from_module(impl_signature.module_id, arg);
                 self.instantiate_ty_with_id_inner(actual, substitutions, active_projections)
             })
             .collect::<Vec<_>>();
@@ -1474,7 +1349,8 @@ impl<'a> ModuleLowerer<'a> {
         associated_types
             .into_iter()
             .map(|associated_type| {
-                let ty = self.import_type_from_known_interner(&impl_interner, associated_type.ty);
+                let ty =
+                    self.normalized_type_from_module(impl_signature.module_id, associated_type.ty);
                 AssociatedTypeProjectionEq {
                     goal: goal.clone(),
                     name: associated_type.name,
@@ -1499,7 +1375,7 @@ impl<'a> ModuleLowerer<'a> {
         actual: InternedTyId,
         substitutions: &mut SymbolMap<InternedTyId>,
     ) -> bool {
-        let pattern = self.import_instance_arg_type(pattern);
+        let pattern = self.normalize_instance_arg_type(pattern);
         let actual = self.canonicalize_instance_arg(actual);
         if self.extension_pattern_contains_generic(pattern)
             && self.extension_pattern_generics_are_bound(pattern, substitutions)

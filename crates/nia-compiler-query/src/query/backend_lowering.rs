@@ -3,15 +3,9 @@ use super::*;
 use nia_item_signatures::ItemSignatures;
 
 pub(super) struct BackendLoweringIndexes<'a> {
-    pub(super) program_extensions: HashMap<
-        ModuleId,
-        (
-            &'a nia_defs::VisibleExtensionMethods,
-            &'a nia_ty::TyInterner,
-        ),
-    >,
+    pub(super) program_extensions: HashMap<ModuleId, &'a nia_defs::VisibleExtensionMethods>,
     pub(super) program_type_normalizations:
-        HashMap<ModuleId, nia_type_normalize::TypeNormalization>,
+        HashMap<ModuleId, &'a HashMap<InternedTyId, InternedTyId>>,
     pub(super) program_function_bodies: HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
     pub(super) program_const: HashMap<ModuleId, &'a nia_const_check::ConstArrayLengths>,
 }
@@ -24,12 +18,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
 ) -> BackendLoweringIndexes<'a> {
     let program_extensions = visible_extension_modules
         .iter()
-        .map(|(module_id, visible_extensions)| {
-            (
-                *module_id,
-                (&visible_extensions.methods, &visible_extensions.interner),
-            )
-        })
+        .map(|(module_id, visible_extensions)| (*module_id, &visible_extensions.methods))
         .collect::<HashMap<_, _>>();
     let program_function_bodies = function_bodies
         .iter()
@@ -47,7 +36,12 @@ pub(super) fn build_backend_lowering_indexes<'a>(
         .collect::<HashMap<_, _>>();
     let program_type_normalizations = checked_modules
         .iter()
-        .map(|checked_module| (checked_module.id, checked_module.type_normalization.clone()))
+        .map(|checked_module| {
+            (
+                checked_module.id,
+                &checked_module.type_normalization.normalized,
+            )
+        })
         .collect::<HashMap<_, _>>();
 
     BackendLoweringIndexes {
@@ -68,7 +62,6 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) const_enum_values: &'a [nia_const_check::ConstEnumValues],
     pub(super) visible_extensions: &'a [VisibleExtensionsValue],
     pub(super) function_bodies: &'a [LoweredFunctionBodies],
-    pub(super) type_interners: &'a HashMap<ModuleId, nia_ty::TyInterner>,
     pub(super) extension_methods: &'a nia_defs::ExtensionMethods,
     pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     pub(super) program_signatures: ProgramCodegenSignatures<'a>,
@@ -125,11 +118,9 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     reachable_structs: checked_module.executable_reachable_structs.as_deref(),
                     reachable_unions: checked_module.executable_reachable_unions.as_deref(),
                     program_function_bodies: &input.indexes.program_function_bodies,
-                    extension_interner: Some(&visible_extensions.interner),
                     program_extension_methods: input.extension_methods,
                     program_extensions: &input.indexes.program_extensions,
                     program_defs: input.program_defs,
-                    program_type_interners: input.type_interners,
                     program_type_normalizations: &input.indexes.program_type_normalizations,
                     program_functions: input.program_signatures.functions,
                     program_structs: input.program_signatures.structs,

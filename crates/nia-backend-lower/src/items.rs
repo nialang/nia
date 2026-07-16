@@ -374,7 +374,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn receiver_base_ty(&self, ty: nia_ids::InternedTyId) -> Option<nia_ids::InternedTyId> {
-        match self.type_context.interner.get(ty) {
+        match self.ty_kind(ty) {
             Some(TyKind::Pointer { elem, .. }) => Some(*elem),
             _ => None,
         }
@@ -382,7 +382,7 @@ impl<'a> ModuleLowerer<'a> {
 
     fn is_fat_receiver_local_ty(&self, ty: nia_ids::InternedTyId) -> bool {
         matches!(
-            self.type_context.interner.get(ty),
+            self.ty_kind(ty),
             Some(TyKind::Slice { .. } | TyKind::TraitObject { .. })
         )
     }

@@ -9,7 +9,7 @@ use nia_function_ir::{
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
 use nia_static_ir::StaticInit;
-use nia_ty::{ConstGenericArg, TyInterner};
+use nia_ty::ConstGenericArg;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FunctionInstanceRef {
@@ -18,7 +18,6 @@ pub(crate) struct FunctionInstanceRef {
     pub(crate) self_arg: Option<InternedTyId>,
     pub(crate) args: Vec<InternedTyId>,
     pub(crate) const_args: Vec<ConstGenericArg>,
-    pub(crate) arg_interner: Option<TyInterner>,
     pub(crate) span: Span,
 }
 
@@ -37,7 +36,6 @@ pub(crate) struct GlobalInstanceRef {
     pub(crate) arg_module_id: ModuleId,
     pub(crate) args: Vec<InternedTyId>,
     pub(crate) const_args: Vec<ConstGenericArg>,
-    pub(crate) arg_interner: Option<TyInterner>,
     pub(crate) span: Span,
 }
 
@@ -200,7 +198,6 @@ fn collect_function_refs_from_expr(
                 self_arg: *self_arg,
                 args: args.clone(),
                 const_args: const_args.clone(),
-                arg_interner: None,
                 span: expr.span,
             });
         }
@@ -327,7 +324,6 @@ fn collect_function_refs_from_expr(
             arg_module_id: *arg_module_id,
             args: args.clone(),
             const_args: const_args.clone(),
-            arg_interner: None,
             span: expr.span,
         }),
     }
@@ -384,7 +380,6 @@ fn collect_function_refs_from_callee(
                 self_arg: *self_arg,
                 args: args.clone(),
                 const_args: const_args.clone(),
-                arg_interner: None,
                 span,
             });
         }
@@ -405,7 +400,6 @@ fn collect_function_refs_from_callee(
                     self_arg: *self_arg,
                     args: args.clone(),
                     const_args: Vec::new(),
-                    arg_interner: None,
                     span,
                 });
             }
@@ -443,7 +437,6 @@ fn collect_function_refs_from_place(
             arg_module_id: *arg_module_id,
             args: args.clone(),
             const_args: const_args.clone(),
-            arg_interner: None,
             span: place.span,
         }),
         FunctionPlaceBase::Error => {
@@ -511,7 +504,6 @@ pub(crate) fn collect_function_refs_from_static_init(
                     self_arg: None,
                     args: args.clone(),
                     const_args: Vec::new(),
-                    arg_interner: None,
                     span: Span::default(),
                 });
             }
