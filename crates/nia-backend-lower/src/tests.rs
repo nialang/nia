@@ -346,11 +346,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         &type_lowering,
         &active_item_tree,
     );
-    let normalization_input = type_lowering
-        .interner
-        .iter()
-        .map(|(ty_id, _)| ty_id)
-        .collect::<Vec<_>>();
+    let normalization_input = type_lowering.explicit_type_roots();
     let normalization =
         type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
             normalize_module_types(nia_type_normalize::TypeNormalizationInput {
@@ -399,15 +395,18 @@ fn lower_source_with_body_check_mutation_and_optimization(
             nia_const_check::check_module_const(const_input, interner)
         });
     let layouts = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-        nia_layout::compute_layouts_with_normalized_types(
-            &type_store,
-            &defs,
+        let root_types = signatures.type_roots();
+        nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
+            type_store: &type_store,
+            defs: &defs,
             interner,
-            &signatures,
-            &normalization.normalized,
-            &|id| const_eval.array_lengths.get(&id).copied(),
-            nia_layout::TargetDataLayout::LP64,
-        )
+            signatures: &signatures,
+            root_types: &root_types,
+            normalized: &normalization.normalized,
+            array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+            target: nia_layout::TargetDataLayout::LP64,
+            program: nia_layout::ProgramLayoutContext::default(),
+        })
     });
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),

@@ -633,11 +633,7 @@ mod tests {
         lowered: &mut TypeLowering,
         signatures: &ItemSignatures,
     ) -> TypeNormalization {
-        let input_ids = lowered
-            .interner
-            .iter()
-            .map(|(ty_id, _)| ty_id)
-            .collect::<Vec<_>>();
+        let input_ids = lowered.explicit_type_roots();
         normalize_module_types(TypeNormalizationInput {
             module_id,
             type_store,

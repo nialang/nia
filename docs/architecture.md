@@ -469,11 +469,15 @@ of cloned interners.
 Layout root traversal and computation use a single `LayoutComputationInput`.
 `LayoutTypeCx` reads every handle from canonical storage and appends substituted
 generic types through `TypeStoreAppend`, so consuming a foreign signature does
-not grow a module visibility log. The mutable module interner remains only as
-the temporary source of the local full-scan set while that view is being
-removed. `Layouts` contains only layout facts and diagnostics; there is no
-read-only/owned overload or interner snapshot. Array-length facts are prepared
-before a store transaction when evaluating them could reenter the same shard.
+not grow a module visibility log. Ordinary module layouts start from the merged,
+deterministic semantic roots exposed by `ItemSignatures` and `TypeLowering`;
+const layout builtins add their concrete operand as an explicit request root.
+Precise executable and signature layouts receive an explicit `LayoutRoots` set.
+Layout therefore never scans a module interner to discover work. `Layouts`
+contains only layout facts and diagnostics; there is no read-only/owned
+overload, interner snapshot, or positional convenience API beside
+`LayoutComputationInput`. Array-length facts are prepared before a store
+transaction when evaluating them could reenter the same shard.
 
 Backend lowering now checks out each owning module shard for the duration of
 the whole-program lowering fixed point. Synthesized instance types append
@@ -511,11 +515,12 @@ synthesize through `TypeStoreAppend`. `TypeNormalization` is a pure semantic
 fact containing only normalized-ID mappings and diagnostics. Its single
 algorithm entry receives the canonical store for reads and an explicit mutable
 append target for synthesized aliases; const/body/query inputs no longer use
-normalization as a hidden snapshot carrier. The remaining migration work is the
-type-lowering root product, layout root enumeration, and the temporary module
-visibility log itself. Once their root and append contracts no longer require
-views, `TypeOrigin`, `TyInternerId`, snapshots, and the view layer can be
-deleted.
+normalization as a hidden snapshot carrier. Type lowering exposes deterministic,
+deduplicated source type roots, so normalization also does not enumerate a
+module view. The remaining migration work is the `TypeLowering` view product,
+temporary append ownership, and the module visibility log itself. Once their
+append contracts no longer require views, `TypeOrigin`, `TyInternerId`,
+snapshots, and the view layer can be deleted.
 
 ### 3.6 `nia-diagnostic`
 
@@ -683,7 +688,9 @@ primitive types, pointers, arrays, slices, function pointer types, nominal
 types, generics, enum backing types, and inferred array lengths.
 
 It also validates type-level restrictions such as invalid use of `void` or `never`
-in value positions.
+in value positions. Its semantic product exposes deterministic, deduplicated
+source type roots for normalization and other downstream algorithms; consumers
+must not enumerate the temporary module interner to infer those roots.
 
 ### 6.4 `nia-item-signatures`
 

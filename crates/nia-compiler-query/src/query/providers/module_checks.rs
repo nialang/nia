@@ -12,6 +12,10 @@ pub(super) fn provide_layouts(
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
         let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
         let symbols = db.context().symbols();
+        let mut root_types = item_signatures.type_roots();
+        root_types.extend(type_lowering.explicit_type_roots());
+        root_types.sort_unstable();
+        root_types.dedup();
         let layout_query = |module_id| Some(db.query(SignatureLayoutsQuery(module_id)));
         let local_array_lengths = |id| array_lengths.values.get(&id).copied();
         let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
@@ -31,6 +35,7 @@ pub(super) fn provide_layouts(
                         defs: &defs,
                         interner,
                         signatures: &item_signatures,
+                        root_types: &root_types,
                         normalized: &type_normalization.normalized,
                         array_lengths: &local_array_lengths,
                         target: nia_layout::TargetDataLayout::LP64,

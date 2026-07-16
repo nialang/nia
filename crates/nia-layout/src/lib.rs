@@ -212,33 +212,15 @@ pub fn compute_layouts(
 ) -> Layouts {
     let normalized = HashMap::new();
     let empty_lengths = NoArrayLengthValues;
-    compute_layouts_with_normalized_types(
-        type_store,
-        defs,
-        interner,
-        signatures,
-        &normalized,
-        &empty_lengths,
-        target,
-    )
-}
-
-pub fn compute_layouts_with_normalized_types(
-    type_store: &nia_ty::TypeStore,
-    defs: &DefCollection,
-    interner: &mut TyInterner,
-    signatures: &ItemSignatures,
-    normalized: &HashMap<InternedTyId, InternedTyId>,
-    array_lengths: &dyn ArrayLengthValues,
-    target: TargetDataLayout,
-) -> Layouts {
+    let root_types = signatures.type_roots();
     compute_layouts_with_program_context(LayoutComputationInput {
         type_store,
         defs,
         interner,
         signatures,
-        normalized,
-        array_lengths,
+        root_types: &root_types,
+        normalized: &normalized,
+        array_lengths: &empty_lengths,
         target,
         program: ProgramLayoutContext::default(),
     })
@@ -271,6 +253,7 @@ pub struct LayoutComputationInput<'a> {
     pub defs: &'a DefCollection,
     pub interner: &'a mut TyInterner,
     pub signatures: &'a ItemSignatures,
+    pub root_types: &'a [InternedTyId],
     pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
     pub array_lengths: &'a dyn ArrayLengthValues,
     pub target: TargetDataLayout,
@@ -284,6 +267,7 @@ impl LayoutComputationInput<'_> {
             defs: self.defs,
             interner: self.interner,
             signatures: self.signatures,
+            root_types: self.root_types,
             normalized: self.normalized,
             array_lengths: self.array_lengths,
             target: self.target,
@@ -408,6 +392,7 @@ struct LayoutComputer<'a> {
     module_id: nia_ids::ModuleId,
     interner: LayoutTypeCx<'a>,
     signatures: &'a ItemSignatures,
+    root_types: &'a [InternedTyId],
     normalized: &'a HashMap<InternedTyId, InternedTyId>,
     array_lengths: &'a dyn ArrayLengthValues,
     target: TargetDataLayout,
@@ -435,6 +420,7 @@ impl<'a> LayoutComputer<'a> {
                 view: input.interner,
             },
             signatures: input.signatures,
+            root_types: input.root_types,
             normalized: input.normalized,
             array_lengths: input.array_lengths,
             target: input.target,
@@ -454,17 +440,7 @@ impl<'a> LayoutComputer<'a> {
     }
 
     fn compute(mut self) -> Layouts {
-        let mut next = 0usize;
-        while next < self.interner.len() {
-            let ty_ids = self
-                .interner
-                .iter()
-                .map(|(ty_id, _)| ty_id)
-                .collect::<Vec<_>>();
-            let Some(ty_id) = ty_ids.get(next).copied() else {
-                break;
-            };
-            next += 1;
+        for ty_id in self.root_types.iter().copied() {
             if self.is_inferred_array_type(ty_id) || self.is_open_generic_type(ty_id) {
                 continue;
             }
@@ -1692,15 +1668,18 @@ fn main(p: &Pair, xs: [3]u16) {}
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
-        let layouts = compute_layouts_with_normalized_types(
-            &type_store,
-            &defs,
-            &mut lowered.interner,
-            &signatures,
-            &HashMap::new(),
-            &|id| const_eval.array_lengths.get(&id).copied(),
-            TargetDataLayout::LP64,
-        );
+        let root_types = signatures.type_roots();
+        let layouts = compute_layouts_with_program_context(LayoutComputationInput {
+            type_store: &type_store,
+            defs: &defs,
+            interner: &mut lowered.interner,
+            signatures: &signatures,
+            root_types: &root_types,
+            normalized: &HashMap::new(),
+            array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+            target: TargetDataLayout::LP64,
+            program: ProgramLayoutContext::default(),
+        });
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
         assert_eq!(
             layouts
@@ -1742,15 +1721,18 @@ fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8)
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
-        let layouts = compute_layouts_with_normalized_types(
-            &type_store,
-            &defs,
-            &mut lowered.interner,
-            &signatures,
-            &HashMap::new(),
-            &|id| const_eval.array_lengths.get(&id).copied(),
-            TargetDataLayout::LP64,
-        );
+        let root_types = signatures.type_roots();
+        let layouts = compute_layouts_with_program_context(LayoutComputationInput {
+            type_store: &type_store,
+            defs: &defs,
+            interner: &mut lowered.interner,
+            signatures: &signatures,
+            root_types: &root_types,
+            normalized: &HashMap::new(),
+            array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+            target: TargetDataLayout::LP64,
+            program: ProgramLayoutContext::default(),
+        });
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
         assert!(lowered.interner.iter().any(|(ty_id, ty)| {
             matches!(
@@ -1795,15 +1777,18 @@ fn main(buf: Buffer[u8, 4]) {}
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
-        let layouts = compute_layouts_with_normalized_types(
-            &type_store,
-            &defs,
-            &mut lowered.interner,
-            &signatures,
-            &HashMap::new(),
-            &|id| const_eval.array_lengths.get(&id).copied(),
-            TargetDataLayout::LP64,
-        );
+        let root_types = signatures.type_roots();
+        let layouts = compute_layouts_with_program_context(LayoutComputationInput {
+            type_store: &type_store,
+            defs: &defs,
+            interner: &mut lowered.interner,
+            signatures: &signatures,
+            root_types: &root_types,
+            normalized: &HashMap::new(),
+            array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+            target: TargetDataLayout::LP64,
+            program: ProgramLayoutContext::default(),
+        });
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
         assert!(layouts.struct_instances.iter().any(|(key, layout)| {
             key.const_args
@@ -1828,15 +1813,18 @@ fn main(value: Empty) {}
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
-        let layouts = compute_layouts_with_normalized_types(
-            &type_store,
-            &defs,
-            &mut lowered.interner,
-            &signatures,
-            &HashMap::new(),
-            &|id| const_eval.array_lengths.get(&id).copied(),
-            TargetDataLayout::LP64,
-        );
+        let root_types = signatures.type_roots();
+        let layouts = compute_layouts_with_program_context(LayoutComputationInput {
+            type_store: &type_store,
+            defs: &defs,
+            interner: &mut lowered.interner,
+            signatures: &signatures,
+            root_types: &root_types,
+            normalized: &HashMap::new(),
+            array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+            target: TargetDataLayout::LP64,
+            program: ProgramLayoutContext::default(),
+        });
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
         let empty_id = defs
             .module_scope
@@ -1979,15 +1967,18 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
         let signatures = collect_item_signatures(&module, &defs, &lowered);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
-        let layouts = compute_layouts_with_normalized_types(
-            &type_store,
-            &defs,
-            &mut lowered.interner,
-            &signatures,
-            &HashMap::new(),
-            &|id| const_eval.array_lengths.get(&id).copied(),
-            TargetDataLayout::LP64,
-        );
+        let root_types = signatures.type_roots();
+        let layouts = compute_layouts_with_program_context(LayoutComputationInput {
+            type_store: &type_store,
+            defs: &defs,
+            interner: &mut lowered.interner,
+            signatures: &signatures,
+            root_types: &root_types,
+            normalized: &HashMap::new(),
+            array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+            target: TargetDataLayout::LP64,
+            program: ProgramLayoutContext::default(),
+        });
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
         let array_box_id = defs
             .module_scope

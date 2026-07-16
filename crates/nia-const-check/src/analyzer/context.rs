@@ -509,6 +509,8 @@ impl Analyzer<'_> {
                 message: "cannot compute layout without normalized module types".to_string(),
             });
         };
+        let mut root_types = signatures.as_ref().type_roots();
+        root_types.push(ty);
         let Some(mut interner) = self.type_contexts.remove(&module_id) else {
             return Err(ConstError {
                 span,
@@ -524,6 +526,7 @@ impl Analyzer<'_> {
                 defs: defs.as_ref(),
                 interner: &mut interner,
                 signatures: signatures.as_ref(),
+                root_types: &root_types,
                 normalized: &normalized,
                 array_lengths: &array_lengths,
                 target: nia_layout::TargetDataLayout::LP64,
@@ -619,6 +622,8 @@ impl Analyzer<'_> {
                 message: "cannot compute field offset without normalized module types".to_string(),
             });
         };
+        let mut root_types = signatures.as_ref().type_roots();
+        root_types.push(ty);
         let Some(mut interner) = self.type_contexts.remove(&module_id) else {
             return Err(ConstError {
                 span,
@@ -634,6 +639,7 @@ impl Analyzer<'_> {
                 defs: defs.as_ref(),
                 interner: &mut interner,
                 signatures: signatures.as_ref(),
+                root_types: &root_types,
                 normalized: &normalized,
                 array_lengths: &array_lengths,
                 target: nia_layout::TargetDataLayout::LP64,
@@ -888,6 +894,7 @@ impl Analyzer<'_> {
     ) -> Option<nia_layout::Layouts> {
         let defs = self.global_defs(module_id)?;
         let signatures = self.signatures_for_module(module_id)?;
+        let root_types = signatures.as_ref().type_roots();
         let mut interner = self.append_view_for_module(module_id)?;
         let normalized = self.normalized_for_module(module_id)?;
         let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
@@ -898,6 +905,7 @@ impl Analyzer<'_> {
                 defs: defs.as_ref(),
                 interner: &mut interner,
                 signatures: signatures.as_ref(),
+                root_types: &root_types,
                 normalized: &normalized,
                 array_lengths: &array_lengths_for_layout,
                 target: nia_layout::TargetDataLayout::LP64,
