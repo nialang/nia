@@ -66,11 +66,11 @@ impl TyInternerId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum TypeOwner {
+pub enum TypeOrigin {
     Module(ModuleId),
 }
 
-impl TypeOwner {
+impl TypeOrigin {
     pub const fn module_id(self) -> ModuleId {
         match self {
             Self::Module(module_id) => module_id,
@@ -91,13 +91,13 @@ impl TyInternerIndex {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct InternedTyId {
-    pub interner_id: TyInternerId,
+    pub store_id: TypeStoreId,
     pub index: TyInternerIndex,
 }
 
 impl InternedTyId {
-    pub const fn new(interner_id: TyInternerId, index: TyInternerIndex) -> Self {
-        Self { interner_id, index }
+    pub const fn new(store_id: TypeStoreId, index: TyInternerIndex) -> Self {
+        Self { store_id, index }
     }
 }
 

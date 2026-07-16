@@ -361,20 +361,18 @@ impl Analyzer<'_> {
         }
     }
 
-    pub(super) fn type_owner(&self, ty: nia_ids::InternedTyId) -> nia_ids::TypeOwner {
+    pub(super) fn type_origin(&self, ty: nia_ids::InternedTyId) -> nia_ids::TypeOrigin {
         self.input
             .interner
-            .type_owner(ty)
+            .type_origin(ty)
             .expect("const type belongs to its session store")
     }
 
     fn source_interner_for_type(&self, ty: nia_ids::InternedTyId) -> Option<TyInterner> {
-        if ty.interner_id == self.input.interner.interner_id()
-            && self.input.interner.get(ty).is_some()
-        {
+        if self.input.interner.get(ty).is_some() {
             return Some(self.input.interner.clone());
         }
-        let module_id = ty.interner_id.module_id();
+        let module_id = self.type_origin(ty).module_id();
         if let Some(normalization) = self.value_type_normalization_for_module(module_id)
             && normalization.interner.get(ty).is_some()
         {
@@ -387,49 +385,42 @@ impl Analyzer<'_> {
         {
             return Some(interner);
         }
-        if ty.interner_id == self.input.interner.interner_id() {
+        if module_id == self.input.defs.module_id {
             return Some(self.input.interner.clone());
         }
         None
     }
 
-    fn working_interner_by_id(&self, interner_id: nia_ids::TyInternerId) -> Option<&TyInterner> {
+    fn working_interner_for_module(&self, module_id: ModuleId) -> Option<&TyInterner> {
         self.working_interners
-            .values()
-            .find(|interner| interner_id == interner.interner_id())
+            .get(&module_id)
             .map(|interner| &**interner)
     }
 
-    fn source_interner_snapshot_by_id(
-        &self,
-        interner_id: nia_ids::TyInternerId,
-    ) -> Option<TyInterner> {
-        if interner_id == self.input.interner.interner_id() {
+    fn source_interner_snapshot_for_module(&self, module_id: ModuleId) -> Option<TyInterner> {
+        if module_id == self.input.defs.module_id {
             return Some(self.input.interner.clone());
         }
-        let module_id = interner_id.module_id();
-        if let Some(normalization) = self.value_type_normalization_for_module(module_id)
-            && interner_id == normalization.interner.interner_id()
-        {
+        if let Some(normalization) = self.value_type_normalization_for_module(module_id) {
             return Some(normalization.interner);
         }
-        let interner = self.type_normalization_for_module(module_id)?.interner;
-        (interner_id == interner.interner_id()).then_some(interner)
+        Some(self.type_normalization_for_module(module_id)?.interner)
     }
 
     pub(super) fn active_interner_for_type(&self, ty: nia_ids::InternedTyId) -> TyInterner {
-        let active = if let Some(working) = self.working_interner_by_id(ty.interner_id)
+        let module_id = self.type_origin(ty).module_id();
+        let active = if let Some(working) = self.working_interner_for_module(module_id)
             && working.get(ty).is_some()
         {
-            if let Some(source) = self.source_interner_snapshot_by_id(ty.interner_id) {
+            if let Some(source) = self.source_interner_snapshot_for_module(module_id) {
                 if source.is_prefix_of(working) {
                     working.clone()
                 } else if working.is_prefix_of(&source) {
                     source
                 } else {
                     panic!(
-                        "Nia ICE: const working type interner {:?} diverged from source snapshot",
-                        ty.interner_id
+                        "Nia ICE: const working type view for module {:?} diverged from source snapshot",
+                        module_id
                     );
                 }
             } else {
@@ -438,8 +429,8 @@ impl Analyzer<'_> {
         } else {
             self.source_interner_for_type(ty).unwrap_or_else(|| {
                 panic!(
-                    "Nia ICE: missing source type interner {:?} for const type {:?}",
-                    ty.interner_id, ty
+                    "Nia ICE: missing source type view for const type {:?} from module {:?}",
+                    ty, module_id
                 )
             })
         };
@@ -638,7 +629,7 @@ impl Analyzer<'_> {
         );
         self.working_interners.insert(module_id, interner);
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
-        let ty_module_id = self.type_owner(ty).module_id();
+        let ty_module_id = self.type_origin(ty).module_id();
         if let Some(TyKind::Nominal {
             def_id,
             args,
@@ -771,7 +762,7 @@ impl Analyzer<'_> {
                 message: format!("type has no field `{field}` for builtin `offset`"),
             });
         };
-        let ty_module_id = self.type_owner(ty).module_id();
+        let ty_module_id = self.type_origin(ty).module_id();
         let offset = if def_id.module_id != module_id || ty_module_id != module_id {
             self.compute_program_layout(def_id.module_id, &layout_array_lengths)
                 .and_then(|layouts| layouts.field_offset(def_id, &args, field_def))

@@ -25,7 +25,7 @@ Nia 当前的主要瓶颈不是某个慢 pass，也不是“查询数量太多�
 
 四个问题互相强化：
 
-1. **会话级语义身份不统一。** 类型由 module-local `TyInterner` 拥有；阶段间通过 clone、snapshot 和 `import_type_into` 搬运。类型 ID 不是整个 compilation session 的统一身份。
+1. **会话级类型身份已经统一，但旧视图数据流尚未删除。** `InternedTyId` 已是 session-wide 8-byte handle；module `TyInterner` 只剩可见性日志，部分阶段仍通过 snapshot、recursive import 和 paired interner 传递本可直接读取的类型。
 2. **查询存储契约鼓励复制。** `QueryKey::Value: Clone` 是通用约束，普通 cache hit 深拷贝值；大产品又常由完整 module/program aggregate 承载。细粒度查询因此没有自动带来细粒度数据流。
 3. **依赖图和 fixed point 分裂。** loader query DB、compiler query DB、driver 的 provider discovery 循环、reachability 自己的 fixed point 分别维护“什么依赖什么”。统一增量正确性只能靠多层同步约定维持。
 4. **真实工作单元没有进入统一调度器。** `query_many` 临时创建 OS 线程，而 backend lowering、LLVM module codegen 等关键重任务仍主要串行；没有持久 worker pool、jobserver、任务权重、内存预算和 codegen queue。
@@ -108,12 +108,12 @@ Driver
     -> LoaderDatabase / loader query graph
          -> source/syntax/AST/module graph
     -> CompilerDatabase / compiler query graph
-         -> per-module interners and stage products
+         -> session TypeStore + temporary module views
          -> provider discovery / semantic facts
          -> BodyIr -> FunctionBody -> BackendProgram
     -> driver provider-demand fixed point
     -> reachability fixed point
-    -> monomorphization with cloned working interners
+    -> monomorphization through the session type store
     -> backend lowering into full BackendProgram
     -> sequential LLVM module loop
     -> external linker
@@ -266,19 +266,20 @@ Nia 应采用一个单一模型，而不是并列的“typed query 系统”和�
 
 ## 7. 类型、符号、ID 与内存模型
 
-### 7.1 Nia 的 module-local interner 是当前最深的架构债务
+### 7.1 Session-wide 类型身份已建立，module view 仍是当前迁移债务
 
-Phase B 开始前，`InternedTyId` 包含 `TyInternerId + TyInternerIndex`，而 `TyInternerId::for_module` 直接来源于 `ModuleId`。第一实现切片已经删除 `for_module`，改为 `TypeStoreId + ModuleId`，因此相同 `ModuleId` 的不同 compiler session 不再产生可误认的 handle；但 module shard 和 `TyInternerIndex` 仍存在，尚未成为最终统一 `TyId`。`TyInterner` 本身仍是可 clone 的 Vec/hash interner。type lower、normalize、const、body、function lower、layout 与 monomorphization 的本模块 mutation 已迁入 store；layout、body 与 function 产品均不再携带 private interner。backend 目前只消费 compiler-query 在 function lowering、layout 与 monomorphization 全部完成后取得的一组最终 session snapshot，不再合并 body/function 多份阶段快照；真正跨模块类型与 backend 自身 working view 仍通过 snapshot 或 `try_import_type_into` 按 `TyKind` 递归重建。
+Phase B 开始前，`InternedTyId` 包含 `TyInternerId + TyInternerIndex`，同一结构类型在不同 module interner 中可以有不同 ID，且解释 handle 必须同时携带对应快照。当前实现已经把 identity model 收敛为 `TypeStoreId + global slot`：handle 恰好 8 bytes，不再包含 module/interner identity；共享 canonical core 对 `TyKind` 做 session-wide canonicalization，因此不同模块 intern 的同一 primitive 或 structural type 直接得到同一 ID，不同 compiler session 则仍由 store identity 隔离。
+
+module `TyInterner` 现在只是共享 core 上的 append-only visibility log，保留 prefix/snapshot 语义供尚未迁移的算法读取。`try_import_type_into` 在同 session 内递归扩展 target view，但每层都复用原 ID，已经不再“复制身份”。`TypeOrigin` 也只是首次 canonical insert 发生在哪个 view 的物理记录：对于 primitive 和共享结构类型，这个模块是执行顺序决定的，不能承担相等性、可见性、reachability、mangling 或依赖语义。
 
 当前仍存在的主要过渡结构是：
 
-- `comparison_interner`；
-- backend 的 `input_type_interner_snapshots`；
-- backend module 再内嵌完整 `TyInterner`。
+- compiler-query/backend 调用栈内的 module snapshot/view map；
+- const、trait、body、reachability 与 backend 中按 view 递归 import 的读取路径；
+- `FunctionInstanceRef.arg_interner` / `GlobalInstanceRef.arg_interner` 等 paired view data；
+- 推测性比较及 trait candidate 的临时 view。
 
-这不是“clone 稍多”的局部问题，而是 identity model 有两层含义：同一结构类型在不同 interner 中可能有不同 ID；某个 ID 的解释依赖它对应的快照。API 因此必须同时传 ID 和能解释 ID 的 interner。
-
-这也解释了为什么 interner seed、backend snapshot、body seed 之类遗漏会产生难定位回归：每增加一个阶段产品，就增加一条必须保持同步的隐含不变量。
+因此当前债务已经不是“双重 type identity”，而是统一 identity 上仍保留了双重读取/可见性数据流。下一步必须让 canonical store 直接解释 `TyId`，按 type lower -> signatures/trait/body -> reachability/backend 的方向删除 snapshot/import/paired interner；最终删除 `TypeOrigin`，不能把 module view 固化成第二套公开 API。
 
 ### 7.2 Rust 与 Zig 的差异
 
@@ -455,9 +456,9 @@ Nia 的 monomorphization 此前会为每个模块 clone `TyInterner` 到 `workin
 
 这套实现功能上已经不简单，但结构上有三个问题：
 
-1. mono identity 仍依赖 `arg_module_id + module-local type IDs`；
+1. mono identity 仍携带 `arg_module_id + session type IDs`，其中 view/module context 在统一 ID 后需要重新审查并删除冗余部分；
 2. collection 不是统一 dependency graph 中的 item traversal，而是先聚合 module inputs；
-3. backend 的 body/function 多快照与 `ProgramFunctionBodyInterners` 已删除，但仍通过调用栈内最终 session snapshot map 建立 writable working interner，并把它内嵌到 `BackendModule`；统一类型访问尚未贯穿最终 IR 与 codegen。
+3. backend 的 body/function 多快照、writable clone 与 `BackendModule.interner` 已删除，但调用栈内最终 session snapshot map 和 recursive view import 仍未被 canonical store 直接读取替代。
 
 `nia-executable-reachability` 还有自己的循环：按当前 reachable modules 收集 body refs、traits、generic instances 和 fact owner modules，直到 change key 不变。incremental variant 仍通过多组 set 和重复的 current module materialization推进。
 
@@ -797,7 +798,7 @@ emit-exe 生成 30 个 LLVM units，当前 object reuse 为 0，直接暴露了�
 +-- 复制与保留
 |   +-- Query Value: Clone
 |   +-- ordinary cache hit deep clone
-|   +-- per-module TyInterner clone/snapshot/import
+|   +-- temporary module-view snapshot/import traversal
 |   +-- diagnostics and layouts embedded in products
 |   +-- BodyIr / FunctionBody / BackendProgram simultaneously live
 |
@@ -819,7 +820,9 @@ emit-exe 生成 30 个 LLVM units，当前 object reuse 为 0，直接暴露了�
 
 ## 19. Nia 相对第一梯队实现的具体差距
 
-### 19.1 已确认的核心缺陷
+### 19.1 初始审查时已确认的核心缺陷
+
+以下是 2026-07-14 的审查基线；已完成和仍在迁移的项目以第 21 节各阶段进展为准，不能把本清单直接当作当前工作树状态。
 
 1. 没有单一 compilation-owned semantic identity domain。
 2. 类型 ID 的可解释性依赖 module-local interner snapshot。
@@ -972,6 +975,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 进展（2026-07-16）：backend lowering、Backend IR 与 LLVM codegen 的产品所有权边界已共同迁移。`BackendTypeContext` 不再 clone 当前 working interner，而是在完整 whole-program lowering fixed point 期间独占 checkout 对应 session shard，所有新实例类型直接追加回 `TypeStore`；`BackendLowerModuleInput.type_interner` 与 `BackendModule.interner` 已删除，Backend IR 只保存 typed handle 和 backend facts。`CodegenProgram` 只持有轻量 `Arc<TypeStore>` session handle，LLVM 的单轨 API 显式接收 store，在完整 validation/emission 调用期 checkout program shards，既不恢复 snapshot aggregate，也不对递归类型读取逐次短锁。checkout 被约束为 thread-bound `!Send`，同 shard 重入立即 ICE，Drop 后归还包含新增 slot 的原 shard；自动化回归覆盖追加、重入失败和归还恢复。测试 fixture 同样显式持有 store，没有产品/测试双轨 API。`cargo check --workspace --all-targets`、nia-ty 14、backend-lower 96、codegen 176、compiler-query 108 个定向测试、严格 workspace/all-targets/all-features Clippy，以及无环境变量、无参数的原样 `cargo test` 全部通过；CLI build 测试在资源门控下持续前进并完成，WSL 未发生 OOM 或退出。Phase B 仍不能关闭：`InternedTyId` 仍带 temporary module shard，compiler-query 仍为 backend 调用栈构建最终 module snapshot map，backend 的 foreign type interpretation、`FunctionInstanceRef.arg_interner`/`GlobalInstanceRef.arg_interner` 和 trait candidate 临时 view 仍依赖跨 interner recursive import。下一切片应建立真正 session-wide typed index，并按 type lower -> signatures/trait/body -> reachability/backend 的依赖方向删除全仓 import 与 paired interner 数据；不能在 backend 内再造半全局 ID 或把当前 checkout adapter 宣布为最终 `TyId`。
 
 进展（2026-07-16）：session-wide `TyId` 的前置 identity contract 已收紧：`InternedTyId::owner()` 从 `nia-ids` 删除，纯 handle 不再自行解释语义 owner。monomorphization 统一查询 `TypeStore`，const/body/reachability 查询当前 type view，backend validation/codegen 查询 `ProgramIndex`；没有保留 direct-owner fallback。当前 storage 实现仍从旧 `TyInternerId` 物理布局恢复 temporary module owner，但这一细节只存在于 `nia-ty`，后续改成 global index + owner metadata 不再需要穿透各编译阶段。回归覆盖同 session 的任意 module view 可解析 foreign module handle、不同 session handle 无 owner；全仓 `.owner()` 搜索为零。`cargo check --workspace --all-targets`、nia-ty 15、backend-lower 96、body-check 139、codegen 176、monomorphize 9、const-check 15 与 driver 484 个定向测试均通过，严格 workspace/all-targets/all-features Clippy 无 warning。下一切片应实现 session-wide slot/owner table 与 canonicalization contract；只有 handle 不再含 module shard 且跨模块同一类型直接复用同一 ID 后，才能开始按域删除 recursive import。
+
+进展（2026-07-16）：session-wide canonical type identity 已真正落地。`InternedTyId` 从 `TyInternerId + local slot` 收敛为 `TypeStoreId + global slot`，尺寸由 16 bytes 降为一个 64-bit word；共享 `TypeStoreCore` 负责全 session 的 `TyKind -> TyId` canonicalization 和 append-only slot，module `TyInterner` 只保存 `(TyId, TyKind)` visibility log 与 prefix/snapshot 迁移语义。跨模块 primitive、structural type 得到同一 ID；同 session `import_type_into` 只让 target view 看见现有 type graph并保持 ID，不同 session handle 继续被拒绝，且 interning 会拒绝引用当前 view 不可见或 foreign-session 的子类型。旧 `TypeOwner` 已改名为物理含义明确的 `TypeOrigin`，reachability 不再把它当 module dependency；backend/codegen 完全忽略 origin，从实际包含 handle 的 active views 中按最小 `ModuleId` 确定性选择，避免并发 first-insert 顺序影响输出。core lock 只覆盖单次 canonical lookup/insert，不跨 recursive import 或编译算法。handle 缩小暴露的 `AssociatedConstResolution` large-enum-variant 由仅装箱大 payload 修正，没有 Clippy allow；function lowering 伪造固定 slot `15` 作为 `bool` 的旧布局依赖也已删除，for-in typed IR 显式携带真实 canonical bool handle。`cargo check --workspace --all-targets`、nia-ty 18、function-lower 49、backend-lower 96、body-check 139、codegen 177、compiler-query 108、driver 484 个定向测试、严格 workspace/all-targets/all-features Clippy，以及无环境变量、无线程参数的原样 `cargo test` 全部通过，WSL 未发生 OOM 或退出。Phase B 仍未关闭：下一切片应让 canonical store 直接提供 kind lookup，随后按依赖方向删除 module snapshot/view adapter、identity-preserving recursive import、`arg_interner` paired data 和临时 trait/comparison views，最终删除非语义 `TypeOrigin`；不能因 ID 已统一就保留旧读取体系。
 
 ### 阶段 C（P0）：重做 query value/storage 契约
 

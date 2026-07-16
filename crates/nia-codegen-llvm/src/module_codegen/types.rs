@@ -5,7 +5,7 @@ use nia_backend_ir::{
     BackendUnionInstance,
 };
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TypeOwner};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_llvm::{
     types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType},
     values::FunctionValue,
@@ -30,10 +30,10 @@ pub(crate) enum AbiReturn {
 }
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
-    pub(super) fn type_owner(&self, ty: InternedTyId) -> TypeOwner {
+    pub(super) fn type_view_module(&self, ty: InternedTyId) -> ModuleId {
         self.program
-            .type_owner(ty)
-            .expect("codegen type belongs to its session store")
+            .type_view_module(ty)
+            .expect("codegen type is visible in a program module")
     }
 
     fn module_interner(&self, module_id: ModuleId) -> Option<&'a TyInterner> {
@@ -41,8 +41,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&'a TyKind> {
-        self.module_interner(self.type_owner(ty).module_id())?
-            .get(ty)
+        self.module_interner(self.type_view_module(ty))?.get(ty)
     }
 
     pub(super) fn function_type_in(
@@ -416,7 +415,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             Some(TyKind::Array { len, elem }) => {
                 let elem_layouts = self
                     .program
-                    .module(self.type_owner(*elem).module_id())
+                    .module(self.type_view_module(*elem))
                     .map(|module| &module.layouts)
                     .unwrap_or(layouts);
                 let elem = self.llvm_basic_type_in(*elem, span, self.interner(), elem_layouts)?;
@@ -448,7 +447,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 if let Some(item) = self.program.enums.get(def_id).copied() {
                     let owner = self
                         .program
-                        .module(self.type_owner(item.backing_type).module_id())
+                        .module(self.type_view_module(item.backing_type))
                         .ok_or_else(|| self.error(item.span, "missing enum owner module"))?;
                     return self.llvm_basic_type_in(
                         item.backing_type,
@@ -701,7 +700,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(crate) fn layouts_for(&self, ty: InternedTyId) -> &'a BackendLayouts {
         self.program
-            .module(self.type_owner(ty).module_id())
+            .module(self.type_view_module(ty))
             .map(|module| &module.layouts)
             .unwrap_or(&self.source.layouts)
     }

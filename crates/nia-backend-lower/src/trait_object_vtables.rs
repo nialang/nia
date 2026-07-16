@@ -595,7 +595,7 @@ mod tests {
         static INTERNER: std::sync::OnceLock<nia_ty::TyInterner> = std::sync::OnceLock::new();
         let interner = INTERNER.get_or_init(|| nia_ty::TyInterner::new(ModuleId(0)));
         InternedTyId::new(
-            interner.interner_id(),
+            interner.interner_id().store_id(),
             TyInternerIndex::from_interner_index(index),
         )
     }

@@ -541,7 +541,7 @@ mod tests {
     fn rejects_missing_type_id_instead_of_mangling_fallback_symbol() {
         let interner = TyInterner::new(ModuleId(0));
         let missing = InternedTyId::new(
-            interner.interner_id(),
+            interner.interner_id().store_id(),
             TyInternerIndex::from_interner_index(999),
         );
 

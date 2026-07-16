@@ -222,6 +222,7 @@ impl<'a> BodyChecker<'a> {
                 TypedStmtKind::ForIn(Box::new(TypedForIn {
                     pattern: self.lower_pattern(&for_stmt.pattern, item_ty),
                     item_ty,
+                    bool_ty: self.bool(),
                     iterable_self_ty,
                     iterator_ty,
                     iter: self.lower_expr(&for_stmt.iter),

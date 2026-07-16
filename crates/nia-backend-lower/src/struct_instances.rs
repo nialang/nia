@@ -1488,9 +1488,9 @@ impl<'a> ModuleLowerer<'a> {
     fn instance_args_contain_generic_param(&mut self, args: &[InternedTyId]) -> bool {
         let current_interner = self.type_context.interner.clone();
         let mut ty_kind = |ty: InternedTyId| {
-            (ty.interner_id == current_interner.interner_id())
-                .then(|| current_interner.get(ty).cloned())
-                .flatten()
+            current_interner
+                .get(ty)
+                .cloned()
                 .or_else(|| self.ty_kind(ty).cloned())
         };
         args.iter()

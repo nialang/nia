@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::support::{LoweringContext, PatternConditionContext, SwitchStmtArmContext};
 use super::*;
-use nia_ids::TyInternerIndex;
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod};
 
 impl FunctionLowerer<'_> {
@@ -730,8 +729,11 @@ impl FunctionLowerer<'_> {
             ty: optional_item_ty,
             kind: FunctionExprKind::Local(next_local),
         };
-        let header =
-            FunctionForHeader::Condition(Box::new(self.optional_some_condition(span, &next_expr)));
+        let header = FunctionForHeader::Condition(Box::new(self.optional_some_condition(
+            span,
+            &next_expr,
+            for_stmt.bool_ty,
+        )));
         let body_entry = self.alloc_block();
         let continue_target = self.alloc_block();
         let break_target = self.alloc_block();
@@ -846,11 +848,16 @@ impl FunctionLowerer<'_> {
         }
     }
 
-    fn optional_some_condition(&self, span: Span, value: &FunctionExpr) -> FunctionExpr {
+    fn optional_some_condition(
+        &self,
+        span: Span,
+        value: &FunctionExpr,
+        bool_ty: InternedTyId,
+    ) -> FunctionExpr {
         self.tagged_union_tag_condition(
             value,
             span,
-            self.bool_ty(value.ty),
+            bool_ty,
             FunctionOptionalTag::Some.discriminant(),
         )
     }
@@ -1077,9 +1084,5 @@ impl FunctionLowerer<'_> {
             }
         };
         self.finish_block(blocks, current, scope, span, ops, terminator);
-    }
-
-    fn bool_ty(&self, ty: InternedTyId) -> InternedTyId {
-        InternedTyId::new(ty.interner_id, TyInternerIndex::from_interner_index(15))
     }
 }

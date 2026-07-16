@@ -66,7 +66,7 @@ pub struct UserImpl {
 
 #[derive(Debug, Clone)]
 pub enum AssociatedConstResolution {
-    User(UserAssociatedConst),
+    User(Box<UserAssociatedConst>),
     Const(ConstGenericArg),
 }
 
@@ -585,16 +585,17 @@ where
 
     fn kind(&self, ty: InternedTyId) -> Option<&TyKind> {
         let ty = self.normalize(ty);
-        if ty.interner_id != self.interner.interner_id() {
-            return None;
+        if let Some(kind) = self.interner.get(ty) {
+            return Some(kind);
         }
-        Some(self.interner.get(ty).unwrap_or_else(|| {
+        if self.interner.type_origin(ty)?.module_id() == self.interner.interner_id().module_id() {
             panic!(
                 "Nia ICE: trait overlap type {:?} is missing from interner {:?}",
                 ty,
                 self.interner.interner_id()
-            )
-        }))
+            );
+        }
+        None
     }
 }
 
@@ -698,16 +699,18 @@ impl TraitSolver<'_> {
                     .associated_values
                     .iter()
                     .find(|associated_value| &associated_value.name == name)?;
-                Some(AssociatedConstResolution::User(UserAssociatedConst {
-                    def_id: GlobalDefId {
-                        module_id: impl_signature.module_id,
-                        def_id: associated_value.def_id,
+                Some(AssociatedConstResolution::User(Box::new(
+                    UserAssociatedConst {
+                        def_id: GlobalDefId {
+                            module_id: impl_signature.module_id,
+                            def_id: associated_value.def_id,
+                        },
+                        substitutions: user_impl.substitutions,
+                        const_substitutions: user_impl.const_substitutions,
+                        impl_module_id: impl_signature.module_id,
+                        resolution_interner: self.interner.clone(),
                     },
-                    substitutions: user_impl.substitutions,
-                    const_substitutions: user_impl.const_substitutions,
-                    impl_module_id: impl_signature.module_id,
-                    resolution_interner: self.interner.clone(),
-                }))
+                )))
             }
             TraitResolution::Intrinsic(intrinsic) => self
                 .resolve_intrinsic_associated_const(

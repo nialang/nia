@@ -162,7 +162,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         target_interner: &TyInterner,
         target_layouts: &BackendLayouts,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let Some(owner) = self.program.module(self.type_owner(array_ty).module_id()) else {
+        let Some(owner) = self.program.module(self.type_view_module(array_ty)) else {
             return Err(self.error(span, "missing static array pointer owner module"));
         };
         let llvm_array_ty =
