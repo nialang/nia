@@ -802,7 +802,7 @@ fn validate_trait_impl(
         diagnostics,
     );
     let append = input.type_store.append_for_module(module.module_id);
-    let mut comparison_interner = module.normalization.interner.clone();
+    let mut comparison_interner = input.type_store.module_snapshot(module.module_id);
     for required in &trait_signature.signature.methods {
         let Some(method) = impl_signature
             .methods

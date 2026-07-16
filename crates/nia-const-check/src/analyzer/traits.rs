@@ -125,15 +125,7 @@ impl Analyzer<'_> {
                 .program_is_enum
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let Some(interner_snapshot) = self
-            .type_contexts
-            .get(&module_id)
-            .map(|interner| (**interner).clone())
-        else {
-            return false;
-        };
         let normalization = nia_type_normalize::TypeNormalization {
-            interner: interner_snapshot,
             normalized,
             diagnostics: Vec::new(),
         };
@@ -200,12 +192,7 @@ impl Analyzer<'_> {
                 .program_is_enum
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let interner_snapshot = self
-            .type_contexts
-            .get(&module_id)
-            .map(|interner| (**interner).clone())?;
         let normalization = nia_type_normalize::TypeNormalization {
-            interner: interner_snapshot,
             normalized,
             diagnostics: Vec::new(),
         };
@@ -280,12 +267,7 @@ impl Analyzer<'_> {
                 .program_is_enum
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let interner_snapshot = self
-            .type_contexts
-            .get(&module_id)
-            .map(|interner| (**interner).clone())?;
         let normalization = nia_type_normalize::TypeNormalization {
-            interner: interner_snapshot,
             normalized,
             diagnostics: Vec::new(),
         };

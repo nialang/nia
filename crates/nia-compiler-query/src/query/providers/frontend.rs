@@ -436,11 +436,12 @@ fn normalize_types_in_session_store(
                 type_lowering.interner.is_prefix_of(interner),
                 "Nia ICE: type lowering is not a prefix of its session type store"
             );
-            nia_type_normalize::normalize_module_types(
+            nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
                 module_id,
+                type_store: &db.context().type_store,
                 interner,
-                &input_ids,
-                item_signatures,
-            )
+                input_ids: &input_ids,
+                signatures: item_signatures,
+            })
         })
 }

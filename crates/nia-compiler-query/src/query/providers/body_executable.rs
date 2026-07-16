@@ -579,7 +579,6 @@ fn const_inputs_for_body_check(
         symbols: &symbols,
         lowered,
         signatures,
-        interner: &normalization.interner,
         normalized: &normalization.normalized,
         target: &target,
         source_path,
@@ -602,7 +601,7 @@ fn const_inputs_for_body_check(
         .type_store
         .with_module_interner_for_semantic_migration(module_id, |interner| {
             assert!(
-                normalization.interner.is_prefix_of(interner),
+                lowered.interner.is_prefix_of(interner),
                 "Nia ICE: body const input is not a prefix of its session type store"
             );
             let mut array_lengths = time_module_provider(
@@ -1437,7 +1436,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                 .type_store
                 .with_module_interner_for_semantic_migration(module_id, |interner| {
                     assert!(
-                        type_normalization.interner.is_prefix_of(interner),
+                        type_lowering.interner.is_prefix_of(interner),
                         "Nia ICE: executable layout input is not a prefix of its session type store"
                     );
                     let roots =
@@ -1582,7 +1581,7 @@ fn rooted_layouts_for_checked_module(
         .type_store
         .with_module_interner_for_semantic_migration(module.id, |interner| {
             assert!(
-                module.type_normalization.interner.is_prefix_of(interner),
+                module.type_lowering.interner.is_prefix_of(interner),
                 "Nia ICE: rooted layout input is not a prefix of its session type store"
             );
             nia_layout::compute_layouts_for_roots_with_program_context(
@@ -1676,7 +1675,7 @@ fn checked_module_layout_roots(
     type_store: &nia_ty::TypeStore,
     module: &CheckedModule,
 ) -> CollectedLayoutRoots {
-    let mut interner = module.type_normalization.interner.clone();
+    let mut interner = type_store.module_snapshot(module.id);
     let mut roots = LayoutRootCollector::new(type_store, &mut interner);
     collect_semantic_layout_roots(&module.semantic_facts, &mut roots);
     roots.finish()
@@ -2296,7 +2295,7 @@ pub(super) fn executable_reachable_aggregate_roots(
     let mut structs = HashSet::new();
     let mut unions = HashSet::new();
     for module in modules {
-        let mut interner = module.type_normalization.interner.clone();
+        let mut interner = type_store.module_snapshot(module.id);
         let mut roots = LayoutRootCollector::with_program(
             type_store,
             &mut interner,

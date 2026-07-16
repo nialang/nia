@@ -40,10 +40,13 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             .map(|(ty_id, _)| ty_id)
             .collect::<Vec<_>>();
         let normalization = nia_type_normalize::normalize_module_types(
-            self.input.module_id,
-            self.interner,
-            &normalization_input,
-            self.input.signatures,
+            nia_type_normalize::TypeNormalizationInput {
+                module_id: self.input.module_id,
+                type_store: self.type_store,
+                interner: self.interner,
+                input_ids: &normalization_input,
+                signatures: self.input.signatures,
+            },
         );
         let input = self.input;
         let array_lengths = |id: GlobalConstExprId| {

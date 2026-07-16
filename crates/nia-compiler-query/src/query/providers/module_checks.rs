@@ -7,6 +7,7 @@ pub(super) fn provide_layouts(
 ) -> nia_layout::Layouts {
     time_module_provider(db, "layouts", module_id, || {
         let defs = db.query_shared(FullModuleDefsQuery(module_id));
+        let type_lowering = db.query(TypeLoweringQuery(module_id));
         let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
         let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
@@ -21,7 +22,7 @@ pub(super) fn provide_layouts(
             .type_store
             .with_module_interner_for_semantic_migration(module_id, |interner| {
                 assert!(
-                    type_normalization.interner.is_prefix_of(interner),
+                    type_lowering.interner.is_prefix_of(interner),
                     "Nia ICE: layout input is not a prefix of its session type store"
                 );
                 nia_layout::compute_layouts_with_program_context(

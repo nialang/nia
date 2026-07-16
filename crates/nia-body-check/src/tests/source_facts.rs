@@ -87,7 +87,6 @@ fn main() i32 {
         symbols: &symbols,
         lowered: &lowered,
         signatures: &signatures,
-        interner: &lowered.interner,
         normalized: &std::collections::HashMap::new(),
         target: &target,
         source_path: &source_path,
@@ -117,7 +116,6 @@ fn main() i32 {
     let const_eval =
         crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     let normalization = TypeNormalization {
-        interner: lowered.interner.clone(),
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
@@ -262,7 +260,6 @@ fn main() i32 {
         symbols: &symbols,
         lowered: &lowered,
         signatures: &signatures,
-        interner: &lowered.interner,
         normalized: &std::collections::HashMap::new(),
         target: &target,
         source_path: &source_path,
@@ -292,7 +289,6 @@ fn main() i32 {
     let const_eval =
         crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     let normalization = TypeNormalization {
-        interner: lowered.interner.clone(),
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };

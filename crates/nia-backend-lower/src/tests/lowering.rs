@@ -50,9 +50,15 @@ fn main() i32 {
         .iter()
         .map(|(ty_id, _)| ty_id)
         .collect::<Vec<_>>();
-    let normalization = type_store
-        .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-            normalize_module_types(ModuleId(0), interner, &normalization_input, &signatures)
+    let normalization =
+        type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+            normalize_module_types(nia_type_normalize::TypeNormalizationInput {
+                module_id: ModuleId(0),
+                type_store: &type_store,
+                interner,
+                input_ids: &normalization_input,
+                signatures: &signatures,
+            })
         });
     let target = nia_target_config::TargetConfig::host();
     let source_path = nia_source::SourcePath::new("/tmp/nia-backend-lower-test/lowering.nia");
@@ -82,7 +88,6 @@ fn main() i32 {
         symbols: &symbols,
         lowered: &type_lowering,
         signatures: &signatures,
-        interner: &normalization.interner,
         normalized: &normalization.normalized,
         target: &target,
         source_path: &source_path,
@@ -118,7 +123,7 @@ fn main() i32 {
         })
         .expect("make def");
     let mut extensions = VisibleExtensionMethods::default();
-    let point_ty = normalization
+    let point_ty = type_lowering
         .interner
         .iter()
         .find_map(|(ty_id, ty)| {

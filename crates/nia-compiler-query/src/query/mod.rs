@@ -3066,15 +3066,13 @@ pub fn expensive_or_invalid() i32 {
         let normalization = database.db.query(TypeNormalizationQuery(module_id));
         let stored = database.db.context().type_store.module_snapshot(module_id);
 
-        assert_eq!(
-            lowering.interner.interner_id(),
-            normalization.interner.interner_id()
-        );
-        assert!(lowering.interner.is_prefix_of(&normalization.interner));
-        assert!(normalization.interner.is_prefix_of(&stored));
+        assert!(lowering.interner.is_prefix_of(&stored));
         for (ty_id, kind) in lowering.interner.iter() {
-            assert_eq!(normalization.interner.get(ty_id), Some(kind));
             assert_eq!(stored.get(ty_id), Some(kind));
+        }
+        for normalized in normalization.normalized.values() {
+            assert!(stored.get(*normalized).is_some());
+            assert!(database.db.context().type_store.get(*normalized).is_some());
         }
         assert!(
             normalization
@@ -3100,7 +3098,8 @@ fn main() i32 { 0 }
 "#,
                 ),
             ])));
-        let normalization = database.db.query(TypeNormalizationQuery(module_id));
+        let lowering = database.db.query(TypeLoweringQuery(module_id));
+        let _ = database.db.query(TypeNormalizationQuery(module_id));
         let before_const = database.db.context().type_store.module_snapshot(module_id);
 
         let _ = database.db.query(ConstArrayLengthsQuery(module_id));
@@ -3114,7 +3113,7 @@ fn main() i32 { 0 }
         let _ = database.db.query(ConstQuery(module_id));
         let after_check = database.db.context().type_store.module_snapshot(module_id);
 
-        assert!(normalization.interner.is_prefix_of(&before_const));
+        assert!(lowering.interner.is_prefix_of(&before_const));
         assert!(before_const.is_prefix_of(&after_array_lengths));
         assert!(after_array_lengths.is_prefix_of(&after_enum_values));
         assert!(after_enum_values.is_prefix_of(&after_values));
@@ -3184,9 +3183,12 @@ fn main() i32 {
                 (signature, full)
             };
 
-            assert_eq!(
-                signature.interner.interner_id(),
-                full.interner.interner_id()
+            assert!(
+                signature
+                    .normalized
+                    .values()
+                    .chain(full.normalized.values())
+                    .all(|ty| database.db.context().type_store.get(*ty).is_some())
             );
             let shared_alias_expansions = signature
                 .normalized

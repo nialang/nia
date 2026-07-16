@@ -238,7 +238,6 @@ fn pipeline_with_options(
         symbols: &symbols,
         lowered: &lowered,
         signatures: &signatures,
-        interner: &lowered.interner,
         normalized: &std::collections::HashMap::new(),
         target: &target,
         source_path: &source_path,
@@ -277,12 +276,14 @@ fn pipeline_with_options(
         .iter()
         .map(|(ty_id, _)| ty_id)
         .collect::<Vec<_>>();
-    let normalization = nia_type_normalize::normalize_module_types(
-        ModuleId(0),
-        &mut lowered.interner,
-        &normalization_input,
-        &signatures,
-    );
+    let normalization =
+        nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
+            module_id: ModuleId(0),
+            type_store: &type_store,
+            interner: &mut lowered.interner,
+            input_ids: &normalization_input,
+            signatures: &signatures,
+        });
     assert!(
         normalization.diagnostics.is_empty(),
         "{:?}",

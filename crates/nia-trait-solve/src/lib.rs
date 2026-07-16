@@ -3064,7 +3064,6 @@ mod tests {
         });
         let mut interner = type_store.module_snapshot(module_id);
         let normalization = TypeNormalization {
-            interner: interner.clone(),
             normalized: HashMap::new(),
             diagnostics: Vec::new(),
         };

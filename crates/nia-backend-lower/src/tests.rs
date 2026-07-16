@@ -351,9 +351,15 @@ fn lower_source_with_body_check_mutation_and_optimization(
         .iter()
         .map(|(ty_id, _)| ty_id)
         .collect::<Vec<_>>();
-    let normalization = type_store
-        .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-            normalize_module_types(ModuleId(0), interner, &normalization_input, &signatures)
+    let normalization =
+        type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
+            normalize_module_types(nia_type_normalize::TypeNormalizationInput {
+                module_id: ModuleId(0),
+                type_store: &type_store,
+                interner,
+                input_ids: &normalization_input,
+                signatures: &signatures,
+            })
         });
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-backend-lower-test/main.nia");
@@ -383,7 +389,6 @@ fn lower_source_with_body_check_mutation_and_optimization(
         symbols: &symbols,
         lowered: &type_lowering,
         signatures: &signatures,
-        interner: &normalization.interner,
         normalized: &normalization.normalized,
         target: &target,
         source_path: &source_path,
