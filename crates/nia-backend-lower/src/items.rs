@@ -238,7 +238,7 @@ impl<'a> ModuleLowerer<'a> {
                 (
                     *generic,
                     self.type_context
-                        .interner
+                        .append
                         .intern(TyKind::GenericParam(*generic)),
                 )
             })
@@ -358,14 +358,14 @@ impl<'a> ModuleLowerer<'a> {
             }
             ReceiverKind::RefReadOnly => {
                 let elem = self.receiver_base_ty(local_ty).unwrap_or(local_ty);
-                self.type_context.interner.intern(TyKind::Pointer {
+                self.type_context.append.intern(TyKind::Pointer {
                     is_readonly: true,
                     elem,
                 })
             }
             ReceiverKind::Ref => {
                 let elem = self.receiver_base_ty(local_ty).unwrap_or(local_ty);
-                self.type_context.interner.intern(TyKind::Pointer {
+                self.type_context.append.intern(TyKind::Pointer {
                     is_readonly: false,
                     elem,
                 })

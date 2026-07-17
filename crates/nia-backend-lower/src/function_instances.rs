@@ -465,7 +465,7 @@ impl<'a> ModuleLowerer<'a> {
                 (
                     *generic,
                     self.type_context
-                        .interner
+                        .append
                         .intern(TyKind::GenericParam(*generic)),
                 )
             })

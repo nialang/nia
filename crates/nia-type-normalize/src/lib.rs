@@ -6,7 +6,7 @@ use nia_ids::{DefId, InternedTyId, ModuleId};
 use nia_item_signatures::{ItemSignatures, TypeAliasSignature};
 use nia_span::Span;
 use nia_symbol::SymbolMap;
-use nia_ty::{ArrayLenTy, TyInterner, TyKind, TypeStore};
+use nia_ty::{ArrayLenTy, TyKind, TypeStore, TypeStoreAppend};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeNormalization {
@@ -17,7 +17,6 @@ pub struct TypeNormalization {
 pub struct TypeNormalizationInput<'a> {
     pub module_id: ModuleId,
     pub type_store: &'a TypeStore,
-    pub interner: &'a mut TyInterner,
     pub input_ids: &'a [InternedTyId],
     pub signatures: &'a ItemSignatures,
 }
@@ -26,7 +25,7 @@ pub fn normalize_module_types(input: TypeNormalizationInput<'_>) -> TypeNormaliz
     let mut normalizer = TypeNormalizer {
         module_id: input.module_id,
         type_store: input.type_store,
-        interner: input.interner,
+        interner: input.type_store.append_for_module(input.module_id),
         aliases: &input.signatures.type_aliases,
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
@@ -43,7 +42,7 @@ pub fn normalize_module_types(input: TypeNormalizationInput<'_>) -> TypeNormaliz
 struct TypeNormalizer<'a, 'store> {
     module_id: ModuleId,
     type_store: &'store TypeStore,
-    interner: &'store mut TyInterner,
+    interner: TypeStoreAppend,
     aliases: &'a HashMap<DefId, TypeAliasSignature>,
     normalized: HashMap<InternedTyId, InternedTyId>,
     diagnostics: Vec<Diagnostic>,
@@ -290,7 +289,7 @@ impl<'a> TypeNormalizer<'a, '_> {
     ) -> InternedTyId {
         if stack.contains(&alias_id) {
             self.report_recursive_alias(alias.span, stack, alias_id);
-            return self.interner.error();
+            return self.interner.intern(TyKind::Error);
         }
         if alias.generics.len() != args.len() {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -302,7 +301,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     args.len()
                 ),
             ));
-            return self.interner.error();
+            return self.interner.intern(TyKind::Error);
         }
         let substitutions: SymbolMap<InternedTyId> = alias
             .generics
@@ -634,14 +633,11 @@ mod tests {
         signatures: &ItemSignatures,
     ) -> TypeNormalization {
         let input_ids = lowered.explicit_type_roots();
-        type_store.with_module_interner_for_semantic_migration(module_id, |interner| {
-            normalize_module_types(TypeNormalizationInput {
-                module_id,
-                type_store,
-                interner,
-                input_ids: &input_ids,
-                signatures,
-            })
+        normalize_module_types(TypeNormalizationInput {
+            module_id,
+            type_store,
+            input_ids: &input_ids,
+            signatures,
         })
     }
 
@@ -922,17 +918,16 @@ fn take(xs: [2 + 3]u8) void {}
     fn normalizes_only_the_explicit_input_set() {
         let module_id = ModuleId(0);
         let type_store = TypeStore::new();
-        let mut interner = type_store.module_snapshot(module_id);
-        let elem = interner.primitive(PrimitiveTy::U8);
-        let pointer = interner.intern(TyKind::Pointer {
+        let append = type_store.append_for_module(module_id);
+        let elem = append.intern(TyKind::Primitive(PrimitiveTy::U8));
+        let pointer = append.intern(TyKind::Pointer {
             is_readonly: true,
             elem,
         });
-        let slice = interner.intern(TyKind::Slice {
+        let slice = append.intern(TyKind::Slice {
             is_readonly: true,
             elem,
         });
-        let before = interner.clone();
 
         let signatures = ItemSignatures {
             functions: HashMap::new(),
@@ -949,16 +944,13 @@ fn take(xs: [2 + 3]u8) void {}
         let normalization = normalize_module_types(TypeNormalizationInput {
             module_id,
             type_store: &type_store,
-            interner: &mut interner,
             input_ids: &[pointer],
             signatures: &signatures,
         });
 
         assert!(normalization.normalized.contains_key(&pointer));
         assert!(!normalization.normalized.contains_key(&slice));
-        assert!(before.is_prefix_of(&interner));
-        for (ty_id, kind) in before.iter() {
-            assert_eq!(interner.get(ty_id), Some(kind));
-        }
+        assert!(type_store.get(pointer).is_some());
+        assert!(type_store.get(slice).is_some());
     }
 }

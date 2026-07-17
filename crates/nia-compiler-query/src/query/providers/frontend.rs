@@ -428,15 +428,10 @@ fn normalize_types_in_session_store(
     item_signatures: &ItemSignatures,
 ) -> TypeNormalization {
     let input_ids = type_lowering.explicit_type_roots();
-    db.context()
-        .type_store
-        .with_module_interner_for_semantic_migration(module_id, |interner| {
-            nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
-                module_id,
-                type_store: &db.context().type_store,
-                interner,
-                input_ids: &input_ids,
-                signatures: item_signatures,
-            })
-        })
+    nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
+        module_id,
+        type_store: &db.context().type_store,
+        input_ids: &input_ids,
+        signatures: item_signatures,
+    })
 }

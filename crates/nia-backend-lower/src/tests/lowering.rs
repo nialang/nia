@@ -52,16 +52,12 @@ fn main() i32 {
         &active_item_tree,
     );
     let normalization_input = type_lowering.explicit_type_roots();
-    let normalization =
-        type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-            normalize_module_types(nia_type_normalize::TypeNormalizationInput {
-                module_id: ModuleId(0),
-                type_store: &type_store,
-                interner,
-                input_ids: &normalization_input,
-                signatures: &signatures,
-            })
-        });
+    let normalization = normalize_module_types(nia_type_normalize::TypeNormalizationInput {
+        module_id: ModuleId(0),
+        type_store: &type_store,
+        input_ids: &normalization_input,
+        signatures: &signatures,
+    });
     let target = nia_target_config::TargetConfig::host();
     let source_path = nia_source::SourcePath::new("/tmp/nia-backend-lower-test/lowering.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
@@ -517,7 +513,7 @@ fn main() usize {
             nia_ty::ConstGenericValue::Int(value) if value.bits() == expected_len
         ));
         assert!(matches!(
-            interner.get(instance.params[0].local_ty),
+            lowering.type_store.get(instance.params[0].local_ty),
             Some(nia_ty::TyKind::Array {
                 len: nia_ty::ArrayLenTy::ConstValue(len),
                 elem,
@@ -580,7 +576,7 @@ fn main() usize {
         ));
         assert_eq!(instance.fields.len(), 1);
         assert!(matches!(
-            interner.get(instance.fields[0].ty),
+            lowering.type_store.get(instance.fields[0].ty),
             Some(nia_ty::TyKind::Array {
                 len: nia_ty::ArrayLenTy::ConstValue(len),
                 elem,
@@ -636,7 +632,7 @@ fn main() i32 {
 }
 
 #[test]
-fn instantiates_nested_generic_function_instance_args_in_visible_interner() {
+fn instantiates_nested_generic_function_instance_args_in_canonical_store() {
     let source = r#"
 fn inner[T](value: T) T {
     value
@@ -657,30 +653,24 @@ fn main() i32 {
     let module = &lowering.program.modules[0];
     let interner = lowering.interner(module.id);
     let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
-    let i32_ptr = interner
-        .iter()
-        .find_map(|(ty_id, ty)| {
-            matches!(
-                ty,
-                nia_ty::TyKind::Pointer {
-                    is_readonly: true,
-                    elem,
-                } if *elem == i32_ty
-            )
-            .then_some(ty_id)
-        })
-        .expect("&i32 type");
     let instance = module
         .function_instances
         .iter()
         .find(|instance| instance.name == sym("inner"))
         .expect("inner instance");
+    let i32_ptr = instance.args[0];
 
     assert_eq!(instance.args, vec![i32_ptr]);
     assert_eq!(instance.params[0].passing_ty, i32_ptr);
     assert_eq!(instance.params[0].local_ty, i32_ptr);
     assert_eq!(instance.return_type, i32_ptr);
-    assert!(interner.get(instance.args[0]).is_some());
+    assert!(matches!(
+        lowering.type_store.get(i32_ptr),
+        Some(nia_ty::TyKind::Pointer {
+            is_readonly: true,
+            elem,
+        }) if *elem == i32_ty
+    ));
 }
 
 #[test]

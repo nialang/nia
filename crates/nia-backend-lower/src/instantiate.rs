@@ -108,7 +108,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<InternedTyId> {
         let alias = self.input.program_type_aliases.get(&def_id)?.clone();
         if alias.signature.generics.len() != args.len() + const_args.len() {
-            return Some(self.type_context.interner.error());
+            return Some(self.type_context.append.intern(TyKind::Error));
         }
         let (alias_substitutions, alias_const_substitutions) =
             self.generic_substitutions_and_consts_for_def(def_id, args, const_args);
@@ -720,14 +720,14 @@ impl<'a> ModuleLowerer<'a> {
                 let instantiated = match self.ty_kind(elem).cloned() {
                     Some(TyKind::SlicePointee { elem }) => self
                         .type_context
-                        .interner
+                        .append
                         .intern(TyKind::Slice { is_readonly, elem }),
                     Some(TyKind::TraitObjectPointee {
                         trait_id,
                         trait_args,
                         trait_const_args,
                         associated_type_bindings,
-                    }) => self.type_context.interner.intern(TyKind::TraitObject {
+                    }) => self.type_context.append.intern(TyKind::TraitObject {
                         is_readonly,
                         trait_id,
                         trait_args,
@@ -736,7 +736,7 @@ impl<'a> ModuleLowerer<'a> {
                     }),
                     _ => self
                         .type_context
-                        .interner
+                        .append
                         .intern(TyKind::Pointer { is_readonly, elem }),
                 };
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
@@ -746,7 +746,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
                 let instantiated = self
                     .type_context
-                    .interner
+                    .append
                     .intern(TyKind::VolatilePointer { is_readonly, elem });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
@@ -755,7 +755,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
                 let instantiated = self
                     .type_context
-                    .interner
+                    .append
                     .intern(TyKind::Slice { is_readonly, elem });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
@@ -764,7 +764,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
                 let instantiated = self
                     .type_context
-                    .interner
+                    .append
                     .intern(TyKind::SlicePointee { elem });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
@@ -772,10 +772,7 @@ impl<'a> ModuleLowerer<'a> {
                 let len = self.instantiate_array_len(len, substitutions);
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
-                let instantiated = self
-                    .type_context
-                    .interner
-                    .intern(TyKind::Array { len, elem });
+                let instantiated = self.type_context.append.intern(TyKind::Array { len, elem });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Range { kind, bound }) => {
@@ -784,7 +781,7 @@ impl<'a> ModuleLowerer<'a> {
                 });
                 let instantiated = self
                     .type_context
-                    .interner
+                    .append
                     .intern(TyKind::Range { kind, bound });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
@@ -805,7 +802,7 @@ impl<'a> ModuleLowerer<'a> {
                     substitutions,
                     active_projections,
                 );
-                let instantiated = self.type_context.interner.intern(TyKind::FunctionPointer {
+                let instantiated = self.type_context.append.intern(TyKind::FunctionPointer {
                     params,
                     return_type,
                     is_variadic,
@@ -815,7 +812,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Optional { elem }) => {
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
-                let instantiated = self.type_context.interner.intern(TyKind::Optional { elem });
+                let instantiated = self.type_context.append.intern(TyKind::Optional { elem });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::ErrorUnion { error, value }) => {
@@ -825,7 +822,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.instantiate_ty_with_id_inner(value, substitutions, active_projections);
                 let instantiated = self
                     .type_context
-                    .interner
+                    .append
                     .intern(TyKind::ErrorUnion { error, value });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
@@ -860,7 +857,7 @@ impl<'a> ModuleLowerer<'a> {
                 ) {
                     return self.finish_type_instantiation(key, instantiated, can_use_cache);
                 }
-                let instantiated = self.type_context.interner.intern(TyKind::Nominal {
+                let instantiated = self.type_context.append.intern(TyKind::Nominal {
                     def_id,
                     args,
                     const_args,
@@ -877,7 +874,7 @@ impl<'a> ModuleLowerer<'a> {
                     .collect::<Vec<_>>();
                 let instantiated = self
                     .type_context
-                    .interner
+                    .append
                     .intern(TyKind::BuiltinTrait { trait_id, args });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
@@ -941,7 +938,7 @@ impl<'a> ModuleLowerer<'a> {
                         ),
                     })
                     .collect();
-                let instantiated = self.type_context.interner.intern(TyKind::TraitObject {
+                let instantiated = self.type_context.append.intern(TyKind::TraitObject {
                     is_readonly,
                     trait_id,
                     trait_args,
@@ -1008,15 +1005,12 @@ impl<'a> ModuleLowerer<'a> {
                         ),
                     })
                     .collect();
-                let instantiated = self
-                    .type_context
-                    .interner
-                    .intern(TyKind::TraitObjectPointee {
-                        trait_id,
-                        trait_args,
-                        trait_const_args,
-                        associated_type_bindings,
-                    });
+                let instantiated = self.type_context.append.intern(TyKind::TraitObjectPointee {
+                    trait_id,
+                    trait_args,
+                    trait_const_args,
+                    associated_type_bindings,
+                });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Projection {
@@ -1055,7 +1049,7 @@ impl<'a> ModuleLowerer<'a> {
                     trait_const_args: trait_const_args.clone(),
                     name,
                 };
-                let projection = self.type_context.interner.intern(TyKind::Projection {
+                let projection = self.type_context.append.intern(TyKind::Projection {
                     self_ty,
                     trait_id,
                     trait_args: trait_args.clone(),
