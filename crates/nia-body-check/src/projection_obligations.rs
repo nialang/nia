@@ -1848,11 +1848,8 @@ impl<'a> BodyChecker<'a> {
             const_expr_value: Some(&const_expr_value),
             impl_is_visible: None,
         };
-        let mut solver = context.solver_with_associated_type_assumptions(
-            &mut self.interner,
-            &assumptions,
-            &associated_type_assumptions,
-        );
+        let mut solver = context
+            .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
         solver.resolve(TraitGoal {
             self_ty: required.self_ty,
             trait_id: required.trait_id,

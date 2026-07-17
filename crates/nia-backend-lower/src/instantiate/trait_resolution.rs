@@ -141,7 +141,7 @@ impl<'a> ModuleLowerer<'a> {
             const_expr_value: None,
             impl_is_visible: None,
         };
-        let mut solver = context.solver(&mut self.type_context.interner, &[]);
+        let mut solver = context.solver(&[]);
         let TraitSelection::User(user_impl) = solver.select_user_impl(TraitGoal {
             self_ty,
             trait_id: key.trait_id,
@@ -240,11 +240,8 @@ impl<'a> ModuleLowerer<'a> {
             const_expr_value: None,
             impl_is_visible: None,
         };
-        let mut solver = context.solver_with_associated_type_assumptions(
-            &mut self.type_context.interner,
-            &assumptions,
-            &associated_type_assumptions,
-        );
+        let mut solver = context
+            .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
         for (self_ty, trait_id, trait_args, trait_const_args, associated_type_bindings) in checks {
             if !solver.proves(TraitGoal {
                 self_ty,
@@ -673,7 +670,7 @@ impl<'a> ModuleLowerer<'a> {
             const_expr_value: None,
             impl_is_visible: None,
         };
-        let mut solver = context.solver(&mut self.type_context.interner, &[]);
+        let mut solver = context.solver(&[]);
         matches!(
             solver.resolve(TraitGoal {
                 self_ty,
@@ -715,7 +712,7 @@ impl<'a> ModuleLowerer<'a> {
             const_expr_value: None,
             impl_is_visible: None,
         };
-        let mut solver = context.solver(&mut self.type_context.interner, &assumptions);
+        let mut solver = context.solver(&assumptions);
         let resolution = solver.resolve(TraitGoal {
             self_ty: key.self_ty,
             trait_id: TraitId::Builtin(key.trait_id),

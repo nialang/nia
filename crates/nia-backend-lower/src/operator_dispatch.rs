@@ -1152,7 +1152,7 @@ impl<'a> ModuleLowerer<'a> {
             const_expr_value: None,
             impl_is_visible: None,
         };
-        let mut solver = context.solver(&mut self.type_context.interner, &[]);
+        let mut solver = context.solver(&[]);
         solver.resolve(TraitGoal {
             self_ty,
             trait_id: TraitId::Builtin(trait_id),

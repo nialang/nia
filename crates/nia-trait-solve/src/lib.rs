@@ -9,7 +9,7 @@ use nia_item_signatures::{EnumSignature, ProgramTraitImplIndex, ProgramTraitImpl
 use nia_layout::Layouts;
 use nia_symbol::{SymbolId, SymbolMap, known};
 use nia_ty::{
-    ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy, RangeTyKind, TyInterner, TyKind,
+    ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy, RangeTyKind, TyKind,
     TypeEquivalence, TypeStore, TypeStoreAppend,
 };
 use nia_type_normalize::TypeNormalization;
@@ -110,8 +110,7 @@ pub struct TraitSolverContext<'a> {
 
 struct TraitSolverTypeCx<'a> {
     store: &'a TypeStore,
-    append: &'a mut TyInterner,
-    canonical_append: TypeStoreAppend,
+    append: TypeStoreAppend,
 }
 
 impl TraitSolverTypeCx<'_> {
@@ -124,7 +123,7 @@ impl TraitSolverTypeCx<'_> {
     }
 
     fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
-        self.canonical_append.intern(TyKind::Primitive(primitive))
+        self.append.intern(TyKind::Primitive(primitive))
     }
 }
 
@@ -151,16 +150,11 @@ fn trait_impl_visible_by_default(_: ModuleId, _: TraitImplId) -> bool {
 }
 
 impl<'a> TraitSolverContext<'a> {
-    pub fn solver<'b>(
-        &'b self,
-        interner: &'b mut TyInterner,
-        assumptions: &'b [TraitGoal],
-    ) -> TraitSolver<'b> {
+    pub fn solver<'b>(&'b self, assumptions: &'b [TraitGoal]) -> TraitSolver<'b> {
         TraitSolver {
             interner: TraitSolverTypeCx {
                 store: self.type_store,
-                append: interner,
-                canonical_append: self.type_store.append_for_module(self.local_module_id),
+                append: self.type_store.append_for_module(self.local_module_id),
             },
             normalization: self.normalization,
             trait_impls: self.trait_impls,
@@ -180,15 +174,13 @@ impl<'a> TraitSolverContext<'a> {
 
     pub fn solver_with_associated_type_assumptions<'b>(
         &'b self,
-        interner: &'b mut TyInterner,
         assumptions: &'b [TraitGoal],
         associated_type_assumptions: &'b [AssociatedTypeProjectionEq],
     ) -> TraitSolver<'b> {
         TraitSolver {
             interner: TraitSolverTypeCx {
                 store: self.type_store,
-                append: interner,
-                canonical_append: self.type_store.append_for_module(self.local_module_id),
+                append: self.type_store.append_for_module(self.local_module_id),
             },
             normalization: self.normalization,
             trait_impls: self.trait_impls,
@@ -3055,14 +3047,12 @@ mod tests {
             def_id: local_enum_id,
         };
         let type_store = TypeStore::new();
-        let ty = type_store.with_module_interner_for_semantic_migration(module_id, |interner| {
-            interner.intern(TyKind::Nominal {
-                def_id: local_enum,
-                args: Vec::new(),
-                const_args: Vec::new(),
-            })
+        let append = type_store.append_for_module(module_id);
+        let ty = append.intern(TyKind::Nominal {
+            def_id: local_enum,
+            args: Vec::new(),
+            const_args: Vec::new(),
         });
-        let mut interner = type_store.module_snapshot(module_id);
         let normalization = TypeNormalization {
             normalized: HashMap::new(),
             diagnostics: Vec::new(),
@@ -3071,7 +3061,7 @@ mod tests {
         local_enums.insert(
             local_enum_id,
             EnumSignature {
-                backing_type: interner.primitive(PrimitiveTy::I32),
+                backing_type: append.intern(TyKind::Primitive(PrimitiveTy::I32)),
                 is_open: false,
                 variants: Vec::new(),
                 span: nia_span::Span::default(),
@@ -3090,7 +3080,7 @@ mod tests {
             const_expr_value: None,
             impl_is_visible: None,
         };
-        let solver = context.solver(&mut interner, &[]);
+        let solver = context.solver(&[]);
 
         assert!(solver.is_enum(ty));
     }

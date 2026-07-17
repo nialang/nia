@@ -714,6 +714,14 @@ it never owns a type view. The normalizer reads every input and referenced type
 through the session `TypeStore` and uses its explicit append target only to
 intern synthesized normalized forms.
 
+### 6.6 `nia-trait-solve`
+
+Resolves builtin and user trait goals, associated types, and associated consts
+from canonical type handles and explicit program-signature facts. Solver
+construction does not borrow a mutable module interner: all reads use the
+session `TypeStore`, and synthesized goal or projection types are published
+through a module-scoped `TypeStoreAppend`.
+
 ## 7. Name Resolution
 
 ### 7.1 `nia-value-resolve`

@@ -365,11 +365,8 @@ impl<'a> BodyChecker<'a> {
                     || visible_trait_witness_impls.contains(&(module_id, impl_id))
             }),
         };
-        let mut solver = context.solver_with_associated_type_assumptions(
-            &mut self.interner,
-            &assumptions,
-            &associated_type_assumptions,
-        );
+        let mut solver = context
+            .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
         solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
     }
 
@@ -402,7 +399,7 @@ impl<'a> BodyChecker<'a> {
                     || visible_trait_witness_impls.contains(&(module_id, impl_id))
             }),
         };
-        let mut solver = context.solver(&mut self.interner, &assumptions);
+        let mut solver = context.solver(&assumptions);
         solver.resolve_associated_const(self_ty, trait_id, trait_args, trait_const_args, name)
     }
 

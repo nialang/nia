@@ -22,7 +22,7 @@ use nia_symbol_table::SymbolTable;
 use nia_trait_solve::{
     AssociatedTypeProjectionEq, IntrinsicOverlap, TraitGoal, TraitSolverContext,
 };
-use nia_ty::{PrimitiveTy, TraitId, TyInterner, TyKind, TypeStore, TypeStoreAppend};
+use nia_ty::{PrimitiveTy, TraitId, TyKind, TypeStore, TypeStoreAppend};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
@@ -802,7 +802,6 @@ fn validate_trait_impl(
         diagnostics,
     );
     let append = input.type_store.append_for_module(module.module_id);
-    let mut comparison_interner = input.type_store.module_snapshot(module.module_id);
     for required in &trait_signature.signature.methods {
         let Some(method) = impl_signature
             .methods
@@ -865,7 +864,6 @@ fn validate_trait_impl(
             type_store: input.type_store,
             module,
             trait_impls: &validation_trait_impls,
-            interner: &mut comparison_interner,
             trait_goal,
             impl_signature,
             trait_signatures: input.trait_signatures,
@@ -1473,7 +1471,6 @@ struct TraitMethodSignatureMatch<'a> {
     type_store: &'a TypeStore,
     module: &'a ExtensionModuleInput<'a>,
     trait_impls: &'a [ProgramTraitImplSignature],
-    interner: &'a mut TyInterner,
     trait_goal: TraitGoal,
     impl_signature: &'a TraitImplSignature,
     trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
@@ -1533,11 +1530,8 @@ fn trait_method_signature_matches(input: TraitMethodSignatureMatch<'_>) -> bool 
         const_expr_value: None,
         impl_is_visible: None,
     };
-    let mut solver = context.solver_with_associated_type_assumptions(
-        input.interner,
-        &assumptions,
-        &associated_type_assumptions,
-    );
+    let mut solver =
+        context.solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
     input.required.generics == input.actual.generics
         && input.required.where_predicates == input.actual.where_predicates
         && input.required.params.len() == input.actual.params.len()

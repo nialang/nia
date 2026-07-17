@@ -627,7 +627,7 @@ impl<'a> ModuleLowerer<'a> {
             const_expr_value: None,
             impl_is_visible: None,
         };
-        let mut solver = context.solver(&mut self.type_context.interner, &assumptions);
+        let mut solver = context.solver(&assumptions);
         let goal = TraitGoal {
             self_ty,
             trait_id: TraitId::Source(trait_id),
@@ -657,7 +657,7 @@ impl<'a> ModuleLowerer<'a> {
             const_expr_value: None,
             impl_is_visible: None,
         };
-        let mut solver = context.solver(&mut self.type_context.interner, &assumptions);
+        let mut solver = context.solver(&assumptions);
         solver.proves(TraitGoal {
             self_ty,
             trait_id: TraitId::Builtin(trait_id),
@@ -1285,11 +1285,8 @@ impl<'a> ModuleLowerer<'a> {
             const_expr_value: None,
             impl_is_visible: None,
         };
-        let mut solver = context.solver_with_associated_type_assumptions(
-            &mut self.type_context.interner,
-            &[],
-            &associated_type_assumptions,
-        );
+        let mut solver =
+            context.solver_with_associated_type_assumptions(&[], &associated_type_assumptions);
         solver.resolve_associated_type(
             projection.self_ty,
             projection.trait_id,
