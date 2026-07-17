@@ -143,9 +143,9 @@ impl Analyzer<'_> {
                         visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
                     })
         };
-        let Some(interner) = self.type_contexts.get_mut(&module_id) else {
+        if !self.type_contexts.contains_key(&module_id) {
             return false;
-        };
+        }
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
@@ -159,7 +159,7 @@ impl Analyzer<'_> {
             const_expr_value: None,
             impl_is_visible: Some(&impl_is_visible),
         };
-        let mut solver = context.solver(interner, &assumptions);
+        let mut solver = context.solver(&assumptions);
         solver.proves(TraitGoal {
             self_ty,
             trait_id,
@@ -210,7 +210,7 @@ impl Analyzer<'_> {
                         visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
                     })
         };
-        let interner = self.type_contexts.get_mut(&module_id)?;
+        self.type_contexts.contains_key(&module_id).then_some(())?;
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
@@ -224,7 +224,7 @@ impl Analyzer<'_> {
             const_expr_value: None,
             impl_is_visible: Some(&impl_is_visible),
         };
-        let mut solver = context.solver(interner, &assumptions);
+        let mut solver = context.solver(&assumptions);
         solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
     }
 
@@ -285,7 +285,7 @@ impl Analyzer<'_> {
                         visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
                     })
         };
-        let interner = self.type_contexts.get_mut(&module_id)?;
+        self.type_contexts.contains_key(&module_id).then_some(())?;
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
@@ -299,7 +299,7 @@ impl Analyzer<'_> {
             const_expr_value: None,
             impl_is_visible: Some(&impl_is_visible),
         };
-        let mut solver = context.solver(interner, &assumptions);
+        let mut solver = context.solver(&assumptions);
         solver.resolve_associated_const(
             self_ty,
             projection.trait_id,

@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use nia_const_check::ConstCheck;
 use nia_defs::{DefCollection, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TypeOrigin};
+use nia_ids::{DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{
     EnumSignature, ProgramEnumSignature, ProgramTraitImplIndex, ProgramTraitImplSignature,
 };
@@ -15,10 +15,10 @@ use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
 use nia_trait_solve::TraitSolverContext;
 #[cfg(test)]
-use nia_ty::TyInterner;
+use nia_ty::TypeStoreAppend;
 use nia_ty::{
-    ArrayLenTy, AssociatedTypeBindingTy, ConstExprSummary, ConstGenericArg, ConstGenericValue,
-    TyKind, TypeStore,
+    AssociatedTypeBindingTy, ConstExprSummary, ConstGenericArg, ConstGenericValue, TyKind,
+    TypeStore,
 };
 use nia_type_normalize::TypeNormalization;
 
@@ -214,12 +214,6 @@ const MAX_MONOMORPHIZED_INSTANCES: usize = 1024;
 const MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH: usize = 256;
 
 impl MonoCollector<'_> {
-    fn type_origin(&self, ty: InternedTyId) -> TypeOrigin {
-        self.type_store
-            .type_origin(ty)
-            .expect("monomorphization type belongs to its session store")
-    }
-
     fn collect_module(&mut self, input: &MonomorphizeModuleInput<'_>) {
         let mut pending = VecDeque::new();
         for instantiation in input.instantiations {
@@ -404,9 +398,7 @@ impl MonoCollector<'_> {
                 continue;
             };
             let substitutions = self.generic_substitutions_for_instance(&pending_instance.key);
-            let self_arg = pending_instance.key.self_arg.map(|self_arg| {
-                self.import_ty_to_module(pending_instance.key.def_id.module_id, self_arg)
-            });
+            let self_arg = pending_instance.key.self_arg;
             let substitution_id = self.intern_ordered_type_substitutions(self_arg, substitutions);
             for edge_index in edge_indices {
                 let Some(edge) = self.source_instantiation_edges.get(edge_index) else {
@@ -614,13 +606,8 @@ impl MonoCollector<'_> {
         &mut self,
         key: &MonoInstanceKey,
     ) -> Vec<(SymbolId, InternedTyId)> {
-        let def_module_id = key.def_id.module_id;
         let generics = self.effective_generics_for(key.def_id).to_vec();
-        generics
-            .into_iter()
-            .zip(key.args.iter().copied())
-            .map(|(generic, arg)| (generic, self.import_ty_to_module(def_module_id, arg)))
-            .collect()
+        generics.into_iter().zip(key.args.iter().copied()).collect()
     }
 
     fn instantiate_args(
@@ -1075,232 +1062,8 @@ impl MonoCollector<'_> {
             const_expr_value: None,
             impl_is_visible: None,
         };
-        self.type_store
-            .with_module_interner_for_semantic_migration(module_id, |interner| {
-                let mut solver =
-                    context.solver_with_associated_type_assumptions(interner, &[], &[]);
-                solver.resolve_associated_type(
-                    self_ty,
-                    trait_id,
-                    trait_args,
-                    trait_const_args,
-                    name,
-                )
-            })
-    }
-
-    fn import_ty_to_module(
-        &mut self,
-        target_module_id: ModuleId,
-        ty: InternedTyId,
-    ) -> InternedTyId {
-        let source_module_id = self.type_origin(ty).module_id();
-        if source_module_id == target_module_id {
-            return ty;
-        }
-        let Some(kind) = self.type_kind(ty) else {
-            panic!(
-                "Nia ICE: cannot import type {ty:?} from missing source module interner {source_module_id:?}"
-            );
-        };
-        let imported = match kind {
-            TyKind::Error => TyKind::Error,
-            TyKind::ConstOnly => TyKind::ConstOnly,
-            TyKind::Primitive(primitive) => TyKind::Primitive(primitive),
-            TyKind::BuiltinType(builtin) => TyKind::BuiltinType(builtin),
-            TyKind::Vector { elem, lanes } => TyKind::Vector { elem, lanes },
-            TyKind::GenericParam(name) => TyKind::GenericParam(name),
-            TyKind::SelfParam => TyKind::SelfParam,
-            TyKind::Pointer { is_readonly, elem } => TyKind::Pointer {
-                is_readonly,
-                elem: self.import_ty_to_module(target_module_id, elem),
-            },
-            TyKind::VolatilePointer { is_readonly, elem } => TyKind::VolatilePointer {
-                is_readonly,
-                elem: self.import_ty_to_module(target_module_id, elem),
-            },
-            TyKind::Slice { is_readonly, elem } => TyKind::Slice {
-                is_readonly,
-                elem: self.import_ty_to_module(target_module_id, elem),
-            },
-            TyKind::SlicePointee { elem } => TyKind::SlicePointee {
-                elem: self.import_ty_to_module(target_module_id, elem),
-            },
-            TyKind::Array { len, elem } => TyKind::Array {
-                len: self.import_array_len_to_module(target_module_id, len),
-                elem: self.import_ty_to_module(target_module_id, elem),
-            },
-            TyKind::Range { kind, bound } => TyKind::Range {
-                kind,
-                bound: bound.map(|bound| self.import_ty_to_module(target_module_id, bound)),
-            },
-            TyKind::FunctionPointer {
-                params,
-                return_type,
-                is_variadic,
-            } => TyKind::FunctionPointer {
-                params: params
-                    .into_iter()
-                    .map(|param| self.import_ty_to_module(target_module_id, param))
-                    .collect(),
-                return_type: self.import_ty_to_module(target_module_id, return_type),
-                is_variadic,
-            },
-            TyKind::Optional { elem } => TyKind::Optional {
-                elem: self.import_ty_to_module(target_module_id, elem),
-            },
-            TyKind::ErrorUnion { error, value } => TyKind::ErrorUnion {
-                error: self.import_ty_to_module(target_module_id, error),
-                value: self.import_ty_to_module(target_module_id, value),
-            },
-            TyKind::Nominal {
-                def_id,
-                args,
-                const_args,
-            } => TyKind::Nominal {
-                def_id,
-                args: args
-                    .into_iter()
-                    .map(|arg| self.import_ty_to_module(target_module_id, arg))
-                    .collect(),
-                const_args: const_args
-                    .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.import_ty_to_module(target_module_id, arg.ty);
-                        arg
-                    })
-                    .collect(),
-            },
-            TyKind::BuiltinTrait { trait_id, args } => TyKind::BuiltinTrait {
-                trait_id,
-                args: args
-                    .into_iter()
-                    .map(|arg| self.import_ty_to_module(target_module_id, arg))
-                    .collect(),
-            },
-            TyKind::TraitObject {
-                trait_id,
-                trait_args,
-                trait_const_args,
-                associated_type_bindings,
-                is_readonly,
-            } => TyKind::TraitObject {
-                trait_id,
-                trait_args: trait_args
-                    .into_iter()
-                    .map(|arg| self.import_ty_to_module(target_module_id, arg))
-                    .collect(),
-                trait_const_args: trait_const_args
-                    .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.import_ty_to_module(target_module_id, arg.ty);
-                        arg
-                    })
-                    .collect(),
-                associated_type_bindings: associated_type_bindings
-                    .into_iter()
-                    .map(|binding| AssociatedTypeBindingTy {
-                        trait_id: binding.trait_id,
-                        trait_args: binding
-                            .trait_args
-                            .into_iter()
-                            .map(|arg| self.import_ty_to_module(target_module_id, arg))
-                            .collect(),
-                        trait_const_args: binding
-                            .trait_const_args
-                            .into_iter()
-                            .map(|mut arg| {
-                                arg.ty = self.import_ty_to_module(target_module_id, arg.ty);
-                                arg
-                            })
-                            .collect(),
-                        name: binding.name,
-                        ty: self.import_ty_to_module(target_module_id, binding.ty),
-                    })
-                    .collect(),
-                is_readonly,
-            },
-            TyKind::TraitObjectPointee {
-                trait_id,
-                trait_args,
-                trait_const_args,
-                associated_type_bindings,
-            } => TyKind::TraitObjectPointee {
-                trait_id,
-                trait_args: trait_args
-                    .into_iter()
-                    .map(|arg| self.import_ty_to_module(target_module_id, arg))
-                    .collect(),
-                trait_const_args: trait_const_args
-                    .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.import_ty_to_module(target_module_id, arg.ty);
-                        arg
-                    })
-                    .collect(),
-                associated_type_bindings: associated_type_bindings
-                    .into_iter()
-                    .map(|binding| AssociatedTypeBindingTy {
-                        trait_id: binding.trait_id,
-                        trait_args: binding
-                            .trait_args
-                            .into_iter()
-                            .map(|arg| self.import_ty_to_module(target_module_id, arg))
-                            .collect(),
-                        trait_const_args: binding
-                            .trait_const_args
-                            .into_iter()
-                            .map(|mut arg| {
-                                arg.ty = self.import_ty_to_module(target_module_id, arg.ty);
-                                arg
-                            })
-                            .collect(),
-                        name: binding.name,
-                        ty: self.import_ty_to_module(target_module_id, binding.ty),
-                    })
-                    .collect(),
-            },
-            TyKind::Projection {
-                self_ty,
-                trait_id,
-                trait_args,
-                trait_const_args,
-                name,
-            } => TyKind::Projection {
-                self_ty: self.import_ty_to_module(target_module_id, self_ty),
-                trait_id,
-                trait_args: trait_args
-                    .into_iter()
-                    .map(|arg| self.import_ty_to_module(target_module_id, arg))
-                    .collect(),
-                trait_const_args: trait_const_args
-                    .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.import_ty_to_module(target_module_id, arg.ty);
-                        arg
-                    })
-                    .collect(),
-                name,
-            },
-        };
-        self.intern_working_ty(target_module_id, imported)
-    }
-
-    fn import_array_len_to_module(
-        &mut self,
-        target_module_id: ModuleId,
-        len: ArrayLenTy,
-    ) -> ArrayLenTy {
-        match len {
-            ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
-                builtin,
-                ty: self.import_ty_to_module(target_module_id, ty),
-            },
-            ArrayLenTy::Infer
-            | ArrayLenTy::GenericParam(_)
-            | ArrayLenTy::ConstValue(_)
-            | ArrayLenTy::ConstExpr(_) => len,
-        }
+        let mut solver = context.solver_with_associated_type_assumptions(&[], &[]);
+        solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
     }
 
     fn intern_working_ty(&mut self, module_id: ModuleId, kind: TyKind) -> InternedTyId {
@@ -1564,8 +1327,22 @@ mod tests {
         defs.module_scope.values.get(&sym(name)).expect("value def")
     }
 
-    fn generic_param(interner: &mut TyInterner, name: &str) -> InternedTyId {
-        interner.intern(TyKind::GenericParam(sym(name)))
+    struct TestTypes {
+        append: TypeStoreAppend,
+    }
+
+    impl TestTypes {
+        fn intern(&self, kind: TyKind) -> InternedTyId {
+            self.append.intern(kind)
+        }
+
+        fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+            self.intern(TyKind::Primitive(primitive))
+        }
+    }
+
+    fn generic_param(types: &TestTypes, name: &str) -> InternedTyId {
+        types.intern(TyKind::GenericParam(sym(name)))
     }
 
     fn inst(
@@ -1592,10 +1369,12 @@ mod tests {
         }
     }
 
-    fn test_interner() -> (TypeStore, TyInterner) {
+    fn test_interner() -> (TypeStore, TestTypes) {
         let type_store = TypeStore::new();
-        let interner = type_store.module_snapshot(ModuleId(0));
-        (type_store, interner)
+        let types = TestTypes {
+            append: type_store.append_for_module(ModuleId(0)),
+        };
+        (type_store, types)
     }
 
     fn collect_test_monomorphizations(
@@ -1693,9 +1472,9 @@ fn main() i32 { outer(1) }
             module_id: ModuleId(0),
             def_id: value_def(&defs, "outer"),
         };
-        let (type_store, mut interner) = test_interner();
+        let (type_store, interner) = test_interner();
         let i32_ty = interner.primitive(PrimitiveTy::I32);
-        let generic_t = generic_param(&mut interner, "T");
+        let generic_t = generic_param(&interner, "T");
         let instantiations = vec![
             inst(inner_id, vec![generic_t], Span::new(1, 2), Some(outer_id)),
             inst(outer_id, vec![i32_ty], Span::new(3, 4), None),
@@ -1754,9 +1533,9 @@ fn main() i32 { 0 }
             module_id: ModuleId(0),
             def_id: value_def(&defs, "outer"),
         };
-        let (type_store, mut interner) = test_interner();
+        let (type_store, interner) = test_interner();
         let i32_ty = interner.primitive(PrimitiveTy::I32);
-        let generic_t = generic_param(&mut interner, "T");
+        let generic_t = generic_param(&interner, "T");
         let generic_ptr = interner.intern(TyKind::Pointer {
             is_readonly: true,
             elem: generic_t,
@@ -1819,9 +1598,9 @@ fn main() i32 { 0 }
             module_id: ModuleId(0),
             def_id: value_def(&defs, "recurse"),
         };
-        let (type_store, mut interner) = test_interner();
+        let (type_store, interner) = test_interner();
         let i32_ty = interner.primitive(PrimitiveTy::I32);
-        let generic_t = generic_param(&mut interner, "T");
+        let generic_t = generic_param(&interner, "T");
         let instantiations = vec![
             inst(
                 recurse_id,
@@ -1861,13 +1640,13 @@ fn main() i32 { 0 }
             module_id: ModuleId(0),
             def_id: value_def(&defs, "grow"),
         };
-        let (type_store, mut interner) = test_interner();
+        let (type_store, interner) = test_interner();
         let i32_ty = interner.primitive(PrimitiveTy::I32);
         let i32_ptr = interner.intern(TyKind::Pointer {
             is_readonly: true,
             elem: i32_ty,
         });
-        let generic_t = generic_param(&mut interner, "T");
+        let generic_t = generic_param(&interner, "T");
         let generic_ptr = interner.intern(TyKind::Pointer {
             is_readonly: true,
             elem: generic_t,
@@ -1926,7 +1705,7 @@ fn main() i32 { 0 }
             module_id: ModuleId(0),
             def_id: value_def(&defs, "take"),
         };
-        let (type_store, mut interner) = test_interner();
+        let (type_store, interner) = test_interner();
         let len_id = GlobalConstExprId {
             module_id: ModuleId(0),
             const_expr_id: ConstExprId(0),
@@ -1992,7 +1771,7 @@ fn wrap[T](value: T) T { value }
             module_id: ModuleId(0),
             def_id: value_def(&defs, "wrap"),
         };
-        let (type_store, mut interner) = test_interner();
+        let (type_store, interner) = test_interner();
         let len_id = GlobalConstExprId {
             module_id: ModuleId(0),
             const_expr_id: ConstExprId(0),
@@ -2050,9 +1829,9 @@ fn wrap[T](value: T) T { value }
     #[test]
     fn ordered_type_substitutions_reuse_existing_ids() {
         let mut collector = empty_collector();
-        let interner = TyInterner::new(ModuleId(0));
-        let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
-        let bool_ty = interner.primitive(nia_ty::PrimitiveTy::Bool);
+        let append = collector.type_store.append_for_module(ModuleId(0));
+        let i32_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::I32));
+        let bool_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Bool));
 
         let first = collector
             .intern_ordered_type_substitutions(None, vec![(sym("T"), i32_ty), (sym("U"), bool_ty)]);

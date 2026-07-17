@@ -327,7 +327,6 @@ impl<'a> BodyChecker<'a> {
         };
         let proven = {
             let mut solver = context.solver_with_associated_type_assumptions(
-                &mut self.interner,
                 &assumptions,
                 &associated_type_assumptions,
             );
