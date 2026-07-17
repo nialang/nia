@@ -518,7 +518,6 @@ fn lower_source_with_body_check_mutation_and_optimization(
         &[nia_monomorphize::MonomorphizeModuleInput {
             module_id: ModuleId(0),
             defs: &defs,
-            interner: &body_interner,
             normalization: &normalization,
             const_eval: &const_eval,
             const_expr_summaries: &type_lowering.const_expr_summaries,

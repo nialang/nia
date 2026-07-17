@@ -14,9 +14,11 @@ use nia_sema_ir::GenericInstantiation;
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
 use nia_trait_solve::TraitSolverContext;
+#[cfg(test)]
+use nia_ty::TyInterner;
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, ConstExprSummary, ConstGenericArg, ConstGenericValue,
-    TyInterner, TyKind, TypeStore,
+    TyKind, TypeStore,
 };
 use nia_type_normalize::TypeNormalization;
 
@@ -41,7 +43,6 @@ pub struct MonoInstance {
 pub struct MonomorphizeModuleInput<'a> {
     pub module_id: ModuleId,
     pub defs: &'a DefCollection,
-    pub interner: &'a TyInterner,
     pub normalization: &'a TypeNormalization,
     pub const_eval: &'a ConstCheck,
     pub const_expr_summaries: &'a HashMap<GlobalConstExprId, ConstExprSummary>,
@@ -58,14 +59,6 @@ pub fn collect_monomorphizations(
     type_store: &TypeStore,
 ) -> Monomorphization {
     let empty_trait_impl_index = ProgramTraitImplIndex::default();
-    for input in inputs {
-        type_store.with_module_interner_for_semantic_migration(input.module_id, |interner| {
-            assert!(
-                input.interner.is_prefix_of(interner),
-                "Nia ICE: monomorphization input is not a prefix of its session type store"
-            );
-        });
-    }
     let mut collector = MonoCollector {
         type_store,
         defs_by_module: inputs
@@ -236,7 +229,7 @@ impl MonoCollector<'_> {
             if instantiation
                 .source_def_id
                 .is_some_and(|source_def_id| self.is_generic_def(source_def_id))
-                && self.args_contain_generic_param(input.module_id, &instantiation.args)
+                && self.args_contain_generic_param(&instantiation.args)
             {
                 continue;
             }
@@ -314,14 +307,14 @@ impl MonoCollector<'_> {
         self.recorded_generics_by_def.contains_key(&def_id)
     }
 
-    fn args_contain_generic_param(&self, module_id: ModuleId, args: &[InternedTyId]) -> bool {
+    fn args_contain_generic_param(&self, args: &[InternedTyId]) -> bool {
         args.iter()
             .copied()
-            .any(|arg| self.ty_contains_generic_param(module_id, arg))
+            .any(|arg| self.ty_contains_generic_param(arg))
     }
 
-    fn ty_contains_generic_param(&self, module_id: ModuleId, ty: InternedTyId) -> bool {
-        let Some(kind) = self.type_kind(module_id, ty) else {
+    fn ty_contains_generic_param(&self, ty: InternedTyId) -> bool {
+        let Some(kind) = self.type_kind(ty) else {
             return false;
         };
         match kind {
@@ -329,10 +322,10 @@ impl MonoCollector<'_> {
             TyKind::Pointer { elem, .. }
             | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
-            | TyKind::SlicePointee { elem } => self.ty_contains_generic_param(module_id, elem),
-            TyKind::Array { elem, .. } => self.ty_contains_generic_param(module_id, elem),
+            | TyKind::SlicePointee { elem } => self.ty_contains_generic_param(elem),
+            TyKind::Array { elem, .. } => self.ty_contains_generic_param(elem),
             TyKind::Range { bound, .. } => {
-                bound.is_some_and(|bound| self.ty_contains_generic_param(module_id, bound))
+                bound.is_some_and(|bound| self.ty_contains_generic_param(bound))
             }
             TyKind::FunctionPointer {
                 params,
@@ -341,17 +334,16 @@ impl MonoCollector<'_> {
             } => {
                 params
                     .iter()
-                    .any(|param| self.ty_contains_generic_param(module_id, *param))
-                    || self.ty_contains_generic_param(module_id, return_type)
+                    .any(|param| self.ty_contains_generic_param(*param))
+                    || self.ty_contains_generic_param(return_type)
             }
-            TyKind::Optional { elem } => self.ty_contains_generic_param(module_id, elem),
+            TyKind::Optional { elem } => self.ty_contains_generic_param(elem),
             TyKind::ErrorUnion { error, value } => {
-                self.ty_contains_generic_param(module_id, error)
-                    || self.ty_contains_generic_param(module_id, value)
+                self.ty_contains_generic_param(error) || self.ty_contains_generic_param(value)
             }
-            TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. } => args
-                .iter()
-                .any(|arg| self.ty_contains_generic_param(module_id, *arg)),
+            TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. } => {
+                args.iter().any(|arg| self.ty_contains_generic_param(*arg))
+            }
             TyKind::TraitObject {
                 trait_args,
                 associated_type_bindings,
@@ -364,13 +356,13 @@ impl MonoCollector<'_> {
             } => {
                 trait_args
                     .iter()
-                    .any(|arg| self.ty_contains_generic_param(module_id, *arg))
+                    .any(|arg| self.ty_contains_generic_param(*arg))
                     || associated_type_bindings.iter().any(|binding| {
                         binding
                             .trait_args
                             .iter()
-                            .any(|arg| self.ty_contains_generic_param(module_id, *arg))
-                            || self.ty_contains_generic_param(module_id, binding.ty)
+                            .any(|arg| self.ty_contains_generic_param(*arg))
+                            || self.ty_contains_generic_param(binding.ty)
                     })
             }
             TyKind::Projection {
@@ -378,10 +370,10 @@ impl MonoCollector<'_> {
                 trait_args,
                 ..
             } => {
-                self.ty_contains_generic_param(module_id, self_ty)
+                self.ty_contains_generic_param(self_ty)
                     || trait_args
                         .iter()
-                        .any(|arg| self.ty_contains_generic_param(module_id, *arg))
+                        .any(|arg| self.ty_contains_generic_param(*arg))
             }
             TyKind::Primitive(_)
             | TyKind::BuiltinType(_)
@@ -456,8 +448,8 @@ impl MonoCollector<'_> {
         }
         if key
             .self_arg
-            .is_some_and(|self_arg| self.ty_contains_generic_param(key.arg_module_id, self_arg))
-            || self.args_contain_generic_param(key.arg_module_id, &key.args)
+            .is_some_and(|self_arg| self.ty_contains_generic_param(self_arg))
+            || self.args_contain_generic_param(&key.args)
         {
             return;
         }
@@ -466,18 +458,12 @@ impl MonoCollector<'_> {
             return;
         }
         if key.self_arg.is_some_and(|self_arg| {
-            self.ty_exceeds_instance_depth(
-                key.arg_module_id,
-                self_arg,
-                MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH,
-            )
-        }) || key.args.iter().any(|arg| {
-            self.ty_exceeds_instance_depth(
-                key.arg_module_id,
-                *arg,
-                MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH,
-            )
-        }) {
+            self.ty_exceeds_instance_depth(self_arg, MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH)
+        }) || key
+            .args
+            .iter()
+            .any(|arg| self.ty_exceeds_instance_depth(*arg, MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH))
+        {
             self.report_instance_type_depth_limit(span, &key);
             return;
         }
@@ -548,16 +534,11 @@ impl MonoCollector<'_> {
         );
     }
 
-    fn ty_exceeds_instance_depth(
-        &self,
-        module_id: ModuleId,
-        ty: InternedTyId,
-        remaining: usize,
-    ) -> bool {
+    fn ty_exceeds_instance_depth(&self, ty: InternedTyId, remaining: usize) -> bool {
         if remaining == 0 {
             return true;
         }
-        let Some(kind) = self.type_kind(module_id, ty) else {
+        let Some(kind) = self.type_kind(ty) else {
             return false;
         };
         let next = remaining - 1;
@@ -565,12 +546,10 @@ impl MonoCollector<'_> {
             TyKind::Pointer { elem, .. }
             | TyKind::VolatilePointer { elem, .. }
             | TyKind::Slice { elem, .. }
-            | TyKind::SlicePointee { elem } => {
-                self.ty_exceeds_instance_depth(module_id, elem, next)
-            }
-            TyKind::Array { elem, .. } => self.ty_exceeds_instance_depth(module_id, elem, next),
+            | TyKind::SlicePointee { elem } => self.ty_exceeds_instance_depth(elem, next),
+            TyKind::Array { elem, .. } => self.ty_exceeds_instance_depth(elem, next),
             TyKind::Range { bound, .. } => {
-                bound.is_some_and(|bound| self.ty_exceeds_instance_depth(module_id, bound, next))
+                bound.is_some_and(|bound| self.ty_exceeds_instance_depth(bound, next))
             }
             TyKind::FunctionPointer {
                 params,
@@ -579,17 +558,17 @@ impl MonoCollector<'_> {
             } => {
                 params
                     .iter()
-                    .any(|param| self.ty_exceeds_instance_depth(module_id, *param, next))
-                    || self.ty_exceeds_instance_depth(module_id, return_type, next)
+                    .any(|param| self.ty_exceeds_instance_depth(*param, next))
+                    || self.ty_exceeds_instance_depth(return_type, next)
             }
-            TyKind::Optional { elem } => self.ty_exceeds_instance_depth(module_id, elem, next),
+            TyKind::Optional { elem } => self.ty_exceeds_instance_depth(elem, next),
             TyKind::ErrorUnion { error, value } => {
-                self.ty_exceeds_instance_depth(module_id, error, next)
-                    || self.ty_exceeds_instance_depth(module_id, value, next)
+                self.ty_exceeds_instance_depth(error, next)
+                    || self.ty_exceeds_instance_depth(value, next)
             }
             TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. } => args
                 .iter()
-                .any(|arg| self.ty_exceeds_instance_depth(module_id, *arg, next)),
+                .any(|arg| self.ty_exceeds_instance_depth(*arg, next)),
             TyKind::TraitObject {
                 trait_args,
                 associated_type_bindings,
@@ -602,13 +581,13 @@ impl MonoCollector<'_> {
             } => {
                 trait_args
                     .iter()
-                    .any(|arg| self.ty_exceeds_instance_depth(module_id, *arg, next))
+                    .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
                     || associated_type_bindings.iter().any(|binding| {
                         binding
                             .trait_args
                             .iter()
-                            .any(|arg| self.ty_exceeds_instance_depth(module_id, *arg, next))
-                            || self.ty_exceeds_instance_depth(module_id, binding.ty, next)
+                            .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
+                            || self.ty_exceeds_instance_depth(binding.ty, next)
                     })
             }
             TyKind::Projection {
@@ -616,10 +595,10 @@ impl MonoCollector<'_> {
                 trait_args,
                 ..
             } => {
-                self.ty_exceeds_instance_depth(module_id, self_ty, next)
+                self.ty_exceeds_instance_depth(self_ty, next)
                     || trait_args
                         .iter()
-                        .any(|arg| self.ty_exceeds_instance_depth(module_id, *arg, next))
+                        .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
             }
             TyKind::GenericParam(_)
             | TyKind::SelfParam
@@ -680,7 +659,7 @@ impl MonoCollector<'_> {
         if can_use_cache && let Some(cached) = self.type_instantiations.get(&key).copied() {
             return cached;
         }
-        let Some(kind) = self.type_kind(module_id, ty) else {
+        let Some(kind) = self.type_kind(ty) else {
             return ty;
         };
         let instantiated = match kind {
@@ -1119,7 +1098,7 @@ impl MonoCollector<'_> {
         if source_module_id == target_module_id {
             return ty;
         }
-        let Some(kind) = self.type_kind(source_module_id, ty) else {
+        let Some(kind) = self.type_kind(ty) else {
             panic!(
                 "Nia ICE: cannot import type {ty:?} from missing source module interner {source_module_id:?}"
             );
@@ -1325,17 +1304,11 @@ impl MonoCollector<'_> {
     }
 
     fn intern_working_ty(&mut self, module_id: ModuleId, kind: TyKind) -> InternedTyId {
-        self.type_store
-            .with_module_interner_for_semantic_migration(module_id, |interner| {
-                interner.intern(kind)
-            })
+        self.type_store.append_for_module(module_id).intern(kind)
     }
 
-    fn type_kind(&self, module_id: ModuleId, ty: InternedTyId) -> Option<TyKind> {
-        self.type_store
-            .with_module_interner_for_semantic_migration(module_id, |interner| {
-                interner.get(ty).cloned()
-            })
+    fn type_kind(&self, ty: InternedTyId) -> Option<TyKind> {
+        self.type_store.get(ty).cloned()
     }
 
     fn intern_ordered_type_substitutions(
@@ -1629,20 +1602,11 @@ mod tests {
         inputs: &[MonomorphizeModuleInput<'_>],
         type_store: &TypeStore,
     ) -> Monomorphization {
-        for input in inputs {
-            type_store.with_module_interner_for_semantic_migration(input.module_id, |interner| {
-                assert!(interner.is_prefix_of(input.interner));
-                for (ty, kind) in input.interner.iter().skip(interner.len()) {
-                    assert_eq!(interner.intern(kind.clone()), ty);
-                }
-            });
-        }
         collect_monomorphizations(inputs, type_store)
     }
 
     fn mono_input<'a>(
         defs: &'a DefCollection,
-        interner: &'a TyInterner,
         normalization: &'a TypeNormalization,
         const_eval: &'a ConstCheck,
         const_expr_summaries: &'a HashMap<GlobalConstExprId, ConstExprSummary>,
@@ -1651,7 +1615,6 @@ mod tests {
         MonomorphizeModuleInput {
             module_id: ModuleId(0),
             defs,
-            interner,
             normalization,
             const_eval,
             const_expr_summaries,
@@ -1699,7 +1662,6 @@ mod tests {
         let mono = collect_test_monomorphizations(
             &[mono_input(
                 &defs,
-                &interner,
                 &normalization,
                 &const_eval,
                 &const_exprs,
@@ -1745,7 +1707,6 @@ fn main() i32 { outer(1) }
         let mono = collect_test_monomorphizations(
             &[mono_input(
                 &defs,
-                &interner,
                 &normalization,
                 &const_eval,
                 &const_exprs,
@@ -1811,7 +1772,6 @@ fn main() i32 { 0 }
         let mono = collect_test_monomorphizations(
             &[mono_input(
                 &defs,
-                &interner,
                 &normalization,
                 &const_eval,
                 &const_exprs,
@@ -1819,24 +1779,24 @@ fn main() i32 { 0 }
             )],
             &type_store,
         );
-        let after_mono = type_store.module_snapshot(ModuleId(0));
-        let i32_ptr = after_mono
+        let i32_ptr = mono
+            .instances
             .iter()
-            .find_map(|(ty, kind)| {
-                matches!(
-                    kind,
-                    TyKind::Pointer {
-                        is_readonly: true,
-                        elem,
-                    } if *elem == i32_ty
-                )
-                .then_some(ty)
+            .find_map(|instance| {
+                (instance.def_id == inner_id)
+                    .then(|| instance.args.first().copied())
+                    .flatten()
             })
-            .expect("monomorphization must append the instantiated pointer type");
+            .expect("monomorphized inner instance");
 
         assert!(mono.diagnostics.is_empty(), "{:?}", mono.diagnostics);
-        assert!(interner.is_prefix_of(&after_mono));
-        assert!(after_mono.len() > interner.len());
+        assert_eq!(
+            type_store.get(i32_ptr),
+            Some(&TyKind::Pointer {
+                is_readonly: true,
+                elem: i32_ty,
+            })
+        );
         assert!(
             mono.instances
                 .iter()
@@ -1878,7 +1838,6 @@ fn main() i32 { 0 }
         let mono = collect_test_monomorphizations(
             &[mono_input(
                 &defs,
-                &interner,
                 &normalization,
                 &const_eval,
                 &const_exprs,
@@ -1924,7 +1883,6 @@ fn main() i32 { 0 }
         let mono = collect_test_monomorphizations(
             &[mono_input(
                 &defs,
-                &interner,
                 &normalization,
                 &const_eval,
                 &const_exprs,
@@ -1993,7 +1951,6 @@ fn main() i32 { 0 }
         let mono = collect_test_monomorphizations(
             &[mono_input(
                 &defs,
-                &interner,
                 &normalization,
                 &const_eval,
                 &const_expr_summaries,
@@ -2056,7 +2013,6 @@ fn wrap[T](value: T) T { value }
         let mono = collect_test_monomorphizations(
             &[mono_input(
                 &defs,
-                &interner,
                 &normalization,
                 &const_eval,
                 &const_exprs,

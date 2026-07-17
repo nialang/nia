@@ -1169,9 +1169,10 @@ stronger cross-instance deduplication that preserves symbol identity.
 
 The collector mutates the compilation `TypeStore` for instantiated structural
 types. Its output contains instance keys and diagnostics, not an alternate set
-of type interners. Inputs must be append-only prefixes of their session shards;
-the collector's generated handles therefore remain visible to later backend
-snapshots without a merge or replacement step.
+of type interners. Module inputs contain semantic facts only, without paired
+interner snapshots or prefix contracts. Existing handles are read from the
+canonical store and generated handles are published through module-scoped
+append capabilities.
 
 ### 10.2 `nia-mangle`
 
