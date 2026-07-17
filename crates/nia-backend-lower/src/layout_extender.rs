@@ -71,7 +71,6 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
                 type_store: self.type_store,
                 defs: self.input.defs,
-                interner: self.interner,
                 signatures: self.input.signatures,
                 root_types: &root_types,
                 normalized: &normalization.normalized,
@@ -86,10 +85,9 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             self.input.module_id,
         );
         append_missing_nominal_layouts(&mut layouts.unions, computed.unions, self.input.module_id);
-        let mut layout_input = nia_layout::LayoutComputationInput {
+        let layout_input = nia_layout::LayoutComputationInput {
             type_store: self.type_store,
             defs: self.input.defs,
-            interner: self.interner,
             signatures: self.input.signatures,
             root_types: &root_types,
             normalized: &normalization.normalized,
@@ -97,17 +95,12 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             target: self.input.layouts.target,
             program,
         };
-        Self::append_instance_layouts(
-            layouts,
-            &mut layout_input,
-            struct_instances,
-            union_instances,
-        );
+        Self::append_instance_layouts(layouts, &layout_input, struct_instances, union_instances);
     }
 
     fn append_instance_layouts(
         layouts: &mut BackendLayouts,
-        layout_input: &mut nia_layout::LayoutComputationInput<'_>,
+        layout_input: &nia_layout::LayoutComputationInput<'_>,
         struct_instances: &[BackendStructInstance],
         union_instances: &[BackendUnionInstance],
     ) {

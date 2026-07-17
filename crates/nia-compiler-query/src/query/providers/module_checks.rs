@@ -22,28 +22,21 @@ pub(super) fn provide_layouts(
             Some(db.query(ConstArrayLengthsQuery(id.module_id)))
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
-        db.context()
-            .type_store
-            .with_module_interner_for_semantic_migration(module_id, |interner| {
-                nia_layout::compute_layouts_with_program_context(
-                    nia_layout::LayoutComputationInput {
-                        type_store: &db.context().type_store,
-                        defs: &defs,
-                        interner,
-                        signatures: &item_signatures,
-                        root_types: &root_types,
-                        normalized: &type_normalization.normalized,
-                        array_lengths: &local_array_lengths,
-                        target: nia_layout::TargetDataLayout::LP64,
-                        program: nia_layout::ProgramLayoutContext {
-                            symbols: Some(&symbols),
-                            layouts: Some(&layout_query),
-                            array_lengths: Some(&program_array_lengths),
-                            ..Default::default()
-                        },
-                    },
-                )
-            })
+        nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
+            type_store: &db.context().type_store,
+            defs: &defs,
+            signatures: &item_signatures,
+            root_types: &root_types,
+            normalized: &type_normalization.normalized,
+            array_lengths: &local_array_lengths,
+            target: nia_layout::TargetDataLayout::LP64,
+            program: nia_layout::ProgramLayoutContext {
+                symbols: Some(&symbols),
+                layouts: Some(&layout_query),
+                array_lengths: Some(&program_array_lengths),
+                ..Default::default()
+            },
+        })
     })
 }
 

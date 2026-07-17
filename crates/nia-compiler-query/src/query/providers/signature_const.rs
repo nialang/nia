@@ -479,62 +479,57 @@ pub(super) fn signature_layouts_for_types(
             .copied()
         };
         let symbols = db.context().symbols();
-        db.context()
-            .type_store
-            .with_module_interner_for_semantic_migration(module_id, |interner| {
-                let roots = time_module_provider(db, "signature_layouts.roots", module_id, || {
-                    signature_layout_roots(
-                        &db.context().type_store,
-                        interner,
-                        &item_signatures,
-                        &program_struct,
-                        &program_union,
-                        type_lowering
-                            .versioned_type_uses_from_active_item_tree(&active_item_tree)
-                            .into_iter()
-                            .map(|(_, ty)| ty),
-                    )
-                });
-                nia_layout::compute_layouts_for_roots_with_program_context(
-                    nia_layout::LayoutComputationInput {
-                        type_store: &db.context().type_store,
-                        defs: &defs,
-                        interner,
-                        signatures: &item_signatures,
-                        root_types: &[],
-                        normalized: &type_normalization.normalized,
-                        array_lengths: &local_array_lengths,
-                        target: nia_layout::TargetDataLayout::LP64,
-                        program: nia_layout::ProgramLayoutContext {
-                            symbols: Some(&symbols),
-                            array_lengths: Some(&program_array_lengths),
-                            struct_: Some(&program_struct),
-                            union: Some(&program_union),
-                            enum_: Some(&program_enum),
-                            type_alias: Some(&program_type_alias),
-                            ..Default::default()
-                        },
-                    },
-                    nia_layout::LayoutRoots {
-                        types: &roots.types,
-                        structs: &roots.structs,
-                        unions: &roots.unions,
-                    },
-                )
-            })
+        let roots = time_module_provider(db, "signature_layouts.roots", module_id, || {
+            signature_layout_roots(
+                &db.context().type_store,
+                module_id,
+                &item_signatures,
+                &program_struct,
+                &program_union,
+                type_lowering
+                    .versioned_type_uses_from_active_item_tree(&active_item_tree)
+                    .into_iter()
+                    .map(|(_, ty)| ty),
+            )
+        });
+        nia_layout::compute_layouts_for_roots_with_program_context(
+            nia_layout::LayoutComputationInput {
+                type_store: &db.context().type_store,
+                defs: &defs,
+                signatures: &item_signatures,
+                root_types: &[],
+                normalized: &type_normalization.normalized,
+                array_lengths: &local_array_lengths,
+                target: nia_layout::TargetDataLayout::LP64,
+                program: nia_layout::ProgramLayoutContext {
+                    symbols: Some(&symbols),
+                    array_lengths: Some(&program_array_lengths),
+                    struct_: Some(&program_struct),
+                    union: Some(&program_union),
+                    enum_: Some(&program_enum),
+                    type_alias: Some(&program_type_alias),
+                    ..Default::default()
+                },
+            },
+            nia_layout::LayoutRoots {
+                types: &roots.types,
+                structs: &roots.structs,
+                unions: &roots.unions,
+            },
+        )
     })
 }
 
 fn signature_layout_roots(
     type_store: &nia_ty::TypeStore,
-    interner: &mut nia_ty::TyInterner,
+    module_id: ModuleId,
     signatures: &ItemSignatures,
     program_struct: &dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
     program_union: &dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
     type_uses: impl IntoIterator<Item = InternedTyId>,
 ) -> CollectedLayoutRoots {
     let mut roots =
-        LayoutRootCollector::with_program(type_store, interner, program_struct, program_union);
+        LayoutRootCollector::with_program(type_store, module_id, program_struct, program_union);
     for ty in type_uses {
         roots.add(ty);
     }

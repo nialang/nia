@@ -99,20 +99,18 @@ fn main() i32 {
         .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
             nia_const_check::check_module_const(const_input, interner)
         });
-    let layouts = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-        let root_types = signatures.type_roots();
+    let root_types = signatures.type_roots();
+    let layouts =
         nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
-            interner,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &normalization.normalized,
             array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
             target: nia_layout::TargetDataLayout::LP64,
             program: nia_layout::ProgramLayoutContext::default(),
-        })
-    });
+        });
     let _abi = check_module_abi(&defs, &type_store, &signatures);
     let _flow = check_module_flow(&module, &type_store, &signatures);
     let point_id = defs

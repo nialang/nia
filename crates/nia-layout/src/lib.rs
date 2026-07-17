@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
-use std::ops::{Deref, DerefMut};
 
 use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::{Diagnostic, codes};
@@ -13,8 +12,7 @@ use nia_item_signatures::{
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, SymbolText, symbol_text_from_optional_resolver};
 use nia_ty::{
-    ArrayLenTy, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy, RangeTyKind,
-    TyInterner, TyKind,
+    ArrayLenTy, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -206,7 +204,6 @@ impl Layouts {
 pub fn compute_layouts(
     type_store: &nia_ty::TypeStore,
     defs: &DefCollection,
-    interner: &mut TyInterner,
     signatures: &ItemSignatures,
     target: TargetDataLayout,
 ) -> Layouts {
@@ -216,7 +213,6 @@ pub fn compute_layouts(
     compute_layouts_with_program_context(LayoutComputationInput {
         type_store,
         defs,
-        interner,
         signatures,
         root_types: &root_types,
         normalized: &normalized,
@@ -251,7 +247,6 @@ pub struct InstanceLayoutRequest<'a> {
 pub struct LayoutComputationInput<'a> {
     pub type_store: &'a nia_ty::TypeStore,
     pub defs: &'a DefCollection,
-    pub interner: &'a mut TyInterner,
     pub signatures: &'a ItemSignatures,
     pub root_types: &'a [InternedTyId],
     pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
@@ -261,11 +256,10 @@ pub struct LayoutComputationInput<'a> {
 }
 
 impl LayoutComputationInput<'_> {
-    fn reborrow(&mut self) -> LayoutComputationInput<'_> {
+    fn reborrow(&self) -> LayoutComputationInput<'_> {
         LayoutComputationInput {
             type_store: self.type_store,
             defs: self.defs,
-            interner: self.interner,
             signatures: self.signatures,
             root_types: self.root_types,
             normalized: self.normalized,
@@ -295,7 +289,7 @@ pub fn compute_layouts_for_roots_with_program_context(
 }
 
 pub fn compute_struct_instance_layout_with_program_context(
-    input: &mut LayoutComputationInput<'_>,
+    input: &LayoutComputationInput<'_>,
     request: InstanceLayoutRequest<'_>,
 ) -> Option<StructLayout> {
     let local_module_id = input.defs.module_id;
@@ -327,7 +321,7 @@ pub fn compute_struct_instance_layout_with_program_context(
 }
 
 pub fn compute_union_instance_layout_with_program_context(
-    input: &mut LayoutComputationInput<'_>,
+    input: &LayoutComputationInput<'_>,
     request: InstanceLayoutRequest<'_>,
 ) -> Option<StructLayout> {
     let local_module_id = input.defs.module_id;
@@ -361,7 +355,6 @@ pub fn compute_union_instance_layout_with_program_context(
 struct LayoutTypeCx<'a> {
     store: &'a nia_ty::TypeStore,
     append: nia_ty::TypeStoreAppend,
-    view: &'a mut TyInterner,
 }
 
 impl LayoutTypeCx<'_> {
@@ -374,23 +367,9 @@ impl LayoutTypeCx<'_> {
     }
 }
 
-impl Deref for LayoutTypeCx<'_> {
-    type Target = TyInterner;
-
-    fn deref(&self) -> &Self::Target {
-        self.view
-    }
-}
-
-impl DerefMut for LayoutTypeCx<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.view
-    }
-}
-
 struct LayoutComputer<'a> {
     module_id: nia_ids::ModuleId,
-    interner: LayoutTypeCx<'a>,
+    type_context: LayoutTypeCx<'a>,
     signatures: &'a ItemSignatures,
     root_types: &'a [InternedTyId],
     normalized: &'a HashMap<InternedTyId, InternedTyId>,
@@ -414,10 +393,9 @@ impl<'a> LayoutComputer<'a> {
     fn new(input: LayoutComputationInput<'a>) -> Self {
         Self {
             module_id: input.defs.module_id,
-            interner: LayoutTypeCx {
+            type_context: LayoutTypeCx {
                 store: input.type_store,
                 append: input.type_store.append_for_module(input.defs.module_id),
-                view: input.interner,
             },
             signatures: input.signatures,
             root_types: input.root_types,
@@ -527,7 +505,7 @@ impl<'a> LayoutComputer<'a> {
             ));
             return None;
         }
-        let layout = match self.interner.get(ty_id).cloned() {
+        let layout = match self.type_context.get(ty_id).cloned() {
             Some(TyKind::Primitive(primitive)) => self.primitive_layout(primitive),
             Some(TyKind::Vector { elem, lanes }) => self.vector_layout(span, elem, lanes),
             Some(
@@ -575,7 +553,7 @@ impl<'a> LayoutComputer<'a> {
 
     fn is_inferred_array_type(&self, ty_id: InternedTyId) -> bool {
         matches!(
-            self.interner.get(ty_id),
+            self.type_context.get(ty_id),
             Some(TyKind::Array {
                 len: ArrayLenTy::Infer,
                 ..
@@ -596,7 +574,7 @@ impl<'a> LayoutComputer<'a> {
         if !seen.insert(ty_id) {
             return false;
         }
-        match self.interner.get(ty_id) {
+        match self.type_context.get(ty_id) {
             Some(TyKind::GenericParam(_) | TyKind::SelfParam) => true,
             Some(TyKind::Array { len, elem }) => {
                 self.is_open_generic_array_len(len) || self.is_open_generic_type_inner(*elem, seen)
@@ -949,7 +927,7 @@ impl<'a> LayoutComputer<'a> {
             .zip(args.iter().copied())
             .collect();
         let target = substitute_generics(
-            &mut self.interner,
+            &self.type_context,
             signature.target,
             &substitutions,
             &SymbolMap::default(),
@@ -1212,7 +1190,7 @@ impl<'a> LayoutComputer<'a> {
         for (source_index, field) in fields.iter().enumerate() {
             let field_ty = self.normalize_ty(field.ty);
             let field_ty = substitute_generics(
-                &mut self.interner,
+                &self.type_context,
                 field_ty,
                 substitutions,
                 const_substitutions,
@@ -1243,7 +1221,7 @@ impl<'a> LayoutComputer<'a> {
         for field in &signature.fields {
             let field_ty = self.normalize_ty(field.ty);
             let field_ty = substitute_generics(
-                &mut self.interner,
+                &self.type_context,
                 field_ty,
                 substitutions,
                 const_substitutions,
@@ -1306,26 +1284,25 @@ impl LayoutComputer<'_> {
 }
 
 fn substitute_generics(
-    interner: &mut LayoutTypeCx<'_>,
+    types: &LayoutTypeCx<'_>,
     ty: InternedTyId,
     substitutions: &SymbolMap<InternedTyId>,
     const_substitutions: &SymbolMap<ConstGenericArg>,
 ) -> InternedTyId {
-    match interner.get(ty).cloned() {
+    match types.get(ty).cloned() {
         Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
         Some(TyKind::Pointer { is_readonly, elem }) => {
-            let elem = substitute_generics(interner, elem, substitutions, const_substitutions);
-            interner.intern(TyKind::Pointer { is_readonly, elem })
+            let elem = substitute_generics(types, elem, substitutions, const_substitutions);
+            types.intern(TyKind::Pointer { is_readonly, elem })
         }
         Some(TyKind::Slice { is_readonly, elem }) => {
-            let elem = substitute_generics(interner, elem, substitutions, const_substitutions);
-            interner.intern(TyKind::Slice { is_readonly, elem })
+            let elem = substitute_generics(types, elem, substitutions, const_substitutions);
+            types.intern(TyKind::Slice { is_readonly, elem })
         }
         Some(TyKind::Array { len, elem }) => {
-            let elem = substitute_generics(interner, elem, substitutions, const_substitutions);
-            let len =
-                substitute_array_len_generics(interner, len, substitutions, const_substitutions);
-            interner.intern(TyKind::Array { len, elem })
+            let elem = substitute_generics(types, elem, substitutions, const_substitutions);
+            let len = substitute_array_len_generics(types, len, substitutions, const_substitutions);
+            types.intern(TyKind::Array { len, elem })
         }
         Some(TyKind::FunctionPointer {
             params,
@@ -1334,26 +1311,24 @@ fn substitute_generics(
         }) => {
             let params = params
                 .into_iter()
-                .map(|param| {
-                    substitute_generics(interner, param, substitutions, const_substitutions)
-                })
+                .map(|param| substitute_generics(types, param, substitutions, const_substitutions))
                 .collect();
             let return_type =
-                substitute_generics(interner, return_type, substitutions, const_substitutions);
-            interner.intern(TyKind::FunctionPointer {
+                substitute_generics(types, return_type, substitutions, const_substitutions);
+            types.intern(TyKind::FunctionPointer {
                 params,
                 return_type,
                 is_variadic,
             })
         }
         Some(TyKind::Optional { elem }) => {
-            let elem = substitute_generics(interner, elem, substitutions, const_substitutions);
-            interner.intern(TyKind::Optional { elem })
+            let elem = substitute_generics(types, elem, substitutions, const_substitutions);
+            types.intern(TyKind::Optional { elem })
         }
         Some(TyKind::ErrorUnion { error, value }) => {
-            let error = substitute_generics(interner, error, substitutions, const_substitutions);
-            let value = substitute_generics(interner, value, substitutions, const_substitutions);
-            interner.intern(TyKind::ErrorUnion { error, value })
+            let error = substitute_generics(types, error, substitutions, const_substitutions);
+            let value = substitute_generics(types, value, substitutions, const_substitutions);
+            types.intern(TyKind::ErrorUnion { error, value })
         }
         Some(TyKind::Nominal {
             def_id,
@@ -1362,17 +1337,16 @@ fn substitute_generics(
         }) => {
             let args = args
                 .into_iter()
-                .map(|arg| substitute_generics(interner, arg, substitutions, const_substitutions))
+                .map(|arg| substitute_generics(types, arg, substitutions, const_substitutions))
                 .collect();
             let const_args = const_args
                 .into_iter()
                 .map(|mut arg| {
-                    arg.ty =
-                        substitute_generics(interner, arg.ty, substitutions, const_substitutions);
+                    arg.ty = substitute_generics(types, arg.ty, substitutions, const_substitutions);
                     arg
                 })
                 .collect();
-            interner.intern(TyKind::Nominal {
+            types.intern(TyKind::Nominal {
                 def_id,
                 args,
                 const_args,
@@ -1381,9 +1355,9 @@ fn substitute_generics(
         Some(TyKind::BuiltinTrait { trait_id, args }) => {
             let args = args
                 .into_iter()
-                .map(|arg| substitute_generics(interner, arg, substitutions, const_substitutions))
+                .map(|arg| substitute_generics(types, arg, substitutions, const_substitutions))
                 .collect();
-            interner.intern(TyKind::BuiltinTrait { trait_id, args })
+            types.intern(TyKind::BuiltinTrait { trait_id, args })
         }
         Some(TyKind::Projection {
             self_ty,
@@ -1392,17 +1366,15 @@ fn substitute_generics(
             trait_const_args,
             name,
         }) => {
-            let self_ty =
-                substitute_generics(interner, self_ty, substitutions, const_substitutions);
+            let self_ty = substitute_generics(types, self_ty, substitutions, const_substitutions);
             let trait_args = trait_args
                 .into_iter()
-                .map(|arg| substitute_generics(interner, arg, substitutions, const_substitutions))
+                .map(|arg| substitute_generics(types, arg, substitutions, const_substitutions))
                 .collect();
             let trait_const_args = trait_const_args
                 .into_iter()
                 .map(|mut arg| {
-                    arg.ty =
-                        substitute_generics(interner, arg.ty, substitutions, const_substitutions);
+                    arg.ty = substitute_generics(types, arg.ty, substitutions, const_substitutions);
                     if let ConstGenericValue::GenericParam(name) = &arg.value
                         && let Some(replacement) = const_substitutions.get(name)
                     {
@@ -1411,7 +1383,7 @@ fn substitute_generics(
                     arg
                 })
                 .collect();
-            interner.intern(TyKind::Projection {
+            types.intern(TyKind::Projection {
                 self_ty,
                 trait_id,
                 trait_args,
@@ -1424,7 +1396,7 @@ fn substitute_generics(
 }
 
 fn substitute_array_len_generics(
-    interner: &mut LayoutTypeCx<'_>,
+    types: &LayoutTypeCx<'_>,
     len: ArrayLenTy,
     substitutions: &SymbolMap<InternedTyId>,
     const_substitutions: &SymbolMap<ConstGenericArg>,
@@ -1432,7 +1404,7 @@ fn substitute_array_len_generics(
     match len {
         ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
             builtin,
-            ty: substitute_generics(interner, ty, substitutions, const_substitutions),
+            ty: substitute_generics(types, ty, substitutions, const_substitutions),
         },
         ArrayLenTy::GenericParam(name) => const_substitutions
             .get(&name)
@@ -1682,12 +1654,10 @@ fn main(p: &Pair, xs: [3]u16) {}
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
-        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
-            interner: &mut interner,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &HashMap::new(),
@@ -1699,16 +1669,20 @@ fn main(p: &Pair, xs: [3]u16) {}
         assert_eq!(
             layouts
                 .types
-                .get(&interner.primitive(PrimitiveTy::U8))
+                .get(
+                    &type_store
+                        .append_for_module(ModuleId(0))
+                        .intern(TyKind::Primitive(PrimitiveTy::U8)),
+                )
                 .expect("u8 layout"),
             &TypeLayout { size: 1, align: 1 }
         );
-        assert!(interner.iter().any(|(ty_id, ty)| {
-            matches!(ty, TyKind::Pointer { .. })
+        assert!(root_types.iter().copied().any(|ty_id| {
+            matches!(type_store.get(ty_id), Some(TyKind::Pointer { .. }))
                 && layouts.types.get(&ty_id) == Some(&TypeLayout { size: 8, align: 8 })
         }));
-        assert!(interner.iter().any(|(ty_id, ty)| {
-            matches!(ty, TyKind::Array { .. })
+        assert!(root_types.iter().copied().any(|ty_id| {
+            matches!(type_store.get(ty_id), Some(TyKind::Array { .. }))
                 && layouts.types.get(&ty_id) == Some(&TypeLayout { size: 6, align: 2 })
         }));
         let pair_id = defs.module_scope.types.get(&sym("Pair")).expect("Pair def");
@@ -1736,12 +1710,10 @@ fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8)
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
-        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
-            interner: &mut interner,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &HashMap::new(),
@@ -1750,22 +1722,22 @@ fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8)
             program: ProgramLayoutContext::default(),
         });
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
-        assert!(interner.iter().any(|(ty_id, ty)| {
+        assert!(root_types.iter().copied().any(|ty_id| {
             matches!(
-                ty,
-                TyKind::Array {
+                type_store.get(ty_id),
+                Some(TyKind::Array {
                     len: ArrayLenTy::Builtin { builtin, .. },
                     ..
-                } if *builtin == LayoutBuiltin::Size
+                }) if *builtin == LayoutBuiltin::Size
             ) && layouts.types.get(&ty_id) == Some(&TypeLayout { size: 8, align: 1 })
         }));
-        assert!(interner.iter().any(|(ty_id, ty)| {
+        assert!(root_types.iter().copied().any(|ty_id| {
             matches!(
-                ty,
-                TyKind::Array {
+                type_store.get(ty_id),
+                Some(TyKind::Array {
                     len: ArrayLenTy::Builtin { builtin, .. },
                     ..
-                } if *builtin == LayoutBuiltin::Align
+                }) if *builtin == LayoutBuiltin::Align
             ) && layouts.types.get(&ty_id) == Some(&TypeLayout { size: 4, align: 1 })
         }));
     }
@@ -1793,12 +1765,10 @@ fn main(buf: Buffer[u8, 4]) {}
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
-        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
-            interner: &mut interner,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &HashMap::new(),
@@ -1830,12 +1800,10 @@ fn main(value: Empty) {}
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
-        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
-            interner: &mut interner,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &HashMap::new(),
@@ -1878,14 +1846,7 @@ struct Mixed {
         let a_id = signature.fields[0].def_id;
         let b_id = signature.fields[1].def_id;
         let c_id = signature.fields[2].def_id;
-        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
-        let layouts = compute_layouts(
-            &type_store,
-            &defs,
-            &mut interner,
-            &signatures,
-            TargetDataLayout::LP64,
-        );
+        let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64);
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
         let mixed = layouts.structs.get(&mixed_id).expect("Mixed layout");
         assert_eq!(mixed.layout, TypeLayout { size: 16, align: 8 });
@@ -1912,21 +1873,14 @@ fn main() {
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
-        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
-        assert!(interner.iter().any(|(_, ty)| matches!(
-            ty,
-            TyKind::Array {
+        assert!(lowered.explicit_type_roots().iter().any(|ty| matches!(
+            type_store.get(*ty),
+            Some(TyKind::Array {
                 len: ArrayLenTy::Infer,
                 ..
-            }
+            })
         )));
-        let layouts = compute_layouts(
-            &type_store,
-            &defs,
-            &mut interner,
-            &signatures,
-            TargetDataLayout::LP64,
-        );
+        let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64);
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
     }
 
@@ -1956,14 +1910,7 @@ extern struct CPair {
                 .expect("CPair signature")
                 .is_extern
         );
-        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
-        let layouts = compute_layouts(
-            &type_store,
-            &defs,
-            &mut interner,
-            &signatures,
-            TargetDataLayout::LP64,
-        );
+        let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64);
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
         let cpair = layouts.structs.get(&cpair_id).expect("CPair layout");
         assert_eq!(cpair.layout, TypeLayout { size: 8, align: 4 });
@@ -1988,12 +1935,10 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
         let const_eval =
             compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
-        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
-            interner: &mut interner,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &HashMap::new(),
@@ -2011,7 +1956,11 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
             .struct_instances
             .get(&StructLayoutKey {
                 def_id: array_box_id,
-                args: vec![interner.primitive(PrimitiveTy::U8)],
+                args: vec![
+                    type_store
+                        .append_for_module(ModuleId(0))
+                        .intern(TyKind::Primitive(PrimitiveTy::U8)),
+                ],
                 const_args: Vec::new(),
             })
             .expect("ArrayBox[u8] layout");
@@ -2019,7 +1968,11 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
             .struct_instances
             .get(&StructLayoutKey {
                 def_id: array_box_id,
-                args: vec![interner.primitive(PrimitiveTy::I32)],
+                args: vec![
+                    type_store
+                        .append_for_module(ModuleId(0))
+                        .intern(TyKind::Primitive(PrimitiveTy::I32)),
+                ],
                 const_args: Vec::new(),
             })
             .expect("ArrayBox[i32] layout");
@@ -2043,21 +1996,18 @@ fn main(a: Bits[i32]) {}
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
-        let mut interner = type_store.checkout_module_for_semantic_migration(ModuleId(0));
-        let layouts = compute_layouts(
-            &type_store,
-            &defs,
-            &mut interner,
-            &signatures,
-            TargetDataLayout::LP64,
-        );
+        let layouts = compute_layouts(&type_store, &defs, &signatures, TargetDataLayout::LP64);
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
         let bits_id = defs.module_scope.types.get(&sym("Bits")).expect("Bits def");
         let bits_i32 = layouts
             .union_instances
             .get(&StructLayoutKey {
                 def_id: bits_id,
-                args: vec![interner.primitive(PrimitiveTy::I32)],
+                args: vec![
+                    type_store
+                        .append_for_module(ModuleId(0))
+                        .intern(TyKind::Primitive(PrimitiveTy::I32)),
+                ],
                 const_args: Vec::new(),
             })
             .expect("Bits[i32] layout");

@@ -476,8 +476,9 @@ Precise executable and signature layouts receive an explicit `LayoutRoots` set.
 Layout therefore never scans a module interner to discover work. `Layouts`
 contains only layout facts and diagnostics; there is no read-only/owned
 overload, interner snapshot, or positional convenience API beside
-`LayoutComputationInput`. Array-length facts are prepared before a store
-transaction when evaluating them could reenter the same shard.
+`LayoutComputationInput`. Array-length facts are prepared before layout
+computation when evaluating them could recursively request another module's
+layout.
 
 Backend lowering now checks out each owning module shard for the duration of
 the whole-program lowering fixed point. Synthesized instance types append
@@ -985,11 +986,12 @@ Computes ABI-relevant layout for primitive, pointer, array, struct, enum, and
 instantiated nominal types. It uses explicit target data layout assumptions, such
 as LP64, rather than hidden host assumptions.
 
-The algorithm receives the caller's mutable type interner because importing a
-foreign signature or substituting a generic layout can intern structural types.
-Compiler query providers supply a session `TypeStore` transaction; standalone
-callers supply their working interner. The result is a layout fact table and
-never owns a private interner snapshot.
+The algorithm reads every existing handle from the session `TypeStore` and
+publishes structural types created by generic substitution through a
+module-scoped `TypeStoreAppend`. `LayoutComputationInput` therefore has no
+mutable interner or snapshot field. Compiler query providers and standalone
+callers use the same API, and the result remains a layout fact table rather than
+a second type view.
 
 ### 8.7 `nia-abi-check`
 

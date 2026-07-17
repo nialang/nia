@@ -404,20 +404,18 @@ fn lower_source_with_body_check_mutation_and_optimization(
         .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
             nia_const_check::check_module_const(const_input, interner)
         });
-    let layouts = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-        let root_types = signatures.type_roots();
+    let root_types = signatures.type_roots();
+    let layouts =
         nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
             type_store: &type_store,
             defs: &defs,
-            interner,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &normalization.normalized,
             array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
             target: nia_layout::TargetDataLayout::LP64,
             program: nia_layout::ProgramLayoutContext::default(),
-        })
-    });
+        });
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
         diagnostics: Vec::new(),

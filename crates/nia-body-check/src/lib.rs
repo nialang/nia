@@ -531,16 +531,12 @@ pub fn check_module_bodies(
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    let layouts =
-        type_store.with_module_interner_for_semantic_migration(defs.module_id, |interner| {
-            nia_layout::compute_layouts(
-                type_store,
-                defs,
-                interner,
-                signatures,
-                nia_layout::TargetDataLayout::LP64,
-            )
-        });
+    let layouts = nia_layout::compute_layouts(
+        type_store,
+        defs,
+        signatures,
+        nia_layout::TargetDataLayout::LP64,
+    );
     let empty_const_module = ResolvedConstModule::default();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_program_extension_methods = ExtensionMethods::default();
@@ -625,7 +621,6 @@ pub fn check_module_bodies_with_program_signatures(
         nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
             type_store: input.type_store,
             defs: input.defs,
-            interner,
             signatures: input.signatures,
             root_types: &root_types,
             normalized: &input.normalization.normalized,
