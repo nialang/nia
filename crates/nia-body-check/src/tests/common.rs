@@ -138,7 +138,7 @@ impl ProgramSignatureLookup for EmptyBodyProgramSignatures {
 
 pub(super) struct TestBodyCheck {
     pub(super) check: BodyCheck,
-    pub(super) interner: nia_ty::TyInterner,
+    pub(super) type_store: nia_ty::TypeStore,
 }
 
 impl std::ops::Deref for TestBodyCheck {
@@ -378,11 +378,8 @@ fn pipeline_with_options(
         product: crate::BodyCheckProduct::Full,
         prechecked: None,
     };
-    let check = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-        check_module_bodies_with_program_signatures_and_layouts(body_input, interner)
-    });
-    let interner = type_store.module_snapshot(ModuleId(0));
-    TestBodyCheck { check, interner }
+    let check = check_module_bodies_with_program_signatures_and_layouts(body_input);
+    TestBodyCheck { check, type_store }
 }
 
 pub(super) fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {

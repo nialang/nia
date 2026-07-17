@@ -3126,7 +3126,7 @@ fn main() i32 { 0 }
     }
 
     #[test]
-    fn body_check_appends_to_the_session_type_store_shard() {
+    fn body_check_publishes_synthesized_types_to_canonical_store() {
         let module_id = ModuleId(0);
         let database =
             CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
@@ -3142,21 +3142,19 @@ fn main() i32 {
                 ),
             ])));
         let _ = database.db.query(ConstQuery(module_id));
-        let before_body = database.db.context().type_store.module_snapshot(module_id);
 
-        let _ = database.db.query(BodyCheckQuery(module_id));
-        let after_body = database.db.context().type_store.module_snapshot(module_id);
+        let body = database.db.query(BodyCheckQuery(module_id));
 
-        assert!(before_body.is_prefix_of(&after_body));
-        assert!(after_body.iter().any(|(ty, kind)| {
-            before_body.get(ty).is_none()
-                && matches!(
-                    kind,
-                    nia_ty::TyKind::Array {
+        assert!(body.facts.function_facts.values().any(|facts| {
+            facts.local_types.values().any(|ty| {
+                matches!(
+                    database.db.context().type_store.get(*ty),
+                    Some(nia_ty::TyKind::Array {
                         len: nia_ty::ArrayLenTy::ConstValue(3),
                         ..
-                    }
+                    })
                 )
+            })
         }));
     }
 

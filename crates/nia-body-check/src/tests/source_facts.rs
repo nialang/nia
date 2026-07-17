@@ -156,9 +156,7 @@ fn main() i32 {
         product: crate::BodyCheckProduct::Full,
         prechecked: None,
     };
-    let checked = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-        check_module_bodies_with_program_signatures_and_layouts(body_input, interner)
-    });
+    let checked = check_module_bodies_with_program_signatures_and_layouts(body_input);
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(checked.facts.iter_node_expr_types().next().is_some());
@@ -326,9 +324,7 @@ fn main() i32 {
         product: crate::BodyCheckProduct::Full,
         prechecked: None,
     };
-    let checked = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-        check_module_bodies_with_program_signatures_and_layouts(body_input, interner)
-    });
+    let checked = check_module_bodies_with_program_signatures_and_layouts(body_input);
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(checked.facts.iter_node_expr_types().any(|(key, _)| {
