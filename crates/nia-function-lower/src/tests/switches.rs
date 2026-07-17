@@ -9,7 +9,7 @@ fn lowers_statement_switch_into_switch_terminator() {
         switch_default_arm(TypedSwitchArmBody::Expr(int_expr(20))),
     ]);
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
     let FunctionTerminator::Switch {
         arms,
         default,
@@ -56,7 +56,7 @@ fn statement_switch_without_default_falls_back_to_merge() {
         TypedSwitchArmBody::Expr(int_expr(10)),
     )]);
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
     let FunctionTerminator::Switch {
         default, fallback, ..
     } = function_body.blocks[0].terminator
@@ -83,7 +83,7 @@ fn statement_switch_with_range_patterns_lowers_to_condition_chain() {
         switch_default_arm(TypedSwitchArmBody::Expr(int_expr(30))),
     ]);
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     assert!(
         function_body
@@ -180,7 +180,7 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     assert!(
         function_body
@@ -212,10 +212,11 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
 
 #[test]
 fn statement_if_error_union_pattern_binding_uses_payload_type() {
-    let mut interner = TyInterner::new(ModuleId(0));
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let void_ty = interner.primitive(PrimitiveTy::Void);
-    let error_ty = interner.intern(TyKind::ErrorUnion {
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(ModuleId(0));
+    let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
+    let void_ty = append.intern(TyKind::Primitive(PrimitiveTy::Void));
+    let error_ty = append.intern(TyKind::ErrorUnion {
         error: i32_ty,
         value: i32_ty,
     });
@@ -251,7 +252,7 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
                         ty: error_ty,
                         kind: TypedExprKind::Local(target_local),
                     },
-                    bool_ty: interner.primitive(PrimitiveTy::Bool),
+                    bool_ty: append.intern(TyKind::Primitive(PrimitiveTy::Bool)),
                     arms: vec![TypedIfPatternArm {
                         pattern: TypedPattern {
                             ty: error_ty,
@@ -276,9 +277,13 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
         ty: void_ty,
     };
 
-    let function_body = lower_function_body_with_interner(ModuleId(0), &body, &mut interner)
-        .expect("valid typed body")
-        .body;
+    let function_body = lower_function_body(
+        ModuleId(0),
+        &body,
+        FunctionTypeContext::for_module(&type_store, ModuleId(0)),
+    )
+    .expect("valid typed body")
+    .body;
 
     assert!(
         function_body.blocks.iter().any(|block| {
@@ -387,7 +392,7 @@ fn value_if_pattern_caches_target_and_stores_payload_binding() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     let target_cache_count = function_body
         .blocks
@@ -508,7 +513,7 @@ fn value_if_pattern_trap_else_lowers_as_effect_only() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     assert!(
         !function_body.blocks.iter().any(|block| {
@@ -560,7 +565,7 @@ fn statement_switch_arm_block_exits_arm_scope_to_merge() {
         })),
     )]);
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
     let FunctionTerminator::Switch { arms, fallback, .. } = &function_body.blocks[0].terminator
     else {
         panic!("expected switch terminator");
@@ -585,7 +590,7 @@ fn return_from_statement_switch_arm_exits_arm_and_root_scopes() {
         })),
     )]);
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
     let FunctionTerminator::Switch { arms, .. } = &function_body.blocks[0].terminator else {
         panic!("expected switch terminator");
     };
@@ -625,7 +630,7 @@ fn collects_unique_locals_from_statement_switch_arms() {
         })),
     )]);
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     assert_eq!(
         function_body

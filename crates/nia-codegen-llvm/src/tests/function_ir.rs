@@ -331,7 +331,13 @@ fn rejects_field_access_with_mismatched_base_struct() {
         })),
         ty: i32_ty,
     };
-    let function_body = nia_function_lower::lower_function_body(&body).expect("valid typed body");
+    let function_body = nia_function_lower::lower_function_body(
+        ModuleId(0),
+        &body,
+        nia_function_lower::FunctionTypeContext::for_module(&type_store, ModuleId(0)),
+    )
+    .expect("valid typed body")
+    .body;
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: ModuleId(0),

@@ -10,7 +10,7 @@ use nia_body_ir::{
 };
 use nia_ids::{InternedTyId, LocalId, ModuleId};
 use nia_span::Span;
-use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{PrimitiveTy, TyKind, TypeStore, TypeStoreAppend};
 
 use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAsmInput, FunctionAsmOption,
@@ -48,25 +48,40 @@ impl From<nia_function_ir::FunctionIrError> for FunctionLoweringDiagnostic {
     }
 }
 
-pub fn lower_function_body(body: &TypedBody) -> Result<FunctionBody, FunctionLoweringDiagnostic> {
-    input::validate_function_lowering_input(body)?;
-    let body = FunctionLowerer::new(ModuleId(0), None).lower_body(body);
-    validate_function_body(&body).map_err(FunctionLoweringDiagnostic::from)?;
-    Ok(body)
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoweredFunctionBody {
     pub body: FunctionBody,
 }
 
-pub fn lower_function_body_with_interner(
+pub struct FunctionTypeContext<'a> {
+    store: &'a TypeStore,
+    append: TypeStoreAppend,
+}
+
+impl<'a> FunctionTypeContext<'a> {
+    pub fn for_module(store: &'a TypeStore, module_id: ModuleId) -> Self {
+        Self {
+            store,
+            append: store.append_for_module(module_id),
+        }
+    }
+
+    fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.store.get(ty)
+    }
+
+    fn intern(&self, kind: TyKind) -> InternedTyId {
+        self.append.intern(kind)
+    }
+}
+
+pub fn lower_function_body(
     module_id: ModuleId,
     body: &TypedBody,
-    interner: &mut TyInterner,
+    types: FunctionTypeContext<'_>,
 ) -> Result<LoweredFunctionBody, FunctionLoweringDiagnostic> {
     input::validate_function_lowering_input(body)?;
-    let mut lowerer = FunctionLowerer::new(module_id, Some(interner));
+    let mut lowerer = FunctionLowerer::new(module_id, types);
     let body = lowerer.lower_body(body);
     validate_function_body(&body).map_err(FunctionLoweringDiagnostic::from)?;
     Ok(LoweredFunctionBody { body })
@@ -78,12 +93,12 @@ pub struct LoweredFunctionBodies {
     pub diagnostics: Vec<FunctionLoweringDiagnostic>,
 }
 
-pub fn lower_function_bodies_with_interner<'a>(
+pub fn lower_function_bodies<'a>(
     module_id: ModuleId,
     bodies: impl IntoIterator<Item = (&'a nia_ids::GlobalDefId, &'a TypedBody)>,
-    interner: &mut TyInterner,
+    types: FunctionTypeContext<'_>,
 ) -> Result<LoweredFunctionBodies, Vec<FunctionLoweringDiagnostic>> {
-    let mut lowerer = FunctionLowerer::new(module_id, Some(interner));
+    let mut lowerer = FunctionLowerer::new(module_id, types);
     let mut bodies = bodies.into_iter().collect::<Vec<_>>();
     bodies.sort_by_key(|(def_id, _)| **def_id);
     let mut lowered_bodies = std::collections::HashMap::new();
@@ -120,7 +135,7 @@ struct FunctionLowerer<'a> {
     temp_locals: Vec<FunctionLocal>,
     scopes: Vec<FunctionScope>,
     loop_targets: Vec<LoopTargetIds>,
-    interner: Option<&'a mut TyInterner>,
+    types: FunctionTypeContext<'a>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -146,7 +161,7 @@ struct StatementIf<'a> {
 }
 
 impl<'a> FunctionLowerer<'a> {
-    fn new(module_id: ModuleId, interner: Option<&'a mut TyInterner>) -> Self {
+    fn new(module_id: ModuleId, types: FunctionTypeContext<'a>) -> Self {
         Self {
             next_block: 0,
             next_scope: 0,
@@ -155,7 +170,7 @@ impl<'a> FunctionLowerer<'a> {
             temp_locals: Vec::new(),
             scopes: Vec::new(),
             loop_targets: Vec::new(),
-            interner,
+            types,
         }
     }
 
@@ -184,7 +199,7 @@ impl<'a> FunctionLowerer<'a> {
 
     fn is_never_ty(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.interner.as_ref().and_then(|interner| interner.get(ty)),
+            self.types.get(ty),
             Some(TyKind::Primitive(PrimitiveTy::Never))
         )
     }

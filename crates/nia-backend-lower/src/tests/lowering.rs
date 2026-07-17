@@ -232,7 +232,13 @@ fn main() i32 {
         .map(|(def_id, body)| {
             (
                 *def_id,
-                lower_function_body(body).expect("valid typed body"),
+                lower_function_body(
+                    ModuleId(0),
+                    body,
+                    FunctionTypeContext::for_module(&type_store, ModuleId(0)),
+                )
+                .expect("valid typed body")
+                .body,
             )
         })
         .collect::<HashMap<_, _>>();

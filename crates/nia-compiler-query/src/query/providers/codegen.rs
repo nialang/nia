@@ -106,22 +106,20 @@ fn function_bodies_from_checked_modules(
             checked_modules
                 .iter()
                 .map(|module| {
-                    let lowered = db
-                        .context()
-                        .type_store
-                        .with_module_interner_for_semantic_migration(module.id, |interner| {
-                            nia_function_lower::lower_function_bodies_with_interner(
-                                module.id,
-                                module.body_ir.function_bodies.iter(),
-                                interner,
-                            )
-                            .unwrap_or_else(|diagnostics| {
-                                nia_function_lower::LoweredFunctionBodies {
-                                    bodies: HashMap::new(),
-                                    diagnostics,
-                                }
-                            })
-                        });
+                    let lowered = nia_function_lower::lower_function_bodies(
+                        module.id,
+                        module.body_ir.function_bodies.iter(),
+                        nia_function_lower::FunctionTypeContext::for_module(
+                            &db.context().type_store,
+                            module.id,
+                        ),
+                    )
+                    .unwrap_or_else(|diagnostics| {
+                        nia_function_lower::LoweredFunctionBodies {
+                            bodies: HashMap::new(),
+                            diagnostics,
+                        }
+                    });
                     LoweredFunctionBodies {
                         bodies: lowered.bodies,
                         diagnostics: lowered.diagnostics,

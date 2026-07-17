@@ -14,7 +14,7 @@ pub(super) use nia_function_ir::{
 pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId};
 pub(super) use nia_span::Span;
 pub(super) use nia_symbol::{SymbolId, stable_hash};
-pub(super) use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+pub(super) use nia_ty::{PrimitiveTy, TyKind, TypeStore};
 
 pub(super) fn only_next_target(
     function_body: &FunctionBody,
@@ -31,10 +31,25 @@ pub(super) fn only_next_target(
 }
 
 pub(super) fn test_ty() -> InternedTyId {
-    static INTERNER: std::sync::OnceLock<TyInterner> = std::sync::OnceLock::new();
-    INTERNER
-        .get_or_init(|| TyInterner::new(ModuleId(0)))
-        .error()
+    test_type_store()
+        .append_for_module(ModuleId(0))
+        .intern(TyKind::Error)
+}
+
+pub(super) fn lower_test_function_body(
+    body: &TypedBody,
+) -> Result<FunctionBody, FunctionLoweringDiagnostic> {
+    lower_function_body(
+        ModuleId(0),
+        body,
+        FunctionTypeContext::for_module(test_type_store(), ModuleId(0)),
+    )
+    .map(|lowered| lowered.body)
+}
+
+fn test_type_store() -> &'static TypeStore {
+    static TYPE_STORE: std::sync::OnceLock<TypeStore> = std::sync::OnceLock::new();
+    TYPE_STORE.get_or_init(TypeStore::new)
 }
 
 pub(super) fn sym(text: &str) -> SymbolId {

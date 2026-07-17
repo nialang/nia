@@ -791,10 +791,7 @@ impl FunctionLowerer<'_> {
     }
 
     fn optional_ty(&mut self, elem: nia_ids::InternedTyId) -> nia_ids::InternedTyId {
-        self.interner
-            .as_mut()
-            .map(|interner| interner.intern(TyKind::Optional { elem }))
-            .unwrap_or(elem)
+        self.types.intern(TyKind::Optional { elem })
     }
 
     fn iterator_next_expr(

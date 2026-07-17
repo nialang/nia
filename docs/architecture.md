@@ -1115,6 +1115,11 @@ This split keeps the Function IR data model reusable by validation, analyses,
 backend lowering, optimization, and codegen without making the IR crate depend
 on the source-shaped body IR that currently feeds it.
 
+Production lowering receives a `FunctionTypeContext`: existing type handles are
+read from the session `TypeStore`, while synthesized types such as iterator
+optionals are published through a module-scoped `TypeStoreAppend`. Function
+lowering does not checkout, snapshot, or mutate a module `TyInterner`.
+
 ### 9.6 `nia-function-opt`
 
 Optimizes `nia-function-ir::FunctionBody` using only function-local IR, the

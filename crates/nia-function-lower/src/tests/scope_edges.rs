@@ -21,7 +21,7 @@ fn same_scope_edges_exit_no_scopes() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     assert_eq!(
         function_body.edge_exited_scopes(FunctionBlockId(0), FunctionBlockId(1)),
@@ -50,7 +50,7 @@ fn loop_body_break_edge_exits_loop_scope() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
     let loop_target = only_next_target(&function_body, function_body.blocks[0].id);
     let FunctionTerminator::Loop {
         body, break_target, ..

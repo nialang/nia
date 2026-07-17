@@ -23,7 +23,7 @@ fn lowers_body_to_entry_block_with_tail() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     assert_eq!(function_body.entry, FunctionBlockId(0));
     assert_eq!(function_body.blocks.len(), 1);
@@ -54,7 +54,7 @@ fn non_terminal_ops_branch_to_tail_block() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     assert_eq!(function_body.blocks.len(), 2);
     assert_eq!(function_body.blocks[0].ops.len(), 1);
@@ -78,9 +78,10 @@ fn non_terminal_ops_branch_to_tail_block() {
 #[test]
 fn lowers_try_expression_to_try_terminator_and_success_local() {
     let span = Span::default();
-    let mut interner = TyInterner::new(ModuleId(0));
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let optional_i32 = interner.intern(TyKind::Optional { elem: i32_ty });
+    let type_store = TypeStore::new();
+    let append = type_store.append_for_module(ModuleId(0));
+    let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
+    let optional_i32 = append.intern(TyKind::Optional { elem: i32_ty });
     let body = TypedBody {
         span,
         locals: vec![TypedLocal {
@@ -105,9 +106,13 @@ fn lowers_try_expression_to_try_terminator_and_success_local() {
         ty: i32_ty,
     };
 
-    let function_body = lower_function_body_with_interner(ModuleId(0), &body, &mut interner)
-        .expect("valid typed body")
-        .body;
+    let function_body = lower_function_body(
+        ModuleId(0),
+        &body,
+        FunctionTypeContext::for_module(&type_store, ModuleId(0)),
+    )
+    .expect("valid typed body")
+    .body;
 
     assert!(function_body.blocks.iter().any(|block| {
         matches!(
@@ -162,7 +167,7 @@ fn lowers_address_of_places_to_function_place() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     let tail_block = function_body
         .blocks
@@ -204,7 +209,7 @@ fn address_of_rvalue_materializes_temp_place() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     let tail_block = function_body
         .blocks
@@ -282,7 +287,7 @@ fn address_of_slice_lowers_to_slice_value_not_place() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     let tail_block = function_body
         .blocks
@@ -327,7 +332,7 @@ fn return_terminates_block_before_later_statements() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     assert_eq!(function_body.blocks.len(), 1);
     assert!(function_body.blocks[0].ops.is_empty());
