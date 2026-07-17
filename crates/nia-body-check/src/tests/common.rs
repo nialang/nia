@@ -347,15 +347,12 @@ fn pipeline_with_options(
             }
         }
     }
-    let layouts = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-        nia_layout::compute_layouts(
-            &type_store,
-            &defs,
-            interner,
-            &signatures,
-            nia_layout::TargetDataLayout::LP64,
-        )
-    });
+    let layouts = nia_layout::compute_layouts(
+        &type_store,
+        &defs,
+        &signatures,
+        nia_layout::TargetDataLayout::LP64,
+    );
     let mut program_signatures = EmptyBodyProgramSignatures::new();
     program_signatures.trait_impls =
         single_module_trait_impls(ModuleId(0), &signatures, &type_store);

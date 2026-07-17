@@ -1428,55 +1428,48 @@ pub(super) fn executable_layouts_for_reachable_items(
         };
         time_module_provider(db, "executable_layouts.compute", module_id, || {
             let symbols = db.context().symbols();
-            db.context()
-                .type_store
-                .with_module_interner_for_semantic_migration(module_id, |interner| {
-                    let roots =
-                        time_module_provider(db, "executable_layouts.roots", module_id, || {
-                            executable_layout_roots(
-                                ExecutableLayoutModule {
-                                    module_id,
-                                    signatures: &item_signatures,
-                                    program_struct: &program_struct,
-                                    program_union: &program_union,
-                                },
-                                &db.context().type_store,
-                                interner,
-                                type_lowering
-                                    .versioned_type_uses_from_active_item_tree(&active_item_tree)
-                                    .into_iter()
-                                    .map(|(_, ty)| ty),
-                                reachable_functions,
-                                reachable_globals,
-                            )
-                        });
-                    nia_layout::compute_layouts_for_roots_with_program_context(
-                        nia_layout::LayoutComputationInput {
-                            type_store: &db.context().type_store,
-                            defs: &defs,
-                            interner,
-                            signatures: &item_signatures,
-                            root_types: &[],
-                            normalized: &type_normalization.normalized,
-                            array_lengths: &executable_array_lengths,
-                            target: nia_layout::TargetDataLayout::LP64,
-                            program: nia_layout::ProgramLayoutContext {
-                                symbols: Some(&symbols),
-                                array_lengths: Some(&executable_array_lengths),
-                                struct_: Some(&program_struct),
-                                union: Some(&program_union),
-                                enum_: Some(&program_enum),
-                                type_alias: Some(&program_type_alias),
-                                ..Default::default()
-                            },
-                        },
-                        nia_layout::LayoutRoots {
-                            types: &roots.types,
-                            structs: &roots.structs,
-                            unions: &roots.unions,
-                        },
-                    )
-                })
+            let roots = time_module_provider(db, "executable_layouts.roots", module_id, || {
+                executable_layout_roots(
+                    ExecutableLayoutModule {
+                        module_id,
+                        signatures: &item_signatures,
+                        program_struct: &program_struct,
+                        program_union: &program_union,
+                    },
+                    &db.context().type_store,
+                    type_lowering
+                        .versioned_type_uses_from_active_item_tree(&active_item_tree)
+                        .into_iter()
+                        .map(|(_, ty)| ty),
+                    reachable_functions,
+                    reachable_globals,
+                )
+            });
+            nia_layout::compute_layouts_for_roots_with_program_context(
+                nia_layout::LayoutComputationInput {
+                    type_store: &db.context().type_store,
+                    defs: &defs,
+                    signatures: &item_signatures,
+                    root_types: &[],
+                    normalized: &type_normalization.normalized,
+                    array_lengths: &executable_array_lengths,
+                    target: nia_layout::TargetDataLayout::LP64,
+                    program: nia_layout::ProgramLayoutContext {
+                        symbols: Some(&symbols),
+                        array_lengths: Some(&executable_array_lengths),
+                        struct_: Some(&program_struct),
+                        union: Some(&program_union),
+                        enum_: Some(&program_enum),
+                        type_alias: Some(&program_type_alias),
+                        ..Default::default()
+                    },
+                },
+                nia_layout::LayoutRoots {
+                    types: &roots.types,
+                    structs: &roots.structs,
+                    unions: &roots.unions,
+                },
+            )
         })
     })
 }
@@ -1570,33 +1563,28 @@ fn rooted_layouts_for_checked_module(
                     .and_then(|array_lengths| array_lengths.values.get(&id).copied())
             })
     };
-    db.context()
-        .type_store
-        .with_module_interner_for_semantic_migration(module.id, |interner| {
-            nia_layout::compute_layouts_for_roots_with_program_context(
-                nia_layout::LayoutComputationInput {
-                    type_store: &db.context().type_store,
-                    defs: &module.defs,
-                    interner,
-                    signatures: &item_signatures,
-                    root_types: &[],
-                    normalized: &module.type_normalization.normalized,
-                    array_lengths: &local_array_lengths,
-                    target: nia_layout::TargetDataLayout::LP64,
-                    program: nia_layout::ProgramLayoutContext {
-                        symbols: Some(&symbols),
-                        layouts: Some(&layout_query),
-                        array_lengths: Some(&program_array_lengths),
-                        ..Default::default()
-                    },
-                },
-                nia_layout::LayoutRoots {
-                    types: &roots.types,
-                    structs: &roots.structs,
-                    unions: &roots.unions,
-                },
-            )
-        })
+    nia_layout::compute_layouts_for_roots_with_program_context(
+        nia_layout::LayoutComputationInput {
+            type_store: &db.context().type_store,
+            defs: &module.defs,
+            signatures: &item_signatures,
+            root_types: &[],
+            normalized: &module.type_normalization.normalized,
+            array_lengths: &local_array_lengths,
+            target: nia_layout::TargetDataLayout::LP64,
+            program: nia_layout::ProgramLayoutContext {
+                symbols: Some(&symbols),
+                layouts: Some(&layout_query),
+                array_lengths: Some(&program_array_lengths),
+                ..Default::default()
+            },
+        },
+        nia_layout::LayoutRoots {
+            types: &roots.types,
+            structs: &roots.structs,
+            unions: &roots.unions,
+        },
+    )
 }
 
 struct ExecutableLayoutModule<'a> {
@@ -1609,7 +1597,6 @@ struct ExecutableLayoutModule<'a> {
 fn executable_layout_roots(
     module: ExecutableLayoutModule<'_>,
     type_store: &nia_ty::TypeStore,
-    interner: &mut nia_ty::TyInterner,
     type_uses: impl IntoIterator<Item = InternedTyId>,
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
@@ -1621,7 +1608,7 @@ fn executable_layout_roots(
         program_union,
     } = module;
     let mut roots =
-        LayoutRootCollector::with_program(type_store, interner, program_struct, program_union);
+        LayoutRootCollector::with_program(type_store, module_id, program_struct, program_union);
     for ty in type_uses {
         roots.add(ty);
     }
@@ -1665,8 +1652,7 @@ fn checked_module_layout_roots(
     type_store: &nia_ty::TypeStore,
     module: &CheckedModule,
 ) -> CollectedLayoutRoots {
-    let mut interner = type_store.module_snapshot(module.id);
-    let mut roots = LayoutRootCollector::new(type_store, &mut interner);
+    let mut roots = LayoutRootCollector::new(type_store, module.id);
     collect_semantic_layout_roots(&module.semantic_facts, &mut roots);
     roots.finish()
 }
@@ -2285,10 +2271,9 @@ pub(super) fn executable_reachable_aggregate_roots(
     let mut structs = HashSet::new();
     let mut unions = HashSet::new();
     for module in modules {
-        let mut interner = type_store.module_snapshot(module.id);
         let mut roots = LayoutRootCollector::with_program(
             type_store,
-            &mut interner,
+            module.id,
             struct_signature,
             union_signature,
         );

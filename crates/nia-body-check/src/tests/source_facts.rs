@@ -128,15 +128,12 @@ fn main() i32 {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    let layouts = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-        nia_layout::compute_layouts(
-            &type_store,
-            &defs,
-            interner,
-            &signatures,
-            nia_layout::TargetDataLayout::LP64,
-        )
-    });
+    let layouts = nia_layout::compute_layouts(
+        &type_store,
+        &defs,
+        &signatures,
+        nia_layout::TargetDataLayout::LP64,
+    );
     let program_signatures = EmptyBodyProgramSignatures::new();
     let body_input = BodyCheckInput {
         type_store: &type_store,
@@ -311,15 +308,12 @@ fn main() i32 {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    let layouts = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-        nia_layout::compute_layouts(
-            &type_store,
-            &defs,
-            interner,
-            &signatures,
-            nia_layout::TargetDataLayout::LP64,
-        )
-    });
+    let layouts = nia_layout::compute_layouts(
+        &type_store,
+        &defs,
+        &signatures,
+        nia_layout::TargetDataLayout::LP64,
+    );
     let program_signatures = EmptyBodyProgramSignatures::new();
     let body_input = BodyCheckInput {
         type_store: &type_store,

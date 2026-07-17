@@ -511,12 +511,6 @@ impl Analyzer<'_> {
         };
         let mut root_types = signatures.as_ref().type_roots();
         root_types.push(ty);
-        let Some(mut interner) = self.type_contexts.remove(&module_id) else {
-            return Err(ConstError {
-                span,
-                message: "cannot compute layout without module type interner".to_string(),
-            });
-        };
         let array_lengths = |id| layout_array_lengths.get(&id).copied();
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
@@ -524,7 +518,6 @@ impl Analyzer<'_> {
             nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
                 type_store: self.input.type_store,
                 defs: defs.as_ref(),
-                interner: &mut interner,
                 signatures: signatures.as_ref(),
                 root_types: &root_types,
                 normalized: &normalized,
@@ -537,7 +530,6 @@ impl Analyzer<'_> {
                     ..Default::default()
                 },
             });
-        self.type_contexts.insert(module_id, interner);
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
         let ty_module_id = self.type_origin(ty).module_id();
         if let Some(TyKind::Nominal {
@@ -624,12 +616,6 @@ impl Analyzer<'_> {
         };
         let mut root_types = signatures.as_ref().type_roots();
         root_types.push(ty);
-        let Some(mut interner) = self.type_contexts.remove(&module_id) else {
-            return Err(ConstError {
-                span,
-                message: "cannot compute field offset without module type interner".to_string(),
-            });
-        };
         let array_lengths = |id| layout_array_lengths.get(&id).copied();
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
@@ -637,7 +623,6 @@ impl Analyzer<'_> {
             nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
                 type_store: self.input.type_store,
                 defs: defs.as_ref(),
-                interner: &mut interner,
                 signatures: signatures.as_ref(),
                 root_types: &root_types,
                 normalized: &normalized,
@@ -650,7 +635,6 @@ impl Analyzer<'_> {
                     ..Default::default()
                 },
             });
-        self.type_contexts.insert(module_id, interner);
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
         let Some(TyKind::Nominal {
             def_id,
@@ -895,7 +879,6 @@ impl Analyzer<'_> {
         let defs = self.global_defs(module_id)?;
         let signatures = self.signatures_for_module(module_id)?;
         let root_types = signatures.as_ref().type_roots();
-        let mut interner = self.append_view_for_module(module_id)?;
         let normalized = self.normalized_for_module(module_id)?;
         let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
         let layout_query = |module_id| self.compute_program_layout(module_id, array_lengths);
@@ -903,7 +886,6 @@ impl Analyzer<'_> {
             nia_layout::LayoutComputationInput {
                 type_store: self.input.type_store,
                 defs: defs.as_ref(),
-                interner: &mut interner,
                 signatures: signatures.as_ref(),
                 root_types: &root_types,
                 normalized: &normalized,
