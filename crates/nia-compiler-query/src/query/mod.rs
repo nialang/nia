@@ -3084,7 +3084,7 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn const_phases_append_to_one_session_type_store_shard() {
+    fn const_phases_publish_synthesized_types_to_canonical_store() {
         let module_id = ModuleId(0);
         let database =
             CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
@@ -3101,28 +3101,28 @@ fn main() i32 { 0 }
             ])));
         let lowering = database.db.query(TypeLoweringQuery(module_id));
         let _ = database.db.query(TypeNormalizationQuery(module_id));
-        let before_const = database.db.context().type_store.module_snapshot(module_id);
 
         let _ = database.db.query(ConstArrayLengthsQuery(module_id));
-        let after_array_lengths = database.db.context().type_store.module_snapshot(module_id);
         let _ = database.db.query(ConstEnumValuesQuery(module_id));
-        let after_enum_values = database.db.context().type_store.module_snapshot(module_id);
-        let _ = database.db.query(ConstValuesQuery(module_id));
-        let after_values = database.db.context().type_store.module_snapshot(module_id);
+        let values = database.db.query(ConstValuesQuery(module_id));
         let _ = database.db.query(ConstTypedFactsQuery(module_id));
-        let after_typed_facts = database.db.context().type_store.module_snapshot(module_id);
         let _ = database.db.query(ConstQuery(module_id));
-        let after_check = database.db.context().type_store.module_snapshot(module_id);
 
         for ty in lowering.explicit_type_roots() {
-            assert!(before_const.get(ty).is_some());
+            assert!(database.db.context().type_store.get(ty).is_some());
         }
-        assert!(before_const.is_prefix_of(&after_array_lengths));
-        assert!(after_array_lengths.is_prefix_of(&after_enum_values));
-        assert!(after_enum_values.is_prefix_of(&after_values));
-        assert!(after_values.is_prefix_of(&after_typed_facts));
-        assert_eq!(after_typed_facts, after_check);
-        assert!(after_check.len() > before_const.len());
+        let range_ty = values
+            .typed_values
+            .values()
+            .filter_map(|value| value.ty.runtime())
+            .find(|ty| {
+                matches!(
+                    database.db.context().type_store.get(*ty),
+                    Some(nia_ty::TyKind::Range { .. })
+                )
+            })
+            .expect("const range type published to canonical store");
+        assert!(database.db.context().type_store.get(range_ty).is_some());
     }
 
     #[test]

@@ -250,30 +250,20 @@ fn pipeline_with_options(
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext::empty(),
     };
-    let (const_array_lengths, const_values, const_typed_facts) = type_store
-        .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-            let const_array_lengths =
-                nia_const_check::compute_module_const_array_lengths(const_input, interner);
-            let const_enum_values = nia_const_check::compute_module_const_enum_values(
-                const_input,
-                interner,
-                const_array_lengths.clone(),
-            );
-            let const_values = nia_const_check::compute_module_const_values(
-                const_input,
-                interner,
-                const_array_lengths.clone(),
-                const_enum_values.clone(),
-            );
-            let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
-                const_input,
-                interner,
-                const_array_lengths.clone(),
-                const_enum_values,
-                const_values.clone(),
-            );
-            (const_array_lengths, const_values, const_typed_facts)
-        });
+    let const_array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
+    let const_enum_values =
+        nia_const_check::compute_module_const_enum_values(const_input, const_array_lengths.clone());
+    let const_values = nia_const_check::compute_module_const_values(
+        const_input,
+        const_array_lengths.clone(),
+        const_enum_values.clone(),
+    );
+    let const_typed_facts = nia_const_check::compute_module_const_typed_facts(
+        const_input,
+        const_array_lengths.clone(),
+        const_enum_values,
+        const_values.clone(),
+    );
     let const_eval =
         crate::BodyConst::from_phases(&const_values, &const_array_lengths, &const_typed_facts);
     assert!(

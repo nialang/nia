@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::ops::{Deref, DerefMut};
 
 use crate::{
     ConstArmType, ConstArrayLengths, ConstCheck, ConstEnumValues, ConstInput, ConstKey,
@@ -44,7 +43,8 @@ use nia_symbol::{SymbolId, SymbolMap, symbol_text_or_unresolved};
 use nia_target_config::TargetConfig;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
 use nia_ty::{
-    ArrayLenTy, ConstGenericArg, IntConst, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind,
+    ArrayLenTy, ConstGenericArg, IntConst, PrimitiveTy, RangeTyKind, TraitId, TyKind,
+    TypeStoreAppend,
 };
 use nia_value_resolve::ValueResolution;
 
@@ -75,7 +75,6 @@ pub struct TypedConstQueryInput<'a> {
     pub symbols: &'a nia_symbol_table::SymbolTable,
     pub lowered: &'a nia_type_lower::TypeLowering,
     pub signatures: &'a ItemSignatures,
-    pub interner: &'a mut TyInterner,
     pub type_store: &'a nia_ty::TypeStore,
     pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
     pub target: &'a TargetConfig,
@@ -121,14 +120,12 @@ pub fn infer_resolved_const_expr_type(
     analyzer.resolved_const_expr_type(expr, expected)
 }
 
-pub fn check_module_const(input: ConstInput<'_>, interner: &mut TyInterner) -> ConstCheck {
-    let array_lengths = compute_module_const_array_lengths(input, interner);
-    let enum_values = compute_module_const_enum_values(input, interner, array_lengths.clone());
-    let values =
-        compute_module_const_values(input, interner, array_lengths.clone(), enum_values.clone());
+pub fn check_module_const(input: ConstInput<'_>) -> ConstCheck {
+    let array_lengths = compute_module_const_array_lengths(input);
+    let enum_values = compute_module_const_enum_values(input, array_lengths.clone());
+    let values = compute_module_const_values(input, array_lengths.clone(), enum_values.clone());
     let typed_facts = compute_module_const_typed_facts(
         input,
-        interner,
         array_lengths.clone(),
         enum_values.clone(),
         values.clone(),
@@ -136,11 +133,8 @@ pub fn check_module_const(input: ConstInput<'_>, interner: &mut TyInterner) -> C
     check_module_const_with_all_phases(array_lengths, enum_values, values, typed_facts)
 }
 
-pub fn compute_module_const_array_lengths(
-    input: ConstInput<'_>,
-    interner: &mut TyInterner,
-) -> ConstArrayLengths {
-    let mut analyzer = Analyzer::new(input, interner);
+pub fn compute_module_const_array_lengths(input: ConstInput<'_>) -> ConstArrayLengths {
+    let mut analyzer = Analyzer::new(input);
     analyzer.analyze_array_lengths();
     ConstArrayLengths {
         values: analyzer.array_lengths,
@@ -150,19 +144,17 @@ pub fn compute_module_const_array_lengths(
 
 pub fn check_module_const_with_array_lengths(
     input: ConstInput<'_>,
-    interner: &mut TyInterner,
     array_lengths: ConstArrayLengths,
 ) -> ConstCheck {
-    let enum_values = compute_module_const_enum_values(input, interner, array_lengths.clone());
-    check_module_const_with_phases(input, interner, array_lengths, enum_values)
+    let enum_values = compute_module_const_enum_values(input, array_lengths.clone());
+    check_module_const_with_phases(input, array_lengths, enum_values)
 }
 
 pub fn compute_module_const_enum_values(
     input: ConstInput<'_>,
-    interner: &mut TyInterner,
     array_lengths: ConstArrayLengths,
 ) -> ConstEnumValues {
-    let mut analyzer = Analyzer::new(input, interner);
+    let mut analyzer = Analyzer::new(input);
     analyzer.array_lengths = array_lengths.values;
     analyzer.diagnostics = array_lengths.diagnostics;
     analyzer.analyze_enum_values();
@@ -175,15 +167,12 @@ pub fn compute_module_const_enum_values(
 
 pub fn check_module_const_with_phases(
     input: ConstInput<'_>,
-    interner: &mut TyInterner,
     array_lengths: ConstArrayLengths,
     enum_values: ConstEnumValues,
 ) -> ConstCheck {
-    let values =
-        compute_module_const_values(input, interner, array_lengths.clone(), enum_values.clone());
+    let values = compute_module_const_values(input, array_lengths.clone(), enum_values.clone());
     let typed_facts = compute_module_const_typed_facts(
         input,
-        interner,
         array_lengths.clone(),
         enum_values.clone(),
         values.clone(),
@@ -193,11 +182,10 @@ pub fn check_module_const_with_phases(
 
 pub fn compute_module_const_values(
     input: ConstInput<'_>,
-    interner: &mut TyInterner,
     array_lengths: ConstArrayLengths,
     enum_values: ConstEnumValues,
 ) -> ConstValues {
-    let mut analyzer = Analyzer::new(input, interner);
+    let mut analyzer = Analyzer::new(input);
     analyzer.array_lengths = array_lengths.values;
     analyzer.enum_values = enum_values.values;
     analyzer.typed_enum_values = enum_values.typed_values;
@@ -228,12 +216,11 @@ pub fn check_module_const_with_all_phases(
 
 pub fn compute_module_const_typed_facts(
     input: ConstInput<'_>,
-    interner: &mut TyInterner,
     array_lengths: ConstArrayLengths,
     enum_values: ConstEnumValues,
     values: ConstValues,
 ) -> ConstTypedFacts {
-    let mut analyzer = Analyzer::new(input, interner);
+    let mut analyzer = Analyzer::new(input);
     analyzer.array_lengths = array_lengths.values;
     analyzer.enum_values = enum_values.values;
     analyzer.typed_enum_values = enum_values.typed_values;
@@ -247,67 +234,25 @@ pub fn compute_module_const_typed_facts(
     }
 }
 
-enum ConstAppendView<'a> {
-    Session(&'a mut TyInterner),
-    Snapshot(TyInterner),
-}
-
 struct ConstTypeCx<'a> {
     store: &'a nia_ty::TypeStore,
-    append: ConstAppendView<'a>,
+    append: TypeStoreAppend,
 }
 
 impl<'a> ConstTypeCx<'a> {
-    fn session(store: &'a nia_ty::TypeStore, interner: &'a mut TyInterner) -> Self {
+    fn new(store: &'a nia_ty::TypeStore, module_id: ModuleId) -> Self {
         Self {
             store,
-            append: ConstAppendView::Session(interner),
-        }
-    }
-
-    fn snapshot(store: &'a nia_ty::TypeStore, interner: TyInterner) -> Self {
-        Self {
-            store,
-            append: ConstAppendView::Snapshot(interner),
+            append: store.append_for_module(module_id),
         }
     }
 
     fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.store.get(ty)
     }
-}
 
-impl Deref for ConstTypeCx<'_> {
-    type Target = TyInterner;
-
-    fn deref(&self) -> &Self::Target {
-        &self.append
-    }
-}
-
-impl DerefMut for ConstTypeCx<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.append
-    }
-}
-
-impl Deref for ConstAppendView<'_> {
-    type Target = TyInterner;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Session(interner) => interner,
-            Self::Snapshot(interner) => interner,
-        }
-    }
-}
-
-impl DerefMut for ConstAppendView<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            Self::Session(interner) => interner,
-            Self::Snapshot(interner) => interner,
-        }
+    fn intern(&self, kind: TyKind) -> InternedTyId {
+        self.append.intern(kind)
     }
 }
 
@@ -361,7 +306,7 @@ impl Analyzer<'_> {
         symbol_text_or_unresolved(self.input.symbols, symbol)
     }
 
-    fn new<'a>(input: ConstInput<'a>, local_interner: &'a mut TyInterner) -> Analyzer<'a> {
+    fn new<'a>(input: ConstInput<'a>) -> Analyzer<'a> {
         Analyzer {
             input,
             values: HashMap::new(),
@@ -376,7 +321,7 @@ impl Analyzer<'_> {
             active: HashSet::new(),
             type_contexts: HashMap::from([(
                 input.defs.module_id,
-                ConstTypeCx::session(input.type_store, local_interner),
+                ConstTypeCx::new(input.type_store, input.defs.module_id),
             )]),
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
@@ -419,7 +364,7 @@ impl Analyzer<'_> {
             active: HashSet::new(),
             type_contexts: HashMap::from([(
                 input.defs.module_id,
-                ConstTypeCx::session(input.type_store, input.interner),
+                ConstTypeCx::new(input.type_store, input.defs.module_id),
             )]),
             program_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),

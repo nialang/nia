@@ -596,58 +596,44 @@ fn const_inputs_for_body_check(
             visible_extensions: Some(&visible_extensions_for_module),
         },
     };
-    let (array_lengths, enum_values, values, typed_facts) = db
-        .context()
-        .type_store
-        .with_module_interner_for_semantic_migration(module_id, |interner| {
-            let mut array_lengths = time_module_provider(
-                db,
-                "executable_body_check.const_eval.array_lengths",
-                module_id,
-                || nia_const_check::compute_module_const_array_lengths(const_input, interner),
-            );
-            array_lengths.diagnostics.extend(module.diagnostics.clone());
-            let enum_values = time_module_provider(
-                db,
-                "executable_body_check.const_eval.enum_values",
-                module_id,
-                || {
-                    nia_const_check::compute_module_const_enum_values(
-                        const_input,
-                        interner,
-                        array_lengths.clone(),
-                    )
-                },
-            );
-            let values = time_module_provider(
-                db,
-                "executable_body_check.const_eval.values",
-                module_id,
-                || {
-                    nia_const_check::compute_module_const_values(
-                        const_input,
-                        interner,
-                        array_lengths.clone(),
-                        enum_values.clone(),
-                    )
-                },
-            );
-            let typed_facts = time_module_provider(
-                db,
-                "executable_body_check.const_eval.typed_facts",
-                module_id,
-                || {
-                    nia_const_check::compute_module_const_typed_facts(
-                        const_input,
-                        interner,
-                        array_lengths.clone(),
-                        enum_values.clone(),
-                        values.clone(),
-                    )
-                },
-            );
-            (array_lengths, enum_values, values, typed_facts)
-        });
+    let mut array_lengths = time_module_provider(
+        db,
+        "executable_body_check.const_eval.array_lengths",
+        module_id,
+        || nia_const_check::compute_module_const_array_lengths(const_input),
+    );
+    array_lengths.diagnostics.extend(module.diagnostics.clone());
+    let enum_values = time_module_provider(
+        db,
+        "executable_body_check.const_eval.enum_values",
+        module_id,
+        || nia_const_check::compute_module_const_enum_values(const_input, array_lengths.clone()),
+    );
+    let values = time_module_provider(
+        db,
+        "executable_body_check.const_eval.values",
+        module_id,
+        || {
+            nia_const_check::compute_module_const_values(
+                const_input,
+                array_lengths.clone(),
+                enum_values.clone(),
+            )
+        },
+    );
+    let typed_facts = time_module_provider(
+        db,
+        "executable_body_check.const_eval.typed_facts",
+        module_id,
+        || {
+            nia_const_check::compute_module_const_typed_facts(
+                const_input,
+                array_lengths.clone(),
+                enum_values.clone(),
+                values.clone(),
+            )
+        },
+    );
     BodyCheckConstInputs {
         module,
         array_lengths,
@@ -1078,9 +1064,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     module_id,
                     Some(signatures),
                     |module_id| fact_mode.signature_facts_for(module_id),
-                    |input, module, interner| {
+                    |input, module| {
                         let mut array_lengths =
-                            nia_const_check::compute_module_const_array_lengths(input, interner);
+                            nia_const_check::compute_module_const_array_lengths(input);
                         array_lengths.diagnostics.extend(module.diagnostics.clone());
                         array_lengths
                     },
@@ -1124,10 +1110,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     module_id,
                     Some(signatures),
                     |module_id| fact_mode.signature_facts_for(module_id),
-                    |input, module, interner| {
+                    |input, module| {
                         let mut enum_values = nia_const_check::compute_module_const_enum_values(
                             input,
-                            interner,
                             array_lengths.clone(),
                         );
                         enum_values.diagnostics.extend(module.diagnostics.clone());
@@ -1139,10 +1124,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     module_id,
                     Some(signatures),
                     |module_id| fact_mode.signature_facts_for(module_id),
-                    |input, module, interner| {
+                    |input, module| {
                         let mut values = nia_const_check::compute_module_const_values(
                             input,
-                            interner,
                             array_lengths,
                             enum_values,
                         );
@@ -1365,9 +1349,9 @@ pub(super) fn executable_layouts_for_reachable_items(
                                 )
                             })
                     },
-                    |input, module, interner| {
+                    |input, module| {
                         let mut array_lengths =
-                            nia_const_check::compute_module_const_array_lengths(input, interner);
+                            nia_const_check::compute_module_const_array_lengths(input);
                         array_lengths.diagnostics.extend(module.diagnostics.clone());
                         array_lengths
                     },
@@ -1377,9 +1361,9 @@ pub(super) fn executable_layouts_for_reachable_items(
                     db,
                     target_module_id,
                     non_function_signatures_override,
-                    |input, module, interner| {
+                    |input, module| {
                         let mut array_lengths =
-                            nia_const_check::compute_module_const_array_lengths(input, interner);
+                            nia_const_check::compute_module_const_array_lengths(input);
                         array_lengths.diagnostics.extend(module.diagnostics.clone());
                         array_lengths
                     },
@@ -1410,9 +1394,9 @@ pub(super) fn executable_layouts_for_reachable_items(
                     db,
                     id.module_id,
                     non_function_signatures_override,
-                    |input, module, interner| {
+                    |input, module| {
                         let mut array_lengths =
-                            nia_const_check::compute_module_const_array_lengths(input, interner);
+                            nia_const_check::compute_module_const_array_lengths(input);
                         array_lengths.diagnostics.extend(module.diagnostics.clone());
                         array_lengths
                     },
@@ -1770,15 +1754,11 @@ pub(super) fn executable_signature_checked_module(
         db,
         module_id,
         Some(program_signatures),
-        |input, module, interner| {
-            let mut array_lengths =
-                nia_const_check::compute_module_const_array_lengths(input, interner);
+        |input, module| {
+            let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input);
             array_lengths.diagnostics.extend(module.diagnostics.clone());
-            let mut enum_values = nia_const_check::compute_module_const_enum_values(
-                input,
-                interner,
-                array_lengths.clone(),
-            );
+            let mut enum_values =
+                nia_const_check::compute_module_const_enum_values(input, array_lengths.clone());
             enum_values.diagnostics.extend(module.diagnostics.clone());
             (array_lengths, enum_values)
         },

@@ -400,10 +400,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext::empty(),
     };
-    let const_eval = type_store
-        .with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-            nia_const_check::check_module_const(const_input, interner)
-        });
+    let const_eval = nia_const_check::check_module_const(const_input);
     let root_types = signatures.type_roots();
     let layouts =
         nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {

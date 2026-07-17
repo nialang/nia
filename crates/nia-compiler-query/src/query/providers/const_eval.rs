@@ -34,7 +34,7 @@ pub(super) fn provide_const(db: &QueryDb<CompilerContext>, module_id: ModuleId) 
         let values = db.query(ConstValuesQuery(module_id));
         let typed_facts = db.query(ConstTypedFactsQuery(module_id));
 
-        with_const_input(db, module_id, |_input, module, _interner| {
+        with_const_input(db, module_id, |_input, module| {
             let mut const_eval = nia_const_check::check_module_const_with_all_phases(
                 array_lengths,
                 enum_values,
@@ -51,9 +51,8 @@ pub(super) fn provide_const_array_lengths(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_const_check::ConstArrayLengths {
-    with_const_input(db, module_id, |input, module, interner| {
-        let mut array_lengths =
-            nia_const_check::compute_module_const_array_lengths(input, interner);
+    with_const_input(db, module_id, |input, module| {
+        let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input);
         array_lengths.diagnostics.extend(module.diagnostics.clone());
         array_lengths
     })
@@ -64,9 +63,9 @@ pub(super) fn provide_const_enum_values(
     module_id: ModuleId,
 ) -> nia_const_check::ConstEnumValues {
     let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
-    with_const_input(db, module_id, |input, module, interner| {
+    with_const_input(db, module_id, |input, module| {
         let mut enum_values =
-            nia_const_check::compute_module_const_enum_values(input, interner, array_lengths);
+            nia_const_check::compute_module_const_enum_values(input, array_lengths);
         enum_values.diagnostics.extend(module.diagnostics.clone());
         enum_values
     })
@@ -78,13 +77,9 @@ pub(super) fn provide_const_values(
 ) -> nia_const_check::ConstValues {
     let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
     let enum_values = db.query(ConstEnumValuesQuery(module_id));
-    with_const_input(db, module_id, |input, module, interner| {
-        let mut values = nia_const_check::compute_module_const_values(
-            input,
-            interner,
-            array_lengths,
-            enum_values,
-        );
+    with_const_input(db, module_id, |input, module| {
+        let mut values =
+            nia_const_check::compute_module_const_values(input, array_lengths, enum_values);
         values.diagnostics.extend(module.diagnostics.clone());
         values
     })
@@ -97,21 +92,15 @@ pub(super) fn provide_const_typed_facts(
     let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
     let enum_values = db.query(ConstEnumValuesQuery(module_id));
     let values = db.query(ConstValuesQuery(module_id));
-    with_const_input(db, module_id, |input, _module, interner| {
-        nia_const_check::compute_module_const_typed_facts(
-            input,
-            interner,
-            array_lengths,
-            enum_values,
-            values,
-        )
+    with_const_input(db, module_id, |input, _module| {
+        nia_const_check::compute_module_const_typed_facts(input, array_lengths, enum_values, values)
     })
 }
 
 fn with_const_input<T>(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering, &mut nia_ty::TyInterner) -> T,
+    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
 ) -> T {
     with_const_input_and_program_facts(db, module_id, None, |_| false, f)
 }
@@ -121,7 +110,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
     module_id: ModuleId,
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
     use_signature_facts_for: impl Fn(ModuleId) -> bool,
-    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering, &mut nia_ty::TyInterner) -> T,
+    f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
 ) -> T {
     let module = db.query(ConstModuleQuery(module_id));
     let defs = db.query_shared(FullModuleDefsQuery(module_id));
@@ -237,9 +226,5 @@ pub(super) fn with_const_input_and_program_facts<T>(
             visible_extensions: Some(&visible_extensions_for_module),
         },
     };
-    db.context()
-        .type_store
-        .with_module_interner_for_semantic_migration(module_id, |interner| {
-            f(input, &module, interner)
-        })
+    f(input, &module)
 }

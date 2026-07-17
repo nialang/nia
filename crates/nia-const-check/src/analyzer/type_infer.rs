@@ -156,8 +156,8 @@ impl Analyzer<'_> {
         substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<InternedTyId> {
         self.ensure_type_context(module_id)?;
-        let interner = self.type_contexts.get_mut(&module_id)?;
-        Some(substitute_ty_generics(interner, ty, &|generic| {
+        let types = self.type_contexts.get(&module_id)?;
+        Some(substitute_ty_generics(types, ty, &|generic| {
             substitutions.get(generic).copied()
         }))
     }
@@ -1084,8 +1084,8 @@ impl Analyzer<'_> {
         substitutions: &SymbolMap<InternedTyId>,
     ) -> Option<InternedTyId> {
         let current_module = self.current_execution_module_id();
-        let interner = self.type_contexts.get_mut(&current_module)?;
-        Some(substitute_ty_generics(interner, ty, &|generic| {
+        let types = self.type_contexts.get(&current_module)?;
+        Some(substitute_ty_generics(types, ty, &|generic| {
             substitutions.get(generic).copied()
         }))
     }
@@ -1135,8 +1135,8 @@ impl Analyzer<'_> {
         for field in &signature.fields {
             let canonical = self.type_for_module_or_none(field.ty, current_module)?;
             let ty = {
-                let interner = self.type_contexts.get_mut(&current_module)?;
-                substitute_ty_generics(interner, canonical, &|generic| {
+                let types = self.type_contexts.get(&current_module)?;
+                substitute_ty_generics(types, canonical, &|generic| {
                     substitutions.get(generic).copied()
                 })
             };
@@ -1153,17 +1153,17 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         let current_module = self.current_execution_module_id();
         let args = {
-            let interner = self.type_contexts.get_mut(&current_module)?;
+            let types = self.type_contexts.get(&current_module)?;
             args.into_iter()
                 .map(|arg| {
-                    substitute_ty_generics(interner, arg, &|generic| {
+                    substitute_ty_generics(types, arg, &|generic| {
                         substitutions.get(generic).copied()
                     })
                 })
                 .collect()
         };
-        self.type_contexts.get_mut(&current_module).map(|interner| {
-            interner.intern(TyKind::Nominal {
+        self.type_contexts.get(&current_module).map(|types| {
+            types.intern(TyKind::Nominal {
                 def_id,
                 args,
                 const_args: Vec::new(),
@@ -1686,7 +1686,7 @@ impl Analyzer<'_> {
         let module_id = self.current_execution_module_id();
         self.ensure_type_context(module_id)?;
         self.type_contexts
-            .get_mut(&module_id)
-            .map(|interner| interner.intern(kind))
+            .get(&module_id)
+            .map(|types| types.intern(kind))
     }
 }
