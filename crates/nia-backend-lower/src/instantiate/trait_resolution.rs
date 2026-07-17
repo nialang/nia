@@ -346,12 +346,12 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .map(|generic| {
                 self.type_context
-                    .interner
+                    .append
                     .intern(TyKind::GenericParam(*generic))
             })
             .collect();
         Some(TraitGoal {
-            self_ty: self.type_context.interner.intern(TyKind::SelfParam),
+            self_ty: self.type_context.append.intern(TyKind::SelfParam),
             trait_id: TraitId::Source(trait_def_id),
             trait_args,
             trait_const_args: Vec::new(),
@@ -563,7 +563,7 @@ impl<'a> ModuleLowerer<'a> {
                 };
                 Some(FunctionExpr {
                     span: receiver_ptr.span,
-                    ty: self.type_context.interner.intern(TyKind::Pointer {
+                    ty: self.type_context.append.intern(TyKind::Pointer {
                         is_readonly: matches!(trait_id, BuiltinTrait::Deref),
                         elem,
                     }),
@@ -595,7 +595,7 @@ impl<'a> ModuleLowerer<'a> {
                 };
                 Some(FunctionExpr {
                     span: index.span,
-                    ty: self.type_context.interner.intern(TyKind::Pointer {
+                    ty: self.type_context.append.intern(TyKind::Pointer {
                         is_readonly: matches!(trait_id, BuiltinTrait::Index),
                         elem,
                     }),

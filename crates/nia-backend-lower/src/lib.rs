@@ -197,14 +197,12 @@ pub fn lower_backend_program_with_timings(
         modules
             .iter()
             .map(|input| {
-                let interner = type_store.checkout_module_for_semantic_migration(input.module_id);
                 ModuleLowerer::new(
                     input,
                     type_store,
                     monomorphization,
                     optimization,
                     &shared,
-                    interner,
                     timing,
                 )
             })
@@ -864,12 +862,11 @@ impl<'a> ModuleLowerer<'a> {
         monomorphization: &'a Monomorphization,
         optimization: OptimizationPolicy,
         shared: &'a BackendLowerShared,
-        interner: nia_ty::TypeStoreModuleCheckout,
         timing: bool,
     ) -> Self {
         let type_context =
             time_backend_stage(timing, "backend_lower.new_lowerer.type_context", || {
-                type_context::BackendTypeContext::new(input, type_store, interner)
+                type_context::BackendTypeContext::new(input, type_store)
             });
         let extension_generics_by_method = time_backend_stage(
             timing,
@@ -2146,12 +2143,8 @@ impl<'a> ModuleLowerer<'a> {
         struct_instances: &[nia_backend_ir::BackendStructInstance],
         union_instances: &[nia_backend_ir::BackendUnionInstance],
     ) {
-        layout_extender::BackendLayoutExtender::new(
-            self.input,
-            self.type_store,
-            &mut self.type_context.interner,
-        )
-        .extend_for_instances(layouts, struct_instances, union_instances);
+        layout_extender::BackendLayoutExtender::new(self.input, self.type_store)
+            .extend_for_instances(layouts, struct_instances, union_instances);
     }
 
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
@@ -2313,7 +2306,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn error_ty(&self) -> InternedTyId {
-        self.type_context.interner.error()
+        self.type_context.append.intern(TyKind::Error)
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {

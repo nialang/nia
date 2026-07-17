@@ -12,20 +12,14 @@ use crate::BackendLowerModuleInput;
 pub(crate) struct BackendLayoutExtender<'input, 'ctx> {
     input: &'ctx BackendLowerModuleInput<'input>,
     type_store: &'ctx nia_ty::TypeStore,
-    interner: &'ctx mut nia_ty::TyInterner,
 }
 
 impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
     pub(crate) fn new(
         input: &'ctx BackendLowerModuleInput<'input>,
         type_store: &'ctx nia_ty::TypeStore,
-        interner: &'ctx mut nia_ty::TyInterner,
     ) -> Self {
-        Self {
-            input,
-            type_store,
-            interner,
-        }
+        Self { input, type_store }
     }
 
     pub(crate) fn extend_for_instances(
@@ -34,16 +28,21 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
         struct_instances: &[BackendStructInstance],
         union_instances: &[BackendUnionInstance],
     ) {
-        let normalization_input = self
-            .interner
-            .iter()
-            .map(|(ty_id, _)| ty_id)
-            .collect::<Vec<_>>();
+        let mut normalization_input = self.input.signatures.type_roots();
+        for instance in struct_instances {
+            normalization_input.extend(instance.args.iter().copied());
+            normalization_input.extend(instance.const_args.iter().map(|arg| arg.ty));
+        }
+        for instance in union_instances {
+            normalization_input.extend(instance.args.iter().copied());
+            normalization_input.extend(instance.const_args.iter().map(|arg| arg.ty));
+        }
+        normalization_input.sort_unstable();
+        normalization_input.dedup();
         let normalization = nia_type_normalize::normalize_module_types(
             nia_type_normalize::TypeNormalizationInput {
                 module_id: self.input.module_id,
                 type_store: self.type_store,
-                interner: self.interner,
                 input_ids: &normalization_input,
                 signatures: self.input.signatures,
             },

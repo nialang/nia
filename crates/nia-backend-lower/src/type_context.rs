@@ -12,7 +12,7 @@ use crate::{
 pub(crate) struct BackendTypeContext<'input> {
     input: &'input BackendLowerModuleInput<'input>,
     type_store: &'input nia_ty::TypeStore,
-    pub(crate) interner: nia_ty::TypeStoreModuleCheckout,
+    pub(crate) append: nia_ty::TypeStoreAppend,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
     self_substitutions: Vec<Option<InternedTyId>>,
     type_substitutions: Vec<SymbolMap<InternedTyId>>,
@@ -24,12 +24,11 @@ impl<'input> BackendTypeContext<'input> {
     pub(crate) fn new(
         input: &'input BackendLowerModuleInput<'input>,
         type_store: &'input nia_ty::TypeStore,
-        interner: nia_ty::TypeStoreModuleCheckout,
     ) -> Self {
         Self {
             input,
             type_store,
-            interner,
+            append: type_store.append_for_module(input.module_id),
             type_instantiations: HashMap::new(),
             self_substitutions: Vec::new(),
             type_substitutions: Vec::new(),

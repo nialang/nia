@@ -357,16 +357,12 @@ fn lower_source_with_body_check_mutation_and_optimization(
         &active_item_tree,
     );
     let normalization_input = type_lowering.explicit_type_roots();
-    let normalization =
-        type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-            normalize_module_types(nia_type_normalize::TypeNormalizationInput {
-                module_id: ModuleId(0),
-                type_store: &type_store,
-                interner,
-                input_ids: &normalization_input,
-                signatures: &signatures,
-            })
-        });
+    let normalization = normalize_module_types(nia_type_normalize::TypeNormalizationInput {
+        module_id: ModuleId(0),
+        type_store: &type_store,
+        input_ids: &normalization_input,
+        signatures: &signatures,
+    });
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-backend-lower-test/main.nia");
     let const_module = nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {

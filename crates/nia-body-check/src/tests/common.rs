@@ -273,14 +273,11 @@ fn pipeline_with_options(
     );
     let normalization_input = lowered.explicit_type_roots();
     let normalization =
-        type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-            nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
-                module_id: ModuleId(0),
-                type_store: &type_store,
-                interner,
-                input_ids: &normalization_input,
-                signatures: &signatures,
-            })
+        nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
+            module_id: ModuleId(0),
+            type_store: &type_store,
+            input_ids: &normalization_input,
+            signatures: &signatures,
         });
     assert!(
         normalization.diagnostics.is_empty(),

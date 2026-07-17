@@ -480,26 +480,26 @@ overload, interner snapshot, or positional convenience API beside
 computation when evaluating them could recursively request another module's
 layout.
 
-Backend lowering now checks out each owning module shard for the duration of
-the whole-program lowering fixed point. Synthesized instance types append
-directly to the session store; the previous cloned writable interner and
-`BackendModule.interner` have been deleted. `BackendProgram` therefore contains
-typed handles and backend facts, not a second type database. `CodegenProgram`
-retains only a lightweight handle to the same session store. LLVM validation,
-compiler-builtin collection, ABI/type lowering, static initialization, and
-mangling all resolve handles directly from the canonical store; they neither
-check out module shards nor reconstruct a program module-view map. Missing or
-foreign handles fail at this store boundary. Backend lowering still uses
-thread-bound checkout while it appends synthesized types; same-shard reentry
-remains an immediate internal error.
+Backend lowering reads existing handles from the canonical store and publishes
+synthesized instance types through a module-scoped `TypeStoreAppend`; it does
+not checkout an owning module shard for the whole-program fixed point. The
+previous cloned writable interner and `BackendModule.interner` have been
+deleted. `BackendProgram` therefore contains typed handles and backend facts,
+not a second type database. `CodegenProgram` retains only a lightweight handle
+to the same session store. LLVM validation, compiler-builtin collection,
+ABI/type lowering, static initialization, and mangling all resolve handles
+directly from the canonical store; they neither checkout module shards nor
+reconstruct a program module-view map. Missing or foreign handles fail at this
+store boundary.
 
 Compiler-query no longer constructs a final module-snapshot map for backend
 lowering. `BackendTypeContext` reads every `TyId` from `TypeStore`; foreign
 function/global instance worklists carry only stable handles; extension and
 trait candidates carry `ModuleId` for normalization rather than cloned
 interners. Program normalization input borrows only the normalized-ID maps, so
-it cannot expose a type view as an accidental backend side channel. Backend
-checkout remains solely the append capability for synthesized types.
+it cannot expose a type view as an accidental backend side channel. The
+backend's append capability neither exposes nor updates a module visibility
+log.
 
 Reachability has crossed this boundary completely: its fact input contains one
 canonical store reference, generic instances carry only stable handles, and
@@ -514,9 +514,10 @@ visibility alias resolution, semantic-use projection collection, and
 array-length dependency scans all take an explicit `TypeStore`; substitutions
 synthesize through `TypeStoreAppend`. `TypeNormalization` is a pure semantic
 fact containing only normalized-ID mappings and diagnostics. Its single
-algorithm entry receives the canonical store for reads and an explicit mutable
-append target for synthesized aliases; const/body/query inputs no longer use
-normalization as a hidden snapshot carrier. Type lowering exposes deterministic,
+algorithm entry receives the canonical store, creates a module-scoped append
+capability for synthesized aliases, and never exposes mutable storage to its
+callers; const/body/query inputs no longer use normalization as a hidden
+snapshot carrier. Type lowering exposes deterministic,
 deduplicated source type roots, so normalization also does not enumerate a
 module view. `TypeLowering` itself contains only source type facts, const
 expressions, and diagnostics; all lowering entry points require an explicit
