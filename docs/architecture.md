@@ -1041,6 +1041,15 @@ Type-checks function bodies and expression semantics. It owns:
 Body checking consumes earlier tables instead of rediscovering definitions or
 types from source text.
 
+All body-check entry points read existing handles from the compilation
+`TypeStore` and publish inferred or substituted structural types through a
+module-scoped `TypeStoreAppend`. They never borrow a mutable interner, and query
+providers do not checkout a module shard around body checking. Incremental
+`BodyCheckSeed` carries only previously computed `SemanticFacts`; type identity
+and availability are guaranteed by the session store rather than a snapshot
+prefix contract. Comparison probes share the same canonical store capability
+instead of cloning a temporary type view.
+
 It produces two explicit products:
 
 - `BodyFacts`, the body semantic surface: expression types, final

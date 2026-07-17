@@ -1356,9 +1356,9 @@ impl<'a> BodyChecker<'a> {
             },
             Some(TyKind::ConstOnly | TyKind::Error) => false,
             None => panic!(
-                "Nia ICE: method pattern type {:?} is missing from interner {:?}",
+                "Nia ICE: method pattern type {:?} is missing from type store {:?}",
                 general,
-                self.interner.interner_id()
+                self.interner.store_id()
             ),
         }
     }

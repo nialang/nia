@@ -1170,7 +1170,7 @@ impl<'a> BodyChecker<'a> {
             values: self.values,
             locals: self.locals,
             semantic_uses: self.semantic_uses,
-            interner: BodyTypeCx::snapshot(self.type_store, self.interner.clone()),
+            interner: BodyTypeCx::new(self.type_store, self.defs.module_id),
             type_lowering: self.type_lowering,
             signatures: self.signatures,
             const_signatures: self.const_signatures,

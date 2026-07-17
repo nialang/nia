@@ -486,17 +486,11 @@ fn executable_check(
                     Some(reachable_body_modules),
                 )
             };
-            let seed_interner = fact_by_id
-                .contains_key(&module_id)
-                .then(|| db.context().type_store.module_snapshot(module_id));
-            let seed =
-                fact_by_id
-                    .get(&module_id)
-                    .zip(seed_interner.as_ref())
-                    .map(|(state, interner)| nia_body_check::BodyCheckSeed {
-                        interner,
-                        facts: &state.semantic_facts,
-                    });
+            let seed = fact_by_id
+                .get(&module_id)
+                .map(|state| nia_body_check::BodyCheckSeed {
+                    facts: &state.semantic_facts,
+                });
             let body_check = {
                 let resolution_inputs = {
                     let cached = caches

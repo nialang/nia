@@ -3,7 +3,6 @@ use std::cell::RefCell;
 use std::fmt;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    ops::{Deref, DerefMut},
     rc::Rc,
     sync::Arc,
 };
@@ -62,7 +61,7 @@ use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, known};
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
-use nia_ty::{ConstGenericArg, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ConstGenericArg, PrimitiveTy, TyKind, TypeStoreAppend};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
@@ -448,7 +447,6 @@ pub struct BodyCheckInput<'a> {
 
 #[derive(Clone, Copy)]
 pub struct BodyCheckSeed<'a> {
-    pub interner: &'a TyInterner,
     pub facts: &'a SemanticFacts,
 }
 
@@ -592,28 +590,20 @@ pub fn check_module_bodies(
         product: BodyCheckProduct::Full,
         prechecked: None,
     };
-    let mut checked =
-        type_store.with_module_interner_for_semantic_migration(defs.module_id, |interner| {
-            check_module_bodies_with_program_signatures_and_layouts_with_timings(
-                input,
-                interner,
-                nia_timing::TimingMode::Off,
-            )
-        });
+    let mut checked = check_module_bodies_with_program_signatures_and_layouts_with_timings(
+        input,
+        nia_timing::TimingMode::Off,
+    );
     checked.diagnostics.extend(layouts.diagnostics);
     checked
 }
 
-pub fn check_module_bodies_with_layouts(
-    input: BodyCheckInput<'_>,
-    interner: &mut TyInterner,
-) -> BodyCheck {
-    check_module_bodies_with_program_signatures_and_layouts(input, interner)
+pub fn check_module_bodies_with_layouts(input: BodyCheckInput<'_>) -> BodyCheck {
+    check_module_bodies_with_program_signatures_and_layouts(input)
 }
 
 pub fn check_module_bodies_with_program_signatures(
     input: BodyCheckWithProgramSignaturesInput<'_>,
-    interner: &mut TyInterner,
 ) -> BodyCheck {
     let root_types = input.signatures.type_roots();
     let array_lengths = |id| input.const_eval.array_lengths.get(&id).copied();
@@ -628,40 +618,37 @@ pub fn check_module_bodies_with_program_signatures(
             target: nia_layout::TargetDataLayout::LP64,
             program: nia_layout::ProgramLayoutContext::default(),
         });
-    let mut checked = check_module_bodies_with_layouts(
-        BodyCheckInput {
-            type_store: input.type_store,
-            source_version: input.source_version,
-            source_path: input.source_path,
-            symbols: input.symbols,
-            origins: input.origins,
-            active_item_tree: input.active_item_tree,
-            defs: input.defs,
-            values: input.values,
-            locals: input.locals,
-            semantic_uses: input.semantic_uses,
-            lowered: input.lowered,
-            signatures: BodyLocalSignatures::from_item_signatures(input.signatures),
-            const_signatures: input.signatures,
-            normalization: input.normalization,
-            seed: None,
-            target: input.target,
-            const_eval: input.const_eval,
-            const_module: input.const_module,
-            layouts: &layouts,
-            extensions: input.extensions,
-            lazy_extensions: None,
-            program_extension_methods: input.program_extension_methods,
-            program: input.program,
-            program_signatures: input.program_signatures,
-            function_scope: input.function_scope,
-            program_const: ProgramConstMaps::empty(),
-            filter: BodyCheckFilter::All,
-            product: BodyCheckProduct::Full,
-            prechecked: None,
-        },
-        interner,
-    );
+    let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
+        type_store: input.type_store,
+        source_version: input.source_version,
+        source_path: input.source_path,
+        symbols: input.symbols,
+        origins: input.origins,
+        active_item_tree: input.active_item_tree,
+        defs: input.defs,
+        values: input.values,
+        locals: input.locals,
+        semantic_uses: input.semantic_uses,
+        lowered: input.lowered,
+        signatures: BodyLocalSignatures::from_item_signatures(input.signatures),
+        const_signatures: input.signatures,
+        normalization: input.normalization,
+        seed: None,
+        target: input.target,
+        const_eval: input.const_eval,
+        const_module: input.const_module,
+        layouts: &layouts,
+        extensions: input.extensions,
+        lazy_extensions: None,
+        program_extension_methods: input.program_extension_methods,
+        program: input.program,
+        program_signatures: input.program_signatures,
+        function_scope: input.function_scope,
+        program_const: ProgramConstMaps::empty(),
+        filter: BodyCheckFilter::All,
+        product: BodyCheckProduct::Full,
+        prechecked: None,
+    });
     checked.diagnostics.extend(layouts.diagnostics);
     checked
 }
@@ -726,30 +713,21 @@ fn semantic_use_table_for_body_input(
 
 pub fn check_module_bodies_with_program_signatures_and_layouts(
     input: BodyCheckInput<'_>,
-    interner: &mut TyInterner,
 ) -> BodyCheck {
     check_module_bodies_with_program_signatures_and_layouts_with_timings(
         input,
-        interner,
         nia_timing::TimingMode::Off,
     )
 }
 
 pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
     input: BodyCheckInput<'a>,
-    interner: &'a mut TyInterner,
     timings: nia_timing::TimingMode,
 ) -> BodyCheck {
     let timing = timings.detail();
     let module_id = input.defs.module_id;
     let prechecked = input.prechecked;
     let seed = input.seed;
-    if let Some(seed) = seed {
-        assert!(
-            seed.interner.is_prefix_of(interner),
-            "Nia ICE: body seed is not a prefix of its session type store"
-        );
-    }
     let visible_extensions = BodyVisibleExtensions {
         methods: input.extensions,
         lazy: input.lazy_extensions,
@@ -776,7 +754,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
     } else {
         BodyVisibleExtensionSource::Eager(input.extensions.clone())
     };
-    let void_ty = interner.primitive(PrimitiveTy::Void);
+    let types = BodyTypeCx::new(input.type_store, module_id);
+    let void_ty = types.primitive(PrimitiveTy::Void);
     let mut checker = time_body_stage(timing, "body_check.init", module_id, || BodyChecker {
         type_store: input.type_store,
         active_item_tree: input.active_item_tree,
@@ -785,7 +764,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         values: input.values,
         locals: input.locals,
         semantic_uses: input.semantic_uses,
-        interner: BodyTypeCx::session(input.type_store, interner),
+        interner: types,
         type_lowering: input.lowered,
         signatures: input.signatures,
         const_signatures: input.const_signatures,
@@ -953,67 +932,37 @@ fn time_body_stage_if_slow<T>(
     )
 }
 
-enum BodyAppendView<'a> {
-    Session(&'a mut TyInterner),
-    Snapshot(TyInterner),
-}
-
 struct BodyTypeCx<'a> {
     store: &'a nia_ty::TypeStore,
-    append: BodyAppendView<'a>,
+    append: TypeStoreAppend,
 }
 
 impl<'a> BodyTypeCx<'a> {
-    fn session(store: &'a nia_ty::TypeStore, interner: &'a mut TyInterner) -> Self {
+    fn new(store: &'a nia_ty::TypeStore, module_id: ModuleId) -> Self {
         Self {
             store,
-            append: BodyAppendView::Session(interner),
-        }
-    }
-
-    fn snapshot(store: &'a nia_ty::TypeStore, interner: TyInterner) -> Self {
-        Self {
-            store,
-            append: BodyAppendView::Snapshot(interner),
+            append: store.append_for_module(module_id),
         }
     }
 
     fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.store.get(ty)
     }
-}
 
-impl Deref for BodyTypeCx<'_> {
-    type Target = TyInterner;
-
-    fn deref(&self) -> &Self::Target {
-        &self.append
+    fn intern(&self, kind: TyKind) -> InternedTyId {
+        self.append.intern(kind)
     }
-}
 
-impl DerefMut for BodyTypeCx<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.append
+    fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+        self.intern(TyKind::Primitive(primitive))
     }
-}
 
-impl Deref for BodyAppendView<'_> {
-    type Target = TyInterner;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Session(interner) => interner,
-            Self::Snapshot(interner) => interner,
-        }
+    fn error(&self) -> InternedTyId {
+        self.intern(TyKind::Error)
     }
-}
 
-impl DerefMut for BodyAppendView<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            Self::Session(interner) => interner,
-            Self::Snapshot(interner) => interner,
-        }
+    fn store_id(&self) -> nia_ids::TypeStoreId {
+        self.store.id()
     }
 }
 

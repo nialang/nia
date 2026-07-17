@@ -1153,74 +1153,63 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     };
     let program_visible_extensions =
         |module_id| Some(db.query(VisibleExtensionsQuery(module_id)).methods.clone());
-    let run_body_check = |inputs: &BodyCheckResolutionInputs,
-                          body_const: nia_body_check::BodyConst<'_>,
-                          const_module: &nia_const_ir::ResolvedConstModule,
-                          filter: nia_body_check::BodyCheckFilter<'_>,
-                          prechecked: Option<nia_body_check::PrecheckedBodyCheck>,
-                          interner: &mut nia_ty::TyInterner| {
-        nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
-            nia_body_check::BodyCheckInput {
-                type_store: &db.context().type_store,
-                source_version: Some(source_version),
-                source_path: &source_path,
-                symbols: &db.context().symbols(),
-                origins: &origins,
-                active_item_tree: &inputs.active_item_tree,
-                defs: &defs,
-                values: &inputs.values,
-                locals: &inputs.locals,
-                semantic_uses: &inputs.semantic_uses,
-                lowered: &lowered,
-                signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
-                const_signatures: &signatures,
-                normalization: &normalization,
-                seed,
-                target: &db.query(CompilerTargetQuery),
-                const_eval: body_const,
-                const_module,
-                layouts: &layouts,
-                extensions: &empty_extensions,
-                lazy_extensions: Some(&lazy_extensions),
-                program_extension_methods,
-                program: nia_body_check::BodyProgramContext {
-                    defs: Some(&program_defs),
-                    type_normalizations: Some(&program_type_normalization),
-                    extension_type_normalizations: Some(&extension_method_normalization),
-                    signatures: Some(&item_signatures_for_module),
-                    layouts: Some(&program_layouts),
-                    visible_extensions: Some(&program_visible_extensions),
-                    extension_method_by_id: Some(&program_extension_method_by_id),
-                    extension_methods_named: Some(&program_extension_methods_named),
+    let run_body_check =
+        |inputs: &BodyCheckResolutionInputs,
+         body_const: nia_body_check::BodyConst<'_>,
+         const_module: &nia_const_ir::ResolvedConstModule,
+         filter: nia_body_check::BodyCheckFilter<'_>,
+         prechecked: Option<nia_body_check::PrecheckedBodyCheck>| {
+            nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
+                nia_body_check::BodyCheckInput {
+                    type_store: &db.context().type_store,
+                    source_version: Some(source_version),
+                    source_path: &source_path,
+                    symbols: &db.context().symbols(),
+                    origins: &origins,
+                    active_item_tree: &inputs.active_item_tree,
+                    defs: &defs,
+                    values: &inputs.values,
+                    locals: &inputs.locals,
+                    semantic_uses: &inputs.semantic_uses,
+                    lowered: &lowered,
+                    signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(
+                        &signatures,
+                    ),
+                    const_signatures: &signatures,
+                    normalization: &normalization,
+                    seed,
+                    target: &db.query(CompilerTargetQuery),
+                    const_eval: body_const,
+                    const_module,
+                    layouts: &layouts,
+                    extensions: &empty_extensions,
+                    lazy_extensions: Some(&lazy_extensions),
+                    program_extension_methods,
+                    program: nia_body_check::BodyProgramContext {
+                        defs: Some(&program_defs),
+                        type_normalizations: Some(&program_type_normalization),
+                        extension_type_normalizations: Some(&extension_method_normalization),
+                        signatures: Some(&item_signatures_for_module),
+                        layouts: Some(&program_layouts),
+                        visible_extensions: Some(&program_visible_extensions),
+                        extension_method_by_id: Some(&program_extension_method_by_id),
+                        extension_methods_named: Some(&program_extension_methods_named),
+                    },
+                    program_signatures,
+                    function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
+                    program_const: nia_body_check::ProgramConstMaps {
+                        values: &program_const_values,
+                        array_lengths: &program_const_array_lengths,
+                        module: &program_const_module,
+                    },
+                    filter,
+                    product,
+                    prechecked,
                 },
-                program_signatures,
-                function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
-                program_const: nia_body_check::ProgramConstMaps {
-                    values: &program_const_values,
-                    array_lengths: &program_const_array_lengths,
-                    module: &program_const_module,
-                },
-                filter,
-                product,
-                prechecked,
-            },
-            interner,
-            db.context().timings(),
-        )
-    };
-    let body_check = db
-        .context()
-        .type_store
-        .with_module_interner_for_semantic_migration(module_id, |interner| {
-            run_body_check(
-                inputs,
-                body_const,
-                const_module,
-                filter,
-                prechecked,
-                interner,
+                db.context().timings(),
             )
-        });
+        };
+    let body_check = run_body_check(inputs, body_const, const_module, filter, prechecked);
     let stored_inputs = match (product, filter) {
         (nia_body_check::BodyCheckProduct::FactsOnly, _) => filtered_inputs,
         (
