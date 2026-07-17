@@ -24,15 +24,6 @@ pub(super) fn monomorphization_for_checked_modules(
         .map(|module| (module.id, db.query(ItemSignaturesQuery(module.id))))
         .collect::<HashMap<_, _>>();
     let _function_bodies = function_bodies_from_checked_modules(db, checked_modules);
-    let function_interners = checked_modules
-        .iter()
-        .map(|module| {
-            (
-                module.id,
-                db.context().type_store.module_snapshot(module.id),
-            )
-        })
-        .collect::<HashMap<_, _>>();
     let semantic_instantiations = checked_modules
         .iter()
         .map(|module| {
@@ -51,9 +42,6 @@ pub(super) fn monomorphization_for_checked_modules(
                 |(module, semantic_instantiations)| MonomorphizeModuleInput {
                     module_id: module.id,
                     defs: &module.defs,
-                    interner: function_interners
-                        .get(&module.id)
-                        .expect("function lowering interner snapshot"),
                     normalization: &module.type_normalization,
                     const_eval: &module.const_eval,
                     const_expr_summaries: &module.type_lowering.const_expr_summaries,
