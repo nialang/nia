@@ -384,8 +384,8 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         self.ensure_type_context(source_module_id)?;
         let substituted = {
-            let interner = self.type_contexts.get_mut(&source_module_id)?;
-            substitute_ty_generics(interner, ty, &|generic| substitutions.get(generic).copied())
+            let types = self.type_contexts.get(&source_module_id)?;
+            substitute_ty_generics(types, ty, &|generic| substitutions.get(generic).copied())
         };
         self.type_for_module_or_none(substituted, self.current_execution_module_id())
     }
@@ -408,8 +408,8 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         let elem = self.type_for_module_or_none(elem, target_module_id)?;
         self.type_contexts
-            .get_mut(&target_module_id)
-            .map(|interner| interner.intern(kind(elem)))
+            .get(&target_module_id)
+            .map(|types| types.intern(kind(elem)))
     }
 
     pub(super) fn const_error_union_type(
@@ -421,8 +421,8 @@ impl Analyzer<'_> {
         let error = self.type_for_module_or_none(error, target_module_id)?;
         let value = self.type_for_module_or_none(value, target_module_id)?;
         self.type_contexts
-            .get_mut(&target_module_id)
-            .map(|interner| interner.intern(TyKind::ErrorUnion { error, value }))
+            .get(&target_module_id)
+            .map(|types| types.intern(TyKind::ErrorUnion { error, value }))
     }
 
     pub(super) fn call_local_type(&self, local_id: LocalId) -> Option<ConstValueType> {

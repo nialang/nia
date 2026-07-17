@@ -1535,9 +1535,7 @@ mod tests {
             source_path: &source_path,
             program: ConstProgramContext::empty(),
         };
-        type_store.with_module_interner_for_semantic_migration(defs.module_id, |interner| {
-            check_module_const(input, interner)
-        })
+        check_module_const(input)
     }
 
     fn lower_test_module(

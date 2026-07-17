@@ -353,13 +353,6 @@ impl Analyzer<'_> {
         }
     }
 
-    pub(super) fn append_view_for_module(&self, module_id: ModuleId) -> Option<TyInterner> {
-        if let Some(interner) = self.type_contexts.get(&module_id) {
-            return Some((**interner).clone());
-        }
-        Some(self.input.type_store.module_snapshot(module_id))
-    }
-
     pub(super) fn type_origin(&self, ty: nia_ids::InternedTyId) -> nia_ids::TypeOrigin {
         self.input
             .type_store
@@ -391,10 +384,9 @@ impl Analyzer<'_> {
         if self.type_contexts.contains_key(&module_id) {
             return Some(());
         }
-        let interner = self.append_view_for_module(module_id)?;
         self.type_contexts.insert(
             module_id,
-            super::ConstTypeCx::snapshot(self.input.type_store, interner),
+            super::ConstTypeCx::new(self.input.type_store, module_id),
         );
         Some(())
     }

@@ -90,9 +90,7 @@ fn check_source(source: &str) -> CheckedFixture {
         source_path: &source_path,
         program: ConstProgramContext::empty(),
     };
-    let checked = type_store.with_module_interner_for_semantic_migration(ModuleId(0), |interner| {
-        check_module_const(input, interner)
-    });
+    let checked = check_module_const(input);
     CheckedFixture {
         type_store,
         defs,

@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) fn substitute_ty_generics(
-    interner: &mut ConstTypeCx<'_>,
+    interner: &ConstTypeCx<'_>,
     ty: InternedTyId,
     lookup: &impl Fn(&SymbolId) -> Option<InternedTyId>,
 ) -> InternedTyId {

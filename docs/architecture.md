@@ -816,10 +816,17 @@ Typed const bindings are not limited to explicit type annotations. When a
 `const` binding has no source annotation, the checker derives its typed
 value from the initializer's typed const expression and records that in
 `ConstCheck::typed_values`. Cross-module body checking consumes those typed
-values through the program const query result and imports runtime types into
-the current module interner at the use site. Item signatures remain the source
+values through the program const query result and reuses their canonical
+runtime type handles in the current execution context. Item signatures remain the source
 signature surface; inferred const value types are semantic query output, not
 retroactive signature data.
+
+All const phase entry points and typed const queries read existing types from
+the compilation `TypeStore`. Each execution module receives a narrow
+`TypeStoreAppend` capability for structural types synthesized by inference or
+generic substitution. `ConstInput` and `TypedConstQueryInput` never borrow a
+mutable interner, and full, signature, and executable query providers do not
+checkout module shards around const evaluation.
 
 Typed const expression inference belongs to this checker as well. It derives
 runtime types for source-shaped const expressions only when the type is a
@@ -953,8 +960,8 @@ const generic inference.
 
 Const function calls are typed by their signatures in the same layer. Generic
 type arguments are inferred from typed argument expressions, substituted into
-the return type, and then imported into the current execution module's working
-interner. This makes nested const calls participate in later generic
+the return type, and then published through the current execution module's
+append capability. This makes nested const calls participate in later generic
 inference without executing the callee solely to discover its type.
 
 Early target pruning is intentionally narrower than full const execution: it

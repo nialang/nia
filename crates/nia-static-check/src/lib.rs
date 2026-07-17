@@ -751,22 +751,11 @@ mod tests {
             source_path: &source_path,
             program: nia_const_check::ConstProgramContext::empty(),
         };
+        let array_lengths = nia_const_check::compute_module_const_array_lengths(const_input);
+        let enum_values =
+            nia_const_check::compute_module_const_enum_values(const_input, array_lengths.clone());
         let const_eval =
-            type_store.with_module_interner_for_semantic_migration(module_id, |interner| {
-                let array_lengths =
-                    nia_const_check::compute_module_const_array_lengths(const_input, interner);
-                let enum_values = nia_const_check::compute_module_const_enum_values(
-                    const_input,
-                    interner,
-                    array_lengths.clone(),
-                );
-                nia_const_check::compute_module_const_values(
-                    const_input,
-                    interner,
-                    array_lengths,
-                    enum_values,
-                )
-            });
+            nia_const_check::compute_module_const_values(const_input, array_lengths, enum_values);
         assert!(
             const_eval.diagnostics.is_empty(),
             "{:?}",
