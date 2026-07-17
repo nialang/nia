@@ -35,8 +35,7 @@ pub(super) struct SwitchStmtArmContext<'a> {
 
 impl FunctionLowerer<'_> {
     pub(super) fn try_kind(&self, ty: InternedTyId) -> Option<FunctionTryKind> {
-        let interner = self.interner.as_ref()?;
-        match interner.get(ty) {
+        match self.types.get(ty) {
             Some(TyKind::Optional { .. }) => Some(FunctionTryKind::Optional),
             Some(TyKind::ErrorUnion { .. }) => Some(FunctionTryKind::ErrorUnion),
             _ => None,
@@ -520,10 +519,8 @@ impl FunctionLowerer<'_> {
         tag: u8,
     ) -> FunctionExpr {
         let tag_ty = self
-            .interner
-            .as_ref()
-            .map(|interner| interner.primitive(nia_ty::PrimitiveTy::U8))
-            .unwrap_or(target.ty);
+            .types
+            .intern(TyKind::Primitive(nia_ty::PrimitiveTy::U8));
         FunctionExpr {
             span,
             ty: bool_ty,

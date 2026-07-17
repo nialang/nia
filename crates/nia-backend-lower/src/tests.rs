@@ -8,7 +8,7 @@ use nia_function_ir::{
     FunctionArrayElements, FunctionBlockId, FunctionExpr, FunctionExprKind, FunctionOp,
     FunctionTerminator,
 };
-use nia_function_lower::lower_function_body;
+use nia_function_lower::{FunctionTypeContext, lower_function_body};
 use nia_ids::{GlobalDefId, LocalId};
 use nia_item_signatures::{
     ItemSignatureInput, ItemSignatureSource, ProgramFunctionSignature, collect_item_signatures,
@@ -497,7 +497,13 @@ fn lower_source_with_body_check_mutation_and_optimization(
         .function_bodies
         .iter()
         .map(|(def_id, body)| {
-            let mut body = lower_function_body(body).expect("valid typed body");
+            let mut body = lower_function_body(
+                ModuleId(0),
+                body,
+                FunctionTypeContext::for_module(&type_store, ModuleId(0)),
+            )
+            .expect("valid typed body")
+            .body;
             mutate_body(&mut body);
             (*def_id, body)
         })

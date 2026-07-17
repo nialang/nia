@@ -28,7 +28,7 @@ fn validates_lowered_function_body() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     validate_function_body(&function_body).expect("valid function body");
 }
@@ -59,7 +59,7 @@ fn validates_defer_body_references_to_enclosing_locals() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     validate_function_body(&function_body).expect("valid defer local capture");
 }
@@ -79,7 +79,7 @@ fn trap_tail_lowers_as_effect_only_even_with_value_type() {
         ty,
     };
 
-    let function_body = lower_function_body(&body).expect("valid typed body");
+    let function_body = lower_test_function_body(&body).expect("valid typed body");
 
     assert!(
         function_body.blocks.iter().any(|block| {
@@ -120,7 +120,7 @@ fn rejects_error_expr_before_function_ir_is_built() {
         ty,
     };
 
-    let error = lower_function_body(&body).expect_err("error expr must not lower");
+    let error = lower_test_function_body(&body).expect_err("error expr must not lower");
 
     assert!(
         error
@@ -154,7 +154,7 @@ fn rejects_error_place_before_function_ir_is_built() {
         ty,
     };
 
-    let error = lower_function_body(&body).expect_err("error place must not lower");
+    let error = lower_test_function_body(&body).expect_err("error place must not lower");
 
     assert!(
         error
@@ -191,7 +191,7 @@ fn rejects_memory_intrinsic_in_value_position_before_function_ir_is_built() {
         ty,
     };
 
-    let error = lower_function_body(&body).expect_err("memory intrinsic must not be a value");
+    let error = lower_test_function_body(&body).expect_err("memory intrinsic must not be a value");
 
     assert!(
         error
@@ -233,7 +233,8 @@ fn rejects_atomic_store_and_fence_in_value_position_before_function_ir_is_built(
             ty,
         };
 
-        let error = lower_function_body(&body).expect_err("effect-only atomic must not be a value");
+        let error =
+            lower_test_function_body(&body).expect_err("effect-only atomic must not be a value");
 
         assert!(
             error

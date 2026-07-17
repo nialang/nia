@@ -1336,11 +1336,10 @@ impl FunctionLowerer<'_> {
     }
 
     fn function_pointer_pointee_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
-        let interner = self.interner.as_ref()?;
-        match interner.get(ty) {
+        match self.types.get(ty) {
             Some(TyKind::FunctionPointer { .. }) => Some(ty),
             Some(TyKind::Pointer { elem, .. })
-                if matches!(interner.get(*elem), Some(TyKind::FunctionPointer { .. })) =>
+                if matches!(self.types.get(*elem), Some(TyKind::FunctionPointer { .. })) =>
             {
                 Some(*elem)
             }
