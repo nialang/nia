@@ -6,7 +6,7 @@ pub(super) fn provide_const_module(
     module_id: ModuleId,
 ) -> ConstModuleLowering {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.query_shared(FullModuleDefsQuery(module_id));
+    let defs = db.get(FullModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
@@ -113,7 +113,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
     f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
 ) -> T {
     let module = db.query(ConstModuleQuery(module_id));
-    let defs = db.query_shared(FullModuleDefsQuery(module_id));
+    let defs = db.get(FullModuleDefsQuery(module_id));
     let program_module = |module_id| {
         if use_signature_facts_for(module_id) {
             return Some(signature_const_module_lowering(db, module_id).module);
@@ -121,7 +121,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
         Some(db.query(ConstModuleQuery(module_id)).module)
     };
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
-    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {
         if use_signature_facts_for(module_id) {
             return Some(db.query(SignatureTypeNormalizationQuery(
@@ -133,7 +133,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
     };
     let local_trait_impls = non_function_signatures_override
         .is_none()
-        .then(|| db.query_shared(VisibleTraitImplsQuery(module_id)));
+        .then(|| db.get(VisibleTraitImplsQuery(module_id)));
     let trait_impls_for_module = |requested_module_id| {
         if requested_module_id == module_id {
             return non_function_signatures_override
@@ -157,7 +157,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
         non_function_signatures_override
             .is_some_and(|signatures| signatures.enums.contains_key(&def_id))
             || db
-                .query_shared(SignatureItemSignaturesQuery(
+                .get(SignatureItemSignaturesQuery(
                     def_id.module_id,
                     nia_item_tree::SignatureItemSet::Types,
                 ))
@@ -166,20 +166,20 @@ pub(super) fn with_const_input_and_program_facts<T>(
     };
     let item_signatures_for_module = |module_id| {
         if use_signature_facts_for(module_id) {
-            return Some(db.query_shared(SignatureItemSignaturesQuery(
+            return Some(db.get(SignatureItemSignaturesQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Types,
             )));
         }
-        Some(db.query_shared(ItemSignaturesQuery(module_id)))
+        Some(db.get(ItemSignaturesQuery(module_id)))
     };
     let value_signatures_for_module = |module_id| {
-        Some(db.query_shared(SignatureItemSignaturesQuery(
+        Some(db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Values,
         )))
     };
-    let local_visible_extensions = db.query_shared(VisibleExtensionsQuery(module_id));
+    let local_visible_extensions = db.get(VisibleExtensionsQuery(module_id));
     let visible_extensions_for_module = |requested_module_id| {
         if requested_module_id == module_id {
             return Some(local_visible_extensions.methods.clone());

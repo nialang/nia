@@ -10,7 +10,6 @@ use nia_provider_summary::ProviderSummary;
 use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceFile, SourcePath, SourceVersion};
 use nia_target_config::prune_module_for_target_with_symbols;
-use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct LoadedProgramQuery;
@@ -23,19 +22,23 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let graph = db.query(ModuleGraphQuery);
+        let graph = db.get(ModuleGraphQuery);
         let modules = graph
             .modules()
-            .map(|node| db.query(LoadedModuleQuery(node.path.clone())))
+            .map(|node| {
+                db.get(LoadedModuleQuery(node.path.clone()))
+                    .as_ref()
+                    .clone()
+            })
             .collect::<Vec<_>>();
-        let diagnostics = db.query(LoadDiagnosticsQuery);
+        let diagnostics = db.get(LoadDiagnosticsQuery);
         LoadedProgram {
-            graph,
+            graph: graph.as_ref().clone(),
             symbols: db.context().symbols.clone(),
             target: db.context().target.clone(),
             runtime: runtime_model(db.context().entry_runtime),
             modules,
-            diagnostics,
+            diagnostics: diagnostics.as_ref().clone(),
         }
     }
 }
@@ -58,7 +61,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let graph = db.query(ModuleGraphQuery);
+        let graph = db.get(ModuleGraphQuery);
         let mut diagnostics = Vec::new();
         for (path, diagnostic) in graph.diagnostics() {
             diagnostics.push(ProgramDiagnostic {
@@ -67,7 +70,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
             });
         }
         for node in graph.modules() {
-            let parsed = db.query(parsed_module_query(db, node.path.clone()));
+            let parsed = db.get(parsed_module_query(db, node.path.clone()));
             diagnostics.extend(module_diagnostics(
                 &node.path,
                 &parsed
@@ -81,7 +84,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
             diagnostics.extend(module_diagnostics(&node.path, &parsed.prune_diagnostics));
             diagnostics.extend(module_diagnostics(
                 &node.path,
-                &db.query(module_declarations_query(db, node.path.clone()))
+                &db.get(module_declarations_query(db, node.path.clone()))
                     .diagnostics,
             ));
             if node.module_path.is_entry_package() {
@@ -89,7 +92,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
                     &graph,
                     node.id,
                     &node.path,
-                    &db.query(module_declarations_query(db, node.path.clone())),
+                    &db.get(module_declarations_query(db, node.path.clone())),
                     &db.context().symbols,
                 ));
             }
@@ -170,14 +173,14 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let graph = db.query(ModuleGraphQuery);
+        let graph = db.get(ModuleGraphQuery);
         let id = graph
             .module_id_for_source_identity(&self.0.identity())
             .unwrap_or_else(|| {
                 db.invalid_input(self, format!("missing module id for `{}`", self.0.as_str()))
             });
-        let parsed = db.query(parsed_module_query(db, self.0.clone()));
-        let provider_summary = db.query(provider_summary_query(db, self.0.clone()));
+        let parsed = db.get(parsed_module_query(db, self.0.clone()));
+        let provider_summary = db.get(provider_summary_query(db, self.0.clone()));
         LoadedModule {
             id,
             path: self.0.clone(),
@@ -185,7 +188,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             source_version: parsed.source_version,
             item_tree: parsed.item_tree.clone(),
             active_item_tree: parsed.active_item_tree.clone(),
-            provider_summary,
+            provider_summary: provider_summary.as_ref().clone(),
             origins: parsed.origins.clone(),
             parse_errors: parsed.parse_errors.clone(),
         }
@@ -199,7 +202,7 @@ pub(crate) struct ParsedModuleQuery {
 }
 
 impl QueryKey<LoaderContext> for ParsedModuleQuery {
-    type Value = Arc<ParsedModule>;
+    type Value = ParsedModule;
 
     fn name() -> &'static str {
         "parsed_module"
@@ -210,8 +213,8 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let source = db.query_shared(SourceTextQuery(self.path.clone()));
-        let syntax = db.query(SyntaxModuleQuery {
+        let source = db.get(SourceTextQuery(self.path.clone()));
+        let syntax = db.get(SyntaxModuleQuery {
             path: self.path.clone(),
             version: self.version,
         });
@@ -231,7 +234,7 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             .as_ref()
             .map(SourceFile::version)
             .unwrap_or_else(|| db.context().sources.empty_source(&self.path).version());
-        Arc::new(ParsedModule {
+        ParsedModule {
             source_version,
             item_tree,
             active_item_tree: prune_result.active_item_tree,
@@ -239,7 +242,7 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             parse_errors,
             prune_diagnostics: prune_result.diagnostics,
             read_diagnostic: source.diagnostic.clone(),
-        })
+        }
     }
 }
 
@@ -250,7 +253,7 @@ struct SyntaxModuleQuery {
 }
 
 impl QueryKey<LoaderContext> for SyntaxModuleQuery {
-    type Value = Arc<nia_syntax::SyntaxTree>;
+    type Value = nia_syntax::SyntaxTree;
 
     fn name() -> &'static str {
         "syntax_module"
@@ -261,15 +264,13 @@ impl QueryKey<LoaderContext> for SyntaxModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let source = db.query_shared(SourceTextQuery(self.path.clone()));
-        Arc::new(
-            source
-                .file
-                .as_ref()
-                .filter(|file| file.version() == self.version)
-                .map(|file| nia_syntax::parse_source(&file.text, Some(file.version())))
-                .unwrap_or_else(|| nia_syntax::parse_source("", Some(self.version))),
-        )
+        let source = db.get(SourceTextQuery(self.path.clone()));
+        source
+            .file
+            .as_ref()
+            .filter(|file| file.version() == self.version)
+            .map(|file| nia_syntax::parse_source(&file.text, Some(file.version())))
+            .unwrap_or_else(|| nia_syntax::parse_source("", Some(self.version)))
     }
 }
 
@@ -347,7 +348,7 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let parsed = db.query(ParsedModuleQuery {
+        let parsed = db.get(ParsedModuleQuery {
             path: self.path.clone(),
             version: self.version,
         });
@@ -412,7 +413,7 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let parsed = db.query(ParsedModuleQuery {
+        let parsed = db.get(ParsedModuleQuery {
             path: self.path.clone(),
             version: self.version,
         });
@@ -442,7 +443,7 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let parsed = db.query(ParsedModuleQuery {
+        let parsed = db.get(ParsedModuleQuery {
             path: self.path.clone(),
             version: self.version,
         });
@@ -454,7 +455,7 @@ pub(crate) fn parsed_module_query(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
 ) -> ParsedModuleQuery {
-    let source = db.query_shared(SourceTextQuery(path.clone()));
+    let source = db.get(SourceTextQuery(path.clone()));
     let version = source
         .file
         .as_ref()
@@ -467,7 +468,7 @@ pub(crate) fn module_declarations_query(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
 ) -> ModuleDeclarationsQuery {
-    let source = db.query_shared(SourceTextQuery(path.clone()));
+    let source = db.get(SourceTextQuery(path.clone()));
     let version = source
         .file
         .as_ref()
@@ -480,7 +481,7 @@ pub(crate) fn provider_summary_query(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
 ) -> ProviderSummaryQuery {
-    let source = db.query_shared(SourceTextQuery(path.clone()));
+    let source = db.get(SourceTextQuery(path.clone()));
     let version = source
         .file
         .as_ref()
@@ -493,7 +494,7 @@ pub(crate) fn module_facade_facts_query(
     db: &QueryDb<LoaderContext>,
     path: SourcePath,
 ) -> ModuleFacadeFactsQuery {
-    let source = db.query_shared(SourceTextQuery(path.clone()));
+    let source = db.get(SourceTextQuery(path.clone()));
     let version = source
         .file
         .as_ref()

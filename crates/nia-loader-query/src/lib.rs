@@ -80,7 +80,7 @@ impl LoaderDatabase {
     }
 
     pub fn load_program(&self) -> LoadedProgram {
-        self.db.query(LoadedProgramQuery)
+        self.db.get(LoadedProgramQuery).as_ref().clone()
     }
 
     pub fn sources(&self) -> &SourceDatabase {
@@ -234,7 +234,7 @@ fn load_program_trace(
         provider_demands: Arc::new(RwLock::new(HashSet::new())),
         graph_state: Arc::new(RwLock::new(LoaderGraphState::default())),
     });
-    let _ = db.query(LoadedProgramQuery);
+    let _program = db.get(LoadedProgramQuery);
     db.query_trace()
 }
 

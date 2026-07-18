@@ -258,7 +258,7 @@ fn executable_check(
         {
             return Some(signature);
         }
-        let signatures = db.query_shared(SignatureItemSignaturesQuery(
+        let signatures = db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Functions,
         ));
@@ -283,7 +283,7 @@ fn executable_check(
         Some(signature)
     };
     let struct_signature = |def_id: GlobalDefId| {
-        db.query_shared(SignatureItemSignaturesQuery(
+        db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))
@@ -293,7 +293,7 @@ fn executable_check(
         .map(|signature| ProgramStructSignature { signature })
     };
     let union_signature = |def_id: GlobalDefId| {
-        db.query_shared(SignatureItemSignaturesQuery(
+        db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))
@@ -303,7 +303,7 @@ fn executable_check(
         .map(|signature| ProgramUnionSignature { signature })
     };
     let trait_signature = |def_id: GlobalDefId| {
-        db.query_shared(SignatureItemSignaturesQuery(
+        db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ))
@@ -313,7 +313,7 @@ fn executable_check(
         .map(|signature| ProgramTraitSignature { signature })
     };
     let trait_default_method = |def_id: GlobalDefId| {
-        let signatures = db.query_shared(SignatureItemSignaturesQuery(
+        let signatures = db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
@@ -464,7 +464,7 @@ fn executable_check(
             };
             let has_reachable_body_items = !module_functions.is_empty()
                 || module_globals.iter().any(|def_id| {
-                    db.query_shared(ModuleDefsQuery(def_id.module_id))
+                    db.get(ModuleDefsQuery(def_id.module_id))
                         .defs
                         .get(def_id.def_id)
                         .is_some_and(|def| def.kind == DefKind::Global)
@@ -868,7 +868,7 @@ fn executable_root_defs(
 ) -> (Vec<GlobalDefId>, Vec<GlobalDefId>) {
     match db.query(CompilerRuntimeQuery) {
         RuntimeModel::Bare => {
-            let defs = db.query_shared(FullModuleDefsQuery(entry));
+            let defs = db.get(FullModuleDefsQuery(entry));
             let mut functions = Vec::new();
             let mut globals = Vec::new();
             for (def_id, def) in defs.defs.iter().filter(|(_, def)| def.parent.is_none()) {
@@ -893,7 +893,7 @@ fn executable_root_defs(
                 parse_ok.contains(module_id)
                     && named_top_level_function(db, *module_id, known::START_ENTRY).is_some()
             }) {
-                let defs = db.query_shared(FullModuleDefsQuery(start_module));
+                let defs = db.get(FullModuleDefsQuery(start_module));
                 functions.extend(defs.defs.iter().filter_map(|(def_id, def)| {
                     (def.kind == DefKind::Function && def.parent.is_none()).then_some(GlobalDefId {
                         module_id: start_module,
@@ -911,7 +911,7 @@ fn named_top_level_function(
     module_id: ModuleId,
     name: SymbolId,
 ) -> Option<GlobalDefId> {
-    let defs = db.query_shared(FullModuleDefsQuery(module_id));
+    let defs = db.get(FullModuleDefsQuery(module_id));
     defs.defs.iter().find_map(|(def_id, def)| {
         (def.kind == DefKind::Function && def.parent.is_none() && def.name == name)
             .then_some(GlobalDefId { module_id, def_id })
@@ -926,7 +926,7 @@ fn executable_debug_function_names(
     if !debug_executable_reachability_enabled() {
         return Vec::new();
     }
-    let defs = db.query_shared(FullModuleDefsQuery(module_id));
+    let defs = db.get(FullModuleDefsQuery(module_id));
     let symbols = db.context().symbols();
     let mut names = functions
         .iter()

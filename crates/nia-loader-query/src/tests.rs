@@ -1087,8 +1087,8 @@ extend Widget {
         ModuleMap::default(),
         sources,
     ));
-    let first = db.query(provider_summary_query(&db, provider.clone()));
-    let second = db.query(provider_summary_query(&db, provider.clone()));
+    let first = db.get(provider_summary_query(&db, provider.clone()));
+    let second = db.get(provider_summary_query(&db, provider.clone()));
     assert!(first.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     assert_eq!(first, second);
 
@@ -1167,7 +1167,7 @@ extend types::Widget {
                 method_name: sym("score"),
             },
         });
-    let program = db.query(LoadedProgramQuery);
+    let program = db.get(LoadedProgramQuery);
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(
@@ -1208,7 +1208,7 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
         sources.clone(),
     ));
 
-    let first = db.query(LoadedProgramQuery);
+    let first = db.get(LoadedProgramQuery);
     assert_no_error_diagnostics(&first);
     let first_module = first
         .modules
@@ -1240,7 +1240,7 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
         "{invalidated:?}"
     );
 
-    let second = db.query(LoadedProgramQuery);
+    let second = db.get(LoadedProgramQuery);
     assert_no_error_diagnostics(&second);
     let second_module = second
         .modules
@@ -1263,7 +1263,7 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
         sources.clone(),
     ));
 
-    let first = db.query(LoadedProgramQuery);
+    let first = db.get(LoadedProgramQuery);
     assert_no_error_diagnostics(&first);
     assert_module_loaded(&first, "main.nia");
     assert_module_not_loaded(&first, "defs.nia");
@@ -1271,7 +1271,7 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
     sources.set_source(main.clone(), "module defs;");
     db.invalidate(SourceTextQuery(main));
 
-    let second = db.query(LoadedProgramQuery);
+    let second = db.get(LoadedProgramQuery);
     assert_no_error_diagnostics(&second);
     assert!(
         second
@@ -1290,7 +1290,7 @@ fn loaded_module_query_reports_paths_outside_module_graph() {
     ));
 
     let err = db
-        .try_query(LoadedModuleQuery(SourcePath::new("missing.nia")))
+        .try_get(LoadedModuleQuery(SourcePath::new("missing.nia")))
         .expect_err("missing module path should be an invalid query input");
 
     assert!(matches!(err, nia_query::QueryError::InvalidInput { .. }));

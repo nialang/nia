@@ -3967,7 +3967,7 @@ extend Value : Ops {
             ModuleId(0),
             signature_types,
         ));
-        let _ = db.query_shared(SignatureItemSignaturesQuery(ModuleId(0), signature_types));
+        let _ = db.get(SignatureItemSignaturesQuery(ModuleId(0), signature_types));
         let layouts = db.query(SignatureLayoutsQuery(ModuleId(0)));
 
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
@@ -5880,7 +5880,7 @@ extend Sink : Writer {
         )]);
         let db = query_db(loaded);
 
-        let signatures = db.query_shared(SignatureItemSignaturesQuery(
+        let signatures = db.get(SignatureItemSignaturesQuery(
             ModuleId(0),
             nia_item_tree::SignatureItemSet::Traits,
         ));
@@ -5946,7 +5946,7 @@ pub enum Errno: i32 {
         };
         let db = query_db(loaded);
 
-        let signatures = db.query_shared(SignatureItemSignaturesQuery(
+        let signatures = db.get(SignatureItemSignaturesQuery(
             ModuleId(0),
             nia_item_tree::SignatureItemSet::Traits,
         ));
@@ -6028,7 +6028,7 @@ pub enum Errno: i32 {
         };
         let db = query_db(loaded);
 
-        let signatures = db.query_shared(SignatureItemSignaturesQuery(
+        let signatures = db.get(SignatureItemSignaturesQuery(
             ModuleId(0),
             nia_item_tree::SignatureItemSet::Traits,
         ));
