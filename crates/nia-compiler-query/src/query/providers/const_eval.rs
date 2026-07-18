@@ -11,7 +11,7 @@ pub(super) fn provide_const_module(
     let locals = db.get(LocalResolutionQuery(module_id));
     let semantic_uses = db.get(SemanticUseTableQuery(module_id));
     let type_lowering = db.get(TypeLoweringQuery(module_id));
-    let signatures = db.query(ItemSignaturesQuery(module_id));
+    let signatures = db.get(ItemSignaturesQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
     let symbols = db.context().symbols();
     nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
@@ -196,7 +196,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
     let locals = db.get(LocalResolutionQuery(module_id));
     let semantic_uses = db.get(SemanticUseTableQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
-    let item_signatures = db.query(ItemSignaturesQuery(module_id));
+    let item_signatures = db.get(ItemSignaturesQuery(module_id));
     let type_lowering = db.get(TypeLoweringQuery(module_id));
     let type_normalization = db.get(TypeNormalizationQuery(module_id));
     let target = db.query(CompilerTargetQuery);

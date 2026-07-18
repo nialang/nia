@@ -56,7 +56,7 @@ impl ExecutableCheckCaches {
 #[derive(Clone)]
 pub(super) struct ExecutableFactModuleState {
     pub(super) module_id: ModuleId,
-    pub(super) defs: DefCollection,
+    pub(super) defs: Arc<DefCollection>,
     pub(super) body_ir: nia_body_ir::BodyIr,
     pub(super) semantic_facts: nia_sema_ir::SemanticFacts,
     pub(super) provider_demands: HashSet<ProviderDemand>,
@@ -204,7 +204,7 @@ impl ExecutableFactModuleState {
             .collect();
         let mut state = Self {
             module_id,
-            defs: db.query(FullModuleDefsQuery(module_id)),
+            defs: db.get(FullModuleDefsQuery(module_id)),
             body_ir: Arc::unwrap_or_clone(ir),
             semantic_facts: Arc::unwrap_or_clone(facts),
             provider_demands: Arc::unwrap_or_clone(provider_demands),

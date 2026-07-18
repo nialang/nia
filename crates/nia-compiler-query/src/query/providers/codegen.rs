@@ -21,7 +21,7 @@ pub(super) fn monomorphization_for_checked_modules(
     let trait_impl_index = &executable_signatures.trait_impl_index;
     let local_signatures = checked_modules
         .iter()
-        .map(|module| (module.id, db.query(ItemSignaturesQuery(module.id))))
+        .map(|module| (module.id, db.get(ItemSignaturesQuery(module.id))))
         .collect::<HashMap<_, _>>();
     let _function_bodies = function_bodies_from_checked_modules(db, checked_modules);
     let semantic_instantiations = checked_modules
@@ -350,7 +350,7 @@ pub(super) fn checked_module_diagnostics(
             &checked.path,
             &checked.local_resolution.diagnostics,
         ));
-        let item_signatures = db.query(ItemSignaturesQuery(checked.id));
+        let item_signatures = db.get(ItemSignaturesQuery(checked.id));
         diagnostics.extend(module_diagnostics(
             &checked.path,
             &item_signatures.diagnostics,
