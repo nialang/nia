@@ -1055,6 +1055,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 
 进展（2026-07-18）：executable reachability 的 trait 与 trait-method extension lookup 已改用 `get_many`，每个 provider module 直接借用上一切片建立的 cache-owned facts handle，不再经 legacy owned batch adapter clone methods、associated values、diagnostics 与 nominal provider aggregate。compiler-query production 的 `.query_many(...)` 搜索至此为零，Phase C 批读取调用面已统一到 `get_many`；runtime 的 legacy `query_many` 实现仍为兼容测试保留，后续应在完成 owned `query` 迁移时一并删除，而不能把它误记为 executor 已完成。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；compiler-query 110、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 228.24 秒完成，全部 doc tests 通过。下一切片回到剩余 owned `query` 产品链，优先审计 const phase 与 function/backend IR 的所有权边界。
 
+进展（2026-07-18）：标准 const phase 的 `ConstModuleQuery`、array-length、enum-value、const-value 与 typed-facts production/test 消费者已统一改用 cache-owned `get`。layout、body、static 与 program-check 等只读路径现在只复制 `Arc`；array-length → enum → values → typed-facts 以及最终 `ConstCheck` 组装仍需要 owned mutable seed，复制点统一显式标为 `Arc::unwrap_or_clone`，没有用隐式 legacy adapter 掩盖算法所有权。五类标准 const key 的旧 owned `query` 搜索为零，但 `ConstProgramContext`/body/static 的跨模块 module/value callback 仍返回 owned product，signature const 也仍在 owned 路径，因此不能宣称 const phase 已完成共享。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；compiler-query 110、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 229.97 秒完成，全部 doc tests 通过。下一切片应迁移 signature const 查询产品，并随后把跨模块 const callback 改为共享句柄。
+
 ### 阶段 C（P0）：重做 query value/storage 契约
 
 1. 去掉通用 `Value: Clone` 要求。

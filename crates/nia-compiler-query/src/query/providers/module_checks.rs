@@ -10,7 +10,7 @@ pub(super) fn provide_layouts(
         let type_lowering = db.get(TypeLoweringQuery(module_id));
         let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
-        let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
+        let array_lengths = db.get(ConstArrayLengthsQuery(module_id));
         let symbols = db.context().symbols();
         let mut root_types = item_signatures.type_roots();
         root_types.extend(type_lowering.explicit_type_roots());
@@ -19,7 +19,7 @@ pub(super) fn provide_layouts(
         let layout_query = |module_id| Some(db.get(SignatureLayoutsQuery(module_id)));
         let local_array_lengths = |id| array_lengths.values.get(&id).copied();
         let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
-            Some(db.query(ConstArrayLengthsQuery(id.module_id)))
+            Some(db.get(ConstArrayLengthsQuery(id.module_id)))
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
         nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
@@ -97,9 +97,10 @@ pub(super) fn provide_static_check(
         module_id,
         nia_item_tree::SignatureItemSet::Values,
     ));
-    let const_eval = db.query(ConstValuesQuery(module_id));
+    let const_eval = db.get(ConstValuesQuery(module_id));
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
-    let program_const_values = |module_id| Some(db.query(ConstValuesQuery(module_id)));
+    let program_const_values =
+        |module_id| Some(db.get(ConstValuesQuery(module_id)).as_ref().clone());
     nia_static_check::check_module_static_initializers_with_signatures(
         nia_static_check::StaticCheckPreciseInput {
             active_item_tree: &active_item_tree,
