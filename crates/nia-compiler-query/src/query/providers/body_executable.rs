@@ -1639,7 +1639,7 @@ pub(super) fn provide_checked_module(
             db,
             module_id,
             db.query(BodyCheckQuery(module_id)),
-            db.query(FlowCheckQuery(module_id)),
+            db.get(FlowCheckQuery(module_id)),
             None,
         )
     })
@@ -1649,7 +1649,7 @@ fn checked_module_with_body_and_flow_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     body_check: nia_body_check::BodyCheck,
-    flow_check: nia_flow_check::FlowCheck,
+    flow_check: Arc<nia_flow_check::FlowCheck>,
     layouts: Option<nia_layout::Layouts>,
 ) -> CheckedModule {
     let path = db.query(ModulePathQuery(module_id));
@@ -1662,10 +1662,10 @@ fn checked_module_with_body_and_flow_check(
         value_resolution: db.get(ValueResolutionQuery(module_id)),
         local_resolution: db.get(LocalResolutionQuery(module_id)),
         type_normalization: db.query(TypeNormalizationQuery(module_id)),
-        const_eval: db.query(ConstQuery(module_id)),
-        static_check: db.query(StaticCheckQuery(module_id)),
+        const_eval: db.get(ConstQuery(module_id)),
+        static_check: db.get(StaticCheckQuery(module_id)),
         layouts: layouts.unwrap_or_else(|| db.query(LayoutsQuery(module_id))),
-        abi_check: db.query(AbiCheckQuery(module_id)),
+        abi_check: db.get(AbiCheckQuery(module_id)),
         flow_check,
         body_ir: body_check.ir,
         semantic_uses: db.get(SemanticUseTableQuery(module_id)),
@@ -1700,15 +1700,17 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         value_resolution: body_inputs.values,
         local_resolution: body_inputs.locals,
         type_normalization: db.query(TypeNormalizationQuery(module_id)),
-        const_eval: const_eval.unwrap_or_else(|| db.query(ConstQuery(module_id))),
-        static_check: nia_static_check::StaticCheck {
+        const_eval: const_eval
+            .map(Arc::new)
+            .unwrap_or_else(|| db.get(ConstQuery(module_id))),
+        static_check: Arc::new(nia_static_check::StaticCheck {
             diagnostics: Vec::new(),
-        },
+        }),
         layouts,
-        abi_check: nia_abi_check::AbiCheck {
+        abi_check: Arc::new(nia_abi_check::AbiCheck {
             diagnostics: Vec::new(),
-        },
-        flow_check,
+        }),
+        flow_check: Arc::new(flow_check),
         body_ir: body_check.ir,
         semantic_uses: body_inputs.semantic_uses,
         semantic_facts: body_check.facts,
@@ -1775,24 +1777,24 @@ pub(super) fn executable_signature_checked_module(
             diagnostics: Vec::new(),
         }),
         type_normalization: type_normalization.clone(),
-        const_eval: ConstCheck {
+        const_eval: Arc::new(ConstCheck {
             values: HashMap::new(),
             typed_values: HashMap::new(),
             enum_values: enum_values.values,
             typed_enum_values: enum_values.typed_values,
             array_lengths: array_lengths.values,
             diagnostics: const_diagnostics,
-        },
-        static_check: nia_static_check::StaticCheck {
+        }),
+        static_check: Arc::new(nia_static_check::StaticCheck {
             diagnostics: Vec::new(),
-        },
+        }),
         layouts,
-        abi_check: nia_abi_check::AbiCheck {
+        abi_check: Arc::new(nia_abi_check::AbiCheck {
             diagnostics: Vec::new(),
-        },
-        flow_check: nia_flow_check::FlowCheck {
+        }),
+        flow_check: Arc::new(nia_flow_check::FlowCheck {
             diagnostics: Vec::new(),
-        },
+        }),
         body_ir: nia_body_ir::BodyIr {
             function_bodies: HashMap::new(),
             global_inits: HashMap::new(),
