@@ -3156,7 +3156,7 @@ fn main() i32 {
             ])));
         let _ = database.db.get(ConstQuery(module_id));
 
-        let body = database.db.query(BodyCheckQuery(module_id));
+        let body = database.db.get(BodyCheckQuery(module_id));
 
         assert!(body.facts.function_facts.values().any(|facts| {
             facts.local_types.values().any(|ty| {
@@ -3629,7 +3629,7 @@ fn main() i32 {
         ]);
         let db = query_db(loaded);
 
-        let checked = db.query(BodyCheckQuery(ModuleId(0)));
+        let checked = db.get(BodyCheckQuery(ModuleId(0)));
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let trace = db.query_trace();
 
@@ -3700,7 +3700,7 @@ extend Value : Ops {
         ]);
         let db = query_db(loaded);
 
-        let checked = db.query(BodyCheckQuery(ModuleId(0)));
+        let checked = db.get(BodyCheckQuery(ModuleId(0)));
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let trace = db.query_trace();
 
@@ -4538,7 +4538,7 @@ fn main() usize {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(BodyCheckQuery(ModuleId(0)));
+        let _ = db.get(BodyCheckQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -4610,7 +4610,7 @@ fn main() i32 {
         )]);
         let db = query_db(loaded);
 
-        let checked = db.query(BodyCheckQuery(ModuleId(0)));
+        let checked = db.get(BodyCheckQuery(ModuleId(0)));
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
@@ -4865,7 +4865,7 @@ extend Used {
         ]);
         let db = query_db(loaded);
 
-        let checked = db.query(BodyCheckQuery(ModuleId(0)));
+        let checked = db.get(BodyCheckQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -4896,7 +4896,7 @@ extend Used {
         ]);
         let db = query_db(loaded);
 
-        let checked = db.query(BodyCheckQuery(ModuleId(0)));
+        let checked = db.get(BodyCheckQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -5447,6 +5447,7 @@ extend i32 : ParseFrom[Input] {
         let type_lowering = db.get(TypeLoweringQuery(ModuleId(0)));
         let type_normalization = db.get(TypeNormalizationQuery(ModuleId(0)));
         let layouts = db.get(LayoutsQuery(ModuleId(0)));
+        let body_check = db.get(BodyCheckQuery(ModuleId(0)));
         let const_eval = db.get(ConstQuery(ModuleId(0)));
         let static_check = db.get(StaticCheckQuery(ModuleId(0)));
         let abi_check = db.get(AbiCheckQuery(ModuleId(0)));
@@ -5462,6 +5463,16 @@ extend i32 : ParseFrom[Input] {
             &type_normalization
         ));
         assert!(Arc::ptr_eq(&checked.layouts, &layouts));
+        assert!(Arc::ptr_eq(&checked.body_ir, &body_check.ir));
+        assert!(Arc::ptr_eq(&checked.semantic_facts, &body_check.facts));
+        assert!(Arc::ptr_eq(
+            &checked.provider_demands,
+            &body_check.provider_demands
+        ));
+        assert!(Arc::ptr_eq(
+            &checked.body_diagnostics,
+            &body_check.diagnostics
+        ));
         assert!(Arc::ptr_eq(&checked.const_eval, &const_eval));
         assert!(Arc::ptr_eq(&checked.static_check, &static_check));
         assert!(Arc::ptr_eq(&checked.abi_check, &abi_check));
@@ -7828,7 +7839,7 @@ pub fn expensive_or_invalid() i32 {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(BodyCheckQuery(ModuleId(0)));
+        let _ = db.get(BodyCheckQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {

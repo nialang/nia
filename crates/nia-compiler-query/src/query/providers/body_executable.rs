@@ -1638,7 +1638,7 @@ pub(super) fn provide_checked_module(
         checked_module_with_body_and_flow_check(
             db,
             module_id,
-            db.query(BodyCheckQuery(module_id)),
+            db.get(BodyCheckQuery(module_id)),
             db.get(FlowCheckQuery(module_id)),
             None,
         )
@@ -1648,7 +1648,7 @@ pub(super) fn provide_checked_module(
 fn checked_module_with_body_and_flow_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    body_check: nia_body_check::BodyCheck,
+    body_check: Arc<nia_body_check::BodyCheck>,
     flow_check: Arc<nia_flow_check::FlowCheck>,
     layouts: Option<Arc<nia_layout::Layouts>>,
 ) -> CheckedModule {
@@ -1667,15 +1667,15 @@ fn checked_module_with_body_and_flow_check(
         layouts: layouts.unwrap_or_else(|| db.get(LayoutsQuery(module_id))),
         abi_check: db.get(AbiCheckQuery(module_id)),
         flow_check,
-        body_ir: body_check.ir,
+        body_ir: Arc::clone(&body_check.ir),
         semantic_uses: db.get(SemanticUseTableQuery(module_id)),
-        semantic_facts: body_check.facts,
-        provider_demands: body_check.provider_demands,
+        semantic_facts: Arc::clone(&body_check.facts),
+        provider_demands: Arc::clone(&body_check.provider_demands),
         executable_reachable_globals: None,
         executable_reachable_structs: None,
         executable_reachable_unions: None,
         executable_type_only: false,
-        body_diagnostics: body_check.diagnostics,
+        body_diagnostics: Arc::clone(&body_check.diagnostics),
     }
 }
 
@@ -1795,18 +1795,18 @@ pub(super) fn executable_signature_checked_module(
         flow_check: Arc::new(nia_flow_check::FlowCheck {
             diagnostics: Vec::new(),
         }),
-        body_ir: nia_body_ir::BodyIr {
+        body_ir: Arc::new(nia_body_ir::BodyIr {
             function_bodies: HashMap::new(),
             global_inits: HashMap::new(),
-        },
+        }),
         semantic_uses: Arc::new(nia_sema_ir::SemanticUseTable::default()),
-        semantic_facts: nia_sema_ir::SemanticFacts::default(),
-        provider_demands: HashSet::new(),
+        semantic_facts: Arc::new(nia_sema_ir::SemanticFacts::default()),
+        provider_demands: Arc::new(HashSet::new()),
         executable_reachable_globals: Some(HashSet::new()),
         executable_reachable_structs: None,
         executable_reachable_unions: None,
         executable_type_only: true,
-        body_diagnostics: Vec::new(),
+        body_diagnostics: Arc::new(Vec::new()),
     }
 }
 
@@ -2210,19 +2210,17 @@ pub(super) fn filter_checked_module_for_codegen(
     program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>>>,
     program_array_lengths_override: Option<&dyn Fn(nia_ids::GlobalConstExprId) -> Option<u64>>,
 ) -> CheckedModule {
-    module
-        .body_ir
+    Arc::make_mut(&mut module.body_ir)
         .function_bodies
         .retain(|def_id, _| reachable_functions.contains(def_id));
-    module
-        .body_ir
+    Arc::make_mut(&mut module.body_ir)
         .global_inits
         .retain(|def_id, _| reachable_globals.contains(def_id));
-    module.semantic_facts = filter_semantic_facts_for_reachable_items(
-        module.semantic_facts,
+    module.semantic_facts = Arc::new(filter_semantic_facts_for_reachable_items(
+        Arc::unwrap_or_clone(module.semantic_facts),
         reachable_functions,
         reachable_globals,
-    );
+    ));
     module.layouts = rooted_layouts_for_checked_module(
         db,
         &module,

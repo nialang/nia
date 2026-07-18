@@ -205,16 +205,16 @@ impl ExecutableFactModuleState {
         let mut state = Self {
             module_id,
             defs: db.query(FullModuleDefsQuery(module_id)),
-            body_ir: ir,
-            semantic_facts: facts,
-            provider_demands,
+            body_ir: Arc::unwrap_or_clone(ir),
+            semantic_facts: Arc::unwrap_or_clone(facts),
+            provider_demands: Arc::unwrap_or_clone(provider_demands),
             provider_demands_by_function,
             unowned_provider_demands,
             executable_refs: ExecutableModuleRefs::default(),
             checked_functions,
             checked_globals,
             diagnostic_owners,
-            diagnostics,
+            diagnostics: Arc::unwrap_or_clone(diagnostics),
         };
         state.executable_refs =
             executable_module_refs_for_fact_state(&state, &db.context().type_store);
@@ -247,7 +247,7 @@ impl ExecutableFactModuleState {
             const_eval: _,
         } = increment;
         let nia_body_check::BodyCheck {
-            mut ir,
+            ir,
             facts,
             provider_demands,
             provider_demands_by_function,
@@ -255,6 +255,8 @@ impl ExecutableFactModuleState {
             diagnostic_owners,
             diagnostics,
         } = body_check;
+        let mut ir = Arc::unwrap_or_clone(ir);
+        let facts = Arc::unwrap_or_clone(facts);
         let executable_refs = executable_module_refs_for_increment(
             self.module_id,
             &self.defs,
@@ -272,7 +274,7 @@ impl ExecutableFactModuleState {
             .flat_map(|demands| demands.iter().cloned())
             .collect::<HashSet<_>>();
         self.unowned_provider_demands.extend(
-            provider_demands
+            Arc::unwrap_or_clone(provider_demands)
                 .difference(&owned_provider_demands)
                 .cloned(),
         );
@@ -287,7 +289,7 @@ impl ExecutableFactModuleState {
         self.executable_refs.extend(executable_refs);
         self.checked_functions.extend(checked_functions);
         self.checked_globals.extend(checked_globals);
-        self.diagnostics.extend(diagnostics);
+        self.diagnostics.extend(Arc::unwrap_or_clone(diagnostics));
     }
 }
 

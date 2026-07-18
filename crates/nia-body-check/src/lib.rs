@@ -70,13 +70,13 @@ use crate::projection_obligations::TraitObligation;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyCheck {
-    pub ir: BodyIr,
-    pub facts: SemanticFacts,
+    pub ir: Arc<BodyIr>,
+    pub facts: Arc<SemanticFacts>,
     pub checked_functions: HashSet<GlobalDefId>,
-    pub provider_demands: HashSet<ProviderDemand>,
+    pub provider_demands: Arc<HashSet<ProviderDemand>>,
     pub provider_demands_by_function: HashMap<GlobalDefId, HashSet<ProviderDemand>>,
     pub diagnostic_owners: Vec<Option<GlobalDefId>>,
-    pub diagnostics: Vec<Diagnostic>,
+    pub diagnostics: Arc<Vec<Diagnostic>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -595,7 +595,7 @@ pub fn check_module_bodies(
         input,
         nia_timing::TimingMode::Off,
     );
-    checked.diagnostics.extend(layouts.diagnostics);
+    Arc::make_mut(&mut checked.diagnostics).extend(layouts.diagnostics);
     checked
 }
 
@@ -650,7 +650,7 @@ pub fn check_module_bodies_with_program_signatures(
         product: BodyCheckProduct::Full,
         prechecked: None,
     });
-    checked.diagnostics.extend(layouts.diagnostics);
+    Arc::make_mut(&mut checked.diagnostics).extend(layouts.diagnostics);
     checked
 }
 
@@ -889,16 +889,16 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             .diagnostic_owners
             .resize(checker.diagnostics.len(), None);
         BodyCheck {
-            ir: BodyIr {
+            ir: Arc::new(BodyIr {
                 function_bodies: checker.function_bodies,
                 global_inits: checker.global_inits,
-            },
-            facts,
+            }),
+            facts: Arc::new(facts),
             checked_functions: checker.checked_functions,
-            provider_demands: checker.provider_demands.borrow().clone(),
+            provider_demands: Arc::new(checker.provider_demands.borrow().clone()),
             provider_demands_by_function: checker.provider_demands_by_function.borrow().clone(),
             diagnostic_owners: checker.diagnostic_owners,
-            diagnostics: checker.diagnostics,
+            diagnostics: Arc::new(checker.diagnostics),
         }
     })
 }
