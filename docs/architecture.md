@@ -405,18 +405,16 @@ type graph; algorithms that still assume that closure are migration targets,
 not constraints on the canonical store. Module checkout and its same-shard
 reentry guard remain a separate migration mechanism.
 
-The direct `InternedTyId::owner()` operation has been removed. The temporary
-`TypeOrigin` table records the module view that won the first canonical insert,
-which can be arbitrary for shared primitives and structural types. It is not a
-semantic owner and must not affect equality, reachability, mangling, visibility,
-or dependency edges. The canonical store is the sole `TyId -> TyKind` read
+The direct `InternedTyId::owner()` operation and the former `TypeOrigin` table
+have been deleted. The module view that won the first canonical insert was
+arbitrary for shared primitives and structural types, so const normalization
+and trait visibility now use the current execution module while nominal layout
+ownership comes from `GlobalDefId`. The canonical store is the sole `TyId -> TyKind` read
 source for migrated consumers: it validates `TypeStoreId`, indexes an immutable
 append-only kind arena, and returns a borrow tied to the store lifetime. The
 arena is a sparse four-level `OnceLock` trie over the four bytes of a `u32` slot,
 so reads neither acquire the canonicalization mutex nor require unsafe lifetime
-extension. A foreign-session handle has neither a kind nor an origin. This
-metadata disappears when remaining frontend migration paths no longer use
-module visibility logs.
+extension. A foreign-session handle has no kind.
 
 Trait solving reads every input handle from the canonical `TypeStore`. Its
 temporary interner is only an append target for synthesized types, so program
@@ -451,8 +449,8 @@ prefix of the session shard and cannot replace it. Executable fact extraction
 and reachability now read every handle directly from the canonical `TypeStore`;
 typed body data is not also a type-store product. Reachability receives a
 separate append-only capability only while generic substitution synthesizes a
-new structural type. That capability records physical origin but does not add
-the type to a module visibility log, so reads cannot accidentally fall back to
+new structural type. That capability does not add the type to a module
+visibility log, so reads cannot accidentally fall back to
 the old view contract. This removes the former hidden requirement to merge
 every body increment into a second snapshot.
 
@@ -526,8 +524,8 @@ store directly. Item-signature collection has one input-object API, validates
 that lowering handles belong to the same store, and uses a short-lived append
 capability for synthesized builtin/error types. No production append contract
 requires a module visibility view. The remaining migration work is to remove
-the legacy log and its physical-origin consumers, then delete `TypeOrigin`,
-`TyInternerId`, snapshots, checkout, and the view layer.
+the legacy log, then delete `TyInternerId`, snapshots, checkout, and the view
+layer.
 
 ### 3.6 `nia-diagnostic`
 

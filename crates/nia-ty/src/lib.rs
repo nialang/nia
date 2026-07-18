@@ -3,7 +3,7 @@ use nia_hash::{FastHashMap, FastHashSet};
 pub use nia_ids::{BuiltinTrait, BuiltinType, LayoutBuiltin, TraitId};
 use nia_ids::{
     GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerId, TyInternerIndex,
-    TypeOrigin, TypeStoreId,
+    TypeStoreId,
 };
 use nia_span::Span;
 use nia_symbol::SymbolId;
@@ -110,11 +110,10 @@ struct TypeStoreCore {
 #[derive(Debug, Default)]
 struct TypeStoreSlots {
     canonical: FastHashMap<Arc<TyKind>, InternedTyId>,
-    origins: Vec<TypeOrigin>,
 }
 
 impl TypeStoreCore {
-    fn intern(&self, origin: TypeOrigin, kind: &TyKind) -> InternedTyId {
+    fn intern(&self, kind: &TyKind) -> InternedTyId {
         kind.visit_referenced_types(|referenced| {
             assert!(
                 self.get(referenced).is_some(),
@@ -125,11 +124,10 @@ impl TypeStoreCore {
         if let Some(ty) = slots.canonical.get(kind) {
             return *ty;
         }
-        let index = u32::try_from(slots.origins.len()).expect("type store slot space exhausted");
+        let index = u32::try_from(slots.canonical.len()).expect("type store slot space exhausted");
         let ty = InternedTyId::new(self.id, TyInternerIndex::from_interner_index(index));
         let kind = Arc::new(kind.clone());
         self.kinds.insert(index, Arc::clone(&kind));
-        slots.origins.push(origin);
         slots.canonical.insert(kind, ty);
         ty
     }
@@ -139,18 +137,6 @@ impl TypeStoreCore {
             return None;
         }
         self.kinds.get(ty.index.index())
-    }
-
-    fn type_origin(&self, ty: InternedTyId) -> Option<TypeOrigin> {
-        if ty.store_id != self.id {
-            return None;
-        }
-        self.slots
-            .lock()
-            .expect("type store slots lock poisoned")
-            .origins
-            .get(ty.index.index() as usize)
-            .copied()
     }
 }
 
@@ -172,12 +158,11 @@ pub struct TypeStoreModuleCheckout {
 #[derive(Clone)]
 pub struct TypeStoreAppend {
     core: Arc<TypeStoreCore>,
-    origin: TypeOrigin,
 }
 
 impl TypeStoreAppend {
     pub fn intern(&self, kind: TyKind) -> InternedTyId {
-        self.core.intern(self.origin, &kind)
+        self.core.intern(&kind)
     }
 }
 
@@ -234,19 +219,14 @@ impl TypeStore {
         self.id
     }
 
-    pub fn type_origin(&self, ty: InternedTyId) -> Option<TypeOrigin> {
-        self.core.type_origin(ty)
-    }
-
     pub fn get(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.core.get(ty)
     }
 
     #[doc(hidden)]
-    pub fn append_for_module(&self, module_id: ModuleId) -> TypeStoreAppend {
+    pub fn append_for_module(&self, _module_id: ModuleId) -> TypeStoreAppend {
         TypeStoreAppend {
             core: Arc::clone(&self.core),
-            origin: TypeOrigin::Module(module_id),
         }
     }
 
@@ -693,10 +673,6 @@ impl TyInterner {
         self.interner_id
     }
 
-    pub fn type_origin(&self, ty: InternedTyId) -> Option<TypeOrigin> {
-        self.core.type_origin(ty)
-    }
-
     pub fn intern(&mut self, kind: TyKind) -> InternedTyId {
         self.intern_local(kind)
     }
@@ -705,9 +681,7 @@ impl TyInterner {
         if let Some(ty) = self.map.get(&kind) {
             return *ty;
         }
-        let ty = self
-            .core
-            .intern(TypeOrigin::Module(self.interner_id.module_id()), &kind);
+        let ty = self.core.intern(&kind);
         self.positions.insert(ty, self.tys.len());
         self.tys.push((ty, kind.clone()));
         self.map.insert(kind, ty);
@@ -1342,30 +1316,16 @@ mod tests {
         );
         assert_eq!(second_interner.get(first_i32), None);
         assert_eq!(first_interner.get(second_i32), None);
-        assert_eq!(
-            first.type_origin(first_i32),
-            Some(TypeOrigin::Module(ModuleId(7)))
-        );
-        assert_eq!(first.type_origin(second_i32), None);
-        assert_eq!(
-            first_interner.type_origin(first_i32),
-            Some(TypeOrigin::Module(ModuleId(7)))
-        );
-        assert_eq!(first_interner.type_origin(second_i32), None);
     }
 
     #[test]
-    fn type_views_share_canonical_ids_and_resolve_physical_origins() {
+    fn type_views_share_canonical_ids() {
         let store = TypeStore::new();
         let local = store.module_snapshot(ModuleId(2));
         let foreign = store.module_snapshot(ModuleId(9));
         let foreign_ty = foreign.primitive(PrimitiveTy::U32);
 
         assert_eq!(foreign_ty, local.primitive(PrimitiveTy::U32));
-        assert_eq!(
-            local.type_origin(foreign_ty),
-            Some(TypeOrigin::Module(ModuleId(2)))
-        );
     }
 
     #[test]
@@ -1389,10 +1349,6 @@ mod tests {
             });
 
         assert_eq!(first_pointer, second_pointer);
-        assert_eq!(
-            store.type_origin(first_pointer),
-            Some(TypeOrigin::Module(ModuleId(2)))
-        );
     }
 
     #[test]
@@ -1462,10 +1418,6 @@ mod tests {
                 is_readonly: true,
                 elem: foreign,
             })
-        );
-        assert_eq!(
-            store.type_origin(pointer),
-            Some(TypeOrigin::Module(ModuleId(2)))
         );
         assert!(store.module_snapshot(ModuleId(2)).get(pointer).is_none());
     }

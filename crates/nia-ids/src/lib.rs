@@ -65,19 +65,6 @@ impl TyInternerId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum TypeOrigin {
-    Module(ModuleId),
-}
-
-impl TypeOrigin {
-    pub const fn module_id(self) -> ModuleId {
-        match self {
-            Self::Module(module_id) => module_id,
-        }
-    }
-}
-
 impl TyInternerIndex {
     #[doc(hidden)]
     pub const fn from_interner_index(index: u32) -> Self {
