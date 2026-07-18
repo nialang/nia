@@ -16,7 +16,7 @@ pub(super) fn provide_layouts(
         root_types.extend(type_lowering.explicit_type_roots());
         root_types.sort_unstable();
         root_types.dedup();
-        let layout_query = |module_id| Some(db.query(SignatureLayoutsQuery(module_id)));
+        let layout_query = |module_id| Some(db.get(SignatureLayoutsQuery(module_id)));
         let local_array_lengths = |id| array_lengths.values.get(&id).copied();
         let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
             Some(db.query(ConstArrayLengthsQuery(id.module_id)))

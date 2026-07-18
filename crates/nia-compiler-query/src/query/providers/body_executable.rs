@@ -647,8 +647,8 @@ pub(super) fn body_check_with_filter_and_layouts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     filter: nia_body_check::BodyCheckFilter<'_>,
-    layouts: Option<nia_layout::Layouts>,
-    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
+    layouts: Option<Arc<nia_layout::Layouts>>,
+    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>>>,
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> nia_body_check::BodyCheck {
     body_check_with_filter_and_layouts_with_inputs(
@@ -680,8 +680,8 @@ pub(super) fn body_check_with_filter_and_layouts(
 pub(super) struct ExecutableBodyCheckInput<'a> {
     pub module_id: ModuleId,
     pub filter: nia_body_check::BodyCheckFilter<'a>,
-    pub layouts: Option<nia_layout::Layouts>,
-    pub program_layouts_override: Option<&'a dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
+    pub layouts: Option<Arc<nia_layout::Layouts>>,
+    pub program_layouts_override: Option<&'a dyn Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>>>,
     pub fact_mode: ExecutableFactMode<'a>,
     pub resolution_inputs: Option<BodyCheckResolutionInputs>,
     pub seed: Option<nia_body_check::BodyCheckSeed<'a>>,
@@ -810,11 +810,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             )
         }
     };
-    let layouts = layouts.unwrap_or_else(|| db.query(LayoutsQuery(module_id)));
+    let layouts = layouts.unwrap_or_else(|| db.get(LayoutsQuery(module_id)));
     let program_layouts = |module_id| {
         program_layouts_override
             .and_then(|program_layouts| program_layouts(module_id))
-            .or_else(|| Some(db.query(SignatureLayoutsQuery(module_id))))
+            .or_else(|| Some(db.get(SignatureLayoutsQuery(module_id))))
     };
     let empty_extensions = nia_defs::VisibleExtensionMethods::default();
     let lazy_extensions = || {
@@ -1449,13 +1449,13 @@ pub(super) fn executable_layouts_for_reachable_items(
 
 pub(super) fn executable_program_layouts<'a>(
     db: &'a QueryDb<CompilerContext>,
-    cache: &'a RefCell<HashMap<ModuleId, nia_layout::Layouts>>,
+    cache: &'a RefCell<HashMap<ModuleId, Arc<nia_layout::Layouts>>>,
     reachable_functions: &'a HashSet<GlobalDefId>,
     reachable_globals: &'a HashSet<GlobalDefId>,
     array_length_cache: Option<&'a RefCell<HashMap<ModuleId, nia_const_check::ConstArrayLengths>>>,
     non_function_signatures_override: Option<&'a ProgramExecutableNonFunctionSignatures>,
     reachable_body_modules_override: Option<ReachableBodyModules<'a>>,
-) -> impl Fn(ModuleId) -> Option<nia_layout::Layouts> + 'a {
+) -> impl Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>> + 'a {
     move |module_id| {
         if let Some(layouts) = cache.borrow().get(&module_id).cloned() {
             return Some(layouts);
@@ -1470,7 +1470,7 @@ pub(super) fn executable_program_layouts<'a>(
                     reachable_globals,
                 )
             });
-        let layouts = if has_reachable_body_items {
+        let layouts = Arc::new(if has_reachable_body_items {
             executable_layouts_for_reachable_items(
                 db,
                 module_id,
@@ -1482,7 +1482,7 @@ pub(super) fn executable_program_layouts<'a>(
             )
         } else {
             signature_layouts_for_types(db, module_id, non_function_signatures_override)
-        };
+        });
         cache.borrow_mut().insert(module_id, layouts.clone());
         Some(layouts)
     }
@@ -1512,9 +1512,9 @@ fn is_runtime_global_def(db: &QueryDb<CompilerContext>, def_id: GlobalDefId) -> 
 fn rooted_layouts_for_checked_module(
     db: &QueryDb<CompilerContext>,
     module: &CheckedModule,
-    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
+    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>>>,
     program_array_lengths_override: Option<&dyn Fn(nia_ids::GlobalConstExprId) -> Option<u64>>,
-) -> nia_layout::Layouts {
+) -> Arc<nia_layout::Layouts> {
     if module.executable_type_only {
         return module.layouts.clone();
     }
@@ -1526,7 +1526,7 @@ fn rooted_layouts_for_checked_module(
     let layout_query = |module_id| {
         program_layouts_override
             .and_then(|program_layouts| program_layouts(module_id))
-            .or_else(|| Some(db.query(LayoutsQuery(module_id))))
+            .or_else(|| Some(db.get(LayoutsQuery(module_id))))
     };
     let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
         program_array_lengths_override
@@ -1536,7 +1536,7 @@ fn rooted_layouts_for_checked_module(
                     .and_then(|array_lengths| array_lengths.values.get(&id).copied())
             })
     };
-    nia_layout::compute_layouts_for_roots_with_program_context(
+    Arc::new(nia_layout::compute_layouts_for_roots_with_program_context(
         nia_layout::LayoutComputationInput {
             type_store: &db.context().type_store,
             defs: &module.defs,
@@ -1557,7 +1557,7 @@ fn rooted_layouts_for_checked_module(
             structs: &roots.structs,
             unions: &roots.unions,
         },
-    )
+    ))
 }
 
 struct ExecutableLayoutModule<'a> {
@@ -1650,7 +1650,7 @@ fn checked_module_with_body_and_flow_check(
     module_id: ModuleId,
     body_check: nia_body_check::BodyCheck,
     flow_check: Arc<nia_flow_check::FlowCheck>,
-    layouts: Option<nia_layout::Layouts>,
+    layouts: Option<Arc<nia_layout::Layouts>>,
 ) -> CheckedModule {
     let path = db.query(ModulePathQuery(module_id));
     CheckedModule {
@@ -1664,7 +1664,7 @@ fn checked_module_with_body_and_flow_check(
         type_normalization: db.get(TypeNormalizationQuery(module_id)),
         const_eval: db.get(ConstQuery(module_id)),
         static_check: db.get(StaticCheckQuery(module_id)),
-        layouts: layouts.unwrap_or_else(|| db.query(LayoutsQuery(module_id))),
+        layouts: layouts.unwrap_or_else(|| db.get(LayoutsQuery(module_id))),
         abi_check: db.get(AbiCheckQuery(module_id)),
         flow_check,
         body_ir: body_check.ir,
@@ -1684,7 +1684,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
     module_id: ModuleId,
     body_check: BodyCheckWithResolutionInputs,
     flow_check: nia_flow_check::FlowCheck,
-    layouts: nia_layout::Layouts,
+    layouts: Arc<nia_layout::Layouts>,
 ) -> CheckedModule {
     let BodyCheckWithResolutionInputs {
         body_check,
@@ -1726,7 +1726,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
 pub(super) fn executable_signature_checked_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-    layouts: nia_layout::Layouts,
+    layouts: Arc<nia_layout::Layouts>,
     program_signatures: &ProgramExecutableNonFunctionSignatures,
 ) -> CheckedModule {
     let type_resolution = db.get(SignatureTypeResolutionQuery(
@@ -2207,7 +2207,7 @@ pub(super) fn filter_checked_module_for_codegen(
     db: &QueryDb<CompilerContext>,
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
-    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<nia_layout::Layouts>>,
+    program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>>>,
     program_array_lengths_override: Option<&dyn Fn(nia_ids::GlobalConstExprId) -> Option<u64>>,
 ) -> CheckedModule {
     module

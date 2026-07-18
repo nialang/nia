@@ -3890,7 +3890,7 @@ extend Value : Ops {
         )]);
         let db = query_db(loaded);
 
-        let layouts = db.query(LayoutsQuery(ModuleId(0)));
+        let layouts = db.get(LayoutsQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
@@ -3928,7 +3928,7 @@ extend Value : Ops {
         ]);
         let db = query_db(loaded);
 
-        let layouts = db.query(LayoutsQuery(ModuleId(0)));
+        let layouts = db.get(LayoutsQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
@@ -3968,7 +3968,7 @@ extend Value : Ops {
             signature_types,
         ));
         let _ = db.get(SignatureItemSignaturesQuery(ModuleId(0), signature_types));
-        let layouts = db.query(SignatureLayoutsQuery(ModuleId(0)));
+        let layouts = db.get(SignatureLayoutsQuery(ModuleId(0)));
 
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
         assert!(
@@ -5446,6 +5446,7 @@ extend i32 : ParseFrom[Input] {
         let type_resolution = db.get(TypeResolutionQuery(ModuleId(0)));
         let type_lowering = db.get(TypeLoweringQuery(ModuleId(0)));
         let type_normalization = db.get(TypeNormalizationQuery(ModuleId(0)));
+        let layouts = db.get(LayoutsQuery(ModuleId(0)));
         let const_eval = db.get(ConstQuery(ModuleId(0)));
         let static_check = db.get(StaticCheckQuery(ModuleId(0)));
         let abi_check = db.get(AbiCheckQuery(ModuleId(0)));
@@ -5460,6 +5461,7 @@ extend i32 : ParseFrom[Input] {
             &checked.type_normalization,
             &type_normalization
         ));
+        assert!(Arc::ptr_eq(&checked.layouts, &layouts));
         assert!(Arc::ptr_eq(&checked.const_eval, &const_eval));
         assert!(Arc::ptr_eq(&checked.static_check, &static_check));
         assert!(Arc::ptr_eq(&checked.abi_check, &abi_check));

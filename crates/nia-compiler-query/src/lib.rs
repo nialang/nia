@@ -115,7 +115,7 @@ pub struct CheckedModule {
     pub type_normalization: std::sync::Arc<TypeNormalization>,
     pub const_eval: std::sync::Arc<ConstCheck>,
     pub static_check: std::sync::Arc<StaticCheck>,
-    pub layouts: Layouts,
+    pub layouts: std::sync::Arc<Layouts>,
     pub abi_check: std::sync::Arc<AbiCheck>,
     pub flow_check: std::sync::Arc<FlowCheck>,
     pub body_ir: BodyIr,

@@ -474,7 +474,7 @@ fn executable_check(
             } else {
                 ReachableBodyModules::new(&round_reachable_body_modules)
             };
-            let layouts = {
+            let layouts = Arc::new({
                 let reachability = reachability_state.reachability();
                 executable_layouts_for_reachable_items(
                     db,
@@ -485,7 +485,7 @@ fn executable_check(
                     None,
                     Some(reachable_body_modules),
                 )
-            };
+            });
             let seed = fact_by_id
                 .get(&module_id)
                 .map(|state| nia_body_check::BodyCheckSeed {
@@ -746,7 +746,11 @@ fn executable_check(
                 .filter(|module_id| !reachability.modules().contains(module_id))
                 .map(|module_id| {
                     let layouts = executable_program_layouts(module_id).unwrap_or_else(|| {
-                        signature_layouts_for_types(db, module_id, Some(&*non_function_signatures))
+                        Arc::new(signature_layouts_for_types(
+                            db,
+                            module_id,
+                            Some(&*non_function_signatures),
+                        ))
                     });
                     executable_signature_checked_module(
                         db,
@@ -958,7 +962,7 @@ fn final_executable_checked_modules(
                 .then_some((module_id, module_items))
         })
         .collect::<Vec<_>>();
-    let program_layout_cache = RefCell::new(HashMap::<ModuleId, nia_layout::Layouts>::new());
+    let program_layout_cache = RefCell::new(HashMap::<ModuleId, Arc<nia_layout::Layouts>>::new());
     for (module_id, _) in modules_with_executable_items.iter().copied() {
         let layouts = executable_layouts_for_reachable_items(
             db,
@@ -969,7 +973,9 @@ fn final_executable_checked_modules(
             None,
             Some(ReachableBodyModules::new(&reachable_body_modules)),
         );
-        program_layout_cache.borrow_mut().insert(module_id, layouts);
+        program_layout_cache
+            .borrow_mut()
+            .insert(module_id, Arc::new(layouts));
     }
     let executable_program_layouts = executable_program_layouts(
         db,
@@ -990,7 +996,7 @@ fn final_executable_checked_modules(
                 .get(&module_id)
                 .cloned()
                 .unwrap_or_else(|| {
-                    executable_layouts_for_reachable_items(
+                    Arc::new(executable_layouts_for_reachable_items(
                         db,
                         module_id,
                         reachability.functions(),
@@ -998,7 +1004,7 @@ fn final_executable_checked_modules(
                         Some(&caches.array_lengths),
                         None,
                         Some(ReachableBodyModules::new(&reachable_body_modules)),
-                    )
+                    ))
                 });
             let filter = nia_body_check::BodyCheckFilter::ReachableItems {
                 functions: module_functions,
