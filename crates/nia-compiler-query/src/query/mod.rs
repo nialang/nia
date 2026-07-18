@@ -909,6 +909,29 @@ impl CompilerContext {
             .collect()
     }
 
+    fn executable_checked_module(
+        &self,
+        set: &ExecutableCheckedModuleSet,
+        module_id: ModuleId,
+    ) -> Arc<CheckedModule> {
+        let store = self
+            .executable_checked_modules
+            .read()
+            .expect("executable checked module store lock poisoned");
+        let data = store.sets.get(&set.id).unwrap_or_else(|| {
+            panic!(
+                "Nia ICE: missing executable checked module set {:?}",
+                set.id
+            )
+        });
+        Arc::clone(data.modules.get(&module_id).unwrap_or_else(|| {
+            panic!(
+                "Nia ICE: missing executable checked module {:?} in set {:?}",
+                module_id, set.id
+            )
+        }))
+    }
+
     fn clear_executable_checked_module_sets(&self) {
         let mut store = self
             .executable_checked_modules
@@ -5578,6 +5601,35 @@ extend i32 : ParseFrom[Input] {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "program_type_normalizations"
         }));
+    }
+
+    #[test]
+    fn codegen_reuses_lowered_function_bodies_between_mono_and_backend() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "fn helper() i32 { 1 } fn main() i32 { helper() }",
+        )]);
+        let db = query_db(loaded);
+
+        let codegen = db.get(CodegenProgramQuery);
+        let trace = db.query_trace();
+
+        assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+        assert_eq!(
+            query_executions(&trace, "lowered_function_bodies"),
+            codegen.modules.len(),
+            "function lowering should execute once per executable module"
+        );
+        assert!(
+            query_cache_hits(&trace, "lowered_function_bodies") >= codegen.modules.len(),
+            "backend lowering should reuse monomorphization's function products"
+        );
+        assert!(trace_has_dependency(
+            &trace,
+            "codegen_program",
+            "lowered_function_bodies"
+        ));
     }
 
     #[test]

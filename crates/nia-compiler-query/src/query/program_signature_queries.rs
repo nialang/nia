@@ -132,6 +132,25 @@ pub(super) struct LoweredFunctionBodies {
     pub(super) diagnostics: Vec<nia_function_lower::FunctionLoweringDiagnostic>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct LoweredFunctionBodiesQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for LoweredFunctionBodiesQuery {
+    type Value = LoweredFunctionBodies;
+
+    fn name() -> &'static str {
+        "lowered_function_bodies"
+    }
+
+    fn description(&self) -> String {
+        format!("lowered_function_bodies({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        provide_lowered_function_bodies(db, self.0)
+    }
+}
+
 impl ProgramExecutableNonFunctionSignatures {
     pub(super) fn codegen_maps_with_functions<'a>(
         &'a self,
