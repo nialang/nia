@@ -99,7 +99,7 @@ fn main() i32 {
         |body_check, _, defs, _, _| {
             let values = global_def_id_by_name(defs, "values");
             let unused = global_def_id_by_name(defs, "unused");
-            body_check.ir.global_inits.insert(
+            Arc::make_mut(&mut body_check.ir).global_inits.insert(
                 values,
                 StaticInit::Repeat {
                     value: Box::new(StaticInit::AddrOfFunction {
@@ -186,7 +186,7 @@ fn main() i32 {
             let kept = global_def_id_by_name(defs, "kept");
             let kept_id = global_def_id_by_name(defs, "kept_id");
             let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
-            body_check.ir.global_inits.insert(
+            Arc::make_mut(&mut body_check.ir).global_inits.insert(
                 values,
                 StaticInit::Array(vec![
                     StaticInit::AddrOfFunction {

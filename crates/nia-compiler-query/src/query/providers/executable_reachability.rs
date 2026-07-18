@@ -840,7 +840,7 @@ fn executable_check(
     );
     let module_body_demands = executable_module_body_demands(db, &reachability_by_module);
     if let Some(module) = codegen_modules.first_mut() {
-        module.provider_demands.extend(module_body_demands);
+        Arc::make_mut(&mut module.provider_demands).extend(module_body_demands);
     }
     ExecutableCheckOutput::Modules(
         db.context()
@@ -1071,7 +1071,7 @@ fn final_executable_checked_modules(
             let mut module = executable_checked_module_with_body_and_flow_check(
                 db, module_id, body_check, flow_check, layouts,
             );
-            module.provider_demands.extend(provider_demands);
+            Arc::make_mut(&mut module.provider_demands).extend(provider_demands);
             (module_id, module)
         })
         .collect()

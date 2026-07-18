@@ -118,16 +118,16 @@ pub struct CheckedModule {
     pub layouts: std::sync::Arc<Layouts>,
     pub abi_check: std::sync::Arc<AbiCheck>,
     pub flow_check: std::sync::Arc<FlowCheck>,
-    pub body_ir: BodyIr,
+    pub body_ir: std::sync::Arc<BodyIr>,
     pub semantic_uses: std::sync::Arc<SemanticUseTable>,
-    pub semantic_facts: SemanticFacts,
-    pub provider_demands: std::collections::HashSet<ProviderDemand>,
+    pub semantic_facts: std::sync::Arc<SemanticFacts>,
+    pub provider_demands: std::sync::Arc<std::collections::HashSet<ProviderDemand>>,
     pub executable_reachable_globals: Option<std::collections::HashSet<GlobalDefId>>,
     pub executable_reachable_structs:
         Option<std::sync::Arc<std::collections::HashSet<GlobalDefId>>>,
     pub executable_reachable_unions: Option<std::sync::Arc<std::collections::HashSet<GlobalDefId>>>,
     pub executable_type_only: bool,
-    pub body_diagnostics: Vec<Diagnostic>,
+    pub body_diagnostics: std::sync::Arc<Vec<Diagnostic>>,
 }
 
 pub(crate) fn module_diagnostics(
