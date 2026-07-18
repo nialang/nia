@@ -3119,7 +3119,7 @@ fn main() i32 { 0 }
         let _ = database.db.query(ConstEnumValuesQuery(module_id));
         let values = database.db.query(ConstValuesQuery(module_id));
         let _ = database.db.query(ConstTypedFactsQuery(module_id));
-        let _ = database.db.query(ConstQuery(module_id));
+        let _ = database.db.get(ConstQuery(module_id));
 
         for ty in lowering.explicit_type_roots() {
             assert!(database.db.context().type_store.get(ty).is_some());
@@ -3154,7 +3154,7 @@ fn main() i32 {
 "#,
                 ),
             ])));
-        let _ = database.db.query(ConstQuery(module_id));
+        let _ = database.db.get(ConstQuery(module_id));
 
         let body = database.db.query(BodyCheckQuery(module_id));
 
@@ -3988,7 +3988,7 @@ extend Value : Ops {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(AbiCheckQuery(ModuleId(0)));
+        let _ = db.get(AbiCheckQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -4469,7 +4469,7 @@ fn main() usize {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(FlowCheckQuery(ModuleId(0)));
+        let _ = db.get(FlowCheckQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -4495,7 +4495,7 @@ fn main() usize {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(StaticCheckQuery(ModuleId(0)));
+        let _ = db.get(StaticCheckQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -4759,7 +4759,7 @@ extend Used {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(ConstQuery(ModuleId(0)));
+        let _ = db.get(ConstQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5445,12 +5445,20 @@ extend i32 : ParseFrom[Input] {
         let semantic_uses = db.get(SemanticUseTableQuery(ModuleId(0)));
         let type_resolution = db.get(TypeResolutionQuery(ModuleId(0)));
         let type_lowering = db.get(TypeLoweringQuery(ModuleId(0)));
+        let const_eval = db.get(ConstQuery(ModuleId(0)));
+        let static_check = db.get(StaticCheckQuery(ModuleId(0)));
+        let abi_check = db.get(AbiCheckQuery(ModuleId(0)));
+        let flow_check = db.get(FlowCheckQuery(ModuleId(0)));
 
         assert!(Arc::ptr_eq(&checked.value_resolution, &values));
         assert!(Arc::ptr_eq(&checked.local_resolution, &locals));
         assert!(Arc::ptr_eq(&checked.semantic_uses, &semantic_uses));
         assert!(Arc::ptr_eq(&checked.type_resolution, &type_resolution));
         assert!(Arc::ptr_eq(&checked.type_lowering, &type_lowering));
+        assert!(Arc::ptr_eq(&checked.const_eval, &const_eval));
+        assert!(Arc::ptr_eq(&checked.static_check, &static_check));
+        assert!(Arc::ptr_eq(&checked.abi_check, &abi_check));
+        assert!(Arc::ptr_eq(&checked.flow_check, &flow_check));
     }
 
     #[test]
