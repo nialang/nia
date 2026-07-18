@@ -463,67 +463,6 @@ impl<C> QueryDb<C> {
         }
     }
 
-    pub fn query_many<K>(&self, keys: impl IntoIterator<Item = K>) -> Vec<K::Value>
-    where
-        C: Send + Sync + 'static,
-        K: QueryKey<C>,
-        K::Value: Clone,
-    {
-        let keys = keys.into_iter().collect::<Vec<_>>();
-        if keys.is_empty() {
-            return Vec::new();
-        }
-        // `query_many` runs work on fresh OS threads, so the thread-local query
-        // stack has to be copied explicitly. Without this logical parent stack,
-        // a worker that asks for an ancestor query would wait on the parent
-        // thread, while the parent is waiting for the worker to finish.
-        let parent_stack = current_query_stack();
-        let worker_count = query_many_worker_count(keys.len());
-        if worker_count == 1 {
-            return keys.into_iter().map(|key| self.query(key)).collect();
-        }
-        let queue = Arc::new(Mutex::new(
-            keys.into_iter().enumerate().collect::<VecDeque<_>>(),
-        ));
-        std::thread::scope(|scope| {
-            let handles = (0..worker_count)
-                .map(|_| {
-                    let db = self.clone();
-                    let parent_stack = parent_stack.clone();
-                    let queue = queue.clone();
-                    scope.spawn(move || {
-                        let _stack_guard = install_query_stack(parent_stack);
-                        let mut values = Vec::new();
-                        loop {
-                            let work = queue
-                                .lock()
-                                .expect("query_many work queue lock poisoned")
-                                .pop_front();
-                            let Some((index, key)) = work else {
-                                return (values, take_current_stack_dependencies());
-                            };
-                            values.push((index, db.query(key)));
-                        }
-                    })
-                })
-                .collect::<Vec<_>>();
-            let mut values = Vec::new();
-            let mut dependencies = FastHashSet::default();
-            for handle in handles {
-                match handle.join() {
-                    Ok((worker_values, worker_dependencies)) => {
-                        values.extend(worker_values);
-                        dependencies.extend(worker_dependencies);
-                    }
-                    Err(payload) => std::panic::resume_unwind(payload),
-                }
-            }
-            merge_dependencies_into_current_stack(dependencies);
-            values.sort_by_key(|(index, _)| *index);
-            values.into_iter().map(|(_, value)| value).collect()
-        })
-    }
-
     pub fn get_many<K>(&self, keys: impl IntoIterator<Item = K>) -> Vec<Arc<K::Value>>
     where
         C: Send + Sync + 'static,
@@ -534,7 +473,7 @@ impl<C> QueryDb<C> {
             return Vec::new();
         }
         let parent_stack = current_query_stack();
-        let worker_count = query_many_worker_count(keys.len());
+        let worker_count = batch_worker_count(keys.len());
         if worker_count == 1 {
             return keys.into_iter().map(|key| self.get(key)).collect();
         }
@@ -739,7 +678,7 @@ impl<C> QueryDb<C> {
     }
 }
 
-fn query_many_worker_count(work_items: usize) -> usize {
+fn batch_worker_count(work_items: usize) -> usize {
     if work_items <= 1 {
         return work_items;
     }
@@ -747,11 +686,11 @@ fn query_many_worker_count(work_items: usize) -> usize {
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| *value > 0);
-    let available = configured.unwrap_or_else(default_query_many_threads);
+    let available = configured.unwrap_or_else(default_batch_threads);
     available.clamp(1, work_items)
 }
 
-fn default_query_many_threads() -> usize {
+fn default_batch_threads() -> usize {
     let available = std::thread::available_parallelism()
         .map(usize::from)
         .unwrap_or(1);
@@ -1106,14 +1045,17 @@ mod tests {
     }
 
     #[test]
-    fn executes_query_many_in_key_order() {
+    fn executes_get_many_in_key_order() {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
         });
 
-        let values = db.query_many([Double(1), Double(4), Double(3)]);
+        let values = db.get_many([Double(1), Double(4), Double(3)]);
 
-        assert_eq!(values, vec![2, 8, 6]);
+        assert_eq!(
+            values.iter().map(|value| **value).collect::<Vec<_>>(),
+            vec![2, 8, 6]
+        );
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 3);
     }
 
@@ -1132,8 +1074,8 @@ mod tests {
     }
 
     #[test]
-    fn default_query_many_threads_is_bounded() {
-        let count = default_query_many_threads();
+    fn default_batch_threads_is_bounded() {
+        let count = default_batch_threads();
 
         assert!(count >= 1);
         assert!(count <= DEFAULT_MAX_QUERY_MANY_THREADS);
@@ -1215,7 +1157,7 @@ mod tests {
     }
 
     #[test]
-    fn query_many_workers_detect_cycles_through_parent_stack() {
+    fn get_many_workers_detect_cycles_through_parent_stack() {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
         });
@@ -1285,7 +1227,7 @@ mod tests {
     }
 
     #[test]
-    fn records_query_many_dependencies_from_parent_query() {
+    fn records_get_many_dependencies_from_parent_query() {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
         });
@@ -1302,7 +1244,7 @@ mod tests {
     }
 
     #[test]
-    fn records_single_item_query_many_dependencies_from_parent_query() {
+    fn records_single_item_get_many_dependencies_from_parent_query() {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
         });
@@ -1364,7 +1306,7 @@ mod tests {
     }
 
     #[test]
-    fn invalidates_query_many_dependents_without_reordering_results() {
+    fn invalidates_get_many_dependents_without_reordering_results() {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
         });
@@ -1408,7 +1350,7 @@ mod tests {
     }
 
     #[test]
-    fn invalidation_during_query_many_prevents_stale_cache_writeback() {
+    fn invalidation_during_get_many_prevents_stale_cache_writeback() {
         let control = Arc::new((Mutex::new(RaceState::default()), Condvar::new()));
         let db = QueryDb::new(RaceContext {
             executions: AtomicUsize::new(0),
@@ -1417,7 +1359,7 @@ mod tests {
         let worker_db = db.clone();
 
         std::thread::scope(|scope| {
-            let handle = scope.spawn(move || worker_db.query_many([SlowDouble(1), SlowDouble(2)]));
+            let handle = scope.spawn(move || worker_db.get_many([SlowDouble(1), SlowDouble(2)]));
 
             let (lock, ready) = &*control;
             let mut state = lock.lock().expect("race state lock poisoned");
@@ -1435,7 +1377,12 @@ mod tests {
             drop(state);
 
             assert_eq!(
-                handle.join().expect("query_many worker panicked"),
+                handle
+                    .join()
+                    .expect("get_many worker panicked")
+                    .iter()
+                    .map(|value| **value)
+                    .collect::<Vec<_>>(),
                 vec![2, 4]
             );
         });
@@ -1478,7 +1425,10 @@ mod tests {
         }
 
         fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            db.query_many(self.0.map(Double)).into_iter().sum()
+            db.get_many(self.0.map(Double))
+                .into_iter()
+                .map(|value| *value)
+                .sum()
         }
     }
 
@@ -1497,7 +1447,10 @@ mod tests {
         }
 
         fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            db.query_many([Double(self.0)]).into_iter().sum()
+            db.get_many([Double(self.0)])
+                .into_iter()
+                .map(|value| *value)
+                .sum()
         }
     }
 
@@ -1512,7 +1465,10 @@ mod tests {
         }
 
         fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            db.query_many([ParallelRecursiveChild]).into_iter().sum()
+            db.get_many([ParallelRecursiveChild])
+                .into_iter()
+                .map(|value| *value)
+                .sum()
         }
     }
 
