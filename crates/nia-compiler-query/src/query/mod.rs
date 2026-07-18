@@ -522,18 +522,18 @@ fn codegen_program_from_query_error(
         graph,
         optimization,
         modules: Vec::new(),
-        monomorphization: nia_monomorphize::Monomorphization {
+        monomorphization: Arc::new(nia_monomorphize::Monomorphization {
             instances: Vec::new(),
             diagnostics: Vec::new(),
-        },
-        backend_lowering: nia_backend_lower::BackendLowering {
+        }),
+        backend_lowering: Arc::new(nia_backend_lower::BackendLowering {
             program: nia_backend_ir::BackendProgram {
                 modules: Vec::new(),
             },
             optimization,
             optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
             diagnostics: Vec::new(),
-        },
+        }),
         diagnostics: vec![ProgramDiagnostic {
             path: SourcePath::new("<query>"),
             diagnostic: query_error_diagnostic(err),
@@ -4838,7 +4838,7 @@ extend Used {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(MonomorphizationQuery);
+        let _ = db.get(MonomorphizationQuery);
         let trace = db.query_trace();
 
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -4944,7 +4944,7 @@ extend Used {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let checked = db.query(CodegenProgramQuery);
+        let checked = db.get(CodegenProgramQuery);
         let trace = db.query_trace();
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -5141,7 +5141,7 @@ pub struct ArgsIter {}
         };
         let db = query_db(loaded);
 
-        let checked = db.query(CodegenProgramQuery);
+        let checked = db.get(CodegenProgramQuery);
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
@@ -5205,7 +5205,7 @@ pub struct Used {}
         };
         let db = query_db(loaded);
 
-        let checked = db.query(CodegenProgramQuery);
+        let checked = db.get(CodegenProgramQuery);
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let trace = db.query_trace();
@@ -5567,7 +5567,7 @@ extend i32 : ParseFrom[Input] {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(BackendLoweringQuery);
+        let _ = db.get(BackendLoweringQuery);
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5629,6 +5629,28 @@ extend i32 : ParseFrom[Input] {
             &trace,
             "codegen_program",
             "lowered_function_bodies"
+        ));
+    }
+
+    #[test]
+    fn codegen_owned_adapter_reuses_large_product_handles() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "fn main() i32 { 1 }",
+        )]);
+        let db = query_db(loaded);
+
+        let cached = db.get(CodegenProgramQuery);
+        let owned = db.query(CodegenProgramQuery);
+
+        assert!(Arc::ptr_eq(
+            &cached.monomorphization,
+            &owned.monomorphization
+        ));
+        assert!(Arc::ptr_eq(
+            &cached.backend_lowering,
+            &owned.backend_lowering
         ));
     }
 
@@ -7109,7 +7131,7 @@ fn main() i32 {
             module.layouts.diagnostics
         );
 
-        let backend_lowering = db.query(BackendLoweringQuery);
+        let backend_lowering = db.get(BackendLoweringQuery);
         let backend_module = backend_lowering
             .program
             .modules
@@ -7192,7 +7214,7 @@ extend Token : Marker {}
         };
         let db = query_db(loaded);
 
-        let backend_lowering = db.query(BackendLoweringQuery);
+        let backend_lowering = db.get(BackendLoweringQuery);
 
         assert!(
             backend_lowering.diagnostics.is_empty(),
@@ -7268,7 +7290,7 @@ extend Page : Allocator {
         };
         let db = query_db(loaded);
 
-        let backend_lowering = db.query(BackendLoweringQuery);
+        let backend_lowering = db.get(BackendLoweringQuery);
 
         assert!(
             backend_lowering.diagnostics.is_empty(),
@@ -7844,7 +7866,7 @@ extend Mode {
             module.executable_reachable_globals
         );
 
-        let backend = db.query(BackendLoweringQuery);
+        let backend = db.get(BackendLoweringQuery);
         let backend_module = backend
             .program
             .modules
