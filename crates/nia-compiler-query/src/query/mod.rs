@@ -79,9 +79,9 @@ use providers::*;
 use resolve::*;
 use types::*;
 
-type ExtensionProviderModuleFactsValue = Arc<ExtensionProviderModuleFactsQueryValue>;
+type ExtensionProviderModuleFactsValue = ExtensionProviderModuleFactsQueryValue;
 type ExtensionProviderValidationFactsValue = Arc<ExtensionProviderValidationFactsQueryValue>;
-type ExtensionProviderNominalModuleFactsValue = Arc<ExtensionProviderNominalModuleFactsQueryValue>;
+type ExtensionProviderNominalModuleFactsValue = ExtensionProviderNominalModuleFactsQueryValue;
 type ExtensionProviderDiscoveryIndexValue = Arc<ExtensionProviderDiscoveryIndexQueryValue>;
 type ExtensionProviderNominalCandidateModulesValue =
     Arc<ExtensionProviderNominalCandidateModulesQueryValue>;
@@ -95,10 +95,10 @@ type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
 type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
 type VisibleTraitImplsValue = Arc<VisibleTraitImplsForModule>;
 type ExtensionSignatureModuleInputValue = Arc<ExtensionSignatureModuleInputQueryValue>;
-type ExtensionTraitSolvingModuleFactsValue = Arc<ExtensionTraitSolvingModuleFactsQueryValue>;
+type ExtensionTraitSolvingModuleFactsValue = ExtensionTraitSolvingModuleFactsQueryValue;
 type ExtensionTraitImplsForTraitValue = Arc<ExtensionTraitImplsForTraitQueryValue>;
-type ModuleProgramSignatureFactsValue = Arc<ModuleProgramSignatureFacts>;
-type ModuleAbiSignatureFactsValue = Arc<ModuleAbiSignatureFactsQueryValue>;
+type ModuleProgramSignatureFactsValue = ModuleProgramSignatureFacts;
+type ModuleAbiSignatureFactsValue = ModuleAbiSignatureFactsQueryValue;
 type PublicSurfacesValue = Arc<PublicSurfacesQueryValue>;
 type PublicUsingScopesValue = Arc<PublicUsingScopesQueryValue>;
 
@@ -4147,7 +4147,7 @@ extend Value : Ops {
         let db = query_db(loaded);
 
         let _ = db.query(ExtensionProviderValidationFactsQuery(ModuleId(0)));
-        let _ = db.query(ExtensionProviderModuleFactsQuery(ModuleId(0)));
+        let _ = db.get(ExtensionProviderModuleFactsQuery(ModuleId(0)));
         let _ = db.query(ExtensionMethodIndexQuery);
         let trace = db.query_trace();
 
@@ -5482,6 +5482,36 @@ extend i32 : ParseFrom[Input] {
         assert!(Arc::ptr_eq(&checked.static_check, &static_check));
         assert!(Arc::ptr_eq(&checked.abi_check, &abi_check));
         assert!(Arc::ptr_eq(&checked.flow_check, &flow_check));
+    }
+
+    #[test]
+    fn compiler_fact_batches_reuse_cached_product_handles() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "struct S { value: i32 } extend S { fn get(self) i32 { self.value } }",
+        )]);
+        let db = query_db(loaded);
+        let signature_set = nia_item_tree::SignatureItemSet::Types;
+
+        let signature = db.get(ModuleProgramSignatureFactsQuery(ModuleId(0), signature_set));
+        let abi = db.get(ModuleAbiSignatureFactsQuery(ModuleId(0)));
+        let trait_solving = db.get(ExtensionTraitSolvingModuleFactsQuery(ModuleId(0)));
+        let provider = db.get(ExtensionProviderModuleFactsQuery(ModuleId(0)));
+        let nominal = db.get(ExtensionProviderNominalModuleFactsQuery(ModuleId(0)));
+
+        let signature_batch =
+            db.get_many([ModuleProgramSignatureFactsQuery(ModuleId(0), signature_set)]);
+        let abi_batch = db.get_many([ModuleAbiSignatureFactsQuery(ModuleId(0))]);
+        let trait_solving_batch = db.get_many([ExtensionTraitSolvingModuleFactsQuery(ModuleId(0))]);
+        let provider_batch = db.get_many([ExtensionProviderModuleFactsQuery(ModuleId(0))]);
+        let nominal_batch = db.get_many([ExtensionProviderNominalModuleFactsQuery(ModuleId(0))]);
+
+        assert!(Arc::ptr_eq(&signature, &signature_batch[0]));
+        assert!(Arc::ptr_eq(&abi, &abi_batch[0]));
+        assert!(Arc::ptr_eq(&trait_solving, &trait_solving_batch[0]));
+        assert!(Arc::ptr_eq(&provider, &provider_batch[0]));
+        assert!(Arc::ptr_eq(&nominal, &nominal_batch[0]));
     }
 
     #[test]

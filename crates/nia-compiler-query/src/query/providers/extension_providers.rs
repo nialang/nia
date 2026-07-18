@@ -150,11 +150,11 @@ pub(super) fn provide_extension_trait_solving_module_facts(
 ) -> ExtensionTraitSolvingModuleFactsValue {
     let input = db.query(ExtensionSignatureModuleInputQuery(module_id));
     let modules = [input.module(&db.context().type_store)];
-    Arc::new(ExtensionTraitSolvingModuleFactsQueryValue {
+    ExtensionTraitSolvingModuleFactsQueryValue {
         trait_impls: nia_program_signatures::collect_valid_program_trait_impls(&modules),
         invalid_trait_impl_method_ids:
             nia_program_signatures::collect_invalid_trait_impl_method_ids(&modules),
-    })
+    }
 }
 
 pub(super) fn provide_extension_trait_impls_for_trait(
@@ -167,7 +167,7 @@ pub(super) fn provide_extension_trait_impls_for_trait(
         || {
             let candidate_modules = extension_trait_impl_candidate_modules(db, trait_id);
             let mut trait_impls = Vec::new();
-            for facts in db.query_many(
+            for facts in db.get_many(
                 candidate_modules
                     .into_iter()
                     .map(ExtensionTraitSolvingModuleFactsQuery),
@@ -219,12 +219,12 @@ pub(super) fn provide_extension_provider_module_facts(
 ) -> ExtensionProviderModuleFactsValue {
     time_module_provider(db, "extension_provider_module_facts", module_id, || {
         if !db.query(ExtensionProviderModuleEligibilityQuery(module_id)) {
-            return Arc::new(ExtensionProviderModuleFactsQueryValue {
+            return ExtensionProviderModuleFactsQueryValue {
                 methods: nia_defs::ExtensionMethods::default(),
                 associated_values: nia_defs::ExtensionAssociatedValues::default(),
                 associated_value_diagnostics: Vec::new(),
                 nominal_providers: Vec::new(),
-            });
+            };
         }
 
         let defs = db.get(ModuleDefsQuery(module_id));
@@ -254,12 +254,12 @@ pub(super) fn provide_extension_provider_module_facts(
             collect_extension_associated_value_index_for_module(&module);
         let nominal_providers =
             collect_nominal_extension_providers_for_module(&module, &module_defs);
-        Arc::new(ExtensionProviderModuleFactsQueryValue {
+        ExtensionProviderModuleFactsQueryValue {
             methods,
             associated_values,
             associated_value_diagnostics,
             nominal_providers,
-        })
+        }
     })
 }
 
@@ -301,8 +301,8 @@ pub(super) fn provide_extension_provider_validation_facts(
 
 fn extension_provider_module_facts(
     db: &QueryDb<CompilerContext>,
-) -> Vec<ExtensionProviderModuleFactsValue> {
-    db.query_many(
+) -> Vec<Arc<ExtensionProviderModuleFactsValue>> {
+    db.get_many(
         db.query(ExtensionProviderModuleIdsQuery)
             .into_iter()
             .map(ExtensionProviderModuleFactsQuery),
@@ -319,9 +319,9 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
         module_id,
         || {
             if !db.query(ExtensionProviderModuleEligibilityQuery(module_id)) {
-                return Arc::new(ExtensionProviderNominalModuleFactsQueryValue {
+                return ExtensionProviderNominalModuleFactsQueryValue {
                     nominal_providers: Vec::new(),
-                });
+                };
             }
 
             let defs = db.get(ModuleDefsQuery(module_id));
@@ -348,7 +348,7 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
             let module_defs = SharedProgramDefsResolver::new(db);
             let nominal_providers =
                 collect_nominal_extension_providers_for_module(&module, &module_defs);
-            Arc::new(ExtensionProviderNominalModuleFactsQueryValue { nominal_providers })
+            ExtensionProviderNominalModuleFactsQueryValue { nominal_providers }
         },
     )
 }
@@ -393,7 +393,7 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
                 .modules
                 .clone();
             let mut modules = Vec::new();
-            for facts in db.query_many(
+            for facts in db.get_many(
                 candidate_modules
                     .into_iter()
                     .map(ExtensionProviderNominalModuleFactsQuery),
@@ -458,7 +458,7 @@ pub(super) fn provide_extension_methods_named(
         let discovery = db.query(ExtensionProviderDiscoveryIndexQuery);
         let mut methods = Vec::new();
         if let Some(candidate_modules) = discovery.method_candidates_by_name.get(&name) {
-            for facts in db.query_many(
+            for facts in db.get_many(
                 candidate_modules
                     .iter()
                     .copied()
@@ -477,7 +477,7 @@ pub(super) fn provide_extension_method_by_id(
 ) -> ExtensionMethodByIdValue {
     time_provider(db.context().timings(), "extension_method_by_id", || {
         let method = db
-            .query(ExtensionProviderModuleFactsQuery(def_id.module_id))
+            .get(ExtensionProviderModuleFactsQuery(def_id.module_id))
             .methods
             .method_by_id(def_id)
             .cloned();
@@ -609,7 +609,7 @@ pub(super) fn provide_visible_extensions(
     let mut extension_methods = nia_defs::ExtensionMethods::default();
     let mut associated_values = nia_defs::ExtensionAssociatedValues::default();
     for provider_module in visible_modules.iter().copied() {
-        let facts = db.query(ExtensionProviderModuleFactsQuery(provider_module));
+        let facts = db.get(ExtensionProviderModuleFactsQuery(provider_module));
         extension_methods.extend(facts.methods.clone());
         associated_values.extend(facts.associated_values.clone());
     }
@@ -661,7 +661,7 @@ pub(super) fn provide_visible_trait_impls(
     let mut trait_impls = Vec::new();
     for provider_module in visible_modules.iter().copied() {
         trait_impls.extend(
-            db.query(ExtensionTraitSolvingModuleFactsQuery(provider_module))
+            db.get(ExtensionTraitSolvingModuleFactsQuery(provider_module))
                 .trait_impls
                 .iter()
                 .cloned(),

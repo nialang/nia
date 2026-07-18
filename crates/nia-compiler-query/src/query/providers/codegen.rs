@@ -382,7 +382,7 @@ pub(super) fn checked_module_diagnostics(
             &checked.path,
             &extension_validation.diagnostics,
         ));
-        let extension_provider = db.query(ExtensionProviderModuleFactsQuery(checked.id));
+        let extension_provider = db.get(ExtensionProviderModuleFactsQuery(checked.id));
         diagnostics.extend(module_diagnostics(
             &checked.path,
             &extension_provider.associated_value_diagnostics,
