@@ -66,14 +66,16 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
                 graph,
                 optimization,
                 modules,
-                monomorphization: empty_monomorphization(),
-                backend_lowering: empty_backend_lowering(optimization),
+                monomorphization: Arc::new(empty_monomorphization()),
+                backend_lowering: Arc::new(empty_backend_lowering(optimization)),
                 diagnostics,
             };
         }
-        let monomorphization = time_provider(db.context().timings(), "monomorphization", || {
-            monomorphization_for_checked_modules(db, &modules)
-        });
+        let monomorphization = Arc::new(time_provider(
+            db.context().timings(),
+            "monomorphization",
+            || monomorphization_for_checked_modules(db, &modules),
+        ));
         diagnostics.extend(time_provider(
             db.context().timings(),
             "codegen_program.monomorphization_diagnostics",
@@ -86,13 +88,15 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
                 optimization,
                 modules,
                 monomorphization,
-                backend_lowering: empty_backend_lowering(optimization),
+                backend_lowering: Arc::new(empty_backend_lowering(optimization)),
                 diagnostics,
             };
         }
-        let backend_lowering = time_provider(db.context().timings(), "backend_lowering", || {
-            provide_backend_lowering_inner_for_modules(db, &monomorphization, &modules)
-        });
+        let backend_lowering = Arc::new(time_provider(
+            db.context().timings(),
+            "backend_lowering",
+            || provide_backend_lowering_inner_for_modules(db, &monomorphization, &modules),
+        ));
         diagnostics.extend(time_provider(
             db.context().timings(),
             "codegen_program.backend_diagnostics",

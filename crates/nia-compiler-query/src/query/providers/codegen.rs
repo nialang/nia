@@ -139,7 +139,7 @@ fn provide_backend_lowering_inner(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
     let checked_modules = checked_modules_for_codegen(db);
-    let monomorphization = db.query(MonomorphizationQuery);
+    let monomorphization = db.get(MonomorphizationQuery);
     provide_backend_lowering_inner_for_modules(db, &monomorphization, &checked_modules)
 }
 

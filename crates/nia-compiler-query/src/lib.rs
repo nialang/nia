@@ -78,8 +78,8 @@ pub struct CodegenProgram {
     pub graph: ModuleGraph,
     pub optimization: OptimizationPolicy,
     pub modules: Vec<std::sync::Arc<CheckedModule>>,
-    pub monomorphization: Monomorphization,
-    pub backend_lowering: BackendLowering,
+    pub monomorphization: std::sync::Arc<Monomorphization>,
+    pub backend_lowering: std::sync::Arc<BackendLowering>,
     pub diagnostics: Vec<ProgramDiagnostic>,
 }
 
