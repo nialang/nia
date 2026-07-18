@@ -10,7 +10,7 @@ pub(super) fn provide_const_module(
     let values = db.get(ValueResolutionQuery(module_id));
     let locals = db.get(LocalResolutionQuery(module_id));
     let semantic_uses = db.get(SemanticUseTableQuery(module_id));
-    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let type_lowering = db.get(TypeLoweringQuery(module_id));
     let signatures = db.query(ItemSignaturesQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
     let symbols = db.context().symbols();
@@ -195,7 +195,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
     let semantic_uses = db.get(SemanticUseTableQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
-    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let type_lowering = db.get(TypeLoweringQuery(module_id));
     let type_normalization = db.query(TypeNormalizationQuery(module_id));
     let target = db.query(CompilerTargetQuery);
     let symbols = db.context().symbols();

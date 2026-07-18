@@ -258,7 +258,7 @@ pub(super) fn executable_program_functions_for_modules(
     module_ids
         .into_iter()
         .flat_map(|module_id| {
-            let lowered = db.query(TypeLoweringQuery(module_id));
+            let lowered = db.get(TypeLoweringQuery(module_id));
             let signatures = body_local_item_signatures(db, module_id, &lowered);
             let defs = db.get(ModuleDefsQuery(module_id));
             signatures
