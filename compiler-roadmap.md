@@ -1057,6 +1057,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 
 进展（2026-07-18）：标准 const phase 的 `ConstModuleQuery`、array-length、enum-value、const-value 与 typed-facts production/test 消费者已统一改用 cache-owned `get`。layout、body、static 与 program-check 等只读路径现在只复制 `Arc`；array-length → enum → values → typed-facts 以及最终 `ConstCheck` 组装仍需要 owned mutable seed，复制点统一显式标为 `Arc::unwrap_or_clone`，没有用隐式 legacy adapter 掩盖算法所有权。五类标准 const key 的旧 owned `query` 搜索为零，但 `ConstProgramContext`/body/static 的跨模块 module/value callback 仍返回 owned product，signature const 也仍在 owned 路径，因此不能宣称 const phase 已完成共享。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；compiler-query 110、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 229.97 秒完成，全部 doc tests 通过。下一切片应迁移 signature const 查询产品，并随后把跨模块 const callback 改为共享句柄。
 
+进展（2026-07-18）：signature const 的 active item tree、type resolution、type lowering、item signatures 与 module lowering production 消费者已统一改用 `get`；`signature_const_module_lowering` helper 直接返回 query cache handle，global-initializer 只读路径借用该 handle，不再为 helper 调用复制完整 lowering。标准与 signature 两组 const/module key 的旧 owned 查询搜索均为零；仅三个受 `ConstProgramContext`/body-check 旧 `Fn(ModuleId) -> Option<ResolvedConstModule>` 契约约束的跨模块 callback 仍显式 clone `module`，该复制必须通过下一次公共 callback 契约迁移删除，而不是藏进 helper。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；compiler-query 110、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 230.49 秒完成，全部 doc tests 通过。下一切片应把 const-check、body-check 与 static-check 的 program module/value callback 改为共享句柄，并审计 executable 临时 fact cache 的 owned 边界。
+
 ### 阶段 C（P0）：重做 query value/storage 契约
 
 1. 去掉通用 `Value: Clone` 要求。

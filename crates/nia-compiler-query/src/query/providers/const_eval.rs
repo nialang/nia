@@ -116,7 +116,11 @@ pub(super) fn with_const_input_and_program_facts<T>(
     let defs = db.get(FullModuleDefsQuery(module_id));
     let program_module = |module_id| {
         if use_signature_facts_for(module_id) {
-            return Some(signature_const_module_lowering(db, module_id).module);
+            return Some(
+                signature_const_module_lowering(db, module_id)
+                    .module
+                    .clone(),
+            );
         }
         Some(db.get(ConstModuleQuery(module_id)).module.clone())
     };

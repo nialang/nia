@@ -400,7 +400,8 @@ fn executable_program_global_initializer(
     fact_mode: ExecutableFactMode<'_>,
 ) -> Option<nia_const_ir::ResolvedConstExpr> {
     if fact_mode.signature_facts_for(global_id.module_id) {
-        let module = signature_const_module_lowering(db, global_id.module_id).module;
+        let lowering = signature_const_module_lowering(db, global_id.module_id);
+        let module = &lowering.module;
         return module
             .global_initializers()
             .get(&global_id)
@@ -480,7 +481,11 @@ fn const_inputs_for_body_check(
     };
     let program_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
-            return Some(signature_const_module_lowering(db, module_id).module);
+            return Some(
+                signature_const_module_lowering(db, module_id)
+                    .module
+                    .clone(),
+            );
         }
         Some(db.get(ConstModuleQuery(module_id)).module.clone())
     };
@@ -1147,7 +1152,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     };
     let program_const_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
-            return Some(signature_const_module_lowering(db, module_id).module);
+            return Some(
+                signature_const_module_lowering(db, module_id)
+                    .module
+                    .clone(),
+            );
         }
         Some(db.get(ConstModuleQuery(module_id)).module.clone())
     };

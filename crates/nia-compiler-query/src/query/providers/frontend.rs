@@ -222,7 +222,7 @@ pub(super) fn provide_signature_const_type_resolution(
     module_id: ModuleId,
 ) -> TypeResolution {
     time_module_provider(db, "signature_const_type_resolution", module_id, || {
-        let active_item_tree = db.query(SignatureConstItemTreeQuery(module_id));
+        let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id));
         let defs = db.get(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
         let graph = QueryModuleGraphLookup::new(db);
@@ -314,8 +314,8 @@ pub(super) fn provide_signature_const_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeLowering {
-    let active_item_tree = db.query(SignatureConstItemTreeQuery(module_id));
-    let type_resolution = db.query(SignatureConstTypeResolutionQuery(module_id));
+    let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id));
+    let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id));
     let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
     nia_type_lower::lower_module_types_from_active_item_tree_with_context(
@@ -371,9 +371,9 @@ pub(super) fn provide_signature_const_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ItemSignatures {
-    let active_item_tree = db.query(SignatureConstItemTreeQuery(module_id));
+    let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id));
     let defs = db.get(ModuleDefsQuery(module_id));
-    let type_lowering = db.query(SignatureConstTypeLoweringQuery(module_id));
+    let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id));
     let symbols = db.context().symbols();
     nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
         source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
@@ -416,8 +416,8 @@ pub(super) fn provide_signature_const_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeNormalization {
-    let type_lowering = db.query(SignatureConstTypeLoweringQuery(module_id));
-    let item_signatures = db.query(SignatureConstItemSignaturesQuery(module_id));
+    let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id));
+    let item_signatures = db.get(SignatureConstItemSignaturesQuery(module_id));
     normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
 }
 
