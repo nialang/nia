@@ -452,7 +452,7 @@ fn main() i32 {
 "#;
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
-    let interner = lowering.interner(module.id);
+    let interner = lowering.append(module.id);
     let instance = module
         .function_instances
         .iter()
@@ -484,7 +484,7 @@ fn main() usize {
 "#;
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
-    let interner = lowering.interner(module.id);
+    let interner = lowering.append(module.id);
     let u8_ty = interner.primitive(nia_ty::PrimitiveTy::U8);
     let usize_ty = interner.primitive(nia_ty::PrimitiveTy::Usize);
     let mut instances = module
@@ -546,7 +546,7 @@ fn main() usize {
 "#;
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
-    let interner = lowering.interner(module.id);
+    let interner = lowering.append(module.id);
     let u8_ty = interner.primitive(nia_ty::PrimitiveTy::U8);
     let usize_ty = interner.primitive(nia_ty::PrimitiveTy::Usize);
     let mut instances = module
@@ -603,7 +603,7 @@ fn main() i32 {
 "#;
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
-    let interner = lowering.interner(module.id);
+    let interner = lowering.append(module.id);
     let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
     let u64_ty = interner.primitive(nia_ty::PrimitiveTy::U64);
 
@@ -651,7 +651,7 @@ fn main() i32 {
 "#;
     let lowering = lower_source(source);
     let module = &lowering.program.modules[0];
-    let interner = lowering.interner(module.id);
+    let interner = lowering.append(module.id);
     let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
     let instance = module
         .function_instances

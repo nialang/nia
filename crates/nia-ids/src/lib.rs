@@ -27,7 +27,7 @@ pub struct GlobalConstExprId {
 pub struct LocalId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TyInternerIndex(u32);
+pub struct TypeStoreIndex(u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeStoreId(u32);
@@ -47,27 +47,9 @@ impl TypeStoreId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TyInternerId(u64);
-
-impl TyInternerId {
+impl TypeStoreIndex {
     #[doc(hidden)]
-    pub const fn new(store_id: TypeStoreId, module_id: ModuleId) -> Self {
-        Self(((store_id.0 as u64) << u32::BITS) | module_id.0 as u64)
-    }
-
-    pub const fn store_id(self) -> TypeStoreId {
-        TypeStoreId((self.0 >> u32::BITS) as u32)
-    }
-
-    pub const fn module_id(self) -> ModuleId {
-        ModuleId(self.0 as u32)
-    }
-}
-
-impl TyInternerIndex {
-    #[doc(hidden)]
-    pub const fn from_interner_index(index: u32) -> Self {
+    pub const fn from_store_index(index: u32) -> Self {
         Self(index)
     }
 
@@ -79,11 +61,11 @@ impl TyInternerIndex {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct InternedTyId {
     pub store_id: TypeStoreId,
-    pub index: TyInternerIndex,
+    pub index: TypeStoreIndex,
 }
 
 impl InternedTyId {
-    pub const fn new(store_id: TypeStoreId, index: TyInternerIndex) -> Self {
+    pub const fn new(store_id: TypeStoreId, index: TypeStoreIndex) -> Self {
         Self { store_id, index }
     }
 }

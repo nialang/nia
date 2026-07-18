@@ -3947,7 +3947,7 @@ extend Value : Ops {
     }
 
     #[test]
-    fn signature_layout_reads_canonical_types_without_module_view_growth() {
+    fn signature_layout_reads_canonical_types_from_store() {
         let loaded = loaded_program_with_modules(vec![
             loaded_module(
                 ModuleId(0),
@@ -3968,12 +3968,15 @@ extend Value : Ops {
             signature_types,
         ));
         let _ = db.query_shared(SignatureItemSignaturesQuery(ModuleId(0), signature_types));
-        let before_layout = db.context().type_store.module_snapshot(ModuleId(0));
         let layouts = db.query(SignatureLayoutsQuery(ModuleId(0)));
-        let after_layout = db.context().type_store.module_snapshot(ModuleId(0));
 
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
-        assert_eq!(before_layout, after_layout);
+        assert!(
+            layouts
+                .types
+                .keys()
+                .all(|ty| db.context().type_store.get(*ty).is_some())
+        );
     }
 
     #[test]
@@ -5842,10 +5845,8 @@ extend Sink : Writer {
             })
             .map(|local| local.ty)
             .expect("write method should have a self param");
-        let interner = db.context().type_store.module_snapshot(writer.id);
-
         assert!(
-            !matches!(interner.get(self_ty), Some(TyKind::Error)),
+            !matches!(db.context().type_store.get(self_ty), Some(TyKind::Error)),
             "reachable extension method receiver/params should not collapse to error types"
         );
     }
@@ -6165,10 +6166,8 @@ pub enum Errno: i32 {
             })
             .map(|local| local.ty)
             .expect("into_error should have a self param");
-        let interner = db.context().type_store.module_snapshot(module.id);
-
         assert!(
-            !matches!(interner.get(self_ty), Some(TyKind::Error)),
+            !matches!(db.context().type_store.get(self_ty), Some(TyKind::Error)),
             "re-exported trait witness receiver should not collapse to error"
         );
     }

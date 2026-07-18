@@ -2113,18 +2113,7 @@ extend[T] &T {
     for instance in instances {
         assert_eq!(instance.args.len(), 1, "{instance:?}");
         assert!(
-            program
-                .backend_lowering
-                .program
-                .modules
-                .iter()
-                .any(|module| {
-                    program
-                        .type_store
-                        .module_snapshot(module.id)
-                        .get(instance.args[0])
-                        .is_some()
-                }),
+            program.type_store.get(instance.args[0]).is_some(),
             "{instance:?}"
         );
     }

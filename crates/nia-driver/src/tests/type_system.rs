@@ -1246,7 +1246,7 @@ fn main() i32 {
         module.function_instances[0].args[0],
         program
             .type_store
-            .module_snapshot(module.id)
+            .append_for_module(module.id)
             .primitive(nia_ty::PrimitiveTy::I32)
     );
     assert_eq!(known::I32, test_symbol("i32"));
