@@ -17,7 +17,7 @@ fn with_signature_const_input<T>(
 ) -> T {
     let module = db.query(SignatureConstModuleQuery(module_id));
     let active_item_tree = db.query(SignatureConstItemTreeQuery(module_id));
-    let defs = db.query_shared(ModuleDefsQuery(module_id));
+    let defs = db.get(ModuleDefsQuery(module_id));
     let type_lowering = db.query(SignatureConstTypeLoweringQuery(module_id));
     let values = signature_const_value_resolution(db, module_id, &active_item_tree);
     let locals = empty_local_resolution();
@@ -35,7 +35,7 @@ fn with_signature_const_input<T>(
     let source_path = db.query(ModulePathQuery(module_id));
     let program_module = |module_id| Some(db.query(SignatureConstModuleQuery(module_id)).module);
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
-    let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {
         Some(db.query(SignatureTypeNormalizationQuery(
             module_id,
@@ -44,7 +44,7 @@ fn with_signature_const_input<T>(
     };
     let local_trait_impls = non_function_signatures_override
         .is_none()
-        .then(|| db.query_shared(VisibleTraitImplsQuery(module_id)));
+        .then(|| db.get(VisibleTraitImplsQuery(module_id)));
     let trait_impls_for_module = |requested_module_id| {
         if requested_module_id == module_id {
             return non_function_signatures_override
@@ -68,7 +68,7 @@ fn with_signature_const_input<T>(
         non_function_signatures_override
             .is_some_and(|signatures| signatures.enums.contains_key(&def_id))
             || db
-                .query_shared(SignatureItemSignaturesQuery(
+                .get(SignatureItemSignaturesQuery(
                     def_id.module_id,
                     nia_item_tree::SignatureItemSet::Types,
                 ))
@@ -76,18 +76,18 @@ fn with_signature_const_input<T>(
                 .contains_key(&def_id.def_id)
     };
     let item_signatures_for_module = |module_id| {
-        Some(db.query_shared(SignatureItemSignaturesQuery(
+        Some(db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         )))
     };
     let value_signatures_for_module = |module_id| {
-        Some(db.query_shared(SignatureItemSignaturesQuery(
+        Some(db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Values,
         )))
     };
-    let local_visible_extensions = db.query_shared(VisibleExtensionsQuery(module_id));
+    let local_visible_extensions = db.get(VisibleExtensionsQuery(module_id));
     let visible_extensions_for_module = |requested_module_id| {
         if requested_module_id == module_id {
             return Some(local_visible_extensions.methods.clone());
@@ -135,7 +135,7 @@ pub(super) fn provide_signature_const_module(
     module_id: ModuleId,
 ) -> ConstModuleLowering {
     let active_item_tree = db.query(SignatureConstItemTreeQuery(module_id));
-    let defs = db.query_shared(ModuleDefsQuery(module_id));
+    let defs = db.get(ModuleDefsQuery(module_id));
     let type_lowering = db.query(SignatureConstTypeLoweringQuery(module_id));
     let values = signature_const_value_resolution(db, module_id, &active_item_tree);
     let locals = empty_local_resolution();
@@ -243,13 +243,13 @@ fn signature_const_value_resolution(
     if exprs.is_empty() && !has_const_provider_values {
         return empty_value_resolution();
     }
-    let defs = db.query_shared(ModuleDefsQuery(module_id));
+    let defs = db.get(ModuleDefsQuery(module_id));
     let public_surfaces = db.query(PublicSurfacesQuery);
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
     let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
     let associated_values =
         LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
-    let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
     let mut values =
         nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
@@ -257,7 +257,7 @@ fn signature_const_value_resolution(
             &defs,
             nia_value_resolve::ProgramDefsContext {
                 defs: Some(&program_defs),
-                graph: Some(&db.query_shared(ModuleGraphQuery)),
+                graph: Some(&db.get(ModuleGraphQuery)),
             },
             &public_surfaces.surfaces,
             &using_scope,
@@ -273,7 +273,7 @@ fn signature_const_value_resolution(
             &defs,
             nia_value_resolve::ProgramDefsContext {
                 defs: Some(&program_defs),
-                graph: Some(&db.query_shared(ModuleGraphQuery)),
+                graph: Some(&db.get(ModuleGraphQuery)),
             },
             &public_surfaces.surfaces,
             &using_scope,
@@ -381,12 +381,12 @@ pub(super) fn signature_layouts_for_types(
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> nia_layout::Layouts {
     time_module_provider(db, "signature_layouts", module_id, || {
-        let defs = db.query_shared(ModuleDefsQuery(module_id));
-        let active_item_tree = db.query_shared(SignatureItemTreeQuery(
+        let defs = db.get(ModuleDefsQuery(module_id));
+        let active_item_tree = db.get(SignatureItemTreeQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ));
-        let type_lowering = db.query_shared(SignatureTypeLoweringQuery(
+        let type_lowering = db.get(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ));
@@ -394,12 +394,12 @@ pub(super) fn signature_layouts_for_types(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ));
-        let item_signatures = db.query_shared(SignatureItemSignaturesQuery(
+        let item_signatures = db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ));
         let program_struct = |def_id: GlobalDefId| {
-            db.query_shared(SignatureItemSignaturesQuery(
+            db.get(SignatureItemSignaturesQuery(
                 def_id.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))
@@ -409,7 +409,7 @@ pub(super) fn signature_layouts_for_types(
             .map(|signature| ProgramStructSignature { signature })
         };
         let program_union = |def_id: GlobalDefId| {
-            db.query_shared(SignatureItemSignaturesQuery(
+            db.get(SignatureItemSignaturesQuery(
                 def_id.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))
@@ -419,7 +419,7 @@ pub(super) fn signature_layouts_for_types(
             .map(|signature| ProgramUnionSignature { signature })
         };
         let program_enum = |def_id: GlobalDefId| {
-            db.query_shared(SignatureItemSignaturesQuery(
+            db.get(SignatureItemSignaturesQuery(
                 def_id.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))
@@ -429,7 +429,7 @@ pub(super) fn signature_layouts_for_types(
             .map(|signature| ProgramEnumSignature { signature })
         };
         let program_type_alias = |def_id: GlobalDefId| {
-            db.query_shared(SignatureItemSignaturesQuery(
+            db.get(SignatureItemSignaturesQuery(
                 def_id.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))

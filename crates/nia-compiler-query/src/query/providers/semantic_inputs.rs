@@ -77,8 +77,8 @@ pub(super) fn provide_value_resolution(
 ) -> ValueResolution {
     time_module_provider(db, "value_resolution", module_id, || {
         let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-        let defs = db.query_shared(FullModuleDefsQuery(module_id));
-        let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
+        let defs = db.get(FullModuleDefsQuery(module_id));
+        let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
         let graph = QueryModuleGraphLookup::new(db);
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, module_id);
@@ -106,7 +106,7 @@ pub(super) fn provide_local_resolution(
     module_id: ModuleId,
 ) -> LocalResolution {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.query_shared(FullModuleDefsQuery(module_id));
+    let defs = db.get(FullModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let symbols = db.context().symbols();
     nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
@@ -136,13 +136,13 @@ pub(super) fn provide_semantic_use_table(
     let const_expr_value_resolution = if needed_const_exprs.is_empty() {
         None
     } else {
-        let defs = db.query_shared(FullModuleDefsQuery(module_id));
+        let defs = db.get(FullModuleDefsQuery(module_id));
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
         let associated_values =
             LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
-        let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
+        let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
         let symbols = db.context().symbols();
         Some(
             nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(

@@ -6,7 +6,7 @@ pub(super) fn provide_layouts(
     module_id: ModuleId,
 ) -> nia_layout::Layouts {
     time_module_provider(db, "layouts", module_id, || {
-        let defs = db.query_shared(FullModuleDefsQuery(module_id));
+        let defs = db.get(FullModuleDefsQuery(module_id));
         let type_lowering = db.query(TypeLoweringQuery(module_id));
         let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
@@ -51,16 +51,16 @@ pub(super) fn provide_abi_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_abi_check::AbiCheck {
-    let defs = db.query_shared(FullModuleDefsQuery(module_id));
-    let function_signatures = db.query_shared(SignatureItemSignaturesQuery(
+    let defs = db.get(FullModuleDefsQuery(module_id));
+    let function_signatures = db.get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));
-    let type_signatures = db.query_shared(SignatureItemSignaturesQuery(
+    let type_signatures = db.get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
-    let value_signatures = db.query_shared(SignatureItemSignaturesQuery(
+    let value_signatures = db.get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Values,
     ));
@@ -88,17 +88,17 @@ pub(super) fn provide_static_check(
     module_id: ModuleId,
 ) -> nia_static_check::StaticCheck {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.query_shared(FullModuleDefsQuery(module_id));
+    let defs = db.get(FullModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let symbols = db.context().symbols();
-    let signatures = db.query_shared(SignatureItemSignaturesQuery(
+    let signatures = db.get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Values,
     ));
     let const_eval = db.query(ConstValuesQuery(module_id));
-    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
     let program_const_values = |module_id| Some(db.query(ConstValuesQuery(module_id)));
     nia_static_check::check_module_static_initializers_with_signatures(
         nia_static_check::StaticCheckPreciseInput {
@@ -124,7 +124,7 @@ pub(super) fn provide_flow_check(
     module_id: ModuleId,
 ) -> nia_flow_check::FlowCheck {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let signatures = db.query_shared(SignatureItemSignaturesQuery(
+    let signatures = db.get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));

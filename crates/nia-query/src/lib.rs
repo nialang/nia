@@ -17,7 +17,7 @@ const DEFAULT_MAX_QUERY_MANY_THREADS: usize = 4;
 const QUERY_THREADS_ENV: &str = "NIA_QUERY_THREADS";
 
 pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
-    type Value: Clone + Send + Sync + 'static;
+    type Value: Send + Sync + 'static;
 
     fn name() -> &'static str;
     fn description(&self) -> String {
@@ -87,7 +87,7 @@ trait ErasedQuerySlot: Send + Sync {
 
 impl<V> ErasedQuerySlot for QuerySlot<V>
 where
-    V: Clone + Send + Sync + 'static,
+    V: Send + Sync + 'static,
 {
     fn invalidate(&self) {
         let mut state = self.state.lock().expect("query cache lock poisoned");
@@ -334,16 +334,17 @@ impl<C> QueryDb<C> {
     pub fn query<K>(&self, key: K) -> K::Value
     where
         K: QueryKey<C>,
+        K::Value: Clone,
     {
         self.try_query(key)
             .unwrap_or_else(|err| std::panic::panic_any(err))
     }
 
-    pub fn query_shared<K>(&self, key: K) -> Arc<K::Value>
+    pub fn get<K>(&self, key: K) -> Arc<K::Value>
     where
         K: QueryKey<C>,
     {
-        self.try_query_shared(key)
+        self.try_get(key)
             .unwrap_or_else(|err| std::panic::panic_any(err))
     }
 
@@ -360,11 +361,12 @@ impl<C> QueryDb<C> {
     pub fn try_query<K>(&self, key: K) -> QueryResult<K::Value>
     where
         K: QueryKey<C>,
+        K::Value: Clone,
     {
         self.try_query_cached::<K, OwnedQueryOutput>(key)
     }
 
-    pub fn try_query_shared<K>(&self, key: K) -> QueryResult<Arc<K::Value>>
+    pub fn try_get<K>(&self, key: K) -> QueryResult<Arc<K::Value>>
     where
         K: QueryKey<C>,
     {
@@ -465,6 +467,7 @@ impl<C> QueryDb<C> {
     where
         C: Send + Sync + 'static,
         K: QueryKey<C>,
+        K::Value: Clone,
     {
         let keys = keys.into_iter().collect::<Vec<_>>();
         if keys.is_empty() {
@@ -971,6 +974,26 @@ mod tests {
         }
     }
 
+    struct NonCloneValue {
+        value: usize,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct NonCloneValueQuery;
+
+    impl QueryKey<TestContext> for NonCloneValueQuery {
+        type Value = NonCloneValue;
+
+        fn name() -> &'static str {
+            "non_clone_value"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.context().executions.fetch_add(1, Ordering::SeqCst);
+            NonCloneValue { value: 42 }
+        }
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     struct Recursive;
 
@@ -998,17 +1021,31 @@ mod tests {
     }
 
     #[test]
-    fn shared_queries_reuse_cached_value_handles() {
+    fn get_reuses_cached_value_handles() {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
         });
 
-        let first = db.query_shared(Double(21));
-        let second = db.query_shared(Double(21));
+        let first = db.get(Double(21));
+        let second = db.get(Double(21));
 
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(*first, 42);
         assert_eq!(db.query(Double(21)), 42);
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn get_supports_non_clone_query_values() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        let first = db.get(NonCloneValueQuery);
+        let second = db.get(NonCloneValueQuery);
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first.value, 42);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
     }
 

@@ -6,7 +6,7 @@
 >
 > 结论强度标记：**确认**表示可直接由当前源码或实测得到；**推断**表示有明确结构证据、但仍需专项 profiling 验证比例；**建议**表示目标架构判断
 
-## 当前执行状态（2026-07-17）
+## 当前执行状态（2026-07-18）
 
 本文件使用 `compiler-roadmap.md`，而不是 `plan.md` 或 `task.md`：它同时包含长期架构审查、目标模型、阶段路线图和滚动验证记录，不是一次维护任务，也不是执行完即可删除的短期计划。
 
@@ -16,7 +16,7 @@
 |---|---:|---|
 | A 基线与防回归 | 约 80% | 六 workload、machine-readable 指标、allocator/query/LLVM counters 与同机 guard 已完成；可运行 LLVM suite 的 CI 和 main-branch trend storage 未完成。 |
 | B semantic context / 类型身份 | 100% | session-wide canonical `TypeStore`、全 pass canonical read/append、显式 roots、跨 revision slot 稳定与跨 session 隔离已完成；module view/log、origin、snapshot/checkout、recursive import 和旧 identity 类型均已删除。 |
-| C query value/storage | 约 5% | clone/bytes instrumentation 已提供测量基础，但 `Value: Clone`、`query`/`query_shared` 双入口、aggregate product 与 cache ownership 契约尚未重构；当前仍有大量 `query_shared` 调用。 |
+| C query value/storage | 约 15% | `QueryKey::Value` 的通用 `Clone` 约束已删除，cache-owned `get/try_get` 已建立，旧 shared 入口清零且 loader-query 已完整迁移；compiler owned `query/query_many`、aggregate product 与 declarative registry 尚未完成。 |
 | D 统一依赖图 | 约 5% | 已有 typed query 和若干 fact index，但 loader/compiler/driver/reachability 仍未共享一个 revisioned fact graph，`module_graph_state` 与多层 fixed point 尚在。 |
 | E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；`query_many` 仍创建临时 OS 线程，`NIA_QUERY_THREADS`、持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
 | F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
@@ -26,7 +26,7 @@
 
 综合判断：**Phase B 已完成，但整份路线图只完成约 30%；A–E 的 P0 基础约完成 40%。** 当前投入看起来集中且进展很大，是因为完成的主要是最先阻塞后续工作的类型身份主线；C、D、E 以及 F–H 仍是独立的大型工程，不能按 Phase B 的提交密度外推为“路线图已过半”。
 
-最近的临界路径已转入 Phase C 的 query storage 契约：消除默认深拷贝和双查询入口；在此之前不应提前扩张持久增量或 CGU cache。
+最近的临界路径是继续把 compiler-query 的 owned `query/query_many` 调用按产品链迁到唯一 `get` 入口，并删除 owned output adapter；在此之前不应提前扩张持久增量或 CGU cache。
 
 ## 1. 范围、版本与方法
 
@@ -1034,6 +1034,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 进展（2026-07-18）：非语义 `TypeOrigin` 已从 const、`nia-ty` 和 `nia-ids` 删除。const trait/normalization/substitution 统一以当前执行模块作为可见性上下文，nominal layout/field offset 只以真实 `GlobalDefId.module_id` 选择定义模块，不再让并发或查询顺序决定的 first-insert metadata 参与语义。canonical slot 分配直接由 canonical map 长度推进，`TypeStoreAppend` 只携带共享 core；nia-ty origin 回归随实现一起删除。const-check 5 项定向测试、workspace all-targets check、严格 workspace/all-targets/all-features Clippy，以及无参数、无环境变量的原样 `cargo test` 全部通过；CLI commands 50 项自然并发 238.55 秒完成，跨模块 const/trait/layout、标准库 executable、LLVM、driver 与 doc tests 均通过。Phase B 只剩无生产消费者的 module visibility/migration 实现层及其测试 fixture，下一切片应整体迁移测试并删除 `TyInterner`、`TyInternerId`、snapshot/checkout 与 same-shard guard。
 
 进展（2026-07-18）：Phase B 的 view/migration 实现层已完整删除。LLVM、backend、function IR/opt、driver、compiler-query 与 nia-ty fixture 全部改用 `TypeStore`/`TypeStoreAppend`；`TypeStore` 不再维护 module map，`TyInterner`、module visibility log、snapshot/checkout、same-shard guard 与旧 `TyInternerId` 均从实现删除，global slot newtype 同步更名为 `TypeStoreIndex`。nia-ty 回归只保留 canonicalization、跨 module capability 同 ID、跨 session dependency 拒绝、same-session composition 与 64-bit handle 不变量。旧符号与 API 的 production/test 全仓搜索为零；nia-ty/backend/LLVM/compiler-query 390 项定向测试、workspace all-targets check、严格 workspace/all-targets/all-features Clippy，以及无参数、无环境变量的原样 `cargo test` 全部通过。CLI commands 50 项自然并发 238.36 秒完成，标准库 executable、LLVM、driver 与 doc tests 均通过。Phase B acceptance 至此完成，下一提交开始 Phase C：先量化并删除 query cache hit 的默认 owned clone，再收敛 `query`/`query_shared` 双入口。
+
+进展（2026-07-18）：Phase C 的 cache ownership 契约开始落地。`QueryKey::Value` 与 erased cache slot 不再要求 `Clone`；正式共享入口统一命名为 `get/try_get`，首次计算把 value 唯一放入 cache-owned `Arc`，cache hit 只复制句柄。不可 `Clone` value 与同 allocation cache-hit 回归直接验证该契约。旧 `query_shared/try_query_shared` 实现和全仓 Rust 调用已删除；loader-query 的 production/test 调用链进一步全部迁到 `get/try_get`，`ParsedModuleQuery`/`SyntaxModuleQuery` 不再把 runtime handle 重复声明为 `Value = Arc<T>`，只有组装公开 owned `LoadedProgram` DTO 时执行显式边界 clone。nia-query 20 项与 loader-query 36 项定向测试、loader all-targets check、严格 workspace/all-targets/all-features Clippy，以及无参数、无环境变量的原样 `cargo test` 全部通过；CLI commands 50 项自然并发 235.36 秒完成，driver 484、LLVM 177 与 doc tests 均通过。compiler-query 仍有大量 owned `query`，runtime 也暂时保留方法级 `Value: Clone` 的 `query/try_query/query_many` output adapter，因此 Phase C 尚未达到单入口 acceptance；下一切片应按 compiler product 调用链迁移并删除该 adapter，而不是增加兼容 facade。
 
 ### 阶段 C（P0）：重做 query value/storage 契约
 

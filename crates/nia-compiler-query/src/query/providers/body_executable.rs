@@ -85,13 +85,13 @@ fn visit_executable_value_ref_edges(
 
 impl ExecutableValueRefEdges {
     fn insert_edge(&mut self, db: &QueryDb<CompilerContext>, global_id: GlobalDefId) -> bool {
-        let defs = db.query_shared(FullModuleDefsQuery(global_id.module_id));
+        let defs = db.get(FullModuleDefsQuery(global_id.module_id));
         let Some(def) = defs.defs.get(global_id.def_id) else {
             return false;
         };
         match def.kind {
             DefKind::Function | DefKind::Method | DefKind::TraitMethod => {
-                let signatures = db.query_shared(SignatureItemSignaturesQuery(
+                let signatures = db.get(SignatureItemSignaturesQuery(
                     global_id.module_id,
                     nia_item_tree::SignatureItemSet::Functions,
                 ));
@@ -232,7 +232,7 @@ fn filtered_const_global_initializer_for_body_check(
             )
         },
     );
-    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
     let public_surfaces = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.public_surfaces",
@@ -283,7 +283,7 @@ fn filtered_const_global_initializer_for_body_check(
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
-                    graph: Some(&db.query_shared(ModuleGraphQuery)),
+                    graph: Some(&db.get(ModuleGraphQuery)),
                 },
                 &public_surfaces.surfaces,
                 &using_scope,
@@ -382,7 +382,7 @@ fn filtered_const_global_initializer_for_body_check(
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
-                    graph: Some(&db.query_shared(ModuleGraphQuery)),
+                    graph: Some(&db.get(ModuleGraphQuery)),
                 },
                 &public_surfaces.surfaces,
                 &using_scope,
@@ -485,7 +485,7 @@ fn const_inputs_for_body_check(
         Some(db.query(ConstModuleQuery(module_id)).module)
     };
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
-    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             return Some(db.query(SignatureTypeNormalizationQuery(
@@ -498,7 +498,7 @@ fn const_inputs_for_body_check(
     let local_trait_impls = fact_mode
         .non_function_signatures
         .is_none()
-        .then(|| db.query_shared(VisibleTraitImplsQuery(module_id)));
+        .then(|| db.get(VisibleTraitImplsQuery(module_id)));
     let trait_impls_for_module = |requested_module_id| {
         if requested_module_id == module_id {
             return fact_mode
@@ -524,7 +524,7 @@ fn const_inputs_for_body_check(
             .non_function_signatures
             .is_some_and(|signatures| signatures.enums.contains_key(&def_id))
             || db
-                .query_shared(SignatureItemSignaturesQuery(
+                .get(SignatureItemSignaturesQuery(
                     def_id.module_id,
                     nia_item_tree::SignatureItemSet::Types,
                 ))
@@ -533,20 +533,20 @@ fn const_inputs_for_body_check(
     };
     let item_signatures_for_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
-            return Some(db.query_shared(SignatureItemSignaturesQuery(
+            return Some(db.get(SignatureItemSignaturesQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Types,
             )));
         }
-        Some(db.query_shared(ItemSignaturesQuery(module_id)))
+        Some(db.get(ItemSignaturesQuery(module_id)))
     };
     let value_signatures_for_module = |module_id| {
-        Some(db.query_shared(SignatureItemSignaturesQuery(
+        Some(db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Values,
         )))
     };
-    let local_visible_extensions = db.query_shared(VisibleExtensionsQuery(module_id));
+    let local_visible_extensions = db.get(VisibleExtensionsQuery(module_id));
     let visible_extensions_for_module = |requested_module_id| {
         if requested_module_id == module_id {
             return Some(local_visible_extensions.methods.clone());
@@ -715,8 +715,8 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.query_shared(FullModuleDefsQuery(module_id));
-    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
+    let defs = db.get(FullModuleDefsQuery(module_id));
+    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
     let lowered = db.query(TypeLoweringQuery(module_id));
     let executable_reachable_filter = matches!(
@@ -836,7 +836,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         }
         Some(db.query(TypeNormalizationQuery(module_id)))
     };
-    let local_function_signatures = db.query_shared(SignatureItemSignaturesQuery(
+    let local_function_signatures = db.get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
     ));
@@ -871,7 +871,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     signature
                 });
         }
-        db.query_shared(SignatureItemSignaturesQuery(
+        db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Functions,
         ))
@@ -899,7 +899,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         })
     };
     let program_global_signature = |def_id: GlobalDefId| {
-        db.query_shared(SignatureItemSignaturesQuery(
+        db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Values,
         ))
@@ -909,7 +909,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .map(|signature| ProgramGlobalSignature { signature })
     };
     let program_const_signature = |def_id: GlobalDefId| {
-        db.query_shared(SignatureItemSignaturesQuery(
+        db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Values,
         ))
@@ -919,7 +919,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .map(|signature| ProgramConstSignature { signature })
     };
     let program_struct_signature = |def_id: GlobalDefId| {
-        db.query_shared(SignatureItemSignaturesQuery(
+        db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))
@@ -929,7 +929,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .map(|signature| ProgramStructSignature { signature })
     };
     let program_union_signature = |def_id: GlobalDefId| {
-        db.query_shared(SignatureItemSignaturesQuery(
+        db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))
@@ -939,7 +939,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .map(|signature| ProgramUnionSignature { signature })
     };
     let program_enum_signature = |def_id: GlobalDefId| {
-        db.query_shared(SignatureItemSignaturesQuery(
+        db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))
@@ -949,7 +949,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .map(|signature| ProgramEnumSignature { signature })
     };
     let program_trait_signature = |def_id: GlobalDefId| {
-        db.query_shared(SignatureItemSignaturesQuery(
+        db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ))
@@ -959,7 +959,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .map(|signature| ProgramTraitSignature { signature })
     };
     let program_type_alias_signature = |def_id: GlobalDefId| {
-        db.query_shared(SignatureItemSignaturesQuery(
+        db.get(SignatureItemSignaturesQuery(
             def_id.module_id,
             nia_item_tree::SignatureItemSet::Types,
         ))
@@ -1026,12 +1026,12 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     };
     let item_signatures_for_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
-            return Some(db.query_shared(SignatureItemSignaturesQuery(
+            return Some(db.get(SignatureItemSignaturesQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Types,
             )));
         }
-        Some(db.query_shared(ItemSignaturesQuery(module_id)))
+        Some(db.get(ItemSignaturesQuery(module_id)))
     };
     let executable_program_const_array_lengths =
         RefCell::new(HashMap::<ModuleId, nia_const_check::ConstArrayLengths>::new());
@@ -1265,13 +1265,13 @@ pub(super) fn executable_layouts_for_reachable_items(
     reachable_body_modules_override: Option<ReachableBodyModules<'_>>,
 ) -> nia_layout::Layouts {
     time_module_provider(db, "executable_layouts", module_id, || {
-        let defs = db.query_shared(FullModuleDefsQuery(module_id));
+        let defs = db.get(FullModuleDefsQuery(module_id));
         let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
         let type_lowering = db.query(TypeLoweringQuery(module_id));
         let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
         let program_struct = |def_id: GlobalDefId| {
-            db.query_shared(SignatureItemSignaturesQuery(
+            db.get(SignatureItemSignaturesQuery(
                 def_id.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))
@@ -1281,7 +1281,7 @@ pub(super) fn executable_layouts_for_reachable_items(
             .map(|signature| ProgramStructSignature { signature })
         };
         let program_union = |def_id: GlobalDefId| {
-            db.query_shared(SignatureItemSignaturesQuery(
+            db.get(SignatureItemSignaturesQuery(
                 def_id.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))
@@ -1291,7 +1291,7 @@ pub(super) fn executable_layouts_for_reachable_items(
             .map(|signature| ProgramUnionSignature { signature })
         };
         let program_enum = |def_id: GlobalDefId| {
-            db.query_shared(SignatureItemSignaturesQuery(
+            db.get(SignatureItemSignaturesQuery(
                 def_id.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))
@@ -1301,7 +1301,7 @@ pub(super) fn executable_layouts_for_reachable_items(
             .map(|signature| ProgramEnumSignature { signature })
         };
         let program_type_alias = |def_id: GlobalDefId| {
-            db.query_shared(SignatureItemSignaturesQuery(
+            db.get(SignatureItemSignaturesQuery(
                 def_id.module_id,
                 nia_item_tree::SignatureItemSet::Types,
             ))
@@ -1860,8 +1860,8 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
             return ExecutableValueRefEdges::default();
         };
         let active_item_tree = executable_value_ref_active_item_tree(&item_input);
-        let defs = db.query_shared(ModuleDefsQuery(owner.module_id));
-        let program_defs = |module_id| Some(db.query_shared(ModuleDefsQuery(module_id)));
+        let defs = db.get(ModuleDefsQuery(owner.module_id));
+        let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
         let graph = QueryModuleGraphLookup::new(db);
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, owner.module_id);
@@ -2177,7 +2177,7 @@ pub(super) fn extend_module_functions_from_local_static_globals(
     module_globals: &HashSet<GlobalDefId>,
     checked_functions: Option<&HashSet<GlobalDefId>>,
 ) -> HashSet<GlobalDefId> {
-    let defs = db.query_shared(FullModuleDefsQuery(module_id));
+    let defs = db.get(FullModuleDefsQuery(module_id));
     for global in module_globals {
         let Some(def) = defs.defs.get(global.def_id) else {
             continue;
@@ -2266,7 +2266,7 @@ pub(super) fn executable_flow_check(
 ) -> nia_flow_check::FlowCheck {
     time_module_provider(db, "executable_flow_check", module_id, || {
         let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-        let signatures = db.query_shared(SignatureItemSignaturesQuery(
+        let signatures = db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Functions,
         ));

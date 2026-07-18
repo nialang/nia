@@ -176,7 +176,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                     )
                 },
             ));
-            let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
+            let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
             let public_surfaces = time_module_provider(
                 db,
                 "executable_body_check.public_surfaces",
@@ -210,7 +210,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                         context.defs,
                         nia_value_resolve::ProgramDefsContext {
                             defs: Some(&program_defs),
-                            graph: Some(&db.query_shared(ModuleGraphQuery)),
+                            graph: Some(&db.get(ModuleGraphQuery)),
                         },
                         &public_surfaces.surfaces,
                         &using_scope,
@@ -257,7 +257,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                                 context.defs,
                                 nia_value_resolve::ProgramDefsContext {
                                     defs: Some(&program_defs),
-                                    graph: Some(&db.query_shared(ModuleGraphQuery)),
+                                    graph: Some(&db.get(ModuleGraphQuery)),
                                 },
                                 &public_surfaces.surfaces,
                                 &using_scope,
@@ -298,7 +298,7 @@ pub(super) fn full_body_check_resolution_inputs(
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.query_shared(FullModuleDefsQuery(module_id));
+    let defs = db.get(FullModuleDefsQuery(module_id));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
     let lowered = db.query(TypeLoweringQuery(module_id));
     body_check_resolution_inputs_for_filter(
@@ -344,7 +344,7 @@ pub(super) fn body_local_item_signatures(
     module_id: ModuleId,
     lowered: &TypeLowering,
 ) -> ItemSignatures {
-    let defs = db.query_shared(FullModuleDefsQuery(module_id));
+    let defs = db.get(FullModuleDefsQuery(module_id));
     let functions = collect_body_signature_subset(
         db,
         module_id,
@@ -417,7 +417,7 @@ fn collect_body_signature_subset(
     defs: &DefCollection,
     lowered: &TypeLowering,
 ) -> ItemSignatures {
-    let active_item_tree = db.query_shared(SignatureItemTreeQuery(module_id, set));
+    let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set));
     let symbols = db.context().symbols();
     nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
         source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),

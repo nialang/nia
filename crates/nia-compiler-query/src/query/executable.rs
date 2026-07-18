@@ -342,7 +342,7 @@ pub(super) fn executable_reachable_body_modules(
 }
 
 pub(super) fn is_runtime_global_def(db: &QueryDb<CompilerContext>, def_id: GlobalDefId) -> bool {
-    db.query_shared(ModuleDefsQuery(def_id.module_id))
+    db.get(ModuleDefsQuery(def_id.module_id))
         .defs
         .get(def_id.def_id)
         .is_some_and(|def| def.kind == DefKind::Global)

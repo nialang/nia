@@ -16,7 +16,7 @@ pub(super) fn provide_program_signature_module_eligibility(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> bool {
-    let tree = db.query_shared(SignatureItemTreeQuery(module_id, set));
+    let tree = db.get(SignatureItemTreeQuery(module_id, set));
     nia_program_signatures::signature_tree_has_program_signature_facts(&tree, set)
 }
 
@@ -25,9 +25,9 @@ pub(super) fn provide_module_program_signature_facts(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> ModuleProgramSignatureFactsValue {
-    let defs = db.query_shared(ModuleDefsQuery(module_id));
-    let lowering = db.query_shared(SignatureTypeLoweringQuery(module_id, set));
-    let signatures = db.query_shared(SignatureItemSignaturesQuery(module_id, set));
+    let defs = db.get(ModuleDefsQuery(module_id));
+    let lowering = db.get(SignatureTypeLoweringQuery(module_id, set));
+    let signatures = db.get(SignatureItemSignaturesQuery(module_id, set));
     Arc::new(
         nia_program_signatures::collect_module_program_signature_facts(ModuleSignatureInput {
             module_id,
@@ -43,7 +43,7 @@ pub(super) fn provide_module_abi_signature_facts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ModuleAbiSignatureFactsValue {
-    let signatures = db.query_shared(SignatureItemSignaturesQuery(
+    let signatures = db.get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
@@ -260,7 +260,7 @@ pub(super) fn executable_program_functions_for_modules(
         .flat_map(|module_id| {
             let lowered = db.query(TypeLoweringQuery(module_id));
             let signatures = body_local_item_signatures(db, module_id, &lowered);
-            let defs = db.query_shared(ModuleDefsQuery(module_id));
+            let defs = db.get(ModuleDefsQuery(module_id));
             signatures
                 .functions
                 .into_iter()

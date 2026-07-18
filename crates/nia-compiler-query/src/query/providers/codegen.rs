@@ -244,7 +244,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             &function_bodies,
         )
     });
-    let program_defs = |module_id| Some(db.query_shared(FullModuleDefsQuery(module_id)));
+    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
     let executable_program_signatures = executable_program_non_function_signatures(db);
     let executable_program_functions = executable_program_functions_for_modules(
         db,

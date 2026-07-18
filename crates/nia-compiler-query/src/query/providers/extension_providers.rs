@@ -23,7 +23,7 @@ impl nia_program_signatures::ProgramDefsResolver for SharedProgramDefsResolver<'
         if let Some(defs) = self.cache.borrow().get(&module_id) {
             return defs.clone();
         }
-        let defs = Some(self.db.query_shared(ModuleDefsQuery(module_id)));
+        let defs = Some(self.db.get(ModuleDefsQuery(module_id)));
         self.cache.borrow_mut().insert(module_id, defs.clone());
         defs
     }
@@ -120,20 +120,20 @@ pub(super) fn provide_extension_signature_module_input(
 ) -> ExtensionSignatureModuleInputValue {
     Arc::new(ExtensionSignatureModuleInputQueryValue {
         module_id,
-        defs: db.query_shared(ModuleDefsQuery(module_id)),
-        lowering: db.query_shared(SignatureTypeLoweringQuery(
+        defs: db.get(ModuleDefsQuery(module_id)),
+        lowering: db.get(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         )),
-        signatures: db.query_shared(SignatureItemSignaturesQuery(
+        signatures: db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         )),
-        function_signatures: db.query_shared(SignatureItemSignaturesQuery(
+        function_signatures: db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::ExtensionFunctions,
         )),
-        type_signatures: db.query_shared(SignatureItemSignaturesQuery(
+        type_signatures: db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         )),
@@ -206,7 +206,7 @@ fn trait_id_index_name(
     match trait_id {
         nia_ty::TraitId::Builtin(trait_id) => Some(trait_id.symbol_id()),
         nia_ty::TraitId::Source(def_id) => db
-            .query_shared(ModuleDefsQuery(def_id.module_id))
+            .get(ModuleDefsQuery(def_id.module_id))
             .defs
             .get(def_id.def_id)
             .map(|def| def.name),
@@ -227,12 +227,12 @@ pub(super) fn provide_extension_provider_module_facts(
             });
         }
 
-        let defs = db.query_shared(ModuleDefsQuery(module_id));
-        let lowering = db.query_shared(SignatureTypeLoweringQuery(
+        let defs = db.get(ModuleDefsQuery(module_id));
+        let lowering = db.get(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
-        let signatures = db.query_shared(SignatureItemSignaturesQuery(
+        let signatures = db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
@@ -324,12 +324,12 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
                 });
             }
 
-            let defs = db.query_shared(ModuleDefsQuery(module_id));
-            let lowering = db.query_shared(SignatureTypeLoweringQuery(
+            let defs = db.get(ModuleDefsQuery(module_id));
+            let lowering = db.get(SignatureTypeLoweringQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,
             ));
-            let signatures = db.query_shared(SignatureItemSignaturesQuery(
+            let signatures = db.get(SignatureItemSignaturesQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,
             ));
@@ -384,7 +384,7 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
         db.context().timings(),
         "extension_provider_nominal_modules_for_targets",
         || {
-            let graph = db.query_shared(ModuleGraphQuery);
+            let graph = db.get(ModuleGraphQuery);
             let index_names = extension_provider_nominal_target_names_for_targets(db, &targets);
             let candidate_modules = db
                 .query(ExtensionProviderNominalCandidateModulesQuery(
