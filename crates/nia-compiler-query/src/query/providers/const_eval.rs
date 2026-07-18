@@ -29,10 +29,10 @@ pub(super) fn provide_const_module(
 
 pub(super) fn provide_const(db: &QueryDb<CompilerContext>, module_id: ModuleId) -> ConstCheck {
     time_module_provider(db, "const", module_id, || {
-        let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
-        let enum_values = db.query(ConstEnumValuesQuery(module_id));
-        let values = db.query(ConstValuesQuery(module_id));
-        let typed_facts = db.query(ConstTypedFactsQuery(module_id));
+        let array_lengths = Arc::unwrap_or_clone(db.get(ConstArrayLengthsQuery(module_id)));
+        let enum_values = Arc::unwrap_or_clone(db.get(ConstEnumValuesQuery(module_id)));
+        let values = Arc::unwrap_or_clone(db.get(ConstValuesQuery(module_id)));
+        let typed_facts = Arc::unwrap_or_clone(db.get(ConstTypedFactsQuery(module_id)));
 
         with_const_input(db, module_id, |_input, module| {
             let mut const_eval = nia_const_check::check_module_const_with_all_phases(
@@ -62,7 +62,7 @@ pub(super) fn provide_const_enum_values(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_const_check::ConstEnumValues {
-    let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
+    let array_lengths = Arc::unwrap_or_clone(db.get(ConstArrayLengthsQuery(module_id)));
     with_const_input(db, module_id, |input, module| {
         let mut enum_values =
             nia_const_check::compute_module_const_enum_values(input, array_lengths);
@@ -75,8 +75,8 @@ pub(super) fn provide_const_values(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_const_check::ConstValues {
-    let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
-    let enum_values = db.query(ConstEnumValuesQuery(module_id));
+    let array_lengths = Arc::unwrap_or_clone(db.get(ConstArrayLengthsQuery(module_id)));
+    let enum_values = Arc::unwrap_or_clone(db.get(ConstEnumValuesQuery(module_id)));
     with_const_input(db, module_id, |input, module| {
         let mut values =
             nia_const_check::compute_module_const_values(input, array_lengths, enum_values);
@@ -89,9 +89,9 @@ pub(super) fn provide_const_typed_facts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_const_check::ConstTypedFacts {
-    let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
-    let enum_values = db.query(ConstEnumValuesQuery(module_id));
-    let values = db.query(ConstValuesQuery(module_id));
+    let array_lengths = Arc::unwrap_or_clone(db.get(ConstArrayLengthsQuery(module_id)));
+    let enum_values = Arc::unwrap_or_clone(db.get(ConstEnumValuesQuery(module_id)));
+    let values = Arc::unwrap_or_clone(db.get(ConstValuesQuery(module_id)));
     with_const_input(db, module_id, |input, _module| {
         nia_const_check::compute_module_const_typed_facts(input, array_lengths, enum_values, values)
     })
@@ -112,13 +112,13 @@ pub(super) fn with_const_input_and_program_facts<T>(
     use_signature_facts_for: impl Fn(ModuleId) -> bool,
     f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
 ) -> T {
-    let module = db.query(ConstModuleQuery(module_id));
+    let module = db.get(ConstModuleQuery(module_id));
     let defs = db.get(FullModuleDefsQuery(module_id));
     let program_module = |module_id| {
         if use_signature_facts_for(module_id) {
             return Some(signature_const_module_lowering(db, module_id).module);
         }
-        Some(db.query(ConstModuleQuery(module_id)).module)
+        Some(db.get(ConstModuleQuery(module_id)).module.clone())
     };
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));

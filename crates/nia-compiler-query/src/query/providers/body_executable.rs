@@ -482,7 +482,7 @@ fn const_inputs_for_body_check(
         if fact_mode.signature_facts_for(module_id) {
             return Some(signature_const_module_lowering(db, module_id).module);
         }
-        Some(db.query(ConstModuleQuery(module_id)).module)
+        Some(db.get(ConstModuleQuery(module_id)).module.clone())
     };
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
@@ -761,10 +761,10 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let full_const_module;
     let (body_const, const_module) = match filter {
         nia_body_check::BodyCheckFilter::All => {
-            full_const_values = db.query(ConstValuesQuery(module_id));
-            full_const_array_lengths = db.query(ConstArrayLengthsQuery(module_id));
-            full_const_typed_facts = db.query(ConstTypedFactsQuery(module_id));
-            full_const_module = db.query(ConstModuleQuery(module_id));
+            full_const_values = db.get(ConstValuesQuery(module_id));
+            full_const_array_lengths = db.get(ConstArrayLengthsQuery(module_id));
+            full_const_typed_facts = db.get(ConstTypedFactsQuery(module_id));
+            full_const_module = db.get(ConstModuleQuery(module_id));
             (
                 nia_body_check::BodyConst::from_phases(
                     &full_const_values,
@@ -1080,7 +1080,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 .get(&module_id)
                 .cloned();
         }
-        Some(db.query(ConstArrayLengthsQuery(module_id)))
+        Some(db.get(ConstArrayLengthsQuery(module_id)).as_ref().clone())
     };
     let program_const_values = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
@@ -1143,13 +1143,13 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 .get(&module_id)
                 .cloned();
         }
-        Some(db.query(ConstValuesQuery(module_id)))
+        Some(db.get(ConstValuesQuery(module_id)).as_ref().clone())
     };
     let program_const_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             return Some(signature_const_module_lowering(db, module_id).module);
         }
-        Some(db.query(ConstModuleQuery(module_id)).module)
+        Some(db.get(ConstModuleQuery(module_id)).module.clone())
     };
     let program_visible_extensions =
         |module_id| Some(db.query(VisibleExtensionsQuery(module_id)).methods.clone());
@@ -1532,7 +1532,7 @@ fn rooted_layouts_for_checked_module(
         program_array_lengths_override
             .and_then(|array_lengths| array_lengths(id))
             .or_else(|| {
-                Some(db.query(ConstArrayLengthsQuery(id.module_id)))
+                Some(db.get(ConstArrayLengthsQuery(id.module_id)))
                     .and_then(|array_lengths| array_lengths.values.get(&id).copied())
             })
     };

@@ -3118,10 +3118,10 @@ fn main() i32 { 0 }
         let lowering = database.db.get(TypeLoweringQuery(module_id));
         let _ = database.db.query(TypeNormalizationQuery(module_id));
 
-        let _ = database.db.query(ConstArrayLengthsQuery(module_id));
-        let _ = database.db.query(ConstEnumValuesQuery(module_id));
-        let values = database.db.query(ConstValuesQuery(module_id));
-        let _ = database.db.query(ConstTypedFactsQuery(module_id));
+        let _ = database.db.get(ConstArrayLengthsQuery(module_id));
+        let _ = database.db.get(ConstEnumValuesQuery(module_id));
+        let values = database.db.get(ConstValuesQuery(module_id));
+        let _ = database.db.get(ConstTypedFactsQuery(module_id));
         let _ = database.db.get(ConstQuery(module_id));
 
         for ty in lowering.explicit_type_roots() {
@@ -5364,7 +5364,7 @@ extend i32 : ParseFrom[Input] {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(ConstModuleQuery(ModuleId(0)));
+        let _ = db.get(ConstModuleQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
