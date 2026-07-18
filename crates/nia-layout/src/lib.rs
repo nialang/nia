@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::{Diagnostic, codes};
@@ -225,7 +228,7 @@ pub fn compute_layouts(
 #[derive(Clone, Copy, Default)]
 pub struct ProgramLayoutContext<'a> {
     pub symbols: Option<&'a dyn SymbolText>,
-    pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
+    pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Arc<Layouts>>>,
     pub array_lengths: Option<&'a dyn Fn(GlobalConstExprId) -> Option<u64>>,
     pub structs: Option<&'a HashMap<GlobalDefId, ProgramStructSignature>>,
     pub unions: Option<&'a HashMap<GlobalDefId, ProgramUnionSignature>>,

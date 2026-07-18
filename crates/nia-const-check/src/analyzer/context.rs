@@ -864,14 +864,14 @@ impl Analyzer<'_> {
         &self,
         module_id: ModuleId,
         array_lengths: &HashMap<GlobalConstExprId, u64>,
-    ) -> Option<nia_layout::Layouts> {
+    ) -> Option<Arc<nia_layout::Layouts>> {
         let defs = self.global_defs(module_id)?;
         let signatures = self.signatures_for_module(module_id)?;
         let root_types = signatures.as_ref().type_roots();
         let normalization = self.type_normalization_for_module(module_id)?;
         let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
         let layout_query = |module_id| self.compute_program_layout(module_id, array_lengths);
-        Some(nia_layout::compute_layouts_with_program_context(
+        Some(Arc::new(nia_layout::compute_layouts_with_program_context(
             nia_layout::LayoutComputationInput {
                 type_store: self.input.type_store,
                 defs: defs.as_ref(),
@@ -887,6 +887,6 @@ impl Analyzer<'_> {
                     ..Default::default()
                 },
             },
-        ))
+        )))
     }
 }

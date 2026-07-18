@@ -349,7 +349,7 @@ pub struct BodyProgramContext<'a> {
     pub extension_type_normalizations:
         Option<&'a dyn Fn(ModuleId) -> Option<Arc<TypeNormalization>>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
-    pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
+    pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Arc<Layouts>>>,
     pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<VisibleExtensionMethods>>,
     pub extension_method_by_id: Option<&'a dyn Fn(GlobalDefId) -> Option<ExtensionMethod>>,
     pub extension_methods_named: Option<ExtensionMethodsNamed<'a>>,
