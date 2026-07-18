@@ -1787,8 +1787,8 @@ pub(super) fn executable_signature_checked_module(
         }),
         type_normalization,
         const_eval: Arc::new(ConstCheck {
-            values: HashMap::new(),
-            typed_values: HashMap::new(),
+            values: Arc::new(HashMap::new()),
+            typed_values: Arc::new(HashMap::new()),
             enum_values: enum_values.values,
             typed_enum_values: enum_values.typed_values,
             array_lengths: array_lengths.values,

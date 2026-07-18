@@ -20,37 +20,37 @@ use nia_value_resolve::ValueResolution;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConstCheck {
-    pub values: HashMap<ConstKey, ConstValue>,
-    pub typed_values: HashMap<ConstKey, TypedConstValue>,
-    pub enum_values: HashMap<DefId, ConstValue>,
-    pub typed_enum_values: HashMap<DefId, TypedConstValue>,
-    pub array_lengths: HashMap<GlobalConstExprId, u64>,
+    pub values: Arc<HashMap<ConstKey, ConstValue>>,
+    pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
+    pub enum_values: Arc<HashMap<DefId, ConstValue>>,
+    pub typed_enum_values: Arc<HashMap<DefId, TypedConstValue>>,
+    pub array_lengths: Arc<HashMap<GlobalConstExprId, u64>>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConstArrayLengths {
-    pub values: HashMap<GlobalConstExprId, u64>,
+    pub values: Arc<HashMap<GlobalConstExprId, u64>>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConstEnumValues {
-    pub values: HashMap<DefId, ConstValue>,
-    pub typed_values: HashMap<DefId, TypedConstValue>,
+    pub values: Arc<HashMap<DefId, ConstValue>>,
+    pub typed_values: Arc<HashMap<DefId, TypedConstValue>>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConstValues {
-    pub values: HashMap<ConstKey, ConstValue>,
-    pub typed_values: HashMap<ConstKey, TypedConstValue>,
+    pub values: Arc<HashMap<ConstKey, ConstValue>>,
+    pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConstTypedFacts {
-    pub typed_values: HashMap<ConstKey, TypedConstValue>,
+    pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
     pub diagnostics: Vec<Diagnostic>,
 }
 

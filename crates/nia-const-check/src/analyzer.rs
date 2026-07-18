@@ -138,7 +138,7 @@ pub fn compute_module_const_array_lengths(input: ConstInput<'_>) -> ConstArrayLe
     let mut analyzer = Analyzer::new(input);
     analyzer.analyze_array_lengths();
     ConstArrayLengths {
-        values: analyzer.array_lengths,
+        values: Arc::new(analyzer.array_lengths),
         diagnostics: analyzer.diagnostics,
     }
 }
@@ -156,12 +156,12 @@ pub fn compute_module_const_enum_values(
     array_lengths: ConstArrayLengths,
 ) -> ConstEnumValues {
     let mut analyzer = Analyzer::new(input);
-    analyzer.array_lengths = array_lengths.values;
+    analyzer.array_lengths = Arc::unwrap_or_clone(array_lengths.values);
     analyzer.diagnostics = array_lengths.diagnostics;
     analyzer.analyze_enum_values();
     ConstEnumValues {
-        values: analyzer.enum_values,
-        typed_values: analyzer.typed_enum_values,
+        values: Arc::new(analyzer.enum_values),
+        typed_values: Arc::new(analyzer.typed_enum_values),
         diagnostics: analyzer.diagnostics,
     }
 }
@@ -187,14 +187,14 @@ pub fn compute_module_const_values(
     enum_values: ConstEnumValues,
 ) -> ConstValues {
     let mut analyzer = Analyzer::new(input);
-    analyzer.array_lengths = array_lengths.values;
-    analyzer.enum_values = enum_values.values;
-    analyzer.typed_enum_values = enum_values.typed_values;
+    analyzer.array_lengths = Arc::unwrap_or_clone(array_lengths.values);
+    analyzer.enum_values = Arc::unwrap_or_clone(enum_values.values);
+    analyzer.typed_enum_values = Arc::unwrap_or_clone(enum_values.typed_values);
     analyzer.diagnostics = enum_values.diagnostics;
     analyzer.analyze_values();
     ConstValues {
-        values: analyzer.values,
-        typed_values: analyzer.typed_values,
+        values: Arc::new(analyzer.values),
+        typed_values: Arc::new(analyzer.typed_values),
         diagnostics: analyzer.diagnostics,
     }
 }
@@ -222,15 +222,15 @@ pub fn compute_module_const_typed_facts(
     values: ConstValues,
 ) -> ConstTypedFacts {
     let mut analyzer = Analyzer::new(input);
-    analyzer.array_lengths = array_lengths.values;
-    analyzer.enum_values = enum_values.values;
-    analyzer.typed_enum_values = enum_values.typed_values;
-    analyzer.values = values.values;
-    analyzer.typed_values = values.typed_values;
+    analyzer.array_lengths = Arc::unwrap_or_clone(array_lengths.values);
+    analyzer.enum_values = Arc::unwrap_or_clone(enum_values.values);
+    analyzer.typed_enum_values = Arc::unwrap_or_clone(enum_values.typed_values);
+    analyzer.values = Arc::unwrap_or_clone(values.values);
+    analyzer.typed_values = Arc::unwrap_or_clone(values.typed_values);
     analyzer.diagnostics = values.diagnostics;
     analyzer.analyze_functions();
     ConstTypedFacts {
-        typed_values: analyzer.typed_values,
+        typed_values: Arc::new(analyzer.typed_values),
         diagnostics: analyzer.diagnostics,
     }
 }

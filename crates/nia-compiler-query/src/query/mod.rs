@@ -5453,6 +5453,10 @@ extend i32 : ParseFrom[Input] {
         let layouts = db.get(LayoutsQuery(ModuleId(0)));
         let body_check = db.get(BodyCheckQuery(ModuleId(0)));
         let const_eval = db.get(ConstQuery(ModuleId(0)));
+        let const_array_lengths = db.get(ConstArrayLengthsQuery(ModuleId(0)));
+        let const_enum_values = db.get(ConstEnumValuesQuery(ModuleId(0)));
+        let const_values = db.get(ConstValuesQuery(ModuleId(0)));
+        let const_typed_facts = db.get(ConstTypedFactsQuery(ModuleId(0)));
         let static_check = db.get(StaticCheckQuery(ModuleId(0)));
         let abi_check = db.get(AbiCheckQuery(ModuleId(0)));
         let flow_check = db.get(FlowCheckQuery(ModuleId(0)));
@@ -5479,6 +5483,23 @@ extend i32 : ParseFrom[Input] {
             &body_check.diagnostics
         ));
         assert!(Arc::ptr_eq(&checked.const_eval, &const_eval));
+        assert!(Arc::ptr_eq(&const_eval.values, &const_values.values));
+        assert!(Arc::ptr_eq(
+            &const_eval.typed_values,
+            &const_typed_facts.typed_values
+        ));
+        assert!(Arc::ptr_eq(
+            &const_eval.enum_values,
+            &const_enum_values.values
+        ));
+        assert!(Arc::ptr_eq(
+            &const_eval.typed_enum_values,
+            &const_enum_values.typed_values
+        ));
+        assert!(Arc::ptr_eq(
+            &const_eval.array_lengths,
+            &const_array_lengths.values
+        ));
         assert!(Arc::ptr_eq(&checked.static_check, &static_check));
         assert!(Arc::ptr_eq(&checked.abi_check, &abi_check));
         assert!(Arc::ptr_eq(&checked.flow_check, &flow_check));

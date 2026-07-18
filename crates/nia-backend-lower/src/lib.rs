@@ -1128,7 +1128,7 @@ impl<'a> ModuleLowerer<'a> {
             id: self.input.module_id,
             name: self.input.module_name.clone(),
             const_eval: nia_backend_ir::BackendConstFacts {
-                array_lengths: self.input.const_array_lengths.values.clone(),
+                array_lengths: self.input.const_array_lengths.values.as_ref().clone(),
             },
             layouts: backend_layouts,
             structs,
