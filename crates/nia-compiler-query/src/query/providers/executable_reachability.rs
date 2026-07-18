@@ -42,7 +42,7 @@ enum ExecutableCheckOutput {
 #[cfg(test)]
 pub(in crate::query) fn provide_executable_checked_modules(
     db: &QueryDb<CompilerContext>,
-) -> Vec<CheckedModule> {
+) -> Vec<Arc<CheckedModule>> {
     time_provider(db.context().timings(), "executable_checked_modules", || {
         let set = db.query(ExecutableCheckedModuleSetQuery);
         db.context().executable_checked_modules(&set)

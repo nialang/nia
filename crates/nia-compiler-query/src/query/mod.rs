@@ -587,7 +587,7 @@ struct ExecutableCheckedModuleStore {
 
 struct ExecutableCheckedModuleSetData {
     module_ids: Vec<ModuleId>,
-    modules: HashMap<ModuleId, CheckedModule>,
+    modules: HashMap<ModuleId, Arc<CheckedModule>>,
 }
 
 #[derive(Debug, Clone)]
@@ -861,7 +861,7 @@ impl CompilerContext {
         let module_ids = modules.iter().map(|module| module.id).collect::<Vec<_>>();
         let modules = modules
             .into_iter()
-            .map(|module| (module.id, module))
+            .map(|module| (module.id, Arc::new(module)))
             .collect::<HashMap<_, _>>();
         let mut store = self
             .executable_checked_modules
@@ -879,7 +879,10 @@ impl CompilerContext {
         ExecutableCheckedModuleSet { id, module_ids }
     }
 
-    fn executable_checked_modules(&self, set: &ExecutableCheckedModuleSet) -> Vec<CheckedModule> {
+    fn executable_checked_modules(
+        &self,
+        set: &ExecutableCheckedModuleSet,
+    ) -> Vec<Arc<CheckedModule>> {
         let store = self
             .executable_checked_modules
             .read()
@@ -5440,6 +5443,7 @@ extend i32 : ParseFrom[Input] {
         let db = query_db(loaded);
 
         let checked = db.get(CheckedModuleQuery(ModuleId(0)));
+        let checked_program = db.get(CheckedProgramQuery);
         let values = db.get(ValueResolutionQuery(ModuleId(0)));
         let locals = db.get(LocalResolutionQuery(ModuleId(0)));
         let semantic_uses = db.get(SemanticUseTableQuery(ModuleId(0)));
@@ -5453,6 +5457,7 @@ extend i32 : ParseFrom[Input] {
         let abi_check = db.get(AbiCheckQuery(ModuleId(0)));
         let flow_check = db.get(FlowCheckQuery(ModuleId(0)));
 
+        assert!(Arc::ptr_eq(&checked, &checked_program.modules[0]));
         assert!(Arc::ptr_eq(&checked.value_resolution, &values));
         assert!(Arc::ptr_eq(&checked.local_resolution, &locals));
         assert!(Arc::ptr_eq(&checked.semantic_uses, &semantic_uses));

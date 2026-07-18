@@ -13,7 +13,7 @@ pub(super) fn provide_monomorphization(
 
 pub(super) fn monomorphization_for_checked_modules(
     db: &QueryDb<CompilerContext>,
-    checked_modules: &[CheckedModule],
+    checked_modules: &[Arc<CheckedModule>],
 ) -> nia_monomorphize::Monomorphization {
     let executable_signatures = executable_program_non_function_signatures(db);
     let program_enums = &executable_signatures.enums;
@@ -61,31 +61,35 @@ pub(super) fn monomorphization_for_checked_modules(
     )
 }
 
-pub(super) fn checked_modules_for_codegen(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
+pub(super) fn checked_modules_for_codegen(
+    db: &QueryDb<CompilerContext>,
+) -> Vec<Arc<CheckedModule>> {
     materialize_executable_checked_modules(db, db.query(ExecutableCheckedModuleSetQuery))
 }
 
-pub(super) fn checked_modules_for_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<CheckedModule> {
+pub(super) fn checked_modules_for_diagnostics(
+    db: &QueryDb<CompilerContext>,
+) -> Vec<Arc<CheckedModule>> {
     materialize_executable_checked_modules(db, db.query(ExecutableCheckedModuleSetQuery))
 }
 
 pub(super) fn materialize_checked_modules(
     db: &QueryDb<CompilerContext>,
     module_ids: Vec<ModuleId>,
-) -> Vec<CheckedModule> {
-    db.query_many(module_ids.into_iter().map(CheckedModuleQuery))
+) -> Vec<Arc<CheckedModule>> {
+    db.get_many(module_ids.into_iter().map(CheckedModuleQuery))
 }
 
 fn materialize_executable_checked_modules(
     db: &QueryDb<CompilerContext>,
     set: ExecutableCheckedModuleSet,
-) -> Vec<CheckedModule> {
+) -> Vec<Arc<CheckedModule>> {
     db.context().executable_checked_modules(&set)
 }
 
 fn function_bodies_from_checked_modules(
     db: &QueryDb<CompilerContext>,
-    checked_modules: &[CheckedModule],
+    checked_modules: &[Arc<CheckedModule>],
 ) -> Vec<LoweredFunctionBodies> {
     time_provider(
         db.context().timings(),
@@ -139,7 +143,7 @@ fn provide_backend_lowering_inner(
 pub(super) fn provide_backend_lowering_inner_for_modules(
     db: &QueryDb<CompilerContext>,
     monomorphization: &nia_monomorphize::Monomorphization,
-    checked_modules: &[CheckedModule],
+    checked_modules: &[Arc<CheckedModule>],
 ) -> nia_backend_lower::BackendLowering {
     let (
         all_visible_extensions,
@@ -322,7 +326,7 @@ pub(super) fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<Pr
 
 pub(super) fn checked_module_diagnostics(
     db: &QueryDb<CompilerContext>,
-    checked_modules: &[CheckedModule],
+    checked_modules: &[Arc<CheckedModule>],
 ) -> Vec<ProgramDiagnostic> {
     let mut diagnostics = Vec::new();
     for checked in checked_modules {
@@ -388,7 +392,7 @@ pub(super) fn checked_module_diagnostics(
 }
 
 pub(super) fn monomorphization_diagnostics(
-    checked_modules: &[CheckedModule],
+    checked_modules: &[Arc<CheckedModule>],
     monomorphization: &nia_monomorphize::Monomorphization,
 ) -> Vec<ProgramDiagnostic> {
     monomorphization
@@ -406,7 +410,7 @@ pub(super) fn monomorphization_diagnostics(
 }
 
 fn function_lowering_diagnostics(
-    checked_modules: &[CheckedModule],
+    checked_modules: &[Arc<CheckedModule>],
     function_bodies: &[LoweredFunctionBodies],
 ) -> Vec<ProgramDiagnostic> {
     checked_modules
@@ -429,7 +433,7 @@ fn function_lowering_diagnostics(
 }
 
 pub(super) fn backend_lowering_diagnostics(
-    checked_modules: &[CheckedModule],
+    checked_modules: &[Arc<CheckedModule>],
     backend_lowering: &nia_backend_lower::BackendLowering,
 ) -> Vec<ProgramDiagnostic> {
     backend_lowering

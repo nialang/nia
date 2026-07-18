@@ -413,7 +413,12 @@ fn main() i32 {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert!(program.modules.iter().any(has_trait_object_coercion));
+    assert!(
+        program
+            .modules
+            .iter()
+            .any(|module| has_trait_object_coercion(module))
+    );
 }
 
 #[test]
@@ -444,7 +449,12 @@ fn main() i32 {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert!(program.modules.iter().any(has_trait_object_coercion));
+    assert!(
+        program
+            .modules
+            .iter()
+            .any(|module| has_trait_object_coercion(module))
+    );
 }
 
 #[test]

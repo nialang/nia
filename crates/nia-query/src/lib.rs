@@ -524,6 +524,62 @@ impl<C> QueryDb<C> {
         })
     }
 
+    pub fn get_many<K>(&self, keys: impl IntoIterator<Item = K>) -> Vec<Arc<K::Value>>
+    where
+        C: Send + Sync + 'static,
+        K: QueryKey<C>,
+    {
+        let keys = keys.into_iter().collect::<Vec<_>>();
+        if keys.is_empty() {
+            return Vec::new();
+        }
+        let parent_stack = current_query_stack();
+        let worker_count = query_many_worker_count(keys.len());
+        if worker_count == 1 {
+            return keys.into_iter().map(|key| self.get(key)).collect();
+        }
+        let queue = Arc::new(Mutex::new(
+            keys.into_iter().enumerate().collect::<VecDeque<_>>(),
+        ));
+        std::thread::scope(|scope| {
+            let handles = (0..worker_count)
+                .map(|_| {
+                    let db = self.clone();
+                    let parent_stack = parent_stack.clone();
+                    let queue = queue.clone();
+                    scope.spawn(move || {
+                        let _stack_guard = install_query_stack(parent_stack);
+                        let mut values = Vec::new();
+                        loop {
+                            let work = queue
+                                .lock()
+                                .expect("get_many work queue lock poisoned")
+                                .pop_front();
+                            let Some((index, key)) = work else {
+                                return (values, take_current_stack_dependencies());
+                            };
+                            values.push((index, db.get(key)));
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+            let mut values = Vec::new();
+            let mut dependencies = FastHashSet::default();
+            for handle in handles {
+                match handle.join() {
+                    Ok((worker_values, worker_dependencies)) => {
+                        values.extend(worker_values);
+                        dependencies.extend(worker_dependencies);
+                    }
+                    Err(payload) => std::panic::resume_unwind(payload),
+                }
+            }
+            merge_dependencies_into_current_stack(dependencies);
+            values.sort_by_key(|(index, _)| *index);
+            values.into_iter().map(|(_, value)| value).collect()
+        })
+    }
+
     pub fn query_trace(&self) -> QueryTrace {
         QueryTrace {
             dependencies: self
@@ -1059,6 +1115,20 @@ mod tests {
 
         assert_eq!(values, vec![2, 8, 6]);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn get_many_reuses_non_clone_cached_handles_in_key_order() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        let values = db.get_many([NonCloneValueQuery, NonCloneValueQuery]);
+
+        assert_eq!(values.len(), 2);
+        assert!(Arc::ptr_eq(&values[0], &values[1]));
+        assert_eq!(values[0].value, 42);
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
     }
 
     #[test]

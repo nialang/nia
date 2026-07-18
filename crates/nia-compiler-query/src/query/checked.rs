@@ -89,7 +89,7 @@ pub(super) struct ExecutableCheckedModulesQuery;
 
 #[cfg(test)]
 impl QueryKey<CompilerContext> for ExecutableCheckedModulesQuery {
-    type Value = Vec<CheckedModule>;
+    type Value = Vec<Arc<CheckedModule>>;
 
     fn name() -> &'static str {
         "executable_checked_modules"
