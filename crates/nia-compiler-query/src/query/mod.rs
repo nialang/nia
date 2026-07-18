@@ -5529,6 +5529,27 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
+    fn checked_modules_reuse_cached_definition_handles() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "fn main() i32 { 1 }",
+        )]);
+        let db = query_db(loaded);
+
+        let defs = db.get(FullModuleDefsQuery(ModuleId(0)));
+        let checked = db.get(CheckedModuleQuery(ModuleId(0)));
+        let executable = db.get(ExecutableCheckedModulesQuery);
+        let executable = executable
+            .iter()
+            .find(|module| module.id == ModuleId(0))
+            .expect("entry executable module");
+
+        assert!(Arc::ptr_eq(&checked.defs, &defs));
+        assert!(Arc::ptr_eq(&executable.defs, &defs));
+    }
+
+    #[test]
     fn compiler_fact_batches_reuse_cached_product_handles() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),

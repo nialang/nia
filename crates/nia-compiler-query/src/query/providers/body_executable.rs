@@ -200,7 +200,7 @@ fn filtered_const_global_initializer_for_body_check(
         db,
         "executable_body_check.const_eval.global_initializer.defs",
         global_id.module_id,
-        || db.query(FullModuleDefsQuery(global_id.module_id)),
+        || db.get(FullModuleDefsQuery(global_id.module_id)),
     );
     let source_path = time_module_provider(
         db,
@@ -254,7 +254,7 @@ fn filtered_const_global_initializer_for_body_check(
         || db.get(TypeLoweringQuery(global_id.module_id)),
     );
     let type_resolution = db.get(TypeResolutionQuery(global_id.module_id));
-    let signatures = db.query(ItemSignaturesQuery(global_id.module_id));
+    let signatures = db.get(ItemSignaturesQuery(global_id.module_id));
     let needed_const_exprs = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.needed_const_exprs",
@@ -886,7 +886,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .map(|signature| {
             let signature = ProgramFunctionSignature {
                 name: db
-                    .query(ModuleDefsQuery(def_id.module_id))
+                    .get(ModuleDefsQuery(def_id.module_id))
                     .defs
                     .get(def_id.def_id)
                     .map(|def| def.name)
@@ -1278,7 +1278,7 @@ pub(super) fn executable_layouts_for_reachable_items(
         let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
         let type_lowering = db.get(TypeLoweringQuery(module_id));
         let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id));
-        let item_signatures = db.query(ItemSignaturesQuery(module_id));
+        let item_signatures = db.get(ItemSignaturesQuery(module_id));
         let program_struct = |def_id: GlobalDefId| {
             db.get(SignatureItemSignaturesQuery(
                 def_id.module_id,
@@ -1512,7 +1512,7 @@ fn has_reachable_executable_body_items(
 }
 
 fn is_runtime_global_def(db: &QueryDb<CompilerContext>, def_id: GlobalDefId) -> bool {
-    db.query(ModuleDefsQuery(def_id.module_id))
+    db.get(ModuleDefsQuery(def_id.module_id))
         .defs
         .get(def_id.def_id)
         .is_some_and(|def| def.kind == DefKind::Global)
@@ -1527,7 +1527,7 @@ fn rooted_layouts_for_checked_module(
     if module.executable_type_only {
         return module.layouts.clone();
     }
-    let item_signatures = db.query(ItemSignaturesQuery(module.id));
+    let item_signatures = db.get(ItemSignaturesQuery(module.id));
     let roots = checked_module_layout_roots(&db.context().type_store, module);
     let array_lengths = &module.const_eval.array_lengths;
     let symbols = db.context().symbols();
@@ -1665,7 +1665,7 @@ fn checked_module_with_body_and_flow_check(
     CheckedModule {
         id: module_id,
         path,
-        defs: db.query(FullModuleDefsQuery(module_id)),
+        defs: db.get(FullModuleDefsQuery(module_id)),
         type_resolution: db.get(TypeResolutionQuery(module_id)),
         type_lowering: db.get(TypeLoweringQuery(module_id)),
         value_resolution: db.get(ValueResolutionQuery(module_id)),
@@ -1703,7 +1703,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
     CheckedModule {
         id: module_id,
         path: db.query(ModulePathQuery(module_id)),
-        defs: db.query(FullModuleDefsQuery(module_id)),
+        defs: db.get(FullModuleDefsQuery(module_id)),
         type_resolution: db.get(TypeResolutionQuery(module_id)),
         type_lowering: db.get(TypeLoweringQuery(module_id)),
         value_resolution: body_inputs.values,
@@ -1768,7 +1768,7 @@ pub(super) fn executable_signature_checked_module(
     CheckedModule {
         id: module_id,
         path: db.query(ModulePathQuery(module_id)),
-        defs: db.query(ModuleDefsQuery(module_id)),
+        defs: db.get(ModuleDefsQuery(module_id)),
         type_resolution,
         type_lowering,
         value_resolution: Arc::new(ValueResolution {

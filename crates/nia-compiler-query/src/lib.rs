@@ -107,7 +107,7 @@ pub fn has_error_diagnostics(diagnostics: &[ProgramDiagnostic]) -> bool {
 pub struct CheckedModule {
     pub id: ModuleId,
     pub path: SourcePath,
-    pub defs: DefCollection,
+    pub defs: std::sync::Arc<DefCollection>,
     pub type_resolution: std::sync::Arc<TypeResolution>,
     pub type_lowering: std::sync::Arc<TypeLowering>,
     pub value_resolution: std::sync::Arc<ValueResolution>,

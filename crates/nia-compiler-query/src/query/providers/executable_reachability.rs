@@ -268,7 +268,7 @@ fn executable_check(
             .cloned()
             .map(|signature| ProgramFunctionSignature {
                 name: db
-                    .query(ModuleDefsQuery(def_id.module_id))
+                    .get(ModuleDefsQuery(def_id.module_id))
                     .defs
                     .get(def_id.def_id)
                     .map(|def| def.name)
