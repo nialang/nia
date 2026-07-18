@@ -16,7 +16,7 @@
 |---|---:|---|
 | A 基线与防回归 | 约 80% | 六 workload、machine-readable 指标、allocator/query/LLVM counters 与同机 guard 已完成；可运行 LLVM suite 的 CI 和 main-branch trend storage 未完成。 |
 | B semantic context / 类型身份 | 100% | session-wide canonical `TypeStore`、全 pass canonical read/append、显式 roots、跨 revision slot 稳定与跨 session 隔离已完成；module view/log、origin、snapshot/checkout、recursive import 和旧 identity 类型均已删除。 |
-| C query value/storage | 约 50% | cache-owned `get/try_get/get_many` 与无 `Value: Clone` 已建立；loader、compiler semantic/body/check aggregate 已共享，剩余 owned `query/query_many`、const phase/function/backend 产品与 registry 尚未完成。 |
+| C query value/storage | 约 55% | cache-owned `get/try_get/get_many` 与无 `Value: Clone` 已建立；loader、compiler semantic/body/check/fact batch 已共享，compiler-query 的 legacy `query_many` 已清零，剩余 owned `query`、const phase/function/backend 产品与 registry 尚未完成。 |
 | D 统一依赖图 | 约 5% | 已有 typed query 和若干 fact index，但 loader/compiler/driver/reachability 仍未共享一个 revisioned fact graph，`module_graph_state` 与多层 fixed point 尚在。 |
 | E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；`query_many` 仍创建临时 OS 线程，`NIA_QUERY_THREADS`、持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
 | F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
@@ -26,7 +26,7 @@
 
 综合判断：**Phase B 已完成，但整份路线图只完成约 30%；A–E 的 P0 基础约完成 40%。** 当前投入看起来集中且进展很大，是因为完成的主要是最先阻塞后续工作的类型身份主线；C、D、E 以及 F–H 仍是独立的大型工程，不能按 Phase B 的提交密度外推为“路线图已过半”。
 
-最近的临界路径是继续把 compiler-query 的 owned `query/query_many` 调用按产品链迁到唯一 `get` 入口，并删除 owned output adapter；在此之前不应提前扩张持久增量或 CGU cache。
+最近的临界路径是继续把 compiler-query 的 owned `query` 调用按产品链迁到唯一 `get` 入口，并删除 owned output adapter；在此之前不应提前扩张持久增量或 CGU cache。
 
 ## 1. 范围、版本与方法
 
@@ -1052,6 +1052,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 进展（2026-07-18）：并行 cache-owned 批量读取入口 `get_many` 已建立，支持非 `Clone` query value、保持 key 顺序，并沿用 `query_many` 的 logical parent stack 与 dependency merge 语义；回归验证重复非 Clone key 只执行一次且返回同一 allocation。普通 checked-program 物化改为 `get_many(CheckedModuleQuery)`，公开 `CheckedProgram`/`CodegenProgram` 与内部 executable checked-module store 统一保存 `Arc<CheckedModule>`，store/materialize/cache hit 都只复制句柄。aggregate 身份回归验证 checked program module 与独立 `CheckedModuleQuery` slot 同 allocation；刚完成共享的 body/type/layout/check 字段不再被上层 module clone 重新复制。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-query 21、compiler-query 109、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 231.14 秒完成。剩余八处 legacy `query_many` 仍集中在 program-signature、extension-provider 与 reachability facts，下一切片应按 value contract 分组迁移，不能仅改 API 名称后在消费端深 clone。
 
 进展（2026-07-18）：program-signature 与 extension-provider 的 module facts 已从 `Value = Arc<T>` 双层 ownership 契约改为 cache 直接拥有裸产品，单项消费者统一通过 `get` 取得唯一共享句柄，program ABI/signature、trait solving、provider index、named method 与 nominal target 聚合统一通过 `get_many` 复用相同 allocation。新增 compiler-query 回归同时验证五类 facts 的单项与批量读取均 `Arc::ptr_eq`，避免把 API 迁移退化为 nested `Arc` 或消费端深 clone；compiler-query 中 legacy `query_many` 从八处降至仅剩 executable reachability lookup 两处。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；compiler-query 110、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 229.19 秒完成，全部 doc tests 通过。下一切片应迁移最后两处 reachability 批读取并把 compiler-query 的 `query_many` production 搜索收敛为零。
+
+进展（2026-07-18）：executable reachability 的 trait 与 trait-method extension lookup 已改用 `get_many`，每个 provider module 直接借用上一切片建立的 cache-owned facts handle，不再经 legacy owned batch adapter clone methods、associated values、diagnostics 与 nominal provider aggregate。compiler-query production 的 `.query_many(...)` 搜索至此为零，Phase C 批读取调用面已统一到 `get_many`；runtime 的 legacy `query_many` 实现仍为兼容测试保留，后续应在完成 owned `query` 迁移时一并删除，而不能把它误记为 executor 已完成。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；compiler-query 110、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 228.24 秒完成，全部 doc tests 通过。下一切片回到剩余 owned `query` 产品链，优先审计 const phase 与 function/backend IR 的所有权边界。
 
 ### 阶段 C（P0）：重做 query value/storage 契约
 

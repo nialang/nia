@@ -133,7 +133,7 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
         }
         let mut seen = HashSet::new();
         let mut methods = Vec::new();
-        for facts in self.db.query_many(
+        for facts in self.db.get_many(
             self.module_ids_for_trait(trait_id)
                 .into_iter()
                 .map(ExtensionProviderModuleFactsQuery),
@@ -174,7 +174,7 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
         }
         let mut seen = HashSet::new();
         let mut methods = Vec::new();
-        for facts in self.db.query_many(
+        for facts in self.db.get_many(
             self.module_ids_for_trait(trait_id)
                 .into_iter()
                 .map(ExtensionProviderModuleFactsQuery),
