@@ -176,9 +176,9 @@ struct SwitchCoverage {
 
 #[derive(Clone, Copy)]
 pub struct ProgramConstMaps<'a> {
-    pub values: &'a dyn Fn(ModuleId) -> Option<ConstValues>,
-    pub array_lengths: &'a dyn Fn(ModuleId) -> Option<ConstArrayLengths>,
-    pub module: &'a dyn Fn(ModuleId) -> Option<ResolvedConstModule>,
+    pub values: &'a dyn Fn(ModuleId) -> Option<Arc<ConstValues>>,
+    pub array_lengths: &'a dyn Fn(ModuleId) -> Option<Arc<ConstArrayLengths>>,
+    pub module: &'a dyn Fn(ModuleId) -> Option<Arc<ResolvedConstModule>>,
 }
 
 impl fmt::Debug for ProgramConstMaps<'_> {
@@ -201,15 +201,15 @@ impl ProgramConstMaps<'_> {
     }
 }
 
-fn no_program_const_values(_: ModuleId) -> Option<ConstValues> {
+fn no_program_const_values(_: ModuleId) -> Option<Arc<ConstValues>> {
     None
 }
 
-fn no_program_const_array_lengths(_: ModuleId) -> Option<ConstArrayLengths> {
+fn no_program_const_array_lengths(_: ModuleId) -> Option<Arc<ConstArrayLengths>> {
     None
 }
 
-fn no_program_const_module(_: ModuleId) -> Option<ResolvedConstModule> {
+fn no_program_const_module(_: ModuleId) -> Option<Arc<ResolvedConstModule>> {
     None
 }
 
@@ -989,9 +989,9 @@ struct BodyChecker<'a> {
     program_signature_scope: ProgramSignatureScope<'a>,
     program_trait_impls: &'a [ProgramTraitImplSignature],
     program_trait_impl_index: Option<&'a ProgramTraitImplIndex>,
-    program_const_values: &'a dyn Fn(ModuleId) -> Option<ConstValues>,
-    program_const_array_lengths: &'a dyn Fn(ModuleId) -> Option<ConstArrayLengths>,
-    program_const_module: &'a dyn Fn(ModuleId) -> Option<ResolvedConstModule>,
+    program_const_values: &'a dyn Fn(ModuleId) -> Option<Arc<ConstValues>>,
+    program_const_array_lengths: &'a dyn Fn(ModuleId) -> Option<Arc<ConstArrayLengths>>,
+    program_const_module: &'a dyn Fn(ModuleId) -> Option<Arc<ResolvedConstModule>>,
     source_path: &'a SourcePath,
     symbols: &'a SymbolTable,
     extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,

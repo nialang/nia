@@ -1039,9 +1039,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         Some(db.get(ItemSignaturesQuery(module_id)))
     };
     let executable_program_const_array_lengths =
-        RefCell::new(HashMap::<ModuleId, nia_const_check::ConstArrayLengths>::new());
+        RefCell::new(HashMap::<ModuleId, Arc<nia_const_check::ConstArrayLengths>>::new());
     let executable_program_const_values =
-        RefCell::new(HashMap::<ModuleId, nia_const_check::ConstValues>::new());
+        RefCell::new(HashMap::<ModuleId, Arc<nia_const_check::ConstValues>>::new());
     let program_const_array_lengths = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             if !executable_program_const_array_lengths
@@ -1052,7 +1052,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     signature_const_array_lengths(db, module_id, fact_mode.non_function_signatures);
                 executable_program_const_array_lengths
                     .borrow_mut()
-                    .insert(module_id, array_lengths);
+                    .insert(module_id, Arc::new(array_lengths));
             }
             return executable_program_const_array_lengths
                 .borrow()
@@ -1078,14 +1078,14 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 );
                 executable_program_const_array_lengths
                     .borrow_mut()
-                    .insert(module_id, array_lengths);
+                    .insert(module_id, Arc::new(array_lengths));
             }
             return executable_program_const_array_lengths
                 .borrow()
                 .get(&module_id)
                 .cloned();
         }
-        Some(db.get(ConstArrayLengthsQuery(module_id)).as_ref().clone())
+        Some(db.get(ConstArrayLengthsQuery(module_id)))
     };
     let program_const_values = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
@@ -1097,7 +1097,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     signature_const_values(db, module_id, fact_mode.non_function_signatures);
                 executable_program_const_values
                     .borrow_mut()
-                    .insert(module_id, values);
+                    .insert(module_id, Arc::new(values));
             }
             return executable_program_const_values
                 .borrow()
@@ -1118,7 +1118,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     |input, module| {
                         let mut enum_values = nia_const_check::compute_module_const_enum_values(
                             input,
-                            array_lengths.clone(),
+                            Arc::unwrap_or_clone(Arc::clone(&array_lengths)),
                         );
                         enum_values.diagnostics.extend(module.diagnostics.clone());
                         enum_values
@@ -1132,7 +1132,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     |input, module| {
                         let mut values = nia_const_check::compute_module_const_values(
                             input,
-                            array_lengths,
+                            Arc::unwrap_or_clone(array_lengths),
                             enum_values,
                         );
                         values.diagnostics.extend(module.diagnostics.clone());
@@ -1141,14 +1141,14 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 );
                 executable_program_const_values
                     .borrow_mut()
-                    .insert(module_id, values);
+                    .insert(module_id, Arc::new(values));
             }
             return executable_program_const_values
                 .borrow()
                 .get(&module_id)
                 .cloned();
         }
-        Some(db.get(ConstValuesQuery(module_id)).as_ref().clone())
+        Some(db.get(ConstValuesQuery(module_id)))
     };
     let program_const_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {

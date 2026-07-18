@@ -153,7 +153,7 @@ pub struct ConstInput<'a> {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConstModuleLowering {
-    pub module: ResolvedConstModule,
+    pub module: Arc<ResolvedConstModule>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -172,14 +172,14 @@ pub struct ConstModuleInput<'a> {
 
 #[derive(Clone, Copy)]
 pub struct ConstProgramContext<'a> {
-    pub module: Option<&'a dyn Fn(ModuleId) -> Option<ResolvedConstModule>>,
+    pub module: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ResolvedConstModule>>>,
     pub source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
     pub type_normalizations:
         Option<&'a dyn Fn(ModuleId) -> Option<Arc<nia_type_normalize::TypeNormalization>>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
     pub value_signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
-    pub const_values: Option<&'a dyn Fn(ModuleId) -> Option<ConstValues>>,
+    pub const_values: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ConstValues>>>,
     pub global_initializer: Option<&'a dyn Fn(GlobalDefId) -> Option<ResolvedConstExpr>>,
     pub program_is_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
     pub trait_impls_for_module:

@@ -99,8 +99,7 @@ pub(super) fn provide_static_check(
     ));
     let const_eval = db.get(ConstValuesQuery(module_id));
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
-    let program_const_values =
-        |module_id| Some(db.get(ConstValuesQuery(module_id)).as_ref().clone());
+    let program_const_values = |module_id| Some(db.get(ConstValuesQuery(module_id)));
     nia_static_check::check_module_static_initializers_with_signatures(
         nia_static_check::StaticCheckPreciseInput {
             active_item_tree: &active_item_tree,
