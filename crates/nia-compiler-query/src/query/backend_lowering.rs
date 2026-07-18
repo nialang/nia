@@ -12,7 +12,7 @@ pub(super) struct BackendLoweringIndexes<'a> {
 
 pub(super) fn build_backend_lowering_indexes<'a>(
     visible_extension_modules: &'a [(ModuleId, VisibleExtensionsValue)],
-    checked_modules: &'a [CheckedModule],
+    checked_modules: &'a [Arc<CheckedModule>],
     const_array_lengths: &'a [nia_const_check::ConstArrayLengths],
     function_bodies: &'a [LoweredFunctionBodies],
 ) -> BackendLoweringIndexes<'a> {
@@ -54,7 +54,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
 
 pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) symbols: &'a dyn nia_symbol::SymbolText,
-    pub(super) checked_modules: &'a [CheckedModule],
+    pub(super) checked_modules: &'a [Arc<CheckedModule>],
     pub(super) runtime: RuntimeModel,
     pub(super) active_item_trees: &'a [Arc<ActiveModuleItemTree>],
     pub(super) item_signatures: &'a [ItemSignatures],

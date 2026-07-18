@@ -68,7 +68,7 @@ pub struct LoadedModule {
 pub struct CheckedProgram {
     pub graph: ModuleGraph,
     pub optimization: OptimizationPolicy,
-    pub modules: Vec<CheckedModule>,
+    pub modules: Vec<std::sync::Arc<CheckedModule>>,
     pub diagnostics: Vec<ProgramDiagnostic>,
 }
 
@@ -77,7 +77,7 @@ pub struct CodegenProgram {
     pub type_store: std::sync::Arc<nia_ty::TypeStore>,
     pub graph: ModuleGraph,
     pub optimization: OptimizationPolicy,
-    pub modules: Vec<CheckedModule>,
+    pub modules: Vec<std::sync::Arc<CheckedModule>>,
     pub monomorphization: Monomorphization,
     pub backend_lowering: BackendLowering,
     pub diagnostics: Vec<ProgramDiagnostic>,

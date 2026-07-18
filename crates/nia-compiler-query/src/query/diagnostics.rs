@@ -5,7 +5,7 @@ pub(super) fn synthetic_diagnostic_path() -> SourcePath {
     SourcePath::new("<nia:diagnostic>")
 }
 
-pub(super) fn path_for_diagnostic_span(modules: &[CheckedModule], span: Span) -> SourcePath {
+pub(super) fn path_for_diagnostic_span(modules: &[Arc<CheckedModule>], span: Span) -> SourcePath {
     modules
         .iter()
         .find(|module| {

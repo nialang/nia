@@ -4,7 +4,7 @@ use super::common::*;
 use nia_ids::ModuleId;
 use nia_imports::{ModuleMap, SourcePath};
 use nia_loader_query::load_program;
-use std::{fs, path::Path};
+use std::{fs, path::Path, sync::Arc};
 
 trait TestModulePath {
     fn path(&self) -> &SourcePath;
@@ -17,6 +17,12 @@ impl TestModulePath for crate::LoadedModule {
 }
 
 impl TestModulePath for crate::CheckedModule {
+    fn path(&self) -> &SourcePath {
+        &self.path
+    }
+}
+
+impl TestModulePath for Arc<crate::CheckedModule> {
     fn path(&self) -> &SourcePath {
         &self.path
     }
