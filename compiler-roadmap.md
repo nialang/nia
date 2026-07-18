@@ -1051,6 +1051,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 
 进展（2026-07-18）：并行 cache-owned 批量读取入口 `get_many` 已建立，支持非 `Clone` query value、保持 key 顺序，并沿用 `query_many` 的 logical parent stack 与 dependency merge 语义；回归验证重复非 Clone key 只执行一次且返回同一 allocation。普通 checked-program 物化改为 `get_many(CheckedModuleQuery)`，公开 `CheckedProgram`/`CodegenProgram` 与内部 executable checked-module store 统一保存 `Arc<CheckedModule>`，store/materialize/cache hit 都只复制句柄。aggregate 身份回归验证 checked program module 与独立 `CheckedModuleQuery` slot 同 allocation；刚完成共享的 body/type/layout/check 字段不再被上层 module clone 重新复制。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-query 21、compiler-query 109、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 231.14 秒完成。剩余八处 legacy `query_many` 仍集中在 program-signature、extension-provider 与 reachability facts，下一切片应按 value contract 分组迁移，不能仅改 API 名称后在消费端深 clone。
 
+进展（2026-07-18）：program-signature 与 extension-provider 的 module facts 已从 `Value = Arc<T>` 双层 ownership 契约改为 cache 直接拥有裸产品，单项消费者统一通过 `get` 取得唯一共享句柄，program ABI/signature、trait solving、provider index、named method 与 nominal target 聚合统一通过 `get_many` 复用相同 allocation。新增 compiler-query 回归同时验证五类 facts 的单项与批量读取均 `Arc::ptr_eq`，避免把 API 迁移退化为 nested `Arc` 或消费端深 clone；compiler-query 中 legacy `query_many` 从八处降至仅剩 executable reachability lookup 两处。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；compiler-query 110、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 229.19 秒完成，全部 doc tests 通过。下一切片应迁移最后两处 reachability 批读取并把 compiler-query 的 `query_many` production 搜索收敛为零。
+
 ### 阶段 C（P0）：重做 query value/storage 契约
 
 1. 去掉通用 `Value: Clone` 要求。

@@ -28,15 +28,13 @@ pub(super) fn provide_module_program_signature_facts(
     let defs = db.get(ModuleDefsQuery(module_id));
     let lowering = db.get(SignatureTypeLoweringQuery(module_id, set));
     let signatures = db.get(SignatureItemSignaturesQuery(module_id, set));
-    Arc::new(
-        nia_program_signatures::collect_module_program_signature_facts(ModuleSignatureInput {
-            module_id,
-            type_store: &db.context().type_store,
-            defs: &defs,
-            lowering: &lowering,
-            signatures: &signatures,
-        }),
-    )
+    nia_program_signatures::collect_module_program_signature_facts(ModuleSignatureInput {
+        module_id,
+        type_store: &db.context().type_store,
+        defs: &defs,
+        lowering: &lowering,
+        signatures: &signatures,
+    })
 }
 
 pub(super) fn provide_module_abi_signature_facts(
@@ -47,7 +45,7 @@ pub(super) fn provide_module_abi_signature_facts(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
-    Arc::new(ModuleAbiSignatureFactsQueryValue {
+    ModuleAbiSignatureFactsQueryValue {
         structs: signatures
             .structs
             .iter()
@@ -87,14 +85,14 @@ pub(super) fn provide_module_abi_signature_facts(
                 )
             })
             .collect(),
-    })
+    }
 }
 
 pub(super) fn program_signature_facts(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
-) -> Vec<ModuleProgramSignatureFactsValue> {
-    db.query_many(
+) -> Vec<Arc<ModuleProgramSignatureFactsValue>> {
+    db.get_many(
         db.query(ProgramSignatureModuleIdsQuery(set))
             .into_iter()
             .map(|module_id| ModuleProgramSignatureFactsQuery(module_id, set)),
@@ -102,7 +100,7 @@ pub(super) fn program_signature_facts(
 }
 
 fn collect_globals(
-    facts: &[ModuleProgramSignatureFactsValue],
+    facts: &[Arc<ModuleProgramSignatureFactsValue>],
 ) -> HashMap<GlobalDefId, ProgramGlobalSignature> {
     facts
         .iter()
@@ -116,7 +114,7 @@ fn collect_globals(
 }
 
 fn collect_consts(
-    facts: &[ModuleProgramSignatureFactsValue],
+    facts: &[Arc<ModuleProgramSignatureFactsValue>],
 ) -> HashMap<GlobalDefId, ProgramConstSignature> {
     facts
         .iter()
@@ -130,7 +128,7 @@ fn collect_consts(
 }
 
 fn collect_structs(
-    facts: &[ModuleProgramSignatureFactsValue],
+    facts: &[Arc<ModuleProgramSignatureFactsValue>],
 ) -> HashMap<GlobalDefId, ProgramStructSignature> {
     facts
         .iter()
@@ -144,7 +142,7 @@ fn collect_structs(
 }
 
 fn collect_unions(
-    facts: &[ModuleProgramSignatureFactsValue],
+    facts: &[Arc<ModuleProgramSignatureFactsValue>],
 ) -> HashMap<GlobalDefId, ProgramUnionSignature> {
     facts
         .iter()
@@ -158,7 +156,7 @@ fn collect_unions(
 }
 
 fn collect_enums(
-    facts: &[ModuleProgramSignatureFactsValue],
+    facts: &[Arc<ModuleProgramSignatureFactsValue>],
 ) -> HashMap<GlobalDefId, ProgramEnumSignature> {
     facts
         .iter()
@@ -172,7 +170,7 @@ fn collect_enums(
 }
 
 fn collect_traits(
-    facts: &[ModuleProgramSignatureFactsValue],
+    facts: &[Arc<ModuleProgramSignatureFactsValue>],
 ) -> HashMap<GlobalDefId, ProgramTraitSignature> {
     facts
         .iter()
@@ -186,7 +184,7 @@ fn collect_traits(
 }
 
 fn collect_trait_method_index(
-    facts: &[ModuleProgramSignatureFactsValue],
+    facts: &[Arc<ModuleProgramSignatureFactsValue>],
 ) -> ProgramTraitMethodIndex {
     ProgramTraitMethodIndex::from_trait_signatures(
         facts
@@ -196,7 +194,7 @@ fn collect_trait_method_index(
 }
 
 fn collect_type_aliases(
-    facts: &[ModuleProgramSignatureFactsValue],
+    facts: &[Arc<ModuleProgramSignatureFactsValue>],
 ) -> HashMap<GlobalDefId, ProgramTypeAliasSignature> {
     facts
         .iter()
@@ -210,7 +208,7 @@ fn collect_type_aliases(
 }
 
 fn collect_trait_impls(
-    facts: &[ModuleProgramSignatureFactsValue],
+    facts: &[Arc<ModuleProgramSignatureFactsValue>],
 ) -> Vec<nia_item_signatures::ProgramTraitImplSignature> {
     facts
         .iter()
@@ -281,7 +279,7 @@ pub(super) fn provide_program_abi_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> Arc<ProgramAbiSignaturesValue> {
     time_provider(db.context().timings(), "program_abi_signatures", || {
-        let facts = db.query_many(
+        let facts = db.get_many(
             db.query(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::Types,
             ))
