@@ -14,7 +14,8 @@ use nia_item_signatures::{ProgramTraitImplSignature, ProgramTypeAliasSignature};
 use nia_ty::{TyKind, TypeStore};
 use nia_type_normalize::TypeNormalization;
 
-pub type TypeNormalizationResolver<'a> = &'a dyn Fn(nia_ids::ModuleId) -> Option<TypeNormalization>;
+pub type TypeNormalizationResolver<'a> =
+    &'a dyn Fn(nia_ids::ModuleId) -> Option<Arc<TypeNormalization>>;
 pub type NominalExtensionProviderResolver<'a> =
     &'a dyn Fn(&[GlobalDefId]) -> Vec<nia_ids::ModuleId>;
 
@@ -71,7 +72,7 @@ pub struct VisibleTypeSignatures<'a> {
 struct VisibleExtensionResolverCache<'a> {
     defs: &'a dyn ProgramDefsResolver,
     normalizations: TypeNormalizationResolver<'a>,
-    normalization_cache: HashMap<nia_ids::ModuleId, Option<TypeNormalization>>,
+    normalization_cache: HashMap<nia_ids::ModuleId, Option<Arc<TypeNormalization>>>,
 }
 
 impl<'a> VisibleExtensionResolverCache<'a> {
@@ -97,7 +98,7 @@ impl<'a> VisibleExtensionResolverCache<'a> {
         }
         self.normalization_cache
             .get(&module_id)
-            .and_then(|normalization| normalization.as_ref())
+            .and_then(|normalization| normalization.as_deref())
     }
 }
 

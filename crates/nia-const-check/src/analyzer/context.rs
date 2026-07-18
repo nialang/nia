@@ -19,6 +19,20 @@ pub(super) enum ModuleSignatures<'a> {
     Shared(std::sync::Arc<ItemSignatures>),
 }
 
+pub(super) enum ModuleNormalization<'a> {
+    Borrowed(&'a nia_type_normalize::TypeNormalization),
+    Shared(std::sync::Arc<nia_type_normalize::TypeNormalization>),
+}
+
+impl ModuleNormalization<'_> {
+    pub(super) fn as_ref(&self) -> &nia_type_normalize::TypeNormalization {
+        match self {
+            ModuleNormalization::Borrowed(normalization) => normalization,
+            ModuleNormalization::Shared(normalization) => normalization,
+        }
+    }
+}
+
 impl ModuleSignatures<'_> {
     pub(super) fn as_ref(&self) -> &ItemSignatures {
         match self {
@@ -398,9 +412,9 @@ impl Analyzer<'_> {
     pub(super) fn type_normalization_for_module(
         &self,
         module_id: ModuleId,
-    ) -> Option<nia_type_normalize::TypeNormalization> {
+    ) -> Option<ModuleNormalization<'_>> {
         if module_id == self.input.defs.module_id {
-            return None;
+            return Some(ModuleNormalization::Borrowed(self.input.normalization));
         }
         if !self
             .program_type_normalizations
@@ -416,17 +430,7 @@ impl Analyzer<'_> {
             .borrow()
             .get(&module_id)
             .cloned()
-    }
-
-    pub(super) fn normalized_for_module(
-        &self,
-        module_id: ModuleId,
-    ) -> Option<HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>> {
-        if module_id == self.input.defs.module_id {
-            Some(self.input.normalized.clone())
-        } else {
-            Some(self.type_normalization_for_module(module_id)?.normalized)
-        }
+            .map(ModuleNormalization::Shared)
     }
 
     pub(super) fn trait_impls_for_solver_module(
@@ -488,7 +492,7 @@ impl Analyzer<'_> {
                 message: "cannot compute layout without module signatures".to_string(),
             });
         };
-        let Some(normalized) = self.normalized_for_module(module_id) else {
+        let Some(normalization) = self.type_normalization_for_module(module_id) else {
             return Err(ConstError {
                 span,
                 message: "cannot compute layout without normalized module types".to_string(),
@@ -505,7 +509,7 @@ impl Analyzer<'_> {
                 defs: defs.as_ref(),
                 signatures: signatures.as_ref(),
                 root_types: &root_types,
-                normalized: &normalized,
+                normalized: &normalization.as_ref().normalized,
                 array_lengths: &array_lengths,
                 target: nia_layout::TargetDataLayout::LP64,
                 program: nia_layout::ProgramLayoutContext {
@@ -515,7 +519,12 @@ impl Analyzer<'_> {
                     ..Default::default()
                 },
             });
-        let ty = normalized.get(&ty).copied().unwrap_or(ty);
+        let ty = normalization
+            .as_ref()
+            .normalized
+            .get(&ty)
+            .copied()
+            .unwrap_or(ty);
         if let Some(TyKind::Nominal {
             def_id,
             args,
@@ -584,7 +593,7 @@ impl Analyzer<'_> {
                 message: "cannot compute field offset without module signatures".to_string(),
             });
         };
-        let Some(normalized) = self.normalized_for_module(module_id) else {
+        let Some(normalization) = self.type_normalization_for_module(module_id) else {
             return Err(ConstError {
                 span,
                 message: "cannot compute field offset without normalized module types".to_string(),
@@ -601,7 +610,7 @@ impl Analyzer<'_> {
                 defs: defs.as_ref(),
                 signatures: signatures.as_ref(),
                 root_types: &root_types,
-                normalized: &normalized,
+                normalized: &normalization.as_ref().normalized,
                 array_lengths: &array_lengths,
                 target: nia_layout::TargetDataLayout::LP64,
                 program: nia_layout::ProgramLayoutContext {
@@ -611,7 +620,12 @@ impl Analyzer<'_> {
                     ..Default::default()
                 },
             });
-        let ty = normalized.get(&ty).copied().unwrap_or(ty);
+        let ty = normalization
+            .as_ref()
+            .normalized
+            .get(&ty)
+            .copied()
+            .unwrap_or(ty);
         let Some(TyKind::Nominal {
             def_id,
             args,
@@ -854,7 +868,7 @@ impl Analyzer<'_> {
         let defs = self.global_defs(module_id)?;
         let signatures = self.signatures_for_module(module_id)?;
         let root_types = signatures.as_ref().type_roots();
-        let normalized = self.normalized_for_module(module_id)?;
+        let normalization = self.type_normalization_for_module(module_id)?;
         let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
         let layout_query = |module_id| self.compute_program_layout(module_id, array_lengths);
         Some(nia_layout::compute_layouts_with_program_context(
@@ -863,7 +877,7 @@ impl Analyzer<'_> {
                 defs: defs.as_ref(),
                 signatures: signatures.as_ref(),
                 root_types: &root_types,
-                normalized: &normalized,
+                normalized: &normalization.as_ref().normalized,
                 array_lengths: &array_lengths_for_layout,
                 target: nia_layout::TargetDataLayout::LP64,
                 program: nia_layout::ProgramLayoutContext {

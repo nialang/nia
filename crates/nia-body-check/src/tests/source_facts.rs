@@ -93,7 +93,10 @@ fn main() i32 {
         symbols: &symbols,
         lowered: &lowered,
         signatures: &signatures,
-        normalized: &std::collections::HashMap::new(),
+        normalization: &nia_type_normalize::TypeNormalization {
+            normalized: std::collections::HashMap::new(),
+            diagnostics: Vec::new(),
+        },
         target: &target,
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext::empty(),
@@ -261,7 +264,10 @@ fn main() i32 {
         symbols: &symbols,
         lowered: &lowered,
         signatures: &signatures,
-        normalized: &std::collections::HashMap::new(),
+        normalization: &nia_type_normalize::TypeNormalization {
+            normalized: std::collections::HashMap::new(),
+            diagnostics: Vec::new(),
+        },
         target: &target,
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext::empty(),

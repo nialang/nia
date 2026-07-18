@@ -96,8 +96,8 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn normalized_ty(&self, ty: InternedTyId) -> InternedTyId {
-        self.normalized_for_module(self.current_execution_module_id())
-            .and_then(|normalized| normalized.get(&ty).copied())
+        self.type_normalization_for_module(self.current_execution_module_id())
+            .and_then(|normalization| normalization.as_ref().normalized.get(&ty).copied())
             .unwrap_or(ty)
     }
 
@@ -111,7 +111,7 @@ impl Analyzer<'_> {
             return false;
         };
         let assumptions = self.current_trait_goals();
-        let normalized = self.normalized_for_module(module_id).unwrap_or_default();
+        let normalization = self.type_normalization_for_module(module_id);
         let local_enums = self
             .signatures_for_module(module_id)
             .map(|signatures| signatures.as_ref().enums.clone())
@@ -125,9 +125,8 @@ impl Analyzer<'_> {
                 .program_is_enum
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let normalization = nia_type_normalize::TypeNormalization {
-            normalized,
-            diagnostics: Vec::new(),
+        let Some(normalization) = normalization else {
+            return false;
         };
         let visible_extensions = self
             .input
@@ -149,7 +148,7 @@ impl Analyzer<'_> {
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
-            normalization: &normalization,
+            normalization: normalization.as_ref(),
             trait_impls: &trait_impls,
             trait_impl_index: Some(&trait_impl_index),
             layouts: None,
@@ -178,7 +177,7 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         let module_id = self.ensure_trait_solver_module(self_ty, trait_args)?;
         let assumptions = self.current_trait_goals();
-        let normalized = self.normalized_for_module(module_id).unwrap_or_default();
+        let normalization = self.type_normalization_for_module(module_id)?;
         let local_enums = self
             .signatures_for_module(module_id)
             .map(|signatures| signatures.as_ref().enums.clone())
@@ -191,10 +190,6 @@ impl Analyzer<'_> {
                 .program
                 .program_is_enum
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
-        };
-        let normalization = nia_type_normalize::TypeNormalization {
-            normalized,
-            diagnostics: Vec::new(),
         };
         let visible_extensions = self
             .input
@@ -214,7 +209,7 @@ impl Analyzer<'_> {
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
-            normalization: &normalization,
+            normalization: normalization.as_ref(),
             trait_impls: &trait_impls,
             trait_impl_index: Some(&trait_impl_index),
             layouts: None,
@@ -253,7 +248,7 @@ impl Analyzer<'_> {
             .collect::<Vec<_>>();
         let module_id = self.ensure_trait_solver_module(self_ty, &trait_args)?;
         let assumptions = self.current_trait_goals();
-        let normalized = self.normalized_for_module(module_id).unwrap_or_default();
+        let normalization = self.type_normalization_for_module(module_id)?;
         let local_enums = self
             .signatures_for_module(module_id)
             .map(|signatures| signatures.as_ref().enums.clone())
@@ -266,10 +261,6 @@ impl Analyzer<'_> {
                 .program
                 .program_is_enum
                 .is_some_and(|program_is_enum| program_is_enum(def_id))
-        };
-        let normalization = nia_type_normalize::TypeNormalization {
-            normalized,
-            diagnostics: Vec::new(),
         };
         let visible_extensions = self
             .input
@@ -289,7 +280,7 @@ impl Analyzer<'_> {
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
-            normalization: &normalization,
+            normalization: normalization.as_ref(),
             trait_impls: &trait_impls,
             trait_impl_index: Some(&trait_impl_index),
             layouts: None,

@@ -137,7 +137,7 @@ pub(super) fn provide_extension_signature_module_input(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         )),
-        normalization: db.query(SignatureTypeNormalizationQuery(
+        normalization: db.get(SignatureTypeNormalizationQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         )),
@@ -236,7 +236,7 @@ pub(super) fn provide_extension_provider_module_facts(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
-        let normalization = db.query(SignatureTypeNormalizationQuery(
+        let normalization = db.get(SignatureTypeNormalizationQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
@@ -333,7 +333,7 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,
             ));
-            let normalization = db.query(SignatureTypeNormalizationQuery(
+            let normalization = db.get(SignatureTypeNormalizationQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Traits,
             ));
@@ -544,7 +544,7 @@ fn visible_modules_for_module(
     let using_scopes = |module_id| Some(Arc::new(db.query(ModuleUsingScopeQuery(module_id))));
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
     let extension_method_normalization = |module_id| {
-        Some(db.query(SignatureTypeNormalizationQuery(
+        Some(db.get(SignatureTypeNormalizationQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         )))
@@ -591,7 +591,7 @@ pub(super) fn provide_visible_extensions(
     let using_scopes = |module_id| Some(Arc::new(db.query(ModuleUsingScopeQuery(module_id))));
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
     let extension_method_normalization = |module_id| {
-        Some(db.query(SignatureTypeNormalizationQuery(
+        Some(db.get(SignatureTypeNormalizationQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         )))
@@ -643,7 +643,7 @@ pub(super) fn provide_visible_trait_impls(
     let using_scopes = |module_id| Some(Arc::new(db.query(ModuleUsingScopeQuery(module_id))));
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
     let extension_method_normalization = |module_id| {
-        Some(db.query(SignatureTypeNormalizationQuery(
+        Some(db.get(SignatureTypeNormalizationQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         )))

@@ -85,7 +85,10 @@ fn check_source(source: &str) -> CheckedFixture {
         lowered: &lowered,
         signatures: &signatures,
         type_store: &type_store,
-        normalized: &HashMap::new(),
+        normalization: &nia_type_normalize::TypeNormalization {
+            normalized: HashMap::new(),
+            diagnostics: Vec::new(),
+        },
         target: &target,
         source_path: &source_path,
         program: ConstProgramContext::empty(),

@@ -1131,7 +1131,7 @@ impl<'a> BodyChecker<'a> {
                 symbols: self.symbols,
                 lowered: self.type_lowering,
                 signatures: self.const_signatures,
-                normalized: &self.normalization.normalized,
+                normalization: self.normalization,
                 target: self.target,
                 source_path: self.source_path,
                 program: nia_const_check::ConstProgramContext {
@@ -1192,7 +1192,7 @@ impl<'a> BodyChecker<'a> {
             symbols: self.symbols,
             lowered: self.type_lowering,
             signatures: self.const_signatures,
-            normalized: &self.normalization.normalized,
+            normalization: self.normalization,
             target: self.target,
             source_path: self.source_path,
             program: nia_const_check::ConstProgramContext {

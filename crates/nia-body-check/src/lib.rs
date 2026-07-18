@@ -345,8 +345,9 @@ type ExtensionMethodsNamed<'a> = &'a dyn Fn(&SymbolId) -> Vec<ExtensionMethod>;
 #[derive(Clone, Copy)]
 pub struct BodyProgramContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
-    pub type_normalizations: Option<&'a dyn Fn(ModuleId) -> Option<TypeNormalization>>,
-    pub extension_type_normalizations: Option<&'a dyn Fn(ModuleId) -> Option<TypeNormalization>>,
+    pub type_normalizations: Option<&'a dyn Fn(ModuleId) -> Option<Arc<TypeNormalization>>>,
+    pub extension_type_normalizations:
+        Option<&'a dyn Fn(ModuleId) -> Option<Arc<TypeNormalization>>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
     pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<VisibleExtensionMethods>>,

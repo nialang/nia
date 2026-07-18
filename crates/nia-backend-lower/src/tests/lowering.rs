@@ -86,7 +86,7 @@ fn main() i32 {
         symbols: &symbols,
         lowered: &type_lowering,
         signatures: &signatures,
-        normalized: &normalization.normalized,
+        normalization: &normalization,
         target: &target,
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext::empty(),

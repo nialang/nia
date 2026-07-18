@@ -391,7 +391,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         symbols: &symbols,
         lowered: &type_lowering,
         signatures: &signatures,
-        normalized: &normalization.normalized,
+        normalization: &normalization,
         target: &target,
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext::empty(),

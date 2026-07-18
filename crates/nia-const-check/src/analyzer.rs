@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::{
     ConstArmType, ConstArrayLengths, ConstCheck, ConstEnumValues, ConstInput, ConstKey,
@@ -76,7 +77,7 @@ pub struct TypedConstQueryInput<'a> {
     pub lowered: &'a nia_type_lower::TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub type_store: &'a nia_ty::TypeStore,
-    pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
+    pub normalization: &'a nia_type_normalize::TypeNormalization,
     pub target: &'a TargetConfig,
     pub source_path: &'a SourcePath,
     pub program: ConstProgramContext<'a>,
@@ -269,7 +270,8 @@ pub(crate) struct Analyzer<'a> {
     diagnostics: Vec<Diagnostic>,
     active: HashSet<ConstKey>,
     type_contexts: HashMap<ModuleId, ConstTypeCx<'a>>,
-    program_type_normalizations: RefCell<HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
+    program_type_normalizations:
+        RefCell<HashMap<ModuleId, Arc<nia_type_normalize::TypeNormalization>>>,
     program_trait_impls: RefCell<HashMap<ModuleId, Vec<ProgramTraitImplSignature>>>,
     program_global_initializers:
         RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>,
@@ -342,7 +344,7 @@ impl Analyzer<'_> {
                 lowered: input.lowered,
                 signatures: input.signatures,
                 type_store: input.type_store,
-                normalized: input.normalized,
+                normalization: input.normalization,
                 target: input.target,
                 source_path: input.source_path,
                 program: input.program,

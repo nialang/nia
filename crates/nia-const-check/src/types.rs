@@ -145,7 +145,7 @@ pub struct ConstInput<'a> {
     pub lowered: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub type_store: &'a nia_ty::TypeStore,
-    pub normalized: &'a HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>,
+    pub normalization: &'a nia_type_normalize::TypeNormalization,
     pub target: &'a TargetConfig,
     pub source_path: &'a SourcePath,
     pub program: ConstProgramContext<'a>,
@@ -176,7 +176,7 @@ pub struct ConstProgramContext<'a> {
     pub source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
     pub type_normalizations:
-        Option<&'a dyn Fn(ModuleId) -> Option<nia_type_normalize::TypeNormalization>>,
+        Option<&'a dyn Fn(ModuleId) -> Option<Arc<nia_type_normalize::TypeNormalization>>>,
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
     pub value_signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
     pub const_values: Option<&'a dyn Fn(ModuleId) -> Option<ConstValues>>,

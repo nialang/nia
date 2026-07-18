@@ -488,12 +488,12 @@ fn const_inputs_for_body_check(
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
-            return Some(db.query(SignatureTypeNormalizationQuery(
+            return Some(db.get(SignatureTypeNormalizationQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Types,
             )));
         }
-        Some(db.query(TypeNormalizationQuery(module_id)))
+        Some(db.get(TypeNormalizationQuery(module_id)))
     };
     let local_trait_impls = fact_mode
         .non_function_signatures
@@ -579,7 +579,7 @@ fn const_inputs_for_body_check(
         symbols: &symbols,
         lowered,
         signatures,
-        normalized: &normalization.normalized,
+        normalization,
         target: &target,
         source_path,
         program: nia_const_check::ConstProgramContext {
@@ -747,9 +747,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let inputs = &filtered_inputs;
     let source_path = db.query(ModulePathQuery(module_id));
     let signatures = body_local_item_signatures(db, module_id, &lowered);
-    let normalization = db.query(TypeNormalizationQuery(module_id));
+    let normalization = db.get(TypeNormalizationQuery(module_id));
     let extension_method_normalization = |module_id| {
-        Some(db.query(SignatureTypeNormalizationQuery(
+        Some(db.get(SignatureTypeNormalizationQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         )))
@@ -829,12 +829,12 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         |name: &SymbolId| db.query(ExtensionMethodsNamedQuery(*name)).methods.clone();
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
-            return Some(db.query(SignatureTypeNormalizationQuery(
+            return Some(db.get(SignatureTypeNormalizationQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Types,
             )));
         }
-        Some(db.query(TypeNormalizationQuery(module_id)))
+        Some(db.get(TypeNormalizationQuery(module_id)))
     };
     let local_function_signatures = db.get(SignatureItemSignaturesQuery(
         module_id,
@@ -1268,7 +1268,7 @@ pub(super) fn executable_layouts_for_reachable_items(
         let defs = db.get(FullModuleDefsQuery(module_id));
         let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
         let type_lowering = db.get(TypeLoweringQuery(module_id));
-        let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
+        let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
         let program_struct = |def_id: GlobalDefId| {
             db.get(SignatureItemSignaturesQuery(
@@ -1661,7 +1661,7 @@ fn checked_module_with_body_and_flow_check(
         type_lowering: db.get(TypeLoweringQuery(module_id)),
         value_resolution: db.get(ValueResolutionQuery(module_id)),
         local_resolution: db.get(LocalResolutionQuery(module_id)),
-        type_normalization: db.query(TypeNormalizationQuery(module_id)),
+        type_normalization: db.get(TypeNormalizationQuery(module_id)),
         const_eval: db.get(ConstQuery(module_id)),
         static_check: db.get(StaticCheckQuery(module_id)),
         layouts: layouts.unwrap_or_else(|| db.query(LayoutsQuery(module_id))),
@@ -1699,7 +1699,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         type_lowering: db.get(TypeLoweringQuery(module_id)),
         value_resolution: body_inputs.values,
         local_resolution: body_inputs.locals,
-        type_normalization: db.query(TypeNormalizationQuery(module_id)),
+        type_normalization: db.get(TypeNormalizationQuery(module_id)),
         const_eval: const_eval
             .map(Arc::new)
             .unwrap_or_else(|| db.get(ConstQuery(module_id))),
@@ -1737,7 +1737,7 @@ pub(super) fn executable_signature_checked_module(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
-    let type_normalization = db.query(SignatureTypeNormalizationQuery(
+    let type_normalization = db.get(SignatureTypeNormalizationQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
@@ -1776,7 +1776,7 @@ pub(super) fn executable_signature_checked_module(
             node_uses: HashMap::new(),
             diagnostics: Vec::new(),
         }),
-        type_normalization: type_normalization.clone(),
+        type_normalization,
         const_eval: Arc::new(ConstCheck {
             values: HashMap::new(),
             typed_values: HashMap::new(),

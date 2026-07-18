@@ -22,7 +22,7 @@ fn with_signature_const_input<T>(
     let values = signature_const_value_resolution(db, module_id, &active_item_tree);
     let locals = empty_local_resolution();
     let type_resolution = db.query(SignatureConstTypeResolutionQuery(module_id));
-    let type_normalization = db.query(SignatureConstTypeNormalizationQuery(module_id));
+    let type_normalization = db.get(SignatureConstTypeNormalizationQuery(module_id));
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
         &db.context().type_store,
         module_id,
@@ -37,7 +37,7 @@ fn with_signature_const_input<T>(
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
     let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {
-        Some(db.query(SignatureTypeNormalizationQuery(
+        Some(db.get(SignatureTypeNormalizationQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         )))
@@ -110,7 +110,7 @@ fn with_signature_const_input<T>(
         symbols: &symbols,
         lowered: &type_lowering,
         signatures: &signatures,
-        normalized: &type_normalization.normalized,
+        normalization: &type_normalization,
         target: &target,
         source_path: &source_path,
         program: nia_const_check::ConstProgramContext {
@@ -390,7 +390,7 @@ pub(super) fn signature_layouts_for_types(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ));
-        let type_normalization = db.query(SignatureTypeNormalizationQuery(
+        let type_normalization = db.get(SignatureTypeNormalizationQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
         ));
