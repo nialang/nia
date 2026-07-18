@@ -15,13 +15,13 @@ fn with_signature_const_input<T>(
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
     f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
 ) -> T {
-    let module = db.query(SignatureConstModuleQuery(module_id));
-    let active_item_tree = db.query(SignatureConstItemTreeQuery(module_id));
+    let module = db.get(SignatureConstModuleQuery(module_id));
+    let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id));
     let defs = db.get(ModuleDefsQuery(module_id));
-    let type_lowering = db.query(SignatureConstTypeLoweringQuery(module_id));
+    let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id));
     let values = signature_const_value_resolution(db, module_id, &active_item_tree);
     let locals = empty_local_resolution();
-    let type_resolution = db.query(SignatureConstTypeResolutionQuery(module_id));
+    let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id));
     let type_normalization = db.get(SignatureConstTypeNormalizationQuery(module_id));
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
         &db.context().type_store,
@@ -31,9 +31,10 @@ fn with_signature_const_input<T>(
         &type_resolution,
         &type_lowering,
     );
-    let signatures = db.query(SignatureConstItemSignaturesQuery(module_id));
+    let signatures = db.get(SignatureConstItemSignaturesQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
-    let program_module = |module_id| Some(db.query(SignatureConstModuleQuery(module_id)).module);
+    let program_module =
+        |module_id| Some(db.get(SignatureConstModuleQuery(module_id)).module.clone());
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
     let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {
@@ -134,12 +135,12 @@ pub(super) fn provide_signature_const_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ConstModuleLowering {
-    let active_item_tree = db.query(SignatureConstItemTreeQuery(module_id));
+    let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id));
     let defs = db.get(ModuleDefsQuery(module_id));
-    let type_lowering = db.query(SignatureConstTypeLoweringQuery(module_id));
+    let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id));
     let values = signature_const_value_resolution(db, module_id, &active_item_tree);
     let locals = empty_local_resolution();
-    let type_resolution = db.query(SignatureConstTypeResolutionQuery(module_id));
+    let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id));
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
         &db.context().type_store,
         module_id,
@@ -148,7 +149,7 @@ pub(super) fn provide_signature_const_module(
         &type_resolution,
         &type_lowering,
     );
-    let signatures = db.query(SignatureConstItemSignaturesQuery(module_id));
+    let signatures = db.get(SignatureConstItemSignaturesQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
     let symbols = db.context().symbols();
     nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
@@ -167,8 +168,8 @@ pub(super) fn provide_signature_const_module(
 pub(super) fn signature_const_module_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ConstModuleLowering {
-    db.query(SignatureConstModuleQuery(module_id))
+) -> Arc<ConstModuleLowering> {
+    db.get(SignatureConstModuleQuery(module_id))
 }
 
 pub(super) fn signature_const_array_lengths(
@@ -224,7 +225,7 @@ fn signature_const_value_resolution(
     module_id: ModuleId,
     active_item_tree: &ActiveModuleItemTree,
 ) -> ValueResolution {
-    let type_lowering = db.query(SignatureConstTypeLoweringQuery(module_id));
+    let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id));
     let needed_const_exprs = needed_const_exprs_for_active_item_tree(
         &db.context().type_store,
         active_item_tree,
