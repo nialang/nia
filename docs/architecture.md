@@ -350,9 +350,8 @@ Defines typed cross-phase ids:
 
 It stores no semantic tables and has no filesystem, parser, or diagnostic
 responsibility. In particular, `InternedTyId` does not expose a semantic owner
-operation. A type's kind is a store fact, while the temporary `TypeOrigin`
-metadata records only which migration view first materialized a slot; neither
-is a property interpreted independently by every consumer.
+operation. A type's kind is a `TypeStore` fact and is never interpreted from
+the handle alone.
 
 ### 3.5 Semantic Identity Lifecycle
 
@@ -382,50 +381,41 @@ session. It follows these rules:
   not receive general mutable access to the semantic context. The store owns
   synchronization, canonicalization, and any future sharding policy.
 
-The migration has established a compilation-owned `TypeStore` and a real
-session-wide identity space. `InternedTyId` is exactly one 64-bit word containing
-`TypeStoreId` plus a global append-only slot; it contains no module or interner
+The compilation-owned `TypeStore` provides the sole session-wide identity
+space. `InternedTyId` is exactly one 64-bit word containing `TypeStoreId` plus a
+global `TypeStoreIndex`; it contains no module, interner, origin, or visibility
 identity. The shared canonical core maps `TyKind` to that global slot, so the
-same primitive or structural kind interned through different module views has
-the same ID. Handles from different stores remain distinct and are rejected at
-the store boundary.
+same primitive or structural kind published from different modules has the
+same ID. Handles from different stores remain distinct and are rejected at the
+store boundary.
 
-`TyInternerId` now identifies only a temporary module view, never a type identity
-domain. Each `TyInterner` is an append-only visibility log of `(InternedTyId,
-TyKind)` pairs backed by the same canonical core. The former recursive
-`import_type_into` / `try_import_type_into` API and its view-adoption error type
-have been deleted; same-session handles are passed directly and interpreted by
-the store. The canonical core lock is held only for one lookup-or-insert
-operation, not across compiler algorithms. A view refuses to intern a kind
-whose referenced handles do not exist in the same canonical core. It therefore rejects foreign-session
-or unpublished children, while allowing a synthesized type to refer directly
-to a valid same-session handle that was first exposed by another module. A
-module visibility log is no longer required to be transitively closed over the
-type graph; algorithms that still assume that closure are migration targets,
-not constraints on the canonical store. Module checkout and its same-shard
-reentry guard remain a separate migration mechanism.
+All algorithms read through `TypeStore` and publish through the cloneable,
+write-only `TypeStoreAppend` capability. There is no module visibility log,
+snapshot, checkout, recursive import, same-shard guard, or mutable interner
+facade. Same-session handles are passed directly; publishing a kind validates
+that every referenced child already exists in the same canonical store. The
+canonicalization lock covers only one lookup-or-insert operation and is never
+held across compiler algorithms.
 
-The direct `InternedTyId::owner()` operation and the former `TypeOrigin` table
-have been deleted. The module view that won the first canonical insert was
-arbitrary for shared primitives and structural types, so const normalization
-and trait visibility now use the current execution module while nominal layout
-ownership comes from `GlobalDefId`. The canonical store is the sole `TyId -> TyKind` read
-source for migrated consumers: it validates `TypeStoreId`, indexes an immutable
+The direct `InternedTyId::owner()` operation and the former physical-origin
+table are deleted. Const normalization and trait visibility use the current
+execution module while nominal layout ownership comes from `GlobalDefId`. The
+canonical store validates `TypeStoreId`, indexes an immutable
 append-only kind arena, and returns a borrow tied to the store lifetime. The
 arena is a sparse four-level `OnceLock` trie over the four bytes of a `u32` slot,
 so reads neither acquire the canonicalization mutex nor require unsafe lifetime
 extension. A foreign-session handle has no kind.
 
 Trait solving reads every input handle from the canonical `TypeStore`. Its
-temporary interner is only an append target for synthesized types, so program
+append capability publishes synthesized types, so program
 trait implementations and signatures no longer need recursive import or paired
 views. Enum classification uses explicit program metadata rather than type
 origin or view membership.
 
-Const and body providers mutate the compilation-owned `TypeStore` module shard
-directly. Array lengths, enum values, values, typed const facts, `ConstCheck`,
+Const and body providers publish directly to the compilation-owned `TypeStore`.
+Array lengths, enum values, values, typed const facts, `ConstCheck`,
 and `BodyConst` are ordinary semantic products and no longer carry or transfer
-`TyInterner` snapshots. `ConstInput` has no base interner, and `TypeLowering`
+type snapshots. `ConstInput` has no base interner, and `TypeLowering`
 contains semantic facts rather than an append-prefix view; const type reads use
 canonical storage. `BodyTypeCx` fixes the body algorithm contract in the same way: reads
 always use canonical storage, while synthesized types append to the current
@@ -523,9 +513,8 @@ session `TypeStore` through `TypeLoweringContext`. ABI and flow checks read that
 store directly. Item-signature collection has one input-object API, validates
 that lowering handles belong to the same store, and uses a short-lived append
 capability for synthesized builtin/error types. No production append contract
-requires a module visibility view. The remaining migration work is to remove
-the legacy log, then delete `TyInternerId`, snapshots, checkout, and the view
-layer.
+requires a module visibility view. The migration implementation and its legacy
+identity types are fully deleted.
 
 ### 3.6 `nia-diagnostic`
 
@@ -682,11 +671,10 @@ them into canonical type ids.
 
 ### 6.2 `nia-ty`
 
-Defines the compiler type model, the session-wide canonical `TypeStore`, and
-the legacy module visibility implementation described in section 3.5. All
-production compiler passes now read unified `TyId` handles from the store and
-publish new types through `TypeStoreAppend`; the view exists only as migration
-and test infrastructure pending deletion.
+Defines the compiler type model and session-wide canonical `TypeStore`. All
+compiler passes and test fixtures read unified `TyId` handles from the store and
+publish new types through `TypeStoreAppend`; there is no secondary type view or
+migration storage API.
 
 ### 6.3 `nia-type-lower`
 
@@ -1148,7 +1136,7 @@ on the source-shaped body IR that currently feeds it.
 Production lowering receives a `FunctionTypeContext`: existing type handles are
 read from the session `TypeStore`, while synthesized types such as iterator
 optionals are published through a module-scoped `TypeStoreAppend`. Function
-lowering does not checkout, snapshot, or mutate a module `TyInterner`.
+lowering does not checkout or snapshot type storage.
 
 ### 9.6 `nia-function-opt`
 

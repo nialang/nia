@@ -635,8 +635,7 @@ mod tests {
 
     fn empty_body(scopes: Vec<FunctionScope>) -> FunctionBody {
         let span = Span::default();
-        let interner = nia_ty::TyInterner::new(nia_ids::ModuleId(0));
-        let ty = interner.primitive(nia_ty::PrimitiveTy::Void);
+        let ty = test_ty();
         FunctionBody {
             span,
             locals: Vec::new(),
@@ -654,8 +653,11 @@ mod tests {
     }
 
     fn test_ty() -> nia_ids::InternedTyId {
-        let interner = nia_ty::TyInterner::new(nia_ids::ModuleId(0));
-        interner.primitive(nia_ty::PrimitiveTy::Void)
+        static TYPE_STORE: std::sync::OnceLock<nia_ty::TypeStore> = std::sync::OnceLock::new();
+        TYPE_STORE
+            .get_or_init(nia_ty::TypeStore::new)
+            .append_for_module(nia_ids::ModuleId(0))
+            .primitive(nia_ty::PrimitiveTy::Void)
     }
 
     fn sym(text: &str) -> nia_symbol::SymbolId {

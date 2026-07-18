@@ -1,17 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_hash::{FastHashMap, FastHashSet};
+use nia_hash::FastHashMap;
 pub use nia_ids::{BuiltinTrait, BuiltinType, LayoutBuiltin, TraitId};
 use nia_ids::{
-    GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerId, TyInternerIndex,
-    TypeStoreId,
+    GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TypeStoreId, TypeStoreIndex,
 };
 use nia_span::Span;
 use nia_symbol::SymbolId;
-use std::cell::RefCell;
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
-use std::rc::Rc;
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 const TYPE_KIND_ARENA_FANOUT: usize = 256;
 
@@ -64,40 +59,10 @@ impl TypeKindArena {
     }
 }
 
-thread_local! {
-    static HELD_MODULE_INTERNERS: RefCell<FastHashSet<(TypeStoreId, ModuleId)>> =
-        RefCell::new(FastHashSet::default());
-}
-
-struct ModuleInternerGuard {
-    key: (TypeStoreId, ModuleId),
-}
-
-impl ModuleInternerGuard {
-    fn acquire(key: (TypeStoreId, ModuleId)) -> Self {
-        HELD_MODULE_INTERNERS.with(|held| {
-            assert!(
-                held.borrow_mut().insert(key),
-                "Nia ICE: reentrant access to the same type store module shard"
-            );
-        });
-        Self { key }
-    }
-}
-
-impl Drop for ModuleInternerGuard {
-    fn drop(&mut self) {
-        HELD_MODULE_INTERNERS.with(|held| {
-            held.borrow_mut().remove(&self.key);
-        });
-    }
-}
-
 #[derive(Debug)]
 pub struct TypeStore {
     id: TypeStoreId,
     core: Arc<TypeStoreCore>,
-    modules: RwLock<FastHashMap<ModuleId, Arc<Mutex<Option<TyInterner>>>>>,
 }
 
 #[derive(Debug)]
@@ -125,7 +90,7 @@ impl TypeStoreCore {
             return *ty;
         }
         let index = u32::try_from(slots.canonical.len()).expect("type store slot space exhausted");
-        let ty = InternedTyId::new(self.id, TyInternerIndex::from_interner_index(index));
+        let ty = InternedTyId::new(self.id, TypeStoreIndex::from_store_index(index));
         let kind = Arc::new(kind.clone());
         self.kinds.insert(index, Arc::clone(&kind));
         slots.canonical.insert(kind, ty);
@@ -148,13 +113,6 @@ impl PartialEq for TypeStore {
 
 impl Eq for TypeStore {}
 
-pub struct TypeStoreModuleCheckout {
-    interner: Option<TyInterner>,
-    slot: Arc<Mutex<Option<TyInterner>>>,
-    _guard: ModuleInternerGuard,
-    _not_send: PhantomData<Rc<()>>,
-}
-
 #[derive(Clone)]
 pub struct TypeStoreAppend {
     core: Arc<TypeStoreCore>,
@@ -164,34 +122,17 @@ impl TypeStoreAppend {
     pub fn intern(&self, kind: TyKind) -> InternedTyId {
         self.core.intern(&kind)
     }
-}
 
-impl Deref for TypeStoreModuleCheckout {
-    type Target = TyInterner;
-
-    fn deref(&self) -> &Self::Target {
-        self.interner
-            .as_ref()
-            .expect("type store checkout returned")
+    pub fn error(&self) -> InternedTyId {
+        self.intern(TyKind::Error)
     }
-}
 
-impl DerefMut for TypeStoreModuleCheckout {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.interner
-            .as_mut()
-            .expect("type store checkout returned")
+    pub fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+        self.intern(TyKind::Primitive(primitive))
     }
-}
 
-impl Drop for TypeStoreModuleCheckout {
-    fn drop(&mut self) {
-        let interner = self.interner.take().expect("type store checkout returned");
-        let mut slot = self.slot.lock().expect("type store module lock poisoned");
-        assert!(
-            slot.replace(interner).is_none(),
-            "Nia ICE: occupied type store slot returned from checkout"
-        );
+    pub fn builtin_type(&self, builtin: BuiltinType) -> InternedTyId {
+        self.intern(TyKind::BuiltinType(builtin))
     }
 }
 
@@ -211,7 +152,6 @@ impl TypeStore {
                 slots: Mutex::new(TypeStoreSlots::default()),
                 kinds: TypeKindArena::default(),
             }),
-            modules: RwLock::new(FastHashMap::default()),
         }
     }
 
@@ -228,65 +168,6 @@ impl TypeStore {
         TypeStoreAppend {
             core: Arc::clone(&self.core),
         }
-    }
-
-    #[doc(hidden)]
-    pub fn with_module_interner_for_semantic_migration<T>(
-        &self,
-        module_id: ModuleId,
-        f: impl FnOnce(&mut TyInterner) -> T,
-    ) -> T {
-        let _guard = ModuleInternerGuard::acquire((self.id, module_id));
-        let interner = self.module_interner(module_id);
-        let mut interner = interner.lock().expect("type store module lock poisoned");
-        if interner.is_none() {
-            drop(interner);
-            panic!("Nia ICE: type store module shard is checked out");
-        }
-        f(interner.as_mut().expect("checked type store module slot"))
-    }
-
-    #[doc(hidden)]
-    pub fn module_snapshot(&self, module_id: ModuleId) -> TyInterner {
-        self.with_module_interner_for_semantic_migration(module_id, |interner| interner.clone())
-    }
-
-    #[doc(hidden)]
-    pub fn checkout_module_for_semantic_migration(
-        &self,
-        module_id: ModuleId,
-    ) -> TypeStoreModuleCheckout {
-        let guard = ModuleInternerGuard::acquire((self.id, module_id));
-        let slot = self.module_interner(module_id);
-        let interner = slot
-            .lock()
-            .expect("type store module lock poisoned")
-            .take()
-            .unwrap_or_else(|| panic!("Nia ICE: type store module shard is already checked out"));
-        TypeStoreModuleCheckout {
-            interner: Some(interner),
-            slot,
-            _guard: guard,
-            _not_send: PhantomData,
-        }
-    }
-
-    fn module_interner(&self, module_id: ModuleId) -> Arc<Mutex<Option<TyInterner>>> {
-        if let Some(interner) = self
-            .modules
-            .read()
-            .expect("type store lock poisoned")
-            .get(&module_id)
-        {
-            return Arc::clone(interner);
-        }
-        let mut modules = self.modules.write().expect("type store lock poisoned");
-        Arc::clone(modules.entry(module_id).or_insert_with(|| {
-            Arc::new(Mutex::new(Some(TyInterner::with_core(
-                Arc::clone(&self.core),
-                module_id,
-            ))))
-        }))
     }
 }
 
@@ -604,239 +485,6 @@ pub enum ArrayLenTy {
 pub struct ConstExprSummary {
     pub span: Span,
     pub literal_array_len: Option<u64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct TyInterner {
-    core: Arc<TypeStoreCore>,
-    interner_id: TyInternerId,
-    tys: Vec<(InternedTyId, TyKind)>,
-    map: nia_hash::FastHashMap<TyKind, InternedTyId>,
-    positions: nia_hash::FastHashMap<InternedTyId, usize>,
-    error_ty: InternedTyId,
-    primitive_tys: nia_hash::FastHashMap<PrimitiveTy, InternedTyId>,
-    builtin_tys: nia_hash::FastHashMap<BuiltinType, InternedTyId>,
-}
-
-impl PartialEq for TyInterner {
-    fn eq(&self, other: &Self) -> bool {
-        self.interner_id == other.interner_id && self.tys == other.tys
-    }
-}
-
-impl Default for TyInterner {
-    fn default() -> Self {
-        Self::new(ModuleId(0))
-    }
-}
-
-impl TyInterner {
-    pub fn new(module_id: ModuleId) -> Self {
-        let id = TypeStoreId::fresh();
-        Self::with_core(
-            Arc::new(TypeStoreCore {
-                id,
-                slots: Mutex::new(TypeStoreSlots::default()),
-                kinds: TypeKindArena::default(),
-            }),
-            module_id,
-        )
-    }
-
-    fn with_core(core: Arc<TypeStoreCore>, module_id: ModuleId) -> Self {
-        let interner_id = TyInternerId::new(core.id, module_id);
-        let placeholder = InternedTyId::new(core.id, TyInternerIndex::from_interner_index(0));
-        let mut interner = Self {
-            core,
-            interner_id,
-            tys: Vec::new(),
-            map: nia_hash::FastHashMap::default(),
-            positions: nia_hash::FastHashMap::default(),
-            error_ty: placeholder,
-            primitive_tys: nia_hash::FastHashMap::default(),
-            builtin_tys: nia_hash::FastHashMap::default(),
-        };
-        let error_ty = interner.intern_local(TyKind::Error);
-        interner.error_ty = error_ty;
-        for primitive in PrimitiveTy::ALL {
-            let ty = interner.intern_local(TyKind::Primitive(primitive));
-            interner.primitive_tys.insert(primitive, ty);
-        }
-        for builtin in BuiltinType::ALL {
-            let ty = interner.intern_local(TyKind::BuiltinType(builtin));
-            interner.builtin_tys.insert(builtin, ty);
-        }
-        interner
-    }
-
-    pub fn interner_id(&self) -> TyInternerId {
-        self.interner_id
-    }
-
-    pub fn intern(&mut self, kind: TyKind) -> InternedTyId {
-        self.intern_local(kind)
-    }
-
-    fn intern_local(&mut self, kind: TyKind) -> InternedTyId {
-        if let Some(ty) = self.map.get(&kind) {
-            return *ty;
-        }
-        let ty = self.core.intern(&kind);
-        self.positions.insert(ty, self.tys.len());
-        self.tys.push((ty, kind.clone()));
-        self.map.insert(kind, ty);
-        ty
-    }
-
-    pub fn get(&self, id: InternedTyId) -> Option<&TyKind> {
-        if id.store_id != self.interner_id.store_id() {
-            return None;
-        }
-        let position = self.positions.get(&id)?;
-        self.tys.get(*position).map(|(_, kind)| kind)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = (InternedTyId, &TyKind)> {
-        self.tys.iter().map(|(ty, kind)| (*ty, kind))
-    }
-
-    pub fn error(&self) -> InternedTyId {
-        self.error_ty
-    }
-
-    pub fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
-        *self
-            .primitive_tys
-            .get(&primitive)
-            .expect("primitive type must be preinterned")
-    }
-
-    pub fn builtin_type(&self, builtin: BuiltinType) -> InternedTyId {
-        *self
-            .builtin_tys
-            .get(&builtin)
-            .expect("builtin type must be preinterned")
-    }
-
-    pub fn len(&self) -> usize {
-        self.tys.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.tys.is_empty()
-    }
-
-    pub fn is_prefix_of(&self, other: &Self) -> bool {
-        self.interner_id == other.interner_id
-            && self.tys.len() <= other.tys.len()
-            && self
-                .tys
-                .iter()
-                .zip(other.tys.iter())
-                .all(|(left, right)| left == right)
-    }
-
-    pub fn contains_error(&self, id: InternedTyId) -> bool {
-        let mut seen = FastHashSet::default();
-        self.contains_error_inner(id, &mut seen)
-    }
-
-    fn contains_error_inner(&self, id: InternedTyId, seen: &mut FastHashSet<InternedTyId>) -> bool {
-        if !seen.insert(id) {
-            return false;
-        }
-        match self.get(id) {
-            None | Some(TyKind::Error) => true,
-            Some(
-                TyKind::ConstOnly
-                | TyKind::Primitive(_)
-                | TyKind::BuiltinType(_)
-                | TyKind::GenericParam(_)
-                | TyKind::SelfParam,
-            ) => false,
-            Some(TyKind::Pointer { elem, .. })
-            | Some(TyKind::VolatilePointer { elem, .. })
-            | Some(TyKind::Slice { elem, .. })
-            | Some(TyKind::SlicePointee { elem })
-            | Some(TyKind::Optional { elem }) => self.contains_error_inner(*elem, seen),
-            Some(TyKind::Array { len, elem }) => {
-                self.array_len_contains_error(len, seen) || self.contains_error_inner(*elem, seen)
-            }
-            Some(TyKind::Vector { .. }) => false,
-            Some(TyKind::Range { bound, .. }) => bound
-                .map(|bound| self.contains_error_inner(bound, seen))
-                .unwrap_or(false),
-            Some(TyKind::FunctionPointer {
-                params,
-                return_type,
-                ..
-            }) => {
-                params
-                    .iter()
-                    .any(|param| self.contains_error_inner(*param, seen))
-                    || self.contains_error_inner(*return_type, seen)
-            }
-            Some(TyKind::ErrorUnion { error, value }) => {
-                self.contains_error_inner(*error, seen) || self.contains_error_inner(*value, seen)
-            }
-            Some(TyKind::Nominal { args, .. }) | Some(TyKind::BuiltinTrait { args, .. }) => {
-                args.iter().any(|arg| self.contains_error_inner(*arg, seen))
-            }
-            Some(TyKind::TraitObject {
-                trait_args,
-                associated_type_bindings,
-                ..
-            })
-            | Some(TyKind::TraitObjectPointee {
-                trait_args,
-                associated_type_bindings,
-                ..
-            }) => {
-                trait_args
-                    .iter()
-                    .any(|arg| self.contains_error_inner(*arg, seen))
-                    || associated_type_bindings
-                        .iter()
-                        .any(|binding| self.associated_type_binding_contains_error(binding, seen))
-            }
-            Some(TyKind::Projection {
-                self_ty,
-                trait_args,
-                ..
-            }) => {
-                self.contains_error_inner(*self_ty, seen)
-                    || trait_args
-                        .iter()
-                        .any(|arg| self.contains_error_inner(*arg, seen))
-            }
-        }
-    }
-
-    fn array_len_contains_error(
-        &self,
-        len: &ArrayLenTy,
-        seen: &mut FastHashSet<InternedTyId>,
-    ) -> bool {
-        match len {
-            ArrayLenTy::Builtin { ty, .. } => self.contains_error_inner(*ty, seen),
-            ArrayLenTy::Infer
-            | ArrayLenTy::GenericParam(_)
-            | ArrayLenTy::ConstValue(_)
-            | ArrayLenTy::ConstExpr(_) => false,
-        }
-    }
-
-    fn associated_type_binding_contains_error(
-        &self,
-        binding: &AssociatedTypeBindingTy,
-        seen: &mut FastHashSet<InternedTyId>,
-    ) -> bool {
-        binding
-            .trait_args
-            .iter()
-            .any(|arg| self.contains_error_inner(*arg, seen))
-            || self.contains_error_inner(binding.ty, seen)
-    }
 }
 
 pub trait TypeEquivalence {
@@ -1275,20 +923,23 @@ mod tests {
 
     #[test]
     fn interns_identical_types_once() {
-        let mut interner = TyInterner::new(ModuleId(0));
-        let initial_len = interner.len();
-        let a = interner.intern(TyKind::Primitive(PrimitiveTy::I32));
-        let b = interner.intern(TyKind::Primitive(PrimitiveTy::I32));
-        assert_eq!(a, b);
-        assert_eq!(interner.len(), initial_len);
+        let store = TypeStore::new();
+        let append = store.append_for_module(ModuleId(0));
+        let first = append.primitive(PrimitiveTy::I32);
+        let second = append.primitive(PrimitiveTy::I32);
+
+        assert_eq!(first, second);
+        assert_eq!(store.get(first), Some(&TyKind::Primitive(PrimitiveTy::I32)));
     }
 
     #[test]
-    fn primitive_ids_match_preinterned_layout() {
-        let interner = TyInterner::new(ModuleId(0));
+    fn primitive_ids_resolve_to_canonical_kinds() {
+        let store = TypeStore::new();
+        let append = store.append_for_module(ModuleId(0));
+
         for primitive in PrimitiveTy::ALL {
-            let id = interner.primitive(primitive);
-            assert_eq!(interner.get(id), Some(&TyKind::Primitive(primitive)));
+            let id = append.primitive(primitive);
+            assert_eq!(store.get(id), Some(&TyKind::Primitive(primitive)));
         }
     }
 
@@ -1296,13 +947,14 @@ mod tests {
     fn type_store_identity_rejects_foreign_session_handles() {
         let first = TypeStore::new();
         let second = TypeStore::new();
-        let first_interner = first.module_snapshot(ModuleId(7));
-        let second_interner = second.module_snapshot(ModuleId(7));
-        let first_i32 = first_interner.primitive(PrimitiveTy::I32);
-        let second_i32 = second_interner.primitive(PrimitiveTy::I32);
+        let first_i32 = first
+            .append_for_module(ModuleId(7))
+            .primitive(PrimitiveTy::I32);
+        let second_i32 = second
+            .append_for_module(ModuleId(7))
+            .primitive(PrimitiveTy::I32);
 
         assert_ne!(first.id(), second.id());
-        assert_ne!(first_interner.interner_id(), second_interner.interner_id());
         assert_ne!(first_i32, second_i32);
         assert_eq!(
             first.get(first_i32),
@@ -1314,75 +966,64 @@ mod tests {
             second.get(second_i32),
             Some(&TyKind::Primitive(PrimitiveTy::I32))
         );
-        assert_eq!(second_interner.get(first_i32), None);
-        assert_eq!(first_interner.get(second_i32), None);
     }
 
     #[test]
-    fn type_views_share_canonical_ids() {
+    fn module_append_capabilities_share_canonical_ids() {
         let store = TypeStore::new();
-        let local = store.module_snapshot(ModuleId(2));
-        let foreign = store.module_snapshot(ModuleId(9));
-        let foreign_ty = foreign.primitive(PrimitiveTy::U32);
+        let first = store.append_for_module(ModuleId(2));
+        let second = store.append_for_module(ModuleId(9));
+        let first_elem = first.primitive(PrimitiveTy::U32);
+        let second_elem = second.primitive(PrimitiveTy::U32);
+        let first_pointer = first.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem: first_elem,
+        });
+        let second_pointer = second.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem: second_elem,
+        });
 
-        assert_eq!(foreign_ty, local.primitive(PrimitiveTy::U32));
-    }
-
-    #[test]
-    fn module_views_intern_structural_types_to_one_session_id() {
-        let store = TypeStore::new();
-        let first_pointer =
-            store.with_module_interner_for_semantic_migration(ModuleId(2), |interner| {
-                let elem = interner.primitive(PrimitiveTy::U32);
-                interner.intern(TyKind::Pointer {
-                    is_readonly: true,
-                    elem,
-                })
-            });
-        let second_pointer =
-            store.with_module_interner_for_semantic_migration(ModuleId(9), |interner| {
-                let elem = interner.primitive(PrimitiveTy::U32);
-                interner.intern(TyKind::Pointer {
-                    is_readonly: true,
-                    elem,
-                })
-            });
-
+        assert_eq!(first_elem, second_elem);
         assert_eq!(first_pointer, second_pointer);
     }
 
     #[test]
     #[should_panic(expected = "outside its session type store")]
     fn interning_rejects_foreign_session_type_dependencies() {
-        let mut local = TyInterner::new(ModuleId(2));
-        let foreign = TyInterner::new(ModuleId(9));
+        let local = TypeStore::new();
+        let foreign = TypeStore::new();
+        let foreign_ty = foreign
+            .append_for_module(ModuleId(9))
+            .primitive(PrimitiveTy::U32);
 
-        local.intern(TyKind::Pointer {
-            is_readonly: true,
-            elem: foreign.primitive(PrimitiveTy::U32),
-        });
+        local
+            .append_for_module(ModuleId(2))
+            .intern(TyKind::Pointer {
+                is_readonly: true,
+                elem: foreign_ty,
+            });
     }
 
     #[test]
-    fn interning_accepts_same_session_dependencies_outside_the_module_view() {
+    fn interning_accepts_same_session_dependencies_from_another_module() {
         let store = TypeStore::new();
-        let foreign = store.with_module_interner_for_semantic_migration(ModuleId(9), |interner| {
-            interner.intern(TyKind::Nominal {
+        let foreign = store
+            .append_for_module(ModuleId(9))
+            .intern(TyKind::Nominal {
                 def_id: GlobalDefId {
                     module_id: ModuleId(9),
                     def_id: nia_ids::DefId(1),
                 },
                 args: Vec::new(),
                 const_args: Vec::new(),
-            })
-        });
-        let pointer = store.with_module_interner_for_semantic_migration(ModuleId(2), |interner| {
-            assert!(interner.get(foreign).is_none());
-            interner.intern(TyKind::Pointer {
+            });
+        let pointer = store
+            .append_for_module(ModuleId(2))
+            .intern(TyKind::Pointer {
                 is_readonly: true,
                 elem: foreign,
-            })
-        });
+            });
 
         assert_eq!(
             store.get(pointer),
@@ -1391,35 +1032,6 @@ mod tests {
                 elem: foreign,
             })
         );
-    }
-
-    #[test]
-    fn append_capability_interns_without_a_module_view() {
-        let store = TypeStore::new();
-        let foreign = store.with_module_interner_for_semantic_migration(ModuleId(9), |interner| {
-            interner.intern(TyKind::Nominal {
-                def_id: GlobalDefId {
-                    module_id: ModuleId(9),
-                    def_id: nia_ids::DefId(1),
-                },
-                args: Vec::new(),
-                const_args: Vec::new(),
-            })
-        });
-        let append = store.append_for_module(ModuleId(2));
-        let pointer = append.intern(TyKind::Pointer {
-            is_readonly: true,
-            elem: foreign,
-        });
-
-        assert_eq!(
-            store.get(pointer),
-            Some(&TyKind::Pointer {
-                is_readonly: true,
-                elem: foreign,
-            })
-        );
-        assert!(store.module_snapshot(ModuleId(2)).get(pointer).is_none());
     }
 
     #[test]
@@ -1427,70 +1039,6 @@ mod tests {
         assert_eq!(
             std::mem::size_of::<InternedTyId>(),
             std::mem::size_of::<u64>()
-        );
-    }
-
-    #[test]
-    fn type_store_module_slots_are_append_only_across_transactions() {
-        let store = TypeStore::new();
-        let module_id = ModuleId(3);
-        let pointer = store.with_module_interner_for_semantic_migration(module_id, |interner| {
-            let elem = interner.primitive(PrimitiveTy::U8);
-            interner.intern(TyKind::Pointer {
-                is_readonly: true,
-                elem,
-            })
-        });
-        let before = store.module_snapshot(module_id);
-        let slice = store.with_module_interner_for_semantic_migration(module_id, |interner| {
-            let elem = interner.primitive(PrimitiveTy::U8);
-            interner.intern(TyKind::Slice {
-                is_readonly: true,
-                elem,
-            })
-        });
-        let after = store.module_snapshot(module_id);
-
-        assert!(before.is_prefix_of(&after));
-        assert_eq!(before.get(pointer), after.get(pointer));
-        assert_eq!(before.get(slice), None);
-        assert!(matches!(after.get(slice), Some(TyKind::Slice { .. })));
-    }
-
-    #[test]
-    fn type_store_checkout_returns_appended_slots_to_the_session() {
-        let store = TypeStore::new();
-        let module_id = ModuleId(4);
-        let before = store.module_snapshot(module_id);
-        let pointer = {
-            let mut checkout = store.checkout_module_for_semantic_migration(module_id);
-            assert_eq!(checkout.interner_id(), before.interner_id());
-            let elem = checkout.primitive(PrimitiveTy::U16);
-            checkout.intern(TyKind::Pointer {
-                is_readonly: false,
-                elem,
-            })
-        };
-        let after = store.module_snapshot(module_id);
-
-        assert!(before.is_prefix_of(&after));
-        assert!(matches!(after.get(pointer), Some(TyKind::Pointer { .. })));
-    }
-
-    #[test]
-    fn type_store_checkout_rejects_reentry_and_restores_the_shard() {
-        let store = TypeStore::new();
-        let module_id = ModuleId(5);
-        let checkout = store.checkout_module_for_semantic_migration(module_id);
-        let reentry = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            store.module_snapshot(module_id)
-        }));
-
-        assert!(reentry.is_err());
-        drop(checkout);
-        assert_eq!(
-            store.module_snapshot(module_id).interner_id(),
-            TyInternerId::new(store.id(), module_id)
         );
     }
 
@@ -1520,43 +1068,5 @@ mod tests {
         assert_eq!(PrimitiveTypeSpelling::from_name("charx4"), None);
         assert_eq!(PrimitiveTypeSpelling::from_name("voidx4"), None);
         assert_eq!(PrimitiveTypeSpelling::from_name("!x4"), None);
-    }
-
-    #[test]
-    fn contains_error_detects_nested_error_types() {
-        let mut interner = TyInterner::new(ModuleId(0));
-        let err = interner.error();
-        let ptr = interner.intern(TyKind::Pointer {
-            is_readonly: false,
-            elem: err,
-        });
-        let value = interner.primitive(PrimitiveTy::I32);
-        let union = interner.intern(TyKind::ErrorUnion { error: ptr, value });
-
-        assert!(interner.contains_error(union));
-        assert!(!interner.contains_error(value));
-    }
-
-    #[test]
-    fn interner_snapshots_accept_only_prefix_growth() {
-        let mut base = TyInterner::new(ModuleId(0));
-        let snapshot = base.clone();
-        base.intern(TyKind::GenericParam(nia_symbol::known::ITEM));
-        let mut diverged = snapshot.clone();
-        diverged.intern(TyKind::GenericParam(nia_symbol::known::OUTPUT));
-
-        assert!(snapshot.is_prefix_of(&base));
-        assert!(!base.is_prefix_of(&snapshot));
-        assert!(!base.is_prefix_of(&diverged));
-        assert!(!diverged.is_prefix_of(&base));
-    }
-
-    #[test]
-    #[should_panic(expected = "reentrant access to the same type store module shard")]
-    fn type_store_rejects_same_thread_module_reentry() {
-        let store = TypeStore::new();
-        store.with_module_interner_for_semantic_migration(ModuleId(0), |_| {
-            store.with_module_interner_for_semantic_migration(ModuleId(0), |_| {});
-        });
     }
 }

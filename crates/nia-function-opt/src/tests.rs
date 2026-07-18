@@ -41,16 +41,20 @@ fn test_body_with_scopes(scopes: Vec<FunctionScope>, blocks: Vec<FunctionBlock>)
 }
 
 fn test_ty() -> nia_ids::InternedTyId {
-    test_interner().error()
+    test_type_store()
+        .append_for_module(nia_ids::ModuleId(0))
+        .error()
 }
 
 fn test_other_ty() -> nia_ids::InternedTyId {
-    test_interner().primitive(nia_ty::PrimitiveTy::I8)
+    test_type_store()
+        .append_for_module(nia_ids::ModuleId(0))
+        .primitive(nia_ty::PrimitiveTy::I8)
 }
 
-fn test_interner() -> &'static nia_ty::TyInterner {
-    static INTERNER: std::sync::OnceLock<nia_ty::TyInterner> = std::sync::OnceLock::new();
-    INTERNER.get_or_init(|| nia_ty::TyInterner::new(nia_ids::ModuleId(0)))
+fn test_type_store() -> &'static nia_ty::TypeStore {
+    static TYPE_STORE: std::sync::OnceLock<nia_ty::TypeStore> = std::sync::OnceLock::new();
+    TYPE_STORE.get_or_init(nia_ty::TypeStore::new)
 }
 
 fn sym(text: &str) -> SymbolId {

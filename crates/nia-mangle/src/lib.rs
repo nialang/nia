@@ -528,12 +528,12 @@ fn mangle_primitive(primitive: PrimitiveTy) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_ids::{ModuleId, TyInternerIndex};
+    use nia_ids::{ModuleId, TypeStoreIndex};
 
     #[test]
     fn mangles_real_error_type_for_diagnostic_recovery() {
         let type_store = TypeStore::new();
-        let error = type_store.module_snapshot(ModuleId(0)).error();
+        let error = type_store.append_for_module(ModuleId(0)).error();
 
         assert_eq!(
             mangle_type_with(&type_store, error, |_| "item".into(), |_| None),
@@ -545,7 +545,7 @@ mod tests {
     #[should_panic(expected = "Nia ICE: cannot mangle type")]
     fn rejects_missing_type_id_instead_of_mangling_fallback_symbol() {
         let type_store = TypeStore::new();
-        let missing = InternedTyId::new(type_store.id(), TyInternerIndex::from_interner_index(999));
+        let missing = InternedTyId::new(type_store.id(), TypeStoreIndex::from_store_index(999));
 
         let _ = mangle_type_with(&type_store, missing, |_| "item".into(), |_| None);
     }

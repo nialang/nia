@@ -380,7 +380,7 @@ mod tests {
     fn indexes_codegen_lookup_tables_by_exact_keys_and_fallback_groups() {
         let module_id = ModuleId(0);
         let type_store = TypeStore::new();
-        let mut interner = type_store.checkout_module_for_semantic_migration(module_id);
+        let interner = type_store.append_for_module(module_id);
         let i32_ty = interner.primitive(PrimitiveTy::I32);
         let function_def = global(module_id, 1);
         let struct_def = global(module_id, 2);
@@ -539,13 +539,14 @@ mod tests {
     #[test]
     fn resolves_types_without_a_program_module_view() {
         let type_store = TypeStore::new();
-        let ty = type_store.with_module_interner_for_semantic_migration(ModuleId(9), |interner| {
+        let ty = {
+            let interner = type_store.append_for_module(ModuleId(9));
             let elem = interner.primitive(PrimitiveTy::U32);
             interner.intern(TyKind::Pointer {
                 is_readonly: true,
                 elem,
             })
-        });
+        };
         let program = BackendProgram {
             modules: Vec::new(),
         };

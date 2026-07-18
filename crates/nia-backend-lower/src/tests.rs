@@ -45,8 +45,8 @@ impl std::ops::Deref for TestBackendLowering {
 }
 
 impl TestBackendLowering {
-    fn interner(&self, module_id: ModuleId) -> nia_ty::TyInterner {
-        self.type_store.module_snapshot(module_id)
+    fn append(&self, module_id: ModuleId) -> nia_ty::TypeStoreAppend {
+        self.type_store.append_for_module(module_id)
     }
 }
 
@@ -315,7 +315,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         &nia_ast::Module,
         &nia_defs::DefCollection,
         &ItemSignatures,
-        &nia_ty::TyInterner,
+        &nia_ty::TypeStoreAppend,
     ),
     optimization: nia_opt::OptimizationPolicy,
 ) -> TestBackendLowering {
@@ -473,8 +473,8 @@ fn lower_source_with_body_check_mutation_and_optimization(
         "{:?}",
         body_check.diagnostics
     );
-    let body_interner = type_store.module_snapshot(ModuleId(0));
-    mutate_body_check(&mut body_check, &module, &defs, &signatures, &body_interner);
+    let body_types = type_store.append_for_module(ModuleId(0));
+    mutate_body_check(&mut body_check, &module, &defs, &signatures, &body_types);
     let function_bodies = body_check
         .ir
         .function_bodies

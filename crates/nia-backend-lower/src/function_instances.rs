@@ -946,7 +946,7 @@ pub(crate) fn contains_error(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_ids::{ModuleId, TyInternerIndex};
+    use nia_ids::TypeStoreIndex;
     use nia_ty::PrimitiveTy;
 
     #[test]
@@ -1028,11 +1028,8 @@ mod tests {
     }
 
     fn test_ty(index: u32) -> InternedTyId {
-        static INTERNER: std::sync::OnceLock<nia_ty::TyInterner> = std::sync::OnceLock::new();
-        let interner = INTERNER.get_or_init(|| nia_ty::TyInterner::new(ModuleId(0)));
-        InternedTyId::new(
-            interner.interner_id().store_id(),
-            TyInternerIndex::from_interner_index(index),
-        )
+        static TYPE_STORE: std::sync::OnceLock<nia_ty::TypeStore> = std::sync::OnceLock::new();
+        let type_store = TYPE_STORE.get_or_init(nia_ty::TypeStore::new);
+        InternedTyId::new(type_store.id(), TypeStoreIndex::from_store_index(index))
     }
 }
