@@ -89,9 +89,9 @@ pub(super) fn provide_static_check(
 ) -> nia_static_check::StaticCheck {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.get(FullModuleDefsQuery(module_id));
-    let values = db.query(ValueResolutionQuery(module_id));
-    let locals = db.query(LocalResolutionQuery(module_id));
-    let semantic_uses = db.query(SemanticUseTableQuery(module_id));
+    let values = db.get(ValueResolutionQuery(module_id));
+    let locals = db.get(LocalResolutionQuery(module_id));
+    let semantic_uses = db.get(SemanticUseTableQuery(module_id));
     let symbols = db.context().symbols();
     let signatures = db.get(SignatureItemSignaturesQuery(
         module_id,

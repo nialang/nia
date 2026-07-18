@@ -4379,7 +4379,7 @@ extend Value : Ops {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(ValueResolutionQuery(ModuleId(0)));
+        let _ = db.get(ValueResolutionQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -4414,7 +4414,7 @@ fn main() i32 {
         ]);
         let db = query_db(loaded);
 
-        let values = db.query(ValueResolutionQuery(ModuleId(0)));
+        let values = db.get(ValueResolutionQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
@@ -4449,7 +4449,7 @@ fn main() usize {
         )]);
         let db = query_db(loaded);
 
-        let values = db.query(ValueResolutionQuery(ModuleId(0)));
+        let values = db.get(ValueResolutionQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
@@ -5377,7 +5377,7 @@ extend i32 : ParseFrom[Input] {
             loaded_program_with_modules(vec![loaded_module(ModuleId(0), "main.nia", source)]);
         let db = query_db(loaded);
 
-        let table = db.query(SemanticUseTableQuery(ModuleId(0)));
+        let table = db.get(SemanticUseTableQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5428,6 +5428,25 @@ extend i32 : ParseFrom[Input] {
                 .find(|value_use| matches!(value_use, SemanticValueUse::Local(_))),
             Some(SemanticValueUse::Local(_))
         ));
+    }
+
+    #[test]
+    fn checked_module_reuses_cached_resolution_product_handles() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "fn main() i32 { let local: i32 = 1; local }",
+        )]);
+        let db = query_db(loaded);
+
+        let checked = db.get(CheckedModuleQuery(ModuleId(0)));
+        let values = db.get(ValueResolutionQuery(ModuleId(0)));
+        let locals = db.get(LocalResolutionQuery(ModuleId(0)));
+        let semantic_uses = db.get(SemanticUseTableQuery(ModuleId(0)));
+
+        assert!(Arc::ptr_eq(&checked.value_resolution, &values));
+        assert!(Arc::ptr_eq(&checked.local_resolution, &locals));
+        assert!(Arc::ptr_eq(&checked.semantic_uses, &semantic_uses));
     }
 
     #[test]

@@ -107,7 +107,7 @@ pub(super) fn provide_local_resolution(
 ) -> LocalResolution {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.get(FullModuleDefsQuery(module_id));
-    let values = db.query(ValueResolutionQuery(module_id));
+    let values = db.get(ValueResolutionQuery(module_id));
     let symbols = db.context().symbols();
     nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
         &active_item_tree,
@@ -123,8 +123,8 @@ pub(super) fn provide_semantic_use_table(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_sema_ir::SemanticUseTable {
-    let values = db.query(ValueResolutionQuery(module_id));
-    let locals = db.query(LocalResolutionQuery(module_id));
+    let values = db.get(ValueResolutionQuery(module_id));
+    let locals = db.get(LocalResolutionQuery(module_id));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));

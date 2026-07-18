@@ -158,9 +158,9 @@ pub(super) fn body_check_resolution_inputs_for_filter(
     match filter {
         nia_body_check::BodyCheckFilter::All => BodyCheckResolutionInputs {
             active_item_tree: context.active_item_tree,
-            values: db.query(ValueResolutionQuery(module_id)),
-            locals: db.query(LocalResolutionQuery(module_id)),
-            semantic_uses: db.query(SemanticUseTableQuery(module_id)),
+            values: db.get(ValueResolutionQuery(module_id)),
+            locals: db.get(LocalResolutionQuery(module_id)),
+            semantic_uses: db.get(SemanticUseTableQuery(module_id)),
         },
         _ => {
             let filtered_active_item_tree = Arc::new(time_module_provider(
@@ -283,9 +283,9 @@ pub(super) fn body_check_resolution_inputs_for_filter(
             );
             BodyCheckResolutionInputs {
                 active_item_tree: filtered_active_item_tree,
-                values: filtered_values,
-                locals: filtered_locals,
-                semantic_uses: filtered_semantic_uses,
+                values: Arc::new(filtered_values),
+                locals: Arc::new(filtered_locals),
+                semantic_uses: Arc::new(filtered_semantic_uses),
             }
         }
     }
@@ -319,9 +319,9 @@ pub(super) fn full_body_check_resolution_inputs(
 #[derive(Clone)]
 pub(in crate::query) struct BodyCheckResolutionInputs {
     pub(super) active_item_tree: Arc<ActiveModuleItemTree>,
-    pub(super) values: ValueResolution,
-    pub(super) locals: LocalResolution,
-    pub(super) semantic_uses: nia_sema_ir::SemanticUseTable,
+    pub(super) values: Arc<ValueResolution>,
+    pub(super) locals: Arc<LocalResolution>,
+    pub(super) semantic_uses: Arc<nia_sema_ir::SemanticUseTable>,
 }
 
 pub(in crate::query) struct BodyCheckWithResolutionInputs {
