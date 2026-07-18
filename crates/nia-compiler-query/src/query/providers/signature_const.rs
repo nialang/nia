@@ -33,8 +33,11 @@ fn with_signature_const_input<T>(
     );
     let signatures = db.get(SignatureConstItemSignaturesQuery(module_id));
     let source_path = db.query(ModulePathQuery(module_id));
-    let program_module =
-        |module_id| Some(db.get(SignatureConstModuleQuery(module_id)).module.clone());
+    let program_module = |module_id| {
+        Some(Arc::clone(
+            &db.get(SignatureConstModuleQuery(module_id)).module,
+        ))
+    };
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
     let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {

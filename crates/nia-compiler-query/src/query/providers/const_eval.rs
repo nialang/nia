@@ -116,13 +116,11 @@ pub(super) fn with_const_input_and_program_facts<T>(
     let defs = db.get(FullModuleDefsQuery(module_id));
     let program_module = |module_id| {
         if use_signature_facts_for(module_id) {
-            return Some(
-                signature_const_module_lowering(db, module_id)
-                    .module
-                    .clone(),
-            );
+            return Some(Arc::clone(
+                &signature_const_module_lowering(db, module_id).module,
+            ));
         }
-        Some(db.get(ConstModuleQuery(module_id)).module.clone())
+        Some(Arc::clone(&db.get(ConstModuleQuery(module_id)).module))
     };
     let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));

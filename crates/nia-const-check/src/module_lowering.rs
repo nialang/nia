@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 use crate::{ConstModuleInput, ConstModuleLowering};
 use nia_ast::Expr;
@@ -23,7 +23,7 @@ pub fn lower_module_const(input: ConstModuleInput<'_>) -> ConstModuleLowering {
     };
     lowerer.lower_module();
     ConstModuleLowering {
-        module: lowerer.module,
+        module: Arc::new(lowerer.module),
         diagnostics: lowerer.diagnostics,
     }
 }

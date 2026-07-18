@@ -33,7 +33,7 @@ pub struct StaticCheckInput<'a> {
     pub signatures: &'a ItemSignatures,
     pub const_eval: &'a ConstValues,
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
-    pub program_const: &'a dyn Fn(ModuleId) -> Option<ConstValues>,
+    pub program_const: &'a dyn Fn(ModuleId) -> Option<Arc<ConstValues>>,
     pub target: &'a TargetConfig,
 }
 
@@ -70,7 +70,7 @@ pub struct StaticCheckPreciseInput<'a> {
     pub signatures: StaticCheckSignatures<'a>,
     pub const_eval: &'a ConstValues,
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
-    pub program_const: &'a dyn Fn(ModuleId) -> Option<ConstValues>,
+    pub program_const: &'a dyn Fn(ModuleId) -> Option<Arc<ConstValues>>,
     pub target: &'a TargetConfig,
 }
 
@@ -105,7 +105,7 @@ struct StaticChecker<'a> {
     signatures: StaticCheckSignatures<'a>,
     const_eval: &'a ConstValues,
     program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
-    program_const: &'a dyn Fn(ModuleId) -> Option<ConstValues>,
+    program_const: &'a dyn Fn(ModuleId) -> Option<Arc<ConstValues>>,
     target: &'a TargetConfig,
     diagnostics: Vec<Diagnostic>,
 }
@@ -542,7 +542,7 @@ struct StaticConstEnv<'a> {
     defs: &'a DefCollection,
     const_eval: &'a ConstValues,
     program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
-    program_const: &'a dyn Fn(ModuleId) -> Option<ConstValues>,
+    program_const: &'a dyn Fn(ModuleId) -> Option<Arc<ConstValues>>,
     symbols: &'a SymbolTable,
     target: &'a TargetConfig,
 }
