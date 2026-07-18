@@ -3029,9 +3029,17 @@ pub fn expensive_or_invalid() i32 {
                     SourceRevision(0),
                 ),
             ])));
-        let _ = database.db.query(TypeLoweringQuery(module_id));
-        let first = database.db.context().type_store.module_snapshot(module_id);
-        let first_i32 = first.primitive(nia_ty::PrimitiveTy::I32);
+        let first_lowering = database.db.query(TypeLoweringQuery(module_id));
+        let type_store = &database.db.context().type_store;
+        let first_i32 = type_store
+            .append_for_module(module_id)
+            .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
+        assert!(
+            first_lowering
+                .explicit_type_roots()
+                .into_iter()
+                .all(|ty| type_store.get(ty).is_some())
+        );
 
         database.update(CompileRequest::new(loaded_program_with_modules(vec![
             loaded_module_with_revision(
@@ -3041,16 +3049,22 @@ pub fn expensive_or_invalid() i32 {
                 SourceRevision(1),
             ),
         ])));
-        let _ = database.db.query(TypeLoweringQuery(module_id));
-        let second = database.db.context().type_store.module_snapshot(module_id);
+        let second_lowering = database.db.query(TypeLoweringQuery(module_id));
 
-        assert_eq!(first.interner_id(), second.interner_id());
-        assert!(first.is_prefix_of(&second));
         assert_eq!(
-            second.get(first_i32),
+            type_store.get(first_i32),
             Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))
         );
-        assert!(second.len() > first.len());
+        assert!(second_lowering.explicit_type_roots().into_iter().any(|ty| {
+            matches!(
+                type_store.get(ty),
+                Some(nia_ty::TyKind::Pointer { elem, .. })
+                    if matches!(
+                        type_store.get(*elem),
+                        Some(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::Bool))
+                    )
+            )
+        }));
     }
 
     #[test]
@@ -3066,14 +3080,13 @@ pub fn expensive_or_invalid() i32 {
             ])));
         let lowering = database.db.query(TypeLoweringQuery(module_id));
         let normalization = database.db.query(TypeNormalizationQuery(module_id));
-        let stored = database.db.context().type_store.module_snapshot(module_id);
+        let type_store = &database.db.context().type_store;
 
         for ty_id in lowering.explicit_type_roots() {
-            assert!(stored.get(ty_id).is_some());
+            assert!(type_store.get(ty_id).is_some());
         }
         for normalized in normalization.normalized.values() {
-            assert!(stored.get(*normalized).is_some());
-            assert!(database.db.context().type_store.get(*normalized).is_some());
+            assert!(type_store.get(*normalized).is_some());
         }
         assert!(
             normalization

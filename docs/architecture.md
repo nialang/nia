@@ -524,10 +524,10 @@ expressions, and diagnostics; all lowering entry points require an explicit
 session `TypeStore` through `TypeLoweringContext`. ABI and flow checks read that
 store directly. Item-signature collection has one input-object API, validates
 that lowering handles belong to the same store, and uses a short-lived append
-capability for synthesized builtin/error types. The remaining migration work is
-temporary append ownership and the module visibility log itself. Once append
-contracts no longer require views, `TypeOrigin`, `TyInternerId`, snapshots, and
-the view layer can be deleted.
+capability for synthesized builtin/error types. No production append contract
+requires a module visibility view. The remaining migration work is to remove
+the legacy log and its physical-origin consumers, then delete `TypeOrigin`,
+`TyInternerId`, snapshots, checkout, and the view layer.
 
 ### 3.6 `nia-diagnostic`
 
@@ -685,8 +685,10 @@ them into canonical type ids.
 ### 6.2 `nia-ty`
 
 Defines the compiler type model, the session-wide canonical `TypeStore`, and
-temporary module visibility views described in section 3.5. Later migration
-slices will read a unified `TyId` directly without an interner snapshot.
+the legacy module visibility implementation described in section 3.5. All
+production compiler passes now read unified `TyId` handles from the store and
+publish new types through `TypeStoreAppend`; the view exists only as migration
+and test infrastructure pending deletion.
 
 ### 6.3 `nia-type-lower`
 
@@ -697,7 +699,10 @@ types, generics, enum backing types, and inferred array lengths.
 It also validates type-level restrictions such as invalid use of `void` or `never`
 in value positions. Its semantic product exposes deterministic, deduplicated
 source type roots for normalization and other downstream algorithms; consumers
-must not enumerate the temporary module interner to infer those roots.
+must not enumerate a module interner to infer those roots. The lowerer reads
+existing handles from the canonical `TypeStore` and publishes primitive,
+nominal, projection, and structural types through a module-scoped
+`TypeStoreAppend`; it never opens a mutable interner transaction.
 
 ### 6.4 `nia-item-signatures`
 
