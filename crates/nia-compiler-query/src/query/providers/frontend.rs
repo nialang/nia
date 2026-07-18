@@ -248,7 +248,7 @@ pub(super) fn provide_type_lowering(
     module_id: ModuleId,
 ) -> TypeLowering {
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-    let type_resolution = db.query(TypeResolutionQuery(module_id));
+    let type_resolution = db.get(TypeResolutionQuery(module_id));
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
     nia_type_lower::lower_module_types_from_active_item_tree_with_context(
@@ -388,7 +388,7 @@ pub(super) fn provide_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeNormalization {
-    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let type_lowering = db.get(TypeLoweringQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
     normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
 }
@@ -397,7 +397,7 @@ pub(super) fn provide_layout_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeNormalization {
-    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let type_lowering = db.get(TypeLoweringQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
     normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
 }

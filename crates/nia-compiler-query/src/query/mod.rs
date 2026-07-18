@@ -2684,7 +2684,7 @@ pub fn expensive_or_invalid() i32 {
             database.db.query(ExecutableRootModulesQuery),
             (ModuleId(0), Vec::new())
         );
-        let _ = database.db.query(TypeResolutionQuery(ModuleId(0)));
+        let _ = database.db.get(TypeResolutionQuery(ModuleId(0)));
 
         let mut grown = loaded;
         assert!(grown.graph.mark_semantic_selected(ModuleId(1)));
@@ -3029,7 +3029,7 @@ pub fn expensive_or_invalid() i32 {
                     SourceRevision(0),
                 ),
             ])));
-        let first_lowering = database.db.query(TypeLoweringQuery(module_id));
+        let first_lowering = database.db.get(TypeLoweringQuery(module_id));
         let type_store = &database.db.context().type_store;
         let first_i32 = type_store
             .append_for_module(module_id)
@@ -3049,7 +3049,7 @@ pub fn expensive_or_invalid() i32 {
                 SourceRevision(1),
             ),
         ])));
-        let second_lowering = database.db.query(TypeLoweringQuery(module_id));
+        let second_lowering = database.db.get(TypeLoweringQuery(module_id));
 
         assert_eq!(
             type_store.get(first_i32),
@@ -3078,7 +3078,7 @@ pub fn expensive_or_invalid() i32 {
                     "type ByteRef = &u8; pub fn read(value: ByteRef) u8 { 0 }",
                 ),
             ])));
-        let lowering = database.db.query(TypeLoweringQuery(module_id));
+        let lowering = database.db.get(TypeLoweringQuery(module_id));
         let normalization = database.db.query(TypeNormalizationQuery(module_id));
         let type_store = &database.db.context().type_store;
 
@@ -3112,7 +3112,7 @@ fn main() i32 { 0 }
 "#,
                 ),
             ])));
-        let lowering = database.db.query(TypeLoweringQuery(module_id));
+        let lowering = database.db.get(TypeLoweringQuery(module_id));
         let _ = database.db.query(TypeNormalizationQuery(module_id));
 
         let _ = database.db.query(ConstArrayLengthsQuery(module_id));
@@ -3232,8 +3232,8 @@ fn main() i32 {
         };
         let first = CompilerDatabase::new(CompileRequest::new(loaded()));
         let second = CompilerDatabase::new(CompileRequest::new(loaded()));
-        let _ = first.db.query(TypeLoweringQuery(ModuleId(0)));
-        let _ = second.db.query(TypeLoweringQuery(ModuleId(0)));
+        let _ = first.db.get(TypeLoweringQuery(ModuleId(0)));
+        let _ = second.db.get(TypeLoweringQuery(ModuleId(0)));
         let first_store = &first.db.context().type_store;
         let second_store = &second.db.context().type_store;
         let first_i32 = first_store
@@ -5431,7 +5431,7 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
-    fn checked_module_reuses_cached_resolution_product_handles() {
+    fn checked_module_reuses_cached_semantic_product_handles() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
@@ -5443,10 +5443,14 @@ extend i32 : ParseFrom[Input] {
         let values = db.get(ValueResolutionQuery(ModuleId(0)));
         let locals = db.get(LocalResolutionQuery(ModuleId(0)));
         let semantic_uses = db.get(SemanticUseTableQuery(ModuleId(0)));
+        let type_resolution = db.get(TypeResolutionQuery(ModuleId(0)));
+        let type_lowering = db.get(TypeLoweringQuery(ModuleId(0)));
 
         assert!(Arc::ptr_eq(&checked.value_resolution, &values));
         assert!(Arc::ptr_eq(&checked.local_resolution, &locals));
         assert!(Arc::ptr_eq(&checked.semantic_uses, &semantic_uses));
+        assert!(Arc::ptr_eq(&checked.type_resolution, &type_resolution));
+        assert!(Arc::ptr_eq(&checked.type_lowering, &type_lowering));
     }
 
     #[test]
@@ -7857,7 +7861,7 @@ pub fn expensive_or_invalid() i32 {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(TypeResolutionQuery(ModuleId(0)));
+        let _ = db.get(TypeResolutionQuery(ModuleId(0)));
         let invalidation = db.invalidate(ModuleDefsQuery(ModuleId(0)));
         let invalidated = invalidation
             .invalidated
@@ -7877,7 +7881,7 @@ pub fn expensive_or_invalid() i32 {
         );
         assert!(!invalidated.contains(&"type_resolution"), "{invalidated:?}");
 
-        let _ = db.query(TypeResolutionQuery(ModuleId(0)));
+        let _ = db.get(TypeResolutionQuery(ModuleId(0)));
     }
 
     #[test]

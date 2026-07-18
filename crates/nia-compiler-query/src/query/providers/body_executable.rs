@@ -251,9 +251,9 @@ fn filtered_const_global_initializer_for_body_check(
         db,
         "executable_body_check.const_eval.global_initializer.type_lowering",
         global_id.module_id,
-        || db.query(TypeLoweringQuery(global_id.module_id)),
+        || db.get(TypeLoweringQuery(global_id.module_id)),
     );
-    let type_resolution = db.query(TypeResolutionQuery(global_id.module_id));
+    let type_resolution = db.get(TypeResolutionQuery(global_id.module_id));
     let signatures = db.query(ItemSignaturesQuery(global_id.module_id));
     let needed_const_exprs = time_module_provider(
         db,
@@ -717,8 +717,8 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.get(FullModuleDefsQuery(module_id));
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
-    let type_resolution = db.query(TypeResolutionQuery(module_id));
-    let lowered = db.query(TypeLoweringQuery(module_id));
+    let type_resolution = db.get(TypeResolutionQuery(module_id));
+    let lowered = db.get(TypeLoweringQuery(module_id));
     let executable_reachable_filter = matches!(
         filter,
         nia_body_check::BodyCheckFilter::ReachableItems { .. }
@@ -1267,7 +1267,7 @@ pub(super) fn executable_layouts_for_reachable_items(
     time_module_provider(db, "executable_layouts", module_id, || {
         let defs = db.get(FullModuleDefsQuery(module_id));
         let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
-        let type_lowering = db.query(TypeLoweringQuery(module_id));
+        let type_lowering = db.get(TypeLoweringQuery(module_id));
         let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
         let program_struct = |def_id: GlobalDefId| {
@@ -1657,8 +1657,8 @@ fn checked_module_with_body_and_flow_check(
         id: module_id,
         path,
         defs: db.query(FullModuleDefsQuery(module_id)),
-        type_resolution: db.query(TypeResolutionQuery(module_id)),
-        type_lowering: db.query(TypeLoweringQuery(module_id)),
+        type_resolution: db.get(TypeResolutionQuery(module_id)),
+        type_lowering: db.get(TypeLoweringQuery(module_id)),
         value_resolution: db.get(ValueResolutionQuery(module_id)),
         local_resolution: db.get(LocalResolutionQuery(module_id)),
         type_normalization: db.query(TypeNormalizationQuery(module_id)),
@@ -1695,8 +1695,8 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         id: module_id,
         path: db.query(ModulePathQuery(module_id)),
         defs: db.query(FullModuleDefsQuery(module_id)),
-        type_resolution: db.query(TypeResolutionQuery(module_id)),
-        type_lowering: db.query(TypeLoweringQuery(module_id)),
+        type_resolution: db.get(TypeResolutionQuery(module_id)),
+        type_lowering: db.get(TypeLoweringQuery(module_id)),
         value_resolution: body_inputs.values,
         local_resolution: body_inputs.locals,
         type_normalization: db.query(TypeNormalizationQuery(module_id)),
@@ -1727,11 +1727,11 @@ pub(super) fn executable_signature_checked_module(
     layouts: nia_layout::Layouts,
     program_signatures: &ProgramExecutableNonFunctionSignatures,
 ) -> CheckedModule {
-    let type_resolution = db.query(SignatureTypeResolutionQuery(
+    let type_resolution = db.get(SignatureTypeResolutionQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));
-    let type_lowering = db.query(SignatureTypeLoweringQuery(
+    let type_lowering = db.get(SignatureTypeLoweringQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
     ));

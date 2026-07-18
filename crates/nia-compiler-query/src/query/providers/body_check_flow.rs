@@ -299,8 +299,8 @@ pub(super) fn full_body_check_resolution_inputs(
     let origins = db.query(ModuleOriginsQuery(module_id));
     let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.get(FullModuleDefsQuery(module_id));
-    let type_resolution = db.query(TypeResolutionQuery(module_id));
-    let lowered = db.query(TypeLoweringQuery(module_id));
+    let type_resolution = db.get(TypeResolutionQuery(module_id));
+    let lowered = db.get(TypeLoweringQuery(module_id));
     body_check_resolution_inputs_for_filter(
         db,
         module_id,
