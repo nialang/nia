@@ -96,7 +96,7 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn normalized_ty(&self, ty: InternedTyId) -> InternedTyId {
-        self.normalized_for_module(self.type_origin(ty).module_id())
+        self.normalized_for_module(self.current_execution_module_id())
             .and_then(|normalized| normalized.get(&ty).copied())
             .unwrap_or(ty)
     }
@@ -352,14 +352,11 @@ impl Analyzer<'_> {
 
     pub(super) fn ensure_trait_solver_module(
         &mut self,
-        self_ty: InternedTyId,
-        trait_args: &[InternedTyId],
+        _self_ty: InternedTyId,
+        _trait_args: &[InternedTyId],
     ) -> Option<ModuleId> {
-        let module_id = self.type_origin(self_ty).module_id();
+        let module_id = self.current_execution_module_id();
         self.ensure_type_context(module_id)?;
-        for arg in trait_args {
-            self.ensure_type_context(self.type_origin(*arg).module_id())?;
-        }
         Some(module_id)
     }
 
@@ -440,7 +437,7 @@ impl Analyzer<'_> {
         ty: InternedTyId,
         substitutions: &SymbolMap<InternedTyId>,
     ) -> InternedTyId {
-        let module_id = self.type_origin(ty).module_id();
+        let module_id = self.current_execution_module_id();
         if self.ensure_type_context(module_id).is_none() {
             return ty;
         }

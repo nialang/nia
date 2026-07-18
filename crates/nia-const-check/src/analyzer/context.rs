@@ -353,13 +353,6 @@ impl Analyzer<'_> {
         }
     }
 
-    pub(super) fn type_origin(&self, ty: nia_ids::InternedTyId) -> nia_ids::TypeOrigin {
-        self.input
-            .type_store
-            .type_origin(ty)
-            .expect("const type belongs to its session store")
-    }
-
     pub(super) fn primitive_ty_for_module(
         &self,
         module_id: ModuleId,
@@ -523,25 +516,16 @@ impl Analyzer<'_> {
                 },
             });
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
-        let ty_module_id = self.type_origin(ty).module_id();
         if let Some(TyKind::Nominal {
             def_id,
             args,
             const_args,
         }) = self.ty_kind(ty)
-            && (def_id.module_id != module_id || ty_module_id != module_id)
+            && def_id.module_id != module_id
             && const_args.is_empty()
             && let Some(layouts) =
                 self.compute_program_layout(def_id.module_id, &layout_array_lengths)
             && let Some(layout) = layouts.nominal_type_layout(def_id, &args)
-        {
-            return Ok(ConstValue::Int(IntConst::unsigned(
-                layout.builtin_value(builtin) as u128,
-            )));
-        }
-        if ty_module_id != module_id
-            && let Some(layouts) = self.compute_program_layout(ty_module_id, &layout_array_lengths)
-            && let Some(layout) = layouts.types.get(&ty)
         {
             return Ok(ConstValue::Int(IntConst::unsigned(
                 layout.builtin_value(builtin) as u128,
@@ -653,8 +637,7 @@ impl Analyzer<'_> {
                 message: format!("type has no field `{field}` for builtin `offset`"),
             });
         };
-        let ty_module_id = self.type_origin(ty).module_id();
-        let offset = if def_id.module_id != module_id || ty_module_id != module_id {
+        let offset = if def_id.module_id != module_id {
             self.compute_program_layout(def_id.module_id, &layout_array_lengths)
                 .and_then(|layouts| layouts.field_offset(def_id, &args, field_def))
         } else {
