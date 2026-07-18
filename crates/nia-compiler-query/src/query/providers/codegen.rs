@@ -90,36 +90,39 @@ fn materialize_executable_checked_modules(
 fn function_bodies_from_checked_modules(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
-) -> Vec<LoweredFunctionBodies> {
+) -> Vec<Arc<LoweredFunctionBodies>> {
     time_provider(
         db.context().timings(),
         "function_bodies_from_checked_modules",
         || {
-            checked_modules
-                .iter()
-                .map(|module| {
-                    let lowered = nia_function_lower::lower_function_bodies(
-                        module.id,
-                        module.body_ir.function_bodies.iter(),
-                        nia_function_lower::FunctionTypeContext::for_module(
-                            &db.context().type_store,
-                            module.id,
-                        ),
-                    )
-                    .unwrap_or_else(|diagnostics| {
-                        nia_function_lower::LoweredFunctionBodies {
-                            bodies: HashMap::new(),
-                            diagnostics,
-                        }
-                    });
-                    LoweredFunctionBodies {
-                        bodies: lowered.bodies,
-                        diagnostics: lowered.diagnostics,
-                    }
-                })
-                .collect()
+            db.get_many(
+                checked_modules
+                    .iter()
+                    .map(|module| LoweredFunctionBodiesQuery(module.id)),
+            )
         },
     )
+}
+
+pub(in crate::query) fn provide_lowered_function_bodies(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> LoweredFunctionBodies {
+    let set = db.get(ExecutableCheckedModuleSetQuery);
+    let module = db.context().executable_checked_module(&set, module_id);
+    let lowered = nia_function_lower::lower_function_bodies(
+        module.id,
+        module.body_ir.function_bodies.iter(),
+        nia_function_lower::FunctionTypeContext::for_module(&db.context().type_store, module.id),
+    )
+    .unwrap_or_else(|diagnostics| nia_function_lower::LoweredFunctionBodies {
+        bodies: HashMap::new(),
+        diagnostics,
+    });
+    LoweredFunctionBodies {
+        bodies: lowered.bodies,
+        diagnostics: lowered.diagnostics,
+    }
 }
 
 #[cfg(test)]
@@ -411,7 +414,7 @@ pub(super) fn monomorphization_diagnostics(
 
 fn function_lowering_diagnostics(
     checked_modules: &[Arc<CheckedModule>],
-    function_bodies: &[LoweredFunctionBodies],
+    function_bodies: &[Arc<LoweredFunctionBodies>],
 ) -> Vec<ProgramDiagnostic> {
     checked_modules
         .iter()

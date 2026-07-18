@@ -14,7 +14,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
     visible_extension_modules: &'a [(ModuleId, VisibleExtensionsValue)],
     checked_modules: &'a [Arc<CheckedModule>],
     const_array_lengths: &'a [nia_const_check::ConstArrayLengths],
-    function_bodies: &'a [LoweredFunctionBodies],
+    function_bodies: &'a [Arc<LoweredFunctionBodies>],
 ) -> BackendLoweringIndexes<'a> {
     let program_extensions = visible_extension_modules
         .iter()
@@ -61,7 +61,7 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) const_array_lengths: &'a [nia_const_check::ConstArrayLengths],
     pub(super) const_enum_values: &'a [nia_const_check::ConstEnumValues],
     pub(super) visible_extensions: &'a [VisibleExtensionsValue],
-    pub(super) function_bodies: &'a [LoweredFunctionBodies],
+    pub(super) function_bodies: &'a [Arc<LoweredFunctionBodies>],
     pub(super) extension_methods: &'a nia_defs::ExtensionMethods,
     pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     pub(super) program_signatures: ProgramCodegenSignatures<'a>,
