@@ -1530,7 +1530,10 @@ mod tests {
             symbols,
             lowered,
             signatures,
-            normalized: &HashMap::new(),
+            normalization: &nia_const_check::TypeNormalization {
+                normalized: HashMap::new(),
+                diagnostics: Vec::new(),
+            },
             target: &target,
             source_path: &source_path,
             program: ConstProgramContext::empty(),

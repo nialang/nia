@@ -13,6 +13,7 @@ pub use analyzer::{
     instantiate_resolved_const_function_generics,
 };
 pub use module_lowering::*;
+pub use nia_type_normalize::TypeNormalization;
 pub use types::*;
 
 #[cfg(test)]

@@ -10,7 +10,7 @@ pub(super) struct ExtensionSignatureModuleInputQueryValue {
     pub(super) defs: Arc<DefCollection>,
     pub(super) function_signatures: Arc<ItemSignatures>,
     pub(super) type_signatures: Arc<ItemSignatures>,
-    pub(super) normalization: TypeNormalization,
+    pub(super) normalization: Arc<TypeNormalization>,
 }
 
 impl ExtensionSignatureModuleInputQueryValue {

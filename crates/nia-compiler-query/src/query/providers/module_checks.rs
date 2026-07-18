@@ -8,7 +8,7 @@ pub(super) fn provide_layouts(
     time_module_provider(db, "layouts", module_id, || {
         let defs = db.get(FullModuleDefsQuery(module_id));
         let type_lowering = db.get(TypeLoweringQuery(module_id));
-        let type_normalization = db.query(LayoutTypeNormalizationQuery(module_id));
+        let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.query(ItemSignaturesQuery(module_id));
         let array_lengths = db.query(ConstArrayLengthsQuery(module_id));
         let symbols = db.context().symbols();

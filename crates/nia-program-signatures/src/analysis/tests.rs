@@ -112,7 +112,7 @@ fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave()
         module_id: type_defs.module_id,
         defs: Arc::new(type_defs.clone()),
     };
-    let normalizations = |_module_id| Some(empty_normalization.clone());
+    let normalizations = |_module_id| Some(Arc::new(empty_normalization.clone()));
     let calls = RefCell::new(Vec::<Vec<GlobalDefId>>::new());
     let nominal_extension_providers = |targets: &[GlobalDefId]| {
         calls.borrow_mut().push(targets.to_vec());

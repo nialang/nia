@@ -112,7 +112,7 @@ pub struct CheckedModule {
     pub type_lowering: std::sync::Arc<TypeLowering>,
     pub value_resolution: std::sync::Arc<ValueResolution>,
     pub local_resolution: std::sync::Arc<LocalResolution>,
-    pub type_normalization: TypeNormalization,
+    pub type_normalization: std::sync::Arc<TypeNormalization>,
     pub const_eval: std::sync::Arc<ConstCheck>,
     pub static_check: std::sync::Arc<StaticCheck>,
     pub layouts: Layouts,
