@@ -312,8 +312,8 @@ pub(super) fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<Pr
             });
         }
     }
-    let public_surfaces = db.query(PublicSurfacesQuery);
-    let public_using_scopes = db.query(PublicUsingScopesQuery);
+    let public_surfaces = db.get(PublicSurfacesQuery);
+    let public_using_scopes = db.get(PublicUsingScopesQuery);
     for (module_id, diagnostic) in public_surfaces
         .diagnostics
         .iter()

@@ -248,8 +248,8 @@ fn signature_const_value_resolution(
         return empty_value_resolution();
     }
     let defs = db.get(ModuleDefsQuery(module_id));
-    let public_surfaces = db.query(PublicSurfacesQuery);
-    let using_scope = db.query(ModuleUsingScopeQuery(module_id));
+    let public_surfaces = db.get(PublicSurfacesQuery);
+    let using_scope = db.get(ModuleUsingScopeQuery(module_id));
     let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
     let associated_values =
         LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
@@ -264,7 +264,7 @@ fn signature_const_value_resolution(
                 graph: Some(&db.get(ModuleGraphQuery)),
             },
             &public_surfaces.surfaces,
-            &using_scope,
+            using_scope.as_ref(),
             Some(&associated_values),
             Some(&symbols),
         );
@@ -280,7 +280,7 @@ fn signature_const_value_resolution(
                 graph: Some(&db.get(ModuleGraphQuery)),
             },
             &public_surfaces.surfaces,
-            &using_scope,
+            using_scope.as_ref(),
             Some(&associated_values),
             Some(&symbols),
         );

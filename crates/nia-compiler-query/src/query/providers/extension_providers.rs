@@ -541,8 +541,8 @@ fn visible_modules_for_module(
 ) -> Vec<ModuleId> {
     let graph = QueryModuleGraphLookup::new(db);
     let defs = SharedProgramDefsResolver::new(db);
-    let using_scopes = |module_id| Some(Arc::new(db.query(ModuleUsingScopeQuery(module_id))));
-    let using_scope = db.query(ModuleUsingScopeQuery(module_id));
+    let using_scopes = |module_id| Some(db.get(ModuleUsingScopeQuery(module_id)));
+    let using_scope = db.get(ModuleUsingScopeQuery(module_id));
     let extension_method_normalization = |module_id| {
         Some(db.get(SignatureTypeNormalizationQuery(
             module_id,
@@ -588,8 +588,8 @@ pub(super) fn provide_visible_extensions(
     let graph = QueryModuleGraphLookup::new(db);
     let defs = SharedProgramDefsResolver::new(db);
     let public_surfaces = QueryPublicSurfaceLookup::new(db);
-    let using_scopes = |module_id| Some(Arc::new(db.query(ModuleUsingScopeQuery(module_id))));
-    let using_scope = db.query(ModuleUsingScopeQuery(module_id));
+    let using_scopes = |module_id| Some(db.get(ModuleUsingScopeQuery(module_id)));
+    let using_scope = db.get(ModuleUsingScopeQuery(module_id));
     let extension_method_normalization = |module_id| {
         Some(db.get(SignatureTypeNormalizationQuery(
             module_id,
@@ -640,8 +640,8 @@ pub(super) fn provide_visible_trait_impls(
     let graph = QueryModuleGraphLookup::new(db);
     let defs = SharedProgramDefsResolver::new(db);
     let public_surfaces = QueryPublicSurfaceLookup::new(db);
-    let using_scopes = |module_id| Some(Arc::new(db.query(ModuleUsingScopeQuery(module_id))));
-    let using_scope = db.query(ModuleUsingScopeQuery(module_id));
+    let using_scopes = |module_id| Some(db.get(ModuleUsingScopeQuery(module_id)));
+    let using_scope = db.get(ModuleUsingScopeQuery(module_id));
     let extension_method_normalization = |module_id| {
         Some(db.get(SignatureTypeNormalizationQuery(
             module_id,

@@ -93,7 +93,7 @@ fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<Arc<DefCollection
 
 pub(super) fn provide_public_surfaces(db: &QueryDb<CompilerContext>) -> PublicSurfacesValue {
     time_provider(db.context().timings(), "public_surfaces", || {
-        db.context().public_surfaces()
+        db.context().public_surfaces().as_ref().clone()
     })
 }
 
@@ -109,7 +109,7 @@ pub(super) fn provide_module_public_surface(
 
 pub(super) fn provide_public_using_scopes(db: &QueryDb<CompilerContext>) -> PublicUsingScopesValue {
     time_provider(db.context().timings(), "public_using_scopes", || {
-        db.context().public_using_scopes()
+        db.context().public_using_scopes().as_ref().clone()
     })
 }
 
@@ -128,8 +128,8 @@ pub(super) fn provide_module_using_scope(
 pub(super) fn provide_type_exposure_index(db: &QueryDb<CompilerContext>) -> TypeExposureIndexValue {
     time_provider(db.context().timings(), "type_exposure_index", || {
         let defs = shared_defs_by_module(db);
-        let public_surfaces = db.query(PublicSurfacesQuery);
-        let public_using_scopes = db.query(PublicUsingScopesQuery);
+        let public_surfaces = db.get(PublicSurfacesQuery);
+        let public_using_scopes = db.get(PublicUsingScopesQuery);
         Arc::new(TypeExposureIndex::from_defs_surfaces_and_using_scopes(
             &defs,
             &public_surfaces.surfaces,
