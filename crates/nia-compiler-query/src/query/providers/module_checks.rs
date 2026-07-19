@@ -114,7 +114,7 @@ pub(super) fn provide_static_check(
             const_eval: &const_eval,
             program_defs: &program_defs,
             program_const: &program_const_values,
-            target: &db.query(CompilerTargetQuery),
+            target: db.get(CompilerTargetQuery).as_ref(),
         },
     )
 }

@@ -72,19 +72,28 @@ impl<'a> QueryPublicSurfaceLookup<'a> {
 
 impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
     fn public_surface(&self, module_id: ModuleId) -> Option<Arc<ModulePublicSurface>> {
-        self.db.query(ModulePublicSurfaceQuery(module_id))
+        self.db
+            .get(ModulePublicSurfaceQuery(module_id))
+            .as_ref()
+            .clone()
     }
 
     fn public_module(&self, module_id: ModuleId, name: &SymbolId) -> Option<ModuleId> {
-        self.db.query(PublicSurfaceModuleQuery(module_id, *name))
+        *self.db.get(PublicSurfaceModuleQuery(module_id, *name))
     }
 
     fn public_value(&self, module_id: ModuleId, name: &SymbolId) -> Option<nia_defs::PublicItem> {
-        self.db.query(PublicSurfaceValueQuery(module_id, *name))
+        self.db
+            .get(PublicSurfaceValueQuery(module_id, *name))
+            .as_ref()
+            .clone()
     }
 
     fn public_type(&self, module_id: ModuleId, name: &SymbolId) -> Option<nia_defs::PublicItem> {
-        self.db.query(PublicSurfaceTypeQuery(module_id, *name))
+        self.db
+            .get(PublicSurfaceTypeQuery(module_id, *name))
+            .as_ref()
+            .clone()
     }
 }
 
@@ -101,20 +110,27 @@ impl<'a> QueryUsingScopeLookup<'a> {
 
 impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
     fn using_module(&self, name: &SymbolId) -> Option<ModuleId> {
-        self.db.query(UsingScopeModuleQuery(self.module_id, *name))
+        *self.db.get(UsingScopeModuleQuery(self.module_id, *name))
     }
 
     fn using_value(&self, name: &SymbolId) -> Option<nia_defs::UsingEntry> {
-        self.db.query(UsingScopeValueQuery(self.module_id, *name))
+        self.db
+            .get(UsingScopeValueQuery(self.module_id, *name))
+            .as_ref()
+            .clone()
     }
 
     fn using_type(&self, name: &SymbolId) -> Option<nia_defs::UsingEntry> {
-        self.db.query(UsingScopeTypeQuery(self.module_id, *name))
+        self.db
+            .get(UsingScopeTypeQuery(self.module_id, *name))
+            .as_ref()
+            .clone()
     }
 
     fn has_unresolved_using_name(&self, name: &SymbolId) -> bool {
-        self.db
-            .query(UsingScopeUnresolvedQuery(self.module_id, *name))
+        *self
+            .db
+            .get(UsingScopeUnresolvedQuery(self.module_id, *name))
     }
 }
 
@@ -131,24 +147,29 @@ impl<'a> QueryModuleGraphLookup<'a> {
 impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
     fn module(&self, module_id: ModuleId) -> Option<ModuleNodeRef<'_>> {
         self.db
-            .query(ModuleGraphNodeQuery(module_id))
+            .get(ModuleGraphNodeQuery(module_id))
+            .as_ref()
+            .clone()
             .map(ModuleNodeRef::Shared)
     }
 
     fn entry_module(&self) -> ModuleId {
-        self.db.query(ModuleGraphEntryQuery)
+        *self.db.get(ModuleGraphEntryQuery)
     }
 
     fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId> {
-        self.db.query(ModulePackageRootQuery(*package))
+        *self.db.get(ModulePackageRootQuery(*package))
     }
 
     fn module_path(&self, module_id: ModuleId) -> Option<nia_imports::ModulePath> {
-        self.db.query(ModuleGraphPathQuery(module_id))
+        self.db
+            .get(ModuleGraphPathQuery(module_id))
+            .as_ref()
+            .clone()
     }
 
     fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
-        self.db.query(ModuleGraphParentQuery(module_id))
+        *self.db.get(ModuleGraphParentQuery(module_id))
     }
 
     fn child_declaration(
@@ -156,7 +177,7 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
         module_id: ModuleId,
         name: &SymbolId,
     ) -> Option<(ModuleId, nia_ids::Visibility)> {
-        self.db.query(ModuleGraphChildQuery(module_id, *name))
+        *self.db.get(ModuleGraphChildQuery(module_id, *name))
     }
 }
 

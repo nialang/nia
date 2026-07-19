@@ -295,8 +295,8 @@ pub(super) fn full_body_check_resolution_inputs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> BodyCheckResolutionInputs {
-    let source_version = db.query(ModuleSourceVersionQuery(module_id));
-    let origins = db.query(ModuleOriginsQuery(module_id));
+    let source_version = *db.get(ModuleSourceVersionQuery(module_id));
+    let origins = db.get(ModuleOriginsQuery(module_id));
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.get(FullModuleDefsQuery(module_id));
     let type_resolution = db.get(TypeResolutionQuery(module_id));

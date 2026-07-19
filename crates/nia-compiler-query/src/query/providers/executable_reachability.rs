@@ -44,7 +44,7 @@ pub(in crate::query) fn provide_executable_checked_modules(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<Arc<CheckedModule>> {
     time_provider(db.context().timings(), "executable_checked_modules", || {
-        let set = db.query(ExecutableCheckedModuleSetQuery);
+        let set = db.get(ExecutableCheckedModuleSetQuery);
         db.context().executable_checked_modules(&set)
     })
 }
@@ -241,8 +241,8 @@ fn executable_check(
     db: &QueryDb<CompilerContext>,
     product: ExecutableCheckProduct,
 ) -> ExecutableCheckOutput {
-    let parse_ok = db.query(SemanticModuleIdsQuery);
-    let (entry_module, runtime_root_modules) = db.query(ExecutableRootModulesQuery);
+    let parse_ok = db.get(SemanticModuleIdsQuery);
+    let (entry_module, runtime_root_modules) = db.get(ExecutableRootModulesQuery).as_ref().clone();
     let ExecutableFactSession {
         mut modules,
         reachability,
@@ -555,7 +555,7 @@ fn executable_check(
                 .reachability_mut()
                 .insert_functions(checked_this_round.iter().copied());
             let new_globals_len = module_globals.len();
-            let module_path = db.query(ModulePathQuery(module_id));
+            let module_path = db.get(ModulePathQuery(module_id));
             time_module_provider(
                 db,
                 "executable_checked_modules.fact_merge",
@@ -855,7 +855,8 @@ fn executable_module_body_demands(
     executable_reachable_body_modules(db, reachability_by_module)
         .into_iter()
         .map(|module_id| {
-            let module_path = db.query(ModulePathQuery(module_id));
+            let module_path = db.get(ModulePathQuery(module_id));
+            let module_path = module_path.as_ref().clone();
             crate::ProviderDemand {
                 source_path: module_path.clone(),
                 request: crate::ProviderRequest::ModuleBody { module_path },
@@ -870,7 +871,7 @@ fn executable_root_defs(
     runtime_root_modules: &[ModuleId],
     parse_ok: &[ModuleId],
 ) -> (Vec<GlobalDefId>, Vec<GlobalDefId>) {
-    match db.query(CompilerRuntimeQuery) {
+    match *db.get(CompilerRuntimeQuery) {
         RuntimeModel::Bare => {
             let defs = db.get(FullModuleDefsQuery(entry));
             let mut functions = Vec::new();

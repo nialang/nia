@@ -64,13 +64,19 @@ pub(super) fn monomorphization_for_checked_modules(
 pub(super) fn checked_modules_for_codegen(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<Arc<CheckedModule>> {
-    materialize_executable_checked_modules(db, db.query(ExecutableCheckedModuleSetQuery))
+    materialize_executable_checked_modules(
+        db,
+        db.get(ExecutableCheckedModuleSetQuery).as_ref().clone(),
+    )
 }
 
 pub(super) fn checked_modules_for_diagnostics(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<Arc<CheckedModule>> {
-    materialize_executable_checked_modules(db, db.query(ExecutableCheckedModuleSetQuery))
+    materialize_executable_checked_modules(
+        db,
+        db.get(ExecutableCheckedModuleSetQuery).as_ref().clone(),
+    )
 }
 
 pub(super) fn materialize_checked_modules(
@@ -238,7 +244,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 .into_iter()
                 .map(|program_diagnostic| program_diagnostic.diagnostic)
                 .collect(),
-            ..empty_backend_lowering(db.query(CompilerOptimizationQuery))
+            ..empty_backend_lowering(*db.get(CompilerOptimizationQuery))
         };
     }
     let indexes = time_provider(db.context().timings(), "backend_lowering.indexes", || {
@@ -265,7 +271,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             build_backend_lowering_module_inputs(BackendLoweringModuleInputsInput {
                 symbols: &symbols,
                 checked_modules,
-                runtime: db.query(CompilerRuntimeQuery),
+                runtime: *db.get(CompilerRuntimeQuery),
                 active_item_trees: &active_item_trees,
                 item_signatures: &item_signatures,
                 const_array_lengths: &const_array_lengths,
@@ -287,7 +293,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 &inputs,
                 &db.context().type_store,
                 monomorphization,
-                db.query(CompilerOptimizationQuery),
+                *db.get(CompilerOptimizationQuery),
                 db.context().timings(),
             )
         },
@@ -295,13 +301,13 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
 }
 
 pub(super) fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
-    let mut diagnostics = db.query(ProgramLoadDiagnosticsQuery);
-    for module_id in db.query(LoadedModulesQuery) {
-        let parse_errors = db.query(ModuleParseErrorsQuery(module_id));
-        let path = db.query(ModulePathQuery(module_id));
-        for error in &parse_errors {
+    let mut diagnostics = db.get(ProgramLoadDiagnosticsQuery).as_ref().clone();
+    for module_id in db.get(LoadedModulesQuery).iter().copied() {
+        let parse_errors = db.get(ModuleParseErrorsQuery(module_id));
+        let path = db.get(ModulePathQuery(module_id));
+        for error in parse_errors.iter() {
             diagnostics.push(ProgramDiagnostic {
-                path: path.clone(),
+                path: path.as_ref().clone(),
                 diagnostic: Diagnostic::user_error_at(
                     codes::PARSE,
                     error.span,
@@ -318,7 +324,7 @@ pub(super) fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<Pr
         .chain(public_using_scopes.diagnostics.iter())
     {
         diagnostics.push(ProgramDiagnostic {
-            path: db.query(ModulePathQuery(*module_id)),
+            path: db.get(ModulePathQuery(*module_id)).as_ref().clone(),
             diagnostic: diagnostic.clone(),
         });
     }
