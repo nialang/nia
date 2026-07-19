@@ -216,8 +216,9 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
         let source = db.get(SourceTextQuery(self.0.id));
         let syntax = db.get(SyntaxModuleQuery(self.0));
         let (raw_module, parse_errors, origins) =
-            nia_parser::parse_module_syntax_with_origins_and_symbols(
+            nia_parser::parse_module_syntax_with_node_store_and_symbols(
                 &syntax,
+                &db.context().node_store,
                 db.context().symbols.clone(),
             );
         let item_tree = ModuleItemTree::from_module(&raw_module);

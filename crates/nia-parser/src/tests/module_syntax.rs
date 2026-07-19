@@ -108,7 +108,7 @@ fn main(a: i32) i32 {
         .and_then(|body| body.tail.as_ref())
         .expect("tail expression");
     let key = origins
-        .get(SyntaxKind::Expr, expr.span)
+        .locator(SyntaxKind::Expr, expr.span)
         .expect("tail expr origin");
 
     assert_eq!(key.source_version(), version);

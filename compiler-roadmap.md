@@ -6,7 +6,7 @@
 >
 > 结论强度标记：**确认**表示可直接由当前源码或实测得到；**推断**表示有明确结构证据、但仍需专项 profiling 验证比例；**建议**表示目标架构判断
 
-## 当前执行状态（2026-07-18）
+## 当前执行状态（2026-07-19）
 
 本文件使用 `compiler-roadmap.md`，而不是 `plan.md` 或 `task.md`：它同时包含长期架构审查、目标模型、阶段路线图和滚动验证记录，不是一次维护任务，也不是执行完即可删除的短期计划。
 
@@ -14,19 +14,20 @@
 
 | 阶段 | 当前估算 | 判断 |
 |---|---:|---|
-| A 基线与防回归 | 约 80% | 六 workload、machine-readable 指标、allocator/query/LLVM counters 与同机 guard 已完成；可运行 LLVM suite 的 CI 和 main-branch trend storage 未完成。 |
+| A 基线与防回归 | 约 80% | 六 workload、machine-readable 指标、allocator/query/LLVM counters 与同机 guard 已完成；可运行 LLVM suite 的 CI 和 main-branch trend storage 未完成，但不阻塞当前进程内 identity/query/fact graph 临界路径。 |
 | B semantic context / 类型身份 | 100% | session-wide canonical `TypeStore`、全 pass canonical read/append、显式 roots、跨 revision slot 稳定与跨 session 隔离已完成；module view/log、origin、snapshot/checkout、recursive import 和旧 identity 类型均已删除。 |
-| C query value/storage | 约 96% | cache-owned `get/try_get/get_many` 与无 `Value: Clone` 已建立，所有 query 产品族和 public DTO/error 边界均收敛到唯一共享 API，全部 owned runtime adapter 已删除；剩余 declarative registry 与 aggregate→item storage policy 尚未完成。 |
+| C query value/storage | 100% | cache-owned `get/try_get/get_many`、无 `Value: Clone`、declarative registry 与 aggregate storage policy 已完成，owned runtime adapter 全部删除。 |
+| C 后 ID/arena 专项 | 约 25% | query dep-node arena 与 loader source handle 已完成；session node store 已接入 parser/origin 产品，semantic side table、module/item/executable/work-product identity 尚未迁移。 |
 | D 统一依赖图 | 约 5% | 已有 typed query 和若干 fact index，但 loader/compiler/driver/reachability 仍未共享一个 revisioned fact graph，`module_graph_state` 与多层 fixed point 尚在。 |
-| E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；`query_many` 仍创建临时 OS 线程，`NIA_QUERY_THREADS`、持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
+| E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；legacy `query_many` 已删除，但 `get_many` 仍创建临时 scoped worker，持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
 | F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
 | G CGU / 异步 codegen / work products | 约 5% | 已有多 object 输出和 reuse 指标占位，但没有正式 CGU partition、codegen queue、frontend/LLVM overlap、CGU fingerprint 或 object work-product cache。 |
 | H 持久 frontend incremental | 约 0–5% | 只有局部 artifact cache 和进程内 query 复用，不具备 stable module/def key、序列化 dep graph 与持久 frontend product。 |
 | I 错误、诊断与工程重组 | 约 10% | 已删除一批旧 API 并强化部分诊断边界；panic-based query flow、diagnostic store、data-driven harness、测试 permit 和 crate/巨型文件重组均未系统推进。 |
 
-综合判断：**Phase B 已完成，但整份路线图只完成约 30%；A–E 的 P0 基础约完成 40%。** 当前投入看起来集中且进展很大，是因为完成的主要是最先阻塞后续工作的类型身份主线；C、D、E 以及 F–H 仍是独立的大型工程，不能按 Phase B 的提交密度外推为“路线图已过半”。
+综合判断：**整份路线图按剩余工程复杂度加权约完成 35%，合理区间为 33%–38%；A–E 的 P0 基础约完成 50%–55%。** 已完成的是最先阻塞后续工作的 type identity 与 query storage 主线；统一 fact graph、executor、item/CGU 粒度和持久增量仍是独立的大型工程，不能按提交数量外推为“路线图已过半”。
 
-最近的临界路径是继续把 compiler-query 的 owned `query` 调用按产品链迁到唯一 `get` 入口，并删除 owned output adapter；在此之前不应提前扩张持久增量或 CGU cache。
+最近的临界路径是完成 ID-1 的 syntax/semantic node identity，再推进 ID-2 module identity 与 graph snapshot，为 Phase D 的统一 revisioned fact graph 建立唯一 local/stable identity 层；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
 
 ## 1. 范围、版本与方法
 
@@ -1133,6 +1134,8 @@ Acceptance：所有调用点使用同一查询入口；cache hit 不深拷贝；
 进展（2026-07-19）：ID-1a 的 session node identity owner 已建立。`nia-node-id` 新增带独立 `NodeStoreId` owner 的 8-byte `NodeId { store_id, index }`，append-only `NodeStore` 只在 canonical locator table 中保存一份 `VersionedNodeKey`，写 capability 通过 `NodeStoreAppend` 显式分离；同 locator 重复 intern 返回同一 handle，不同 source revision 分配不同且永不改义的 slot，跨 store handle 在解析时被拒绝。`VersionedNodeKey` 继续作为诊断、持久化和跨 session 的结构 locator，没有被无 owner 的裸整数替代。尺寸、canonicalization、revision stability 与 foreign-owner 回归已覆盖。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-node-id 9、compiler-query 117、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 233.58 秒完成，全部 doc tests 通过。下一切片把 loader 的 source text、parse、syntax、declaration/provider/facade 热查询键从 owned `SourcePath` 收敛到 `SourceId` / `SourceVersion`，之后再让 AST/semantic side table 原子采用 `NodeId`。
 
 进展（2026-07-19）：ID-1b 的 loader source identity 迁移已完成。`SourceTable` 现在同时维护 path → id 与 id → canonical `Arc<SourcePath>`，缺失文件也会在读取前获得同一 session source handle；路径只在发现、文件系统、DTO 与诊断边界解析。`SourceTextQuery` / `LoadedModuleQuery` 改为 4-byte `SourceId` key，parse、syntax、declaration、provider summary 与 facade facts 五类 revisioned query 改为 16-byte `SourceVersion` key，七类热查询声明均不再拥有 path string；path helper 改为借用，graph/provider 热路径不再为了构造 key 深 clone `SourcePath`。`set_source` 与 public invalidation 统一失效 `SourceTextQuery(SourceId)`，missing-file 诊断、source-dependent transitive invalidation 和 query trace 依赖保持精确。尺寸回归锁定全部 key，reverse lookup、unknown id 与 graph 外 source 输入均有回归。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-loader-query 38、nia-source 8、compiler-query 117、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 232.51 秒完成，全部 doc tests 通过。下一切片把 session `NodeStore` 接入 source/syntax ownership，并从 `NodeOriginTable` 与 item-tree/semantic side table 开始原子迁移 `VersionedNodeKey`；在 owner capability 接入前不扩散裸 `NodeId`。
+
+进展（2026-07-19）：ID-1c 已把 session node owner 接入 loader/parser origin 链。每个 `LoaderContext` 现在持有唯一 append-only `NodeStore`，所有 revisioned parse query 都把 AST locator intern 到该 store；`NodeOriginTable` 的 hot map value 从拥有 child-path/range 的 `VersionedNodeKey` 改为 8-byte `NodeId`，结构 locator 只通过显式 `locator` 边界 materialize。构建期写权限隔离在 `NodeOriginTableBuilder`，cache/public query product 只保留 read-only store 与 ID map；跨 store table equality 仍按 locator 语义比较，避免测试/独立 parser session 因 local handle 不同产生伪变更。增量回归验证 source 更新后新 revision 分配新 handle、两版 origin 属于同一 loader store且旧 slot locator 永不改义。roadmap 顶部状态同时刷新：Phase C 已关闭，总体约 35%，Phase A 剩余 CI/trend storage 明确不阻塞当前 identity/fact-graph 临界路径。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-node-id 10、parser 85、loader-query 38、compiler-query 117、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 233.67 秒完成，全部 doc tests 通过。下一切片应让 item-tree 顶层 node 与 definition/origin lookup 共享同一 `NodeId`，再以该 owner capability 原子迁移第一组 semantic side tables；不能在 AST/item-tree/defs 三者之间保留永久双轨。
 
 ### 阶段 D（P0）：统一模块/provider 依赖
 
