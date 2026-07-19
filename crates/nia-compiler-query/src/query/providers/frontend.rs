@@ -72,8 +72,11 @@ pub(super) fn provide_module_defs(
 ) -> DefCollection {
     let item_tree = db.get(ActiveModuleItemTreeQuery(module_id));
     let symbols = db.context().symbols();
-    nia_defs::collect_module_defs_from_active_item_tree_with_symbols(
-        module_id, &item_tree, &symbols,
+    nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
+        module_id,
+        &item_tree,
+        db.context().node_store(),
+        &symbols,
     )
 }
 
@@ -83,8 +86,11 @@ pub(super) fn provide_full_module_defs(
 ) -> DefCollection {
     let item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
     let symbols = db.context().symbols();
-    nia_defs::collect_module_defs_from_active_item_tree_with_symbols(
-        module_id, &item_tree, &symbols,
+    nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
+        module_id,
+        &item_tree,
+        db.context().node_store(),
+        &symbols,
     )
 }
 

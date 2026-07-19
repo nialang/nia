@@ -611,6 +611,13 @@ fn compiler_database_with_providers(
 ) -> CompilerDatabase {
     let timings = request.timings;
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
+    let node_store = inputs
+        .read()
+        .expect("compiler input lock poisoned")
+        .modules
+        .first()
+        .map(|module| module.origins.node_store().clone())
+        .unwrap_or_default();
     let executable_checked_modules = Arc::new(RwLock::new(ExecutableCheckedModuleStore::default()));
     let executable_fact_session = Arc::new(std::sync::Mutex::new(ExecutableFactSession::default()));
     let type_store = Arc::new(nia_ty::TypeStore::new());
@@ -621,6 +628,7 @@ fn compiler_database_with_providers(
             executable_checked_modules,
             executable_fact_session,
             type_store,
+            node_store,
         },
         timings,
         compiler_query_registry(),
@@ -701,6 +709,7 @@ struct CompilerContext {
     executable_checked_modules: Arc<RwLock<ExecutableCheckedModuleStore>>,
     executable_fact_session: Arc<std::sync::Mutex<ExecutableFactSession>>,
     type_store: Arc<nia_ty::TypeStore>,
+    node_store: nia_node_id::NodeStore,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -806,9 +815,10 @@ impl CompilerInputs {
             .iter()
             .filter(|module| module.parse_errors.is_empty())
             .map(|module| {
-                nia_defs::collect_module_defs_from_active_item_tree_with_symbols(
+                nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
                     module.id,
                     &module.active_item_tree,
+                    module.origins.node_store(),
                     &symbols,
                 )
             })
@@ -946,6 +956,10 @@ fn validate_loaded_module_identities(loaded: &LoadedProgram) {
 impl CompilerContext {
     fn type_store(&self) -> &nia_ty::TypeStore {
         &self.type_store
+    }
+
+    fn node_store(&self) -> &nia_node_id::NodeStore {
+        &self.node_store
     }
 
     fn take_executable_fact_session(&self) -> ExecutableFactSession {
@@ -2404,6 +2418,13 @@ mod tests {
         let inputs = Arc::new(RwLock::new(CompilerInputs::new(CompileRequest::new(
             loaded,
         ))));
+        let node_store = inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .modules
+            .first()
+            .map(|module| module.origins.node_store().clone())
+            .unwrap_or_default();
         QueryDb::new_registered(
             CompilerContext {
                 inputs,
@@ -2415,6 +2436,7 @@ mod tests {
                     ExecutableFactSession::default(),
                 )),
                 type_store: Arc::new(nia_ty::TypeStore::new()),
+                node_store,
             },
             compiler_query_registry(),
         )
@@ -4333,11 +4355,25 @@ extend Value : Ops {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.get(ModuleDefsQuery(ModuleId(0)));
+        let defs = db.get(ModuleDefsQuery(ModuleId(0)));
+        let item_tree = db.get(ActiveModuleItemTreeQuery(ModuleId(0)));
+        let item_node_key = &item_tree.items[0].node_key;
+        let item_node_id = defs
+            .def_nodes
+            .node_id(item_node_key)
+            .expect("definition node id");
         let trace = db.query_trace();
 
+        assert_eq!(defs.def_nodes.store_id(), db.context().node_store.id());
+        assert_eq!(
+            db.context().node_store.locator(item_node_id),
+            Some(item_node_key.clone())
+        );
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "module_defs" && dependency.to.name == "active_module_item_tree"
+        }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "module_defs" && dependency.to.name == "module_origins"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "active_module_item_tree"

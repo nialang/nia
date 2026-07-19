@@ -14,7 +14,7 @@ use nia_ast::{
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::{DefId, ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::VersionedNodeKey;
+use nia_node_id::{NodeId, NodeStore, NodeStoreAppend, NodeStoreId, VersionedNodeKey};
 use nia_span::Span;
 use nia_symbol::{
     SymbolId, SymbolMap, SymbolText, symbol_identity_key, symbol_text_from_optional_resolver,
@@ -145,6 +145,16 @@ pub fn collect_module_defs_from_item_tree_with_symbols(
     Collector::new_with_symbols(module_id, Some(symbols)).collect(&item_tree.items)
 }
 
+pub fn collect_module_defs_from_item_tree_with_node_store_and_symbols(
+    module_id: ModuleId,
+    item_tree: &ModuleItemTree,
+    node_store: &NodeStore,
+    symbols: &dyn SymbolText,
+) -> DefCollection {
+    Collector::new_with_node_store_and_symbols(module_id, node_store, Some(symbols))
+        .collect(&item_tree.items)
+}
+
 pub fn collect_module_defs_from_active_item_tree(
     module_id: ModuleId,
     item_tree: &ActiveModuleItemTree,
@@ -158,6 +168,16 @@ pub fn collect_module_defs_from_active_item_tree_with_symbols(
     symbols: &dyn SymbolText,
 ) -> DefCollection {
     Collector::new_with_symbols(module_id, Some(symbols)).collect(&item_tree.items)
+}
+
+pub fn collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
+    module_id: ModuleId,
+    item_tree: &ActiveModuleItemTree,
+    node_store: &NodeStore,
+    symbols: &dyn SymbolText,
+) -> DefCollection {
+    Collector::new_with_node_store_and_symbols(module_id, node_store, Some(symbols))
+        .collect(&item_tree.items)
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -549,24 +569,94 @@ pub struct DefScopes {
     pub enum_members: HashMap<DefId, EnumScope>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone)]
 pub struct DefNodeMap {
-    nodes: HashMap<VersionedNodeKey, DefId>,
+    store: NodeStore,
+    nodes: HashMap<NodeId, DefId>,
 }
+
+#[derive(Debug)]
+struct DefNodeMapBuilder {
+    store: NodeStore,
+    append: NodeStoreAppend,
+    nodes: HashMap<NodeId, DefId>,
+}
+
+impl Default for DefNodeMap {
+    fn default() -> Self {
+        Self {
+            store: NodeStore::new(),
+            nodes: HashMap::new(),
+        }
+    }
+}
+
+impl PartialEq for DefNodeMap {
+    fn eq(&self, other: &Self) -> bool {
+        if self.store.id() == other.store.id() {
+            return self.nodes == other.nodes;
+        }
+        self.nodes.len() == other.nodes.len()
+            && self.nodes.iter().all(|(node_id, def_id)| {
+                self.store.locator(*node_id).is_some_and(|locator| {
+                    other
+                        .store
+                        .id_for_locator(&locator)
+                        .and_then(|other_id| other.nodes.get(&other_id))
+                        == Some(def_id)
+                })
+            })
+    }
+}
+
+impl Eq for DefNodeMap {}
 
 impl DefNodeMap {
     pub fn get(&self, node_key: &VersionedNodeKey) -> Option<DefId> {
-        self.nodes.get(node_key).copied()
+        self.node_id(node_key)
+            .and_then(|node_id| self.nodes.get(&node_id).copied())
     }
 
-    pub fn entries(&self) -> impl Iterator<Item = (&VersionedNodeKey, DefId)> + '_ {
-        self.nodes
-            .iter()
-            .map(|(node_key, def_id)| (node_key, *def_id))
+    pub fn node_id(&self, node_key: &VersionedNodeKey) -> Option<NodeId> {
+        self.store
+            .id_for_locator(node_key)
+            .filter(|node_id| self.nodes.contains_key(node_id))
+    }
+
+    pub fn store_id(&self) -> NodeStoreId {
+        self.store.id()
+    }
+
+    pub fn entries(&self) -> impl Iterator<Item = (VersionedNodeKey, DefId)> + '_ {
+        self.nodes.iter().map(|(node_id, def_id)| {
+            (
+                self.store
+                    .locator(*node_id)
+                    .expect("definition node id belongs to its node store"),
+                *def_id,
+            )
+        })
+    }
+}
+
+impl DefNodeMapBuilder {
+    fn new(store: &NodeStore) -> Self {
+        Self {
+            store: store.clone(),
+            append: store.append(),
+            nodes: HashMap::new(),
+        }
     }
 
     fn insert(&mut self, node_key: VersionedNodeKey, def_id: DefId) {
-        self.nodes.insert(node_key, def_id);
+        self.nodes.insert(self.append.intern(node_key), def_id);
+    }
+
+    fn finish(self) -> DefNodeMap {
+        DefNodeMap {
+            store: self.store,
+            nodes: self.nodes,
+        }
     }
 }
 
@@ -594,7 +684,7 @@ struct Collector<'a> {
     struct_members: HashMap<DefId, MemberScope>,
     union_members: HashMap<DefId, MemberScope>,
     enum_members: HashMap<DefId, EnumScope>,
-    def_nodes: DefNodeMap,
+    def_nodes: DefNodeMapBuilder,
     module_usings: Vec<ModuleUsing>,
     diagnostics: Vec<Diagnostic>,
     duplicate_identities: HashMap<DefIdentity, u32>,
@@ -606,6 +696,14 @@ impl<'a> Collector<'a> {
     }
 
     fn new_with_symbols(module_id: ModuleId, symbols: Option<&'a dyn SymbolText>) -> Self {
+        Self::new_with_node_store_and_symbols(module_id, &NodeStore::new(), symbols)
+    }
+
+    fn new_with_node_store_and_symbols(
+        module_id: ModuleId,
+        node_store: &NodeStore,
+        symbols: Option<&'a dyn SymbolText>,
+    ) -> Self {
         Self {
             module_id,
             symbols,
@@ -614,7 +712,7 @@ impl<'a> Collector<'a> {
             struct_members: HashMap::new(),
             union_members: HashMap::new(),
             enum_members: HashMap::new(),
-            def_nodes: DefNodeMap::default(),
+            def_nodes: DefNodeMapBuilder::new(node_store),
             module_usings: Vec::new(),
             diagnostics: Vec::new(),
             duplicate_identities: HashMap::new(),
@@ -638,7 +736,7 @@ impl<'a> Collector<'a> {
                 union_members: self.union_members,
                 enum_members: self.enum_members,
             },
-            def_nodes: self.def_nodes,
+            def_nodes: self.def_nodes.finish(),
             module_usings: self.module_usings,
             diagnostics: self.diagnostics,
         }

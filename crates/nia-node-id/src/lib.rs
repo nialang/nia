@@ -201,6 +201,19 @@ impl NodeStore {
             .cloned()
     }
 
+    pub fn id_for_locator(&self, locator: &VersionedNodeKey) -> Option<NodeId> {
+        self.core
+            .lock()
+            .expect("node store lock poisoned")
+            .by_locator
+            .get(locator)
+            .copied()
+            .map(|index| NodeId {
+                store_id: self.id,
+                index,
+            })
+    }
+
     pub fn len(&self) -> usize {
         self.core
             .lock()
@@ -296,6 +309,10 @@ impl NodeOriginTable {
 
     pub fn store_id(&self) -> NodeStoreId {
         self.store.id()
+    }
+
+    pub fn node_store(&self) -> &NodeStore {
+        &self.store
     }
 
     pub fn is_empty(&self) -> bool {
