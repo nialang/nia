@@ -4,14 +4,14 @@ use std::{
     cell::RefCell,
     collections::VecDeque,
     fmt::{self, Debug},
-    hash::{Hash, Hasher},
+    hash::Hash,
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU32, AtomicUsize, Ordering},
     },
 };
 
-use nia_hash::{FastHashMap, FastHashSet, FastHasher};
+use nia_hash::{FastHashMap, FastHashSet};
 
 const DEFAULT_MAX_QUERY_MANY_THREADS: usize = 4;
 const QUERY_THREADS_ENV: &str = "NIA_QUERY_THREADS";
@@ -123,19 +123,80 @@ pub struct QueryDb<C> {
 }
 
 struct QueryDbInner<C> {
+    id: QueryDbId,
     context: C,
     timings: nia_timing::TimingMode,
     registry: Option<QueryRegistry>,
     caches: Mutex<FastHashMap<TypeId, Box<dyn Any + Send + Sync>>>,
-    slots: Mutex<FastHashMap<QueryFrameIdentity, Arc<dyn ErasedQuerySlot>>>,
+    slots: Mutex<QuerySlotTable>,
     dependencies: Mutex<QueryDependencyGraph>,
 }
 
 struct QuerySlot<V> {
-    identity: QueryFrameIdentity,
+    node_id: QueryNodeId,
     stats: QuerySlotStats,
     state: Mutex<QueryState<V>>,
     ready: Condvar,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct QueryDbId(u32);
+
+impl QueryDbId {
+    fn fresh() -> Self {
+        static NEXT_QUERY_DB_ID: AtomicU32 = AtomicU32::new(1);
+        let id = NEXT_QUERY_DB_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .expect("query database identity space exhausted");
+        Self(id)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct QueryNodeId {
+    db_id: QueryDbId,
+    index: u32,
+}
+
+#[derive(Default)]
+struct QuerySlotTable {
+    entries: Vec<QuerySlotRecord>,
+}
+
+struct QuerySlotRecord {
+    identity: QuerySlotIdentity,
+    slot: Arc<dyn ErasedQuerySlot>,
+}
+
+impl QuerySlotTable {
+    fn next_id(&self, db_id: QueryDbId) -> QueryNodeId {
+        let index = u32::try_from(self.entries.len()).expect("query node identity space exhausted");
+        QueryNodeId { db_id, index }
+    }
+
+    fn push(
+        &mut self,
+        node_id: QueryNodeId,
+        identity: QuerySlotIdentity,
+        slot: Arc<dyn ErasedQuerySlot>,
+    ) {
+        assert_eq!(node_id.index as usize, self.entries.len());
+        self.entries.push(QuerySlotRecord { identity, slot });
+    }
+
+    fn get(&self, db_id: QueryDbId, node_id: QueryNodeId) -> Option<&QuerySlotRecord> {
+        if node_id.db_id != db_id {
+            return None;
+        }
+        self.entries.get(node_id.index as usize)
+    }
+
+    fn frame(&self, db_id: QueryDbId, node_id: QueryNodeId) -> QueryFrame {
+        self.get(db_id, node_id)
+            .expect("query node id must reference a registered slot")
+            .identity
+            .frame()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -219,51 +280,19 @@ pub struct QueryInvalidation {
     pub invalidated: Vec<QueryFrame>,
 }
 
-#[derive(Clone)]
-struct QueryFrameIdentity {
-    type_id: TypeId,
-    name: &'static str,
-    key_hash: u64,
+struct QuerySlotIdentity {
     key: Arc<dyn ErasedQueryKey>,
     make_frame: fn(&dyn ErasedQueryKey) -> QueryFrame,
 }
 
-impl Debug for QueryFrameIdentity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("QueryFrameIdentity")
-            .field("name", &self.name)
-            .field("type_id", &self.type_id)
-            .field("key_hash", &self.key_hash)
-            .finish()
-    }
-}
-
-impl QueryFrameIdentity {
+impl QuerySlotIdentity {
     fn frame(&self) -> QueryFrame {
         (self.make_frame)(self.key.as_ref())
     }
 }
 
-impl PartialEq for QueryFrameIdentity {
-    fn eq(&self, other: &Self) -> bool {
-        self.type_id == other.type_id
-            && self.key_hash == other.key_hash
-            && self.key.eq_key(other.key.as_ref())
-    }
-}
-
-impl Eq for QueryFrameIdentity {}
-
-impl Hash for QueryFrameIdentity {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.type_id.hash(state);
-        self.key_hash.hash(state);
-    }
-}
-
 trait ErasedQueryKey: Send + Sync {
     fn as_any(&self) -> &dyn Any;
-    fn eq_key(&self, other: &dyn ErasedQueryKey) -> bool;
 }
 
 impl<K> ErasedQueryKey for K
@@ -273,16 +302,12 @@ where
     fn as_any(&self) -> &dyn Any {
         self
     }
-
-    fn eq_key(&self, other: &dyn ErasedQueryKey) -> bool {
-        other.as_any().downcast_ref::<K>() == Some(self)
-    }
 }
 
 #[derive(Debug, Default)]
 struct QueryDependencyGraph {
-    forward: FastHashMap<QueryFrameIdentity, FastHashSet<QueryFrameIdentity>>,
-    reverse: FastHashMap<QueryFrameIdentity, FastHashSet<QueryFrameIdentity>>,
+    forward: FastHashMap<QueryNodeId, FastHashSet<QueryNodeId>>,
+    reverse: FastHashMap<QueryNodeId, FastHashSet<QueryNodeId>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -337,8 +362,8 @@ pub struct QueryTraceQuery {
 
 #[derive(Debug, Clone)]
 struct QueryStackEntry {
-    identity: QueryFrameIdentity,
-    dependencies: FastHashSet<QueryFrameIdentity>,
+    node_id: QueryNodeId,
+    dependencies: FastHashSet<QueryNodeId>,
 }
 
 struct QueryStackGuard {
@@ -381,11 +406,12 @@ impl<C> QueryDb<C> {
     ) -> Self {
         Self {
             inner: Arc::new(QueryDbInner {
+                id: QueryDbId::fresh(),
                 context,
                 timings,
                 registry,
                 caches: Mutex::new(FastHashMap::default()),
-                slots: Mutex::new(FastHashMap::default()),
+                slots: Mutex::new(QuerySlotTable::default()),
                 dependencies: Mutex::new(QueryDependencyGraph::default()),
             }),
         }
@@ -434,9 +460,9 @@ impl<C> QueryDb<C> {
     {
         let detail_timing = self.inner.timings.detail();
         let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key));
-        let identity = &slot.identity;
+        let node_id = slot.node_id;
         nia_timing::time_detail(detail_timing, "query.record_dependency", || {
-            record_dependency_on_current_stack(identity)
+            record_dependency_on_current_stack(node_id)
         });
         loop {
             let mut state = slot.state.lock().expect("query cache lock poisoned");
@@ -448,7 +474,7 @@ impl<C> QueryDb<C> {
                     return Ok(Arc::clone(value));
                 }
                 QueryState::Computing { .. } => {
-                    self.check_not_recursive_identity(identity)?;
+                    self.check_not_recursive_node(node_id)?;
                     nia_timing::time_detail(detail_timing, "query.record_wait", || {
                         slot.stats.record_wait()
                     });
@@ -462,9 +488,9 @@ impl<C> QueryDb<C> {
                     *state = QueryState::Computing { invalidated: false };
                     drop(state);
 
-                    self.clear_dependencies_from(identity);
+                    self.clear_dependencies_from(node_id);
                     let entry = QueryStackEntry {
-                        identity: identity.clone(),
+                        node_id,
                         dependencies: FastHashSet::default(),
                     };
                     let mut guard = self.enter_query(entry)?;
@@ -484,7 +510,7 @@ impl<C> QueryDb<C> {
                             // keeping them would make future invalidations report a query value
                             // that was never cached and can no longer be reused.
                             guard.discard();
-                            self.clear_dependencies_from(identity);
+                            self.clear_dependencies_from(node_id);
                             slot.ready.notify_all();
                             drop(state);
                             match payload.downcast::<QueryError>() {
@@ -505,10 +531,10 @@ impl<C> QueryDb<C> {
                         // running. Return it to the caller that did the work, but drop the cache
                         // entry and its edges so the next request recomputes against fresh inputs.
                         guard.discard();
-                        self.clear_dependencies_from(identity);
+                        self.clear_dependencies_from(node_id);
                     } else {
                         let dependencies = guard.take_dependencies();
-                        self.replace_dependencies_from(identity, dependencies);
+                        self.replace_dependencies_from(node_id, dependencies);
                         *state = QueryState::Ready(cached);
                     }
                     slot.ready.notify_all();
@@ -575,14 +601,19 @@ impl<C> QueryDb<C> {
     }
 
     pub fn query_trace(&self) -> QueryTrace {
+        let slots = self
+            .inner
+            .slots
+            .lock()
+            .expect("query cache slot lock poisoned");
         QueryTrace {
             dependencies: self
                 .inner
                 .dependencies
                 .lock()
                 .expect("query dependency lock poisoned")
-                .dependencies(),
-            queries: self.query_stats(),
+                .dependencies(self.inner.id, &slots),
+            queries: Self::query_stats(self.inner.id, &slots),
         }
     }
 
@@ -590,18 +621,26 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
-        let root = query_frame_identity::<C, K>(&key);
-        let invalidated = self.collect_invalidated_frames(root.clone());
+        let Some(root) = self.cached_slot(&key).map(|slot| slot.node_id) else {
+            return QueryInvalidation {
+                invalidated: vec![query_frame::<C, K>(&key)],
+            };
+        };
+        let invalidated = self.collect_invalidated_nodes(root);
         let slots = self
             .inner
             .slots
             .lock()
             .expect("query cache slot lock poisoned");
-        for identity in &invalidated {
-            if let Some(slot) = slots.get(identity) {
-                slot.invalidate();
+        for node_id in &invalidated {
+            if let Some(record) = slots.get(self.inner.id, *node_id) {
+                record.slot.invalidate();
             }
         }
+        let frames = invalidated
+            .iter()
+            .map(|node_id| slots.frame(self.inner.id, *node_id))
+            .collect::<Vec<_>>();
         drop(slots);
 
         let mut dependencies = self
@@ -609,12 +648,8 @@ impl<C> QueryDb<C> {
             .dependencies
             .lock()
             .expect("query dependency lock poisoned");
-        let frames = invalidated
-            .iter()
-            .map(QueryFrameIdentity::frame)
-            .collect::<Vec<_>>();
-        for identity in &invalidated {
-            dependencies.remove_dependencies_from(identity);
+        for node_id in &invalidated {
+            dependencies.remove_dependencies_from(*node_id);
         }
         QueryInvalidation {
             invalidated: frames,
@@ -633,71 +668,87 @@ impl<C> QueryDb<C> {
             .entry(TypeId::of::<K>())
             .or_insert_with(|| {
                 Box::new(Mutex::new(
-                    FastHashMap::<K, Arc<QuerySlot<K::Value>>>::default(),
+                    FastHashMap::<Arc<K>, Arc<QuerySlot<K::Value>>>::default(),
                 ))
             })
-            .downcast_ref::<Mutex<FastHashMap<K, Arc<QuerySlot<K::Value>>>>>()
+            .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
             .expect("query cache type mismatch");
         let mut cache = cache.lock().expect("query cache lock poisoned");
         if let Some(slot) = cache.get(key) {
             return slot.clone();
         }
-        let identity = query_frame_identity::<C, K>(key);
+        let key = Arc::new(key.clone());
+        let identity = query_slot_identity::<C, K>(Arc::clone(&key));
+        let mut slots = self
+            .inner
+            .slots
+            .lock()
+            .expect("query cache slot lock poisoned");
+        let node_id = slots.next_id(self.inner.id);
         let slot = Arc::new(QuerySlot {
-            identity: identity.clone(),
+            node_id,
             stats: QuerySlotStats::default(),
             state: Mutex::new(QueryState::Empty),
             ready: Condvar::new(),
         });
-        cache.insert(key.clone(), slot.clone());
-        self.inner
-            .slots
-            .lock()
-            .expect("query cache slot lock poisoned")
-            .insert(identity, slot.clone() as Arc<dyn ErasedQuerySlot>);
+        cache.insert(key, slot.clone());
+        slots.push(node_id, identity, slot.clone() as Arc<dyn ErasedQuerySlot>);
         slot
     }
 
+    fn cached_slot<K>(&self, key: &K) -> Option<Arc<QuerySlot<K::Value>>>
+    where
+        K: QueryKey<C>,
+    {
+        let caches = self.inner.caches.lock().expect("query cache lock poisoned");
+        let cache = caches
+            .get(&TypeId::of::<K>())?
+            .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
+            .expect("query cache type mismatch");
+        cache
+            .lock()
+            .expect("query cache lock poisoned")
+            .get(key)
+            .cloned()
+    }
+
     fn enter_query(&self, entry: QueryStackEntry) -> QueryResult<QueryStackGuard> {
-        self.check_not_recursive_identity(&entry.identity)?;
+        self.check_not_recursive_node(entry.node_id)?;
         QUERY_STACK.with(|stack| {
             stack.borrow_mut().push(entry);
         });
         Ok(QueryStackGuard { active: true })
     }
 
-    fn check_not_recursive_identity(&self, identity: &QueryFrameIdentity) -> QueryResult<()> {
+    fn check_not_recursive_node(&self, node_id: QueryNodeId) -> QueryResult<()> {
         QUERY_STACK.with(|stack| {
             let stack = stack.borrow();
-            if let Some(position) = stack.iter().position(|entry| &entry.identity == identity) {
+            if let Some(position) = stack.iter().position(|entry| entry.node_id == node_id) {
                 let mut cycle = stack[position..]
                     .iter()
-                    .map(|entry| entry.identity.frame())
+                    .map(|entry| self.frame(entry.node_id))
                     .collect::<Vec<_>>();
-                cycle.push(
-                    stack
-                        .iter()
-                        .find(|entry| &entry.identity == identity)
-                        .map(|entry| entry.identity.frame())
-                        .unwrap_or_else(|| identity.frame()),
-                );
+                cycle.push(self.frame(node_id));
                 return Err(QueryError::Cycle { cycle });
             }
             Ok(())
         })
     }
 
-    fn query_stats(&self) -> Vec<QueryTraceQuery> {
-        let slots = self
-            .inner
-            .slots
-            .lock()
-            .expect("query cache slot lock poisoned");
+    fn query_stats(db_id: QueryDbId, slots: &QuerySlotTable) -> Vec<QueryTraceQuery> {
         let mut queries = slots
+            .entries
             .iter()
-            .map(|(identity, slot)| QueryTraceQuery {
-                frame: identity.frame(),
-                stats: slot.stats(),
+            .enumerate()
+            .map(|(index, record)| QueryTraceQuery {
+                frame: slots.frame(
+                    db_id,
+                    QueryNodeId {
+                        db_id,
+                        index: index as u32,
+                    },
+                ),
+                stats: record.slot.stats(),
             })
             .collect::<Vec<_>>();
         queries.sort_by(|lhs, rhs| {
@@ -706,16 +757,21 @@ impl<C> QueryDb<C> {
         queries
     }
 
-    fn collect_invalidated_frames(&self, root: QueryFrameIdentity) -> Vec<QueryFrameIdentity> {
+    fn collect_invalidated_nodes(&self, root: QueryNodeId) -> Vec<QueryNodeId> {
+        let slots = self
+            .inner
+            .slots
+            .lock()
+            .expect("query cache slot lock poisoned");
         let dependencies = self
             .inner
             .dependencies
             .lock()
             .expect("query dependency lock poisoned");
-        dependencies.collect_dependents(root)
+        dependencies.collect_dependents(self.inner.id, &slots, root)
     }
 
-    fn clear_dependencies_from(&self, from: &QueryFrameIdentity) {
+    fn clear_dependencies_from(&self, from: QueryNodeId) {
         self.inner
             .dependencies
             .lock()
@@ -723,16 +779,21 @@ impl<C> QueryDb<C> {
             .remove_dependencies_from(from);
     }
 
-    fn replace_dependencies_from(
-        &self,
-        from: &QueryFrameIdentity,
-        targets: FastHashSet<QueryFrameIdentity>,
-    ) {
+    fn replace_dependencies_from(&self, from: QueryNodeId, targets: FastHashSet<QueryNodeId>) {
+        debug_assert!(targets.iter().all(|target| target.db_id == from.db_id));
         self.inner
             .dependencies
             .lock()
             .expect("query dependency lock poisoned")
             .replace_dependencies_from(from, targets);
+    }
+
+    fn frame(&self, node_id: QueryNodeId) -> QueryFrame {
+        self.inner
+            .slots
+            .lock()
+            .expect("query cache slot lock poisoned")
+            .frame(self.inner.id, node_id)
     }
 }
 
@@ -758,32 +819,25 @@ fn default_batch_threads() -> usize {
 }
 
 impl QueryDependencyGraph {
-    fn replace_dependencies_from(
-        &mut self,
-        from: &QueryFrameIdentity,
-        targets: FastHashSet<QueryFrameIdentity>,
-    ) {
+    fn replace_dependencies_from(&mut self, from: QueryNodeId, targets: FastHashSet<QueryNodeId>) {
         self.remove_dependencies_from(from);
         if targets.is_empty() {
             return;
         }
         for target in &targets {
-            self.reverse
-                .entry(target.clone())
-                .or_default()
-                .insert(from.clone());
+            self.reverse.entry(*target).or_default().insert(from);
         }
-        self.forward.insert(from.clone(), targets);
+        self.forward.insert(from, targets);
     }
 
-    fn dependencies(&self) -> Vec<QueryDependency> {
+    fn dependencies(&self, db_id: QueryDbId, slots: &QuerySlotTable) -> Vec<QueryDependency> {
         let mut dependencies = self
             .forward
             .iter()
             .flat_map(|(from, targets)| {
                 targets.iter().map(move |to| QueryDependency {
-                    from: from.frame(),
-                    to: to.frame(),
+                    from: slots.frame(db_id, *from),
+                    to: slots.frame(db_id, *to),
                 })
             })
             .collect::<Vec<_>>();
@@ -804,16 +858,21 @@ impl QueryDependencyGraph {
         dependencies
     }
 
-    fn collect_dependents(&self, root: QueryFrameIdentity) -> Vec<QueryFrameIdentity> {
+    fn collect_dependents(
+        &self,
+        db_id: QueryDbId,
+        slots: &QuerySlotTable,
+        root: QueryNodeId,
+    ) -> Vec<QueryNodeId> {
         let mut seen = FastHashSet::default();
         let mut queue = vec![root];
         let mut invalidated = Vec::new();
 
         while let Some(identity) = queue.pop() {
-            if !seen.insert(identity.clone()) {
+            if !seen.insert(identity) {
                 continue;
             }
-            invalidated.push(identity.clone());
+            invalidated.push(identity);
 
             let mut dependents = self
                 .reverse
@@ -822,7 +881,7 @@ impl QueryDependencyGraph {
                 .flat_map(|dependents| dependents.iter().cloned())
                 .collect::<Vec<_>>();
             dependents.sort_by_key(|dependent| {
-                let frame = dependent.frame();
+                let frame = slots.frame(db_id, *dependent);
                 (frame.name, frame.key)
             });
             dependents.reverse();
@@ -832,11 +891,11 @@ impl QueryDependencyGraph {
         invalidated
     }
 
-    fn remove_dependencies_from(&mut self, from: &QueryFrameIdentity) {
-        if let Some(targets) = self.forward.remove(from) {
+    fn remove_dependencies_from(&mut self, from: QueryNodeId) {
+        if let Some(targets) = self.forward.remove(&from) {
             for target in targets {
                 if let Some(dependents) = self.reverse.get_mut(&target) {
-                    dependents.remove(from);
+                    dependents.remove(&from);
                     if dependents.is_empty() {
                         self.reverse.remove(&target);
                     }
@@ -857,19 +916,12 @@ where
     }
 }
 
-fn query_frame_identity<C, K>(key: &K) -> QueryFrameIdentity
+fn query_slot_identity<C, K>(key: Arc<K>) -> QuerySlotIdentity
 where
     K: QueryKey<C>,
 {
-    let mut hasher = FastHasher::default();
-    key.hash(&mut hasher);
-    // The hash is only a fast prefilter. Equality still compares the typed key
-    // through `ErasedQueryKey`, so debug labels are not part of identity.
-    QueryFrameIdentity {
-        type_id: TypeId::of::<K>(),
-        name: K::name(),
-        key_hash: hasher.finish(),
-        key: Arc::new(key.clone()),
+    QuerySlotIdentity {
+        key,
         make_frame: query_frame_from_erased::<C, K>,
     }
 }
@@ -913,7 +965,7 @@ impl QueryStackGuard {
         }
     }
 
-    fn take_dependencies(&mut self) -> FastHashSet<QueryFrameIdentity> {
+    fn take_dependencies(&mut self) -> FastHashSet<QueryNodeId> {
         if !self.active {
             return FastHashSet::default();
         }
@@ -940,7 +992,7 @@ fn current_query_stack() -> Vec<QueryStackEntry> {
     QUERY_STACK.with(|stack| stack.borrow().clone())
 }
 
-fn take_current_stack_dependencies() -> FastHashSet<QueryFrameIdentity> {
+fn take_current_stack_dependencies() -> FastHashSet<QueryNodeId> {
     QUERY_STACK.with(|stack| {
         stack
             .borrow_mut()
@@ -950,17 +1002,19 @@ fn take_current_stack_dependencies() -> FastHashSet<QueryFrameIdentity> {
     })
 }
 
-fn record_dependency_on_current_stack(to: &QueryFrameIdentity) {
+fn record_dependency_on_current_stack(to: QueryNodeId) {
     QUERY_STACK.with(|stack| {
         let mut stack = stack.borrow_mut();
         let Some(from) = stack.last_mut() else {
             return;
         };
-        from.dependencies.insert(to.clone());
+        if from.node_id.db_id == to.db_id {
+            from.dependencies.insert(to);
+        }
     });
 }
 
-fn merge_dependencies_into_current_stack(dependencies: FastHashSet<QueryFrameIdentity>) {
+fn merge_dependencies_into_current_stack(dependencies: FastHashSet<QueryNodeId>) {
     if dependencies.is_empty() {
         return;
     }
@@ -1140,6 +1194,24 @@ mod tests {
         let mut registry = QueryRegistry::new();
         registry.register::<TestContext, Double>();
         registry.register::<TestContext, DuplicateDoubleName>();
+    }
+
+    #[test]
+    fn query_node_ids_are_word_sized_and_database_scoped() {
+        assert_eq!(std::mem::size_of::<QueryNodeId>(), 8);
+        let first = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+        let second = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        let first_id = first.slot_for(&Double(1)).node_id;
+        let second_id = second.slot_for(&Double(1)).node_id;
+
+        assert_ne!(first_id, second_id);
+        assert_eq!(first_id.index, second_id.index);
+        assert_ne!(first_id.db_id, second_id.db_id);
     }
 
     #[test]
@@ -1377,6 +1449,19 @@ mod tests {
 
         assert_eq!(*db.get(Double(9)), 18);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn invalidating_uncached_key_reports_root_without_allocating_slot() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        let invalidation = db.invalidate(Double(9));
+
+        assert_eq!(invalidation.invalidated.len(), 1);
+        assert_eq!(invalidation.invalidated[0].description, "double(9)");
+        assert!(db.query_trace().queries.is_empty());
     }
 
     #[test]

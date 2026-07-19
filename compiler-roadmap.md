@@ -1128,6 +1128,8 @@ Acceptance：所有调用点使用同一查询入口；cache hit 不深拷贝；
 
 专项 Acceptance：dependency edges 与 query stack 不再复制 erased key；普通 `NodeId` 为 8 bytes，semantic facts 不再以结构化 `VersionedNodeKey` 为 map key；loader 热 query key 不含 owned path string；`ModuleId` 不可在 allocator 外构造且 stale/foreign handle 有自动化验证；full graph/module node 的 compiler product clone bytes 为 0；新增 ID 后 lookup、allocated bytes、RSS 与 clean/incremental 等价性至少不退化。每个切片继续通过严格 workspace/all-targets/all-features Clippy、完整 workspace tests 和既有 perf guard。
 
+进展（2026-07-19）：ID-0 query node arena 已完成。每个 `QueryDb` 现在分配独立 `QueryDbId`，typed cache 首次建立 slot 时从 append-only slot table 获得 8-byte `QueryNodeId { db_id, index }`；query stack、batch worker dependency merge、forward/reverse dependency graph、cycle detection、transitive invalidation 和 invalidation worklist 全部只复制该 Copy handle，不再复制包含 `Arc<dyn ErasedQueryKey>` 的 `QueryFrameIdentity`。typed cache 改为 `Arc<K>` key，slot identity table 与 typed lookup 共享同一 key allocation；erased key 只在 slot record 保留一份用于按需 materialize trace/error frame。跨 DB node id 不相等，跨 DB 嵌套读取不会误记为本 DB dependency；trace 和 invalidation 仍按 materialized frame 稳定排序，而不是依赖并发 slot 分配顺序。第一次全测暴露旧契约中“未缓存 key 的 invalidation 仍报告 root frame”；实现现保留该行为但不为它分配 slot，并有独立回归，两个 compiler 精确失效用例恢复。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-query 26、compiler-query 117、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 228.68 秒完成，全部 doc tests 通过。下一切片进入 ID-1，先建立 source/node identity owner 与尺寸/foreign/stale 不变量，再迁移 loader hot query key；不能直接把结构 `VersionedNodeKey` 全局替换为无 owner 的裸 `u32`。
+
 ### 阶段 D（P0）：统一模块/provider 依赖
 
 1. 建立统一 revisioned fact graph；source hash、module existence、provider visibility、name existence 与普通 derived query 使用同一 node/runtime。
