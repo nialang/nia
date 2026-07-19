@@ -116,14 +116,15 @@ impl LoaderDatabase {
         let path = SourcePath::new(path.into());
         let file = self.sources.set_source(path.clone(), text);
         self.reset_graph_state();
-        self.db.invalidate(SourceTextQuery(path));
+        self.db.invalidate(SourceTextQuery(file.id));
         file
     }
 
     pub fn invalidate_source(&self, path: impl Into<String>) -> nia_query::QueryInvalidation {
+        let path = SourcePath::new(path.into());
+        let source_id = self.sources.id_for_path(&path);
         self.reset_graph_state();
-        self.db
-            .invalidate(SourceTextQuery(SourcePath::new(path.into())))
+        self.db.invalidate(SourceTextQuery(source_id))
     }
 
     pub fn query_trace(&self) -> nia_query::QueryTrace {
