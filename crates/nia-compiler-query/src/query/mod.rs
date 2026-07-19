@@ -102,6 +102,137 @@ type ModuleAbiSignatureFactsValue = ModuleAbiSignatureFactsQueryValue;
 type PublicSurfacesValue = PublicSurfacesQueryValue;
 type PublicUsingScopesValue = PublicUsingScopesQueryValue;
 
+fn compiler_query_registry() -> nia_query::QueryRegistry {
+    let mut registry = nia_query::QueryRegistry::new();
+    macro_rules! register {
+        ($($key:ty),+ $(,)?) => {
+            $(registry.register::<CompilerContext, $key>();)+
+        };
+    }
+    register!(
+        AbiCheckQuery,
+        ActiveModuleItemTreeInputQuery,
+        ActiveModuleItemTreeQuery,
+        BodyCheckQuery,
+        CheckedModuleIdsQuery,
+        CheckedModuleQuery,
+        CheckedProgramQuery,
+        CodegenProgramQuery,
+        CompilerOptimizationQuery,
+        CompilerRuntimeQuery,
+        CompilerTargetQuery,
+        ConstArrayLengthsQuery,
+        ConstEnumValuesQuery,
+        ConstModuleQuery,
+        ConstQuery,
+        ConstTypedFactsQuery,
+        ConstValuesQuery,
+        DeclarationActiveModuleItemTreeInputQuery,
+        DeclarationActiveModuleItemTreeQuery,
+        DeclarationModuleItemTreeInputQuery,
+        DeclarationModuleItemTreeQuery,
+        DeclarationTypeLoweringQuery,
+        DeclarationTypeResolutionQuery,
+        EntryCheckedProgramQuery,
+        ExecutableCheckedModuleSetQuery,
+        ExecutableProviderDemandsQuery,
+        ExecutableRootModulesQuery,
+        ExecutableValueRefEdgesQuery,
+        ExecutableValueRefItemQuery,
+        ExtensionMethodByIdQuery,
+        ExtensionMethodIndexQuery,
+        ExtensionMethodsNamedQuery,
+        ExtensionProviderDiscoveryIndexQuery,
+        ExtensionProviderModuleEligibilityQuery,
+        ExtensionProviderModuleFactsQuery,
+        ExtensionProviderModuleIdsQuery,
+        ExtensionProviderNominalCandidateModulesQuery,
+        ExtensionProviderNominalModuleFactsQuery,
+        ExtensionProviderNominalModulesForTargetsQuery,
+        ExtensionProviderSummaryQuery,
+        ExtensionProviderValidationFactsQuery,
+        ExtensionSignatureModuleInputQuery,
+        ExtensionTraitImplsForTraitQuery,
+        ExtensionTraitSignatureIndexQuery,
+        ExtensionTraitSolvingModuleFactsQuery,
+        FlowCheckQuery,
+        FullActiveModuleItemTreeInputQuery,
+        FullActiveModuleItemTreeQuery,
+        FullModuleDefsQuery,
+        FullModuleItemTreeInputQuery,
+        FullModuleItemTreeQuery,
+        ItemSignaturesQuery,
+        LayoutTypeNormalizationQuery,
+        LayoutsQuery,
+        LoadedModulesQuery,
+        LocalResolutionQuery,
+        LoweredFunctionBodiesQuery,
+        ModuleAbiSignatureFactsQuery,
+        ModuleDefsQuery,
+        ModuleGraphChildQuery,
+        ModuleGraphEntryQuery,
+        ModuleGraphNodeQuery,
+        ModuleGraphParentQuery,
+        ModuleGraphPathQuery,
+        ModuleGraphQuery,
+        ModuleItemTreeInputQuery,
+        ModuleItemTreeQuery,
+        ModuleOriginsQuery,
+        ModulePackageRootQuery,
+        ModuleParseErrorsQuery,
+        ModulePathQuery,
+        ModuleProgramSignatureFactsQuery,
+        ModulePublicSurfaceQuery,
+        ModuleSourceVersionQuery,
+        ModuleUsingScopeQuery,
+        ParseOkModuleIdsQuery,
+        ProgramAbiSignaturesQuery,
+        ProgramLoadDiagnosticsQuery,
+        ProgramSignatureModuleEligibilityQuery,
+        ProgramSignatureModuleIdsQuery,
+        ProgramTraitMethodIndexQuery,
+        ProgramTypeAliasSignatureQuery,
+        PublicSurfaceModuleQuery,
+        PublicSurfaceTypeQuery,
+        PublicSurfaceValueQuery,
+        PublicSurfacesQuery,
+        PublicUsingScopesQuery,
+        SemanticModuleIdsQuery,
+        SemanticUseTableQuery,
+        SignatureConstItemSignaturesQuery,
+        SignatureConstItemTreeQuery,
+        SignatureConstModuleQuery,
+        SignatureConstTypeLoweringQuery,
+        SignatureConstTypeNormalizationQuery,
+        SignatureConstTypeResolutionQuery,
+        SignatureItemSignaturesQuery,
+        SignatureItemTreeQuery,
+        SignatureLayoutsQuery,
+        SignatureTypeLoweringQuery,
+        SignatureTypeNormalizationQuery,
+        SignatureTypeResolutionQuery,
+        StaticCheckQuery,
+        TypeExposureIndexQuery,
+        TypeLoweringQuery,
+        TypeNormalizationQuery,
+        TypeResolutionQuery,
+        UsingScopeModuleQuery,
+        UsingScopeTypeQuery,
+        UsingScopeUnresolvedQuery,
+        UsingScopeValueQuery,
+        ValueResolutionQuery,
+        VisibleExtensionsQuery,
+        VisibleTraitImplsQuery,
+    );
+    #[cfg(test)]
+    register!(
+        BackendLoweringQuery,
+        ExecutableCheckedModulesQuery,
+        MonomorphizationQuery,
+    );
+    registry
+}
+
 #[derive(Debug, Clone)]
 pub struct CompileRequest {
     pub loaded: LoadedProgram,
@@ -483,7 +614,7 @@ fn compiler_database_with_providers(
     let executable_checked_modules = Arc::new(RwLock::new(ExecutableCheckedModuleStore::default()));
     let executable_fact_session = Arc::new(std::sync::Mutex::new(ExecutableFactSession::default()));
     let type_store = Arc::new(nia_ty::TypeStore::new());
-    let db = QueryDb::new_with_timings(
+    let db = QueryDb::new_registered_with_timings(
         CompilerContext {
             inputs: inputs.clone(),
             providers,
@@ -492,6 +623,7 @@ fn compiler_database_with_providers(
             type_store,
         },
         timings,
+        compiler_query_registry(),
     );
     CompilerDatabase { db, inputs }
 }
@@ -2272,17 +2404,20 @@ mod tests {
         let inputs = Arc::new(RwLock::new(CompilerInputs::new(CompileRequest::new(
             loaded,
         ))));
-        QueryDb::new(CompilerContext {
-            inputs,
-            providers: CompilerQueryProviders::default(),
-            executable_checked_modules: Arc::new(RwLock::new(
-                ExecutableCheckedModuleStore::default(),
-            )),
-            executable_fact_session: Arc::new(std::sync::Mutex::new(
-                ExecutableFactSession::default(),
-            )),
-            type_store: Arc::new(nia_ty::TypeStore::new()),
-        })
+        QueryDb::new_registered(
+            CompilerContext {
+                inputs,
+                providers: CompilerQueryProviders::default(),
+                executable_checked_modules: Arc::new(RwLock::new(
+                    ExecutableCheckedModuleStore::default(),
+                )),
+                executable_fact_session: Arc::new(std::sync::Mutex::new(
+                    ExecutableFactSession::default(),
+                )),
+                type_store: Arc::new(nia_ty::TypeStore::new()),
+            },
+            compiler_query_registry(),
+        )
     }
 
     fn module_id_for_source_identity(
@@ -2344,6 +2479,24 @@ mod tests {
             query_executions(after, name),
             "{name} should have been reused"
         );
+    }
+
+    #[test]
+    fn compiler_query_registry_covers_all_declared_query_contracts() {
+        let descriptors = compiler_query_registry().descriptors();
+
+        assert_eq!(descriptors.len(), 116);
+        assert!(
+            descriptors
+                .windows(2)
+                .all(|pair| pair[0].name < pair[1].name)
+        );
+        assert!(descriptors.iter().all(|descriptor| {
+            descriptor.context_type == std::any::type_name::<CompilerContext>()
+                && descriptor.provider == nia_query::QueryProviderPolicy::KeyExecute
+                && descriptor.fingerprint == nia_query::QueryFingerprintPolicy::None
+                && descriptor.storage == nia_query::QueryStoragePolicy::CacheOwnedArc
+        }));
     }
 
     #[test]
