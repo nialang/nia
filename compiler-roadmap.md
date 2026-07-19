@@ -1096,6 +1096,38 @@ Phase C 最终 storage policy（2026-07-19）：query cache 以唯一的外层 `
 
 Acceptance：所有调用点使用同一查询入口；cache hit 不深拷贝；clone instrumentation 中 compiler product clone 接近零；旧 API 删除，不保留双轨。
 
+### Phase C 后 ID/arena 深度审计（2026-07-19）
+
+结论：ID 与 `Arc` 解决的不是同一个问题。ID 表达可比较、可序列化或高扇出的逻辑身份，必须由明确 owner/store 解释；`Arc` 表达 immutable allocation 的共享生命周期。只有当同一实体被许多表、边或产品反复引用，并且已有唯一 owner、失效和 stale-handle 规则时，ID 化才会减少内存与 clone。对没有 canonical entity identity 的粗粒度 query product，cache-owned `Arc` 仍是正确 storage；把它机械改成 `FooId -> Arc<Foo>` 只会增加一次 lookup 和一套生命周期。
+
+本轮实现审计得到以下决策：
+
+| 域 | 当前事实 | 决策 |
+|---|---|---|
+| type | `InternedTyId` 已是带 `TypeStoreId` 的 8-byte session handle，store append-only 且拒绝 foreign handle | 保持现状，不再叠加 module/type-product ID |
+| query dependency | `QueryFrameIdentity` 同时携带 `TypeId`、name、hash、`Arc<dyn ErasedQueryKey>` 和 frame function，并作为 key/value 复制到 forward/reverse graph 与 query stack | P0：slot 首次建立时分配紧凑 `QueryNodeId`；typed/erased key 只在 slot identity table 保存一份，依赖边、执行栈和 invalidation worklist 只传 ID |
+| syntax node | `VersionedNodeKey` 内嵌 source/revision/kind 和 span 或拥有 `Vec<u32>` 的 child path；workspace 有 59 张 `HashMap<VersionedNodeKey, ...>`，其中 `nia-sema-ir` 29 张，body/resolve/lower 路径还会频繁 clone key | P0：建立 session-owned append-only `NodeStore`，以 `NodeStoreId + NodeIndex` 的 8-byte `NodeId` 作为 AST/semantic hot-path key；结构化 locator 只在 store、诊断和 persistence 边界保留 |
+| source/path | `SourceId` 已存在，但 loader query key 仍携带 owned `SourcePath(String)`；path、identity 和 query frame 会重复 normalize/clone | P0/P1：source store 统一分配 opaque handle，已注册 source 的 text/syntax/parse query 改用 `SourceId` / `SourceVersion`；`SourcePath` 只留在发现、诊断与 stable-key 边界 |
+| module graph | `ModuleId` 已是自然身份，但仍是公开 tuple，仓库有约 710 处数字构造；full graph 在 loader DTO、compiler input 和 checked/codegen DTO 间深 clone，full `ModuleNode` query 又返回 `Arc` | P1：把 `ModuleId` 改为 allocator-owned opaque handle并建立 `StableModuleKey` 映射；内部只传 `ModuleId` 和精确 field query，删除 `ModuleNodeRef::Shared` / `Arc<ModuleNode>`；公开快照共享 `Arc<ModuleGraph>`，不新增重复的 `ModuleNodeId` |
+| definitions/signatures | definition 已由 `GlobalDefId` 定位，`DefMap` 用 dense vec + id index；program signature 仍在多张 `HashMap<GlobalDefId, owned signature>` 间 clone/merge | P1：以 `GlobalDefId` 作为唯一 item identity，逐步改成 per-item query/typed store handle；不新增 `DefCollectionId`、`ProgramFunctionSignatureId` 等现有 key 的别名 ID |
+| checked/query products | `CheckedModule`、`DefCollection`、public surface、layout/const/body facts 都是 immutable revisioned query products，且已有 `ModuleId` / `GlobalDefId` query key | 保留 cache-owned `Arc`；通过更细 key、handle aggregate 和 query invalidation控制生命周期，不制造 product ID table |
+| executable set | 当前已有 `ExecutableCheckedModuleSetId`，但 store 是 `RwLock<HashMap<SetId, HashMap<ModuleId, Arc<CheckedModule>>>>`，update 时 clear，消费者仍返回 `Arc` | P1：在 compilation arena 建立后改为带 epoch/generation 的 `(set, module)` handle；在此之前不把内部临时 ID 扩散为公共 API |
+| IR/codegen | body 已由 `GlobalDefId`、local/block/scope 已由 typed ID 定位；优化 pass 需要独占修改 | source body 继续以 definition/query key 定位；只为真正同时存在的 substitution/CGU/work product 引入 `MonoItemId` / `CodegenUnitId`，可变 IR 保持 owned transfer，不用共享 arena 掩盖所有权 |
+| diagnostics | 各 phase 仍分别保存和聚合 `Vec<Diagnostic>` | P2：统一 session diagnostic store 后再引入 `DiagnosticId` / bundle handle；不能先造 ID 再继续复制 payload store |
+
+所有新 handle 必须满足统一不变量：不同语义域使用不同 newtype；append-only store 不复用 slot，会回收的 store必须带 generation；debug/test 必须拒绝 foreign owner 和 stale generation；local hot-path ID 与跨 session stable key 分离；解析必须经过显式 owner capability，不能依赖 process-global table；若一个对象已经由 `ModuleId`、`GlobalDefId` 或 query key 唯一定位，就不得再增加同义 ID。每次迁移都同时记录 `size_of`、allocated bytes、clone count 和 query executions，不能只用 API 更短作为收益证据。
+
+执行顺序：
+
+1. **ID-0 / Query node arena。** registry 为 query kind 提供紧凑编号；slot table 分配 `QueryNodeId`，dependency graph、query stack、cycle detection 和 invalidation 改存 ID。保留 typed key equality 处理 hash collision，但每个 slot 只保留一份 erased key。模型/回归必须覆盖同 hash 异 key、递归、跨 worker cycle、计算中失效和 deterministic trace materialization。
+2. **ID-1 / Source + syntax identity。** 建立 loader/compiler 共享的 source/node owner；先把 loader 的 text/syntax/parse key 从 `SourcePath` 收敛到 source handle，再把 AST、item tree、origin table和 semantic side tables原子迁到 8-byte `NodeId`。结构 locator -> local ID 的映射按 `SourceVersion` append-only，旧 revision slot 不改义；持久缓存使用 locator/stable key，不保存本次 session index。
+3. **ID-2 / Module identity 与 graph snapshot。** 将 `ModuleId` 字段私有化，由 graph allocator 创建；测试统一通过 fixture/graph 获得真实 ID。引入 stable module key 映射，删除魔法 `ModuleId(0)` 和按裸 index 猜入口；逐步删除 full-node query/shared ref，loader/compiler/public DTO 共享 immutable graph snapshot。
+4. **ID-3 / Item/body storage。** program signatures 改为 `GlobalDefId` keyed item product，module/program 只保存 id set/index；评估 `TypedBody(GlobalDefId)` 与 lowered body/mono instance 的实际并存关系，只在一对多实例域引入新 ID。迁移后删除 owned signature merge、module body aggregate clone 和兼容 callback。
+5. **ID-4 / Executable、diagnostic 与 work products。** executable set 使用 generational arena handle；diagnostics集中存储；随后定义 `MonoItemId`、`CodegenUnitId` 和可持久化 work-product key，明确创建、消费、释放与序列化边界。
+6. **接入 Phase D。** `QueryNodeId` 是进程内 dep-node，stable query key/fingerprint 是跨 revision/进程身份；两者映射后实现 red-green validation。source/module/node 的 stable/local 映射成为 loader/compiler 统一 fact graph 的 identity layer，不再新增第三套摘要 ID。
+
+专项 Acceptance：dependency edges 与 query stack 不再复制 erased key；普通 `NodeId` 为 8 bytes，semantic facts 不再以结构化 `VersionedNodeKey` 为 map key；loader 热 query key 不含 owned path string；`ModuleId` 不可在 allocator 外构造且 stale/foreign handle 有自动化验证；full graph/module node 的 compiler product clone bytes 为 0；新增 ID 后 lookup、allocated bytes、RSS 与 clean/incremental 等价性至少不退化。每个切片继续通过严格 workspace/all-targets/all-features Clippy、完整 workspace tests 和既有 perf guard。
+
 ### 阶段 D（P0）：统一模块/provider 依赖
 
 1. 建立统一 revisioned fact graph；source hash、module existence、provider visibility、name existence 与普通 derived query 使用同一 node/runtime。
