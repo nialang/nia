@@ -89,19 +89,19 @@ pub(super) fn provide_extension_provider_discovery_index(
             modules.sort();
             modules.dedup();
         }
-        Arc::new(ExtensionProviderDiscoveryIndexQueryValue {
+        ExtensionProviderDiscoveryIndexQueryValue {
             provider_modules,
             nominal_candidates_by_name,
             method_candidates_by_name,
             trait_impl_candidates_by_name,
-        })
+        }
     })
 }
 
 pub(super) fn provide_extension_provider_module_ids(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<ModuleId> {
-    db.query(ExtensionProviderDiscoveryIndexQuery)
+    db.get(ExtensionProviderDiscoveryIndexQuery)
         .provider_modules
         .clone()
 }
@@ -118,7 +118,7 @@ pub(super) fn provide_extension_signature_module_input(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ExtensionSignatureModuleInputValue {
-    Arc::new(ExtensionSignatureModuleInputQueryValue {
+    ExtensionSignatureModuleInputQueryValue {
         module_id,
         defs: db.get(ModuleDefsQuery(module_id)),
         lowering: db.get(SignatureTypeLoweringQuery(
@@ -141,14 +141,14 @@ pub(super) fn provide_extension_signature_module_input(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
         )),
-    })
+    }
 }
 
 pub(super) fn provide_extension_trait_solving_module_facts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ExtensionTraitSolvingModuleFactsValue {
-    let input = db.query(ExtensionSignatureModuleInputQuery(module_id));
+    let input = db.get(ExtensionSignatureModuleInputQuery(module_id));
     let modules = [input.module(&db.context().type_store)];
     ExtensionTraitSolvingModuleFactsQueryValue {
         trait_impls: nia_program_signatures::collect_valid_program_trait_impls(&modules),
@@ -180,7 +180,7 @@ pub(super) fn provide_extension_trait_impls_for_trait(
                         .cloned(),
                 );
             }
-            Arc::new(ExtensionTraitImplsForTraitQueryValue { trait_impls })
+            ExtensionTraitImplsForTraitQueryValue { trait_impls }
         },
     )
 }
@@ -192,7 +192,7 @@ fn extension_trait_impl_candidate_modules(
     let Some(name) = trait_id_index_name(db, trait_id) else {
         return Vec::new();
     };
-    db.query(ExtensionProviderDiscoveryIndexQuery)
+    db.get(ExtensionProviderDiscoveryIndexQuery)
         .trait_impl_candidates_by_name
         .get(&name)
         .cloned()
@@ -269,15 +269,15 @@ pub(super) fn provide_extension_provider_validation_facts(
 ) -> ExtensionProviderValidationFactsValue {
     time_module_provider(db, "extension_provider_validation_facts", module_id, || {
         if !db.query(ExtensionProviderModuleEligibilityQuery(module_id)) {
-            return Arc::new(ExtensionProviderValidationFactsQueryValue {
+            return ExtensionProviderValidationFactsQueryValue {
                 methods: nia_defs::ExtensionMethods::default(),
                 diagnostics: Vec::new(),
-            });
+            };
         }
-        let input = db.query(ExtensionSignatureModuleInputQuery(module_id));
-        let trait_index = db.query(ExtensionTraitSignatureIndexQuery);
+        let input = db.get(ExtensionSignatureModuleInputQuery(module_id));
+        let trait_index = db.get(ExtensionTraitSignatureIndexQuery);
         let trait_impls_for_trait = |trait_id| {
-            db.query(ExtensionTraitImplsForTraitQuery(trait_id))
+            db.get(ExtensionTraitImplsForTraitQuery(trait_id))
                 .trait_impls
                 .clone()
         };
@@ -292,10 +292,10 @@ pub(super) fn provide_extension_provider_validation_facts(
                 symbols: &symbols,
             },
         );
-        Arc::new(ExtensionProviderValidationFactsQueryValue {
+        ExtensionProviderValidationFactsQueryValue {
             methods,
             diagnostics,
-        })
+        }
     })
 }
 
@@ -361,7 +361,7 @@ pub(super) fn provide_extension_provider_nominal_candidate_modules(
         db.context().timings(),
         "extension_provider_nominal_candidate_modules",
         || {
-            let discovery = db.query(ExtensionProviderDiscoveryIndexQuery);
+            let discovery = db.get(ExtensionProviderDiscoveryIndexQuery);
             let mut modules = Vec::new();
             for name in names.0 {
                 if let Some(candidates) = discovery.nominal_candidates_by_name.get(&name) {
@@ -426,7 +426,7 @@ fn extension_provider_nominal_target_names_for_targets(
     db: &QueryDb<CompilerContext>,
     targets: &ExtensionProviderNominalTargets,
 ) -> Vec<SymbolId> {
-    let type_exposures = db.query(TypeExposureIndexQuery);
+    let type_exposures = db.get(TypeExposureIndexQuery);
     let mut names = Vec::new();
 
     for target in targets.as_slice().iter().copied() {
@@ -446,7 +446,7 @@ pub(super) fn provide_extension_method_index(
         for facts in extension_provider_module_facts(db) {
             methods.extend(facts.methods.clone());
         }
-        Arc::new(ExtensionMethodIndexQueryValue { methods })
+        ExtensionMethodIndexQueryValue { methods }
     })
 }
 
@@ -455,7 +455,7 @@ pub(super) fn provide_extension_methods_named(
     name: SymbolId,
 ) -> ExtensionMethodsNamedValue {
     time_provider(db.context().timings(), "extension_methods_named", || {
-        let discovery = db.query(ExtensionProviderDiscoveryIndexQuery);
+        let discovery = db.get(ExtensionProviderDiscoveryIndexQuery);
         let mut methods = Vec::new();
         if let Some(candidate_modules) = discovery.method_candidates_by_name.get(&name) {
             for facts in db.get_many(
@@ -467,7 +467,7 @@ pub(super) fn provide_extension_methods_named(
                 methods.extend(facts.methods.methods_named(&name).cloned());
             }
         }
-        Arc::new(ExtensionMethodsNamedQueryValue { methods })
+        ExtensionMethodsNamedQueryValue { methods }
     })
 }
 
@@ -481,7 +481,7 @@ pub(super) fn provide_extension_method_by_id(
             .methods
             .method_by_id(def_id)
             .cloned();
-        Arc::new(ExtensionMethodByIdQueryValue { method })
+        ExtensionMethodByIdQueryValue { method }
     })
 }
 
@@ -504,10 +504,10 @@ pub(super) fn provide_extension_trait_signature_index(
                         .map(|(def_id, signature)| (*def_id, signature.clone())),
                 );
             }
-            Arc::new(ExtensionTraitSignatureIndex {
+            ExtensionTraitSignatureIndex {
                 trait_defs,
                 trait_signatures,
-            })
+            }
         },
     )
 }

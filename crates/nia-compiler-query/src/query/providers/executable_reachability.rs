@@ -76,7 +76,7 @@ impl QueryExecutableExtensionLookup<'_> {
         }
         let trait_impls = self
             .db
-            .query(ExtensionTraitImplsForTraitQuery(trait_id))
+            .get(ExtensionTraitImplsForTraitQuery(trait_id))
             .trait_impls
             .clone();
         self.trait_impls_by_trait
@@ -202,7 +202,7 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
         def_id: GlobalDefId,
         f: &mut dyn FnMut(&[nia_defs::WherePredicateSignature]),
     ) {
-        let method = self.db.query(ExtensionMethodByIdQuery(def_id));
+        let method = self.db.get(ExtensionMethodByIdQuery(def_id));
         let predicates = method
             .method
             .as_ref()

@@ -80,23 +80,23 @@ use resolve::*;
 use types::*;
 
 type ExtensionProviderModuleFactsValue = ExtensionProviderModuleFactsQueryValue;
-type ExtensionProviderValidationFactsValue = Arc<ExtensionProviderValidationFactsQueryValue>;
+type ExtensionProviderValidationFactsValue = ExtensionProviderValidationFactsQueryValue;
 type ExtensionProviderNominalModuleFactsValue = ExtensionProviderNominalModuleFactsQueryValue;
-type ExtensionProviderDiscoveryIndexValue = Arc<ExtensionProviderDiscoveryIndexQueryValue>;
+type ExtensionProviderDiscoveryIndexValue = ExtensionProviderDiscoveryIndexQueryValue;
 type ExtensionProviderNominalCandidateModulesValue =
     Arc<ExtensionProviderNominalCandidateModulesQueryValue>;
 type ExtensionProviderNominalModulesForTargetsValue =
     Arc<ExtensionProviderNominalModulesForTargetsQueryValue>;
-type TypeExposureIndexValue = Arc<TypeExposureIndex>;
-type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
-type ExtensionMethodsNamedValue = Arc<ExtensionMethodsNamedQueryValue>;
-type ExtensionMethodByIdValue = Arc<ExtensionMethodByIdQueryValue>;
-type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
+type TypeExposureIndexValue = TypeExposureIndex;
+type ExtensionMethodIndexValue = ExtensionMethodIndexQueryValue;
+type ExtensionMethodsNamedValue = ExtensionMethodsNamedQueryValue;
+type ExtensionMethodByIdValue = ExtensionMethodByIdQueryValue;
+type ExtensionTraitSignatureIndexValue = ExtensionTraitSignatureIndex;
 type VisibleExtensionsValue = VisibleExtensionsForModule;
 type VisibleTraitImplsValue = VisibleTraitImplsForModule;
-type ExtensionSignatureModuleInputValue = Arc<ExtensionSignatureModuleInputQueryValue>;
+type ExtensionSignatureModuleInputValue = ExtensionSignatureModuleInputQueryValue;
 type ExtensionTraitSolvingModuleFactsValue = ExtensionTraitSolvingModuleFactsQueryValue;
-type ExtensionTraitImplsForTraitValue = Arc<ExtensionTraitImplsForTraitQueryValue>;
+type ExtensionTraitImplsForTraitValue = ExtensionTraitImplsForTraitQueryValue;
 type ModuleProgramSignatureFactsValue = ModuleProgramSignatureFacts;
 type ModuleAbiSignatureFactsValue = ModuleAbiSignatureFactsQueryValue;
 type PublicSurfacesValue = PublicSurfacesQueryValue;
@@ -4196,9 +4196,9 @@ extend Value : Ops {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(ExtensionProviderValidationFactsQuery(ModuleId(0)));
+        let _ = db.get(ExtensionProviderValidationFactsQuery(ModuleId(0)));
         let _ = db.get(ExtensionProviderModuleFactsQuery(ModuleId(0)));
-        let _ = db.query(ExtensionMethodIndexQuery);
+        let _ = db.get(ExtensionMethodIndexQuery);
         let trace = db.query_trace();
 
         assert!(
@@ -4377,7 +4377,7 @@ extend Value : Ops {
             )],
         )));
 
-        let _ = database.db.query(ExtensionMethodIndexQuery);
+        let _ = database.db.get(ExtensionMethodIndexQuery);
         let before_update = database.query_trace();
         assert!(
             query_executions(&before_update, "extension_provider_module_facts") > 0,
@@ -4408,7 +4408,7 @@ extend Value : Ops {
         );
         let before_second_query = database.query_trace();
 
-        let _ = database.db.query(ExtensionMethodIndexQuery);
+        let _ = database.db.get(ExtensionMethodIndexQuery);
         let after_second_query = database.query_trace();
 
         assert_query_executions_unchanged(
@@ -5628,6 +5628,62 @@ extend i32 : ParseFrom[Input] {
             &trait_method_index_batch[0]
         ));
         assert!(Arc::ptr_eq(&abi_signatures, &abi_signatures_batch[0]));
+    }
+
+    #[test]
+    fn extension_index_queries_reuse_single_layer_product_handles() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "trait Read { fn read(self) i32; } struct S { value: i32 } extend S { fn get(self) i32 { self.value } }",
+        )]);
+        let db = query_db(loaded);
+        let defs = db.get(ModuleDefsQuery(ModuleId(0)));
+        let trait_id = nia_ty::TraitId::Source(GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.types.get(&sym("Read")).unwrap(),
+        });
+        let method_id = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: nia_ids::DefId(0),
+        };
+
+        let validation: Arc<ExtensionProviderValidationFactsQueryValue> =
+            db.get(ExtensionProviderValidationFactsQuery(ModuleId(0)));
+        let discovery: Arc<ExtensionProviderDiscoveryIndexQueryValue> =
+            db.get(ExtensionProviderDiscoveryIndexQuery);
+        let exposure: Arc<TypeExposureIndex> = db.get(TypeExposureIndexQuery);
+        let methods: Arc<ExtensionMethodIndexQueryValue> = db.get(ExtensionMethodIndexQuery);
+        let named: Arc<ExtensionMethodsNamedQueryValue> =
+            db.get(ExtensionMethodsNamedQuery(sym("get")));
+        let method: Arc<ExtensionMethodByIdQueryValue> =
+            db.get(ExtensionMethodByIdQuery(method_id));
+        let trait_index: Arc<ExtensionTraitSignatureIndex> =
+            db.get(ExtensionTraitSignatureIndexQuery);
+        let signature_input: Arc<ExtensionSignatureModuleInputQueryValue> =
+            db.get(ExtensionSignatureModuleInputQuery(ModuleId(0)));
+        let trait_impls: Arc<ExtensionTraitImplsForTraitQueryValue> =
+            db.get(ExtensionTraitImplsForTraitQuery(trait_id));
+
+        let validation_batch = db.get_many([ExtensionProviderValidationFactsQuery(ModuleId(0))]);
+        let discovery_batch = db.get_many([ExtensionProviderDiscoveryIndexQuery]);
+        let exposure_batch = db.get_many([TypeExposureIndexQuery]);
+        let methods_batch = db.get_many([ExtensionMethodIndexQuery]);
+        let named_batch = db.get_many([ExtensionMethodsNamedQuery(sym("get"))]);
+        let method_batch = db.get_many([ExtensionMethodByIdQuery(method_id)]);
+        let trait_index_batch = db.get_many([ExtensionTraitSignatureIndexQuery]);
+        let signature_input_batch = db.get_many([ExtensionSignatureModuleInputQuery(ModuleId(0))]);
+        let trait_impls_batch = db.get_many([ExtensionTraitImplsForTraitQuery(trait_id)]);
+
+        assert!(Arc::ptr_eq(&validation, &validation_batch[0]));
+        assert!(Arc::ptr_eq(&discovery, &discovery_batch[0]));
+        assert!(Arc::ptr_eq(&exposure, &exposure_batch[0]));
+        assert!(Arc::ptr_eq(&methods, &methods_batch[0]));
+        assert!(Arc::ptr_eq(&named, &named_batch[0]));
+        assert!(Arc::ptr_eq(&method, &method_batch[0]));
+        assert!(Arc::ptr_eq(&trait_index, &trait_index_batch[0]));
+        assert!(Arc::ptr_eq(&signature_input, &signature_input_batch[0]));
+        assert!(Arc::ptr_eq(&trait_impls, &trait_impls_batch[0]));
     }
 
     #[test]

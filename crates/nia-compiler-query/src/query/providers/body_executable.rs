@@ -829,9 +829,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let empty_program_extension_methods = nia_defs::ExtensionMethods::default();
     let program_extension_methods = &empty_program_extension_methods;
     let program_extension_method_by_id =
-        |def_id: GlobalDefId| db.query(ExtensionMethodByIdQuery(def_id)).method.clone();
+        |def_id: GlobalDefId| db.get(ExtensionMethodByIdQuery(def_id)).method.clone();
     let program_extension_methods_named =
-        |name: &SymbolId| db.query(ExtensionMethodsNamedQuery(*name)).methods.clone();
+        |name: &SymbolId| db.get(ExtensionMethodsNamedQuery(*name)).methods.clone();
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             return Some(db.get(SignatureTypeNormalizationQuery(
