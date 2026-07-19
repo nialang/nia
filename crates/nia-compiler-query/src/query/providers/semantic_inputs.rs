@@ -163,6 +163,7 @@ pub(super) fn provide_semantic_use_table(
     };
     semantic_use_table_from_resolution_inputs_with_const_expr_values(SemanticUseInputs {
         module_id,
+        node_store: db.context().node_store(),
         type_store: &db.context().type_store,
         active_item_tree: &active_item_tree,
         values: &values,
@@ -176,6 +177,7 @@ pub(super) fn provide_semantic_use_table(
 
 pub(super) struct SemanticUseInputs<'a> {
     pub module_id: ModuleId,
+    pub node_store: &'a nia_node_id::NodeStore,
     pub type_store: &'a nia_ty::TypeStore,
     pub active_item_tree: &'a ActiveModuleItemTree,
     pub values: &'a ValueResolution,
@@ -191,6 +193,7 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
 ) -> nia_sema_ir::SemanticUseTable {
     let SemanticUseInputs {
         module_id,
+        node_store,
         type_store,
         active_item_tree,
         values,
@@ -200,7 +203,7 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
         type_resolution,
         type_lowering,
     } = input;
-    let mut builder = nia_sema_ir::SemanticUseTable::builder();
+    let mut builder = nia_sema_ir::SemanticUseTable::builder_with_node_store(node_store);
 
     for (key, local_use) in &locals.node_uses {
         match local_use {

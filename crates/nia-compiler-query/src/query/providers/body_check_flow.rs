@@ -269,6 +269,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                     semantic_use_table_from_resolution_inputs_with_const_expr_values(
                         SemanticUseInputs {
                             module_id,
+                            node_store: db.context().node_store(),
                             type_store: &db.context().type_store,
                             active_item_tree: &filtered_active_item_tree,
                             values: &filtered_values,

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    collections::HashMap,
+    collections::{HashMap, hash_map},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU32, Ordering},
@@ -244,6 +244,160 @@ impl NodeStoreAppend {
             store_id: self.store.id,
             index,
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NodeMap<V> {
+    store: NodeStore,
+    nodes: HashMap<NodeId, V>,
+}
+
+#[derive(Debug)]
+pub struct NodeMapBuilder<V> {
+    store: NodeStore,
+    append: NodeStoreAppend,
+    nodes: HashMap<NodeId, V>,
+}
+
+pub struct NodeMapIter<'a, V> {
+    store: &'a NodeStore,
+    entries: hash_map::Iter<'a, NodeId, V>,
+}
+
+impl<V> Default for NodeMap<V> {
+    fn default() -> Self {
+        Self::with_store(&NodeStore::new())
+    }
+}
+
+impl<V: PartialEq> PartialEq for NodeMap<V> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.store.id == other.store.id {
+            return self.nodes == other.nodes;
+        }
+        self.nodes.len() == other.nodes.len()
+            && self.nodes.iter().all(|(node_id, value)| {
+                self.store.locator(*node_id).is_some_and(|locator| {
+                    other
+                        .store
+                        .id_for_locator(&locator)
+                        .and_then(|other_id| other.nodes.get(&other_id))
+                        == Some(value)
+                })
+            })
+    }
+}
+
+impl<V: Eq> Eq for NodeMap<V> {}
+
+impl<V> NodeMap<V> {
+    pub fn with_store(store: &NodeStore) -> Self {
+        Self {
+            store: store.clone(),
+            nodes: HashMap::new(),
+        }
+    }
+
+    pub fn builder(store: &NodeStore) -> NodeMapBuilder<V> {
+        NodeMapBuilder {
+            store: store.clone(),
+            append: store.append(),
+            nodes: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, locator: &VersionedNodeKey) -> Option<&V> {
+        self.node_id(locator)
+            .and_then(|node_id| self.nodes.get(&node_id))
+    }
+
+    pub fn get_by_id(&self, node_id: NodeId) -> Option<&V> {
+        self.nodes.get(&node_id)
+    }
+
+    pub fn node_id(&self, locator: &VersionedNodeKey) -> Option<NodeId> {
+        self.store
+            .id_for_locator(locator)
+            .filter(|node_id| self.nodes.contains_key(node_id))
+    }
+
+    pub fn store_id(&self) -> NodeStoreId {
+        self.store.id()
+    }
+
+    pub fn iter(&self) -> NodeMapIter<'_, V> {
+        NodeMapIter {
+            store: &self.store,
+            entries: self.nodes.iter(),
+        }
+    }
+
+    pub fn values(&self) -> hash_map::Values<'_, NodeId, V> {
+        self.nodes.values()
+    }
+
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+}
+
+impl<V> NodeMapBuilder<V> {
+    pub fn insert(&mut self, locator: VersionedNodeKey, value: V) -> Option<V> {
+        self.nodes.insert(self.append.intern(locator), value)
+    }
+
+    pub fn insert_if_absent(&mut self, locator: VersionedNodeKey, value: V) {
+        self.nodes
+            .entry(self.append.intern(locator))
+            .or_insert(value);
+    }
+
+    pub fn extend(&mut self, entries: impl IntoIterator<Item = (VersionedNodeKey, V)>) {
+        for (locator, value) in entries {
+            self.insert(locator, value);
+        }
+    }
+
+    pub fn finish(self) -> NodeMap<V> {
+        NodeMap {
+            store: self.store,
+            nodes: self.nodes,
+        }
+    }
+}
+
+impl<'a, V> Iterator for NodeMapIter<'a, V> {
+    type Item = (VersionedNodeKey, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.entries.next().map(|(node_id, value)| {
+            (
+                self.store
+                    .locator(*node_id)
+                    .expect("node map id belongs to its node store"),
+                value,
+            )
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.entries.size_hint()
+    }
+}
+
+impl<V> ExactSizeIterator for NodeMapIter<'_, V> {}
+
+impl<'a, V> IntoIterator for &'a NodeMap<V> {
+    type Item = (VersionedNodeKey, &'a V);
+    type IntoIter = NodeMapIter<'a, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -513,6 +667,68 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(store.locator(first), Some(first_locator));
         assert_eq!(store.locator(second), Some(second_locator));
+    }
+
+    #[test]
+    fn node_map_round_trips_locators_through_owner_handles() {
+        let store = NodeStore::new();
+        let locator = VersionedNodeKey::span(
+            SourceVersion {
+                id: SourceId(3),
+                revision: SourceRevision(2),
+            },
+            SyntaxKind::Expr,
+            Span::new(4, 8),
+        );
+        let mut builder = NodeMap::builder(&store);
+        builder.insert(locator.clone(), 17);
+        let nodes = builder.finish();
+        let node_id = nodes.node_id(&locator).expect("interned node handle");
+
+        assert_eq!(nodes.store_id(), store.id());
+        assert_eq!(nodes.get(&locator), Some(&17));
+        assert_eq!(nodes.get_by_id(node_id), Some(&17));
+        assert_eq!(nodes.iter().collect::<Vec<_>>(), vec![(locator, &17)]);
+    }
+
+    #[test]
+    fn node_maps_compare_by_locator_across_owners() {
+        let locator = VersionedNodeKey::span(
+            SourceVersion {
+                id: SourceId(3),
+                revision: SourceRevision(2),
+            },
+            SyntaxKind::Type,
+            Span::new(1, 5),
+        );
+        let first_store = NodeStore::new();
+        let second_store = NodeStore::new();
+        let mut first = NodeMap::builder(&first_store);
+        let mut second = NodeMap::builder(&second_store);
+        first.insert(locator.clone(), 23);
+        second.insert(locator, 23);
+
+        assert_ne!(first_store.id(), second_store.id());
+        assert_eq!(first.finish(), second.finish());
+    }
+
+    #[test]
+    fn node_map_rejects_foreign_handles() {
+        let first_store = NodeStore::new();
+        let second_store = NodeStore::new();
+        let locator = VersionedNodeKey::span(
+            SourceVersion {
+                id: SourceId(0),
+                revision: SourceRevision::INITIAL,
+            },
+            SyntaxKind::Stmt,
+            Span::new(0, 1),
+        );
+        let foreign_id = second_store.append().intern(locator.clone());
+        let mut builder = NodeMap::builder(&first_store);
+        builder.insert(locator, 5);
+
+        assert_eq!(builder.finish().get_by_id(foreign_id), None);
     }
 
     #[test]

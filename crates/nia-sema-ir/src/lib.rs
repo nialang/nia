@@ -6,24 +6,38 @@ use nia_ids::{
     BuiltinFunction, BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId,
     ModuleId, ReceiverKind,
 };
-use nia_node_id::VersionedNodeKey;
+use nia_node_id::{NodeMap, NodeMapBuilder, NodeStore, NodeStoreId, VersionedNodeKey};
 use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_ty::{BuiltinTrait, ConstGenericArg, IntConst, PrimitiveTy, TraitId};
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SemanticUseTable {
-    pub node_value_uses: HashMap<VersionedNodeKey, SemanticValueUse>,
-    pub node_const_generic_uses: HashMap<VersionedNodeKey, SymbolId>,
-    pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
-    pub node_associated_const_projections: HashMap<VersionedNodeKey, AssociatedConstProjection>,
-    pub node_local_defs: HashMap<VersionedNodeKey, LocalId>,
-    pub node_type_uses: HashMap<VersionedNodeKey, InternedTyId>,
+    pub node_value_uses: NodeMap<SemanticValueUse>,
+    pub node_const_generic_uses: NodeMap<SymbolId>,
+    pub node_builtin_associated_values: NodeMap<BuiltinAssociatedValue>,
+    pub node_associated_const_projections: NodeMap<AssociatedConstProjection>,
+    pub node_local_defs: NodeMap<LocalId>,
+    pub node_type_uses: NodeMap<InternedTyId>,
+}
+
+impl Default for SemanticUseTable {
+    fn default() -> Self {
+        Self::builder().finish()
+    }
 }
 
 impl SemanticUseTable {
     pub fn builder() -> SemanticUseTableBuilder {
         SemanticUseTableBuilder::new()
+    }
+
+    pub fn builder_with_node_store(store: &NodeStore) -> SemanticUseTableBuilder {
+        SemanticUseTableBuilder::with_node_store(store)
+    }
+
+    pub fn store_id(&self) -> NodeStoreId {
+        self.node_value_uses.store_id()
     }
 
     pub fn node_value_use(&self, key: &VersionedNodeKey) -> Option<SemanticValueUse> {
@@ -57,38 +71,51 @@ impl SemanticUseTable {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug)]
 pub struct SemanticUseTableBuilder {
-    table: SemanticUseTable,
+    node_value_uses: NodeMapBuilder<SemanticValueUse>,
+    node_const_generic_uses: NodeMapBuilder<SymbolId>,
+    node_builtin_associated_values: NodeMapBuilder<BuiltinAssociatedValue>,
+    node_associated_const_projections: NodeMapBuilder<AssociatedConstProjection>,
+    node_local_defs: NodeMapBuilder<LocalId>,
+    node_type_uses: NodeMapBuilder<InternedTyId>,
 }
 
 impl SemanticUseTableBuilder {
     pub fn new() -> Self {
-        Self::default()
+        Self::with_node_store(&NodeStore::new())
+    }
+
+    pub fn with_node_store(store: &NodeStore) -> Self {
+        Self {
+            node_value_uses: NodeMap::builder(store),
+            node_const_generic_uses: NodeMap::builder(store),
+            node_builtin_associated_values: NodeMap::builder(store),
+            node_associated_const_projections: NodeMap::builder(store),
+            node_local_defs: NodeMap::builder(store),
+            node_type_uses: NodeMap::builder(store),
+        }
     }
 
     pub fn insert_node_local_value_use(&mut self, key: VersionedNodeKey, local_id: LocalId) {
-        self.table
-            .node_value_uses
+        self.node_value_uses
             .insert(key, SemanticValueUse::Local(local_id));
     }
 
     pub fn insert_node_global_value_use(&mut self, key: VersionedNodeKey, global_id: GlobalDefId) {
-        self.table
-            .node_value_uses
-            .entry(key)
-            .or_insert(SemanticValueUse::Global(global_id));
+        self.node_value_uses
+            .insert_if_absent(key, SemanticValueUse::Global(global_id));
     }
 
     pub fn insert_node_const_generic_use(&mut self, key: VersionedNodeKey, name: SymbolId) {
-        self.table.node_const_generic_uses.insert(key, name);
+        self.node_const_generic_uses.insert(key, name);
     }
 
     pub fn extend_node_const_generic_uses(
         &mut self,
         uses: impl IntoIterator<Item = (VersionedNodeKey, SymbolId)>,
     ) {
-        self.table.node_const_generic_uses.extend(uses);
+        self.node_const_generic_uses.extend(uses);
     }
 
     pub fn insert_node_builtin_associated_value(
@@ -96,7 +123,7 @@ impl SemanticUseTableBuilder {
         key: VersionedNodeKey,
         value: BuiltinAssociatedValue,
     ) {
-        self.table.node_builtin_associated_values.insert(key, value);
+        self.node_builtin_associated_values.insert(key, value);
     }
 
     pub fn insert_node_associated_const_projection(
@@ -104,8 +131,7 @@ impl SemanticUseTableBuilder {
         key: VersionedNodeKey,
         projection: AssociatedConstProjection,
     ) {
-        self.table
-            .node_associated_const_projections
+        self.node_associated_const_projections
             .insert(key, projection);
     }
 
@@ -113,16 +139,14 @@ impl SemanticUseTableBuilder {
         &mut self,
         projections: impl IntoIterator<Item = (VersionedNodeKey, AssociatedConstProjection)>,
     ) {
-        self.table
-            .node_associated_const_projections
-            .extend(projections);
+        self.node_associated_const_projections.extend(projections);
     }
 
     pub fn extend_node_builtin_associated_values(
         &mut self,
         values: impl IntoIterator<Item = (VersionedNodeKey, BuiltinAssociatedValue)>,
     ) {
-        self.table.node_builtin_associated_values.extend(values);
+        self.node_builtin_associated_values.extend(values);
     }
 
     pub fn extend_node_global_value_uses(
@@ -135,29 +159,42 @@ impl SemanticUseTableBuilder {
     }
 
     pub fn insert_node_local_def(&mut self, key: VersionedNodeKey, local_id: LocalId) {
-        self.table.node_local_defs.insert(key, local_id);
+        self.node_local_defs.insert(key, local_id);
     }
 
     pub fn extend_node_local_defs(
         &mut self,
         local_defs: impl IntoIterator<Item = (VersionedNodeKey, LocalId)>,
     ) {
-        self.table.node_local_defs.extend(local_defs);
+        self.node_local_defs.extend(local_defs);
     }
 
     pub fn insert_node_type_use(&mut self, key: VersionedNodeKey, ty: InternedTyId) {
-        self.table.node_type_uses.insert(key, ty);
+        self.node_type_uses.insert(key, ty);
     }
 
     pub fn extend_node_type_uses(
         &mut self,
         type_uses: impl IntoIterator<Item = (VersionedNodeKey, InternedTyId)>,
     ) {
-        self.table.node_type_uses.extend(type_uses);
+        self.node_type_uses.extend(type_uses);
     }
 
     pub fn finish(self) -> SemanticUseTable {
-        self.table
+        SemanticUseTable {
+            node_value_uses: self.node_value_uses.finish(),
+            node_const_generic_uses: self.node_const_generic_uses.finish(),
+            node_builtin_associated_values: self.node_builtin_associated_values.finish(),
+            node_associated_const_projections: self.node_associated_const_projections.finish(),
+            node_local_defs: self.node_local_defs.finish(),
+            node_type_uses: self.node_type_uses.finish(),
+        }
+    }
+}
+
+impl Default for SemanticUseTableBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -789,5 +826,35 @@ mod tests {
             table.node_value_use(&key),
             Some(SemanticValueUse::Local(LocalId(2)))
         );
+    }
+
+    #[test]
+    fn semantic_use_maps_share_the_supplied_node_owner() {
+        let store = NodeStore::new();
+        let mut builder = SemanticUseTable::builder_with_node_store(&store);
+        builder.insert_node_local_value_use(key(), LocalId(1));
+        let table = builder.finish();
+
+        assert_eq!(table.store_id(), store.id());
+        assert_eq!(table.node_const_generic_uses.store_id(), store.id());
+        assert_eq!(table.node_builtin_associated_values.store_id(), store.id());
+        assert_eq!(
+            table.node_associated_const_projections.store_id(),
+            store.id()
+        );
+        assert_eq!(table.node_local_defs.store_id(), store.id());
+        assert_eq!(table.node_type_uses.store_id(), store.id());
+    }
+
+    #[test]
+    fn semantic_use_tables_compare_by_locator_across_node_owners() {
+        let first_store = NodeStore::new();
+        let second_store = NodeStore::new();
+        let mut first = SemanticUseTable::builder_with_node_store(&first_store);
+        let mut second = SemanticUseTable::builder_with_node_store(&second_store);
+        first.insert_node_local_def(key(), LocalId(4));
+        second.insert_node_local_def(key(), LocalId(4));
+
+        assert_eq!(first.finish(), second.finish());
     }
 }
