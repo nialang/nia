@@ -388,7 +388,7 @@ impl QueryKey<CompilerContext> for ModuleParseErrorsQuery {
 pub(super) struct ModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ModuleItemTreeInputQuery {
-    type Value = Arc<ModuleItemTree>;
+    type Value = ModuleItemTree;
 
     fn name() -> &'static str {
         "module_item_tree_input"
@@ -399,7 +399,7 @@ impl QueryKey<CompilerContext> for ModuleItemTreeInputQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_item_tree(db, self.0)
+        db.context().module_item_tree(db, self.0).as_ref().clone()
     }
 }
 
@@ -407,7 +407,7 @@ impl QueryKey<CompilerContext> for ModuleItemTreeInputQuery {
 pub(super) struct DeclarationModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for DeclarationModuleItemTreeInputQuery {
-    type Value = Arc<ModuleItemTree>;
+    type Value = ModuleItemTree;
 
     fn name() -> &'static str {
         "declaration_module_item_tree_input"
@@ -418,7 +418,10 @@ impl QueryKey<CompilerContext> for DeclarationModuleItemTreeInputQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().declaration_module_item_tree(db, self.0)
+        db.context()
+            .declaration_module_item_tree(db, self.0)
+            .as_ref()
+            .clone()
     }
 }
 
@@ -426,7 +429,7 @@ impl QueryKey<CompilerContext> for DeclarationModuleItemTreeInputQuery {
 pub(super) struct ActiveModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ActiveModuleItemTreeInputQuery {
-    type Value = Arc<ActiveModuleItemTree>;
+    type Value = ActiveModuleItemTree;
 
     fn name() -> &'static str {
         "active_module_item_tree_input"
@@ -437,7 +440,10 @@ impl QueryKey<CompilerContext> for ActiveModuleItemTreeInputQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().active_module_item_tree(db, self.0)
+        db.context()
+            .active_module_item_tree(db, self.0)
+            .as_ref()
+            .clone()
     }
 }
 
@@ -445,7 +451,7 @@ impl QueryKey<CompilerContext> for ActiveModuleItemTreeInputQuery {
 pub(super) struct DeclarationActiveModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeInputQuery {
-    type Value = Arc<ActiveModuleItemTree>;
+    type Value = ActiveModuleItemTree;
 
     fn name() -> &'static str {
         "declaration_active_module_item_tree_input"
@@ -456,7 +462,10 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeInputQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().declaration_active_module_item_tree(db, self.0)
+        db.context()
+            .declaration_active_module_item_tree(db, self.0)
+            .as_ref()
+            .clone()
     }
 }
 
@@ -464,7 +473,7 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeInputQuery {
 pub(super) struct FullModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for FullModuleItemTreeInputQuery {
-    type Value = Arc<ModuleItemTree>;
+    type Value = ModuleItemTree;
 
     fn name() -> &'static str {
         "full_module_item_tree_input"
@@ -475,7 +484,7 @@ impl QueryKey<CompilerContext> for FullModuleItemTreeInputQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_item_tree(db, self.0)
+        db.context().module_item_tree(db, self.0).as_ref().clone()
     }
 }
 
@@ -483,7 +492,7 @@ impl QueryKey<CompilerContext> for FullModuleItemTreeInputQuery {
 pub(super) struct FullActiveModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for FullActiveModuleItemTreeInputQuery {
-    type Value = Arc<ActiveModuleItemTree>;
+    type Value = ActiveModuleItemTree;
 
     fn name() -> &'static str {
         "full_active_module_item_tree_input"
@@ -494,7 +503,10 @@ impl QueryKey<CompilerContext> for FullActiveModuleItemTreeInputQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().active_module_item_tree(db, self.0)
+        db.context()
+            .active_module_item_tree(db, self.0)
+            .as_ref()
+            .clone()
     }
 }
 
@@ -539,7 +551,7 @@ impl QueryKey<CompilerContext> for ModuleItemTreeQuery {
 }
 
 impl QueryKey<CompilerContext> for FullModuleItemTreeQuery {
-    type Value = Arc<ModuleItemTree>;
+    type Value = ModuleItemTree;
 
     fn name() -> &'static str {
         "full_module_item_tree"
@@ -583,7 +595,7 @@ impl QueryKey<CompilerContext> for DeclarationModuleItemTreeQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         let _raw_item_tree = db.get(ModuleItemTreeQuery(self.0));
-        db.query(DeclarationModuleItemTreeInputQuery(self.0))
+        db.get(DeclarationModuleItemTreeInputQuery(self.0))
             .as_ref()
             .clone()
     }
@@ -602,14 +614,14 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         let _raw_item_tree = db.get(DeclarationModuleItemTreeQuery(self.0));
-        db.query(DeclarationActiveModuleItemTreeInputQuery(self.0))
+        db.get(DeclarationActiveModuleItemTreeInputQuery(self.0))
             .as_ref()
             .clone()
     }
 }
 
 impl QueryKey<CompilerContext> for FullActiveModuleItemTreeQuery {
-    type Value = Arc<ActiveModuleItemTree>;
+    type Value = ActiveModuleItemTree;
 
     fn name() -> &'static str {
         "full_active_module_item_tree"

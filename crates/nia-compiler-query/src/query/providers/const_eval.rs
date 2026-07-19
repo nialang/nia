@@ -5,7 +5,7 @@ pub(super) fn provide_const_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ConstModuleLowering {
-    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.get(FullModuleDefsQuery(module_id));
     let values = db.get(ValueResolutionQuery(module_id));
     let locals = db.get(LocalResolutionQuery(module_id));

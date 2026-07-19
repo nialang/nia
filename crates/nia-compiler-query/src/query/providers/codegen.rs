@@ -173,9 +173,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             time_provider(timings, "backend_lowering.inputs.active_item_trees", || {
                 checked_modules
                     .iter()
-                    .map(|checked_module| {
-                        db.query(FullActiveModuleItemTreeQuery(checked_module.id))
-                    })
+                    .map(|checked_module| db.get(FullActiveModuleItemTreeQuery(checked_module.id)))
                     .collect::<Vec<_>>()
             });
         let item_signatures =

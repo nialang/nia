@@ -76,7 +76,7 @@ pub(super) fn provide_value_resolution(
     module_id: ModuleId,
 ) -> ValueResolution {
     time_module_provider(db, "value_resolution", module_id, || {
-        let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+        let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
         let defs = db.get(FullModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
         let graph = QueryModuleGraphLookup::new(db);
@@ -105,7 +105,7 @@ pub(super) fn provide_local_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> LocalResolution {
-    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.get(FullModuleDefsQuery(module_id));
     let values = db.get(ValueResolutionQuery(module_id));
     let symbols = db.context().symbols();
@@ -127,7 +127,7 @@ pub(super) fn provide_semantic_use_table(
     let locals = db.get(LocalResolutionQuery(module_id));
     let type_resolution = db.get(TypeResolutionQuery(module_id));
     let type_lowering = db.get(TypeLoweringQuery(module_id));
-    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
     let needed_const_exprs = needed_const_exprs_for_active_item_tree(
         &db.context().type_store,
         &active_item_tree,

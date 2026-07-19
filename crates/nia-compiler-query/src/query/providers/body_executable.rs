@@ -212,7 +212,7 @@ fn filtered_const_global_initializer_for_body_check(
         db,
         "executable_body_check.const_eval.global_initializer.active_item_tree",
         global_id.module_id,
-        || db.query(FullActiveModuleItemTreeQuery(global_id.module_id)),
+        || db.get(FullActiveModuleItemTreeQuery(global_id.module_id)),
     );
     let filtered_active_item_tree = time_module_provider(
         db,
@@ -719,7 +719,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     } = input;
     let source_version = db.query(ModuleSourceVersionQuery(module_id));
     let origins = db.query(ModuleOriginsQuery(module_id));
-    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.get(FullModuleDefsQuery(module_id));
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
     let type_resolution = db.get(TypeResolutionQuery(module_id));
@@ -974,11 +974,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .map(|signature| ProgramTypeAliasSignature { signature })
     };
     let program_traits_by_method_name = |name: &SymbolId| {
-        db.query(ProgramTraitMethodIndexQuery)
+        db.get(ProgramTraitMethodIndexQuery)
             .trait_ids_with_method_named(name)
     };
     let program_trait_owning_method = |method_id: GlobalDefId| {
-        db.query(ProgramTraitMethodIndexQuery)
+        db.get(ProgramTraitMethodIndexQuery)
             .trait_owning_method_id(method_id)
             .and_then(|trait_id| {
                 program_trait_signature(trait_id).map(|signature| (trait_id, signature))
@@ -1244,7 +1244,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 BodyCheckResolutionContext {
                     source_version,
                     origins: &origins,
-                    active_item_tree: db.query(FullActiveModuleItemTreeQuery(module_id)),
+                    active_item_tree: db.get(FullActiveModuleItemTreeQuery(module_id)),
                     defs: &defs,
                     type_resolution: &type_resolution,
                     lowered: &lowered,
@@ -1275,7 +1275,7 @@ pub(super) fn executable_layouts_for_reachable_items(
 ) -> nia_layout::Layouts {
     time_module_provider(db, "executable_layouts", module_id, || {
         let defs = db.get(FullModuleDefsQuery(module_id));
-        let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+        let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
         let type_lowering = db.get(TypeLoweringQuery(module_id));
         let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id));
         let item_signatures = db.get(ItemSignaturesQuery(module_id));
@@ -2274,7 +2274,7 @@ pub(super) fn executable_flow_check(
     reachable_functions: &HashSet<GlobalDefId>,
 ) -> nia_flow_check::FlowCheck {
     time_module_provider(db, "executable_flow_check", module_id, || {
-        let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+        let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
         let signatures = db.get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Functions,

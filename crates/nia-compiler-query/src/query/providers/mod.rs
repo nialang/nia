@@ -171,10 +171,9 @@ pub(super) struct CompilerQueryProviders {
     pub(super) module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
     pub(super) active_module_item_tree:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
-    pub(super) full_module_item_tree:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> Arc<ModuleItemTree>,
+    pub(super) full_module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
     pub(super) full_active_module_item_tree:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> Arc<ActiveModuleItemTree>,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
     pub(super) module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
     pub(super) full_module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
     pub(super) public_surfaces: fn(&QueryDb<CompilerContext>) -> PublicSurfacesValue,
@@ -237,10 +236,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionTraitSolvingModuleFactsValue,
     pub(super) extension_trait_impls_for_trait:
         fn(&QueryDb<CompilerContext>, nia_ty::TraitId) -> ExtensionTraitImplsForTraitValue,
-    pub(super) program_trait_method_index:
-        fn(&QueryDb<CompilerContext>) -> Arc<ProgramTraitMethodIndex>,
-    pub(super) program_abi_signatures:
-        fn(&QueryDb<CompilerContext>) -> Arc<ProgramAbiSignaturesValue>,
+    pub(super) program_trait_method_index: fn(&QueryDb<CompilerContext>) -> ProgramTraitMethodIndex,
+    pub(super) program_abi_signatures: fn(&QueryDb<CompilerContext>) -> ProgramAbiSignaturesValue,
     pub(super) extension_provider_module_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderModuleFactsValue,
     pub(super) extension_provider_validation_facts:

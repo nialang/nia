@@ -64,7 +64,7 @@ pub(super) fn provide_abi_check(
         module_id,
         nia_item_tree::SignatureItemSet::Values,
     ));
-    let program = db.query(ProgramAbiSignaturesQuery);
+    let program = db.get(ProgramAbiSignaturesQuery);
     nia_abi_check::check_module_abi_families_with_program_signatures(
         &defs,
         db.context().type_store(),
@@ -87,7 +87,7 @@ pub(super) fn provide_static_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_static_check::StaticCheck {
-    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.get(FullModuleDefsQuery(module_id));
     let values = db.get(ValueResolutionQuery(module_id));
     let locals = db.get(LocalResolutionQuery(module_id));
@@ -123,7 +123,7 @@ pub(super) fn provide_flow_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> nia_flow_check::FlowCheck {
-    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
     let signatures = db.get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
