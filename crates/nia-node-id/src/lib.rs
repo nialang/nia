@@ -326,6 +326,10 @@ impl<V> NodeMap<V> {
         self.store.id()
     }
 
+    pub fn node_store(&self) -> &NodeStore {
+        &self.store
+    }
+
     pub fn iter(&self) -> NodeMapIter<'_, V> {
         NodeMapIter {
             store: &self.store,
@@ -335,6 +339,26 @@ impl<V> NodeMap<V> {
 
     pub fn values(&self) -> hash_map::Values<'_, NodeId, V> {
         self.nodes.values()
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = VersionedNodeKey> + '_ {
+        self.nodes.keys().map(|node_id| {
+            self.store
+                .locator(*node_id)
+                .expect("node map id belongs to its node store")
+        })
+    }
+
+    pub fn into_entries(self) -> impl Iterator<Item = (VersionedNodeKey, V)> {
+        let Self { store, nodes } = self;
+        nodes.into_iter().map(move |(node_id, value)| {
+            (
+                store
+                    .locator(node_id)
+                    .expect("node map id belongs to its node store"),
+                value,
+            )
+        })
     }
 
     pub fn len(&self) -> usize {

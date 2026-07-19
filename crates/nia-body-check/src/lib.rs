@@ -52,7 +52,7 @@ use nia_node_id::{NodeOriginTable, VersionedNodeKey};
 use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
 use nia_sema_ir::{
     AssociatedConstProjection, BracketSuffixResolution, BuiltinValue, FunctionReference,
-    FunctionSemanticFacts, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
+    FunctionSemanticFactsBuilder, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
     SemanticFacts, SemanticTraitMethodRef, SemanticUseTable, SemanticValueUse, TraitObjectCoercion,
     TraitObjectUpcast,
 };
@@ -867,7 +867,11 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
                 .map(|(def_id, ty)| (GlobalDefId { module_id, def_id }, ty))
                 .collect(),
             generic_instantiations: checker.generic_instantiations,
-            function_facts: checker.function_facts,
+            function_facts: checker
+                .function_facts
+                .into_iter()
+                .map(|(def_id, facts)| (def_id, facts.finish(input.semantic_uses.node_store())))
+                .collect(),
             node_expr_types: checker.node_expr_types,
             node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
             node_pointer_array_to_slice_coercions: checker.node_pointer_array_to_slice_coercions,
@@ -1013,7 +1017,7 @@ struct BodyChecker<'a> {
     node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
     node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,
-    function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
+    function_facts: HashMap<GlobalDefId, FunctionSemanticFactsBuilder>,
     function_bodies: HashMap<GlobalDefId, nia_body_ir::TypedBody>,
     global_inits: HashMap<GlobalDefId, nia_static_ir::StaticInit>,
     local_types: HashMap<LocalId, InternedTyId>,
@@ -1530,7 +1534,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn current_function_facts(&mut self) -> Option<&mut FunctionSemanticFacts> {
+    fn current_function_facts(&mut self) -> Option<&mut FunctionSemanticFactsBuilder> {
         self.current_def_id
             .map(|def_id| self.function_facts.entry(def_id).or_default())
     }
@@ -1673,7 +1677,11 @@ impl<'a> BodyChecker<'a> {
         self.diagnostics = diagnostics;
         self.load_type_facts(module_id, &facts);
         self.generic_instantiations = facts.generic_instantiations;
-        self.function_facts = facts.function_facts;
+        self.function_facts = facts
+            .function_facts
+            .into_iter()
+            .map(|(def_id, facts)| (def_id, facts.into_builder()))
+            .collect();
         self.node_expr_types = facts.node_expr_types;
         self.node_bracket_suffix_resolutions = facts.node_bracket_suffix_resolutions;
         self.node_pointer_array_to_slice_coercions = facts.node_pointer_array_to_slice_coercions;

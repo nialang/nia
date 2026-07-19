@@ -5675,6 +5675,17 @@ extend i32 : ParseFrom[Input] {
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let module = checked.modules.first().expect("checked module");
+        let function_facts = module
+            .semantic_facts
+            .function_facts
+            .values()
+            .next()
+            .expect("function semantic facts");
+        assert_eq!(
+            function_facts.store_id(),
+            module.semantic_uses.store_id(),
+            "frozen body facts should share the compiler session node owner"
+        );
         assert!(matches!(
             module
                 .semantic_uses
