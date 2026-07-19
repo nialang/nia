@@ -185,6 +185,10 @@ impl NodeStore {
         }
     }
 
+    pub fn id(&self) -> NodeStoreId {
+        self.id
+    }
+
     pub fn locator(&self, node_id: NodeId) -> Option<VersionedNodeKey> {
         if node_id.store_id != self.id {
             return None;
@@ -230,26 +234,91 @@ impl NodeStoreAppend {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct NodeOriginTable {
-    keys: HashMap<(SyntaxKind, Span), VersionedNodeKey>,
+    store: NodeStore,
+    nodes: HashMap<(SyntaxKind, Span), NodeId>,
 }
 
+#[derive(Debug)]
+pub struct NodeOriginTableBuilder {
+    store: NodeStore,
+    append: NodeStoreAppend,
+    nodes: HashMap<(SyntaxKind, Span), NodeId>,
+}
+
+impl Default for NodeOriginTable {
+    fn default() -> Self {
+        Self::with_store(&NodeStore::new())
+    }
+}
+
+impl PartialEq for NodeOriginTable {
+    fn eq(&self, other: &Self) -> bool {
+        if self.store.id == other.store.id {
+            return self.nodes == other.nodes;
+        }
+        self.nodes.len() == other.nodes.len()
+            && self.nodes.iter().all(|(origin, node_id)| {
+                other.nodes.get(origin).is_some_and(|other_id| {
+                    self.store.locator(*node_id) == other.store.locator(*other_id)
+                })
+            })
+    }
+}
+
+impl Eq for NodeOriginTable {}
+
 impl NodeOriginTable {
-    pub fn insert(&mut self, kind: SyntaxKind, span: Span, key: VersionedNodeKey) {
-        self.keys.insert((kind, span), key);
+    pub fn with_store(store: &NodeStore) -> Self {
+        Self {
+            store: store.clone(),
+            nodes: HashMap::new(),
+        }
     }
 
-    pub fn get(&self, kind: SyntaxKind, span: Span) -> Option<&VersionedNodeKey> {
-        self.keys.get(&(kind, span))
+    pub fn builder(store: &NodeStore) -> NodeOriginTableBuilder {
+        NodeOriginTableBuilder {
+            store: store.clone(),
+            append: store.append(),
+            nodes: HashMap::new(),
+        }
+    }
+
+    pub fn node_id(&self, kind: SyntaxKind, span: Span) -> Option<NodeId> {
+        self.nodes.get(&(kind, span)).copied()
+    }
+
+    pub fn locator(&self, kind: SyntaxKind, span: Span) -> Option<VersionedNodeKey> {
+        self.node_id(kind, span)
+            .and_then(|node_id| self.store.locator(node_id))
+    }
+
+    pub fn store_id(&self) -> NodeStoreId {
+        self.store.id()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.keys.is_empty()
+        self.nodes.is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.keys.len()
+        self.nodes.len()
+    }
+}
+
+impl NodeOriginTableBuilder {
+    pub fn insert(&mut self, kind: SyntaxKind, span: Span, locator: VersionedNodeKey) -> NodeId {
+        let node_id = self.append.intern(locator);
+        self.nodes.insert((kind, span), node_id);
+        node_id
+    }
+
+    pub fn finish(self) -> NodeOriginTable {
+        NodeOriginTable {
+            store: self.store,
+            nodes: self.nodes,
+        }
     }
 }
 
@@ -309,11 +378,38 @@ mod tests {
         };
         let span = Span::new(4, 9);
         let key = VersionedNodeKey::span(version, SyntaxKind::Expr, span);
-        let mut origins = NodeOriginTable::default();
+        let store = NodeStore::new();
+        let mut origins = NodeOriginTable::builder(&store);
 
-        origins.insert(SyntaxKind::Expr, span, key.clone());
+        let node_id = origins.insert(SyntaxKind::Expr, span, key.clone());
+        let origins = origins.finish();
 
-        assert_eq!(origins.get(SyntaxKind::Expr, span), Some(&key));
+        assert_eq!(origins.node_id(SyntaxKind::Expr, span), Some(node_id));
+        assert_eq!(origins.locator(SyntaxKind::Expr, span), Some(key));
+        assert_eq!(origins.store_id(), store.id());
+    }
+
+    #[test]
+    fn origin_tables_compare_by_locator_across_stores() {
+        let version = SourceVersion {
+            id: SourceId(2),
+            revision: SourceRevision(1),
+        };
+        let span = Span::new(4, 9);
+        let locator = VersionedNodeKey::span(version, SyntaxKind::Expr, span);
+        let first_store = NodeStore::new();
+        let second_store = NodeStore::new();
+        let mut first = NodeOriginTable::builder(&first_store);
+        let mut second = NodeOriginTable::builder(&second_store);
+
+        first.insert(SyntaxKind::Expr, span, locator.clone());
+        second.insert(SyntaxKind::Expr, span, locator);
+        let first = first.finish();
+        let second = second.finish();
+
+        assert_ne!(first.store_id(), second.store_id());
+        assert_eq!(first, second);
+        assert_eq!(NodeOriginTable::default(), NodeOriginTable::default());
     }
 
     #[test]

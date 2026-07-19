@@ -40,6 +40,7 @@ fn test_loader_context(
         entry_path: entry_path.clone(),
         module_map: effective_module_map(&entry_path, module_map),
         sources,
+        node_store: nia_node_id::NodeStore::new(),
         symbols: SymbolTable::new(),
         target: TargetConfig::host(),
         entry_runtime: EntryRuntime::None,
@@ -1228,6 +1229,21 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
         .expect("loaded main module");
     let first_version = first_module.source_version;
     let first_item_tree = first_module.item_tree.clone();
+    let first_item_span = first_module.item_tree.items[0].span;
+    let first_node_id = first_module
+        .origins
+        .node_id(nia_node_id::SyntaxKind::Item, first_item_span)
+        .expect("first revision item node id");
+    let first_locator = db
+        .context()
+        .node_store
+        .locator(first_node_id)
+        .expect("first revision item locator");
+    assert_eq!(
+        first_module.origins.store_id(),
+        db.context().node_store.id()
+    );
+    assert_eq!(first_locator.source_version(), first_version);
 
     let source_id = sources.id_for_path(&main);
     sources.set_source(main.clone(), "fn main() i32 { 1 }");
@@ -1260,8 +1276,24 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
         .iter()
         .find(|module| module.path == main)
         .expect("reloaded main module");
+    let second_node_id = second_module
+        .origins
+        .node_id(
+            nia_node_id::SyntaxKind::Item,
+            second_module.item_tree.items[0].span,
+        )
+        .expect("second revision item node id");
     assert_ne!(second_module.source_version, first_version);
     assert_ne!(second_module.item_tree, first_item_tree);
+    assert_ne!(second_node_id, first_node_id);
+    assert_eq!(
+        second_module.origins.store_id(),
+        db.context().node_store.id()
+    );
+    assert_eq!(
+        db.context().node_store.locator(first_node_id),
+        Some(first_locator)
+    );
 }
 
 #[test]

@@ -12,7 +12,10 @@ use nia_ast::{
     UsingSelector, Visibility, WhereClause, WherePredicate, WhileStmt,
 };
 use nia_lexer::TokenKind;
-use nia_node_id::{NodeOriginTable, SyntaxKind as NodeSyntaxKind, VersionedNodeKey};
+use nia_node_id::{
+    NodeOriginTable, NodeOriginTableBuilder, NodeStore, SyntaxKind as NodeSyntaxKind,
+    VersionedNodeKey,
+};
 use nia_source::{SourceId, SourceRevision, SourceVersion};
 use nia_span::Span;
 use nia_symbol::{SymbolId, symbol_identity_key};
@@ -58,7 +61,15 @@ pub fn parse_module_syntax_with_origins_and_symbols(
     syntax: &SyntaxTree,
     symbols: SymbolTable,
 ) -> (Module, Vec<ParseError>, NodeOriginTable) {
-    Parser::from_syntax(syntax, symbols).parse_module()
+    parse_module_syntax_with_node_store_and_symbols(syntax, &NodeStore::new(), symbols)
+}
+
+pub fn parse_module_syntax_with_node_store_and_symbols(
+    syntax: &SyntaxTree,
+    node_store: &NodeStore,
+    symbols: SymbolTable,
+) -> (Module, Vec<ParseError>, NodeOriginTable) {
+    Parser::from_syntax(syntax, symbols, node_store).parse_module()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,7 +84,7 @@ pub struct Parser {
     tokens: SyntaxTokenCursor,
     symbols: SymbolTable,
     errors: Vec<ParseError>,
-    origins: NodeOriginTable,
+    origins: NodeOriginTableBuilder,
 }
 
 struct FunctionParts {
@@ -100,10 +111,10 @@ struct BindingParts {
 impl Parser {
     pub fn new(source: &str) -> Self {
         let syntax = nia_syntax::parse_source(source, Some(synthetic_source_version()));
-        Self::from_syntax(&syntax, SymbolTable::new())
+        Self::from_syntax(&syntax, SymbolTable::new(), &NodeStore::new())
     }
 
-    fn from_syntax(syntax: &SyntaxTree, symbols: SymbolTable) -> Self {
+    fn from_syntax(syntax: &SyntaxTree, symbols: SymbolTable, node_store: &NodeStore) -> Self {
         let tokens = SyntaxTokenCursor::new(syntax);
         let errors = tokens
             .tokens()
@@ -122,7 +133,7 @@ impl Parser {
             tokens,
             symbols,
             errors,
-            origins: NodeOriginTable::default(),
+            origins: NodeOriginTable::builder(node_store),
         }
     }
 
@@ -137,7 +148,7 @@ impl Parser {
                 self.ensure_recovery_progress(checkpoint);
             }
         }
-        (Module { items }, self.errors, self.origins)
+        (Module { items }, self.errors, self.origins.finish())
     }
 
     fn node_key(&mut self, kind: NodeSyntaxKind, span: Span) -> VersionedNodeKey {
