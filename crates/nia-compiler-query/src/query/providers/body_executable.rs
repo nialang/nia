@@ -273,7 +273,7 @@ fn filtered_const_global_initializer_for_body_check(
         "executable_body_check.const_eval.global_initializer.const_expr_value_resolution",
         global_id.module_id,
         || {
-            let visible_extensions = || db.query(VisibleExtensionsQuery(global_id.module_id));
+            let visible_extensions = || db.get(VisibleExtensionsQuery(global_id.module_id));
             let associated_values =
                 LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
             nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
@@ -371,7 +371,7 @@ fn filtered_const_global_initializer_for_body_check(
                     db,
                     "executable_body_check.const_eval.global_initializer.visible_extensions",
                     global_id.module_id,
-                    || db.query(VisibleExtensionsQuery(global_id.module_id)),
+                    || db.get(VisibleExtensionsQuery(global_id.module_id)),
                 )
             };
             let associated_values =
@@ -519,7 +519,7 @@ fn const_inputs_for_body_check(
             return Some(signatures.trait_impls.clone());
         }
         Some(
-            db.query(VisibleTraitImplsQuery(requested_module_id))
+            db.get(VisibleTraitImplsQuery(requested_module_id))
                 .trait_impls
                 .clone(),
         )
@@ -557,7 +557,7 @@ fn const_inputs_for_body_check(
             return Some(local_visible_extensions.methods.clone());
         }
         Some(
-            db.query(VisibleExtensionsQuery(requested_module_id))
+            db.get(VisibleExtensionsQuery(requested_module_id))
                 .methods
                 .clone(),
         )
@@ -823,7 +823,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     };
     let empty_extensions = nia_defs::VisibleExtensionMethods::default();
     let lazy_extensions = || {
-        let extensions = db.query(VisibleExtensionsQuery(module_id));
+        let extensions = db.get(VisibleExtensionsQuery(module_id));
         extensions.methods.clone()
     };
     let empty_program_extension_methods = nia_defs::ExtensionMethods::default();
@@ -1022,7 +1022,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             &signatures.trait_impl_index,
         )
     } else {
-        visible_trait_impls = db.query(VisibleTraitImplsQuery(module_id));
+        visible_trait_impls = db.get(VisibleTraitImplsQuery(module_id));
         ProgramSignatureContext::new_indexed(
             &program_signature_lookup,
             &visible_trait_impls.trait_impls,
@@ -1161,7 +1161,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         Some(db.get(ConstModuleQuery(module_id)).module.clone())
     };
     let program_visible_extensions =
-        |module_id| Some(db.query(VisibleExtensionsQuery(module_id)).methods.clone());
+        |module_id| Some(db.get(VisibleExtensionsQuery(module_id)).methods.clone());
     let run_body_check =
         |inputs: &BodyCheckResolutionInputs,
          body_const: nia_body_check::BodyConst<'_>,
@@ -1876,7 +1876,7 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
         let graph = QueryModuleGraphLookup::new(db);
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, owner.module_id);
-        let visible_extensions = || db.query(VisibleExtensionsQuery(owner.module_id));
+        let visible_extensions = || db.get(VisibleExtensionsQuery(owner.module_id));
         let associated_values =
             LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let symbols = db.context().symbols();

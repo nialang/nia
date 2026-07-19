@@ -92,8 +92,8 @@ type ExtensionMethodIndexValue = Arc<ExtensionMethodIndexQueryValue>;
 type ExtensionMethodsNamedValue = Arc<ExtensionMethodsNamedQueryValue>;
 type ExtensionMethodByIdValue = Arc<ExtensionMethodByIdQueryValue>;
 type ExtensionTraitSignatureIndexValue = Arc<ExtensionTraitSignatureIndex>;
-type VisibleExtensionsValue = Arc<VisibleExtensionsForModule>;
-type VisibleTraitImplsValue = Arc<VisibleTraitImplsForModule>;
+type VisibleExtensionsValue = VisibleExtensionsForModule;
+type VisibleTraitImplsValue = VisibleTraitImplsForModule;
 type ExtensionSignatureModuleInputValue = Arc<ExtensionSignatureModuleInputQueryValue>;
 type ExtensionTraitSolvingModuleFactsValue = ExtensionTraitSolvingModuleFactsQueryValue;
 type ExtensionTraitImplsForTraitValue = Arc<ExtensionTraitImplsForTraitQueryValue>;
@@ -4693,7 +4693,7 @@ extend Used {
         };
         let db = query_db(loaded);
 
-        let _ = db.query(VisibleExtensionsQuery(ModuleId(0)));
+        let _ = db.get(VisibleExtensionsQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5287,7 +5287,7 @@ extend i32 : ParseFrom[&[u8]] {
         };
         let db = query_db(loaded);
 
-        let trait_impls = db.query(VisibleTraitImplsQuery(ModuleId(0)));
+        let trait_impls = db.get(VisibleTraitImplsQuery(ModuleId(0)));
 
         assert_eq!(trait_impls.trait_impls.len(), 2);
         assert!(
@@ -5564,6 +5564,10 @@ extend i32 : ParseFrom[Input] {
         let trait_solving = db.get(ExtensionTraitSolvingModuleFactsQuery(ModuleId(0)));
         let provider = db.get(ExtensionProviderModuleFactsQuery(ModuleId(0)));
         let nominal = db.get(ExtensionProviderNominalModuleFactsQuery(ModuleId(0)));
+        let visible_extensions: Arc<VisibleExtensionsForModule> =
+            db.get(VisibleExtensionsQuery(ModuleId(0)));
+        let visible_trait_impls: Arc<VisibleTraitImplsForModule> =
+            db.get(VisibleTraitImplsQuery(ModuleId(0)));
 
         let signature_batch =
             db.get_many([ModuleProgramSignatureFactsQuery(ModuleId(0), signature_set)]);
@@ -5571,12 +5575,22 @@ extend i32 : ParseFrom[Input] {
         let trait_solving_batch = db.get_many([ExtensionTraitSolvingModuleFactsQuery(ModuleId(0))]);
         let provider_batch = db.get_many([ExtensionProviderModuleFactsQuery(ModuleId(0))]);
         let nominal_batch = db.get_many([ExtensionProviderNominalModuleFactsQuery(ModuleId(0))]);
+        let visible_extensions_batch = db.get_many([VisibleExtensionsQuery(ModuleId(0))]);
+        let visible_trait_impls_batch = db.get_many([VisibleTraitImplsQuery(ModuleId(0))]);
 
         assert!(Arc::ptr_eq(&signature, &signature_batch[0]));
         assert!(Arc::ptr_eq(&abi, &abi_batch[0]));
         assert!(Arc::ptr_eq(&trait_solving, &trait_solving_batch[0]));
         assert!(Arc::ptr_eq(&provider, &provider_batch[0]));
         assert!(Arc::ptr_eq(&nominal, &nominal_batch[0]));
+        assert!(Arc::ptr_eq(
+            &visible_extensions,
+            &visible_extensions_batch[0]
+        ));
+        assert!(Arc::ptr_eq(
+            &visible_trait_impls,
+            &visible_trait_impls_batch[0]
+        ));
     }
 
     #[test]

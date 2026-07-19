@@ -63,7 +63,7 @@ fn with_signature_const_input<T>(
             return Some(signatures.trait_impls.clone());
         }
         Some(
-            db.query(VisibleTraitImplsQuery(requested_module_id))
+            db.get(VisibleTraitImplsQuery(requested_module_id))
                 .trait_impls
                 .clone(),
         )
@@ -97,7 +97,7 @@ fn with_signature_const_input<T>(
             return Some(local_visible_extensions.methods.clone());
         }
         Some(
-            db.query(VisibleExtensionsQuery(requested_module_id))
+            db.get(VisibleExtensionsQuery(requested_module_id))
                 .methods
                 .clone(),
         )
@@ -250,7 +250,7 @@ fn signature_const_value_resolution(
     let defs = db.get(ModuleDefsQuery(module_id));
     let public_surfaces = db.query(PublicSurfacesQuery);
     let using_scope = db.query(ModuleUsingScopeQuery(module_id));
-    let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
+    let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
     let associated_values =
         LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
     let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));

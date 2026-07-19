@@ -150,7 +150,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
             return Some(signatures.trait_impls.clone());
         }
         Some(
-            db.query(VisibleTraitImplsQuery(requested_module_id))
+            db.get(VisibleTraitImplsQuery(requested_module_id))
                 .trait_impls
                 .clone(),
         )
@@ -187,7 +187,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
             return Some(local_visible_extensions.methods.clone());
         }
         Some(
-            db.query(VisibleExtensionsQuery(requested_module_id))
+            db.get(VisibleExtensionsQuery(requested_module_id))
                 .methods
                 .clone(),
         )
