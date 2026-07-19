@@ -40,6 +40,10 @@ impl SemanticUseTable {
         self.node_value_uses.store_id()
     }
 
+    pub fn node_store(&self) -> &NodeStore {
+        self.node_value_uses.node_store()
+    }
+
     pub fn node_value_use(&self, key: &VersionedNodeKey) -> Option<SemanticValueUse> {
         self.node_value_uses.get(key).copied()
     }
@@ -372,112 +376,145 @@ impl SemanticFacts {
 
     pub fn iter_node_expr_types(
         &self,
-    ) -> impl Iterator<Item = (&VersionedNodeKey, &InternedTyId)> + '_ {
-        self.node_expr_types.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_expr_types.iter()),
-        )
+    ) -> impl Iterator<Item = (VersionedNodeKey, &InternedTyId)> + '_ {
+        self.node_expr_types
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .chain(
+                self.function_facts
+                    .values()
+                    .flat_map(|facts| facts.node_expr_types.iter()),
+            )
     }
 
     pub fn iter_node_bracket_suffix_resolutions(
         &self,
-    ) -> impl Iterator<Item = (&VersionedNodeKey, &BracketSuffixResolution)> + '_ {
-        self.node_bracket_suffix_resolutions.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_bracket_suffix_resolutions.iter()),
-        )
+    ) -> impl Iterator<Item = (VersionedNodeKey, &BracketSuffixResolution)> + '_ {
+        self.node_bracket_suffix_resolutions
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .chain(
+                self.function_facts
+                    .values()
+                    .flat_map(|facts| facts.node_bracket_suffix_resolutions.iter()),
+            )
     }
 
     pub fn iter_node_pointer_array_to_slice_coercions(
         &self,
-    ) -> impl Iterator<Item = (&VersionedNodeKey, &PointerArrayToSliceCoercion)> + '_ {
-        self.node_pointer_array_to_slice_coercions.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_pointer_array_to_slice_coercions.iter()),
-        )
+    ) -> impl Iterator<Item = (VersionedNodeKey, &PointerArrayToSliceCoercion)> + '_ {
+        self.node_pointer_array_to_slice_coercions
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .chain(
+                self.function_facts
+                    .values()
+                    .flat_map(|facts| facts.node_pointer_array_to_slice_coercions.iter()),
+            )
     }
 
     pub fn iter_node_trait_object_coercions(
         &self,
-    ) -> impl Iterator<Item = (&VersionedNodeKey, &TraitObjectCoercion)> + '_ {
-        self.node_trait_object_coercions.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_trait_object_coercions.iter()),
-        )
+    ) -> impl Iterator<Item = (VersionedNodeKey, &TraitObjectCoercion)> + '_ {
+        self.node_trait_object_coercions
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .chain(
+                self.function_facts
+                    .values()
+                    .flat_map(|facts| facts.node_trait_object_coercions.iter()),
+            )
     }
 
     pub fn iter_node_trait_object_upcasts(
         &self,
-    ) -> impl Iterator<Item = (&VersionedNodeKey, &TraitObjectUpcast)> + '_ {
-        self.node_trait_object_upcasts.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_trait_object_upcasts.iter()),
-        )
+    ) -> impl Iterator<Item = (VersionedNodeKey, &TraitObjectUpcast)> + '_ {
+        self.node_trait_object_upcasts
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .chain(
+                self.function_facts
+                    .values()
+                    .flat_map(|facts| facts.node_trait_object_upcasts.iter()),
+            )
     }
 
     pub fn iter_node_builtin_values(
         &self,
-    ) -> impl Iterator<Item = (&VersionedNodeKey, &BuiltinValue)> + '_ {
-        self.node_builtin_values.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_builtin_values.iter()),
-        )
+    ) -> impl Iterator<Item = (VersionedNodeKey, &BuiltinValue)> + '_ {
+        self.node_builtin_values
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .chain(
+                self.function_facts
+                    .values()
+                    .flat_map(|facts| facts.node_builtin_values.iter()),
+            )
     }
 
     pub fn iter_node_associated_const_projections(
         &self,
-    ) -> impl Iterator<Item = (&VersionedNodeKey, &AssociatedConstProjection)> + '_ {
-        self.node_associated_const_projections.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_associated_const_projections.iter()),
-        )
+    ) -> impl Iterator<Item = (VersionedNodeKey, &AssociatedConstProjection)> + '_ {
+        self.node_associated_const_projections
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .chain(
+                self.function_facts
+                    .values()
+                    .flat_map(|facts| facts.node_associated_const_projections.iter()),
+            )
     }
 
     pub fn iter_node_array_repeat_counts(
         &self,
-    ) -> impl Iterator<Item = (&VersionedNodeKey, &u64)> + '_ {
-        self.node_array_repeat_counts.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_array_repeat_counts.iter()),
-        )
+    ) -> impl Iterator<Item = (VersionedNodeKey, &u64)> + '_ {
+        self.node_array_repeat_counts
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .chain(
+                self.function_facts
+                    .values()
+                    .flat_map(|facts| facts.node_array_repeat_counts.iter()),
+            )
     }
 
     pub fn iter_node_switch_pattern_values(
         &self,
-    ) -> impl Iterator<Item = (&VersionedNodeKey, &i128)> + '_ {
-        self.node_switch_pattern_values.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_switch_pattern_values.iter()),
-        )
+    ) -> impl Iterator<Item = (VersionedNodeKey, &i128)> + '_ {
+        self.node_switch_pattern_values
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .chain(
+                self.function_facts
+                    .values()
+                    .flat_map(|facts| facts.node_switch_pattern_values.iter()),
+            )
     }
 
     pub fn iter_node_resolved_calls(
         &self,
-    ) -> impl Iterator<Item = (&VersionedNodeKey, &ResolvedCall)> + '_ {
-        self.node_resolved_calls.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_resolved_calls.iter()),
-        )
+    ) -> impl Iterator<Item = (VersionedNodeKey, &ResolvedCall)> + '_ {
+        self.node_resolved_calls
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .chain(
+                self.function_facts
+                    .values()
+                    .flat_map(|facts| facts.node_resolved_calls.iter()),
+            )
     }
 
     pub fn iter_node_function_references(
         &self,
-    ) -> impl Iterator<Item = (&VersionedNodeKey, &FunctionReference)> + '_ {
-        self.node_function_references.iter().chain(
-            self.function_facts
-                .values()
-                .flat_map(|facts| facts.node_function_references.iter()),
-        )
+    ) -> impl Iterator<Item = (VersionedNodeKey, &FunctionReference)> + '_ {
+        self.node_function_references
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .chain(
+                self.function_facts
+                    .values()
+                    .flat_map(|facts| facts.node_function_references.iter()),
+            )
     }
 
     pub fn retain_module_level_facts(&mut self) {
@@ -485,44 +522,63 @@ impl SemanticFacts {
             .retain(|instantiation| instantiation.source_def_id.is_none());
         for facts in self.function_facts.values() {
             for key in facts.node_expr_types.keys() {
-                self.node_expr_types.remove(key);
+                self.node_expr_types.remove(&key);
             }
             for key in facts.node_bracket_suffix_resolutions.keys() {
-                self.node_bracket_suffix_resolutions.remove(key);
+                self.node_bracket_suffix_resolutions.remove(&key);
             }
             for key in facts.node_pointer_array_to_slice_coercions.keys() {
-                self.node_pointer_array_to_slice_coercions.remove(key);
+                self.node_pointer_array_to_slice_coercions.remove(&key);
             }
             for key in facts.node_trait_object_coercions.keys() {
-                self.node_trait_object_coercions.remove(key);
+                self.node_trait_object_coercions.remove(&key);
             }
             for key in facts.node_trait_object_upcasts.keys() {
-                self.node_trait_object_upcasts.remove(key);
+                self.node_trait_object_upcasts.remove(&key);
             }
             for key in facts.node_builtin_values.keys() {
-                self.node_builtin_values.remove(key);
+                self.node_builtin_values.remove(&key);
             }
             for key in facts.node_associated_const_projections.keys() {
-                self.node_associated_const_projections.remove(key);
+                self.node_associated_const_projections.remove(&key);
             }
             for key in facts.node_array_repeat_counts.keys() {
-                self.node_array_repeat_counts.remove(key);
+                self.node_array_repeat_counts.remove(&key);
             }
             for key in facts.node_switch_pattern_values.keys() {
-                self.node_switch_pattern_values.remove(key);
+                self.node_switch_pattern_values.remove(&key);
             }
             for key in facts.node_resolved_calls.keys() {
-                self.node_resolved_calls.remove(key);
+                self.node_resolved_calls.remove(&key);
             }
             for key in facts.node_function_references.keys() {
-                self.node_function_references.remove(key);
+                self.node_function_references.remove(&key);
             }
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSemanticFacts {
+    pub local_types: HashMap<LocalId, InternedTyId>,
+    pub global_value_uses: HashSet<GlobalDefId>,
+    pub generic_instantiations: Vec<GenericInstantiation>,
+    pub node_expr_types: NodeMap<InternedTyId>,
+    pub node_bracket_suffix_resolutions: NodeMap<BracketSuffixResolution>,
+    pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
+    pub node_trait_object_coercions: NodeMap<TraitObjectCoercion>,
+    pub node_trait_object_upcasts: NodeMap<TraitObjectUpcast>,
+    pub node_builtin_values: NodeMap<BuiltinValue>,
+    pub node_associated_const_projections: NodeMap<AssociatedConstProjection>,
+    pub node_array_repeat_counts: NodeMap<u64>,
+    pub node_switch_pattern_values: NodeMap<i128>,
+    pub node_resolved_calls: NodeMap<ResolvedCall>,
+    pub node_function_references: NodeMap<FunctionReference>,
+    pub trait_method_refs: Vec<SemanticTraitMethodRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FunctionSemanticFactsBuilder {
     pub local_types: HashMap<LocalId, InternedTyId>,
     pub global_value_uses: HashSet<GlobalDefId>,
     pub generic_instantiations: Vec<GenericInstantiation>,
@@ -539,6 +595,93 @@ pub struct FunctionSemanticFacts {
     pub node_resolved_calls: HashMap<VersionedNodeKey, ResolvedCall>,
     pub node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
     pub trait_method_refs: Vec<SemanticTraitMethodRef>,
+}
+
+impl Default for FunctionSemanticFacts {
+    fn default() -> Self {
+        FunctionSemanticFactsBuilder::default().finish(&NodeStore::new())
+    }
+}
+
+impl FunctionSemanticFacts {
+    pub fn store_id(&self) -> NodeStoreId {
+        self.node_expr_types.store_id()
+    }
+
+    pub fn into_builder(self) -> FunctionSemanticFactsBuilder {
+        FunctionSemanticFactsBuilder {
+            local_types: self.local_types,
+            global_value_uses: self.global_value_uses,
+            generic_instantiations: self.generic_instantiations,
+            node_expr_types: self.node_expr_types.into_entries().collect(),
+            node_bracket_suffix_resolutions: self
+                .node_bracket_suffix_resolutions
+                .into_entries()
+                .collect(),
+            node_pointer_array_to_slice_coercions: self
+                .node_pointer_array_to_slice_coercions
+                .into_entries()
+                .collect(),
+            node_trait_object_coercions: self.node_trait_object_coercions.into_entries().collect(),
+            node_trait_object_upcasts: self.node_trait_object_upcasts.into_entries().collect(),
+            node_builtin_values: self.node_builtin_values.into_entries().collect(),
+            node_associated_const_projections: self
+                .node_associated_const_projections
+                .into_entries()
+                .collect(),
+            node_array_repeat_counts: self.node_array_repeat_counts.into_entries().collect(),
+            node_switch_pattern_values: self.node_switch_pattern_values.into_entries().collect(),
+            node_resolved_calls: self.node_resolved_calls.into_entries().collect(),
+            node_function_references: self.node_function_references.into_entries().collect(),
+            trait_method_refs: self.trait_method_refs,
+        }
+    }
+}
+
+impl FunctionSemanticFactsBuilder {
+    pub fn finish(self, store: &NodeStore) -> FunctionSemanticFacts {
+        FunctionSemanticFacts {
+            local_types: self.local_types,
+            global_value_uses: self.global_value_uses,
+            generic_instantiations: self.generic_instantiations,
+            node_expr_types: node_map_from_entries(store, self.node_expr_types),
+            node_bracket_suffix_resolutions: node_map_from_entries(
+                store,
+                self.node_bracket_suffix_resolutions,
+            ),
+            node_pointer_array_to_slice_coercions: node_map_from_entries(
+                store,
+                self.node_pointer_array_to_slice_coercions,
+            ),
+            node_trait_object_coercions: node_map_from_entries(
+                store,
+                self.node_trait_object_coercions,
+            ),
+            node_trait_object_upcasts: node_map_from_entries(store, self.node_trait_object_upcasts),
+            node_builtin_values: node_map_from_entries(store, self.node_builtin_values),
+            node_associated_const_projections: node_map_from_entries(
+                store,
+                self.node_associated_const_projections,
+            ),
+            node_array_repeat_counts: node_map_from_entries(store, self.node_array_repeat_counts),
+            node_switch_pattern_values: node_map_from_entries(
+                store,
+                self.node_switch_pattern_values,
+            ),
+            node_resolved_calls: node_map_from_entries(store, self.node_resolved_calls),
+            node_function_references: node_map_from_entries(store, self.node_function_references),
+            trait_method_refs: self.trait_method_refs,
+        }
+    }
+}
+
+fn node_map_from_entries<V>(
+    store: &NodeStore,
+    entries: HashMap<VersionedNodeKey, V>,
+) -> NodeMap<V> {
+    let mut builder = NodeMap::builder(store);
+    builder.extend(entries);
+    builder.finish()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -856,5 +999,50 @@ mod tests {
         second.insert_node_local_def(key(), LocalId(4));
 
         assert_eq!(first.finish(), second.finish());
+    }
+
+    #[test]
+    fn function_facts_freeze_and_thaw_node_maps_at_explicit_boundaries() {
+        let type_store = nia_ty::TypeStore::new();
+        let ty = type_store
+            .append_for_module(ModuleId(0))
+            .primitive(PrimitiveTy::I32);
+        let first_store = NodeStore::new();
+        let mut builder = FunctionSemanticFactsBuilder::default();
+        builder.node_expr_types.insert(key(), ty);
+        let facts = builder.finish(&first_store);
+
+        assert_eq!(facts.store_id(), first_store.id());
+        assert_eq!(
+            facts.node_bracket_suffix_resolutions.store_id(),
+            first_store.id()
+        );
+        assert_eq!(
+            facts.node_pointer_array_to_slice_coercions.store_id(),
+            first_store.id()
+        );
+        assert_eq!(
+            facts.node_trait_object_coercions.store_id(),
+            first_store.id()
+        );
+        assert_eq!(facts.node_trait_object_upcasts.store_id(), first_store.id());
+        assert_eq!(facts.node_builtin_values.store_id(), first_store.id());
+        assert_eq!(
+            facts.node_associated_const_projections.store_id(),
+            first_store.id()
+        );
+        assert_eq!(facts.node_array_repeat_counts.store_id(), first_store.id());
+        assert_eq!(
+            facts.node_switch_pattern_values.store_id(),
+            first_store.id()
+        );
+        assert_eq!(facts.node_resolved_calls.store_id(), first_store.id());
+        assert_eq!(facts.node_function_references.store_id(), first_store.id());
+        assert_eq!(facts.node_expr_types.get(&key()), Some(&ty));
+
+        let second_store = NodeStore::new();
+        let rebuilt = facts.clone().into_builder().finish(&second_store);
+        assert_ne!(facts.store_id(), rebuilt.store_id());
+        assert_eq!(facts, rebuilt);
     }
 }
