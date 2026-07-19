@@ -5686,6 +5686,11 @@ extend i32 : ParseFrom[Input] {
             module.semantic_uses.store_id(),
             "frozen body facts should share the compiler session node owner"
         );
+        assert_eq!(
+            module.semantic_facts.store_id(),
+            module.semantic_uses.store_id(),
+            "module semantic facts should share the compiler session node owner"
+        );
         assert!(matches!(
             module
                 .semantic_uses

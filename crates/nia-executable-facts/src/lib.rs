@@ -1056,15 +1056,14 @@ pub fn filter_semantic_facts_for_reachable_items(
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
 ) -> SemanticFacts {
-    let mut reachable_facts = SemanticFacts {
-        global_types: facts
-            .global_types
-            .into_iter()
-            .filter(|(def_id, _)| reachable_globals.contains(def_id))
-            .collect(),
-        const_types: facts.const_types,
-        ..Default::default()
-    };
+    let node_store = facts.node_store().clone();
+    let mut reachable_facts = SemanticFacts::with_node_store(&node_store);
+    reachable_facts.global_types = facts
+        .global_types
+        .into_iter()
+        .filter(|(def_id, _)| reachable_globals.contains(def_id))
+        .collect();
+    reachable_facts.const_types = facts.const_types;
     reachable_facts.generic_instantiations.extend(
         facts
             .generic_instantiations

@@ -303,7 +303,7 @@ fn int_mask(bits: u32) -> u128 {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SemanticFacts {
     pub global_types: HashMap<GlobalDefId, InternedTyId>,
     pub const_types: HashMap<GlobalDefId, InternedTyId>,
@@ -313,6 +313,26 @@ pub struct SemanticFacts {
     pub function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
     /// Node facts owned by module-level expressions. Function body node facts live in
     /// `function_facts`; use the `iter_node_*` methods when both owners are relevant.
+    pub node_expr_types: NodeMap<InternedTyId>,
+    pub node_bracket_suffix_resolutions: NodeMap<BracketSuffixResolution>,
+    pub node_pointer_array_to_slice_coercions: NodeMap<PointerArrayToSliceCoercion>,
+    pub node_trait_object_coercions: NodeMap<TraitObjectCoercion>,
+    pub node_trait_object_upcasts: NodeMap<TraitObjectUpcast>,
+    pub node_builtin_values: NodeMap<BuiltinValue>,
+    pub node_builtin_associated_values: NodeMap<BuiltinAssociatedValue>,
+    pub node_associated_const_projections: NodeMap<AssociatedConstProjection>,
+    pub node_array_repeat_counts: NodeMap<u64>,
+    pub node_switch_pattern_values: NodeMap<i128>,
+    pub node_resolved_calls: NodeMap<ResolvedCall>,
+    pub node_function_references: NodeMap<FunctionReference>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SemanticFactsBuilder {
+    pub global_types: HashMap<GlobalDefId, InternedTyId>,
+    pub const_types: HashMap<GlobalDefId, InternedTyId>,
+    pub generic_instantiations: Vec<GenericInstantiation>,
+    pub function_facts: HashMap<GlobalDefId, FunctionSemanticFacts>,
     pub node_expr_types: HashMap<VersionedNodeKey, InternedTyId>,
     pub node_bracket_suffix_resolutions: HashMap<VersionedNodeKey, BracketSuffixResolution>,
     pub node_pointer_array_to_slice_coercions:
@@ -328,34 +348,109 @@ pub struct SemanticFacts {
     pub node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
 }
 
+impl Default for SemanticFacts {
+    fn default() -> Self {
+        SemanticFactsBuilder::default().finish(&NodeStore::new())
+    }
+}
+
 impl SemanticFacts {
+    pub fn with_node_store(store: &NodeStore) -> Self {
+        SemanticFactsBuilder::default().finish(store)
+    }
+
+    pub fn store_id(&self) -> NodeStoreId {
+        self.node_expr_types.store_id()
+    }
+
+    pub fn node_store(&self) -> &NodeStore {
+        self.node_expr_types.node_store()
+    }
+
     pub fn extend(&mut self, facts: Self) {
+        let node_store = self.node_store().clone();
         self.global_types.extend(facts.global_types);
         self.const_types.extend(facts.const_types);
         self.generic_instantiations
             .extend(facts.generic_instantiations);
-        self.function_facts.extend(facts.function_facts);
-        self.node_expr_types.extend(facts.node_expr_types);
-        self.node_bracket_suffix_resolutions
-            .extend(facts.node_bracket_suffix_resolutions);
-        self.node_pointer_array_to_slice_coercions
-            .extend(facts.node_pointer_array_to_slice_coercions);
-        self.node_trait_object_coercions
-            .extend(facts.node_trait_object_coercions);
-        self.node_trait_object_upcasts
-            .extend(facts.node_trait_object_upcasts);
-        self.node_builtin_values.extend(facts.node_builtin_values);
-        self.node_builtin_associated_values
-            .extend(facts.node_builtin_associated_values);
-        self.node_associated_const_projections
-            .extend(facts.node_associated_const_projections);
-        self.node_array_repeat_counts
-            .extend(facts.node_array_repeat_counts);
-        self.node_switch_pattern_values
-            .extend(facts.node_switch_pattern_values);
-        self.node_resolved_calls.extend(facts.node_resolved_calls);
-        self.node_function_references
-            .extend(facts.node_function_references);
+        self.function_facts.extend(
+            facts
+                .function_facts
+                .into_iter()
+                .map(|(def_id, facts)| (def_id, facts.into_node_store(&node_store))),
+        );
+        extend_node_map(&mut self.node_expr_types, facts.node_expr_types);
+        extend_node_map(
+            &mut self.node_bracket_suffix_resolutions,
+            facts.node_bracket_suffix_resolutions,
+        );
+        extend_node_map(
+            &mut self.node_pointer_array_to_slice_coercions,
+            facts.node_pointer_array_to_slice_coercions,
+        );
+        extend_node_map(
+            &mut self.node_trait_object_coercions,
+            facts.node_trait_object_coercions,
+        );
+        extend_node_map(
+            &mut self.node_trait_object_upcasts,
+            facts.node_trait_object_upcasts,
+        );
+        extend_node_map(&mut self.node_builtin_values, facts.node_builtin_values);
+        extend_node_map(
+            &mut self.node_builtin_associated_values,
+            facts.node_builtin_associated_values,
+        );
+        extend_node_map(
+            &mut self.node_associated_const_projections,
+            facts.node_associated_const_projections,
+        );
+        extend_node_map(
+            &mut self.node_array_repeat_counts,
+            facts.node_array_repeat_counts,
+        );
+        extend_node_map(
+            &mut self.node_switch_pattern_values,
+            facts.node_switch_pattern_values,
+        );
+        extend_node_map(&mut self.node_resolved_calls, facts.node_resolved_calls);
+        extend_node_map(
+            &mut self.node_function_references,
+            facts.node_function_references,
+        );
+    }
+
+    pub fn into_builder(self) -> SemanticFactsBuilder {
+        SemanticFactsBuilder {
+            global_types: self.global_types,
+            const_types: self.const_types,
+            generic_instantiations: self.generic_instantiations,
+            function_facts: self.function_facts,
+            node_expr_types: self.node_expr_types.into_entries().collect(),
+            node_bracket_suffix_resolutions: self
+                .node_bracket_suffix_resolutions
+                .into_entries()
+                .collect(),
+            node_pointer_array_to_slice_coercions: self
+                .node_pointer_array_to_slice_coercions
+                .into_entries()
+                .collect(),
+            node_trait_object_coercions: self.node_trait_object_coercions.into_entries().collect(),
+            node_trait_object_upcasts: self.node_trait_object_upcasts.into_entries().collect(),
+            node_builtin_values: self.node_builtin_values.into_entries().collect(),
+            node_builtin_associated_values: self
+                .node_builtin_associated_values
+                .into_entries()
+                .collect(),
+            node_associated_const_projections: self
+                .node_associated_const_projections
+                .into_entries()
+                .collect(),
+            node_array_repeat_counts: self.node_array_repeat_counts.into_entries().collect(),
+            node_switch_pattern_values: self.node_switch_pattern_values.into_entries().collect(),
+            node_resolved_calls: self.node_resolved_calls.into_entries().collect(),
+            node_function_references: self.node_function_references.into_entries().collect(),
+        }
     }
 
     pub fn iter_generic_instantiations(&self) -> impl Iterator<Item = &GenericInstantiation> + '_ {
@@ -377,146 +472,115 @@ impl SemanticFacts {
     pub fn iter_node_expr_types(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &InternedTyId)> + '_ {
-        self.node_expr_types
-            .iter()
-            .map(|(key, value)| (key.clone(), value))
-            .chain(
-                self.function_facts
-                    .values()
-                    .flat_map(|facts| facts.node_expr_types.iter()),
-            )
+        self.node_expr_types.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_expr_types.iter()),
+        )
     }
 
     pub fn iter_node_bracket_suffix_resolutions(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &BracketSuffixResolution)> + '_ {
-        self.node_bracket_suffix_resolutions
-            .iter()
-            .map(|(key, value)| (key.clone(), value))
-            .chain(
-                self.function_facts
-                    .values()
-                    .flat_map(|facts| facts.node_bracket_suffix_resolutions.iter()),
-            )
+        self.node_bracket_suffix_resolutions.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_bracket_suffix_resolutions.iter()),
+        )
     }
 
     pub fn iter_node_pointer_array_to_slice_coercions(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &PointerArrayToSliceCoercion)> + '_ {
-        self.node_pointer_array_to_slice_coercions
-            .iter()
-            .map(|(key, value)| (key.clone(), value))
-            .chain(
-                self.function_facts
-                    .values()
-                    .flat_map(|facts| facts.node_pointer_array_to_slice_coercions.iter()),
-            )
+        self.node_pointer_array_to_slice_coercions.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_pointer_array_to_slice_coercions.iter()),
+        )
     }
 
     pub fn iter_node_trait_object_coercions(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &TraitObjectCoercion)> + '_ {
-        self.node_trait_object_coercions
-            .iter()
-            .map(|(key, value)| (key.clone(), value))
-            .chain(
-                self.function_facts
-                    .values()
-                    .flat_map(|facts| facts.node_trait_object_coercions.iter()),
-            )
+        self.node_trait_object_coercions.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_trait_object_coercions.iter()),
+        )
     }
 
     pub fn iter_node_trait_object_upcasts(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &TraitObjectUpcast)> + '_ {
-        self.node_trait_object_upcasts
-            .iter()
-            .map(|(key, value)| (key.clone(), value))
-            .chain(
-                self.function_facts
-                    .values()
-                    .flat_map(|facts| facts.node_trait_object_upcasts.iter()),
-            )
+        self.node_trait_object_upcasts.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_trait_object_upcasts.iter()),
+        )
     }
 
     pub fn iter_node_builtin_values(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &BuiltinValue)> + '_ {
-        self.node_builtin_values
-            .iter()
-            .map(|(key, value)| (key.clone(), value))
-            .chain(
-                self.function_facts
-                    .values()
-                    .flat_map(|facts| facts.node_builtin_values.iter()),
-            )
+        self.node_builtin_values.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_builtin_values.iter()),
+        )
     }
 
     pub fn iter_node_associated_const_projections(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &AssociatedConstProjection)> + '_ {
-        self.node_associated_const_projections
-            .iter()
-            .map(|(key, value)| (key.clone(), value))
-            .chain(
-                self.function_facts
-                    .values()
-                    .flat_map(|facts| facts.node_associated_const_projections.iter()),
-            )
+        self.node_associated_const_projections.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_associated_const_projections.iter()),
+        )
     }
 
     pub fn iter_node_array_repeat_counts(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &u64)> + '_ {
-        self.node_array_repeat_counts
-            .iter()
-            .map(|(key, value)| (key.clone(), value))
-            .chain(
-                self.function_facts
-                    .values()
-                    .flat_map(|facts| facts.node_array_repeat_counts.iter()),
-            )
+        self.node_array_repeat_counts.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_array_repeat_counts.iter()),
+        )
     }
 
     pub fn iter_node_switch_pattern_values(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &i128)> + '_ {
-        self.node_switch_pattern_values
-            .iter()
-            .map(|(key, value)| (key.clone(), value))
-            .chain(
-                self.function_facts
-                    .values()
-                    .flat_map(|facts| facts.node_switch_pattern_values.iter()),
-            )
+        self.node_switch_pattern_values.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_switch_pattern_values.iter()),
+        )
     }
 
     pub fn iter_node_resolved_calls(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &ResolvedCall)> + '_ {
-        self.node_resolved_calls
-            .iter()
-            .map(|(key, value)| (key.clone(), value))
-            .chain(
-                self.function_facts
-                    .values()
-                    .flat_map(|facts| facts.node_resolved_calls.iter()),
-            )
+        self.node_resolved_calls.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_resolved_calls.iter()),
+        )
     }
 
     pub fn iter_node_function_references(
         &self,
     ) -> impl Iterator<Item = (VersionedNodeKey, &FunctionReference)> + '_ {
-        self.node_function_references
-            .iter()
-            .map(|(key, value)| (key.clone(), value))
-            .chain(
-                self.function_facts
-                    .values()
-                    .flat_map(|facts| facts.node_function_references.iter()),
-            )
+        self.node_function_references.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_function_references.iter()),
+        )
     }
+}
 
+impl SemanticFactsBuilder {
     pub fn retain_module_level_facts(&mut self) {
         self.generic_instantiations
             .retain(|instantiation| instantiation.source_def_id.is_none());
@@ -554,6 +618,49 @@ impl SemanticFacts {
             for key in facts.node_function_references.keys() {
                 self.node_function_references.remove(&key);
             }
+        }
+    }
+
+    pub fn finish(self, store: &NodeStore) -> SemanticFacts {
+        SemanticFacts {
+            global_types: self.global_types,
+            const_types: self.const_types,
+            generic_instantiations: self.generic_instantiations,
+            function_facts: self
+                .function_facts
+                .into_iter()
+                .map(|(def_id, facts)| (def_id, facts.into_node_store(store)))
+                .collect(),
+            node_expr_types: node_map_from_entries(store, self.node_expr_types),
+            node_bracket_suffix_resolutions: node_map_from_entries(
+                store,
+                self.node_bracket_suffix_resolutions,
+            ),
+            node_pointer_array_to_slice_coercions: node_map_from_entries(
+                store,
+                self.node_pointer_array_to_slice_coercions,
+            ),
+            node_trait_object_coercions: node_map_from_entries(
+                store,
+                self.node_trait_object_coercions,
+            ),
+            node_trait_object_upcasts: node_map_from_entries(store, self.node_trait_object_upcasts),
+            node_builtin_values: node_map_from_entries(store, self.node_builtin_values),
+            node_builtin_associated_values: node_map_from_entries(
+                store,
+                self.node_builtin_associated_values,
+            ),
+            node_associated_const_projections: node_map_from_entries(
+                store,
+                self.node_associated_const_projections,
+            ),
+            node_array_repeat_counts: node_map_from_entries(store, self.node_array_repeat_counts),
+            node_switch_pattern_values: node_map_from_entries(
+                store,
+                self.node_switch_pattern_values,
+            ),
+            node_resolved_calls: node_map_from_entries(store, self.node_resolved_calls),
+            node_function_references: node_map_from_entries(store, self.node_function_references),
         }
     }
 }
@@ -636,6 +743,14 @@ impl FunctionSemanticFacts {
             trait_method_refs: self.trait_method_refs,
         }
     }
+
+    fn into_node_store(self, store: &NodeStore) -> Self {
+        if self.store_id() == store.id() {
+            self
+        } else {
+            self.into_builder().finish(store)
+        }
+    }
 }
 
 impl FunctionSemanticFactsBuilder {
@@ -682,6 +797,13 @@ fn node_map_from_entries<V>(
     let mut builder = NodeMap::builder(store);
     builder.extend(entries);
     builder.finish()
+}
+
+fn extend_node_map<V>(target: &mut NodeMap<V>, source: NodeMap<V>) {
+    let store = target.node_store().clone();
+    let mut builder = std::mem::replace(target, NodeMap::with_store(&store)).into_builder();
+    builder.extend_map(source);
+    *target = builder.finish();
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -940,13 +1062,17 @@ mod tests {
     use nia_source::{SourceId, SourceRevision, SourceVersion};
 
     fn key() -> VersionedNodeKey {
+        key_at(0)
+    }
+
+    fn key_at(step: u32) -> VersionedNodeKey {
         VersionedNodeKey::child_path(
             SourceVersion {
                 id: SourceId(0),
                 revision: SourceRevision::INITIAL,
             },
             SyntaxKind::Expr,
-            NodeChildPath::from_steps([0]),
+            NodeChildPath::from_steps([step]),
         )
     }
 
@@ -1041,6 +1167,74 @@ mod tests {
         assert_eq!(facts.node_expr_types.get(&key()), Some(&ty));
 
         let second_store = NodeStore::new();
+        let rebuilt = facts.clone().into_builder().finish(&second_store);
+        assert_ne!(facts.store_id(), rebuilt.store_id());
+        assert_eq!(facts, rebuilt);
+    }
+
+    #[test]
+    fn semantic_facts_freeze_merge_and_rehome_all_node_maps() {
+        let type_store = nia_ty::TypeStore::new();
+        let ty = type_store
+            .append_for_module(ModuleId(0))
+            .primitive(PrimitiveTy::I32);
+        let first_store = NodeStore::new();
+        let second_store = NodeStore::new();
+        let mut first = SemanticFactsBuilder::default();
+        first.node_expr_types.insert(key_at(0), ty);
+        let mut second = SemanticFactsBuilder::default();
+        second.node_expr_types.insert(key_at(1), ty);
+        let mut function = FunctionSemanticFactsBuilder::default();
+        function.node_expr_types.insert(key_at(2), ty);
+        second.function_facts.insert(
+            GlobalDefId {
+                module_id: ModuleId(0),
+                def_id: nia_ids::DefId(1),
+            },
+            function.finish(&second_store),
+        );
+        let mut facts = first.finish(&first_store);
+        facts.extend(second.finish(&second_store));
+
+        assert_eq!(facts.store_id(), first_store.id());
+        assert_eq!(
+            facts.node_bracket_suffix_resolutions.store_id(),
+            first_store.id()
+        );
+        assert_eq!(
+            facts.node_pointer_array_to_slice_coercions.store_id(),
+            first_store.id()
+        );
+        assert_eq!(
+            facts.node_trait_object_coercions.store_id(),
+            first_store.id()
+        );
+        assert_eq!(facts.node_trait_object_upcasts.store_id(), first_store.id());
+        assert_eq!(facts.node_builtin_values.store_id(), first_store.id());
+        assert_eq!(
+            facts.node_builtin_associated_values.store_id(),
+            first_store.id()
+        );
+        assert_eq!(
+            facts.node_associated_const_projections.store_id(),
+            first_store.id()
+        );
+        assert_eq!(facts.node_array_repeat_counts.store_id(), first_store.id());
+        assert_eq!(
+            facts.node_switch_pattern_values.store_id(),
+            first_store.id()
+        );
+        assert_eq!(facts.node_resolved_calls.store_id(), first_store.id());
+        assert_eq!(facts.node_function_references.store_id(), first_store.id());
+        assert_eq!(facts.node_expr_types.get(&key_at(0)), Some(&ty));
+        assert_eq!(facts.node_expr_types.get(&key_at(1)), Some(&ty));
+        assert!(
+            facts
+                .function_facts
+                .values()
+                .all(|function| function.store_id() == first_store.id())
+        );
+
         let rebuilt = facts.clone().into_builder().finish(&second_store);
         assert_ne!(facts.store_id(), rebuilt.store_id());
         assert_eq!(facts, rebuilt);

@@ -53,8 +53,8 @@ use nia_program_signatures::{ProgramSignatureContext, ProgramSignatureLookup};
 use nia_sema_ir::{
     AssociatedConstProjection, BracketSuffixResolution, BuiltinValue, FunctionReference,
     FunctionSemanticFactsBuilder, GenericInstantiation, PointerArrayToSliceCoercion, ResolvedCall,
-    SemanticFacts, SemanticTraitMethodRef, SemanticUseTable, SemanticValueUse, TraitObjectCoercion,
-    TraitObjectUpcast,
+    SemanticFacts, SemanticFactsBuilder, SemanticTraitMethodRef, SemanticUseTable,
+    SemanticValueUse, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
@@ -855,7 +855,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
     }
     checker.print_profile();
     time_body_stage(timing, "body_check.finish", module_id, || {
-        let mut facts = SemanticFacts {
+        let mut facts = SemanticFactsBuilder {
             global_types: checker
                 .global_types
                 .into_iter()
@@ -891,6 +891,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             node_function_references: checker.node_function_references,
         };
         facts.retain_module_level_facts();
+        let facts = facts.finish(input.semantic_uses.node_store());
         checker
             .diagnostic_owners
             .resize(checker.diagnostics.len(), None);
@@ -1676,6 +1677,7 @@ impl<'a> BodyChecker<'a> {
         self.diagnostic_owners = diagnostic_owners;
         self.diagnostics = diagnostics;
         self.load_type_facts(module_id, &facts);
+        let facts = facts.into_builder();
         self.generic_instantiations = facts.generic_instantiations;
         self.function_facts = facts
             .function_facts
