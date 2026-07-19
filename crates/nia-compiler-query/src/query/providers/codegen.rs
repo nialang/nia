@@ -216,7 +216,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         );
         let extension_methods =
             time_provider(timings, "backend_lowering.inputs.extension_methods", || {
-                db.query(ExtensionMethodIndexQuery)
+                db.get(ExtensionMethodIndexQuery)
             });
         let function_bodies = function_bodies_from_checked_modules(db, checked_modules);
         (
@@ -378,7 +378,7 @@ pub(super) fn checked_module_diagnostics(
             &checked.flow_check.diagnostics,
         ));
         diagnostics.extend(module_diagnostics(&checked.path, &checked.body_diagnostics));
-        let extension_validation = db.query(ExtensionProviderValidationFactsQuery(checked.id));
+        let extension_validation = db.get(ExtensionProviderValidationFactsQuery(checked.id));
         diagnostics.extend(module_diagnostics(
             &checked.path,
             &extension_validation.diagnostics,

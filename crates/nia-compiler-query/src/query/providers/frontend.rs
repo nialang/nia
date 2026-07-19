@@ -132,11 +132,11 @@ pub(super) fn provide_type_exposure_index(db: &QueryDb<CompilerContext>) -> Type
         let defs = shared_defs_by_module(db);
         let public_surfaces = db.get(PublicSurfacesQuery);
         let public_using_scopes = db.get(PublicUsingScopesQuery);
-        Arc::new(TypeExposureIndex::from_defs_surfaces_and_using_scopes(
+        TypeExposureIndex::from_defs_surfaces_and_using_scopes(
             &defs,
             &public_surfaces.surfaces,
             &public_using_scopes.using_scopes,
-        ))
+        )
     })
 }
 
