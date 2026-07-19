@@ -237,13 +237,13 @@ fn filtered_const_global_initializer_for_body_check(
         db,
         "executable_body_check.const_eval.global_initializer.public_surfaces",
         global_id.module_id,
-        || db.query(PublicSurfacesQuery),
+        || db.get(PublicSurfacesQuery),
     );
     let using_scope = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.module_using_scope",
         global_id.module_id,
-        || db.query(ModuleUsingScopeQuery(global_id.module_id)),
+        || db.get(ModuleUsingScopeQuery(global_id.module_id)),
     );
     let source_version = db.query(ModuleSourceVersionQuery(global_id.module_id));
     let origins = db.query(ModuleOriginsQuery(global_id.module_id));
@@ -286,7 +286,7 @@ fn filtered_const_global_initializer_for_body_check(
                     graph: Some(&db.get(ModuleGraphQuery)),
                 },
                 &public_surfaces.surfaces,
-                &using_scope,
+                using_scope.as_ref(),
                 Some(&associated_values),
                 Some(&symbols),
             )
@@ -385,7 +385,7 @@ fn filtered_const_global_initializer_for_body_check(
                     graph: Some(&db.get(ModuleGraphQuery)),
                 },
                 &public_surfaces.surfaces,
-                &using_scope,
+                using_scope.as_ref(),
                 Some(&associated_values),
                 Some(&symbols),
             )

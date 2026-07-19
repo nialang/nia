@@ -181,13 +181,13 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                 db,
                 "executable_body_check.public_surfaces",
                 module_id,
-                || db.query(PublicSurfacesQuery),
+                || db.get(PublicSurfacesQuery),
             );
             let using_scope = time_module_provider(
                 db,
                 "executable_body_check.module_using_scope",
                 module_id,
-                || db.query(ModuleUsingScopeQuery(module_id)),
+                || db.get(ModuleUsingScopeQuery(module_id)),
             );
             let visible_extensions = || {
                 time_module_provider(
@@ -213,7 +213,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                             graph: Some(&db.get(ModuleGraphQuery)),
                         },
                         &public_surfaces.surfaces,
-                        &using_scope,
+                        using_scope.as_ref(),
                         Some(&associated_values),
                         Some(&symbols),
                     )
@@ -260,7 +260,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                                     graph: Some(&db.get(ModuleGraphQuery)),
                                 },
                                 &public_surfaces.surfaces,
-                                &using_scope,
+                                using_scope.as_ref(),
                                 Some(&associated_values),
                                 Some(&symbols),
                             )

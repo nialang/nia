@@ -99,8 +99,8 @@ type ExtensionTraitSolvingModuleFactsValue = ExtensionTraitSolvingModuleFactsQue
 type ExtensionTraitImplsForTraitValue = Arc<ExtensionTraitImplsForTraitQueryValue>;
 type ModuleProgramSignatureFactsValue = ModuleProgramSignatureFacts;
 type ModuleAbiSignatureFactsValue = ModuleAbiSignatureFactsQueryValue;
-type PublicSurfacesValue = Arc<PublicSurfacesQueryValue>;
-type PublicUsingScopesValue = Arc<PublicUsingScopesQueryValue>;
+type PublicSurfacesValue = PublicSurfacesQueryValue;
+type PublicUsingScopesValue = PublicUsingScopesQueryValue;
 
 #[derive(Debug, Clone)]
 pub struct CompileRequest {
@@ -599,8 +599,8 @@ struct CompilerInputs {
     modules: Vec<CompilerInputModule>,
     modules_by_id: HashMap<ModuleId, usize>,
     modules_by_source_identity: HashMap<SourceIdentity, usize>,
-    public_surfaces: PublicSurfacesValue,
-    public_using_scopes: PublicUsingScopesValue,
+    public_surfaces: Arc<PublicSurfacesValue>,
+    public_using_scopes: Arc<PublicUsingScopesValue>,
     executable_value_ref_items: HashMap<GlobalDefId, ExecutableValueRefItemLocation>,
     diagnostics: Vec<ProgramDiagnostic>,
     target: TargetConfig,
@@ -1184,7 +1184,7 @@ impl CompilerContext {
             .package_root(package)
     }
 
-    fn public_surfaces(&self) -> PublicSurfacesValue {
+    fn public_surfaces(&self) -> Arc<PublicSurfacesValue> {
         self.inputs
             .read()
             .expect("compiler input lock poisoned")
@@ -1232,7 +1232,7 @@ impl CompilerContext {
             .cloned()
     }
 
-    fn public_using_scopes(&self) -> PublicUsingScopesValue {
+    fn public_using_scopes(&self) -> Arc<PublicUsingScopesValue> {
         self.inputs
             .read()
             .expect("compiler input lock poisoned")
@@ -4052,9 +4052,9 @@ extend Value : Ops {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(PublicSurfacesQuery);
+        let _ = db.get(PublicSurfacesQuery);
         let _ = db.query(ModulePublicSurfaceQuery(ModuleId(0)));
-        let _ = db.query(ModuleUsingScopeQuery(ModuleId(0)));
+        let _ = db.get(ModuleUsingScopeQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -5590,6 +5590,31 @@ extend i32 : ParseFrom[Input] {
         assert!(Arc::ptr_eq(
             &visible_trait_impls,
             &visible_trait_impls_batch[0]
+        ));
+    }
+
+    #[test]
+    fn public_surface_queries_reuse_single_layer_product_handles() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "pub struct S { value: i32 }",
+        )]);
+        let db = query_db(loaded);
+
+        let surfaces: Arc<PublicSurfacesQueryValue> = db.get(PublicSurfacesQuery);
+        let using_scopes: Arc<PublicUsingScopesQueryValue> = db.get(PublicUsingScopesQuery);
+        let module_using_scope: Arc<ModuleUsingScope> = db.get(ModuleUsingScopeQuery(ModuleId(0)));
+
+        let surfaces_batch = db.get_many([PublicSurfacesQuery]);
+        let using_scopes_batch = db.get_many([PublicUsingScopesQuery]);
+        let module_using_scope_batch = db.get_many([ModuleUsingScopeQuery(ModuleId(0))]);
+
+        assert!(Arc::ptr_eq(&surfaces, &surfaces_batch[0]));
+        assert!(Arc::ptr_eq(&using_scopes, &using_scopes_batch[0]));
+        assert!(Arc::ptr_eq(
+            &module_using_scope,
+            &module_using_scope_batch[0]
         ));
     }
 
