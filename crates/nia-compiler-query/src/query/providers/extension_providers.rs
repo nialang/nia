@@ -41,9 +41,10 @@ pub(super) fn provide_extension_provider_discovery_index(
 ) -> ExtensionProviderDiscoveryIndexValue {
     let timings = db.context().timings();
     let trait_modules = db
-        .query(ParseOkModuleIdsQuery)
-        .into_iter()
-        .filter(|module_id| db.query(ExtensionProviderModuleEligibilityQuery(*module_id)))
+        .get(ParseOkModuleIdsQuery)
+        .iter()
+        .copied()
+        .filter(|module_id| *db.get(ExtensionProviderModuleEligibilityQuery(*module_id)))
         .collect::<Vec<_>>();
     time_provider(timings, "extension_provider_discovery_index", || {
         let mut provider_modules = Vec::new();
@@ -51,7 +52,7 @@ pub(super) fn provide_extension_provider_discovery_index(
         let mut method_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         let mut trait_impl_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         for module_id in trait_modules {
-            let summary = db.query(ExtensionProviderSummaryQuery(module_id));
+            let summary = db.get(ExtensionProviderSummaryQuery(module_id));
             if !summary.has_providers() {
                 continue;
             }
@@ -110,7 +111,7 @@ pub(super) fn provide_extension_provider_module_eligibility(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> bool {
-    db.query(ExtensionProviderSummaryQuery(module_id))
+    db.get(ExtensionProviderSummaryQuery(module_id))
         .has_providers()
 }
 
@@ -218,7 +219,7 @@ pub(super) fn provide_extension_provider_module_facts(
     module_id: ModuleId,
 ) -> ExtensionProviderModuleFactsValue {
     time_module_provider(db, "extension_provider_module_facts", module_id, || {
-        if !db.query(ExtensionProviderModuleEligibilityQuery(module_id)) {
+        if !*db.get(ExtensionProviderModuleEligibilityQuery(module_id)) {
             return ExtensionProviderModuleFactsQueryValue {
                 methods: nia_defs::ExtensionMethods::default(),
                 associated_values: nia_defs::ExtensionAssociatedValues::default(),
@@ -268,7 +269,7 @@ pub(super) fn provide_extension_provider_validation_facts(
     module_id: ModuleId,
 ) -> ExtensionProviderValidationFactsValue {
     time_module_provider(db, "extension_provider_validation_facts", module_id, || {
-        if !db.query(ExtensionProviderModuleEligibilityQuery(module_id)) {
+        if !*db.get(ExtensionProviderModuleEligibilityQuery(module_id)) {
             return ExtensionProviderValidationFactsQueryValue {
                 methods: nia_defs::ExtensionMethods::default(),
                 diagnostics: Vec::new(),
@@ -303,8 +304,9 @@ fn extension_provider_module_facts(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<Arc<ExtensionProviderModuleFactsValue>> {
     db.get_many(
-        db.query(ExtensionProviderModuleIdsQuery)
-            .into_iter()
+        db.get(ExtensionProviderModuleIdsQuery)
+            .iter()
+            .copied()
             .map(ExtensionProviderModuleFactsQuery),
     )
 }
@@ -318,7 +320,7 @@ pub(super) fn provide_extension_provider_nominal_module_facts(
         "extension_provider_nominal_module_facts",
         module_id,
         || {
-            if !db.query(ExtensionProviderModuleEligibilityQuery(module_id)) {
+            if !*db.get(ExtensionProviderModuleEligibilityQuery(module_id)) {
                 return ExtensionProviderNominalModuleFactsQueryValue {
                     nominal_providers: Vec::new(),
                 };
@@ -370,7 +372,7 @@ pub(super) fn provide_extension_provider_nominal_candidate_modules(
             }
             modules.sort();
             modules.dedup();
-            Arc::new(ExtensionProviderNominalCandidateModulesQueryValue { modules })
+            ExtensionProviderNominalCandidateModulesQueryValue { modules }
         },
     )
 }
@@ -387,7 +389,7 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
             let graph = db.get(ModuleGraphQuery);
             let index_names = extension_provider_nominal_target_names_for_targets(db, &targets);
             let candidate_modules = db
-                .query(ExtensionProviderNominalCandidateModulesQuery(
+                .get(ExtensionProviderNominalCandidateModulesQuery(
                     ExtensionProviderNominalTargetNames::new(index_names),
                 ))
                 .modules
@@ -417,7 +419,7 @@ pub(super) fn provide_extension_provider_nominal_modules_for_targets(
             }
             modules.sort();
             modules.dedup();
-            Arc::new(ExtensionProviderNominalModulesForTargetsQueryValue { modules })
+            ExtensionProviderNominalModulesForTargetsQueryValue { modules }
         },
     )
 }
@@ -549,9 +551,13 @@ fn visible_modules_for_module(
             nia_item_tree::SignatureItemSet::Traits,
         )))
     };
-    let type_alias = |def_id| db.query(ProgramTypeAliasSignatureQuery(def_id));
+    let type_alias = |def_id| {
+        db.get(ProgramTypeAliasSignatureQuery(def_id))
+            .as_ref()
+            .clone()
+    };
     let nominal_extension_providers = |target_def_ids: &[GlobalDefId]| {
-        db.query(ExtensionProviderNominalModulesForTargetsQuery(
+        db.get(ExtensionProviderNominalModulesForTargetsQuery(
             ExtensionProviderNominalTargets::new(target_def_ids.to_vec()),
             module_id,
         ))
@@ -596,9 +602,13 @@ pub(super) fn provide_visible_extensions(
             nia_item_tree::SignatureItemSet::Traits,
         )))
     };
-    let type_alias = |def_id| db.query(ProgramTypeAliasSignatureQuery(def_id));
+    let type_alias = |def_id| {
+        db.get(ProgramTypeAliasSignatureQuery(def_id))
+            .as_ref()
+            .clone()
+    };
     let nominal_extension_providers = |target_def_ids: &[GlobalDefId]| {
-        db.query(ExtensionProviderNominalModulesForTargetsQuery(
+        db.get(ExtensionProviderNominalModulesForTargetsQuery(
             ExtensionProviderNominalTargets::new(target_def_ids.to_vec()),
             module_id,
         ))
@@ -648,9 +658,13 @@ pub(super) fn provide_visible_trait_impls(
             nia_item_tree::SignatureItemSet::Traits,
         )))
     };
-    let type_alias = |def_id| db.query(ProgramTypeAliasSignatureQuery(def_id));
+    let type_alias = |def_id| {
+        db.get(ProgramTypeAliasSignatureQuery(def_id))
+            .as_ref()
+            .clone()
+    };
     let nominal_extension_providers = |target_def_ids: &[GlobalDefId]| {
-        db.query(ExtensionProviderNominalModulesForTargetsQuery(
+        db.get(ExtensionProviderNominalModulesForTargetsQuery(
             ExtensionProviderNominalTargets::new(target_def_ids.to_vec()),
             module_id,
         ))

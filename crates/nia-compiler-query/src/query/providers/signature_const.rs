@@ -32,13 +32,13 @@ fn with_signature_const_input<T>(
         &type_lowering,
     );
     let signatures = db.get(SignatureConstItemSignaturesQuery(module_id));
-    let source_path = db.query(ModulePathQuery(module_id));
+    let source_path = db.get(ModulePathQuery(module_id));
     let program_module = |module_id| {
         Some(Arc::clone(
             &db.get(SignatureConstModuleQuery(module_id)).module,
         ))
     };
-    let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
+    let program_source_path = |module_id| Some(db.get(ModulePathQuery(module_id)).as_ref().clone());
     let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {
         Some(db.get(SignatureTypeNormalizationQuery(
@@ -102,7 +102,7 @@ fn with_signature_const_input<T>(
                 .clone(),
         )
     };
-    let target = db.query(CompilerTargetQuery);
+    let target = db.get(CompilerTargetQuery);
     let symbols = db.context().symbols();
     let input = nia_const_check::ConstInput {
         type_store: &db.context().type_store,
@@ -153,7 +153,7 @@ pub(super) fn provide_signature_const_module(
         &type_lowering,
     );
     let signatures = db.get(SignatureConstItemSignaturesQuery(module_id));
-    let source_path = db.query(ModulePathQuery(module_id));
+    let source_path = db.get(ModulePathQuery(module_id));
     let symbols = db.context().symbols();
     nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
         active_item_tree: &active_item_tree,

@@ -12,7 +12,7 @@ pub(super) fn provide_const_module(
     let semantic_uses = db.get(SemanticUseTableQuery(module_id));
     let type_lowering = db.get(TypeLoweringQuery(module_id));
     let signatures = db.get(ItemSignaturesQuery(module_id));
-    let source_path = db.query(ModulePathQuery(module_id));
+    let source_path = db.get(ModulePathQuery(module_id));
     let symbols = db.context().symbols();
     nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
         active_item_tree: &active_item_tree,
@@ -122,7 +122,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
         }
         Some(Arc::clone(&db.get(ConstModuleQuery(module_id)).module))
     };
-    let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
+    let program_source_path = |module_id| Some(db.get(ModulePathQuery(module_id)).as_ref().clone());
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {
         if use_signature_facts_for(module_id) {
@@ -195,11 +195,11 @@ pub(super) fn with_const_input_and_program_facts<T>(
     let values = db.get(ValueResolutionQuery(module_id));
     let locals = db.get(LocalResolutionQuery(module_id));
     let semantic_uses = db.get(SemanticUseTableQuery(module_id));
-    let source_path = db.query(ModulePathQuery(module_id));
+    let source_path = db.get(ModulePathQuery(module_id));
     let item_signatures = db.get(ItemSignaturesQuery(module_id));
     let type_lowering = db.get(TypeLoweringQuery(module_id));
     let type_normalization = db.get(TypeNormalizationQuery(module_id));
-    let target = db.query(CompilerTargetQuery);
+    let target = db.get(CompilerTargetQuery);
     let symbols = db.context().symbols();
     let input = nia_const_check::ConstInput {
         type_store: &db.context().type_store,

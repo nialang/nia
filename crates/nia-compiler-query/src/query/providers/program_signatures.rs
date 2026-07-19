@@ -5,9 +5,10 @@ pub(super) fn provide_program_signature_module_ids(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
 ) -> Vec<ModuleId> {
-    db.query(SemanticModuleIdsQuery)
-        .into_iter()
-        .filter(|module_id| db.query(ProgramSignatureModuleEligibilityQuery(*module_id, set)))
+    db.get(SemanticModuleIdsQuery)
+        .iter()
+        .copied()
+        .filter(|module_id| *db.get(ProgramSignatureModuleEligibilityQuery(*module_id, set)))
         .collect()
 }
 
@@ -93,8 +94,9 @@ pub(super) fn program_signature_facts(
     set: nia_item_tree::SignatureItemSet,
 ) -> Vec<Arc<ModuleProgramSignatureFactsValue>> {
     db.get_many(
-        db.query(ProgramSignatureModuleIdsQuery(set))
-            .into_iter()
+        db.get(ProgramSignatureModuleIdsQuery(set))
+            .iter()
+            .copied()
             .map(|module_id| ModuleProgramSignatureFactsQuery(module_id, set)),
     )
 }
@@ -280,10 +282,11 @@ pub(super) fn provide_program_abi_signatures(
 ) -> ProgramAbiSignaturesValue {
     time_provider(db.context().timings(), "program_abi_signatures", || {
         let facts = db.get_many(
-            db.query(ProgramSignatureModuleIdsQuery(
+            db.get(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::Types,
             ))
-            .into_iter()
+            .iter()
+            .copied()
             .map(ModuleAbiSignatureFactsQuery),
         );
         let mut structs = HashMap::new();

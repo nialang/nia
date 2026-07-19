@@ -84,9 +84,9 @@ type ExtensionProviderValidationFactsValue = ExtensionProviderValidationFactsQue
 type ExtensionProviderNominalModuleFactsValue = ExtensionProviderNominalModuleFactsQueryValue;
 type ExtensionProviderDiscoveryIndexValue = ExtensionProviderDiscoveryIndexQueryValue;
 type ExtensionProviderNominalCandidateModulesValue =
-    Arc<ExtensionProviderNominalCandidateModulesQueryValue>;
+    ExtensionProviderNominalCandidateModulesQueryValue;
 type ExtensionProviderNominalModulesForTargetsValue =
-    Arc<ExtensionProviderNominalModulesForTargetsQueryValue>;
+    ExtensionProviderNominalModulesForTargetsQueryValue;
 type TypeExposureIndexValue = TypeExposureIndex;
 type ExtensionMethodIndexValue = ExtensionMethodIndexQueryValue;
 type ExtensionMethodsNamedValue = ExtensionMethodsNamedQueryValue;
@@ -154,9 +154,9 @@ impl CompilerDatabase {
         #[cfg(test)]
         let _permit = nia_test_support::compiler_permit();
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.db.try_query(CheckedProgramQuery)
+            self.db.try_get(CheckedProgramQuery)
         })) {
-            Ok(Ok(checked)) => checked,
+            Ok(Ok(checked)) => Arc::unwrap_or_clone(checked),
             Ok(Err(err)) => checked_program_from_query_error(
                 self.current_graph(),
                 self.current_optimization(),
@@ -177,9 +177,9 @@ impl CompilerDatabase {
         #[cfg(test)]
         let _permit = nia_test_support::compiler_permit();
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.db.try_query(EntryCheckedProgramQuery)
+            self.db.try_get(EntryCheckedProgramQuery)
         })) {
-            Ok(Ok(checked)) => checked,
+            Ok(Ok(checked)) => Arc::unwrap_or_clone(checked),
             Ok(Err(err)) => checked_program_from_query_error(
                 self.current_graph(),
                 self.current_optimization(),
@@ -200,7 +200,8 @@ impl CompilerDatabase {
         #[cfg(test)]
         let _permit = nia_test_support::compiler_permit();
         self.db
-            .try_query(ExecutableProviderDemandsQuery)
+            .try_get(ExecutableProviderDemandsQuery)
+            .map(Arc::unwrap_or_clone)
             .unwrap_or_default()
     }
 
@@ -208,9 +209,9 @@ impl CompilerDatabase {
         #[cfg(test)]
         let _permit = nia_test_support::compiler_permit();
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.db.try_query(CodegenProgramQuery)
+            self.db.try_get(CodegenProgramQuery)
         })) {
-            Ok(Ok(codegen)) => codegen,
+            Ok(Ok(codegen)) => Arc::unwrap_or_clone(codegen),
             Ok(Err(err)) => codegen_program_from_query_error(
                 Arc::clone(&self.db.context().type_store),
                 self.current_graph(),
@@ -2438,12 +2439,12 @@ pub fn expensive_or_invalid() i32 {
         ));
 
         assert_eq!(
-            db.query(ParseOkModuleIdsQuery),
-            vec![ModuleId(0), ModuleId(1)]
+            db.get(ParseOkModuleIdsQuery).as_slice(),
+            &[ModuleId(0), ModuleId(1)]
         );
-        assert_eq!(db.query(SemanticModuleIdsQuery), vec![ModuleId(0)]);
+        assert_eq!(db.get(SemanticModuleIdsQuery).as_slice(), &[ModuleId(0)]);
 
-        assert_eq!(db.query(CheckedModuleIdsQuery), vec![ModuleId(0)]);
+        assert_eq!(db.get(CheckedModuleIdsQuery).as_slice(), &[ModuleId(0)]);
     }
 
     #[test]
@@ -2707,8 +2708,8 @@ pub fn expensive_or_invalid() i32 {
         );
         let database = CompilerDatabase::new(CompileRequest::new(loaded.clone()));
         assert_eq!(
-            database.db.query(ExecutableRootModulesQuery),
-            (ModuleId(0), Vec::new())
+            database.db.get(ExecutableRootModulesQuery).as_ref(),
+            &(ModuleId(0), Vec::new())
         );
         let _ = database.db.get(TypeResolutionQuery(ModuleId(0)));
 
@@ -2728,8 +2729,8 @@ pub fn expensive_or_invalid() i32 {
             "{invalidated:?}"
         );
         assert_eq!(
-            database.db.query(ExecutableRootModulesQuery),
-            (ModuleId(0), Vec::new())
+            database.db.get(ExecutableRootModulesQuery).as_ref(),
+            &(ModuleId(0), Vec::new())
         );
     }
 
@@ -3105,7 +3106,7 @@ pub fn expensive_or_invalid() i32 {
                 ),
             ])));
         let lowering = database.db.get(TypeLoweringQuery(module_id));
-        let normalization = database.db.query(TypeNormalizationQuery(module_id));
+        let normalization = database.db.get(TypeNormalizationQuery(module_id));
         let type_store = &database.db.context().type_store;
 
         for ty_id in lowering.explicit_type_roots() {
@@ -3139,7 +3140,7 @@ fn main() i32 { 0 }
                 ),
             ])));
         let lowering = database.db.get(TypeLoweringQuery(module_id));
-        let _ = database.db.query(TypeNormalizationQuery(module_id));
+        let _ = database.db.get(TypeNormalizationQuery(module_id));
 
         let _ = database.db.get(ConstArrayLengthsQuery(module_id));
         let _ = database.db.get(ConstEnumValuesQuery(module_id));
@@ -3214,12 +3215,12 @@ fn main() i32 {
                 nia_item_tree::SignatureItemSet::Functions,
             );
             let (signature, full) = if signature_first {
-                let signature = database.db.query(signature_key);
-                let full = database.db.query(TypeNormalizationQuery(module_id));
+                let signature = database.db.get(signature_key);
+                let full = database.db.get(TypeNormalizationQuery(module_id));
                 (signature, full)
             } else {
-                let full = database.db.query(TypeNormalizationQuery(module_id));
-                let signature = database.db.query(signature_key);
+                let full = database.db.get(TypeNormalizationQuery(module_id));
+                let signature = database.db.get(signature_key);
                 (signature, full)
             };
 
@@ -3782,34 +3783,39 @@ extend Value : Ops {
         let db = query_db(loaded);
 
         assert_eq!(
-            db.query(ProgramSignatureModuleIdsQuery(
+            db.get(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::Functions
-            )),
-            vec![ModuleId(2), ModuleId(4), ModuleId(5)]
+            ))
+            .as_slice(),
+            &[ModuleId(2), ModuleId(4), ModuleId(5)]
         );
         assert_eq!(
-            db.query(ProgramSignatureModuleIdsQuery(
+            db.get(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::Values
-            )),
-            vec![ModuleId(3), ModuleId(6)]
+            ))
+            .as_slice(),
+            &[ModuleId(3), ModuleId(6)]
         );
         assert_eq!(
-            db.query(ProgramSignatureModuleIdsQuery(
+            db.get(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::Types
-            )),
-            vec![ModuleId(1), ModuleId(5), ModuleId(6)]
+            ))
+            .as_slice(),
+            &[ModuleId(1), ModuleId(5), ModuleId(6)]
         );
         assert_eq!(
-            db.query(ProgramSignatureModuleIdsQuery(
+            db.get(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::Traits
-            )),
-            vec![ModuleId(4), ModuleId(5), ModuleId(6)]
+            ))
+            .as_slice(),
+            &[ModuleId(4), ModuleId(5), ModuleId(6)]
         );
         assert_eq!(
-            db.query(ProgramSignatureModuleIdsQuery(
+            db.get(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::ExtensionFunctions
-            )),
-            vec![ModuleId(4), ModuleId(5)]
+            ))
+            .as_slice(),
+            &[ModuleId(4), ModuleId(5)]
         );
 
         let trace = db.query_trace();
@@ -3854,7 +3860,10 @@ extend Value : Ops {
         ]);
         let db = query_db(loaded);
 
-        assert_eq!(db.query(ExtensionProviderModuleIdsQuery), vec![ModuleId(5)]);
+        assert_eq!(
+            db.get(ExtensionProviderModuleIdsQuery).as_slice(),
+            &[ModuleId(5)]
+        );
         let trace = db.query_trace();
         assert!(trace_has_dependency(
             &trace,
@@ -3887,9 +3896,9 @@ extend Value : Ops {
         )]);
         let db = query_db(loaded);
 
-        let defs = db.query(ModuleDefsQuery(ModuleId(0)));
+        let defs = db.get(ModuleDefsQuery(ModuleId(0)));
         let alias_id = defs.module_scope.types.get(&sym("Alias")).unwrap();
-        let _ = db.query(ProgramTypeAliasSignatureQuery(GlobalDefId {
+        let _ = db.get(ProgramTypeAliasSignatureQuery(GlobalDefId {
             module_id: ModuleId(0),
             def_id: alias_id,
         }));
@@ -3989,7 +3998,7 @@ extend Value : Ops {
         let db = query_db(loaded);
         let signature_types = nia_item_tree::SignatureItemSet::Types;
 
-        let _ = db.query(SignatureTypeNormalizationQuery(
+        let _ = db.get(SignatureTypeNormalizationQuery(
             ModuleId(0),
             signature_types,
         ));
@@ -4053,7 +4062,7 @@ extend Value : Ops {
         let db = query_db(loaded);
 
         let _ = db.get(PublicSurfacesQuery);
-        let _ = db.query(ModulePublicSurfaceQuery(ModuleId(0)));
+        let _ = db.get(ModulePublicSurfaceQuery(ModuleId(0)));
         let _ = db.get(ModuleUsingScopeQuery(ModuleId(0)));
         let trace = db.query_trace();
 
@@ -4108,7 +4117,7 @@ extend Value : Ops {
             "fn helper() i32 { 1 } fn main() i32 { helper() }",
         )]);
         let db = query_db(loaded);
-        let defs = db.query(ModuleDefsQuery(ModuleId(0)));
+        let defs = db.get(ModuleDefsQuery(ModuleId(0)));
         let main = GlobalDefId {
             module_id: ModuleId(0),
             def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
@@ -4118,7 +4127,7 @@ extend Value : Ops {
             def_id: defs.module_scope.values.get(&sym("helper")).unwrap(),
         };
 
-        let edges = db.query(ExecutableValueRefEdgesQuery(main));
+        let edges = db.get(ExecutableValueRefEdgesQuery(main));
         let trace = db.query_trace();
 
         assert!(edges.functions.contains(&helper), "{:?}", edges.functions);
@@ -4147,7 +4156,7 @@ extend Value : Ops {
             "static mut calls: i32 = 0; fn main() i32 { calls += 1; calls }",
         )]);
         let db = query_db(loaded);
-        let defs = db.query(ModuleDefsQuery(ModuleId(0)));
+        let defs = db.get(ModuleDefsQuery(ModuleId(0)));
         let main = GlobalDefId {
             module_id: ModuleId(0),
             def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
@@ -4157,7 +4166,7 @@ extend Value : Ops {
             def_id: defs.module_scope.values.get(&sym("calls")).unwrap(),
         };
 
-        let edges = db.query(ExecutableValueRefEdgesQuery(main));
+        let edges = db.get(ExecutableValueRefEdgesQuery(main));
 
         assert!(edges.globals.contains(&calls), "{:?}", edges.globals);
     }
@@ -4171,7 +4180,7 @@ extend Value : Ops {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(ModuleDefsQuery(ModuleId(0)));
+        let _ = db.get(ModuleDefsQuery(ModuleId(0)));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -4885,7 +4894,7 @@ extend Used {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let _ = db.query(ExecutableCheckedModulesQuery);
+        let _ = db.get(ExecutableCheckedModulesQuery);
         let trace = db.query_trace();
 
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -5006,7 +5015,7 @@ extend Used {
         )]);
         let db = query_db(loaded);
 
-        let checked = db.query(EntryCheckedProgramQuery);
+        let checked = db.get(EntryCheckedProgramQuery);
         let trace = db.query_trace();
 
         assert!(
@@ -5041,7 +5050,7 @@ extend Used {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let checked = db.query(EntryCheckedProgramQuery);
+        let checked = db.get(EntryCheckedProgramQuery);
         let trace = db.query_trace();
 
         assert!(
@@ -5377,7 +5386,7 @@ extend i32 : ParseFrom[Input] {
         };
         let db = query_db(loaded);
 
-        let checked = db.query(ExecutableCheckedModulesQuery);
+        let checked = db.get(ExecutableCheckedModulesQuery);
         let parse_module = checked
             .iter()
             .find(|module| module.id == ModuleId(1))
@@ -5786,16 +5795,16 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
-    fn codegen_owned_adapter_reuses_large_product_handles() {
+    fn codegen_public_adapter_reuses_large_product_handles() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
             "fn main() i32 { 1 }",
         )]);
-        let db = query_db(loaded);
+        let database = CompilerDatabase::new(CompileRequest::new(loaded));
 
-        let cached = db.get(CodegenProgramQuery);
-        let owned = db.query(CodegenProgramQuery);
+        let cached = database.db.get(CodegenProgramQuery);
+        let owned = database.codegen_program();
 
         assert!(Arc::ptr_eq(
             &cached.monomorphization,
@@ -5830,7 +5839,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -5884,7 +5893,7 @@ fn main() usize {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -5925,7 +5934,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -5987,7 +5996,7 @@ pub const LEN: usize = 4usize;
         };
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let entry = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -6053,7 +6062,7 @@ pub const LEN: usize = 4usize;
         };
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let entry = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -6146,7 +6155,7 @@ extend Sink : Writer {
         };
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let writer = modules
             .iter()
             .find(|module| module.id == ModuleId(1))
@@ -6462,7 +6471,7 @@ pub enum Errno: i32 {
         };
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -6585,7 +6594,7 @@ using entry::error;
         };
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -6686,7 +6695,7 @@ extend Source : error::IntoError[Target] {
         };
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(2))
@@ -6793,7 +6802,7 @@ extend[T] Source!T {
         };
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(2))
@@ -6856,7 +6865,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -6929,7 +6938,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -6992,7 +7001,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -7074,7 +7083,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -7171,7 +7180,7 @@ fn main() i32!i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -7221,7 +7230,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -7273,7 +7282,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -7540,7 +7549,7 @@ pub fn unused_bad() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let type_module = modules
             .iter()
             .find(|module| module.id == ModuleId(1))
@@ -7631,7 +7640,7 @@ pub fn unused_bad() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let type_module = modules
             .iter()
             .find(|module| module.id == ModuleId(1))
@@ -7709,7 +7718,7 @@ pub fn unused_bad() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let type_module = modules
             .iter()
             .find(|module| module.id == ModuleId(1))
@@ -7777,7 +7786,7 @@ fn unused_bad() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let helper_module = modules
             .iter()
             .find(|module| module.id == ModuleId(1))
@@ -7825,7 +7834,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -7870,7 +7879,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -7924,7 +7933,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -7987,7 +7996,7 @@ extend Mode {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(1))
@@ -8052,7 +8061,7 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
             .find(|module| module.id == ModuleId(0))
@@ -8091,7 +8100,7 @@ pub fn expensive_or_invalid() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let modules = db.query(ExecutableCheckedModulesQuery);
+        let modules = db.get(ExecutableCheckedModulesQuery);
         let trace = db.query_trace();
 
         assert!(
@@ -8202,7 +8211,7 @@ pub fn expensive_or_invalid() i32 {
         )]);
         let db = query_db(loaded);
 
-        let _ = db.query(ModuleDefsQuery(ModuleId(0)));
+        let _ = db.get(ModuleDefsQuery(ModuleId(0)));
         let invalidation = db.invalidate(ModuleItemTreeInputQuery(ModuleId(0)));
         let invalidated = invalidation
             .invalidated

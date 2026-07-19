@@ -28,7 +28,7 @@ fn walk_executable_value_ref_closure(
     let mut pending_functions = functions.iter().copied().collect::<VecDeque<_>>();
     let mut scanned_functions = HashSet::with_capacity(functions.len());
     for global in globals {
-        let edges = db.query(ExecutableValueRefEdgesQuery(*global));
+        let edges = db.get(ExecutableValueRefEdgesQuery(*global));
         changed |= visit_executable_value_ref_edges(
             module_id,
             functions,
@@ -43,7 +43,7 @@ fn walk_executable_value_ref_closure(
         if !scanned_functions.insert(function) {
             continue;
         }
-        let edges = db.query(ExecutableValueRefEdgesQuery(function));
+        let edges = db.get(ExecutableValueRefEdgesQuery(function));
         changed |= visit_executable_value_ref_edges(
             module_id,
             functions,
@@ -206,7 +206,7 @@ fn filtered_const_global_initializer_for_body_check(
         db,
         "executable_body_check.const_eval.global_initializer.source_path",
         global_id.module_id,
-        || db.query(ModulePathQuery(global_id.module_id)),
+        || db.get(ModulePathQuery(global_id.module_id)),
     );
     let active_item_tree = time_module_provider(
         db,
@@ -245,8 +245,8 @@ fn filtered_const_global_initializer_for_body_check(
         global_id.module_id,
         || db.get(ModuleUsingScopeQuery(global_id.module_id)),
     );
-    let source_version = db.query(ModuleSourceVersionQuery(global_id.module_id));
-    let origins = db.query(ModuleOriginsQuery(global_id.module_id));
+    let source_version = *db.get(ModuleSourceVersionQuery(global_id.module_id));
+    let origins = db.get(ModuleOriginsQuery(global_id.module_id));
     let lowered = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.type_lowering",
@@ -489,7 +489,7 @@ fn const_inputs_for_body_check(
         }
         Some(db.get(ConstModuleQuery(module_id)).module.clone())
     };
-    let program_source_path = |module_id| Some(db.query(ModulePathQuery(module_id)));
+    let program_source_path = |module_id| Some(db.get(ModulePathQuery(module_id)).as_ref().clone());
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
@@ -572,7 +572,7 @@ fn const_inputs_for_body_check(
         }
         executable_program_global_initializer(db, global_id, fact_mode)
     };
-    let target = db.query(CompilerTargetQuery);
+    let target = db.get(CompilerTargetQuery);
     let symbols = db.context().symbols();
     let const_input = nia_const_check::ConstInput {
         type_store: &db.context().type_store,
@@ -717,8 +717,8 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         product,
         prechecked,
     } = input;
-    let source_version = db.query(ModuleSourceVersionQuery(module_id));
-    let origins = db.query(ModuleOriginsQuery(module_id));
+    let source_version = *db.get(ModuleSourceVersionQuery(module_id));
+    let origins = db.get(ModuleOriginsQuery(module_id));
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.get(FullModuleDefsQuery(module_id));
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
@@ -750,7 +750,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         )
     });
     let inputs = &filtered_inputs;
-    let source_path = db.query(ModulePathQuery(module_id));
+    let source_path = db.get(ModulePathQuery(module_id));
     let signatures = body_local_item_signatures(db, module_id, &lowered);
     let normalization = db.get(TypeNormalizationQuery(module_id));
     let extension_method_normalization = |module_id| {
@@ -1187,7 +1187,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     const_signatures: &signatures,
                     normalization: &normalization,
                     seed,
-                    target: &db.query(CompilerTargetQuery),
+                    target: db.get(CompilerTargetQuery).as_ref(),
                     const_eval: body_const,
                     const_module,
                     layouts: &layouts,
@@ -1661,7 +1661,7 @@ fn checked_module_with_body_and_flow_check(
     flow_check: Arc<nia_flow_check::FlowCheck>,
     layouts: Option<Arc<nia_layout::Layouts>>,
 ) -> CheckedModule {
-    let path = db.query(ModulePathQuery(module_id));
+    let path = db.get(ModulePathQuery(module_id)).as_ref().clone();
     CheckedModule {
         id: module_id,
         path,
@@ -1702,7 +1702,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
     } = body_check;
     CheckedModule {
         id: module_id,
-        path: db.query(ModulePathQuery(module_id)),
+        path: db.get(ModulePathQuery(module_id)).as_ref().clone(),
         defs: db.get(FullModuleDefsQuery(module_id)),
         type_resolution: db.get(TypeResolutionQuery(module_id)),
         type_lowering: db.get(TypeLoweringQuery(module_id)),
@@ -1767,7 +1767,7 @@ pub(super) fn executable_signature_checked_module(
     const_diagnostics.extend(enum_values.diagnostics.clone());
     CheckedModule {
         id: module_id,
-        path: db.query(ModulePathQuery(module_id)),
+        path: db.get(ModulePathQuery(module_id)).as_ref().clone(),
         defs: db.get(ModuleDefsQuery(module_id)),
         type_resolution,
         type_lowering,
@@ -1867,7 +1867,7 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
     owner: GlobalDefId,
 ) -> ExecutableValueRefEdges {
     time_module_provider(db, "executable_value_ref_edges", owner.module_id, || {
-        let Some(item_input) = db.query(ExecutableValueRefItemQuery(owner)) else {
+        let Some(item_input) = db.get(ExecutableValueRefItemQuery(owner)).as_ref().clone() else {
             return ExecutableValueRefEdges::default();
         };
         let active_item_tree = executable_value_ref_active_item_tree(&item_input);
@@ -2177,7 +2177,7 @@ fn collect_executable_value_ref_edge_for_key(
 
 pub(super) fn provide_checked_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
     time_provider(db.context().timings(), "checked_module_ids", || {
-        db.query(SemanticModuleIdsQuery)
+        db.get(SemanticModuleIdsQuery).as_ref().clone()
     })
 }
 

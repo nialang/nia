@@ -3,10 +3,11 @@ use super::*;
 
 pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedProgram {
     time_provider(db.context().timings(), "checked_program", || {
-        let graph = db.query(ModuleGraphQuery);
-        let optimization = db.query(CompilerOptimizationQuery);
+        let graph = db.get(ModuleGraphQuery).as_ref().clone();
+        let optimization = *db.get(CompilerOptimizationQuery);
         let mut diagnostics = early_program_diagnostics(db);
-        let diagnostic_modules = materialize_checked_modules(db, db.query(CheckedModuleIdsQuery));
+        let diagnostic_modules =
+            materialize_checked_modules(db, db.get(CheckedModuleIdsQuery).as_ref().clone());
         diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
         CheckedProgram {
             graph,
@@ -19,8 +20,8 @@ pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedP
 
 pub(super) fn provide_entry_checked_program(db: &QueryDb<CompilerContext>) -> CheckedProgram {
     time_provider(db.context().timings(), "entry_checked_program", || {
-        let graph = db.query(ModuleGraphQuery);
-        let optimization = db.query(CompilerOptimizationQuery);
+        let graph = db.get(ModuleGraphQuery).as_ref().clone();
+        let optimization = *db.get(CompilerOptimizationQuery);
         let mut diagnostics = early_program_diagnostics(db);
         let diagnostic_modules = checked_modules_for_diagnostics(db);
         diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
@@ -38,12 +39,12 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
         let graph = time_provider(
             db.context().timings(),
             "codegen_program.module_graph",
-            || db.query(ModuleGraphQuery),
+            || db.get(ModuleGraphQuery).as_ref().clone(),
         );
         let optimization = time_provider(
             db.context().timings(),
             "codegen_program.optimization",
-            || db.query(CompilerOptimizationQuery),
+            || *db.get(CompilerOptimizationQuery),
         );
         let mut diagnostics = time_provider(
             db.context().timings(),
