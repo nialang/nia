@@ -218,10 +218,10 @@ fn collect_trait_impls(
 
 pub(super) fn provide_program_trait_method_index(
     db: &QueryDb<CompilerContext>,
-) -> Arc<ProgramTraitMethodIndex> {
+) -> ProgramTraitMethodIndex {
     time_provider(db.context().timings(), "program_trait_method_index", || {
         let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
-        Arc::new(collect_trait_method_index(&trait_facts))
+        collect_trait_method_index(&trait_facts)
     })
 }
 
@@ -277,7 +277,7 @@ pub(super) fn executable_program_functions_for_modules(
 
 pub(super) fn provide_program_abi_signatures(
     db: &QueryDb<CompilerContext>,
-) -> Arc<ProgramAbiSignaturesValue> {
+) -> ProgramAbiSignaturesValue {
     time_provider(db.context().timings(), "program_abi_signatures", || {
         let facts = db.get_many(
             db.query(ProgramSignatureModuleIdsQuery(
@@ -309,10 +309,10 @@ pub(super) fn provide_program_abi_signatures(
                     .map(|(def_id, signature)| (*def_id, signature.clone())),
             );
         }
-        Arc::new(ProgramAbiSignaturesValue {
+        ProgramAbiSignaturesValue {
             structs,
             unions,
             enums,
-        })
+        }
     })
 }

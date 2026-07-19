@@ -173,7 +173,7 @@ impl ProgramExecutableNonFunctionSignatures {
 pub(super) struct ProgramTraitMethodIndexQuery;
 
 impl QueryKey<CompilerContext> for ProgramTraitMethodIndexQuery {
-    type Value = Arc<nia_program_signatures::ProgramTraitMethodIndex>;
+    type Value = nia_program_signatures::ProgramTraitMethodIndex;
 
     fn name() -> &'static str {
         "program_trait_method_index"
@@ -213,7 +213,7 @@ impl QueryKey<CompilerContext> for ProgramTypeAliasSignatureQuery {
 pub(super) struct ProgramAbiSignaturesQuery;
 
 impl QueryKey<CompilerContext> for ProgramAbiSignaturesQuery {
-    type Value = Arc<ProgramAbiSignaturesValue>;
+    type Value = ProgramAbiSignaturesValue;
 
     fn name() -> &'static str {
         "program_abi_signatures"

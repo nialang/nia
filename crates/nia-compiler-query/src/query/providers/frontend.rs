@@ -32,9 +32,7 @@ pub(super) fn provide_module_item_tree(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ModuleItemTree {
-    db.query(ModuleItemTreeInputQuery(module_id))
-        .as_ref()
-        .clone()
+    db.get(ModuleItemTreeInputQuery(module_id)).as_ref().clone()
 }
 
 pub(super) fn provide_active_module_item_tree(
@@ -42,7 +40,7 @@ pub(super) fn provide_active_module_item_tree(
     module_id: ModuleId,
 ) -> ActiveModuleItemTree {
     let _raw_item_tree = db.get(ModuleItemTreeQuery(module_id));
-    db.query(ActiveModuleItemTreeInputQuery(module_id))
+    db.get(ActiveModuleItemTreeInputQuery(module_id))
         .as_ref()
         .clone()
 }
@@ -50,16 +48,20 @@ pub(super) fn provide_active_module_item_tree(
 pub(super) fn provide_full_module_item_tree(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> Arc<ModuleItemTree> {
-    db.query(FullModuleItemTreeInputQuery(module_id))
+) -> ModuleItemTree {
+    db.get(FullModuleItemTreeInputQuery(module_id))
+        .as_ref()
+        .clone()
 }
 
 pub(super) fn provide_full_active_module_item_tree(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> Arc<ActiveModuleItemTree> {
-    let _raw_item_tree = db.query(FullModuleItemTreeQuery(module_id));
-    db.query(FullActiveModuleItemTreeInputQuery(module_id))
+) -> ActiveModuleItemTree {
+    let _raw_item_tree = db.get(FullModuleItemTreeQuery(module_id));
+    db.get(FullActiveModuleItemTreeInputQuery(module_id))
+        .as_ref()
+        .clone()
 }
 
 pub(super) fn provide_module_defs(
@@ -77,7 +79,7 @@ pub(super) fn provide_full_module_defs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> DefCollection {
-    let item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+    let item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
     let symbols = db.context().symbols();
     nia_defs::collect_module_defs_from_active_item_tree_with_symbols(
         module_id, &item_tree, &symbols,
@@ -143,7 +145,7 @@ pub(super) fn provide_type_resolution(
     module_id: ModuleId,
 ) -> TypeResolution {
     time_module_provider(db, "type_resolution", module_id, || {
-        let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+        let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
         let defs = db.get(FullModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
         let graph = QueryModuleGraphLookup::new(db);
@@ -247,7 +249,7 @@ pub(super) fn provide_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> TypeLowering {
-    let active_item_tree = db.query(FullActiveModuleItemTreeQuery(module_id));
+    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
     let type_resolution = db.get(TypeResolutionQuery(module_id));
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();

@@ -4074,6 +4074,33 @@ extend Value : Ops {
     }
 
     #[test]
+    fn item_tree_queries_reuse_single_layer_product_handles() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "fn main() i32 { 1 }",
+        )]);
+        let db = query_db(loaded);
+
+        let module_input: Arc<ModuleItemTree> = db.get(ModuleItemTreeInputQuery(ModuleId(0)));
+        let active_input: Arc<ActiveModuleItemTree> =
+            db.get(ActiveModuleItemTreeInputQuery(ModuleId(0)));
+        let full_module: Arc<ModuleItemTree> = db.get(FullModuleItemTreeQuery(ModuleId(0)));
+        let full_active: Arc<ActiveModuleItemTree> =
+            db.get(FullActiveModuleItemTreeQuery(ModuleId(0)));
+
+        let module_input_batch = db.get_many([ModuleItemTreeInputQuery(ModuleId(0))]);
+        let active_input_batch = db.get_many([ActiveModuleItemTreeInputQuery(ModuleId(0))]);
+        let full_module_batch = db.get_many([FullModuleItemTreeQuery(ModuleId(0))]);
+        let full_active_batch = db.get_many([FullActiveModuleItemTreeQuery(ModuleId(0))]);
+
+        assert!(Arc::ptr_eq(&module_input, &module_input_batch[0]));
+        assert!(Arc::ptr_eq(&active_input, &active_input_batch[0]));
+        assert!(Arc::ptr_eq(&full_module, &full_module_batch[0]));
+        assert!(Arc::ptr_eq(&full_active, &full_active_batch[0]));
+    }
+
+    #[test]
     fn executable_value_refs_resolve_only_the_requested_body_item() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
@@ -5568,6 +5595,9 @@ extend i32 : ParseFrom[Input] {
             db.get(VisibleExtensionsQuery(ModuleId(0)));
         let visible_trait_impls: Arc<VisibleTraitImplsForModule> =
             db.get(VisibleTraitImplsQuery(ModuleId(0)));
+        let trait_method_index: Arc<nia_program_signatures::ProgramTraitMethodIndex> =
+            db.get(ProgramTraitMethodIndexQuery);
+        let abi_signatures: Arc<ProgramAbiSignaturesValue> = db.get(ProgramAbiSignaturesQuery);
 
         let signature_batch =
             db.get_many([ModuleProgramSignatureFactsQuery(ModuleId(0), signature_set)]);
@@ -5577,6 +5607,8 @@ extend i32 : ParseFrom[Input] {
         let nominal_batch = db.get_many([ExtensionProviderNominalModuleFactsQuery(ModuleId(0))]);
         let visible_extensions_batch = db.get_many([VisibleExtensionsQuery(ModuleId(0))]);
         let visible_trait_impls_batch = db.get_many([VisibleTraitImplsQuery(ModuleId(0))]);
+        let trait_method_index_batch = db.get_many([ProgramTraitMethodIndexQuery]);
+        let abi_signatures_batch = db.get_many([ProgramAbiSignaturesQuery]);
 
         assert!(Arc::ptr_eq(&signature, &signature_batch[0]));
         assert!(Arc::ptr_eq(&abi, &abi_batch[0]));
@@ -5591,6 +5623,11 @@ extend i32 : ParseFrom[Input] {
             &visible_trait_impls,
             &visible_trait_impls_batch[0]
         ));
+        assert!(Arc::ptr_eq(
+            &trait_method_index,
+            &trait_method_index_batch[0]
+        ));
+        assert!(Arc::ptr_eq(&abi_signatures, &abi_signatures_batch[0]));
     }
 
     #[test]
