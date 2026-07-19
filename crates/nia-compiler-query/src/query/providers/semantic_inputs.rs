@@ -3,14 +3,14 @@ use super::*;
 
 pub(super) struct LazyAssociatedValueResolver<'a> {
     type_store: &'a nia_ty::TypeStore,
-    visible_extensions: &'a dyn Fn() -> VisibleExtensionsValue,
-    cache: RefCell<Option<VisibleExtensionsValue>>,
+    visible_extensions: &'a dyn Fn() -> Arc<VisibleExtensionsValue>,
+    cache: RefCell<Option<Arc<VisibleExtensionsValue>>>,
 }
 
 impl<'a> LazyAssociatedValueResolver<'a> {
     pub(super) fn new(
         type_store: &'a nia_ty::TypeStore,
-        visible_extensions: &'a dyn Fn() -> VisibleExtensionsValue,
+        visible_extensions: &'a dyn Fn() -> Arc<VisibleExtensionsValue>,
     ) -> Self {
         Self {
             type_store,
@@ -19,7 +19,7 @@ impl<'a> LazyAssociatedValueResolver<'a> {
         }
     }
 
-    fn visible_extensions(&self) -> VisibleExtensionsValue {
+    fn visible_extensions(&self) -> Arc<VisibleExtensionsValue> {
         if let Some(visible_extensions) = self.cache.borrow().as_ref() {
             return visible_extensions.clone();
         }
@@ -82,7 +82,7 @@ pub(super) fn provide_value_resolution(
         let graph = QueryModuleGraphLookup::new(db);
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, module_id);
-        let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
+        let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
         let associated_values =
             LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let symbols = db.context().symbols();
@@ -139,7 +139,7 @@ pub(super) fn provide_semantic_use_table(
         let defs = db.get(FullModuleDefsQuery(module_id));
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, module_id);
-        let visible_extensions = || db.query(VisibleExtensionsQuery(module_id));
+        let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
         let associated_values =
             LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));

@@ -613,7 +613,7 @@ pub(super) fn provide_visible_extensions(
         extension_methods.extend(facts.methods.clone());
         associated_values.extend(facts.associated_values.clone());
     }
-    Arc::new(visible_extensions_for_module(VisibleExtensionsInput {
+    visible_extensions_for_module(VisibleExtensionsInput {
         module_id,
         type_store: &db.context().type_store,
         graph: &graph,
@@ -630,7 +630,7 @@ pub(super) fn provide_visible_extensions(
         trait_impls: &[],
         nominal_extension_providers: &nominal_extension_providers,
         visible_modules: Some(visible_modules.as_slice()),
-    }))
+    })
 }
 
 pub(super) fn provide_visible_trait_impls(
@@ -667,7 +667,7 @@ pub(super) fn provide_visible_trait_impls(
                 .cloned(),
         );
     }
-    Arc::new(visible_trait_impls_for_module(VisibleExtensionsInput {
+    visible_trait_impls_for_module(VisibleExtensionsInput {
         module_id,
         type_store: &db.context().type_store,
         graph: &graph,
@@ -684,5 +684,5 @@ pub(super) fn provide_visible_trait_impls(
         trait_impls: trait_impls.as_slice(),
         nominal_extension_providers: &nominal_extension_providers,
         visible_modules: Some(visible_modules.as_slice()),
-    }))
+    })
 }

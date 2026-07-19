@@ -165,7 +165,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             || {
                 checked_modules
                     .iter()
-                    .map(|module| (module.id, db.query(VisibleExtensionsQuery(module.id))))
+                    .map(|module| (module.id, db.get(VisibleExtensionsQuery(module.id))))
                     .collect::<Vec<_>>()
             },
         );
@@ -212,7 +212,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             || {
                 checked_modules
                     .iter()
-                    .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
+                    .map(|checked_module| db.get(VisibleExtensionsQuery(checked_module.id)))
                     .collect::<Vec<_>>()
             },
         );

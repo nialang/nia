@@ -194,7 +194,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                     db,
                     "executable_body_check.visible_extensions",
                     module_id,
-                    || db.query(VisibleExtensionsQuery(module_id)),
+                    || db.get(VisibleExtensionsQuery(module_id)),
                 )
             };
             let associated_values =
