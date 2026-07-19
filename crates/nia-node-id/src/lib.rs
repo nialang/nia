@@ -361,6 +361,15 @@ impl<V> NodeMap<V> {
         })
     }
 
+    pub fn into_builder(self) -> NodeMapBuilder<V> {
+        let append = self.store.append();
+        NodeMapBuilder {
+            store: self.store,
+            append,
+            nodes: self.nodes,
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
@@ -384,6 +393,14 @@ impl<V> NodeMapBuilder<V> {
     pub fn extend(&mut self, entries: impl IntoIterator<Item = (VersionedNodeKey, V)>) {
         for (locator, value) in entries {
             self.insert(locator, value);
+        }
+    }
+
+    pub fn extend_map(&mut self, nodes: NodeMap<V>) {
+        if self.store.id == nodes.store.id {
+            self.nodes.extend(nodes.nodes);
+        } else {
+            self.extend(nodes.into_entries());
         }
     }
 
@@ -734,6 +751,49 @@ mod tests {
 
         assert_ne!(first_store.id(), second_store.id());
         assert_eq!(first.finish(), second.finish());
+    }
+
+    #[test]
+    fn node_map_builder_merges_handles_and_rehomes_foreign_maps() {
+        let first_store = NodeStore::new();
+        let second_store = NodeStore::new();
+        let first_locator = VersionedNodeKey::span(
+            SourceVersion {
+                id: SourceId(7),
+                revision: SourceRevision::INITIAL,
+            },
+            SyntaxKind::Expr,
+            Span::new(0, 1),
+        );
+        let second_locator = VersionedNodeKey::span(
+            SourceVersion {
+                id: SourceId(7),
+                revision: SourceRevision::INITIAL,
+            },
+            SyntaxKind::Expr,
+            Span::new(2, 3),
+        );
+        let mut first = NodeMap::builder(&first_store);
+        first.insert(first_locator.clone(), 1);
+        let first = first.finish();
+        let first_id = first.node_id(&first_locator).expect("first node handle");
+        let mut second = NodeMap::builder(&second_store);
+        second.insert(second_locator.clone(), 2);
+
+        let mut merged = first.into_builder();
+        merged.extend_map(second.finish());
+        let merged = merged.finish();
+
+        assert_eq!(merged.store_id(), first_store.id());
+        assert_eq!(merged.node_id(&first_locator), Some(first_id));
+        assert_eq!(merged.get(&second_locator), Some(&2));
+        assert_eq!(
+            merged
+                .node_id(&second_locator)
+                .expect("re-homed node handle")
+                .store_id,
+            first_store.id()
+        );
     }
 
     #[test]
