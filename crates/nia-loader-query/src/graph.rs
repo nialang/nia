@@ -81,7 +81,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
                     else {
                         continue;
                     };
-                    let declarations = db.get(module_declarations_query(db, node.path.clone()));
+                    let declarations = db.get(module_declarations_query(db, &node.path));
                     apply_provider_demands(
                         db,
                         &mut graph,
@@ -106,7 +106,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
                 let Some(node) = graph.get(nia_imports::ModuleId(index as u32)).cloned() else {
                     break;
                 };
-                let declarations = db.get(module_declarations_query(db, node.path.clone()));
+                let declarations = db.get(module_declarations_query(db, &node.path));
                 for package in &declarations.package_roots {
                     if graph.package_root(package).is_none()
                         && let Some(path) = db.context().module_map.get_name(package)
@@ -160,7 +160,8 @@ fn graph_source_versions(
     graph
         .modules()
         .map(|node| {
-            let source = db.get(SourceTextQuery(node.path.clone()));
+            let source_id = db.context().sources.id_for_path(&node.path);
+            let source = db.get(SourceTextQuery(source_id));
             (
                 node.path.identity(),
                 source.file.as_ref().map(nia_source::SourceFile::version),
@@ -278,7 +279,7 @@ fn activate_package_facade(
     let Some(node) = graph.get(root).cloned() else {
         return Ok(());
     };
-    let declarations = db.get(module_declarations_query(db, node.path));
+    let declarations = db.get(module_declarations_query(db, &node.path));
     for package in &declarations.package_roots {
         if graph.package_root(package).is_none()
             && let Some(path) = db.context().module_map.get_name(package)
@@ -318,7 +319,7 @@ pub(crate) fn mark_process_used_paths_and_process(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(());
     };
-    let declarations = db.get(module_declarations_query(db, node.path));
+    let declarations = db.get(module_declarations_query(db, &node.path));
     for package in &declarations.package_roots {
         if graph.package_root(package).is_none()
             && let Some(path) = db.context().module_map.get_name(package)
@@ -426,7 +427,7 @@ fn add_declared_module_children(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(());
     };
-    let declarations = db.get(module_declarations_query(db, node.path));
+    let declarations = db.get(module_declarations_query(db, &node.path));
     for declaration in declarations.declarations.iter().cloned() {
         add_declared_module_child(db, graph, module_id, declaration)?;
     }
@@ -453,7 +454,7 @@ pub(crate) fn add_visible_declared_module_child_if_present(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(None);
     };
-    let declarations = db.get(module_declarations_query(db, node.path));
+    let declarations = db.get(module_declarations_query(db, &node.path));
     let Some(declaration) = declarations
         .declarations
         .iter()

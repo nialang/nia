@@ -8,7 +8,7 @@ use nia_imports::resolve_module_declarations_from_active_item_tree_with_symbols;
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_provider_summary::ProviderSummary;
 use nia_query::{QueryDb, QueryKey};
-use nia_source::{SourceFile, SourcePath, SourceVersion};
+use nia_source::{SourceFile, SourceId, SourcePath, SourceRevision, SourceVersion};
 use nia_target_config::prune_module_for_target_with_symbols;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -26,9 +26,8 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
         let modules = graph
             .modules()
             .map(|node| {
-                db.get(LoadedModuleQuery(node.path.clone()))
-                    .as_ref()
-                    .clone()
+                let source_id = db.context().sources.id_for_path(&node.path);
+                db.get(LoadedModuleQuery(source_id)).as_ref().clone()
             })
             .collect::<Vec<_>>();
         let diagnostics = db.get(LoadDiagnosticsQuery);
@@ -70,7 +69,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
             });
         }
         for node in graph.modules() {
-            let parsed = db.get(parsed_module_query(db, node.path.clone()));
+            let parsed = db.get(parsed_module_query(db, &node.path));
             diagnostics.extend(module_diagnostics(
                 &node.path,
                 &parsed
@@ -84,7 +83,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
             diagnostics.extend(module_diagnostics(&node.path, &parsed.prune_diagnostics));
             diagnostics.extend(module_diagnostics(
                 &node.path,
-                &db.get(module_declarations_query(db, node.path.clone()))
+                &db.get(module_declarations_query(db, &node.path))
                     .diagnostics,
             ));
             if node.module_path.is_entry_package() {
@@ -92,7 +91,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
                     &graph,
                     node.id,
                     &node.path,
-                    &db.get(module_declarations_query(db, node.path.clone())),
+                    &db.get(module_declarations_query(db, &node.path)),
                     &db.context().symbols,
                 ));
             }
@@ -158,8 +157,8 @@ fn import_target_module(
     Some(current)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct LoadedModuleQuery(pub(crate) SourcePath);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct LoadedModuleQuery(pub(crate) SourceId);
 
 impl QueryKey<LoaderContext> for LoadedModuleQuery {
     type Value = LoadedModule;
@@ -169,22 +168,26 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
     }
 
     fn description(&self) -> String {
-        format!("loaded_module({})", self.0.as_str())
+        format!("loaded_module({:?})", self.0)
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        let path =
+            db.context().sources.path_for_id(self.0).unwrap_or_else(|| {
+                db.invalid_input(self, format!("unknown source id {:?}", self.0))
+            });
         let graph = db.get(ModuleGraphQuery);
         let id = graph
-            .module_id_for_source_identity(&self.0.identity())
+            .module_id_for_source_identity(&path.identity())
             .unwrap_or_else(|| {
-                db.invalid_input(self, format!("missing module id for `{}`", self.0.as_str()))
+                db.invalid_input(self, format!("missing module id for `{}`", path.as_str()))
             });
-        let parsed = db.get(parsed_module_query(db, self.0.clone()));
-        let provider_summary = db.get(provider_summary_query(db, self.0.clone()));
+        let parsed = db.get(parsed_module_query_for_id(db, self.0));
+        let provider_summary = db.get(provider_summary_query_for_id(db, self.0));
         LoadedModule {
             id,
-            path: self.0.clone(),
-            source_identity: self.0.identity(),
+            path: path.as_ref().clone(),
+            source_identity: path.identity(),
             source_version: parsed.source_version,
             item_tree: parsed.item_tree.clone(),
             active_item_tree: parsed.active_item_tree.clone(),
@@ -195,11 +198,8 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct ParsedModuleQuery {
-    path: SourcePath,
-    version: SourceVersion,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ParsedModuleQuery(SourceVersion);
 
 impl QueryKey<LoaderContext> for ParsedModuleQuery {
     type Value = ParsedModule;
@@ -209,15 +209,12 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
     }
 
     fn description(&self) -> String {
-        format!("parsed_module({})@{:?}", self.path.as_str(), self.version)
+        format!("parsed_module({:?})", self.0)
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let source = db.get(SourceTextQuery(self.path.clone()));
-        let syntax = db.get(SyntaxModuleQuery {
-            path: self.path.clone(),
-            version: self.version,
-        });
+        let source = db.get(SourceTextQuery(self.0.id));
+        let syntax = db.get(SyntaxModuleQuery(self.0));
         let (raw_module, parse_errors, origins) =
             nia_parser::parse_module_syntax_with_origins_and_symbols(
                 &syntax,
@@ -229,13 +226,8 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             &db.context().target,
             Some(&db.context().symbols),
         );
-        let source_version = source
-            .file
-            .as_ref()
-            .map(SourceFile::version)
-            .unwrap_or_else(|| db.context().sources.empty_source(&self.path).version());
         ParsedModule {
-            source_version,
+            source_version: self.0,
             item_tree,
             active_item_tree: prune_result.active_item_tree,
             origins,
@@ -246,11 +238,8 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct SyntaxModuleQuery {
-    path: SourcePath,
-    version: SourceVersion,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct SyntaxModuleQuery(SourceVersion);
 
 impl QueryKey<LoaderContext> for SyntaxModuleQuery {
     type Value = nia_syntax::SyntaxTree;
@@ -260,17 +249,17 @@ impl QueryKey<LoaderContext> for SyntaxModuleQuery {
     }
 
     fn description(&self) -> String {
-        format!("syntax_module({})@{:?}", self.path.as_str(), self.version)
+        format!("syntax_module({:?})", self.0)
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let source = db.get(SourceTextQuery(self.path.clone()));
+        let source = db.get(SourceTextQuery(self.0.id));
         source
             .file
             .as_ref()
-            .filter(|file| file.version() == self.version)
+            .filter(|file| file.version() == self.0)
             .map(|file| nia_syntax::parse_source(&file.text, Some(file.version())))
-            .unwrap_or_else(|| nia_syntax::parse_source("", Some(self.version)))
+            .unwrap_or_else(|| nia_syntax::parse_source("", Some(self.0)))
     }
 }
 
@@ -285,8 +274,8 @@ pub(crate) struct ParsedModule {
     pub(crate) read_diagnostic: Option<Diagnostic>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct SourceTextQuery(pub(crate) SourcePath);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct SourceTextQuery(pub(crate) SourceId);
 
 impl QueryKey<LoaderContext> for SourceTextQuery {
     type Value = SourceText;
@@ -296,11 +285,15 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
     }
 
     fn description(&self) -> String {
-        format!("source_text({})", self.0.as_str())
+        format!("source_text({:?})", self.0)
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        match db.context().sources.read_source(&self.0) {
+        let path =
+            db.context().sources.path_for_id(self.0).unwrap_or_else(|| {
+                db.invalid_input(self, format!("unknown source id {:?}", self.0))
+            });
+        match db.context().sources.read_source(&path) {
             Ok(file) => SourceText {
                 file: Some(file),
                 diagnostic: None,
@@ -310,9 +303,9 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
                 diagnostic: Some(
                     Diagnostic::user_error(
                         codes::LOAD,
-                        format!("failed to read `{}`: {err}", self.0.as_str()),
+                        format!("failed to read `{}`: {err}", path.as_str()),
                     )
-                    .debug("path", self.0.as_str())
+                    .debug("path", path.as_str())
                     .finish(),
                 ),
             },
@@ -326,11 +319,8 @@ pub(crate) struct SourceText {
     pub(crate) diagnostic: Option<Diagnostic>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct ModuleDeclarationsQuery {
-    path: SourcePath,
-    version: SourceVersion,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ModuleDeclarationsQuery(SourceVersion);
 
 impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
     type Value = ModuleDeclarations;
@@ -340,18 +330,11 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
     }
 
     fn description(&self) -> String {
-        format!(
-            "module_declarations({})@{:?}",
-            self.path.as_str(),
-            self.version
-        )
+        format!("module_declarations({:?})", self.0)
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let parsed = db.get(ParsedModuleQuery {
-            path: self.path.clone(),
-            version: self.version,
-        });
+        let parsed = db.get(ParsedModuleQuery(self.0));
         let mut diagnostics = parsed
             .read_diagnostic
             .clone()
@@ -391,11 +374,8 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct ProviderSummaryQuery {
-    path: SourcePath,
-    version: SourceVersion,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ProviderSummaryQuery(SourceVersion);
 
 impl QueryKey<LoaderContext> for ProviderSummaryQuery {
     type Value = ProviderSummary;
@@ -405,27 +385,17 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
     }
 
     fn description(&self) -> String {
-        format!(
-            "provider_summary({})@{:?}",
-            self.path.as_str(),
-            self.version
-        )
+        format!("provider_summary({:?})", self.0)
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let parsed = db.get(ParsedModuleQuery {
-            path: self.path.clone(),
-            version: self.version,
-        });
+        let parsed = db.get(ParsedModuleQuery(self.0));
         ProviderSummary::from_active_item_tree(&parsed.active_item_tree)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct ModuleFacadeFactsQuery {
-    path: SourcePath,
-    version: SourceVersion,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ModuleFacadeFactsQuery(SourceVersion);
 
 impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
     type Value = ModuleFacadeFacts;
@@ -435,72 +405,68 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
     }
 
     fn description(&self) -> String {
-        format!(
-            "module_facade_facts({})@{:?}",
-            self.path.as_str(),
-            self.version
-        )
+        format!("module_facade_facts({:?})", self.0)
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let parsed = db.get(ParsedModuleQuery {
-            path: self.path.clone(),
-            version: self.version,
-        });
+        let parsed = db.get(ParsedModuleQuery(self.0));
         ModuleFacadeFacts::from_active_item_tree(&parsed.active_item_tree, &db.context().module_map)
     }
 }
 
 pub(crate) fn parsed_module_query(
     db: &QueryDb<LoaderContext>,
-    path: SourcePath,
+    path: &SourcePath,
 ) -> ParsedModuleQuery {
-    let source = db.get(SourceTextQuery(path.clone()));
-    let version = source
-        .file
-        .as_ref()
-        .map(SourceFile::version)
-        .unwrap_or_else(|| db.context().sources.empty_source(&path).version());
-    ParsedModuleQuery { path, version }
+    parsed_module_query_for_id(db, db.context().sources.id_for_path(path))
 }
 
 pub(crate) fn module_declarations_query(
     db: &QueryDb<LoaderContext>,
-    path: SourcePath,
+    path: &SourcePath,
 ) -> ModuleDeclarationsQuery {
-    let source = db.get(SourceTextQuery(path.clone()));
-    let version = source
-        .file
-        .as_ref()
-        .map(SourceFile::version)
-        .unwrap_or_else(|| db.context().sources.empty_source(&path).version());
-    ModuleDeclarationsQuery { path, version }
+    let source_id = db.context().sources.id_for_path(path);
+    ModuleDeclarationsQuery(source_version(db, source_id))
 }
 
 pub(crate) fn provider_summary_query(
     db: &QueryDb<LoaderContext>,
-    path: SourcePath,
+    path: &SourcePath,
 ) -> ProviderSummaryQuery {
-    let source = db.get(SourceTextQuery(path.clone()));
-    let version = source
-        .file
-        .as_ref()
-        .map(SourceFile::version)
-        .unwrap_or_else(|| db.context().sources.empty_source(&path).version());
-    ProviderSummaryQuery { path, version }
+    provider_summary_query_for_id(db, db.context().sources.id_for_path(path))
 }
 
 pub(crate) fn module_facade_facts_query(
     db: &QueryDb<LoaderContext>,
-    path: SourcePath,
+    path: &SourcePath,
 ) -> ModuleFacadeFactsQuery {
-    let source = db.get(SourceTextQuery(path.clone()));
-    let version = source
+    let source_id = db.context().sources.id_for_path(path);
+    ModuleFacadeFactsQuery(source_version(db, source_id))
+}
+
+fn parsed_module_query_for_id(
+    db: &QueryDb<LoaderContext>,
+    source_id: SourceId,
+) -> ParsedModuleQuery {
+    ParsedModuleQuery(source_version(db, source_id))
+}
+
+fn provider_summary_query_for_id(
+    db: &QueryDb<LoaderContext>,
+    source_id: SourceId,
+) -> ProviderSummaryQuery {
+    ProviderSummaryQuery(source_version(db, source_id))
+}
+
+fn source_version(db: &QueryDb<LoaderContext>, source_id: SourceId) -> SourceVersion {
+    db.get(SourceTextQuery(source_id))
         .file
         .as_ref()
         .map(SourceFile::version)
-        .unwrap_or_else(|| db.context().sources.empty_source(&path).version());
-    ModuleFacadeFactsQuery { path, version }
+        .unwrap_or(SourceVersion {
+            id: source_id,
+            revision: SourceRevision::INITIAL,
+        })
 }
 
 fn module_diagnostics(path: &SourcePath, diagnostics: &[Diagnostic]) -> Vec<ProgramDiagnostic> {

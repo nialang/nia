@@ -1,5 +1,8 @@
 use super::*;
-use crate::queries::{LoadedModuleQuery, provider_summary_query};
+use crate::queries::{
+    LoadedModuleQuery, ModuleDeclarationsQuery, ModuleFacadeFactsQuery, ParsedModuleQuery,
+    ProviderSummaryQuery, SourceTextQuery, SyntaxModuleQuery, provider_summary_query,
+};
 use nia_compiler_query::{ProviderDemand, RuntimeModel, has_error_diagnostics};
 use nia_imports::ModuleNode;
 use nia_item_tree::ItemTreeNodeKind;
@@ -15,6 +18,17 @@ static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn sym(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))
+}
+
+#[test]
+fn source_frontend_query_keys_are_compact_handles() {
+    assert_eq!(std::mem::size_of::<SourceTextQuery>(), 4);
+    assert_eq!(std::mem::size_of::<LoadedModuleQuery>(), 4);
+    assert_eq!(std::mem::size_of::<ParsedModuleQuery>(), 16);
+    assert_eq!(std::mem::size_of::<SyntaxModuleQuery>(), 16);
+    assert_eq!(std::mem::size_of::<ModuleDeclarationsQuery>(), 16);
+    assert_eq!(std::mem::size_of::<ProviderSummaryQuery>(), 16);
+    assert_eq!(std::mem::size_of::<ModuleFacadeFactsQuery>(), 16);
 }
 
 fn test_loader_context(
@@ -1055,34 +1069,16 @@ fn query_trace_records_source_frontend_dependencies() {
     write(&main_path, "fn main() i32 { 0 }");
     let main_path = main_path.to_string_lossy().into_owned();
 
-    let trace = load_program_trace(main_path.clone(), ModuleMap::default());
+    let trace = load_program_trace(main_path, ModuleMap::default());
 
     assert!(trace.dependencies.iter().any(|dependency| {
-        dependency
-            .from
-            .description
-            .starts_with(&format!("parsed_module({main_path})@"))
-            && dependency
-                .to
-                .description
-                .starts_with(&format!("syntax_module({main_path})@"))
+        dependency.from.name == "parsed_module" && dependency.to.name == "syntax_module"
     }));
     assert!(trace.dependencies.iter().any(|dependency| {
-        dependency
-            .from
-            .description
-            .starts_with(&format!("syntax_module({main_path})@"))
-            && dependency.to.description == format!("source_text({main_path})")
+        dependency.from.name == "syntax_module" && dependency.to.name == "source_text"
     }));
     assert!(trace.dependencies.iter().any(|dependency| {
-        dependency
-            .from
-            .description
-            .starts_with(&format!("module_declarations({main_path})@"))
-            && dependency
-                .to
-                .description
-                .starts_with(&format!("parsed_module({main_path})@"))
+        dependency.from.name == "module_declarations" && dependency.to.name == "parsed_module"
     }));
 }
 
@@ -1109,8 +1105,8 @@ extend Widget {
         ModuleMap::default(),
         sources,
     ));
-    let first = db.get(provider_summary_query(&db, provider.clone()));
-    let second = db.get(provider_summary_query(&db, provider.clone()));
+    let first = db.get(provider_summary_query(&db, &provider));
+    let second = db.get(provider_summary_query(&db, &provider));
     assert!(first.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
     assert_eq!(first, second);
 
@@ -1200,17 +1196,10 @@ extend types::Widget {
     );
 
     let trace = db.query_trace();
-    let facade_path = root.join("pkg/facade.nia").to_string_lossy().into_owned();
     let query = trace
         .queries
         .iter()
-        .find(|query| {
-            query.frame.name == "module_facade_facts"
-                && query
-                    .frame
-                    .description
-                    .starts_with(&format!("module_facade_facts({facade_path})@"))
-        })
+        .find(|query| query.frame.name == "module_facade_facts")
         .expect("facade facts query should be recorded for custom package facade");
     assert_eq!(query.stats.executions, 1, "{query:?}");
     assert!(
@@ -1240,21 +1229,23 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
     let first_version = first_module.source_version;
     let first_item_tree = first_module.item_tree.clone();
 
+    let source_id = sources.id_for_path(&main);
     sources.set_source(main.clone(), "fn main() i32 { 1 }");
-    let invalidation = db.invalidate(SourceTextQuery(main.clone()));
+    let invalidation = db.invalidate(SourceTextQuery(source_id));
     let invalidated = invalidation
         .invalidated
         .iter()
         .map(|frame| frame.description.as_str())
         .collect::<Vec<_>>();
+    let source_description = format!("source_text({source_id:?})");
     assert!(
-        invalidated.contains(&"source_text(main.nia)"),
+        invalidated.contains(&source_description.as_str()),
         "{invalidated:?}"
     );
     assert!(
         invalidated
             .iter()
-            .any(|description| description.starts_with("parsed_module(main.nia)@")),
+            .any(|description| description.starts_with("parsed_module(SourceVersion")),
         "{invalidated:?}"
     );
     assert!(
@@ -1290,8 +1281,9 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
     assert_module_loaded(&first, "main.nia");
     assert_module_not_loaded(&first, "defs.nia");
 
-    sources.set_source(main.clone(), "module defs;");
-    db.invalidate(SourceTextQuery(main));
+    let source_id = sources.id_for_path(&main);
+    sources.set_source(main, "module defs;");
+    db.invalidate(SourceTextQuery(source_id));
 
     let second = db.get(LoadedProgramQuery);
     assert_no_error_diagnostics(&second);
@@ -1305,14 +1297,17 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
 
 #[test]
 fn loaded_module_query_reports_paths_outside_module_graph() {
+    let sources = SourceDatabase::new();
     let db = registered_query_db(test_loader_context(
         SourcePath::new("main.nia"),
         ModuleMap::default(),
-        SourceDatabase::new(),
+        sources.clone(),
     ));
+    let missing = SourcePath::new("missing.nia");
+    let missing_id = sources.id_for_path(&missing);
 
     let err = db
-        .try_get(LoadedModuleQuery(SourcePath::new("missing.nia")))
+        .try_get(LoadedModuleQuery(missing_id))
         .expect_err("missing module path should be an invalid query input");
 
     assert!(matches!(err, nia_query::QueryError::InvalidInput { .. }));

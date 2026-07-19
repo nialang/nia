@@ -127,7 +127,8 @@ pub struct SourceTable {
 
 #[derive(Debug, Default)]
 struct SourceTableInner {
-    paths: nia_hash::FastHashMap<SourcePath, SourceId>,
+    ids_by_path: nia_hash::FastHashMap<Arc<SourcePath>, SourceId>,
+    paths_by_id: Vec<Arc<SourcePath>>,
     next_id: u32,
 }
 
@@ -141,7 +142,7 @@ impl SourceTable {
         // worker panicked while mutating the id map, so continuing could assign
         // inconsistent SourceIds and break versioned node identity.
         let mut inner = self.inner.lock().expect("source table lock poisoned");
-        if let Some(id) = inner.paths.get(path).copied() {
+        if let Some(id) = inner.ids_by_path.get(path).copied() {
             return id;
         }
 
@@ -150,7 +151,9 @@ impl SourceTable {
             .next_id
             .checked_add(1)
             .expect("source id space exhausted");
-        inner.paths.insert(path.clone(), id);
+        let path = Arc::new(path.clone());
+        inner.ids_by_path.insert(path.clone(), id);
+        inner.paths_by_id.push(path);
         id
     }
 
@@ -158,9 +161,18 @@ impl SourceTable {
         self.inner
             .lock()
             .expect("source table lock poisoned")
-            .paths
+            .ids_by_path
             .get(path)
             .copied()
+    }
+
+    pub fn path_for_id(&self, id: SourceId) -> Option<Arc<SourcePath>> {
+        self.inner
+            .lock()
+            .expect("source table lock poisoned")
+            .paths_by_id
+            .get(id.0 as usize)
+            .cloned()
     }
 }
 
@@ -177,6 +189,10 @@ impl SourceDatabase {
 
     pub fn id_for_path(&self, path: &SourcePath) -> SourceId {
         self.table.id_for_path(path)
+    }
+
+    pub fn path_for_id(&self, id: SourceId) -> Option<Arc<SourcePath>> {
+        self.table.path_for_id(id)
     }
 
     pub fn source_for_path(&self, path: &SourcePath) -> Option<SourceFile> {
@@ -280,6 +296,9 @@ mod tests {
         assert_eq!(table.id_for_path(&main), SourceId(0));
         assert_eq!(table.id_for_path(&defs), SourceId(1));
         assert_eq!(table.id_for_path(&main), SourceId(0));
+        assert_eq!(table.path_for_id(SourceId(0)).as_deref(), Some(&main));
+        assert_eq!(table.path_for_id(SourceId(1)).as_deref(), Some(&defs));
+        assert_eq!(table.path_for_id(SourceId(2)), None);
     }
 
     #[test]
