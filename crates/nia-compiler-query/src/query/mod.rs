@@ -5640,6 +5640,10 @@ extend i32 : ParseFrom[Input] {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "semantic_use_table" && dependency.to.name == "type_lowering"
         }));
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "semantic_use_table" && dependency.to.name == "module_origins"
+        }));
+        assert_eq!(table.store_id(), db.context().node_store().id());
 
         assert!(matches!(
             table

@@ -7,7 +7,7 @@ use crate::{
 };
 use nia_ids::{LayoutBuiltin, LocalId};
 use nia_node_id::{NodeChildPath, SyntaxKind, VersionedNodeKey};
-use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
+use nia_sema_ir::SemanticUseTable;
 use nia_source::{SourceId, SourceRevision, SourceVersion};
 use nia_span::Span;
 use nia_symbol::{SymbolId, stable_hash};
@@ -156,10 +156,9 @@ fn early_name_lowering_separates_unresolved_and_resolved_states() {
     assert_eq!(name.resolution(), None);
 
     let ident = ast_ident("x");
-    let mut semantic_uses = SemanticUseTable::default();
-    semantic_uses
-        .node_value_uses
-        .insert(ident.node_key.clone(), SemanticValueUse::Local(LocalId(0)));
+    let mut semantic_uses = SemanticUseTable::builder();
+    semantic_uses.insert_node_local_value_use(ident.node_key.clone(), LocalId(0));
+    let semantic_uses = semantic_uses.finish();
     let context = EarlyConstLowerInputs::default().with_semantic_uses(&semantic_uses);
     let early = lower_expr_early_with_context(&ident, &context)
         .expect("early lowering with semantic inputs should resolve names");
@@ -202,10 +201,9 @@ fn resolved_lowering_requires_local_ids() {
         node_key: expr_key(1),
         kind: nia_ast::ExprKind::Block(block),
     };
-    let mut semantic_uses = SemanticUseTable::default();
-    semantic_uses
-        .node_value_uses
-        .insert(expr_key(0), SemanticValueUse::Local(LocalId(0)));
+    let mut semantic_uses = SemanticUseTable::builder();
+    semantic_uses.insert_node_local_value_use(expr_key(0), LocalId(0));
+    let semantic_uses = semantic_uses.finish();
     let context = ResolvedConstLowerInputs::new(&semantic_uses);
     let err = lower_expr_resolved_with_context(&expr, &context)
         .expect_err("resolved lowering must reject unresolved local bindings");
@@ -233,10 +231,9 @@ fn resolved_lowering_uses_local_uses_for_assignment_targets() {
             }),
         },
     };
-    let mut semantic_uses = SemanticUseTable::default();
-    semantic_uses
-        .node_value_uses
-        .insert(lhs_key, SemanticValueUse::Local(LocalId(7)));
+    let mut semantic_uses = SemanticUseTable::builder();
+    semantic_uses.insert_node_local_value_use(lhs_key, LocalId(7));
+    let semantic_uses = semantic_uses.finish();
     let context = ResolvedConstLowerInputs::new(&semantic_uses);
     let lowered = lower_expr_resolved_with_context(&expr, &context)
         .expect("assignment target should use local-use facts");
@@ -272,13 +269,10 @@ fn resolved_lowering_requires_type_ids() {
             },
         },
     };
-    let mut semantic_uses = SemanticUseTable::default();
-    semantic_uses
-        .node_value_uses
-        .insert(expr_key(6), SemanticValueUse::Local(LocalId(0)));
-    semantic_uses
-        .node_local_defs
-        .insert(stmt_key(0), LocalId(0));
+    let mut semantic_uses = SemanticUseTable::builder();
+    semantic_uses.insert_node_local_value_use(expr_key(6), LocalId(0));
+    semantic_uses.insert_node_local_def(stmt_key(0), LocalId(0));
+    let semantic_uses = semantic_uses.finish();
     let context = ResolvedConstLowerInputs::new(&semantic_uses);
     let err = lower_expr_resolved_with_context(&expr, &context)
         .expect_err("resolved lowering must reject unresolved types");

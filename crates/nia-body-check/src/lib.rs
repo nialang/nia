@@ -877,7 +877,9 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             node_builtin_associated_values: input
                 .semantic_uses
                 .node_builtin_associated_values
-                .clone(),
+                .iter()
+                .map(|(key, value)| (key, *value))
+                .collect(),
             node_associated_const_projections: checker.node_associated_const_projections,
             node_array_repeat_counts: checker.node_array_repeat_counts,
             node_switch_pattern_values: checker.node_switch_pattern_values,

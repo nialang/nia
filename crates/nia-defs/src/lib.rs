@@ -14,7 +14,7 @@ use nia_ast::{
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::{DefId, ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::{NodeId, NodeStore, NodeStoreAppend, NodeStoreId, VersionedNodeKey};
+use nia_node_id::{NodeId, NodeMap, NodeMapBuilder, NodeStore, NodeStoreId, VersionedNodeKey};
 use nia_span::Span;
 use nia_symbol::{
     SymbolId, SymbolMap, SymbolText, symbol_identity_key, symbol_text_from_optional_resolver,
@@ -569,43 +569,19 @@ pub struct DefScopes {
     pub enum_members: HashMap<DefId, EnumScope>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DefNodeMap {
-    store: NodeStore,
-    nodes: HashMap<NodeId, DefId>,
+    nodes: NodeMap<DefId>,
 }
 
 #[derive(Debug)]
 struct DefNodeMapBuilder {
-    store: NodeStore,
-    append: NodeStoreAppend,
-    nodes: HashMap<NodeId, DefId>,
-}
-
-impl Default for DefNodeMap {
-    fn default() -> Self {
-        Self {
-            store: NodeStore::new(),
-            nodes: HashMap::new(),
-        }
-    }
+    nodes: NodeMapBuilder<DefId>,
 }
 
 impl PartialEq for DefNodeMap {
     fn eq(&self, other: &Self) -> bool {
-        if self.store.id() == other.store.id() {
-            return self.nodes == other.nodes;
-        }
-        self.nodes.len() == other.nodes.len()
-            && self.nodes.iter().all(|(node_id, def_id)| {
-                self.store.locator(*node_id).is_some_and(|locator| {
-                    other
-                        .store
-                        .id_for_locator(&locator)
-                        .and_then(|other_id| other.nodes.get(&other_id))
-                        == Some(def_id)
-                })
-            })
+        self.nodes == other.nodes
     }
 }
 
@@ -613,49 +589,38 @@ impl Eq for DefNodeMap {}
 
 impl DefNodeMap {
     pub fn get(&self, node_key: &VersionedNodeKey) -> Option<DefId> {
-        self.node_id(node_key)
-            .and_then(|node_id| self.nodes.get(&node_id).copied())
+        self.nodes.get(node_key).copied()
     }
 
     pub fn node_id(&self, node_key: &VersionedNodeKey) -> Option<NodeId> {
-        self.store
-            .id_for_locator(node_key)
-            .filter(|node_id| self.nodes.contains_key(node_id))
+        self.nodes.node_id(node_key)
     }
 
     pub fn store_id(&self) -> NodeStoreId {
-        self.store.id()
+        self.nodes.store_id()
     }
 
     pub fn entries(&self) -> impl Iterator<Item = (VersionedNodeKey, DefId)> + '_ {
-        self.nodes.iter().map(|(node_id, def_id)| {
-            (
-                self.store
-                    .locator(*node_id)
-                    .expect("definition node id belongs to its node store"),
-                *def_id,
-            )
-        })
+        self.nodes
+            .iter()
+            .map(|(node_key, def_id)| (node_key, *def_id))
     }
 }
 
 impl DefNodeMapBuilder {
     fn new(store: &NodeStore) -> Self {
         Self {
-            store: store.clone(),
-            append: store.append(),
-            nodes: HashMap::new(),
+            nodes: NodeMap::builder(store),
         }
     }
 
     fn insert(&mut self, node_key: VersionedNodeKey, def_id: DefId) {
-        self.nodes.insert(self.append.intern(node_key), def_id);
+        self.nodes.insert(node_key, def_id);
     }
 
     fn finish(self) -> DefNodeMap {
         DefNodeMap {
-            store: self.store,
-            nodes: self.nodes,
+            nodes: self.nodes.finish(),
         }
     }
 }
