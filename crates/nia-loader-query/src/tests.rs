@@ -35,6 +35,28 @@ fn test_loader_context(
     }
 }
 
+fn registered_query_db(context: LoaderContext) -> QueryDb<LoaderContext> {
+    QueryDb::new_registered(context, crate::loader_query_registry())
+}
+
+#[test]
+fn loader_query_registry_covers_all_declared_query_contracts() {
+    let descriptors = crate::loader_query_registry().descriptors();
+
+    assert_eq!(descriptors.len(), 10);
+    assert!(
+        descriptors
+            .windows(2)
+            .all(|pair| pair[0].name < pair[1].name)
+    );
+    assert!(descriptors.iter().all(|descriptor| {
+        descriptor.context_type == std::any::type_name::<LoaderContext>()
+            && descriptor.provider == nia_query::QueryProviderPolicy::KeyExecute
+            && descriptor.fingerprint == nia_query::QueryFingerprintPolicy::None
+            && descriptor.storage == nia_query::QueryStoragePolicy::CacheOwnedArc
+    }));
+}
+
 fn assert_no_error_diagnostics(program: &nia_compiler_query::LoadedProgram) {
     assert!(
         !has_error_diagnostics(&program.diagnostics),
@@ -1082,7 +1104,7 @@ extend Widget {
 }
 "#,
     );
-    let db = QueryDb::new(test_loader_context(
+    let db = registered_query_db(test_loader_context(
         main.clone(),
         ModuleMap::default(),
         sources,
@@ -1151,7 +1173,7 @@ extend types::Widget {
     module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
 
     let entry_path = SourcePath::new(main.to_string_lossy());
-    let db = QueryDb::new(test_loader_context(
+    let db = registered_query_db(test_loader_context(
         entry_path.clone(),
         module_map,
         SourceDatabase::new(),
@@ -1202,7 +1224,7 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     sources.set_source(main.clone(), "fn main() i32 { 0 }");
-    let db = QueryDb::new(test_loader_context(
+    let db = registered_query_db(test_loader_context(
         main.clone(),
         ModuleMap::default(),
         sources.clone(),
@@ -1257,7 +1279,7 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
     let main = SourcePath::new("main.nia");
     sources.set_source(main.clone(), "");
     sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
-    let db = QueryDb::new(test_loader_context(
+    let db = registered_query_db(test_loader_context(
         main.clone(),
         ModuleMap::default(),
         sources.clone(),
@@ -1283,7 +1305,7 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
 
 #[test]
 fn loaded_module_query_reports_paths_outside_module_graph() {
-    let db = QueryDb::new(test_loader_context(
+    let db = registered_query_db(test_loader_context(
         SourcePath::new("main.nia"),
         ModuleMap::default(),
         SourceDatabase::new(),

@@ -51,7 +51,7 @@ fn runtime_model(entry_runtime: EntryRuntime) -> RuntimeModel {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct LoadDiagnosticsQuery;
+pub(crate) struct LoadDiagnosticsQuery;
 
 impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
     type Value = Vec<ProgramDiagnostic>;
@@ -247,7 +247,7 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct SyntaxModuleQuery {
+pub(crate) struct SyntaxModuleQuery {
     path: SourcePath,
     version: SourceVersion,
 }

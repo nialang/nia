@@ -1081,6 +1081,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 
 进展（2026-07-19）：query runtime 的 owned 输出双轨已完整删除。`CompilerDatabase` 的 checked/entry/codegen/provider-demand public facade 统一调用 `try_get`，仅在返回现有 owned DTO 的 API 边界显式 `Arc::unwrap_or_clone`；codegen 回归验证该 materialization 仍复用 monomorphization/backend 大产品 allocation。compiler production 与测试的 lookup、小 Copy 值、诊断 DTO 和实体集合调用全部迁到 `get/try_get/get_many`，需要 owned 值的位置显式 copy/clone，缓存层不再隐式决定消费语义。`QueryDb::query/try_query`、`OwnedQueryOutput`、generic output adapter 和 clone timing 分支均已删除，cycle/panic/invalid-input/dependency/invalidation 回归改由唯一 API 验证；全仓 Rust `.query/.try_query` 与旧 adapter 搜索为零。两类 nominal provider candidate 产品同步去除最后的预包装 `Arc`；余下 `Option/Vec<Arc<实体>>` 是产品内部实体句柄，不是 query value 双层 wrapper。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-query 21、compiler-query 116、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 228.59 秒完成，全部 doc tests 通过。Phase C 的唯一 API、cache ownership、无默认 clone 与旧入口删除 acceptance 已满足，现约完成 96%；关闭 Phase C 前仍须建立 declarative registry，并明确剩余 module/program aggregate 的 item/body storage policy，完成后再进入 ID/arena 深度审计。
 
+进展（2026-07-19）：declarative query registry 已落地并关闭 Phase C。`nia-query` 现在显式描述每个 query 的 key/value/context、provider、fingerprint 与 storage policy；严格 DB 在建立 typed slot 前拒绝未注册 key，同时拒绝重复 key type 和重复 query name，轻量 runtime 单测仍可选择 permissive DB。compiler 生产 registry 覆盖 113 个 query，测试构建额外覆盖 3 个 test-only query；loader registry 覆盖全部 10 个 query，生产与直接构造 DB 的测试均启用严格模式。完整性回归锁定描述符数量、唯一稳定名称以及当前真实的 `KeyExecute` / `None` / `CacheOwnedArc` 策略，不把 Phase D 尚未实现的 fingerprint 虚报为 stable。聚合产品审计确认 `CheckedProgram` / `CodegenProgram` 已由轻量顶层汇总和独立 module/item/body handles 组成；剩余四类 `Option/Vec<Arc<Entity>>` 是实体身份集合而非 nested query wrapper，最终 storage policy 已记录，避免为了文本上“去 Arc”重新引入深拷贝。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-query 24、loader-query 37、compiler-query 117、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 232.17 秒完成，全部 doc tests 通过。Phase C 至此 100% 完成；下一阶段按约定先做 ID/arena 深度审计并形成独立后续计划，再决定是否直接进入 Phase D。
+
 ### 阶段 C（P0）：重做 query value/storage 契约
 
 1. 去掉通用 `Value: Clone` 要求。
@@ -1089,6 +1091,8 @@ Acceptance：生产代码中不再出现跨 interner type import；backend produ
 4. 把 module/program aggregate query 拆为 index + item/body handle。
 5. 建立显式 declarative query registry，记录 key/value/provider/fingerprint/storage；代码生成只允许机械消除 glue，不隐藏依赖语义。
 6. 删除 `query`、`query_shared` 等旧入口和兼容 adapter。
+
+Phase C 最终 storage policy（2026-07-19）：query cache 以唯一的外层 `Arc<Value>` 拥有每个产品；module/program aggregate 只保存顺序、索引、诊断等轻量汇总，以及由独立 module/item/body query 产生的共享 handle。`CheckedProgram` / `CodegenProgram` 的 module 列表复用 `Arc<CheckedModule>`，而 `CheckedModule` 继续复用 defs、resolution、const/layout/body 等细粒度产品；monomorphization、backend lowering 与 lowered function bodies 同样保持独立 allocation。剩余 `Option<Arc<Entity>>` / `Vec<Arc<Entity>>` 是产品内部的实体身份集合，不是 `Arc<Arc<Product>>` query wrapper，不应机械改成 owned clone；需要独占修改的 phase 必须在算法边界显式 `Arc::unwrap_or_clone` / `Arc::make_mut`。当前 declarative registry 如实记录 `KeyExecute` provider、`CacheOwnedArc` storage 和尚未实现的 `None` fingerprint；stable fingerprint 属于 Phase D，不能在元数据中虚报。
 
 Acceptance：所有调用点使用同一查询入口；cache hit 不深拷贝；clone instrumentation 中 compiler product clone 接近零；旧 API 删除，不保留双轨。
 

@@ -21,6 +21,28 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+fn loader_query_registry() -> nia_query::QueryRegistry {
+    let mut registry = nia_query::QueryRegistry::new();
+    macro_rules! register {
+        ($($key:ty),+ $(,)?) => {
+            $(registry.register::<LoaderContext, $key>();)+
+        };
+    }
+    register!(
+        graph::ModuleGraphQuery,
+        queries::LoadDiagnosticsQuery,
+        queries::LoadedModuleQuery,
+        queries::LoadedProgramQuery,
+        queries::ModuleDeclarationsQuery,
+        queries::ModuleFacadeFactsQuery,
+        queries::ParsedModuleQuery,
+        queries::ProviderSummaryQuery,
+        queries::SourceTextQuery,
+        queries::SyntaxModuleQuery,
+    );
+    registry
+}
+
 pub fn load_program(entry_path: impl Into<String>) -> LoadedProgram {
     load_program_with_map(entry_path, ModuleMap::default())
 }
@@ -65,17 +87,20 @@ impl LoaderDatabase {
         let module_map = effective_module_map(&entry_path, request.module_map);
         let sources = request.sources;
         let symbols = SymbolTable::new();
-        let db = QueryDb::new(LoaderContext {
-            entry_path,
-            module_map,
-            sources: sources.clone(),
-            symbols,
-            target: request.target,
-            entry_runtime: request.entry_runtime,
-            package_roots_with_used_paths,
-            provider_demands: Arc::new(RwLock::new(HashSet::new())),
-            graph_state: Arc::new(RwLock::new(LoaderGraphState::default())),
-        });
+        let db = QueryDb::new_registered(
+            LoaderContext {
+                entry_path,
+                module_map,
+                sources: sources.clone(),
+                symbols,
+                target: request.target,
+                entry_runtime: request.entry_runtime,
+                package_roots_with_used_paths,
+                provider_demands: Arc::new(RwLock::new(HashSet::new())),
+                graph_state: Arc::new(RwLock::new(LoaderGraphState::default())),
+            },
+            loader_query_registry(),
+        );
         Self { db, sources }
     }
 
@@ -223,17 +248,20 @@ fn load_program_trace(
 ) -> nia_query::QueryTrace {
     let entry_path = SourcePath::new(entry_path.into());
     let module_map = effective_module_map(&entry_path, module_map);
-    let db = QueryDb::new(LoaderContext {
-        entry_path,
-        module_map,
-        sources: SourceDatabase::new(),
-        symbols: SymbolTable::new(),
-        target: TargetConfig::host(),
-        entry_runtime: EntryRuntime::None,
-        package_roots_with_used_paths: HashSet::new(),
-        provider_demands: Arc::new(RwLock::new(HashSet::new())),
-        graph_state: Arc::new(RwLock::new(LoaderGraphState::default())),
-    });
+    let db = QueryDb::new_registered(
+        LoaderContext {
+            entry_path,
+            module_map,
+            sources: SourceDatabase::new(),
+            symbols: SymbolTable::new(),
+            target: TargetConfig::host(),
+            entry_runtime: EntryRuntime::None,
+            package_roots_with_used_paths: HashSet::new(),
+            provider_demands: Arc::new(RwLock::new(HashSet::new())),
+            graph_state: Arc::new(RwLock::new(LoaderGraphState::default())),
+        },
+        loader_query_registry(),
+    );
     let _program = db.get(LoadedProgramQuery);
     db.query_trace()
 }

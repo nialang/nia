@@ -26,6 +26,98 @@ pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     fn execute(&self, db: &QueryDb<C>) -> Self::Value;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueryProviderPolicy {
+    KeyExecute,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueryFingerprintPolicy {
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueryStoragePolicy {
+    CacheOwnedArc,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryDescriptor {
+    pub name: &'static str,
+    pub context_type: &'static str,
+    pub key_type: &'static str,
+    pub value_type: &'static str,
+    pub provider: QueryProviderPolicy,
+    pub fingerprint: QueryFingerprintPolicy,
+    pub storage: QueryStoragePolicy,
+}
+
+#[derive(Debug, Default)]
+pub struct QueryRegistry {
+    descriptors: FastHashMap<TypeId, QueryDescriptor>,
+    names: FastHashMap<&'static str, TypeId>,
+}
+
+impl QueryRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register<C, K>(&mut self)
+    where
+        C: 'static,
+        K: QueryKey<C>,
+    {
+        let key_type_id = TypeId::of::<K>();
+        assert!(
+            !self.descriptors.contains_key(&key_type_id),
+            "query key type `{}` is already registered",
+            std::any::type_name::<K>()
+        );
+        if let Some(existing) = self.names.get(K::name()) {
+            let existing = self
+                .descriptors
+                .get(existing)
+                .expect("query registry name index must reference a descriptor");
+            panic!(
+                "query name `{}` is already registered for `{}`",
+                K::name(),
+                existing.key_type
+            );
+        }
+        self.names.insert(K::name(), key_type_id);
+        self.descriptors.insert(
+            key_type_id,
+            QueryDescriptor {
+                name: K::name(),
+                context_type: std::any::type_name::<C>(),
+                key_type: std::any::type_name::<K>(),
+                value_type: std::any::type_name::<K::Value>(),
+                provider: QueryProviderPolicy::KeyExecute,
+                fingerprint: QueryFingerprintPolicy::None,
+                storage: QueryStoragePolicy::CacheOwnedArc,
+            },
+        );
+    }
+
+    pub fn descriptors(&self) -> Vec<QueryDescriptor> {
+        let mut descriptors = self.descriptors.values().cloned().collect::<Vec<_>>();
+        descriptors.sort_by_key(|descriptor| descriptor.name);
+        descriptors
+    }
+
+    fn assert_registered<C, K>(&self)
+    where
+        K: QueryKey<C>,
+    {
+        assert!(
+            self.descriptors.contains_key(&TypeId::of::<K>()),
+            "query key type `{}` is not in the declarative registry",
+            std::any::type_name::<K>()
+        );
+    }
+}
+
 pub struct QueryDb<C> {
     inner: Arc<QueryDbInner<C>>,
 }
@@ -33,6 +125,7 @@ pub struct QueryDb<C> {
 struct QueryDbInner<C> {
     context: C,
     timings: nia_timing::TimingMode,
+    registry: Option<QueryRegistry>,
     caches: Mutex<FastHashMap<TypeId, Box<dyn Any + Send + Sync>>>,
     slots: Mutex<FastHashMap<QueryFrameIdentity, Arc<dyn ErasedQuerySlot>>>,
     dependencies: Mutex<QueryDependencyGraph>,
@@ -266,10 +359,31 @@ impl<C> QueryDb<C> {
     }
 
     pub fn new_with_timings(context: C, timings: nia_timing::TimingMode) -> Self {
+        Self::new_inner(context, timings, None)
+    }
+
+    pub fn new_registered(context: C, registry: QueryRegistry) -> Self {
+        Self::new_registered_with_timings(context, nia_timing::TimingMode::Off, registry)
+    }
+
+    pub fn new_registered_with_timings(
+        context: C,
+        timings: nia_timing::TimingMode,
+        registry: QueryRegistry,
+    ) -> Self {
+        Self::new_inner(context, timings, Some(registry))
+    }
+
+    fn new_inner(
+        context: C,
+        timings: nia_timing::TimingMode,
+        registry: Option<QueryRegistry>,
+    ) -> Self {
         Self {
             inner: Arc::new(QueryDbInner {
                 context,
                 timings,
+                registry,
                 caches: Mutex::new(FastHashMap::default()),
                 slots: Mutex::new(FastHashMap::default()),
                 dependencies: Mutex::new(QueryDependencyGraph::default()),
@@ -279,6 +393,14 @@ impl<C> QueryDb<C> {
 
     pub fn context(&self) -> &C {
         &self.inner.context
+    }
+
+    pub fn registered_queries(&self) -> Vec<QueryDescriptor> {
+        self.inner
+            .registry
+            .as_ref()
+            .map(QueryRegistry::descriptors)
+            .unwrap_or_default()
     }
 
     pub fn get<K>(&self, key: K) -> Arc<K::Value>
@@ -503,6 +625,9 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
+        if let Some(registry) = &self.inner.registry {
+            registry.assert_registered::<C, K>();
+        }
         let mut caches = self.inner.caches.lock().expect("query cache lock poisoned");
         let cache = caches
             .entry(TypeId::of::<K>())
@@ -886,6 +1011,21 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct DuplicateDoubleName;
+
+    impl QueryKey<TestContext> for DuplicateDoubleName {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "double"
+        }
+
+        fn execute(&self, _db: &QueryDb<TestContext>) -> Self::Value {
+            0
+        }
+    }
+
     struct NonCloneValue {
         value: usize,
     }
@@ -959,6 +1099,47 @@ mod tests {
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(first.value, 42);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn declarative_registry_records_and_enforces_query_contracts() {
+        let mut registry = QueryRegistry::new();
+        registry.register::<TestContext, Double>();
+        let db = QueryDb::new_registered(
+            TestContext {
+                executions: AtomicUsize::new(0),
+            },
+            registry,
+        );
+
+        assert_eq!(*db.get(Double(21)), 42);
+        let descriptors = db.registered_queries();
+        assert_eq!(descriptors.len(), 1);
+        assert_eq!(descriptors[0].name, "double");
+        assert_eq!(descriptors[0].key_type, std::any::type_name::<Double>());
+        assert_eq!(descriptors[0].value_type, std::any::type_name::<usize>());
+        assert_eq!(descriptors[0].provider, QueryProviderPolicy::KeyExecute);
+        assert_eq!(descriptors[0].fingerprint, QueryFingerprintPolicy::None);
+        assert_eq!(descriptors[0].storage, QueryStoragePolicy::CacheOwnedArc);
+
+        let missing = std::panic::catch_unwind(|| db.get(NonCloneValueQuery));
+        assert!(missing.is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "is already registered")]
+    fn declarative_registry_rejects_duplicate_key_types() {
+        let mut registry = QueryRegistry::new();
+        registry.register::<TestContext, Double>();
+        registry.register::<TestContext, Double>();
+    }
+
+    #[test]
+    #[should_panic(expected = "query name `double` is already registered")]
+    fn declarative_registry_rejects_duplicate_names() {
+        let mut registry = QueryRegistry::new();
+        registry.register::<TestContext, Double>();
+        registry.register::<TestContext, DuplicateDoubleName>();
     }
 
     #[test]
