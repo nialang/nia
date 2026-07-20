@@ -1464,7 +1464,13 @@ fn trait_name(
         .get(trait_id.def_id)
         .filter(|_| trait_id.module_id == module.module_id)
         .map(|def| symbol_name(symbols, def.name))
-        .unwrap_or_else(|| format!("trait#{}.{}", trait_id.module_id.index(), trait_id.def_id.0))
+        .unwrap_or_else(|| {
+            format!(
+                "trait#{}.{}",
+                trait_id.module_id.local_index(),
+                trait_id.def_id.0
+            )
+        })
 }
 
 struct TraitMethodSignatureMatch<'a> {

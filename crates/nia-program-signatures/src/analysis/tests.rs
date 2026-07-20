@@ -39,7 +39,7 @@ fn defs_from_source(module_id: nia_ids::ModuleId, source: &str) -> DefCollection
     let syntax = nia_syntax::parse_source(
         source,
         Some(SourceVersion {
-            id: SourceId(module_id.index()),
+            id: SourceId(module_id.local_index()),
             revision: SourceRevision::INITIAL,
         }),
     );
@@ -102,10 +102,10 @@ fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave()
     );
     assert_eq!(
         [
-            entry.index(),
-            types_module.index(),
-            used_provider.index(),
-            other_provider.index(),
+            entry.local_index(),
+            types_module.local_index(),
+            used_provider.local_index(),
+            other_provider.local_index(),
         ],
         [0, 1, 2, 3]
     );

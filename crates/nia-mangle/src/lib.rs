@@ -30,7 +30,7 @@ pub fn mangle_symbol_id(symbol: SymbolId) -> String {
 pub fn mangle_base_symbol(def_id: GlobalDefId, name: &str) -> String {
     format!(
         "nia__m{}__d{}__{}",
-        def_id.module_id.index(),
+        def_id.module_id.local_index(),
         def_id.def_id.0,
         sanitize_symbol_part(name)
     )
@@ -39,7 +39,7 @@ pub fn mangle_base_symbol(def_id: GlobalDefId, name: &str) -> String {
 pub fn mangle_base_symbol_id(def_id: GlobalDefId, name: SymbolId) -> String {
     format!(
         "nia__m{}__d{}__{}",
-        def_id.module_id.index(),
+        def_id.module_id.local_index(),
         def_id.def_id.0,
         mangle_symbol_id(name)
     )
@@ -476,7 +476,7 @@ where
             .unwrap_or_else(|| {
                 format!(
                     "len_unresolved__m{}__c{}",
-                    id.module_id.index(),
+                    id.module_id.local_index(),
                     id.const_expr_id.0
                 )
             }),
@@ -506,7 +506,7 @@ where
             .unwrap_or_else(|| {
                 format!(
                     "expr_unresolved__m{}__c{}",
-                    id.module_id.index(),
+                    id.module_id.local_index(),
                     id.const_expr_id.0
                 )
             }),

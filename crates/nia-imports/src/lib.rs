@@ -348,13 +348,13 @@ impl ModuleGraph {
 
     pub fn get(&self, id: ModuleId) -> Option<&ModuleNode> {
         self.modules
-            .get(id.index() as usize)
+            .get(id.local_index() as usize)
             .filter(|module| module.id == id)
     }
 
     fn get_mut(&mut self, id: ModuleId) -> Option<&mut ModuleNode> {
         self.modules
-            .get_mut(id.index() as usize)
+            .get_mut(id.local_index() as usize)
             .filter(|module| module.id == id)
     }
 
@@ -589,7 +589,7 @@ impl ModuleGraph {
             return id;
         }
         let id = self.module_ids.allocate();
-        debug_assert_eq!(id.index() as usize, self.modules.len());
+        debug_assert_eq!(id.local_index() as usize, self.modules.len());
         if module_path.is_package_root() {
             self.package_roots.insert(module_path.package, id);
         }
@@ -993,8 +993,50 @@ mod tests {
         let graph = ModuleGraph::new(SourcePath::new("main.nia"));
         let foreign = ModuleGraph::new(SourcePath::new("foreign.nia"));
 
-        assert_eq!(graph.entry().index(), foreign.entry().index());
+        assert_eq!(graph.entry().local_index(), foreign.entry().local_index());
         assert_ne!(graph.entry(), foreign.entry());
         assert!(graph.get(foreign.entry()).is_none());
+    }
+
+    #[test]
+    fn module_graph_forks_keep_existing_handles_and_separate_new_generations() {
+        let graph = ModuleGraph::new(SourcePath::new("main.nia"));
+        let entry = graph.entry();
+        let mut first = graph.clone();
+        let mut second = graph;
+        let child = module_root_symbol_from_text("child");
+        let first_child = first
+            .intern_declared_child(entry, &child, Visibility::Public, Span::default())
+            .expect("first fork child");
+        let second_child = second
+            .intern_declared_child(entry, &child, Visibility::Public, Span::default())
+            .expect("second fork child");
+
+        assert_eq!(first_child.local_index(), second_child.local_index());
+        assert_ne!(first_child, second_child);
+        assert!(first.get(entry).is_some());
+        assert!(second.get(entry).is_some());
+        assert!(first.get(first_child).is_some());
+        assert!(second.get(second_child).is_some());
+        assert!(first.get(second_child).is_none());
+        assert!(second.get(first_child).is_none());
+    }
+
+    #[test]
+    fn module_graph_snapshot_rejects_handles_added_after_the_fork() {
+        let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
+        let snapshot = ModuleGraphSnapshot::new(graph.clone());
+        let entry = graph.entry();
+        let child = graph
+            .intern_declared_child(
+                entry,
+                &module_root_symbol_from_text("child"),
+                Visibility::Public,
+                Span::default(),
+            )
+            .expect("new revision child");
+
+        assert!(graph.get(child).is_some());
+        assert!(snapshot.get(child).is_none());
     }
 }
