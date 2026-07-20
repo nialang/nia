@@ -312,6 +312,10 @@ impl<V> NodeMap<V> {
             .and_then(|node_id| self.nodes.get(&node_id))
     }
 
+    pub fn contains_key(&self, locator: &VersionedNodeKey) -> bool {
+        self.node_id(locator).is_some()
+    }
+
     pub fn get_by_id(&self, node_id: NodeId) -> Option<&V> {
         self.nodes.get(&node_id)
     }
@@ -388,6 +392,12 @@ impl<V> NodeMapBuilder<V> {
         self.nodes
             .entry(self.append.intern(locator))
             .or_insert(value);
+    }
+
+    pub fn remove(&mut self, locator: &VersionedNodeKey) -> Option<V> {
+        self.store
+            .id_for_locator(locator)
+            .and_then(|node_id| self.nodes.remove(&node_id))
     }
 
     pub fn extend(&mut self, entries: impl IntoIterator<Item = (VersionedNodeKey, V)>) {
@@ -728,8 +738,16 @@ mod tests {
 
         assert_eq!(nodes.store_id(), store.id());
         assert_eq!(nodes.get(&locator), Some(&17));
+        assert!(nodes.contains_key(&locator));
         assert_eq!(nodes.get_by_id(node_id), Some(&17));
-        assert_eq!(nodes.iter().collect::<Vec<_>>(), vec![(locator, &17)]);
+        assert_eq!(
+            nodes.iter().collect::<Vec<_>>(),
+            vec![(locator.clone(), &17)]
+        );
+
+        let mut builder = nodes.into_builder();
+        assert_eq!(builder.remove(&locator), Some(17));
+        assert!(builder.finish().is_empty());
     }
 
     #[test]

@@ -205,7 +205,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                 "executable_body_check.value_resolution",
                 module_id,
                 || {
-                    nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
+                    nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
                         &filtered_active_item_tree,
                         context.defs,
                         nia_value_resolve::ProgramDefsContext {
@@ -214,8 +214,11 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                         },
                         &public_surfaces.surfaces,
                         using_scope.as_ref(),
-                        Some(&associated_values),
-                        Some(&symbols),
+                        nia_value_resolve::ValueResolveOptions::with_store(
+                            Some(&associated_values),
+                            Some(&symbols),
+                            db.context().node_store(),
+                        ),
                     )
                 },
             );
@@ -250,7 +253,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                         "executable_body_check.const_expr_value_resolution",
                         module_id,
                         || {
-                            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
+                            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols_in_store(
                                 context.lowered.const_exprs.iter().filter_map(|(id, expr)| {
                                     needed_const_exprs.contains(id).then_some(expr.clone())
                                 }),
@@ -261,8 +264,11 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                                 },
                                 &public_surfaces.surfaces,
                                 using_scope.as_ref(),
-                                Some(&associated_values),
-                                Some(&symbols),
+                                nia_value_resolve::ValueResolveOptions::with_store(
+                                    Some(&associated_values),
+                                    Some(&symbols),
+                                    db.context().node_store(),
+                                ),
                             )
                         },
                     );

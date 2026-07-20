@@ -162,7 +162,7 @@ pub(super) fn pipeline_with_values(
     adjust_values: impl FnOnce(
         &nia_ast::Module,
         &nia_defs::DefCollection,
-        &mut nia_value_resolve::ValueResolution,
+        &mut nia_value_resolve::ValueResolutionBuilder,
     ),
 ) -> TestBodyCheck {
     pipeline_with_options(source, adjust_values, true)
@@ -173,7 +173,7 @@ fn pipeline_with_options(
     adjust_values: impl FnOnce(
         &nia_ast::Module,
         &nia_defs::DefCollection,
-        &mut nia_value_resolve::ValueResolution,
+        &mut nia_value_resolve::ValueResolutionBuilder,
     ),
     include_visible_extensions: bool,
 ) -> TestBodyCheck {
@@ -197,8 +197,10 @@ fn pipeline_with_options(
         TypeLoweringContext::empty(&type_store),
     );
     assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
-    let mut values = nia_value_resolve::resolve_module_values(&module, &defs);
+    let values = nia_value_resolve::resolve_module_values(&module, &defs);
+    let mut values = values.into_builder();
     adjust_values(&module, &defs, &mut values);
+    let values = values.finish();
     assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
     let locals = resolve_module_locals(&module, &defs, &values);
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);

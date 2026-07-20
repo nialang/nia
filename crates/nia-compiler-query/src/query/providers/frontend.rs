@@ -161,7 +161,7 @@ pub(super) fn provide_type_resolution(
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let symbols = db.context().symbols();
-        nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols(
+        nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -171,6 +171,7 @@ pub(super) fn provide_type_resolution(
             &public_surfaces,
             &using_scope,
             &symbols,
+            db.context().node_store(),
         )
     })
 }
@@ -187,7 +188,7 @@ pub(super) fn provide_declaration_type_resolution(
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let symbols = db.context().symbols();
-        nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols(
+        nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -197,6 +198,7 @@ pub(super) fn provide_declaration_type_resolution(
             &public_surfaces,
             &using_scope,
             &symbols,
+            db.context().node_store(),
         )
     })
 }
@@ -214,7 +216,7 @@ pub(super) fn provide_signature_type_resolution(
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let symbols = db.context().symbols();
-        nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols(
+        nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -224,6 +226,7 @@ pub(super) fn provide_signature_type_resolution(
             &public_surfaces,
             &using_scope,
             &symbols,
+            db.context().node_store(),
         )
     })
 }
@@ -240,7 +243,7 @@ pub(super) fn provide_signature_const_type_resolution(
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, module_id);
         let symbols = db.context().symbols();
-        nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols(
+        nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -250,6 +253,7 @@ pub(super) fn provide_signature_const_type_resolution(
             &public_surfaces,
             &using_scope,
             &symbols,
+            db.context().node_store(),
         )
     })
 }

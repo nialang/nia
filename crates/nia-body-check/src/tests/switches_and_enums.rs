@@ -110,7 +110,7 @@ fn value(input: ?S) ?i32 {
                 _ => None,
             })
             .expect("imported_range def");
-        values.node_qualified_values.insert(
+        values.insert_node_qualified_value(
             if_pattern_payload_field_lhs_key(module),
             GlobalDefId {
                 module_id: ModuleId(0),

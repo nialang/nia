@@ -6,7 +6,7 @@
 >
 > 结论强度标记：**确认**表示可直接由当前源码或实测得到；**推断**表示有明确结构证据、但仍需专项 profiling 验证比例；**建议**表示目标架构判断
 
-## 当前执行状态（2026-07-19）
+## 当前执行状态（2026-07-20）
 
 本文件使用 `compiler-roadmap.md`，而不是 `plan.md` 或 `task.md`：它同时包含长期架构审查、目标模型、阶段路线图和滚动验证记录，不是一次维护任务，也不是执行完即可删除的短期计划。
 
@@ -17,7 +17,7 @@
 | A 基线与防回归 | 约 80% | 六 workload、machine-readable 指标、allocator/query/LLVM counters 与同机 guard 已完成；可运行 LLVM suite 的 CI 和 main-branch trend storage 未完成，但不阻塞当前进程内 identity/query/fact graph 临界路径。 |
 | B semantic context / 类型身份 | 100% | session-wide canonical `TypeStore`、全 pass canonical read/append、显式 roots、跨 revision slot 稳定与跨 session 隔离已完成；module view/log、origin、snapshot/checkout、recursive import 和旧 identity 类型均已删除。 |
 | C query value/storage | 100% | cache-owned `get/try_get/get_many`、无 `Value: Clone`、declarative registry 与 aggregate storage policy 已完成，owned runtime adapter 全部删除。 |
-| C 后 ID/arena 专项 | 约 45% | query dep-node arena 与 loader source handle 已完成；session node store 已接入 parser/origin、definition lookup、semantic use 与全部 frozen module/function facts，value/local/type resolution side table 以及 module/item/executable/work-product identity 尚未迁移。 |
+| C 后 ID/arena 专项 | 约 50% | ID-0 query dep-node arena 与 ID-1 source/syntax identity 已完成；loader 热 key、parser/origin、definition lookup、resolution、semantic use 与全部 frozen module/function facts 均已进入 session-local handle 域，下一步进入 module/item/executable/work-product identity。 |
 | D 统一依赖图 | 约 5% | 已有 typed query 和若干 fact index，但 loader/compiler/driver/reachability 仍未共享一个 revisioned fact graph，`module_graph_state` 与多层 fixed point 尚在。 |
 | E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；legacy `query_many` 已删除，但 `get_many` 仍创建临时 scoped worker，持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
 | F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
@@ -27,7 +27,7 @@
 
 综合判断：**整份路线图按剩余工程复杂度加权约完成 35%，合理区间为 33%–38%；A–E 的 P0 基础约完成 50%–55%。** 已完成的是最先阻塞后续工作的 type identity 与 query storage 主线；统一 fact graph、executor、item/CGU 粒度和持久增量仍是独立的大型工程，不能按提交数量外推为“路线图已过半”。
 
-最近的临界路径是迁移 ID-1 剩余 value/local/type resolution query-product node maps 并关闭 syntax/semantic node identity 双轨，再推进 ID-2 module identity 与 graph snapshot，为 Phase D 的统一 revisioned fact graph 建立唯一 local/stable identity 层；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
+最近的临界路径已进入 ID-2 module identity 与 graph snapshot：先审计并收敛 allocator 外的 `ModuleId` 构造与 stable module key 映射，再删除 full-node query/shared ref，让 loader/compiler/public DTO 共享 immutable graph snapshot，为 Phase D 的统一 revisioned fact graph 建立唯一 local/stable identity 层；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
 
 ## 1. 范围、版本与方法
 
@@ -1144,6 +1144,8 @@ Acceptance：所有调用点使用同一查询入口；cache hit 不深拷贝；
 进展（2026-07-19）：ID-1f 已按生命周期边界迁移全部 per-function body node facts。`FunctionSemanticFacts` 的 expr type、bracket resolution、array-to-slice coercion、trait-object coercion/upcast、builtin value、associated const projection、array repeat count、switch value、resolved call 与 function reference 十一张 cache-owned 只读表现统一使用 `NodeMap<V>`；检查期显式改用 `FunctionSemanticFactsBuilder` 的 mutable locator maps，`BodyCheck::finish` 才以 `SemanticUseTable` 的 compiler session owner 冻结。增量 executable prechecked 路径通过 consuming `into_builder` 在唯一重用边界解冻，BIR lowering 不承担隐式 lookup/materialization；`NodeMap` 同步增加 consuming entries、keys 与 read-only owner 边界。模块/函数联合迭代现在显式 materialize locator，reachability/layout/backend 的只读 value lookup保持 ID hot path。回归锁定十一图共享 owner、freeze/thaw locator 往返、跨 owner 语义相等，以及 checked module 的 function facts 与 semantic uses 共用 store；compiler-query 117 项包含两条 prechecked 增量 body 回归均通过。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-sema-ir 4、body-check 139、compiler-query 117、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 308.46 秒完成，全部 doc tests 通过。ID/arena 专项现约 40%；下一切片应为 module-level `SemanticFacts` 引入独立 mutable builder/freeze 边界，迁移剩余 node maps并让 `SemanticFacts::extend` 在 consuming owner-aware 路径合并，随后关闭 ID-1。
 
 进展（2026-07-19）：ID-1g 已冻结 module-level `SemanticFacts` 的十二张 node map。body checker 现在先在 `SemanticFactsBuilder` 中完成模块/函数重复事实去除，再以 semantic-use session owner 一次冻结；cache-owned `SemanticFacts` 只保存 `NodeMap<V>`。executable incremental `extend` 使用 consuming `NodeMapBuilder::extend_map`：同 owner 直接搬运 `NodeId` entries并保留原 handle，跨 owner 才 materialize locator/rehome，且嵌套 `FunctionSemanticFacts` 同步归一到目标 owner；reachable filter 则保留原 store并只移动需要的 frozen maps。prechecked 路径先读取 global type facts，再在唯一边界 consuming 解冻，不恢复双轨 cache product。回归覆盖 same-owner handle stability、foreign map rehome、module/function 十二加十一张图共同 owner、freeze/thaw equality，以及 checked module 的 semantic use/module/function facts store identity。closure audit 同时确认 ID-1 仍有 `ValueResolution` 五张、`LocalResolution` 两张、`TypeResolution` 一张 cache-owned locator map；body checker与 sema builder 中的 locator HashMap 是合法短生命周期，`NodeStore.by_locator` 是 canonical stable boundary。首次完整测试因历史 `/tmp/nia_*` 累积耗尽 3.9 GiB tmpfs，在清理 15,000+ 个测试临时目录后，精确失败用例与无参数 `cargo test --workspace` 完整重跑均通过；严格 workspace/all-targets/all-features Clippy 无 warning，nia-node-id 14、nia-sema-ir 5、body-check 139、compiler-query 117、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 312.83 秒完成，全部 doc tests 通过。ID/arena 专项现约 45%；下一切片原子迁移 value/local/type resolution query products 与 compiler owner wiring，完成后再关闭 ID-1并进入 ID-2。
+
+进展（2026-07-20）：ID-1h 已迁移并关闭 source/syntax identity 阶段。`ValueResolution` 的 name、qualified value、builtin associated value、variant enum 与 qualified type prefix 五张表，`LocalResolution` 的 definition/use 两张表，以及 `TypeResolution` 的 const-generic name 表全部从 cache-owned `HashMap<VersionedNodeKey, V>` 冻结为只读 `NodeMap<V>`；两张以稳定 `NodeSite` 为 key 的 type-name map 按设计保留。resolver 内部仍使用短生命周期 locator map，独立 API 创建隔离 owner，compiler 专用 value/type options 与 local origin capability 则统一绑定 `CompilerContext::node_store()`，没有为了 owner 增加 `ModuleOriginsQuery` 依赖。`ValueResolution` 的 consuming merge 通过 `NodeMapBuilder::extend_map` 在 signature const 合并时保留同 owner handle；local/value 测试修改改走显式 consuming builder，cache product 不再暴露写入口。closure audit 确认剩余 `HashMap<VersionedNodeKey, ...>` 只位于 canonical `NodeStore.by_locator`、resolver/checker 的可变执行状态和显式 semantic builders；回归锁定八张 resolution map 共用 compiler session owner以及 `NodeMap` contains/remove 行为。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-node-id 14、value/local/type resolver 3/12/7、body-check 139、compiler-query 118、driver 484、LLVM 177 项测试通过，CLI commands 50 项自然并发 319.52 秒完成，全部 doc tests 通过。ID-1 acceptance 至此完成，ID/arena 专项现约 50%；下一切片进入 ID-2，先量化 allocator 外 `ModuleId` 构造、graph/full-node clone 与 stable/local identity 边界，再按 graph snapshot owner 分批迁移。
 
 ### 阶段 D（P0）：统一模块/provider 依赖
 
