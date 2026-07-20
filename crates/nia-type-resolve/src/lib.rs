@@ -1602,16 +1602,19 @@ fn builtin_trait_for_symbol(name: &SymbolId) -> Option<BuiltinTrait> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
+    use nia_defs::{collect_module_defs, collect_module_defs_from_active_item_tree};
+    use nia_ids::ModuleIdAllocator;
     use nia_item_tree::ModuleItemTree;
     use nia_parser::parse_module_with_symbols;
     use nia_symbol_table::SymbolTable;
 
     fn resolve_source(source: &str) -> TypeResolution {
         let symbols = SymbolTable::new();
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module_with_symbols(source, symbols.clone());
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
         resolve_module_types_with_symbols(&module, &defs, &symbols)
     }
@@ -1799,7 +1802,9 @@ fn selected(value: i32) void {}
         assert!(errors.is_empty(), "{errors:?}");
         let tree = ModuleItemTree::from_module(&module);
         let active = tree.active_items(&mut BoolResolver(false)).unwrap();
-        let defs = collect_module_defs_from_active_item_tree(ModuleId(0), &active);
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let defs = collect_module_defs_from_active_item_tree(module_id, &active);
         assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
         let resolved = resolve_module_types_from_active_item_tree_with_symbols(
             &active,

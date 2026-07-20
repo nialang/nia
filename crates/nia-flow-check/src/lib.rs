@@ -630,7 +630,8 @@ impl FlowChecker<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_defs::{ModuleId, collect_module_defs};
+    use nia_defs::collect_module_defs;
+    use nia_ids::ModuleIdAllocator;
     use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
     use nia_parser::parse_module;
     use nia_type_lower::{TypeLoweringContext, lower_module_types_with_context};
@@ -639,11 +640,13 @@ mod tests {
     fn pipeline(source: &str) -> FlowCheck {
         let (module, parse_errors) = parse_module(source);
         assert!(parse_errors.is_empty(), "{parse_errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
         let lowered = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
