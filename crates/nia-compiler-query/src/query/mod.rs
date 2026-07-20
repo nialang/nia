@@ -2347,6 +2347,16 @@ mod tests {
                 loaded_module_with_revision(module_id, module.path.as_str(), source, revision);
         }
 
+        fn update_module_path(&mut self, module_id: ModuleId, path: &str) {
+            let module = self
+                .modules
+                .iter_mut()
+                .find(|module| module.id == module_id)
+                .expect("fixture module");
+            module.path = SourcePath::new(path);
+            module.source_identity = module.path.identity();
+        }
+
         fn program(&self) -> LoadedProgram {
             LoadedProgram {
                 graph: self.graph.clone().into(),
@@ -3709,25 +3719,18 @@ fn main() i32 {
 
     #[test]
     fn source_identity_update_invalidates_module_dependent_queries() {
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(
-                    ModuleId(0),
-                    "main.nia",
-                    "pub struct S { value: i32 } fn main() i32 { 0 }",
-                ),
-            ])));
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "pub struct S { value: i32 } fn main() i32 { 0 }",
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
-        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(
-                ModuleId(0),
-                "renamed.nia",
-                "pub struct S { value: i32 } fn main() i32 { 0 }",
-            ),
-        ])));
+        fixture.update_module_path(module_id, "renamed.nia");
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
         let invalidated = invalidation
             .invalidated
             .iter()
@@ -3750,15 +3753,13 @@ fn main() i32 {
 
     #[test]
     fn source_identity_change_invalidates_loaded_module_list() {
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
-            ])));
+        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
         let _ = database.check_program();
 
-        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(ModuleId(0), "other.nia", "fn main() i32 { 0 }"),
-        ])));
+        fixture.update_module_path(module_id, "other.nia");
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
         let invalidated = invalidation
             .invalidated
             .iter()
@@ -3779,23 +3780,24 @@ fn main() i32 {
             parse_ok_module_ids: no_parse_ok_modules,
             ..CompilerQueryProviders::default()
         };
-        let checked = compiler_database_with_providers(
-            CompileRequest::new(loaded_program_with_modules(vec![loaded_module(
-                ModuleId(0),
-                "main.nia",
-                "fn main() i32 { 0 }",
-            )])),
-            providers,
-        )
-        .codegen_program();
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let checked =
+            compiler_database_with_providers(CompileRequest::new(fixture.program()), providers)
+                .codegen_program();
 
         assert!(checked.modules.is_empty());
     }
 
     #[test]
     fn missing_loaded_module_id_becomes_query_diagnostic() {
+        fn unknown_module_id() -> ModuleId {
+            let mut module_ids = nia_ids::ModuleIdAllocator::new();
+            module_ids.allocate();
+            module_ids.allocate()
+        }
+
         fn unknown_semantic_module(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
-            vec![ModuleId(99)]
+            vec![unknown_module_id()]
         }
 
         let providers = CompilerQueryProviders {
@@ -3803,13 +3805,9 @@ fn main() i32 {
             ..CompilerQueryProviders::default()
         };
         let policy = NiaOptimizationLevel::Oz.policy();
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let checked = compiler_database_with_providers(
-            CompileRequest::new(loaded_program_with_modules(vec![loaded_module(
-                ModuleId(0),
-                "main.nia",
-                "fn main() i32 { 0 }",
-            )]))
-            .with_optimization(NiaOptimizationLevel::Oz),
+            CompileRequest::new(fixture.program()).with_optimization(NiaOptimizationLevel::Oz),
             providers,
         )
         .codegen_program();
@@ -3822,27 +3820,26 @@ fn main() i32 {
             checked.diagnostics[0]
                 .diagnostic
                 .summary
-                .contains("missing loaded module ModuleId(99)")
+                .contains(&format!("missing loaded module {:?}", unknown_module_id()))
         );
     }
 
     #[test]
     fn body_check_resolves_program_signatures_through_precise_signature_queries() {
-        let loaded = loaded_program_with_modules(vec![
-            loaded_module(
-                ModuleId(0),
-                "main.nia",
-                "using helper::{Alias, value}; fn main() Alias { value() }",
-            ),
-            loaded_module(
-                ModuleId(1),
-                "helper.nia",
-                "pub type Alias = i32; pub fn value() Alias { 1 }",
-            ),
-        ]);
-        let db = query_db(loaded);
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "using helper::{Alias, value}; fn main() Alias { value() }",
+        );
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "helper",
+            "helper.nia",
+            "pub type Alias = i32; pub fn value() Alias { 1 }",
+        );
+        let db = query_db(fixture.program());
 
-        let checked = db.get(BodyCheckQuery(ModuleId(0)));
+        let checked = db.get(BodyCheckQuery(entry_id));
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let trace = db.query_trace();
 
@@ -3879,11 +3876,9 @@ fn main() i32 {
 
     #[test]
     fn body_check_resolves_trait_method_candidates_through_program_trait_method_index() {
-        let loaded = loaded_program_with_modules(vec![
-            loaded_module(
-                ModuleId(0),
-                "main.nia",
-                r#"
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            r#"
 module traits;
 using entry::traits::{Ops, Value};
 
@@ -3892,11 +3887,13 @@ fn main() i32 {
     value.used()
 }
 "#,
-            ),
-            loaded_module(
-                ModuleId(1),
-                "traits.nia",
-                r#"
+        );
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "traits",
+            "traits.nia",
+            r#"
 pub trait Ops {
     fn used(self) i32;
 }
@@ -3909,11 +3906,10 @@ extend Value : Ops {
     }
 }
 "#,
-            ),
-        ]);
-        let db = query_db(loaded);
+        );
+        let db = query_db(fixture.program());
 
-        let checked = db.get(BodyCheckQuery(ModuleId(0)));
+        let checked = db.get(BodyCheckQuery(entry_id));
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let trace = db.query_trace();
 
@@ -3941,67 +3937,79 @@ extend Value : Ops {
 
     #[test]
     fn program_signature_module_ids_use_set_specific_module_facts() {
-        let loaded = loaded_program_with_modules(vec![
-            loaded_module(
-                ModuleId(0),
-                "main.nia",
-                "module module1; module module2; module module3; module module4; module module5; module module6;",
-            ),
-            loaded_module(ModuleId(1), "module1.nia", "struct S { value: i32 }"),
-            loaded_module(ModuleId(2), "module2.nia", "fn helper() i32 { 1 }"),
-            loaded_module(ModuleId(3), "module3.nia", "const WIDTH: usize = 4usize;"),
-            loaded_module(
-                ModuleId(4),
-                "module4.nia",
-                "trait Read { fn read(self) i32; }",
-            ),
-            loaded_module(
-                ModuleId(5),
-                "module5.nia",
-                "struct T {} extend T { pub fn make() T { {} } }",
-            ),
-            loaded_module(
-                ModuleId(6),
-                "module6.nia",
-                "struct U {} extend U { const WIDTH: usize = 4usize; }",
-            ),
-        ]);
-        let db = query_db(loaded);
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "module module1; module module2; module module3; module module4; module module5; module module6;",
+        );
+        let entry_id = fixture.entry_id();
+        let module1 = fixture.add_child(
+            entry_id,
+            "module1",
+            "module1.nia",
+            "struct S { value: i32 }",
+        );
+        let module2 =
+            fixture.add_child(entry_id, "module2", "module2.nia", "fn helper() i32 { 1 }");
+        let module3 = fixture.add_child(
+            entry_id,
+            "module3",
+            "module3.nia",
+            "const WIDTH: usize = 4usize;",
+        );
+        let module4 = fixture.add_child(
+            entry_id,
+            "module4",
+            "module4.nia",
+            "trait Read { fn read(self) i32; }",
+        );
+        let module5 = fixture.add_child(
+            entry_id,
+            "module5",
+            "module5.nia",
+            "struct T {} extend T { pub fn make() T { {} } }",
+        );
+        let module6 = fixture.add_child(
+            entry_id,
+            "module6",
+            "module6.nia",
+            "struct U {} extend U { const WIDTH: usize = 4usize; }",
+        );
+        let db = query_db(fixture.program());
 
         assert_eq!(
             db.get(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::Functions
             ))
             .as_slice(),
-            &[ModuleId(2), ModuleId(4), ModuleId(5)]
+            &[module2, module4, module5]
         );
         assert_eq!(
             db.get(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::Values
             ))
             .as_slice(),
-            &[ModuleId(3), ModuleId(6)]
+            &[module3, module6]
         );
         assert_eq!(
             db.get(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::Types
             ))
             .as_slice(),
-            &[ModuleId(1), ModuleId(5), ModuleId(6)]
+            &[module1, module5, module6]
         );
         assert_eq!(
             db.get(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::Traits
             ))
             .as_slice(),
-            &[ModuleId(4), ModuleId(5), ModuleId(6)]
+            &[module4, module5, module6]
         );
         assert_eq!(
             db.get(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::ExtensionFunctions
             ))
             .as_slice(),
-            &[ModuleId(4), ModuleId(5)]
+            &[module4, module5]
         );
 
         let trace = db.query_trace();
@@ -4024,31 +4032,41 @@ extend Value : Ops {
 
     #[test]
     fn extension_provider_module_ids_use_parse_ok_provider_summaries() {
-        let loaded = loaded_program_with_modules(vec![
-            loaded_module(
-                ModuleId(0),
-                "main.nia",
-                "module module1; module module2; module module3; module module4; module module5;",
-            ),
-            loaded_module(ModuleId(1), "module1.nia", "struct S { value: i32 }"),
-            loaded_module(ModuleId(2), "module2.nia", "fn helper() i32 { 1 }"),
-            loaded_module(ModuleId(3), "module3.nia", "const WIDTH: usize = 4usize;"),
-            loaded_module(
-                ModuleId(4),
-                "module4.nia",
-                "trait Read { fn read(self) i32; }",
-            ),
-            loaded_module(
-                ModuleId(5),
-                "module5.nia",
-                "struct T {} extend T { pub fn make() T { {} } }",
-            ),
-        ]);
-        let db = query_db(loaded);
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "module module1; module module2; module module3; module module4; module module5;",
+        );
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "module1",
+            "module1.nia",
+            "struct S { value: i32 }",
+        );
+        fixture.add_child(entry_id, "module2", "module2.nia", "fn helper() i32 { 1 }");
+        fixture.add_child(
+            entry_id,
+            "module3",
+            "module3.nia",
+            "const WIDTH: usize = 4usize;",
+        );
+        fixture.add_child(
+            entry_id,
+            "module4",
+            "module4.nia",
+            "trait Read { fn read(self) i32; }",
+        );
+        let module5 = fixture.add_child(
+            entry_id,
+            "module5",
+            "module5.nia",
+            "struct T {} extend T { pub fn make() T { {} } }",
+        );
+        let db = query_db(fixture.program());
 
         assert_eq!(
             db.get(ExtensionProviderModuleIdsQuery).as_slice(),
-            &[ModuleId(5)]
+            &[module5]
         );
         let trace = db.query_trace();
         assert!(trace_has_dependency(
