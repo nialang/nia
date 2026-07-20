@@ -145,14 +145,6 @@ impl<'a> QueryModuleGraphLookup<'a> {
 }
 
 impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
-    fn module(&self, module_id: ModuleId) -> Option<ModuleNodeRef<'_>> {
-        self.db
-            .get(ModuleGraphNodeQuery(module_id))
-            .as_ref()
-            .clone()
-            .map(ModuleNodeRef::Shared)
-    }
-
     fn entry_module(&self) -> ModuleId {
         *self.db.get(ModuleGraphEntryQuery)
     }
