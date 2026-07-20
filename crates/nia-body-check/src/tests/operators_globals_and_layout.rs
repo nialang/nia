@@ -56,7 +56,7 @@ fn main() usize {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let usize_ty = checked
         .type_store
-        .append_for_module(nia_ids::ModuleId(0))
+        .append_for_module(checked.module_id)
         .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::Usize));
     assert_eq!(main_tail_integer_literal_tys(&checked), vec![usize_ty]);
 }
@@ -73,7 +73,7 @@ fn main() usize {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let isize_ty = checked
         .type_store
-        .append_for_module(nia_ids::ModuleId(0))
+        .append_for_module(checked.module_id)
         .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::Isize));
     assert_eq!(main_tail_integer_literal_tys(&checked), vec![isize_ty]);
 }

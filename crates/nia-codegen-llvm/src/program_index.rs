@@ -366,7 +366,7 @@ mod tests {
         BackendModule, BackendParam, BackendProgram, BackendStructInstance,
         BackendTraitObjectVtable, BackendTraitObjectVtableKey,
     };
-    use nia_ids::{DefId, ModuleId};
+    use nia_ids::{DefId, ModuleId, ModuleIdAllocator};
     use nia_layout::{StructLayout, TypeLayout};
     use nia_span::Span;
     use nia_symbol::{SymbolId, stable_hash};
@@ -378,7 +378,8 @@ mod tests {
 
     #[test]
     fn indexes_codegen_lookup_tables_by_exact_keys_and_fallback_groups() {
-        let module_id = ModuleId(0);
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let type_store = TypeStore::new();
         let interner = type_store.append_for_module(module_id);
         let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -538,9 +539,11 @@ mod tests {
 
     #[test]
     fn resolves_types_without_a_program_module_view() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let type_store = TypeStore::new();
         let ty = {
-            let interner = type_store.append_for_module(ModuleId(9));
+            let interner = type_store.append_for_module(module_id);
             let elem = interner.primitive(PrimitiveTy::U32);
             interner.intern(TyKind::Pointer {
                 is_readonly: true,

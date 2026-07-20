@@ -653,10 +653,14 @@ mod tests {
     }
 
     fn test_ty() -> nia_ids::InternedTyId {
-        static TYPE_STORE: std::sync::OnceLock<nia_ty::TypeStore> = std::sync::OnceLock::new();
-        TYPE_STORE
-            .get_or_init(nia_ty::TypeStore::new)
-            .append_for_module(nia_ids::ModuleId(0))
+        static TYPE_STORE: std::sync::OnceLock<(nia_ty::TypeStore, nia_ids::ModuleId)> =
+            std::sync::OnceLock::new();
+        let (type_store, module_id) = TYPE_STORE.get_or_init(|| {
+            let mut module_ids = nia_ids::ModuleIdAllocator::new();
+            (nia_ty::TypeStore::new(), module_ids.allocate())
+        });
+        type_store
+            .append_for_module(*module_id)
             .primitive(nia_ty::PrimitiveTy::Void)
     }
 

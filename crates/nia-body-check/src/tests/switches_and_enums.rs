@@ -113,7 +113,7 @@ fn value(input: ?S) ?i32 {
         values.insert_node_qualified_value(
             if_pattern_payload_field_lhs_key(module),
             GlobalDefId {
-                module_id: ModuleId(0),
+                module_id: defs.module_id,
                 def_id: imported_range,
             },
         );
