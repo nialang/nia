@@ -2,6 +2,7 @@
 use std::{fmt, sync::Arc};
 
 use nia_diagnostic::{Diagnostic, codes};
+use nia_ids::ModuleIdAllocator;
 pub use nia_ids::{ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_source::SourceIdentity;
@@ -210,6 +211,7 @@ impl StableModuleKey {
 
 #[derive(Clone)]
 pub struct ModuleGraph {
+    module_ids: ModuleIdAllocator,
     entry: ModuleId,
     modules: Vec<ModuleNode>,
     by_stable_key: nia_hash::FastHashMap<StableModuleKey, ModuleId>,
@@ -224,6 +226,7 @@ pub struct ModuleGraph {
 impl fmt::Debug for ModuleGraph {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ModuleGraph")
+            .field("module_ids", &self.module_ids)
             .field("entry", &self.entry)
             .field("modules", &self.modules)
             .field("by_stable_key", &self.by_stable_key)
@@ -238,7 +241,8 @@ impl fmt::Debug for ModuleGraph {
 
 impl PartialEq for ModuleGraph {
     fn eq(&self, other: &Self) -> bool {
-        self.entry == other.entry
+        self.module_ids == other.module_ids
+            && self.entry == other.entry
             && self.modules == other.modules
             && self.by_stable_key == other.by_stable_key
             && self.by_module_path == other.by_module_path
@@ -285,7 +289,8 @@ impl ModuleGraph {
         entry_path: SourcePath,
         symbols: Arc<dyn SymbolText + Send + Sync>,
     ) -> Self {
-        let entry = ModuleId(0);
+        let mut module_ids = ModuleIdAllocator::new();
+        let entry = module_ids.allocate();
         let entry_module_path = ModulePath::root(ENTRY_MODULE_MAP_NAME);
         let entry_stable_key = StableModuleKey::from_source_identity(entry_path.identity());
         let mut by_stable_key = nia_hash::FastHashMap::default();
@@ -295,6 +300,7 @@ impl ModuleGraph {
         let mut package_roots = SymbolMap::default();
         package_roots.insert(known::ENTRY, entry);
         Self {
+            module_ids,
             entry,
             modules: vec![ModuleNode {
                 id: entry,
@@ -341,7 +347,7 @@ impl ModuleGraph {
     }
 
     pub fn get(&self, id: ModuleId) -> Option<&ModuleNode> {
-        self.modules.get(id.0 as usize)
+        self.modules.get(id.index() as usize)
     }
 
     pub fn module_id_for_path(&self, path: &str) -> Option<ModuleId> {
@@ -436,7 +442,7 @@ impl ModuleGraph {
     }
 
     pub fn mark_process_used_paths(&mut self, module_id: ModuleId) -> bool {
-        if let Some(module) = self.modules.get_mut(module_id.0 as usize) {
+        if let Some(module) = self.modules.get_mut(module_id.index() as usize) {
             let was_enabled = module.process_used_paths;
             module.semantic_selected = true;
             module.process_used_paths = true;
@@ -447,7 +453,7 @@ impl ModuleGraph {
     }
 
     pub fn mark_semantic_selected(&mut self, module_id: ModuleId) -> bool {
-        if let Some(module) = self.modules.get_mut(module_id.0 as usize) {
+        if let Some(module) = self.modules.get_mut(module_id.index() as usize) {
             let was_selected = module.semantic_selected;
             module.semantic_selected = true;
             !was_selected
@@ -457,7 +463,7 @@ impl ModuleGraph {
     }
 
     pub fn mark_process_declared_children(&mut self, module_id: ModuleId) {
-        if let Some(module) = self.modules.get_mut(module_id.0 as usize) {
+        if let Some(module) = self.modules.get_mut(module_id.index() as usize) {
             module.process_declared_children = true;
         }
     }
@@ -509,14 +515,17 @@ impl ModuleGraph {
             process_used_paths,
             process_declared_children,
         );
-        let parent = self.modules.get_mut(parent_id.0 as usize).ok_or_else(|| {
-            Diagnostic::internal_error(
-                codes::MODULE_GRAPH_RECORDING,
-                "unknown parent module id while recording module declaration",
-            )
-            .debug("module_id", parent_id)
-            .finish()
-        })?;
+        let parent = self
+            .modules
+            .get_mut(parent_id.index() as usize)
+            .ok_or_else(|| {
+                Diagnostic::internal_error(
+                    codes::MODULE_GRAPH_RECORDING,
+                    "unknown parent module id while recording module declaration",
+                )
+                .debug("module_id", parent_id)
+                .finish()
+            })?;
         if let Some(existing) = parent.children.get(name).copied() {
             if existing != child_id {
                 return Err(Diagnostic::internal_error(
@@ -574,7 +583,8 @@ impl ModuleGraph {
             }
             return id;
         }
-        let id = ModuleId(self.modules.len() as u32);
+        let id = self.module_ids.allocate();
+        debug_assert_eq!(id.index() as usize, self.modules.len());
         if module_path.is_package_root() {
             self.package_roots.insert(module_path.package, id);
         }
@@ -946,34 +956,29 @@ mod tests {
     #[test]
     fn module_graph_indexes_paths_by_source_identity() {
         let mut graph = ModuleGraph::new(SourcePath::new("src/./main.nia"));
+        let entry = graph.entry();
 
-        assert_eq!(graph.module_id_for_path("src/main.nia"), Some(ModuleId(0)));
-        let entry_key = graph.stable_key(ModuleId(0)).expect("entry stable key");
-        assert_eq!(graph.module_id_for_stable_key(entry_key), Some(ModuleId(0)));
-        assert_eq!(
-            graph.intern_package_root(
-                &module_root_symbol_from_text("pkg"),
-                SourcePath::new("pkg/./root.nia")
-            ),
-            ModuleId(1)
+        assert_eq!(graph.module_id_for_path("src/main.nia"), Some(entry));
+        let entry_key = graph.stable_key(entry).expect("entry stable key");
+        assert_eq!(graph.module_id_for_stable_key(entry_key), Some(entry));
+        let package = graph.intern_package_root(
+            &module_root_symbol_from_text("pkg"),
+            SourcePath::new("pkg/./root.nia"),
         );
         assert_eq!(
             graph.intern_package_root(
                 &module_root_symbol_from_text("pkg_alias"),
                 SourcePath::new("pkg/root.nia")
             ),
-            ModuleId(1)
+            package
         );
-        assert_eq!(graph.module_id_for_path("pkg/root.nia"), Some(ModuleId(1)));
-        let package_key = graph.stable_key(ModuleId(1)).expect("package stable key");
+        assert_eq!(graph.module_id_for_path("pkg/root.nia"), Some(package));
+        let package_key = graph.stable_key(package).expect("package stable key");
         assert_eq!(
             package_key.source_identity(),
             &SourcePath::new("pkg/root.nia").identity()
         );
-        assert_eq!(
-            graph.module_id_for_stable_key(package_key),
-            Some(ModuleId(1))
-        );
+        assert_eq!(graph.module_id_for_stable_key(package_key), Some(package));
         assert_eq!(std::mem::size_of::<ModuleGraphSnapshot>(), 8);
         assert_eq!(std::mem::size_of::<StableModuleKey>(), 8);
     }

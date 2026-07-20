@@ -2137,7 +2137,7 @@ fn changed_loaded_modules(old: &CompilerInputs, new: &CompilerInputs) -> Vec<Cha
             )
         })
         .collect::<Vec<_>>();
-    changed.sort_by_key(|module| module.ids.first().copied().unwrap_or(ModuleId(u32::MAX)).0);
+    changed.sort_by_key(|module| module.ids.first().map_or(u32::MAX, |id| id.index()));
     changed
 }
 
@@ -2296,9 +2296,9 @@ mod tests {
         let mut graph = ModuleGraph::with_symbol_text(entry, Arc::new(test_symbols()));
         let max_id = modules
             .iter()
-            .map(|module| module.id.0)
+            .map(|module| module.id.index())
             .max()
-            .unwrap_or(graph.entry().0);
+            .unwrap_or(graph.entry().index());
         for id in 1..=max_id {
             let entry = graph.entry();
             intern_child(
@@ -2366,7 +2366,7 @@ mod tests {
         revision: SourceRevision,
     ) -> LoadedModule {
         let source_version = nia_source::SourceVersion {
-            id: SourceId(id.0),
+            id: SourceId(id.index()),
             revision,
         };
         let syntax = nia_syntax::parse_source(source, Some(source_version));

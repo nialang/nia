@@ -65,13 +65,19 @@ pub fn optimization_report_lines(program: &CodegenProgram) -> Vec<String> {
                 let instance = if *is_instance { " instance" } else { "" };
                 lines.push(format!(
                     "  m{}::d{}{} {} type_args={}",
-                    function.module_id.0, function.def_id.0, instance, pass, type_arg_count
+                    function.module_id.index(),
+                    function.def_id.0,
+                    instance,
+                    pass,
+                    type_arg_count
                 ));
             }
             BackendOptimizationChange::Global { global, pass, .. } => {
                 lines.push(format!(
                     "  m{}::d{} global {}",
-                    global.module_id.0, global.def_id.0, pass
+                    global.module_id.index(),
+                    global.def_id.0,
+                    pass
                 ));
             }
         }

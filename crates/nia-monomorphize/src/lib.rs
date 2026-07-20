@@ -1139,7 +1139,7 @@ impl MonoCollector<'_> {
                 format!("g{}", mangle_symbol_id(*name))
             }
             ConstGenericValue::ConstExpr(id) => {
-                format!("expr__m{}__c{}", id.module_id.0, id.const_expr_id.0)
+                format!("expr__m{}__c{}", id.module_id.index(), id.const_expr_id.0)
             }
             ConstGenericValue::Int(value) => {
                 let sign = if value.is_signed() { "i" } else { "u" };

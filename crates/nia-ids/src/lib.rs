@@ -2,6 +2,32 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleId(pub u32);
 
+impl ModuleId {
+    pub const fn index(self) -> u32 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ModuleIdAllocator {
+    next_index: u32,
+}
+
+impl ModuleIdAllocator {
+    pub const fn new() -> Self {
+        Self { next_index: 0 }
+    }
+
+    pub fn allocate(&mut self) -> ModuleId {
+        let index = self.next_index;
+        self.next_index = self
+            .next_index
+            .checked_add(1)
+            .expect("module identity space exhausted");
+        ModuleId(index)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DefId(pub u64);
 
@@ -1335,4 +1361,18 @@ pub struct BuiltinTraitDescriptor {
     pub associated_types: &'static [BuiltinAssociatedType],
     pub required_methods: &'static [BuiltinTraitMethod],
     pub supertraits: &'static [BuiltinSupertrait],
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn module_id_allocator_issues_dense_local_indices() {
+        let mut allocator = ModuleIdAllocator::new();
+
+        assert_eq!(allocator.allocate().index(), 0);
+        assert_eq!(allocator.allocate().index(), 1);
+        assert_eq!(std::mem::size_of::<ModuleId>(), 4);
+    }
 }
