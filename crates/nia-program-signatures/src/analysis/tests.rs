@@ -8,7 +8,18 @@ use nia_span::Span;
 use nia_symbol::stable_hash;
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
+thread_local! {
+    static TEST_SYMBOLS: nia_symbol_table::SymbolTable = nia_symbol_table::SymbolTable::new();
+}
+
+fn test_symbols() -> nia_symbol_table::SymbolTable {
+    TEST_SYMBOLS.with(Clone::clone)
+}
+
 fn sym(text: &str) -> SymbolId {
+    test_symbols()
+        .intern(text)
+        .unwrap_or_else(|error| panic!("test symbol collision: {error}"));
     SymbolId::from_stable_hash(stable_hash(text))
 }
 
@@ -17,11 +28,11 @@ fn intern_child(
     parent: nia_ids::ModuleId,
     child_name: &str,
     visibility: nia_ids::Visibility,
-) {
+) -> nia_ids::ModuleId {
     let child = sym(child_name);
     graph
         .intern_declared_child(parent, &child, visibility, Span::default())
-        .expect("intern child module");
+        .expect("intern child module")
 }
 
 fn defs_from_source(module_id: nia_ids::ModuleId, source: &str) -> DefCollection {
@@ -73,27 +84,34 @@ fn using_type_entry(def_id: GlobalDefId) -> UsingEntry {
 
 #[test]
 fn visible_extension_provider_modules_batches_provider_targets_by_closure_wave() {
-    let entry = nia_ids::ModuleId(0);
-    let types_module = nia_ids::ModuleId(1);
-    let used_provider = nia_ids::ModuleId(2);
-    let other_provider = nia_ids::ModuleId(3);
-    let type_defs = defs_from_source(types_module, "pub struct Other {} pub struct Used {}");
-    let used = global_type_def_id(&type_defs, "Used");
-    let other = global_type_def_id(&type_defs, "Other");
-    let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
-    intern_child(&mut graph, entry, "types", nia_ids::Visibility::Public);
-    intern_child(
+    let mut graph =
+        ModuleGraph::with_symbol_text(SourcePath::new("main.nia"), Arc::new(test_symbols()));
+    let entry = graph.entry();
+    let types_module = intern_child(&mut graph, entry, "types", nia_ids::Visibility::Public);
+    let used_provider = intern_child(
         &mut graph,
         entry,
         "used_provider",
         nia_ids::Visibility::Public,
     );
-    intern_child(
+    let other_provider = intern_child(
         &mut graph,
         entry,
         "other_provider",
         nia_ids::Visibility::Public,
     );
+    assert_eq!(
+        [
+            entry.index(),
+            types_module.index(),
+            used_provider.index(),
+            other_provider.index(),
+        ],
+        [0, 1, 2, 3]
+    );
+    let type_defs = defs_from_source(types_module, "pub struct Other {} pub struct Used {}");
+    let used = global_type_def_id(&type_defs, "Used");
+    let other = global_type_def_id(&type_defs, "Other");
     let mut using_scope = ModuleUsingScope::default();
     using_scope
         .types
