@@ -195,11 +195,24 @@ impl ModulePath {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct StableModuleKey(Arc<SourceIdentity>);
+
+impl StableModuleKey {
+    pub fn from_source_identity(source_identity: SourceIdentity) -> Self {
+        Self(Arc::new(source_identity))
+    }
+
+    pub fn source_identity(&self) -> &SourceIdentity {
+        &self.0
+    }
+}
+
 #[derive(Clone)]
 pub struct ModuleGraph {
     entry: ModuleId,
     modules: Vec<ModuleNode>,
-    by_source_identity: nia_hash::FastHashMap<SourceIdentity, ModuleId>,
+    by_stable_key: nia_hash::FastHashMap<StableModuleKey, ModuleId>,
     by_module_path: nia_hash::FastHashMap<ModulePath, ModuleId>,
     package_roots: SymbolMap<ModuleId>,
     active_package_facades: SymbolMap<ModuleId>,
@@ -213,7 +226,7 @@ impl fmt::Debug for ModuleGraph {
         f.debug_struct("ModuleGraph")
             .field("entry", &self.entry)
             .field("modules", &self.modules)
-            .field("by_source_identity", &self.by_source_identity)
+            .field("by_stable_key", &self.by_stable_key)
             .field("by_module_path", &self.by_module_path)
             .field("package_roots", &self.package_roots)
             .field("active_package_facades", &self.active_package_facades)
@@ -227,12 +240,39 @@ impl PartialEq for ModuleGraph {
     fn eq(&self, other: &Self) -> bool {
         self.entry == other.entry
             && self.modules == other.modules
-            && self.by_source_identity == other.by_source_identity
+            && self.by_stable_key == other.by_stable_key
             && self.by_module_path == other.by_module_path
             && self.package_roots == other.package_roots
             && self.active_package_facades == other.active_package_facades
             && self.executable_root_subtrees == other.executable_root_subtrees
             && self.diagnostics == other.diagnostics
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModuleGraphSnapshot(Arc<ModuleGraph>);
+
+impl ModuleGraphSnapshot {
+    pub fn new(graph: ModuleGraph) -> Self {
+        Self(Arc::new(graph))
+    }
+
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl From<ModuleGraph> for ModuleGraphSnapshot {
+    fn from(graph: ModuleGraph) -> Self {
+        Self::new(graph)
+    }
+}
+
+impl std::ops::Deref for ModuleGraphSnapshot {
+    type Target = ModuleGraph;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -247,8 +287,9 @@ impl ModuleGraph {
     ) -> Self {
         let entry = ModuleId(0);
         let entry_module_path = ModulePath::root(ENTRY_MODULE_MAP_NAME);
-        let mut by_source_identity = nia_hash::FastHashMap::default();
-        by_source_identity.insert(entry_path.identity(), entry);
+        let entry_stable_key = StableModuleKey::from_source_identity(entry_path.identity());
+        let mut by_stable_key = nia_hash::FastHashMap::default();
+        by_stable_key.insert(entry_stable_key.clone(), entry);
         let mut by_module_path = nia_hash::FastHashMap::default();
         by_module_path.insert(entry_module_path.clone(), entry);
         let mut package_roots = SymbolMap::default();
@@ -257,6 +298,7 @@ impl ModuleGraph {
             entry,
             modules: vec![ModuleNode {
                 id: entry,
+                stable_key: entry_stable_key,
                 path: entry_path,
                 module_path: entry_module_path,
                 parent: None,
@@ -266,7 +308,7 @@ impl ModuleGraph {
                 process_used_paths: true,
                 process_declared_children: true,
             }],
-            by_source_identity,
+            by_stable_key,
             by_module_path,
             package_roots,
             active_package_facades: SymbolMap::default(),
@@ -307,7 +349,15 @@ impl ModuleGraph {
     }
 
     pub fn module_id_for_source_identity(&self, identity: &SourceIdentity) -> Option<ModuleId> {
-        self.by_source_identity.get(identity).copied()
+        self.module_id_for_stable_key(&StableModuleKey::from_source_identity(identity.clone()))
+    }
+
+    pub fn module_id_for_stable_key(&self, stable_key: &StableModuleKey) -> Option<ModuleId> {
+        self.by_stable_key.get(stable_key).copied()
+    }
+
+    pub fn stable_key(&self, module_id: ModuleId) -> Option<&StableModuleKey> {
+        Some(&self.get(module_id)?.stable_key)
     }
 
     pub fn module_id_for_module_path(&self, path: &ModulePath) -> Option<ModuleId> {
@@ -513,8 +563,8 @@ impl ModuleGraph {
             }
             return id;
         }
-        let identity = path.identity();
-        if let Some(id) = self.by_source_identity.get(&identity).copied() {
+        let stable_key = StableModuleKey::from_source_identity(path.identity());
+        if let Some(id) = self.by_stable_key.get(&stable_key).copied() {
             self.by_module_path.insert(module_path, id);
             if process_used_paths {
                 self.mark_process_used_paths(id);
@@ -528,10 +578,11 @@ impl ModuleGraph {
         if module_path.is_package_root() {
             self.package_roots.insert(module_path.package, id);
         }
-        self.by_source_identity.insert(identity, id);
+        self.by_stable_key.insert(stable_key.clone(), id);
         self.by_module_path.insert(module_path.clone(), id);
         self.modules.push(ModuleNode {
             id,
+            stable_key,
             path,
             module_path,
             parent,
@@ -570,6 +621,7 @@ impl ModuleGraph {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModuleNode {
     pub id: ModuleId,
+    pub stable_key: StableModuleKey,
     pub path: SourcePath,
     pub module_path: ModulePath,
     pub parent: Option<ModuleId>,
@@ -618,6 +670,38 @@ pub trait ModuleGraphLookup {
 }
 
 impl ModuleGraphLookup for ModuleGraph {
+    fn entry_module(&self) -> ModuleId {
+        self.entry()
+    }
+
+    fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId> {
+        self.package_root(package)
+    }
+
+    fn module_path(&self, module_id: ModuleId) -> Option<ModulePath> {
+        Some(self.get(module_id)?.module_path.clone())
+    }
+
+    fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
+        self.get(module_id)?.parent
+    }
+
+    fn child_declaration(
+        &self,
+        module_id: ModuleId,
+        name: &SymbolId,
+    ) -> Option<(ModuleId, Visibility)> {
+        let module = self.get(module_id)?;
+        let target = module.children.get(name).copied()?;
+        let declaration = module
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == *name && declaration.target == target)?;
+        Some((target, declaration.visibility))
+    }
+}
+
+impl ModuleGraphLookup for ModuleGraphSnapshot {
     fn entry_module(&self) -> ModuleId {
         self.entry()
     }
@@ -864,6 +948,8 @@ mod tests {
         let mut graph = ModuleGraph::new(SourcePath::new("src/./main.nia"));
 
         assert_eq!(graph.module_id_for_path("src/main.nia"), Some(ModuleId(0)));
+        let entry_key = graph.stable_key(ModuleId(0)).expect("entry stable key");
+        assert_eq!(graph.module_id_for_stable_key(entry_key), Some(ModuleId(0)));
         assert_eq!(
             graph.intern_package_root(
                 &module_root_symbol_from_text("pkg"),
@@ -879,5 +965,16 @@ mod tests {
             ModuleId(1)
         );
         assert_eq!(graph.module_id_for_path("pkg/root.nia"), Some(ModuleId(1)));
+        let package_key = graph.stable_key(ModuleId(1)).expect("package stable key");
+        assert_eq!(
+            package_key.source_identity(),
+            &SourcePath::new("pkg/root.nia").identity()
+        );
+        assert_eq!(
+            graph.module_id_for_stable_key(package_key),
+            Some(ModuleId(1))
+        );
+        assert_eq!(std::mem::size_of::<ModuleGraphSnapshot>(), 8);
+        assert_eq!(std::mem::size_of::<StableModuleKey>(), 8);
     }
 }

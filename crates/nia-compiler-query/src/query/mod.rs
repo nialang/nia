@@ -11,7 +11,9 @@ use nia_defs::{
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
-use nia_imports::{ModuleGraph, ModuleGraphLookup, ModuleNode};
+#[cfg(test)]
+use nia_imports::ModuleGraph;
+use nia_imports::{ModuleGraphLookup, ModuleGraphSnapshot, ModuleNode};
 use nia_item_signatures::{
     ItemSignatures, ProgramConstSignature, ProgramEnumSignature, ProgramFunctionSignature,
     ProgramGlobalSignature, ProgramStructSignature, ProgramTraitSignature,
@@ -375,7 +377,7 @@ impl CompilerDatabase {
         self.db.query_trace()
     }
 
-    fn current_graph(&self) -> ModuleGraph {
+    fn current_graph(&self) -> ModuleGraphSnapshot {
         self.inputs
             .read()
             .expect("compiler input lock poisoned")
@@ -633,7 +635,7 @@ fn compiler_database_with_providers(
 }
 
 fn checked_program_from_query_error(
-    graph: ModuleGraph,
+    graph: ModuleGraphSnapshot,
     optimization: OptimizationPolicy,
     err: QueryError,
 ) -> CheckedProgram {
@@ -650,7 +652,7 @@ fn checked_program_from_query_error(
 
 fn codegen_program_from_query_error(
     type_store: Arc<nia_ty::TypeStore>,
-    graph: ModuleGraph,
+    graph: ModuleGraphSnapshot,
     optimization: OptimizationPolicy,
     err: QueryError,
 ) -> CodegenProgram {
@@ -730,7 +732,7 @@ struct ExecutableCheckedModuleSetData {
 
 #[derive(Debug, Clone)]
 struct CompilerInputs {
-    graph: ModuleGraph,
+    graph: ModuleGraphSnapshot,
     entry_module: ModuleId,
     runtime_root_modules: Vec<ModuleId>,
     symbols: nia_symbol_table::SymbolTable,
@@ -1260,7 +1262,7 @@ impl CompilerContext {
             .clone()
     }
 
-    fn module_graph(&self) -> ModuleGraph {
+    fn module_graph(&self) -> ModuleGraphSnapshot {
         self.inputs
             .read()
             .expect("compiler input lock poisoned")
@@ -2277,7 +2279,7 @@ mod tests {
     fn loaded_program_with_modules(modules: Vec<LoadedModule>) -> LoadedProgram {
         let graph = module_graph_for_loaded_modules(&modules);
         LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::Bare,
@@ -2322,7 +2324,7 @@ mod tests {
             nia_ids::Visibility::Public,
         );
         LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::Bare,
@@ -2344,7 +2346,7 @@ mod tests {
             nia_ids::Visibility::Public,
         );
         LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::Bare,
@@ -2881,7 +2883,9 @@ pub fn expensive_or_invalid() i32 {
         let _ = database.db.get(TypeResolutionQuery(ModuleId(0)));
 
         let mut grown = loaded;
-        assert!(grown.graph.mark_semantic_selected(ModuleId(1)));
+        let mut graph = (*grown.graph).clone();
+        assert!(graph.mark_semantic_selected(ModuleId(1)));
+        grown.graph = graph.into();
         let invalidation = database.update(CompileRequest::new(grown));
         let invalidated = invalidation
             .invalidated
@@ -4901,7 +4905,7 @@ extend Used {
         intern_child(&mut graph, facade.id, "impls", nia_ids::Visibility::Private);
         intern_child(&mut graph, facade.id, "types", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -5349,7 +5353,7 @@ pub struct ArgsIter {}
         );
         intern_child(&mut graph, facade.id, "types", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -5413,7 +5417,7 @@ pub struct Used {}
         intern_child(&mut graph, facade.id, "impls", nia_ids::Visibility::Private);
         intern_child(&mut graph, facade.id, "types", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -5495,7 +5499,7 @@ extend i32 : ParseFrom[&[u8]] {
             nia_ids::Visibility::Public,
         );
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::Bare,
@@ -5558,7 +5562,7 @@ extend i32 : ParseFrom[Input] {
         let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
         intern_child(&mut graph, main.id, "parse", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -5792,6 +5796,25 @@ extend i32 : ParseFrom[Input] {
         assert!(Arc::ptr_eq(&checked.static_check, &static_check));
         assert!(Arc::ptr_eq(&checked.abi_check, &abi_check));
         assert!(Arc::ptr_eq(&checked.flow_check, &flow_check));
+    }
+
+    #[test]
+    fn program_products_share_the_input_module_graph_snapshot() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "fn main() i32 { 0 }",
+        )]);
+        let input_graph = loaded.graph.clone();
+        let db = query_db(loaded);
+
+        let cached_graph = db.get(ModuleGraphQuery);
+        let checked = db.get(CheckedProgramQuery);
+        let codegen = db.get(CodegenProgramQuery);
+
+        assert!(input_graph.ptr_eq(&cached_graph));
+        assert!(input_graph.ptr_eq(&checked.graph));
+        assert!(input_graph.ptr_eq(&codegen.graph));
     }
 
     #[test]
@@ -6217,7 +6240,7 @@ pub const LEN: usize = 4usize;
         intern_child(&mut graph, main.id, "facade", nia_ids::Visibility::Public);
         intern_child(&mut graph, facade.id, "raw", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -6283,7 +6306,7 @@ pub const LEN: usize = 4usize;
         let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
         intern_child(&mut graph, main.id, "raw", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -6376,7 +6399,7 @@ extend Sink : Writer {
         let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
         intern_child(&mut graph, main.id, "writer", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -6508,7 +6531,7 @@ pub enum Errno: i32 {
         let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
         intern_child(&mut graph, main.id, "platform", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -6590,7 +6613,7 @@ pub enum Errno: i32 {
             nia_ids::Visibility::Public,
         );
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -6692,7 +6715,7 @@ pub enum Errno: i32 {
             nia_ids::Visibility::Public,
         );
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -6815,7 +6838,7 @@ using entry::error;
         intern_child(&mut graph, main.id, "error", nia_ids::Visibility::Public);
         intern_child(&mut graph, main.id, "facade", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -6916,7 +6939,7 @@ extend Source : error::IntoError[Target] {
         intern_child(&mut graph, main.id, "error", nia_ids::Visibility::Public);
         intern_child(&mut graph, main.id, "impls", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -7023,7 +7046,7 @@ extend[T] Source!T {
         intern_child(&mut graph, main.id, "error", nia_ids::Visibility::Public);
         intern_child(&mut graph, main.id, "impls", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -7597,7 +7620,7 @@ extend Token : Marker {}
         intern_child(&mut graph, main.id, "ext", nia_ids::Visibility::Public);
         intern_child(&mut graph, main.id, "bounds", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
@@ -7673,7 +7696,7 @@ extend Page : Allocator {
         intern_child(&mut graph, main.id, "module1", nia_ids::Visibility::Public);
         intern_child(&mut graph, main.id, "module2", nia_ids::Visibility::Public);
         let loaded = LoadedProgram {
-            graph,
+            graph: graph.into(),
             symbols: test_symbols(),
             target: TargetConfig::host(),
             runtime: RuntimeModel::FreestandingExecutable,
