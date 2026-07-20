@@ -76,13 +76,12 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
                         | nia_compiler_query::ProviderRequest::TraitImpl { .. } => {}
                     }
                 }
-                for module_index in 0..existing_modules {
-                    let Some(node) = graph
-                        .get(nia_imports::ModuleId(module_index as u32))
-                        .cloned()
-                    else {
-                        continue;
-                    };
+                let existing_nodes = graph
+                    .modules()
+                    .take(existing_modules)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for node in existing_nodes {
                     let declarations = db.get(module_declarations_query(db, &node.path));
                     apply_provider_demands(
                         db,
@@ -104,44 +103,39 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             }
         };
         loop {
-            while index < graph.modules().count() {
-                let Some(node) = graph.get(nia_imports::ModuleId(index as u32)).cloned() else {
-                    break;
-                };
-                let declarations = db.get(module_declarations_query(db, &node.path));
-                for package in &declarations.package_roots {
-                    if graph.package_root(package).is_none()
-                        && let Some(path) = db.context().module_map.get_name(package)
-                    {
-                        graph.intern_package_root(package, path.clone());
-                    }
+            let node = graph.modules().nth(index).cloned();
+            let Some(node) = node else {
+                break;
+            };
+            let declarations = db.get(module_declarations_query(db, &node.path));
+            for package in &declarations.package_roots {
+                if graph.package_root(package).is_none()
+                    && let Some(path) = db.context().module_map.get_name(package)
+                {
+                    graph.intern_package_root(package, path.clone());
                 }
-                if should_eager_add_declarations(db.context(), &node) {
-                    let result = add_declared_module_children(db, &mut graph, node.id);
-                    if let Err(diagnostic) = result {
+            }
+            if should_eager_add_declarations(db.context(), &node) {
+                let result = add_declared_module_children(db, &mut graph, node.id);
+                if let Err(diagnostic) = result {
+                    graph.push_diagnostic(node.path.clone(), diagnostic);
+                }
+            }
+            if should_process_used_module_paths(db.context(), &graph, &node) {
+                for path in &declarations.used_module_paths {
+                    if let Err(diagnostic) = add_used_module_path(db, &mut graph, node.id, path) {
                         graph.push_diagnostic(node.path.clone(), diagnostic);
                     }
                 }
-                if should_process_used_module_paths(db.context(), &graph, &node) {
-                    for path in &declarations.used_module_paths {
-                        if let Err(diagnostic) = add_used_module_path(db, &mut graph, node.id, path)
-                        {
-                            graph.push_diagnostic(node.path.clone(), diagnostic);
-                        }
-                    }
-                }
-                apply_provider_demands(
-                    db,
-                    &mut graph,
-                    &node,
-                    &declarations.explicit_imports,
-                    &new_provider_demands,
-                );
-                index += 1;
             }
-            if index == graph.modules().count() {
-                break;
-            }
+            apply_provider_demands(
+                db,
+                &mut graph,
+                &node,
+                &declarations.explicit_imports,
+                &new_provider_demands,
+            );
+            index += 1;
         }
         let source_versions = graph_source_versions(db, &graph);
         let snapshot = ModuleGraphSnapshot::new(graph);
