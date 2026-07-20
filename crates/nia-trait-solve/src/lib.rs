@@ -3037,10 +3037,12 @@ impl TypeEquivalence for TraitSolver<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_ids::ModuleIdAllocator;
 
     #[test]
     fn enum_classification_reads_new_types_from_canonical_store() {
-        let module_id = ModuleId(0);
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let local_enum_id = DefId(7);
         let local_enum = GlobalDefId {
             module_id,

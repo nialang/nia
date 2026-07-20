@@ -1535,8 +1535,8 @@ impl<'a> LocalResolver<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
-    use nia_ids::{DefId, GlobalDefId};
+    use nia_defs::{collect_module_defs, collect_module_defs_from_active_item_tree};
+    use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
     use nia_item_tree::ModuleItemTree;
     use nia_node_id::{NodePosition, SyntaxKind};
     use nia_parser::{parse_module, parse_module_syntax_with_origins};
@@ -1553,6 +1553,8 @@ mod tests {
 
     #[test]
     fn resolves_params_and_local_bindings() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 static mut global = 1;
@@ -1564,7 +1566,7 @@ fn add(a: i32, b: i32) i32 {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
@@ -1584,6 +1586,8 @@ fn add(a: i32, b: i32) i32 {
 
     #[test]
     fn lexical_locals_shadow_module_values() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let source = r#"
 static mut value = 1;
 
@@ -1593,7 +1597,7 @@ fn id(value: i32) i32 {
 "#;
         let (module, errors) = parse_module(source);
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
@@ -1607,6 +1611,9 @@ fn id(value: i32) i32 {
 
     #[test]
     fn if_pattern_payload_locals_shadow_external_values_in_field_lhs() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let external_module_id = module_ids.allocate();
         let source = r#"
 struct S {
     start: i32,
@@ -1622,7 +1629,7 @@ fn value(input: ?S) ?i32 {
 "#;
         let (module, errors) = parse_module(source);
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let values = resolve_module_values(&module, &defs);
         let mut values = values.into_builder();
         for item in &module.items {
@@ -1641,7 +1648,7 @@ fn value(input: ?S) ?i32 {
                 values.insert_node_name(
                     lhs.node_key.clone(),
                     ValueNameResolution::External(GlobalDefId {
-                        module_id: ModuleId(99),
+                        module_id: external_module_id,
                         def_id: DefId(1),
                     }),
                 );
@@ -1667,6 +1674,8 @@ fn value(input: ?S) ?i32 {
 
     #[test]
     fn records_local_facts_by_source_versioned_node_keys() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let version = SourceVersion {
             id: SourceId(4),
             revision: SourceRevision(2),
@@ -1682,7 +1691,7 @@ fn main(a: i32) i32 {
         );
         let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let values = resolve_module_values(&module, &defs);
         let locals =
             resolve_module_locals_with_origins(&module, &defs, &values, Some(version), &origins);
@@ -1700,6 +1709,8 @@ fn main(a: i32) i32 {
 
     #[test]
     fn records_local_facts_by_red_child_path_origins() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let version = SourceVersion {
             id: SourceId(5),
             revision: SourceRevision(1),
@@ -1715,7 +1726,7 @@ fn main(a: i32) i32 {
         );
         let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let values = resolve_module_values(&module, &defs);
         let locals =
             resolve_module_locals_with_origins(&module, &defs, &values, Some(version), &origins);
@@ -1731,6 +1742,8 @@ fn main(a: i32) i32 {
 
     #[test]
     fn reports_unresolved_deferred_names() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 fn main() i32 {
@@ -1739,7 +1752,7 @@ fn main() i32 {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
@@ -1755,6 +1768,8 @@ fn main() i32 {
 
     #[test]
     fn reports_duplicates_in_same_scope() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 fn main(a: i32, a: i32) i32 {
@@ -1765,7 +1780,7 @@ fn main(a: i32, a: i32) i32 {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
         assert_eq!(locals.diagnostics.len(), 2);
@@ -1785,6 +1800,8 @@ fn main(a: i32, a: i32) i32 {
 
     #[test]
     fn marks_type_prefixes_for_associated_functions_and_enum_variants() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 struct Point {
@@ -1808,7 +1825,7 @@ fn main() Point {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
@@ -1822,6 +1839,8 @@ fn main() Point {
 
     #[test]
     fn resolves_index_expr_inside_field_bracket_suffix() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 struct S {
@@ -1842,7 +1861,7 @@ fn main() i32 {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
@@ -1863,6 +1882,8 @@ fn main() i32 {
 
     #[test]
     fn resolves_local_named_like_type_inside_field_bracket_suffix() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 struct S {
@@ -1881,7 +1902,7 @@ fn main() i32 {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
@@ -1902,6 +1923,8 @@ fn main() i32 {
 
     #[test]
     fn resolves_locals_from_active_item_tree_only() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 @[if false]
@@ -1918,7 +1941,7 @@ fn selected() i32 {
         assert!(errors.is_empty(), "{errors:?}");
         let tree = ModuleItemTree::from_module(&module);
         let active = tree.active_items(&mut BoolResolver(false)).unwrap();
-        let defs = collect_module_defs_from_active_item_tree(ModuleId(0), &active);
+        let defs = collect_module_defs_from_active_item_tree(module_id, &active);
         assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
         let values = resolve_module_values_from_active_item_tree(
             &active,
@@ -1946,6 +1969,8 @@ fn selected() i32 {
 
     #[test]
     fn filtered_local_resolution_preserves_full_tree_local_ids() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 fn unused(a: i32) i32 {
@@ -1962,7 +1987,7 @@ fn used(b: i32) i32 {
         assert!(errors.is_empty(), "{errors:?}");
         let tree = ModuleItemTree::from_module(&module);
         let full = tree.active_items(&mut BoolResolver(true)).unwrap();
-        let defs = collect_module_defs_from_active_item_tree(ModuleId(0), &full);
+        let defs = collect_module_defs_from_active_item_tree(module_id, &full);
         assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
         let values = resolve_module_values_from_active_item_tree(
             &full,
