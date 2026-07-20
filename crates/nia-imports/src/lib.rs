@@ -580,48 +580,16 @@ pub struct ModuleNode {
     pub process_declared_children: bool,
 }
 
-pub enum ModuleNodeRef<'a> {
-    Borrowed(&'a ModuleNode),
-    Shared(Arc<ModuleNode>),
-}
-
-impl std::ops::Deref for ModuleNodeRef<'_> {
-    type Target = ModuleNode;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            ModuleNodeRef::Borrowed(node) => node,
-            ModuleNodeRef::Shared(node) => node,
-        }
-    }
-}
-
 pub trait ModuleGraphLookup {
-    fn module(&self, module_id: ModuleId) -> Option<ModuleNodeRef<'_>>;
     fn entry_module(&self) -> ModuleId;
     fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId>;
-
-    fn module_path(&self, module_id: ModuleId) -> Option<ModulePath> {
-        Some(self.module(module_id)?.module_path.clone())
-    }
-
-    fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
-        self.module(module_id)?.parent
-    }
-
+    fn module_path(&self, module_id: ModuleId) -> Option<ModulePath>;
+    fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId>;
     fn child_declaration(
         &self,
         module_id: ModuleId,
         name: &SymbolId,
-    ) -> Option<(ModuleId, Visibility)> {
-        let module = self.module(module_id)?;
-        let target = module.children.get(name).copied()?;
-        let declaration = module
-            .declarations
-            .iter()
-            .find(|declaration| declaration.name == *name && declaration.target == target)?;
-        Some((target, declaration.visibility))
-    }
+    ) -> Option<(ModuleId, Visibility)>;
 
     fn current_package_root_module(&self, module_id: ModuleId) -> Option<ModuleId> {
         let package = self.module_path(module_id)?.package;
@@ -650,10 +618,6 @@ pub trait ModuleGraphLookup {
 }
 
 impl ModuleGraphLookup for ModuleGraph {
-    fn module(&self, module_id: ModuleId) -> Option<ModuleNodeRef<'_>> {
-        self.get(module_id).map(ModuleNodeRef::Borrowed)
-    }
-
     fn entry_module(&self) -> ModuleId {
         self.entry()
     }
@@ -661,22 +625,56 @@ impl ModuleGraphLookup for ModuleGraph {
     fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId> {
         self.package_root(package)
     }
+
+    fn module_path(&self, module_id: ModuleId) -> Option<ModulePath> {
+        Some(self.get(module_id)?.module_path.clone())
+    }
+
+    fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
+        self.get(module_id)?.parent
+    }
+
+    fn child_declaration(
+        &self,
+        module_id: ModuleId,
+        name: &SymbolId,
+    ) -> Option<(ModuleId, Visibility)> {
+        let module = self.get(module_id)?;
+        let target = module.children.get(name).copied()?;
+        let declaration = module
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == *name && declaration.target == target)?;
+        Some((target, declaration.visibility))
+    }
 }
 
 impl<T> ModuleGraphLookup for Arc<T>
 where
     T: ModuleGraphLookup + ?Sized,
 {
-    fn module(&self, module_id: ModuleId) -> Option<ModuleNodeRef<'_>> {
-        self.as_ref().module(module_id)
-    }
-
     fn entry_module(&self) -> ModuleId {
         self.as_ref().entry_module()
     }
 
     fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId> {
         self.as_ref().package_root_module(package)
+    }
+
+    fn module_path(&self, module_id: ModuleId) -> Option<ModulePath> {
+        self.as_ref().module_path(module_id)
+    }
+
+    fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
+        self.as_ref().parent_module(module_id)
+    }
+
+    fn child_declaration(
+        &self,
+        module_id: ModuleId,
+        name: &SymbolId,
+    ) -> Option<(ModuleId, Visibility)> {
+        self.as_ref().child_declaration(module_id, name)
     }
 }
 

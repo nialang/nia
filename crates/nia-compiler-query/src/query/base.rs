@@ -79,25 +79,6 @@ impl QueryKey<CompilerContext> for ModuleGraphQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ModuleGraphNodeQuery(pub(super) ModuleId);
-
-impl QueryKey<CompilerContext> for ModuleGraphNodeQuery {
-    type Value = Option<Arc<ModuleNode>>;
-
-    fn name() -> &'static str {
-        "module_graph_node"
-    }
-
-    fn description(&self) -> String {
-        format!("module_graph_node({:?})", self.0)
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_graph_node(self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ModuleGraphEntryQuery;
 
 impl QueryKey<CompilerContext> for ModuleGraphEntryQuery {

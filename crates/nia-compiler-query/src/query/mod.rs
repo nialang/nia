@@ -11,7 +11,7 @@ use nia_defs::{
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
-use nia_imports::{ModuleGraph, ModuleGraphLookup, ModuleNode, ModuleNodeRef};
+use nia_imports::{ModuleGraph, ModuleGraphLookup, ModuleNode};
 use nia_item_signatures::{
     ItemSignatures, ProgramConstSignature, ProgramEnumSignature, ProgramFunctionSignature,
     ProgramGlobalSignature, ProgramStructSignature, ProgramTraitSignature,
@@ -171,7 +171,6 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ModuleDefsQuery,
         ModuleGraphChildQuery,
         ModuleGraphEntryQuery,
-        ModuleGraphNodeQuery,
         ModuleGraphParentQuery,
         ModuleGraphPathQuery,
         ModuleGraphQuery,
@@ -410,9 +409,6 @@ impl CompilerDatabase {
         let mut invalidation = CompilerInvalidation::default();
         if diff.graph_entry_changed {
             invalidation.extend(self.db.invalidate(ModuleGraphEntryQuery));
-        }
-        for module_id in diff.changed_graph_modules {
-            invalidation.extend(self.db.invalidate(ModuleGraphNodeQuery(module_id)));
         }
         for module_id in diff.changed_graph_paths {
             invalidation.extend(self.db.invalidate(ModuleGraphPathQuery(module_id)));
@@ -1272,16 +1268,6 @@ impl CompilerContext {
             .clone()
     }
 
-    fn module_graph_node(&self, module_id: ModuleId) -> Option<Arc<ModuleNode>> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .graph
-            .get(module_id)
-            .cloned()
-            .map(Arc::new)
-    }
-
     fn module_graph_entry(&self) -> ModuleId {
         self.inputs
             .read()
@@ -1534,7 +1520,6 @@ fn index_input_module_identities(
 struct CompilerInputDiff {
     graph_changed: bool,
     graph_entry_changed: bool,
-    changed_graph_modules: HashSet<ModuleId>,
     changed_graph_paths: HashSet<ModuleId>,
     changed_graph_parents: HashSet<ModuleId>,
     changed_graph_children: HashSet<(ModuleId, SymbolId)>,
@@ -1580,7 +1565,6 @@ impl CompilerInputDiff {
         Self {
             graph_changed: old.graph != new.graph,
             graph_entry_changed: old.graph.entry() != new.graph.entry(),
-            changed_graph_modules: changed_graph_modules(old, new),
             changed_graph_paths: changed_graph_paths(old, new),
             changed_graph_parents: changed_graph_parents(old, new),
             changed_graph_children: changed_graph_children(old, new),
@@ -1672,15 +1656,6 @@ fn executable_value_ref_item_snapshot(
         module.active_item_tree.items.get(location.item_index)?,
         &module.active_item_tree.inactive_spans,
     ))
-}
-
-fn changed_graph_modules(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<ModuleId> {
-    old.graph
-        .modules()
-        .map(|module| module.id)
-        .chain(new.graph.modules().map(|module| module.id))
-        .filter(|module_id| old.graph.get(*module_id) != new.graph.get(*module_id))
-        .collect()
 }
 
 fn changed_graph_paths(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<ModuleId> {
@@ -2507,7 +2482,24 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 116);
+        assert_eq!(descriptors.len(), 115);
+        assert!(
+            !descriptors
+                .iter()
+                .any(|descriptor| descriptor.name == "module_graph_node")
+        );
+        for name in [
+            "module_graph_entry",
+            "module_graph_path",
+            "module_graph_parent",
+            "module_graph_child",
+            "module_package_root",
+        ] {
+            assert!(
+                descriptors.iter().any(|descriptor| descriptor.name == name),
+                "missing precise graph fact query `{name}`"
+            );
+        }
         assert!(
             descriptors
                 .windows(2)
