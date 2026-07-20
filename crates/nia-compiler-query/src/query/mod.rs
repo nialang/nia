@@ -2250,11 +2250,11 @@ mod tests {
         parent: ModuleId,
         child_name: &str,
         visibility: nia_ids::Visibility,
-    ) {
+    ) -> ModuleId {
         let child = sym(child_name);
         graph
             .intern_declared_child(parent, &child, visibility, Span::default())
-            .expect("intern child module");
+            .expect("intern child module")
     }
 
     fn intern_shallow_child(
@@ -2262,7 +2262,7 @@ mod tests {
         parent: ModuleId,
         child_name: &str,
         visibility: nia_ids::Visibility,
-    ) {
+    ) -> ModuleId {
         let child = sym(child_name);
         graph
             .intern_declared_child_with_processing(
@@ -2273,7 +2273,90 @@ mod tests {
                 false,
                 false,
             )
-            .expect("intern shallow child module");
+            .expect("intern shallow child module")
+    }
+
+    struct LoadedProgramFixture {
+        graph: ModuleGraph,
+        modules: Vec<LoadedModule>,
+    }
+
+    impl LoadedProgramFixture {
+        fn new(entry_path: &str, source: &str) -> Self {
+            let graph = ModuleGraph::with_symbol_text(
+                SourcePath::new(entry_path),
+                Arc::new(test_symbols()),
+            );
+            let entry_id = graph.entry();
+            Self {
+                graph,
+                modules: vec![loaded_module(entry_id, entry_path, source)],
+            }
+        }
+
+        fn entry_id(&self) -> ModuleId {
+            self.graph.entry()
+        }
+
+        fn add_child(
+            &mut self,
+            parent: ModuleId,
+            child_name: &str,
+            path: &str,
+            source: &str,
+        ) -> ModuleId {
+            let module_id = intern_child(
+                &mut self.graph,
+                parent,
+                child_name,
+                nia_ids::Visibility::Public,
+            );
+            self.modules.push(loaded_module(module_id, path, source));
+            module_id
+        }
+
+        fn add_shallow_child(
+            &mut self,
+            parent: ModuleId,
+            child_name: &str,
+            path: &str,
+            source: &str,
+        ) -> ModuleId {
+            let module_id = intern_shallow_child(
+                &mut self.graph,
+                parent,
+                child_name,
+                nia_ids::Visibility::Public,
+            );
+            self.modules.push(loaded_module(module_id, path, source));
+            module_id
+        }
+
+        fn update_module_source(
+            &mut self,
+            module_id: ModuleId,
+            source: &str,
+            revision: SourceRevision,
+        ) {
+            let module = self
+                .modules
+                .iter_mut()
+                .find(|module| module.id == module_id)
+                .expect("fixture module");
+            *module =
+                loaded_module_with_revision(module_id, module.path.as_str(), source, revision);
+        }
+
+        fn program(&self) -> LoadedProgram {
+            LoadedProgram {
+                graph: self.graph.clone().into(),
+                symbols: test_symbols(),
+                target: TargetConfig::host(),
+                runtime: RuntimeModel::Bare,
+                modules: self.modules.clone(),
+                diagnostics: Vec::new(),
+            }
+        }
     }
 
     fn loaded_program_with_modules(modules: Vec<LoadedModule>) -> LoadedProgram {
@@ -2318,28 +2401,6 @@ mod tests {
     ) -> LoadedProgram {
         let mut graph = ModuleGraph::with_symbol_text(entry.path.clone(), Arc::new(test_symbols()));
         intern_child(
-            &mut graph,
-            entry.id,
-            child_name,
-            nia_ids::Visibility::Public,
-        );
-        LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::Bare,
-            modules: vec![entry, child],
-            diagnostics: Vec::new(),
-        }
-    }
-
-    fn loaded_program_with_shallow_entry_child(
-        entry: LoadedModule,
-        child_name: &str,
-        child: LoadedModule,
-    ) -> LoadedProgram {
-        let mut graph = ModuleGraph::with_symbol_text(entry.path.clone(), Arc::new(test_symbols()));
-        intern_shallow_child(
             &mut graph,
             entry.id,
             child_name,
@@ -2525,8 +2586,7 @@ mod tests {
             NiaOptimizationLevel::Os,
             NiaOptimizationLevel::Oz,
         ] {
-            let loaded = loaded_program_with_modules(vec![loaded_module(
-                ModuleId(0),
+            let fixture = LoadedProgramFixture::new(
                 "main.nia",
                 r#"
 static zeroes: [4]i32 = [0; 4];
@@ -2535,10 +2595,11 @@ fn main() i32 {
     zeroes[0]
 }
 "#,
-            )]);
-            let checked =
-                CompilerDatabase::new(CompileRequest::new(loaded).with_optimization(level))
-                    .codegen_program();
+            );
+            let checked = CompilerDatabase::new(
+                CompileRequest::new(fixture.program()).with_optimization(level),
+            )
+            .codegen_program();
             let policy = level.policy();
 
             assert!(
@@ -2567,10 +2628,8 @@ fn main() i32 {
 
     #[test]
     fn compiler_database_exposes_query_trace() {
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
-            ])));
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
         let checked = database.check_program();
         let trace = database.query_trace();
@@ -2583,8 +2642,7 @@ fn main() i32 {
 
     #[test]
     fn semantic_module_ids_exclude_shallow_facade_modules() {
-        let entry = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 pub module facade;
@@ -2594,8 +2652,10 @@ fn main() i32 {
 }
 "#,
         );
-        let facade = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let facade_id = fixture.add_shallow_child(
+            entry_id,
+            "facade",
             "facade.nia",
             r#"
 pub fn expensive_or_invalid() i32 {
@@ -2603,55 +2663,59 @@ pub fn expensive_or_invalid() i32 {
 }
 "#,
         );
-        let db = query_db(loaded_program_with_shallow_entry_child(
-            entry, "facade", facade,
-        ));
+        let db = query_db(fixture.program());
 
         assert_eq!(
             db.get(ParseOkModuleIdsQuery).as_slice(),
-            &[ModuleId(0), ModuleId(1)]
+            &[entry_id, facade_id]
         );
-        assert_eq!(db.get(SemanticModuleIdsQuery).as_slice(), &[ModuleId(0)]);
+        assert_eq!(db.get(SemanticModuleIdsQuery).as_slice(), &[entry_id]);
 
-        assert_eq!(db.get(CheckedModuleIdsQuery).as_slice(), &[ModuleId(0)]);
+        assert_eq!(db.get(CheckedModuleIdsQuery).as_slice(), &[entry_id]);
     }
 
     #[test]
     fn compiler_inputs_index_modules_by_source_identity() {
-        let loaded = loaded_program_with_modules(vec![
-            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
-            loaded_module(ModuleId(1), "pkg/root.nia", "pub fn value() i32 { 1 }"),
-        ]);
-        let db = query_db(loaded);
+        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let entry_id = fixture.entry_id();
+        let package_id =
+            fixture.add_child(entry_id, "pkg", "pkg/root.nia", "pub fn value() i32 { 1 }");
+        let db = query_db(fixture.program());
 
         assert_eq!(
             module_id_for_source_identity(&db, &SourcePath::new("pkg/root.nia").identity()),
-            Some(ModuleId(1))
+            Some(package_id)
         );
     }
 
     #[test]
     #[should_panic(expected = "Nia ICE: duplicate loaded module id")]
     fn compiler_inputs_reject_duplicate_module_ids() {
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let _ = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
-            loaded_module(ModuleId(0), "other.nia", "pub fn value() i32 { 1 }"),
+            loaded_module(module_id, "main.nia", "fn main() i32 { 0 }"),
+            loaded_module(module_id, "other.nia", "pub fn value() i32 { 1 }"),
         ])));
     }
 
     #[test]
     #[should_panic(expected = "Nia ICE: duplicate source identity")]
     fn compiler_inputs_reject_duplicate_source_identities() {
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let entry_id = module_ids.allocate();
+        let duplicate_id = module_ids.allocate();
         let _ = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
-            loaded_module(ModuleId(1), "main.nia", "pub fn value() i32 { 1 }"),
+            loaded_module(entry_id, "main.nia", "fn main() i32 { 0 }"),
+            loaded_module(duplicate_id, "main.nia", "pub fn value() i32 { 1 }"),
         ])));
     }
 
     #[test]
     #[should_panic(expected = "Nia ICE: loaded module")]
     fn compiler_inputs_reject_path_identity_mismatch() {
-        let mut module = loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }");
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let mut module = loaded_module(module_ids.allocate(), "main.nia", "fn main() i32 { 0 }");
         module.source_identity = SourcePath::new("other.nia").identity();
 
         let _ = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
@@ -2661,14 +2725,13 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn loaded_module_reorder_invalidates_list_without_field_changes() {
-        let old = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
-            loaded_module(ModuleId(1), "pkg/root.nia", "pub fn value() i32 { 1 }"),
-        ])));
-        let new = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(ModuleId(1), "pkg/root.nia", "pub fn value() i32 { 1 }"),
-            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
-        ])));
+        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let entry_id = fixture.entry_id();
+        fixture.add_child(entry_id, "pkg", "pkg/root.nia", "pub fn value() i32 { 1 }");
+        let old = CompilerInputs::new(CompileRequest::new(fixture.program()));
+        let mut reordered = fixture.program();
+        reordered.modules.reverse();
+        let new = CompilerInputs::new(CompileRequest::new(reordered));
 
         let diff = CompilerInputDiff::between(&old, &new);
 
@@ -2678,15 +2741,16 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn additive_module_growth_preserves_existing_executable_fact_inputs() {
-        let entry = loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }");
-        let old = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            entry.clone(),
-        ])));
-        let new = CompilerInputs::new(CompileRequest::new(loaded_program_with_entry_child(
-            entry,
+        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let old = CompilerInputs::new(CompileRequest::new(fixture.program()));
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
             "provider",
-            loaded_module(ModuleId(1), "main/provider.nia", "pub fn value() i32 { 1 }"),
-        )));
+            "main/provider.nia",
+            "pub fn value() i32 { 1 }",
+        );
+        let new = CompilerInputs::new(CompileRequest::new(fixture.program()));
 
         let diff = CompilerInputDiff::between(&old, &new);
 
@@ -2696,16 +2760,19 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn stable_source_identity_with_new_module_id_invalidates_old_key_and_recomputes_new_key() {
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let old_module_id = module_ids.allocate();
+        let new_module_id = module_ids.allocate();
         let old = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
             loaded_module(
-                ModuleId(0),
+                old_module_id,
                 "main.nia",
                 "pub struct S { value: i32 } fn main() i32 { 0 }",
             ),
         ])));
         let new = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
             loaded_module(
-                ModuleId(7),
+                new_module_id,
                 "main.nia",
                 "pub struct S { value: i32 } fn main() i32 { 0 }",
             ),
@@ -2714,12 +2781,15 @@ pub fn expensive_or_invalid() i32 {
 
         assert!(diff.loaded_modules_changed);
         assert_eq!(diff.changed_modules.len(), 1);
-        assert_eq!(diff.changed_modules[0].ids, vec![ModuleId(0), ModuleId(7)]);
+        assert_eq!(
+            diff.changed_modules[0].ids,
+            vec![old_module_id, new_module_id]
+        );
 
         let database =
             CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
                 loaded_module(
-                    ModuleId(0),
+                    old_module_id,
                     "main.nia",
                     "pub struct S { value: i32 } fn main() i32 { 0 }",
                 ),
@@ -2730,7 +2800,7 @@ pub fn expensive_or_invalid() i32 {
 
         let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
             loaded_module(
-                ModuleId(7),
+                new_module_id,
                 "main.nia",
                 "pub struct S { value: i32 } fn main() i32 { 0 }",
             ),
@@ -2756,16 +2826,18 @@ pub fn expensive_or_invalid() i32 {
 
         let second = database.check_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-        assert_eq!(second.modules[0].id, ModuleId(7));
+        assert_eq!(second.modules[0].id, new_module_id);
     }
 
     #[test]
     fn same_module_id_with_new_source_identity_is_replacement() {
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let old = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
+            loaded_module(module_id, "main.nia", "fn main() i32 { 0 }"),
         ])));
         let new = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(ModuleId(0), "other.nia", "fn main() i32 { 0 }"),
+            loaded_module(module_id, "other.nia", "fn main() i32 { 0 }"),
         ])));
 
         let diff = CompilerInputDiff::between(&old, &new);
@@ -2773,7 +2845,7 @@ pub fn expensive_or_invalid() i32 {
         assert!(diff.loaded_modules_changed);
         assert_eq!(diff.changed_modules.len(), 2);
         assert!(diff.changed_modules.iter().all(|module| {
-            module.ids == vec![ModuleId(0)]
+            module.ids == vec![module_id]
                 && module.path
                 && module.source_identity
                 && module.source_version
@@ -2784,22 +2856,15 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn compiler_database_update_invalidates_changed_module_field_inputs() {
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
-            ])));
+        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let module_id = fixture.entry_id();
+        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
-        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module_with_revision(
-                ModuleId(0),
-                "main.nia",
-                "fn main() i32 { true }",
-                SourceRevision(1),
-            ),
-        ])));
+        fixture.update_module_source(module_id, "fn main() i32 { true }", SourceRevision(1));
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
         let invalidated = invalidation
             .invalidated
             .iter()
@@ -2836,11 +2901,8 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn timing_mode_update_does_not_invalidate_semantic_queries() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "fn main() i32 { 0 }",
-        )]);
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let loaded = fixture.program();
         let database = CompilerDatabase::new(CompileRequest::new(loaded.clone()));
 
         let first = database.check_program();
@@ -2870,21 +2932,25 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn provider_graph_growth_keeps_executable_roots_cached() {
-        let loaded = loaded_program_with_shallow_entry_child(
-            loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }"),
+        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let entry_id = fixture.entry_id();
+        let provider_id = fixture.add_shallow_child(
+            entry_id,
             "provider",
-            loaded_module(ModuleId(1), "main/provider.nia", "pub fn value() i32 { 1 }"),
+            "main/provider.nia",
+            "pub fn value() i32 { 1 }",
         );
+        let loaded = fixture.program();
         let database = CompilerDatabase::new(CompileRequest::new(loaded.clone()));
         assert_eq!(
             database.db.get(ExecutableRootModulesQuery).as_ref(),
-            &(ModuleId(0), Vec::new())
+            &(entry_id, Vec::new())
         );
-        let _ = database.db.get(TypeResolutionQuery(ModuleId(0)));
+        let _ = database.db.get(TypeResolutionQuery(entry_id));
 
         let mut grown = loaded;
         let mut graph = (*grown.graph).clone();
-        assert!(graph.mark_semantic_selected(ModuleId(1)));
+        assert!(graph.mark_semantic_selected(provider_id));
         grown.graph = graph.into();
         let invalidation = database.update(CompileRequest::new(grown));
         let invalidated = invalidation
@@ -2901,17 +2967,15 @@ pub fn expensive_or_invalid() i32 {
         );
         assert_eq!(
             database.db.get(ExecutableRootModulesQuery).as_ref(),
-            &(ModuleId(0), Vec::new())
+            &(entry_id, Vec::new())
         );
     }
 
     #[test]
     fn additive_provider_graph_growth_reuses_existing_executable_facts() {
-        let entry = loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }");
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                entry.clone(),
-            ])));
+        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let entry_id = fixture.entry_id();
+        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
         let _ = database.executable_provider_demands();
         {
@@ -2921,44 +2985,44 @@ pub fn expensive_or_invalid() i32 {
                 .executable_fact_session
                 .lock()
                 .expect("executable fact session lock poisoned");
-            assert!(session.modules.contains_key(&ModuleId(0)));
+            assert!(session.modules.contains_key(&entry_id));
             assert!(
                 session
                     .caches
                     .body_resolution_inputs
                     .borrow()
-                    .contains_key(&ModuleId(0))
+                    .contains_key(&entry_id)
             );
         }
 
-        database.update(CompileRequest::new(loaded_program_with_entry_child(
-            entry,
+        fixture.add_child(
+            entry_id,
             "provider",
-            loaded_module(ModuleId(1), "main/provider.nia", "pub fn value() i32 { 1 }"),
-        )));
+            "main/provider.nia",
+            "pub fn value() i32 { 1 }",
+        );
+        database.update(CompileRequest::new(fixture.program()));
         let session = database
             .db
             .context()
             .executable_fact_session
             .lock()
             .expect("executable fact session lock poisoned");
-        assert!(session.modules.contains_key(&ModuleId(0)));
+        assert!(session.modules.contains_key(&entry_id));
         assert!(
             session
                 .caches
                 .body_resolution_inputs
                 .borrow()
-                .contains_key(&ModuleId(0))
+                .contains_key(&entry_id)
         );
     }
 
     #[test]
     fn provider_changes_discard_affected_executable_fact_caches() {
-        let entry = loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }");
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                entry.clone(),
-            ])));
+        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let entry_id = fixture.entry_id();
+        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
         let _ = database.executable_provider_demands();
         let provider_changes = vec![crate::ProviderDemand {
             source_path: SourcePath::new("main.nia"),
@@ -2976,7 +3040,7 @@ pub fn expensive_or_invalid() i32 {
                 .expect("executable fact session lock poisoned");
             let state = session
                 .modules
-                .get_mut(&ModuleId(0))
+                .get_mut(&entry_id)
                 .expect("entry executable facts");
             state
                 .unowned_provider_demands
@@ -2984,14 +3048,14 @@ pub fn expensive_or_invalid() i32 {
             state.provider_demands.insert(provider_changes[0].clone());
         }
 
-        database.update(
-            CompileRequest::new(loaded_program_with_entry_child(
-                entry,
-                "provider",
-                loaded_module(ModuleId(1), "main/provider.nia", "pub fn value() i32 { 1 }"),
-            ))
-            .with_provider_changes(provider_changes),
+        fixture.add_child(
+            entry_id,
+            "provider",
+            "main/provider.nia",
+            "pub fn value() i32 { 1 }",
         );
+        database
+            .update(CompileRequest::new(fixture.program()).with_provider_changes(provider_changes));
 
         let session = database
             .db
@@ -2999,28 +3063,32 @@ pub fn expensive_or_invalid() i32 {
             .executable_fact_session
             .lock()
             .expect("executable fact session lock poisoned");
-        assert!(!session.modules.contains_key(&ModuleId(0)));
+        assert!(!session.modules.contains_key(&entry_id));
         assert!(
             !session
                 .caches
                 .body_resolution_inputs
                 .borrow()
-                .contains_key(&ModuleId(0))
+                .contains_key(&entry_id)
         );
     }
 
     #[test]
     fn semantic_provider_activation_preserves_resolved_caller_facts() {
-        let entry = loaded_module(ModuleId(0), "main.nia", "fn main() i32 { 0 }");
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                entry.clone(),
-            ])));
+        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let entry_id = fixture.entry_id();
+        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
         let _ = database.executable_provider_demands();
+        let provider_id = fixture.add_child(
+            entry_id,
+            "provider",
+            "main/provider.nia",
+            "pub fn value() i32 { 1 }",
+        );
         let provider_change = crate::ProviderDemand {
             source_path: SourcePath::new("main.nia"),
             request: crate::ProviderRequest::ModuleSemantic {
-                module_id: ModuleId(1),
+                module_id: provider_id,
             },
         };
         let checked_function = {
@@ -3032,7 +3100,7 @@ pub fn expensive_or_invalid() i32 {
                 .expect("executable fact session lock poisoned");
             let state = session
                 .modules
-                .get_mut(&ModuleId(0))
+                .get_mut(&entry_id)
                 .expect("entry executable facts");
             let checked_function = *state
                 .checked_functions
@@ -3049,12 +3117,7 @@ pub fn expensive_or_invalid() i32 {
         };
 
         database.update(
-            CompileRequest::new(loaded_program_with_entry_child(
-                entry,
-                "provider",
-                loaded_module(ModuleId(1), "main/provider.nia", "pub fn value() i32 { 1 }"),
-            ))
-            .with_provider_changes([provider_change]),
+            CompileRequest::new(fixture.program()).with_provider_changes([provider_change]),
         );
 
         let session = database
@@ -3065,7 +3128,7 @@ pub fn expensive_or_invalid() i32 {
             .expect("executable fact session lock poisoned");
         let state = session
             .modules
-            .get(&ModuleId(0))
+            .get(&entry_id)
             .expect("preserved entry executable facts");
         assert!(state.checked_functions.contains(&checked_function));
         assert!(
@@ -3073,21 +3136,18 @@ pub fn expensive_or_invalid() i32 {
                 .caches
                 .body_resolution_inputs
                 .borrow()
-                .contains_key(&ModuleId(0))
+                .contains_key(&entry_id)
         );
     }
 
     #[test]
     fn method_provider_change_removes_only_affected_function_diagnostics() {
-        let entry = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             "struct Value {} fn helper() i32 { 1 } fn main(value: Value) i32 { value.missing() }",
         );
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                entry.clone(),
-            ])));
+        let entry_id = fixture.entry_id();
+        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
         let provider_changes = database
             .executable_provider_demands()
             .into_iter()
@@ -3101,7 +3161,7 @@ pub fn expensive_or_invalid() i32 {
                 .executable_fact_session
                 .lock()
                 .expect("executable fact session lock poisoned");
-            let state = session.modules.get(&ModuleId(0)).expect("entry facts");
+            let state = session.modules.get(&entry_id).expect("entry facts");
             assert!(!state.diagnostics.is_empty());
             let affected = *state
                 .provider_demands_by_function
@@ -3121,14 +3181,14 @@ pub fn expensive_or_invalid() i32 {
             (affected, unaffected)
         };
 
-        database.update(
-            CompileRequest::new(loaded_program_with_entry_child(
-                entry,
-                "provider",
-                loaded_module(ModuleId(1), "main/provider.nia", "pub fn value() i32 { 1 }"),
-            ))
-            .with_provider_changes(provider_changes),
+        fixture.add_child(
+            entry_id,
+            "provider",
+            "main/provider.nia",
+            "pub fn value() i32 { 1 }",
         );
+        database
+            .update(CompileRequest::new(fixture.program()).with_provider_changes(provider_changes));
 
         let session = database
             .db
@@ -3138,7 +3198,7 @@ pub fn expensive_or_invalid() i32 {
             .expect("executable fact session lock poisoned");
         let state = session
             .modules
-            .get(&ModuleId(0))
+            .get(&entry_id)
             .expect("partially retained entry facts");
         assert!(!state.checked_functions.contains(&affected_function));
         assert!(state.checked_functions.contains(&unaffected_function));
@@ -3149,24 +3209,22 @@ pub fn expensive_or_invalid() i32 {
                 .caches
                 .body_resolution_inputs
                 .borrow()
-                .contains_key(&ModuleId(0))
+                .contains_key(&entry_id)
         );
     }
 
     #[test]
     fn revision_only_update_keeps_declaration_and_type_queries_cached() {
         let source = "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }";
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module_with_revision(ModuleId(0), "main.nia", source, SourceRevision(0)),
-            ])));
+        let mut fixture = LoadedProgramFixture::new("main.nia", source);
+        let module_id = fixture.entry_id();
+        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
-        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module_with_revision(ModuleId(0), "main.nia", source, SourceRevision(1)),
-        ])));
+        fixture.update_module_source(module_id, source, SourceRevision(1));
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
         let invalidated = invalidation
             .invalidated
             .iter()
@@ -3217,16 +3275,9 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn type_store_preserves_published_slots_across_database_updates() {
-        let module_id = ModuleId(0);
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module_with_revision(
-                    module_id,
-                    "main.nia",
-                    "pub struct S { value: i32 }",
-                    SourceRevision(0),
-                ),
-            ])));
+        let mut fixture = LoadedProgramFixture::new("main.nia", "pub struct S { value: i32 }");
+        let module_id = fixture.entry_id();
+        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
         let first_lowering = database.db.get(TypeLoweringQuery(module_id));
         let type_store = &database.db.context().type_store;
         let first_i32 = type_store
@@ -3239,14 +3290,12 @@ pub fn expensive_or_invalid() i32 {
                 .all(|ty| type_store.get(ty).is_some())
         );
 
-        database.update(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module_with_revision(
-                module_id,
-                "main.nia",
-                "pub struct S { value: i32, flag: &bool }",
-                SourceRevision(1),
-            ),
-        ])));
+        fixture.update_module_source(
+            module_id,
+            "pub struct S { value: i32, flag: &bool }",
+            SourceRevision(1),
+        );
+        database.update(CompileRequest::new(fixture.program()));
         let second_lowering = database.db.get(TypeLoweringQuery(module_id));
 
         assert_eq!(
