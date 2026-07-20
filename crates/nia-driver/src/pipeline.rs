@@ -17,7 +17,7 @@ use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::TargetConfig;
 
-use crate::{CheckedProgram, CodegenProgram, LoadedProgram};
+use crate::{CheckedProgram, CodegenProgram};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Runtime {
@@ -168,7 +168,7 @@ impl Driver {
         let timings = request.timings;
         let loader = self.loader_database(&request);
         let loaded = loader.load_program();
-        let mut graph_state = module_graph_state(&loaded);
+        let mut loaded_graph = loaded.graph.clone();
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
         let (database, mut pending_update) = if let Some(compiler) = &*compiler_guard {
             (
@@ -211,8 +211,8 @@ impl Driver {
                     loader.add_provider_demands_collect_new(database.executable_provider_demands());
                 if !provider_changes.is_empty() {
                     let next_loaded = loader.load_program();
-                    if module_graph_state(&next_loaded) != graph_state {
-                        graph_state = module_graph_state(&next_loaded);
+                    if next_loaded.graph != loaded_graph {
+                        loaded_graph = next_loaded.graph.clone();
                         pending_update = Some((next_loaded, provider_changes));
                         continue;
                     }
@@ -226,11 +226,11 @@ impl Driver {
                 return output;
             }
             let next_loaded = loader.load_program();
-            if module_graph_state(&next_loaded) == graph_state {
+            if next_loaded.graph == loaded_graph {
                 emit_compilation_counters(timings, &database, &output, provider_demand_rounds);
                 return output;
             }
-            graph_state = module_graph_state(&next_loaded);
+            loaded_graph = next_loaded.graph.clone();
             pending_update = Some((next_loaded, provider_changes));
         }
     }
@@ -577,23 +577,6 @@ fn emit_compilation_counters(
         "compiler.reachable_bodies",
         output.reachable_body_count() as u64,
     );
-}
-
-fn module_graph_state(
-    program: &LoadedProgram,
-) -> Vec<(nia_source::SourceIdentity, bool, bool, bool)> {
-    program
-        .graph
-        .modules()
-        .map(|module| {
-            (
-                module.path.identity(),
-                module.semantic_selected,
-                module.process_used_paths,
-                module.process_declared_children,
-            )
-        })
-        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
