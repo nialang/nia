@@ -1473,6 +1473,7 @@ mod tests {
         lower_module_const,
     };
     use nia_defs::{ModuleId, collect_module_defs};
+    use nia_ids::ModuleIdAllocator;
     use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
     use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
     use nia_local_resolve::resolve_module_locals;
@@ -1491,6 +1492,7 @@ mod tests {
     }
 
     fn compute_test_const(
+        module_id: ModuleId,
         type_store: &TypeStore,
         module: &nia_ast::Module,
         symbols: &SymbolTable,
@@ -1504,7 +1506,7 @@ mod tests {
         let active_item_tree =
             ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default());
         let semantic_uses =
-            semantic_use_table(ModuleId(0), &values, &locals, lowered, &active_item_tree);
+            semantic_use_table(module_id, &values, &locals, lowered, &active_item_tree);
         let target = nia_target_config::TargetConfig::host();
         let source_path = SourcePath::new("/tmp/nia-layout-test/main.nia");
         let const_module = lower_module_const(ConstModuleInput {
@@ -1642,6 +1644,8 @@ mod tests {
 
     #[test]
     fn computes_primitive_pointer_array_and_struct_layouts() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, symbols) = parse_test_module(
             r#"
 struct Pair {
@@ -1652,12 +1656,19 @@ struct Pair {
 fn main(p: &Pair, xs: [3]u16) {}
 "#,
         );
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
-        let const_eval =
-            compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
+        let const_eval = compute_test_const(
+            module_id,
+            &type_store,
+            &module,
+            &symbols,
+            &defs,
+            &signatures,
+            &lowered,
+        );
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
@@ -1675,7 +1686,7 @@ fn main(p: &Pair, xs: [3]u16) {}
                 .types
                 .get(
                     &type_store
-                        .append_for_module(ModuleId(0))
+                        .append_for_module(module_id)
                         .intern(TyKind::Primitive(PrimitiveTy::U8)),
                 )
                 .expect("u8 layout"),
@@ -1698,6 +1709,8 @@ fn main(p: &Pair, xs: [3]u16) {}
 
     #[test]
     fn computes_layout_builtin_array_lengths() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, symbols) = parse_test_module(
             r#"
 struct Pair {
@@ -1708,12 +1721,19 @@ struct Pair {
 fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8) {}
 "#,
         );
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
-        let const_eval =
-            compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
+        let const_eval = compute_test_const(
+            module_id,
+            &type_store,
+            &module,
+            &symbols,
+            &defs,
+            &signatures,
+            &lowered,
+        );
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
@@ -1748,6 +1768,8 @@ fn main(xs: [std::builtin::size[Pair]()]u8, ys: [std::builtin::align[Pair]()]u8)
 
     #[test]
     fn substitutes_const_generic_array_lengths_in_struct_layouts() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, symbols) = parse_test_module(
             r#"
 struct Buffer[T, N: usize] {
@@ -1757,7 +1779,7 @@ struct Buffer[T, N: usize] {
 fn main(buf: Buffer[u8, 4]) {}
 "#,
         );
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         assert!(
             resolved.diagnostics.is_empty(),
@@ -1767,8 +1789,15 @@ fn main(buf: Buffer[u8, 4]) {}
         let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
-        let const_eval =
-            compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
+        let const_eval = compute_test_const(
+            module_id,
+            &type_store,
+            &module,
+            &symbols,
+            &defs,
+            &signatures,
+            &lowered,
+        );
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
@@ -1791,6 +1820,8 @@ fn main(buf: Buffer[u8, 4]) {}
 
     #[test]
     fn computes_empty_struct_layout() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, symbols) = parse_test_module(
             r#"
 struct Empty {}
@@ -1798,12 +1829,19 @@ struct Empty {}
 fn main(value: Empty) {}
 "#,
         );
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
-        let const_eval =
-            compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
+        let const_eval = compute_test_const(
+            module_id,
+            &type_store,
+            &module,
+            &symbols,
+            &defs,
+            &signatures,
+            &lowered,
+        );
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
@@ -1828,6 +1866,8 @@ fn main(value: Empty) {}
 
     #[test]
     fn computes_nia_struct_layout_in_physical_field_order() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, symbols) = parse_test_module(
             r#"
 struct Mixed {
@@ -1837,7 +1877,7 @@ struct Mixed {
 }
 "#,
         );
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -1866,6 +1906,8 @@ struct Mixed {
 
     #[test]
     fn ignores_inferred_array_placeholders_during_global_layout_scan() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, symbols) = parse_test_module(
             r#"
 fn main() {
@@ -1873,7 +1915,7 @@ fn main() {
 }
 "#,
         );
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -1890,6 +1932,8 @@ fn main() {
 
     #[test]
     fn computes_extern_struct_c_field_layout() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, symbols) = parse_test_module(
             r#"
 extern struct CPair {
@@ -1898,7 +1942,7 @@ extern struct CPair {
 }
 "#,
         );
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -1924,6 +1968,8 @@ extern struct CPair {
 
     #[test]
     fn computes_separate_generic_struct_instance_layouts() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, symbols) = parse_test_module(
             r#"
 struct ArrayBox[T] {
@@ -1933,12 +1979,19 @@ struct ArrayBox[T] {
 fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
 "#,
         );
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
-        let const_eval =
-            compute_test_const(&type_store, &module, &symbols, &defs, &signatures, &lowered);
+        let const_eval = compute_test_const(
+            module_id,
+            &type_store,
+            &module,
+            &symbols,
+            &defs,
+            &signatures,
+            &lowered,
+        );
         let root_types = signatures.type_roots();
         let layouts = compute_layouts_with_program_context(LayoutComputationInput {
             type_store: &type_store,
@@ -1962,7 +2015,7 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
                 def_id: array_box_id,
                 args: vec![
                     type_store
-                        .append_for_module(ModuleId(0))
+                        .append_for_module(module_id)
                         .intern(TyKind::Primitive(PrimitiveTy::U8)),
                 ],
                 const_args: Vec::new(),
@@ -1974,7 +2027,7 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
                 def_id: array_box_id,
                 args: vec![
                     type_store
-                        .append_for_module(ModuleId(0))
+                        .append_for_module(module_id)
                         .intern(TyKind::Primitive(PrimitiveTy::I32)),
                 ],
                 const_args: Vec::new(),
@@ -1986,6 +2039,8 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
 
     #[test]
     fn computes_union_layouts() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, symbols) = parse_test_module(
             r#"
 union Bits[T] {
@@ -1996,7 +2051,7 @@ union Bits[T] {
 fn main(a: Bits[i32]) {}
 "#,
         );
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let (type_store, lowered) = lower_test_module(&module, &resolved, &defs);
         let signatures = collect_test_signatures(&module, &defs, &lowered, &type_store);
@@ -2009,7 +2064,7 @@ fn main(a: Bits[i32]) {}
                 def_id: bits_id,
                 args: vec![
                     type_store
-                        .append_for_module(ModuleId(0))
+                        .append_for_module(module_id)
                         .intern(TyKind::Primitive(PrimitiveTy::I32)),
                 ],
                 const_args: Vec::new(),
