@@ -620,6 +620,7 @@ impl TypeNormalization {
 mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs};
+    use nia_ids::ModuleIdAllocator;
     use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
     use nia_parser::parse_module;
     use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeStore};
@@ -668,6 +669,8 @@ mod tests {
 
     #[test]
     fn expands_simple_type_aliases() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 type Byte = u8;
@@ -675,11 +678,11 @@ fn id(x: Byte) u8 { x }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
         let lowered = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
@@ -690,7 +693,7 @@ fn id(x: Byte) u8 { x }
             &lowered,
             &type_store,
         );
-        let normalization = normalize_lowered(ModuleId(0), &type_store, &lowered, &signatures);
+        let normalization = normalize_lowered(module_id, &type_store, &lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
             "{:?}",
@@ -707,6 +710,8 @@ fn id(x: Byte) u8 { x }
 
     #[test]
     fn expands_generic_type_aliases() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 type RawPtr[T] = &T;
@@ -714,11 +719,11 @@ fn id(p: RawPtr[u8]) &u8 { p }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
         let lowered = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
@@ -729,7 +734,7 @@ fn id(p: RawPtr[u8]) &u8 { p }
             &lowered,
             &type_store,
         );
-        let normalization = normalize_lowered(ModuleId(0), &type_store, &lowered, &signatures);
+        let normalization = normalize_lowered(module_id, &type_store, &lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
             "{:?}",
@@ -750,6 +755,8 @@ fn id(p: RawPtr[u8]) &u8 { p }
 
     #[test]
     fn normalizes_layout_builtin_array_length_operand() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 type Byte = u8;
@@ -757,11 +764,11 @@ fn id(x: [std::builtin::size[Byte]()]u8) [std::builtin::size[u8]()]u8 { x }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
         let lowered = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
@@ -772,7 +779,7 @@ fn id(x: [std::builtin::size[Byte]()]u8) [std::builtin::size[u8]()]u8 { x }
             &lowered,
             &type_store,
         );
-        let normalization = normalize_lowered(ModuleId(0), &type_store, &lowered, &signatures);
+        let normalization = normalize_lowered(module_id, &type_store, &lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
             "{:?}",
@@ -804,6 +811,8 @@ fn id(x: [std::builtin::size[Byte]()]u8) [std::builtin::size[u8]()]u8 { x }
 
     #[test]
     fn substitutes_layout_builtin_array_length_operand_in_generic_alias() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 type SizedBytes[T] = [std::builtin::size[T]()]u8;
@@ -811,11 +820,11 @@ fn id(x: SizedBytes[u16]) [std::builtin::size[u16]()]u8 { x }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
         let lowered = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
@@ -826,7 +835,7 @@ fn id(x: SizedBytes[u16]) [std::builtin::size[u16]()]u8 { x }
             &lowered,
             &type_store,
         );
-        let normalization = normalize_lowered(ModuleId(0), &type_store, &lowered, &signatures);
+        let normalization = normalize_lowered(module_id, &type_store, &lowered, &signatures);
         assert!(
             normalization.diagnostics.is_empty(),
             "{:?}",
@@ -850,6 +859,8 @@ fn id(x: SizedBytes[u16]) [std::builtin::size[u16]()]u8 { x }
 
     #[test]
     fn reports_recursive_type_aliases() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 type A = B;
@@ -857,11 +868,11 @@ type B = A;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
         let lowered = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
@@ -872,7 +883,7 @@ type B = A;
             &lowered,
             &type_store,
         );
-        let normalization = normalize_lowered(ModuleId(0), &type_store, &lowered, &signatures);
+        let normalization = normalize_lowered(module_id, &type_store, &lowered, &signatures);
         assert!(
             normalization
                 .diagnostics
@@ -883,17 +894,19 @@ type B = A;
 
     #[test]
     fn preserves_array_length_const_expr_identity() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 fn take(xs: [2 + 3]u8) void {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
         let lowered = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
@@ -904,7 +917,7 @@ fn take(xs: [2 + 3]u8) void {}
             &lowered,
             &type_store,
         );
-        let normalization = normalize_lowered(ModuleId(0), &type_store, &lowered, &signatures);
+        let normalization = normalize_lowered(module_id, &type_store, &lowered, &signatures);
         assert!(normalization.normalized.values().any(|ty| matches!(
             type_store.get(*ty),
             Some(TyKind::Array {
@@ -916,7 +929,8 @@ fn take(xs: [2 + 3]u8) void {}
 
     #[test]
     fn normalizes_only_the_explicit_input_set() {
-        let module_id = ModuleId(0);
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let type_store = TypeStore::new();
         let append = type_store.append_for_module(module_id);
         let elem = append.intern(TyKind::Primitive(PrimitiveTy::U8));
