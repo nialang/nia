@@ -1676,7 +1676,8 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
+    use nia_defs::{collect_module_defs, collect_module_defs_from_active_item_tree};
+    use nia_ids::ModuleIdAllocator;
     use nia_item_tree::ModuleItemTree;
     use nia_parser::parse_module;
     use nia_symbol::{ToSymbolId, stable_hash};
@@ -1689,6 +1690,8 @@ mod tests {
 
     #[test]
     fn collects_item_signatures_without_checking_bodies() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 extern fn printf(fmt: &u8, ...);
@@ -1718,7 +1721,7 @@ fn add(a: i32, b: i32) i32 {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
         let resolved = resolve_module_types(&module, &defs);
         assert!(
@@ -1728,7 +1731,7 @@ fn add(a: i32, b: i32) i32 {
         );
         let type_store = TypeStore::new();
         let lowered = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
@@ -1782,6 +1785,8 @@ fn add(a: i32, b: i32) i32 {
 
     #[test]
     fn collects_item_signatures_from_active_item_tree_only() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 @[if false]
@@ -1794,7 +1799,7 @@ fn selected() i32 { 1 }
         let tree = ModuleItemTree::from_module(&module);
         let active = tree.active_items(&mut BoolResolver(false)).unwrap();
         let active_module = active.to_module();
-        let defs = collect_module_defs_from_active_item_tree(ModuleId(0), &active);
+        let defs = collect_module_defs_from_active_item_tree(module_id, &active);
         assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
         let resolved = resolve_module_types(&active_module, &defs);
         assert!(
@@ -1804,7 +1809,7 @@ fn selected() i32 { 1 }
         );
         let type_store = TypeStore::new();
         let lowered = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &active_module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
@@ -2146,13 +2151,15 @@ extend[T, N: usize] [N]T : Len {
 
     #[test]
     fn bodyless_non_extern_functions_require_builtin_attribute() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module("fn missing_body() void;");
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let type_store = TypeStore::new();
         let lowering = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
@@ -2174,13 +2181,15 @@ extend[T, N: usize] [N]T : Len {
 
     #[test]
     fn rejects_lowered_types_from_another_type_store() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module("fn id(value: i32) i32 { value }");
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let lowering_store = TypeStore::new();
         let lowering = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &module,
             &resolved,
             TypeLoweringContext::empty(&lowering_store),
@@ -2527,7 +2536,9 @@ extend[T, N: usize] [N]T : Len {
     fn signatures_ok(source: &str) -> ItemSignatures {
         let (module, errors) = parse_module(source);
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let defs = collect_module_defs(module_id, &module);
         assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
         let resolved = resolve_module_types(&module, &defs);
         assert!(
@@ -2537,7 +2548,7 @@ extend[T, N: usize] [N]T : Len {
         );
         let type_store = TypeStore::new();
         let lowered = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &module,
             &resolved,
             TypeLoweringContext::empty(&type_store),
