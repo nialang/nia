@@ -9,7 +9,7 @@ use nia_defs::DefCollection;
 use nia_diagnostic::{Diagnostic, Severity};
 use nia_flow_check::FlowCheck;
 use nia_ids::{GlobalDefId, ModuleId};
-use nia_imports::ModuleGraph;
+use nia_imports::ModuleGraphSnapshot;
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
@@ -36,7 +36,7 @@ pub use query::{CompileRequest, CompilerDatabase};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedProgram {
-    pub graph: ModuleGraph,
+    pub graph: ModuleGraphSnapshot,
     pub symbols: SymbolTable,
     pub target: TargetConfig,
     pub runtime: RuntimeModel,
@@ -66,7 +66,7 @@ pub struct LoadedModule {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CheckedProgram {
-    pub graph: ModuleGraph,
+    pub graph: ModuleGraphSnapshot,
     pub optimization: OptimizationPolicy,
     pub modules: Vec<std::sync::Arc<CheckedModule>>,
     pub diagnostics: Vec<ProgramDiagnostic>,
@@ -75,7 +75,7 @@ pub struct CheckedProgram {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodegenProgram {
     pub type_store: std::sync::Arc<nia_ty::TypeStore>,
-    pub graph: ModuleGraph,
+    pub graph: ModuleGraphSnapshot,
     pub optimization: OptimizationPolicy,
     pub modules: Vec<std::sync::Arc<CheckedModule>>,
     pub monomorphization: std::sync::Arc<Monomorphization>,

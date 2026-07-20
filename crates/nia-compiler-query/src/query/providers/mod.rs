@@ -178,7 +178,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgram,
     pub(super) entry_checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgram,
     pub(super) codegen_program: fn(&QueryDb<CompilerContext>) -> CodegenProgram,
-    pub(super) module_graph: fn(&QueryDb<CompilerContext>) -> ModuleGraph,
+    pub(super) module_graph: fn(&QueryDb<CompilerContext>) -> nia_imports::ModuleGraphSnapshot,
     pub(super) parse_ok_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
     pub(super) semantic_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
     pub(super) module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,

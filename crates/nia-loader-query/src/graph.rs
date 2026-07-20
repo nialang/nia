@@ -10,7 +10,8 @@ use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
 use crate::{EntryRuntime, LoaderContext, default_std_module_path};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
-    ModuleGraph, ModuleNode, ResolvedModuleDeclaration, module_declaration_visibility_allows,
+    ModuleGraph, ModuleGraphSnapshot, ModuleNode, ResolvedModuleDeclaration,
+    module_declaration_visibility_allows,
 };
 use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceIdentity, SourceVersion};
@@ -18,7 +19,7 @@ use nia_span::Span;
 use nia_symbol::{SymbolId, known};
 
 impl QueryKey<LoaderContext> for ModuleGraphQuery {
-    type Value = ModuleGraph;
+    type Value = ModuleGraphSnapshot;
 
     fn name() -> &'static str {
         "module_graph"
@@ -55,7 +56,8 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             .cloned()
             .collect::<Vec<_>>();
         let (mut graph, mut index) = match seed {
-            Some(mut graph) => {
+            Some(snapshot) => {
+                let mut graph = (*snapshot).clone();
                 let existing_modules = graph.modules().count();
                 for demand in &new_provider_demands {
                     match &demand.request {
@@ -141,15 +143,17 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
                 break;
             }
         }
+        let source_versions = graph_source_versions(db, &graph);
+        let snapshot = ModuleGraphSnapshot::new(graph);
         let mut state = db
             .context()
             .graph_state
             .write()
             .expect("loader graph state lock poisoned");
-        state.graph = Some(graph.clone());
+        state.graph = Some(snapshot.clone());
         state.applied_provider_demands = provider_demands;
-        state.source_versions = graph_source_versions(db, &graph);
-        graph
+        state.source_versions = source_versions;
+        snapshot
     }
 }
 

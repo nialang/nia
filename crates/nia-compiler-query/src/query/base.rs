@@ -67,7 +67,7 @@ impl QueryKey<CompilerContext> for CodegenProgramQuery {
 pub(super) struct ModuleGraphQuery;
 
 impl QueryKey<CompilerContext> for ModuleGraphQuery {
-    type Value = ModuleGraph;
+    type Value = nia_imports::ModuleGraphSnapshot;
 
     fn name() -> &'static str {
         "module_graph"

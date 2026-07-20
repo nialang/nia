@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-pub(super) fn provide_module_graph(db: &QueryDb<CompilerContext>) -> ModuleGraph {
+pub(super) fn provide_module_graph(
+    db: &QueryDb<CompilerContext>,
+) -> nia_imports::ModuleGraphSnapshot {
     db.context().module_graph()
 }
 
