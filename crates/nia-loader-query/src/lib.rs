@@ -132,14 +132,24 @@ impl LoaderDatabase {
         self.db.query_trace()
     }
 
-    pub fn add_provider_demands(&self, demands: impl IntoIterator<Item = ProviderDemand>) -> bool {
-        !self.add_provider_demands_collect_new(demands).is_empty()
-    }
-
-    pub fn add_provider_demands_collect_new(
+    pub fn update_provider_demands(
         &self,
         demands: impl IntoIterator<Item = ProviderDemand>,
-    ) -> Vec<ProviderDemand> {
+    ) -> ProviderDemandUpdate {
+        let demands = demands.into_iter().collect::<Vec<_>>();
+        let all_known = {
+            let stored = self
+                .db
+                .context()
+                .provider_demands
+                .read()
+                .expect("loader provider demand lock poisoned");
+            demands.iter().all(|demand| stored.contains(demand))
+        };
+        if all_known {
+            return ProviderDemandUpdate::NoNewDemands;
+        }
+        let previous_graph = self.db.get(graph::ModuleGraphQuery);
         let mut stored = self
             .db
             .context()
@@ -153,10 +163,19 @@ impl LoaderDatabase {
             }
         }
         drop(stored);
-        if !added.is_empty() {
-            self.db.invalidate(graph::ModuleGraphQuery);
+        if added.is_empty() {
+            return ProviderDemandUpdate::NoNewDemands;
         }
-        added
+        self.db.invalidate(graph::ModuleGraphQuery);
+        let graph = self.db.get(graph::ModuleGraphQuery);
+        if graph == previous_graph {
+            ProviderDemandUpdate::GraphUnchanged { new_demands: added }
+        } else {
+            ProviderDemandUpdate::GraphChanged {
+                program: Box::new(self.load_program()),
+                new_demands: added,
+            }
+        }
     }
 
     fn reset_graph_state(&self) {
@@ -173,6 +192,18 @@ impl LoaderDatabase {
             .write()
             .expect("loader graph state lock poisoned") = LoaderGraphState::default();
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProviderDemandUpdate {
+    NoNewDemands,
+    GraphUnchanged {
+        new_demands: Vec<ProviderDemand>,
+    },
+    GraphChanged {
+        program: Box<LoadedProgram>,
+        new_demands: Vec<ProviderDemand>,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -12,7 +12,7 @@ use nia_compiler_query::{
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
 use nia_linker::{LinkOptions, LinkTarget};
-use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase};
+use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase, ProviderDemandUpdate};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::TargetConfig;
@@ -168,7 +168,6 @@ impl Driver {
         let timings = request.timings;
         let loader = self.loader_database(&request);
         let loaded = loader.load_program();
-        let mut loaded_graph = loaded.graph.clone();
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
         let (database, mut pending_update) = if let Some(compiler) = &*compiler_guard {
             (
@@ -206,32 +205,29 @@ impl Driver {
                         .with_provider_changes(provider_changes),
                 );
             }
-            if discover_executable_providers && !can_finalize_without_discovery {
-                let provider_changes =
-                    loader.add_provider_demands_collect_new(database.executable_provider_demands());
-                if !provider_changes.is_empty() {
-                    let next_loaded = loader.load_program();
-                    if next_loaded.graph != loaded_graph {
-                        loaded_graph = next_loaded.graph.clone();
-                        pending_update = Some((next_loaded, provider_changes));
-                        continue;
-                    }
-                }
+            if discover_executable_providers
+                && !can_finalize_without_discovery
+                && let ProviderDemandUpdate::GraphChanged {
+                    program,
+                    new_demands,
+                } = loader.update_provider_demands(database.executable_provider_demands())
+            {
+                pending_update = Some((*program, new_demands));
+                continue;
             }
             let output = compile(&database);
             let provider_demands = output.provider_demands();
-            let provider_changes = loader.add_provider_demands_collect_new(provider_demands);
-            if provider_changes.is_empty() {
-                emit_compilation_counters(timings, &database, &output, provider_demand_rounds);
-                return output;
+            match loader.update_provider_demands(provider_demands) {
+                ProviderDemandUpdate::GraphChanged {
+                    program,
+                    new_demands,
+                } => pending_update = Some((*program, new_demands)),
+                ProviderDemandUpdate::NoNewDemands
+                | ProviderDemandUpdate::GraphUnchanged { .. } => {
+                    emit_compilation_counters(timings, &database, &output, provider_demand_rounds);
+                    return output;
+                }
             }
-            let next_loaded = loader.load_program();
-            if next_loaded.graph == loaded_graph {
-                emit_compilation_counters(timings, &database, &output, provider_demand_rounds);
-                return output;
-            }
-            loaded_graph = next_loaded.graph.clone();
-            pending_update = Some((next_loaded, provider_changes));
         }
     }
 
