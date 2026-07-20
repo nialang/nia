@@ -661,7 +661,8 @@ impl StaticConstEnv<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_defs::{ModuleId, collect_module_defs};
+    use nia_defs::collect_module_defs;
+    use nia_ids::ModuleIdAllocator;
     use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
     use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
     use nia_local_resolve::resolve_module_locals;
@@ -678,7 +679,8 @@ mod tests {
         let symbols = SymbolTable::new();
         let (module, errors) = parse_module_with_symbols(source, symbols.clone());
         assert!(errors.is_empty(), "{errors:?}");
-        let module_id = ModuleId(0);
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let defs = collect_module_defs(module_id, &module);
         let type_resolution = resolve_module_types_with_symbols(&module, &defs, &symbols);
         let type_store = nia_ty::TypeStore::new();

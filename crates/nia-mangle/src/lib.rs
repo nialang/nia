@@ -530,12 +530,13 @@ fn mangle_primitive(primitive: PrimitiveTy) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_ids::{ModuleId, TypeStoreIndex};
+    use nia_ids::{ModuleIdAllocator, TypeStoreIndex};
 
     #[test]
     fn mangles_real_error_type_for_diagnostic_recovery() {
         let type_store = TypeStore::new();
-        let error = type_store.append_for_module(ModuleId(0)).error();
+        let mut module_ids = ModuleIdAllocator::new();
+        let error = type_store.append_for_module(module_ids.allocate()).error();
 
         assert_eq!(
             mangle_type_with(&type_store, error, |_| "item".into(), |_| None),
