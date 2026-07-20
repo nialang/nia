@@ -16,7 +16,7 @@ impl std::fmt::Debug for ModuleId {
 }
 
 impl ModuleId {
-    pub const fn index(self) -> u32 {
+    pub const fn local_index(self) -> u32 {
         self.index
     }
 }
@@ -1422,8 +1422,8 @@ mod tests {
     fn module_id_allocator_issues_dense_local_indices() {
         let mut allocator = ModuleIdAllocator::new();
 
-        assert_eq!(allocator.allocate().index(), 0);
-        assert_eq!(allocator.allocate().index(), 1);
+        assert_eq!(allocator.allocate().local_index(), 0);
+        assert_eq!(allocator.allocate().local_index(), 1);
         assert_eq!(std::mem::size_of::<ModuleId>(), 12);
     }
 
@@ -1435,9 +1435,9 @@ mod tests {
         let cloned_second = cloned.allocate();
         let original_second = allocator.allocate();
 
-        assert_eq!(first.index(), 0);
-        assert_eq!(cloned_second.index(), 1);
-        assert_eq!(original_second.index(), 1);
+        assert_eq!(first.local_index(), 0);
+        assert_eq!(cloned_second.local_index(), 1);
+        assert_eq!(original_second.local_index(), 1);
         assert_ne!(cloned_second, original_second);
     }
 

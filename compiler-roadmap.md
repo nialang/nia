@@ -17,7 +17,7 @@
 | A 基线与防回归 | 约 80% | 六 workload、machine-readable 指标、allocator/query/LLVM counters 与同机 guard 已完成；可运行 LLVM suite 的 CI 和 main-branch trend storage 未完成，但不阻塞当前进程内 identity/query/fact graph 临界路径。 |
 | B semantic context / 类型身份 | 100% | session-wide canonical `TypeStore`、全 pass canonical read/append、显式 roots、跨 revision slot 稳定与跨 session 隔离已完成；module view/log、origin、snapshot/checkout、recursive import 和旧 identity 类型均已删除。 |
 | C query value/storage | 100% | cache-owned `get/try_get/get_many`、无 `Value: Clone`、declarative registry 与 aggregate storage policy 已完成，owned runtime adapter 全部删除。 |
-| C 后 ID/arena 专项 | 约 92% | ID-0 query dep-node arena 与 ID-1 source/syntax identity 已完成；ID-2 graph/fixture 收口完成；ID-3 已将 module handle 私有化并编码 owner/index/generation，独立 graph 与 clone 分支身份不再碰撞。 |
+| C 后 ID/arena 专项 | 100% | ID-0 query dep-node arena、ID-1 source/syntax identity、ID-2 graph/fixture 收口与 ID-3 owner/index/generation module handle 均完成；构造、fork、stale lookup 与 local-slot 边界已有守卫。 |
 | D 统一依赖图 | 约 5% | 已有 typed query 和若干 fact index，但 loader/compiler/driver/reachability 仍未共享一个 revisioned fact graph，`module_graph_state` 与多层 fixed point 尚在。 |
 | E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；legacy `query_many` 已删除，但 `get_many` 仍创建临时 scoped worker，持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
 | F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
@@ -27,7 +27,7 @@
 
 综合判断：**整份路线图按剩余工程复杂度加权约完成 35%，合理区间为 33%–38%；A–E 的 P0 基础约完成 50%–55%。** 已完成的是最先阻塞后续工作的 type identity 与 query storage 主线；统一 fact graph、executor、item/CGU 粒度和持久增量仍是独立的大型工程，不能按提交数量外推为“路线图已过半”。
 
-最近的临界路径已进入 ID-2 module identity 的 fixture/API 收口：stable module key/local id 映射、immutable graph snapshot 和 production allocator 边界已建立，下一步按测试 fixture 与公共 API 分层私有化 tuple 字段并增加 foreign-owner/stale-handle 规则；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
+ID/arena 专项已关闭，最近的临界路径正式进入 Phase D 统一模块/provider 依赖图：先盘点 `module_graph_state`、loader/compiler update 与 driver provider-demand loop 的重复真相来源，选择可独立删除的一条同步边界；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
 
 ## 1. 范围、版本与方法
 
@@ -1184,6 +1184,8 @@ Acceptance：所有调用点使用同一查询入口；cache hit 不深拷贝；
 进展（2026-07-20）：ID-2r 完成 compiler-query 最后一批复杂 graph fixture 身份迁移。facade/private provider、reexport trait impl、forwarded const、incremental receiver type、generic trait reachability 与 cross-module backend/vtable 回归全部由 `LoadedProgramFixture` 的 graph allocator 创建 entry/child handle，trace 与 `GlobalDefId` 断言动态引用实际 owner；fixture 新增显式 child visibility 入口，不再通过手工 graph 与 loaded-module 两条路径分别表达 private provider。迁移同时修复了 executable facade 回归中 `args_impl`/`init_impl` graph child ID 与 loaded source 对调的旧状态，现在每个 child handle 对应其真实 path/source，既有语义回归仍通过。compiler-query 裸 `ModuleId(...)` 从 70 降至 0，ID-2l 至 ID-2r 累计清理全部 403 处手写构造。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；compiler-query 119 项定向测试通过，CLI commands 50 项自然并发 311.97 秒完成，LLVM 177、driver 484 项及全部 doc tests 通过。ID/arena 专项现约 84%；fixture/API 收口阶段完成，下一切片进入 `ModuleId` owner/generation 语义实装与 tuple 字段私有化，先审计跨 graph handle 混用的可检测边界，再决定 generation 是编码进 handle 还是由 graph owner token 验证。
 
 进展（2026-07-20）：ID-3a 落地 owner-aware module handle 并私有化构造。`ModuleId` 从公开 32-bit tuple index 改为私有 `(owner, local index, generation)` 句柄：独立 allocator 的相同 local index 不相等；graph clone 保留已有 handle 与各自稠密 next index，但分支在同一 slot 新建节点会获得不同 generation；`Debug` 继续只显示稳定 local index，避免并发全局 owner/generation 污染诊断与符号文本。`ModuleGraph::get/get_mut` 现在同时校验完整 handle，不再让 foreign `ModuleId(0)` 按 index 别名到本图 entry；所有直接 tuple 构造已迁移到 allocator 或 graph entry/child。第一版 clone 共享原子 next slot 会让 speculative loader graph 消耗主图 index 并触发 dense-vector 断言，最终模型据此改为 local counter + global generation，driver 484 项恢复通过。更严格身份还暴露并修复 program-signatures fixture 使用自造 symbol 配 `KnownSymbolText`，导致三个未知 child 路径与 slot 重合的问题；fixture 现使用真实 `SymbolTable`。`ModuleId` 尺寸由 4 bytes 增至 12 bytes，这是当前 correctness-first 选择，后续需以实际产品计数评估是否值得在不削弱 owner/generation 的前提下压缩。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-ids 3、imports 2、compiler-query 119、driver 484 项通过，CLI commands 50 项自然并发 320.01 秒完成，LLVM 177 与全部 doc tests 通过。ID/arena 专项现约 92%；下一切片审计剩余直接 `.index()` 容器访问是否都处于已验证 owner 边界，并补齐 graph fork/revision stale-handle 回归与 handle footprint 指标，之后关闭专项并回到 Phase D。
+
+进展（2026-07-20）：ID-3b 完成 local-slot 边界审计并关闭 ID/arena 专项。`ModuleId::index()` 已重命名为语义明确的 `local_index()`；全仓使用点逐一分类后，只有 `ModuleGraph::get/get_mut` 与 append dense invariant 将其用于 Vec 寻址，前两者取 slot 后比较完整 owner/index/generation，append 则只接受本 allocator 刚创建的 handle。mangling、LLVM declaration、monomorphization、driver report、source-version 与 diff ordering 仅将 local index 用作同 graph 内稳定显示/排序，不承担身份判定。新增 graph fork 回归证明两个 clone 保留共同旧 handle、同 local slot 新节点 generation 不同且互相不可 lookup；snapshot 回归证明旧 revision 拒绝 fork 后新增 handle；foreign graph 同 index 拒绝回归继续保留。`ModuleId` 12-byte footprint 由 nia-ids 自动化守卫，暂不为压缩牺牲 owner/generation correctness。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-ids 3、imports 4、compiler-query 119、LLVM 177、driver 484 项通过，CLI commands 50 项自然并发 321.22 秒完成，全部 doc tests 通过。ID/arena 专项至此 100% 关闭；下一切片按 Phase D 从 `module_graph_state` 与 loader/compiler/driver update 协议审计开始，不再继续扩展 identity 兼容层。
 
 ### 阶段 D（P0）：统一模块/provider 依赖
 

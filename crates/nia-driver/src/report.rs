@@ -65,7 +65,7 @@ pub fn optimization_report_lines(program: &CodegenProgram) -> Vec<String> {
                 let instance = if *is_instance { " instance" } else { "" };
                 lines.push(format!(
                     "  m{}::d{}{} {} type_args={}",
-                    function.module_id.index(),
+                    function.module_id.local_index(),
                     function.def_id.0,
                     instance,
                     pass,
@@ -75,7 +75,7 @@ pub fn optimization_report_lines(program: &CodegenProgram) -> Vec<String> {
             BackendOptimizationChange::Global { global, pass, .. } => {
                 lines.push(format!(
                     "  m{}::d{} global {}",
-                    global.module_id.index(),
+                    global.module_id.local_index(),
                     global.def_id.0,
                     pass
                 ));

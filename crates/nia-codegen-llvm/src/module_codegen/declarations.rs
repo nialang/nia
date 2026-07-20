@@ -505,7 +505,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let name = format!(
             "nia__traitobj_adapter__{}__{}__{}__{}",
             self.mangle_ty(self_ty),
-            def_id.module_id.index(),
+            def_id.module_id.local_index(),
             def_id.def_id.0,
             self.trait_object_adapters.borrow().len()
         );

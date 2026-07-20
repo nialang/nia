@@ -2137,7 +2137,7 @@ fn changed_loaded_modules(old: &CompilerInputs, new: &CompilerInputs) -> Vec<Cha
             )
         })
         .collect::<Vec<_>>();
-    changed.sort_by_key(|module| module.ids.first().map_or(u32::MAX, |id| id.index()));
+    changed.sort_by_key(|module| module.ids.first().map_or(u32::MAX, |id| id.local_index()));
     changed
 }
 
@@ -2396,7 +2396,7 @@ mod tests {
         revision: SourceRevision,
     ) -> LoadedModule {
         let source_version = nia_source::SourceVersion {
-            id: SourceId(id.index()),
+            id: SourceId(id.local_index()),
             revision,
         };
         let syntax = nia_syntax::parse_source(source, Some(source_version));
