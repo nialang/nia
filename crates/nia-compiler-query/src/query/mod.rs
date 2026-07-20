@@ -4093,17 +4093,17 @@ extend Value : Ops {
 
     #[test]
     fn program_type_alias_signature_uses_precise_module_facts() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "struct S { value: i32 } type Alias = S; fn helper() i32 { 1 }",
-        )]);
-        let db = query_db(loaded);
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let defs = db.get(ModuleDefsQuery(ModuleId(0)));
+        let defs = db.get(ModuleDefsQuery(module_id));
         let alias_id = defs.module_scope.types.get(&sym("Alias")).unwrap();
         let _ = db.get(ProgramTypeAliasSignatureQuery(GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: alias_id,
         }));
         let trace = db.query_trace();
@@ -4122,14 +4122,12 @@ extend Value : Ops {
 
     #[test]
     fn layout_uses_full_type_module_signatures_and_array_lengths_without_body_products() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "struct S { value: i32 } fn helper() i32 { 1 }",
-        )]);
-        let db = query_db(loaded);
+        let fixture =
+            LoadedProgramFixture::new("main.nia", "struct S { value: i32 } fn helper() i32 { 1 }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let layouts = db.get(LayoutsQuery(ModuleId(0)));
+        let layouts = db.get(LayoutsQuery(module_id));
         let trace = db.query_trace();
 
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
@@ -4153,61 +4151,58 @@ extend Value : Ops {
 
     #[test]
     fn layout_uses_signature_layouts_for_cross_module_types() {
-        let loaded = loaded_program_with_modules(vec![
-            loaded_module(
-                ModuleId(0),
-                "main.nia",
-                "module module1; using self::module1::S; struct Holder { value: S }",
-            ),
-            loaded_module(
-                ModuleId(1),
-                "module1.nia",
-                "pub struct S { value: i32 } fn helper() i32 { 1 }",
-            ),
-        ]);
-        let db = query_db(loaded);
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "module module1; using self::module1::S; struct Holder { value: S }",
+        );
+        let entry_id = fixture.entry_id();
+        let module1 = fixture.add_child(
+            entry_id,
+            "module1",
+            "module1.nia",
+            "pub struct S { value: i32 } fn helper() i32 { 1 }",
+        );
+        let db = query_db(fixture.program());
 
-        let layouts = db.get(LayoutsQuery(ModuleId(0)));
+        let layouts = db.get(LayoutsQuery(entry_id));
         let trace = db.query_trace();
+        let entry_description = format!("{entry_id:?}");
+        let module1_description = format!("{module1:?}");
 
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "layouts"
-                && dependency.from.description.contains("ModuleId(0)")
+                && dependency.from.description.contains(&entry_description)
                 && dependency.to.name == "signature_layouts"
-                && dependency.to.description.contains("ModuleId(1)")
+                && dependency.to.description.contains(&module1_description)
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "layouts"
-                && dependency.from.description.contains("ModuleId(0)")
+                && dependency.from.description.contains(&entry_description)
                 && dependency.to.name == "layouts"
-                && dependency.to.description.contains("ModuleId(1)")
+                && dependency.to.description.contains(&module1_description)
         }));
     }
 
     #[test]
     fn signature_layout_reads_canonical_types_from_store() {
-        let loaded = loaded_program_with_modules(vec![
-            loaded_module(
-                ModuleId(0),
-                "main.nia",
-                "module module1; using self::module1::Box; struct Holder { value: Box[u16] }",
-            ),
-            loaded_module(
-                ModuleId(1),
-                "module1.nia",
-                "pub struct Box[T] { value: [3]T }",
-            ),
-        ]);
-        let db = query_db(loaded);
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "module module1; using self::module1::Box; struct Holder { value: Box[u16] }",
+        );
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "module1",
+            "module1.nia",
+            "pub struct Box[T] { value: [3]T }",
+        );
+        let db = query_db(fixture.program());
         let signature_types = nia_item_tree::SignatureItemSet::Types;
 
-        let _ = db.get(SignatureTypeNormalizationQuery(
-            ModuleId(0),
-            signature_types,
-        ));
-        let _ = db.get(SignatureItemSignaturesQuery(ModuleId(0), signature_types));
-        let layouts = db.get(SignatureLayoutsQuery(ModuleId(0)));
+        let _ = db.get(SignatureTypeNormalizationQuery(entry_id, signature_types));
+        let _ = db.get(SignatureItemSignaturesQuery(entry_id, signature_types));
+        let layouts = db.get(SignatureLayoutsQuery(entry_id));
 
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
         assert!(
@@ -4220,14 +4215,14 @@ extend Value : Ops {
 
     #[test]
     fn abi_check_uses_abi_signature_index_not_body_signatures() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "extern struct S { value: i32 } extern fn take(value: S) void;",
-        )]);
-        let db = query_db(loaded);
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let _ = db.get(AbiCheckQuery(ModuleId(0)));
+        let _ = db.get(AbiCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -4258,16 +4253,13 @@ extend Value : Ops {
 
     #[test]
     fn public_surface_snapshots_are_independent_query_inputs() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "pub struct S { value: i32 }",
-        )]);
-        let db = query_db(loaded);
+        let fixture = LoadedProgramFixture::new("main.nia", "pub struct S { value: i32 }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
         let _ = db.get(PublicSurfacesQuery);
-        let _ = db.get(ModulePublicSurfaceQuery(ModuleId(0)));
-        let _ = db.get(ModuleUsingScopeQuery(ModuleId(0)));
+        let _ = db.get(ModulePublicSurfaceQuery(module_id));
+        let _ = db.get(ModuleUsingScopeQuery(module_id));
         let trace = db.query_trace();
 
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -4288,24 +4280,21 @@ extend Value : Ops {
 
     #[test]
     fn item_tree_queries_reuse_single_layer_product_handles() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "fn main() i32 { 1 }",
-        )]);
-        let db = query_db(loaded);
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 1 }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let module_input: Arc<ModuleItemTree> = db.get(ModuleItemTreeInputQuery(ModuleId(0)));
+        let module_input: Arc<ModuleItemTree> = db.get(ModuleItemTreeInputQuery(module_id));
         let active_input: Arc<ActiveModuleItemTree> =
-            db.get(ActiveModuleItemTreeInputQuery(ModuleId(0)));
-        let full_module: Arc<ModuleItemTree> = db.get(FullModuleItemTreeQuery(ModuleId(0)));
+            db.get(ActiveModuleItemTreeInputQuery(module_id));
+        let full_module: Arc<ModuleItemTree> = db.get(FullModuleItemTreeQuery(module_id));
         let full_active: Arc<ActiveModuleItemTree> =
-            db.get(FullActiveModuleItemTreeQuery(ModuleId(0)));
+            db.get(FullActiveModuleItemTreeQuery(module_id));
 
-        let module_input_batch = db.get_many([ModuleItemTreeInputQuery(ModuleId(0))]);
-        let active_input_batch = db.get_many([ActiveModuleItemTreeInputQuery(ModuleId(0))]);
-        let full_module_batch = db.get_many([FullModuleItemTreeQuery(ModuleId(0))]);
-        let full_active_batch = db.get_many([FullActiveModuleItemTreeQuery(ModuleId(0))]);
+        let module_input_batch = db.get_many([ModuleItemTreeInputQuery(module_id)]);
+        let active_input_batch = db.get_many([ActiveModuleItemTreeInputQuery(module_id)]);
+        let full_module_batch = db.get_many([FullModuleItemTreeQuery(module_id)]);
+        let full_active_batch = db.get_many([FullActiveModuleItemTreeQuery(module_id)]);
 
         assert!(Arc::ptr_eq(&module_input, &module_input_batch[0]));
         assert!(Arc::ptr_eq(&active_input, &active_input_batch[0]));
@@ -4315,19 +4304,19 @@ extend Value : Ops {
 
     #[test]
     fn executable_value_refs_resolve_only_the_requested_body_item() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "fn helper() i32 { 1 } fn main() i32 { helper() }",
-        )]);
-        let db = query_db(loaded);
-        let defs = db.get(ModuleDefsQuery(ModuleId(0)));
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+        let defs = db.get(ModuleDefsQuery(module_id));
         let main = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
         };
         let helper = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: defs.module_scope.values.get(&sym("helper")).unwrap(),
         };
 
@@ -4354,19 +4343,19 @@ extend Value : Ops {
 
     #[test]
     fn executable_value_refs_include_unqualified_static_uses() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "static mut calls: i32 = 0; fn main() i32 { calls += 1; calls }",
-        )]);
-        let db = query_db(loaded);
-        let defs = db.get(ModuleDefsQuery(ModuleId(0)));
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+        let defs = db.get(ModuleDefsQuery(module_id));
         let main = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
         };
         let calls = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: defs.module_scope.values.get(&sym("calls")).unwrap(),
         };
 
@@ -4377,15 +4366,12 @@ extend Value : Ops {
 
     #[test]
     fn module_defs_query_uses_active_item_tree_query() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "pub struct S { value: i32 }",
-        )]);
-        let db = query_db(loaded);
+        let fixture = LoadedProgramFixture::new("main.nia", "pub struct S { value: i32 }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let defs = db.get(ModuleDefsQuery(ModuleId(0)));
-        let item_tree = db.get(ActiveModuleItemTreeQuery(ModuleId(0)));
+        let defs = db.get(ModuleDefsQuery(module_id));
+        let item_tree = db.get(ActiveModuleItemTreeQuery(module_id));
         let item_node_key = &item_tree.items[0].node_key;
         let item_node_id = defs
             .def_nodes
@@ -4416,15 +4402,15 @@ extend Value : Ops {
 
     #[test]
     fn extension_queries_use_module_semantic_queries() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } }",
-        )]);
-        let db = query_db(loaded);
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let _ = db.get(ExtensionProviderValidationFactsQuery(ModuleId(0)));
-        let _ = db.get(ExtensionProviderModuleFactsQuery(ModuleId(0)));
+        let _ = db.get(ExtensionProviderValidationFactsQuery(module_id));
+        let _ = db.get(ExtensionProviderModuleFactsQuery(module_id));
         let _ = db.get(ExtensionMethodIndexQuery);
         let trace = db.query_trace();
 
