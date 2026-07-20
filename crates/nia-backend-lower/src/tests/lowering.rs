@@ -3,6 +3,8 @@ use super::*;
 
 #[test]
 fn lowers_checked_program_shape() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let source = r#"
 static hello = b"hello\0";
 
@@ -25,11 +27,11 @@ fn main() i32 {
     let symbols = SymbolTable::new();
     let (module, errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(ModuleId(0), &module);
+    let defs = collect_module_defs(module_id, &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let type_store = nia_ty::TypeStore::new();
     let type_lowering = lower_module_types_with_context(
-        ModuleId(0),
+        module_id,
         &module,
         &type_resolved,
         TypeLoweringContext::empty(&type_store).with_symbols(&symbols),
@@ -45,7 +47,7 @@ fn main() i32 {
     let locals = resolve_module_locals(&module, &defs, &values);
     let active_item_tree = active_item_tree(&module);
     let semantic_uses = semantic_use_table(
-        ModuleId(0),
+        module_id,
         &values,
         &locals,
         &type_lowering,
@@ -53,7 +55,7 @@ fn main() i32 {
     );
     let normalization_input = type_lowering.explicit_type_roots();
     let normalization = normalize_module_types(nia_type_normalize::TypeNormalizationInput {
-        module_id: ModuleId(0),
+        module_id,
         type_store: &type_store,
         input_ids: &normalization_input,
         signatures: &signatures,
@@ -129,7 +131,7 @@ fn main() i32 {
                     def_id,
                     args,
                     ..
-                }) if def_id.module_id == ModuleId(0) && def_id.def_id == point_id && args.is_empty()
+                }) if def_id.module_id == module_id && def_id.def_id == point_id && args.is_empty()
             )
         })
         .expect("Point type");
@@ -140,7 +142,7 @@ fn main() i32 {
         VisibleExtensionMethod {
             name: sym("make"),
             def_id: GlobalDefId {
-                module_id: ModuleId(0),
+                module_id,
                 def_id: make_id,
             },
             impl_id,
@@ -216,22 +218,22 @@ fn main() i32 {
             (
                 *def_id,
                 lower_function_body(
-                    ModuleId(0),
+                    module_id,
                     body,
-                    FunctionTypeContext::for_module(&type_store, ModuleId(0)),
+                    FunctionTypeContext::for_module(&type_store, module_id),
                 )
                 .expect("valid typed body")
                 .body,
             )
         })
         .collect::<HashMap<_, _>>();
-    let program_const = HashMap::from([(ModuleId(0), &const_array_lengths)]);
+    let program_const = HashMap::from([(module_id, &const_array_lengths)]);
     let const_enum_values = const_enum_values_from_check(&const_eval);
     let no_program_defs = |_| None;
     let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::default();
 
     let input = BackendLowerModuleInput {
-        module_id: ModuleId(0),
+        module_id,
         module_name: "main".to_string(),
         symbols: &symbols,
         active_item_tree: &active_item_tree,
@@ -627,7 +629,7 @@ fn main() i32 {
     assert!(
         item_instances
             .iter()
-            .all(|global| global.args.len() == 1 && global.arg_module_id == ModuleId(0))
+            .all(|global| global.args.len() == 1 && global.arg_module_id == lowering.module_id)
     );
 }
 

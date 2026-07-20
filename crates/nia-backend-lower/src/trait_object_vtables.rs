@@ -547,17 +547,19 @@ impl TraitObjectVtableCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_ids::{ModuleId, TypeStoreIndex};
+    use nia_ids::{ModuleIdAllocator, TypeStoreIndex};
     use nia_span::Span;
 
     #[test]
     fn trait_object_vtable_cache_reuses_positive_entries() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let mut cache = TraitObjectVtableCache::default();
         let key = test_key(0);
         let vtable = BackendTraitObjectVtable {
             key: key.clone(),
             trait_id: nia_ids::TraitId::Source(GlobalDefId {
-                module_id: ModuleId(0),
+                module_id,
                 def_id: nia_defs::DefId(0),
             }),
             trait_args: Vec::new(),

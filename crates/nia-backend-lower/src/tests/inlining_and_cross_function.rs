@@ -930,7 +930,7 @@ fn main() i32 {
         source_object_ty.set(Some(source_object));
         i32_ty.set(Some(
             type_store
-                .append_for_module(ModuleId(0))
+                .append_for_module(defs.module_id)
                 .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32)),
         ));
         let impl_id = _signatures.trait_impls[0].impl_id;
@@ -1105,7 +1105,7 @@ fn main() i32 {
         let source_id = global_def_id_by_name(defs, "Source");
         let add_id = global_def_id_by_name(defs, "add");
         let i32_type = type_store
-            .append_for_module(ModuleId(0))
+            .append_for_module(defs.module_id)
             .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
         let box_pattern = signatures
             .trait_impls
