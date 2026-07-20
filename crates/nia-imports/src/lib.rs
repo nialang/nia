@@ -347,7 +347,15 @@ impl ModuleGraph {
     }
 
     pub fn get(&self, id: ModuleId) -> Option<&ModuleNode> {
-        self.modules.get(id.index() as usize)
+        self.modules
+            .get(id.index() as usize)
+            .filter(|module| module.id == id)
+    }
+
+    fn get_mut(&mut self, id: ModuleId) -> Option<&mut ModuleNode> {
+        self.modules
+            .get_mut(id.index() as usize)
+            .filter(|module| module.id == id)
     }
 
     pub fn module_id_for_path(&self, path: &str) -> Option<ModuleId> {
@@ -442,7 +450,7 @@ impl ModuleGraph {
     }
 
     pub fn mark_process_used_paths(&mut self, module_id: ModuleId) -> bool {
-        if let Some(module) = self.modules.get_mut(module_id.index() as usize) {
+        if let Some(module) = self.get_mut(module_id) {
             let was_enabled = module.process_used_paths;
             module.semantic_selected = true;
             module.process_used_paths = true;
@@ -453,7 +461,7 @@ impl ModuleGraph {
     }
 
     pub fn mark_semantic_selected(&mut self, module_id: ModuleId) -> bool {
-        if let Some(module) = self.modules.get_mut(module_id.index() as usize) {
+        if let Some(module) = self.get_mut(module_id) {
             let was_selected = module.semantic_selected;
             module.semantic_selected = true;
             !was_selected
@@ -463,7 +471,7 @@ impl ModuleGraph {
     }
 
     pub fn mark_process_declared_children(&mut self, module_id: ModuleId) {
-        if let Some(module) = self.modules.get_mut(module_id.index() as usize) {
+        if let Some(module) = self.get_mut(module_id) {
             module.process_declared_children = true;
         }
     }
@@ -515,17 +523,14 @@ impl ModuleGraph {
             process_used_paths,
             process_declared_children,
         );
-        let parent = self
-            .modules
-            .get_mut(parent_id.index() as usize)
-            .ok_or_else(|| {
-                Diagnostic::internal_error(
-                    codes::MODULE_GRAPH_RECORDING,
-                    "unknown parent module id while recording module declaration",
-                )
-                .debug("module_id", parent_id)
-                .finish()
-            })?;
+        let parent = self.get_mut(parent_id).ok_or_else(|| {
+            Diagnostic::internal_error(
+                codes::MODULE_GRAPH_RECORDING,
+                "unknown parent module id while recording module declaration",
+            )
+            .debug("module_id", parent_id)
+            .finish()
+        })?;
         if let Some(existing) = parent.children.get(name).copied() {
             if existing != child_id {
                 return Err(Diagnostic::internal_error(
@@ -981,5 +986,15 @@ mod tests {
         assert_eq!(graph.module_id_for_stable_key(package_key), Some(package));
         assert_eq!(std::mem::size_of::<ModuleGraphSnapshot>(), 8);
         assert_eq!(std::mem::size_of::<StableModuleKey>(), 8);
+    }
+
+    #[test]
+    fn module_graph_rejects_foreign_handles_with_matching_local_indices() {
+        let graph = ModuleGraph::new(SourcePath::new("main.nia"));
+        let foreign = ModuleGraph::new(SourcePath::new("foreign.nia"));
+
+        assert_eq!(graph.entry().index(), foreign.entry().index());
+        assert_ne!(graph.entry(), foreign.entry());
+        assert!(graph.get(foreign.entry()).is_none());
     }
 }

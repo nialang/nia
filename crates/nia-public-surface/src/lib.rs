@@ -1930,17 +1930,24 @@ mod tests {
 
     #[test]
     fn wildcard_reexports_preserve_item_name_spans_for_duplicate_diagnostics() {
+        let graph = graph_with_public_children(&["left", "right"]);
+        let entry_id = graph.entry();
+        let left_id = graph
+            .root_module_for_name(entry_id, name("left"))
+            .expect("left child");
+        let right_id = graph
+            .root_module_for_name(entry_id, name("right"))
+            .expect("right child");
         let main = defs(
-            ModuleId(0),
+            entry_id,
             r#"
 pub module left;
 pub module right;
 using { left::*, right::* };
 "#,
         );
-        let left = defs(ModuleId(1), "pub fn value() i32 { 1 }");
-        let right = defs(ModuleId(2), "pub fn value() i32 { 2 }");
-        let graph = graph_with_public_children(&["left", "right"]);
+        let left = defs(left_id, "pub fn value() i32 { 1 }");
+        let right = defs(right_id, "pub fn value() i32 { 2 }");
 
         let (_, _, diagnostics) = compute_public_surfaces(&[main, left, right], &graph);
 
@@ -1951,8 +1958,8 @@ using { left::*, right::* };
 
     #[test]
     fn self_selector_requires_named_host_segment() {
-        let main = defs(ModuleId(0), "using self;");
         let graph = graph_with_public_children(&[]);
+        let main = defs(graph.entry(), "using self;");
 
         let (_, _, diagnostics) = compute_public_surfaces(&[main], &graph);
 
@@ -1962,36 +1969,40 @@ using { left::*, right::* };
 
     #[test]
     fn type_exposure_index_collects_direct_public_and_using_names() {
+        let mut graph = graph_with_public_children(&["facade"]);
+        let entry_id = graph.entry();
+        let facade_id = graph
+            .root_module_for_name(entry_id, name("facade"))
+            .expect("facade child");
+        let types_id = graph
+            .intern_declared_child(
+                facade_id,
+                &name("types"),
+                Visibility::Public,
+                Span::default(),
+            )
+            .expect("types child declaration");
         let main = defs(
-            ModuleId(0),
+            entry_id,
             r#"
 pub module facade;
 using entry::facade::FacadeUsed as LocalUsed;
 "#,
         );
         let facade = defs(
-            ModuleId(1),
+            facade_id,
             r#"
 pub module types;
 pub using self::types::Used as FacadeUsed;
 "#,
         );
-        let types = defs(ModuleId(2), "pub struct Used {}");
+        let types = defs(types_id, "pub struct Used {}");
         let used_def_id = types
             .module_scope
             .types
             .get(&name("Used"))
             .expect("Used def");
         let defs_by_module = vec![main, facade, types];
-        let mut graph = graph_with_public_children(&["facade"]);
-        graph
-            .intern_declared_child(
-                ModuleId(1),
-                &name("types"),
-                Visibility::Public,
-                Span::default(),
-            )
-            .expect("types child declaration");
 
         let exported = compute_exported_public_surfaces(&defs_by_module, &graph);
         let using_scopes =
@@ -2003,7 +2014,7 @@ pub using self::types::Used as FacadeUsed;
         );
 
         let names = index.names_for(GlobalDefId {
-            module_id: ModuleId(2),
+            module_id: types_id,
             def_id: used_def_id,
         });
 

@@ -7,7 +7,7 @@ use nia_const_ir::{
     ConstAssignOp, ConstNameResolution, EarlyConstAssign, EarlyConstAssignTarget, EarlyConstExpr,
     EarlyConstExprKind, EarlyConstName, EarlyConstTypeArg, ResolvedConstExpr, ResolvedConstTypeArg,
 };
-use nia_ids::{LayoutBuiltin, ModuleId, ValueBuiltin};
+use nia_ids::{LayoutBuiltin, ModuleId, ModuleIdAllocator, ValueBuiltin};
 use nia_span::Span;
 use nia_symbol::{SymbolId, stable_hash};
 use nia_ty::IntConst;
@@ -116,7 +116,9 @@ fn resolved_names_do_not_fall_back_to_ident_lookup() {
 
 #[test]
 fn resolved_function_calls_use_resolved_callee_identity() {
-    struct ResolvedCallEnv;
+    struct ResolvedCallEnv {
+        module_id: ModuleId,
+    }
 
     impl ConstCommonEnv for ResolvedCallEnv {}
 
@@ -158,7 +160,7 @@ fn resolved_function_calls_use_resolved_callee_identity() {
             assert_eq!(
                 callee.name_resolution(),
                 Some(ConstNameResolution::Global(nia_ids::GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id: self.module_id,
                     def_id: nia_ids::DefId(1),
                 }))
             );
@@ -166,19 +168,20 @@ fn resolved_function_calls_use_resolved_callee_identity() {
         }
     }
 
+    let module_id = ModuleIdAllocator::new().allocate();
     let expr = ResolvedConstExpr::call(
         Span::new(7, 8),
         ResolvedConstExpr::name(
             Span::new(0, 1),
             ConstNameResolution::Global(nia_ids::GlobalDefId {
-                module_id: ModuleId(0),
+                module_id,
                 def_id: nia_ids::DefId(1),
             }),
         ),
         Vec::new(),
         Vec::new(),
     );
-    let value = eval_resolved_const_int_expr(&expr, &mut ResolvedCallEnv).unwrap();
+    let value = eval_resolved_const_int_expr(&expr, &mut ResolvedCallEnv { module_id }).unwrap();
     assert_eq!(value, IntConst::signed(7));
 }
 

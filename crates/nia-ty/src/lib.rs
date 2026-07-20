@@ -924,7 +924,8 @@ mod tests {
     #[test]
     fn interns_identical_types_once() {
         let store = TypeStore::new();
-        let append = store.append_for_module(ModuleId(0));
+        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
+        let append = store.append_for_module(module_id);
         let first = append.primitive(PrimitiveTy::I32);
         let second = append.primitive(PrimitiveTy::I32);
 
@@ -935,7 +936,8 @@ mod tests {
     #[test]
     fn primitive_ids_resolve_to_canonical_kinds() {
         let store = TypeStore::new();
-        let append = store.append_for_module(ModuleId(0));
+        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
+        let append = store.append_for_module(module_id);
 
         for primitive in PrimitiveTy::ALL {
             let id = append.primitive(primitive);
@@ -947,11 +949,12 @@ mod tests {
     fn type_store_identity_rejects_foreign_session_handles() {
         let first = TypeStore::new();
         let second = TypeStore::new();
+        let module_id = nia_ids::ModuleIdAllocator::new().allocate();
         let first_i32 = first
-            .append_for_module(ModuleId(7))
+            .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
         let second_i32 = second
-            .append_for_module(ModuleId(7))
+            .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
 
         assert_ne!(first.id(), second.id());
@@ -971,8 +974,9 @@ mod tests {
     #[test]
     fn module_append_capabilities_share_canonical_ids() {
         let store = TypeStore::new();
-        let first = store.append_for_module(ModuleId(2));
-        let second = store.append_for_module(ModuleId(9));
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let first = store.append_for_module(module_ids.allocate());
+        let second = store.append_for_module(module_ids.allocate());
         let first_elem = first.primitive(PrimitiveTy::U32);
         let second_elem = second.primitive(PrimitiveTy::U32);
         let first_pointer = first.intern(TyKind::Pointer {
@@ -993,12 +997,13 @@ mod tests {
     fn interning_rejects_foreign_session_type_dependencies() {
         let local = TypeStore::new();
         let foreign = TypeStore::new();
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
         let foreign_ty = foreign
-            .append_for_module(ModuleId(9))
+            .append_for_module(module_ids.allocate())
             .primitive(PrimitiveTy::U32);
 
         local
-            .append_for_module(ModuleId(2))
+            .append_for_module(module_ids.allocate())
             .intern(TyKind::Pointer {
                 is_readonly: true,
                 elem: foreign_ty,
@@ -1008,18 +1013,21 @@ mod tests {
     #[test]
     fn interning_accepts_same_session_dependencies_from_another_module() {
         let store = TypeStore::new();
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let foreign_module_id = module_ids.allocate();
+        let local_module_id = module_ids.allocate();
         let foreign = store
-            .append_for_module(ModuleId(9))
+            .append_for_module(foreign_module_id)
             .intern(TyKind::Nominal {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(9),
+                    module_id: foreign_module_id,
                     def_id: nia_ids::DefId(1),
                 },
                 args: Vec::new(),
                 const_args: Vec::new(),
             });
         let pointer = store
-            .append_for_module(ModuleId(2))
+            .append_for_module(local_module_id)
             .intern(TyKind::Pointer {
                 is_readonly: true,
                 elem: foreign,

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 
-use nia_ids::ModuleId;
 use nia_imports::{ModuleMap, SourcePath};
 use nia_loader_query::load_program;
 use std::{fs, path::Path, sync::Arc};
@@ -620,10 +619,11 @@ fn origin(p: math::Point) math::Point { p }
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert_no_error_diagnostics(&program.diagnostics);
+    let entry_id = program.graph.entry();
     let main = program
         .modules
         .iter()
-        .find(|module| module.id == ModuleId(0))
+        .find(|module| module.id == entry_id)
         .expect("main module");
     assert_eq!(main.type_resolution.node_qualified_type_names.len(), 2);
 }
@@ -648,10 +648,11 @@ fn main() i32 {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert_no_error_diagnostics(&program.diagnostics);
+    let entry_id = program.graph.entry();
     let main = program
         .modules
         .iter()
-        .find(|module| module.id == ModuleId(0))
+        .find(|module| module.id == entry_id)
         .expect("main module");
     assert_eq!(main.value_resolution.node_qualified_values.len(), 1);
 }

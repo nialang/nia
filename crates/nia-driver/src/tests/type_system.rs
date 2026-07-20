@@ -3,7 +3,6 @@ use super::common::*;
 use crate::{
     CheckRequest, Driver, DriverError, DriverOutput, EmitLlvmRequest, NiaOptimizationLevel,
 };
-use nia_ids::ModuleId;
 use nia_symbol::{SymbolId, known, stable_hash};
 
 fn test_symbol(text: &str) -> SymbolId {
@@ -1361,10 +1360,11 @@ fn main(p: Pair) {}
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let entry_id = program.graph.entry();
     let main = program
         .modules
         .iter()
-        .find(|module| module.id == ModuleId(0))
+        .find(|module| module.id == entry_id)
         .expect("main module");
     let pair_id = main
         .defs

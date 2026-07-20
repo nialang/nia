@@ -1057,7 +1057,7 @@ impl BuiltinOperatorOp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_ids::ModuleId;
+    use nia_ids::ModuleIdAllocator;
     use nia_node_id::{NodeChildPath, SyntaxKind};
     use nia_source::{SourceId, SourceRevision, SourceVersion};
 
@@ -1078,13 +1078,14 @@ mod tests {
 
     #[test]
     fn semantic_use_builder_keeps_local_value_uses_over_globals() {
+        let module_id = ModuleIdAllocator::new().allocate();
         let mut builder = SemanticUseTable::builder();
         let key = key();
         builder.insert_node_local_value_use(key.clone(), LocalId(2));
         builder.insert_node_global_value_use(
             key.clone(),
             GlobalDefId {
-                module_id: ModuleId(1),
+                module_id,
                 def_id: nia_ids::DefId(3),
             },
         );
@@ -1129,9 +1130,10 @@ mod tests {
 
     #[test]
     fn function_facts_freeze_and_thaw_node_maps_at_explicit_boundaries() {
+        let module_id = ModuleIdAllocator::new().allocate();
         let type_store = nia_ty::TypeStore::new();
         let ty = type_store
-            .append_for_module(ModuleId(0))
+            .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
         let first_store = NodeStore::new();
         let mut builder = FunctionSemanticFactsBuilder::default();
@@ -1174,9 +1176,10 @@ mod tests {
 
     #[test]
     fn semantic_facts_freeze_merge_and_rehome_all_node_maps() {
+        let module_id = ModuleIdAllocator::new().allocate();
         let type_store = nia_ty::TypeStore::new();
         let ty = type_store
-            .append_for_module(ModuleId(0))
+            .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
         let first_store = NodeStore::new();
         let second_store = NodeStore::new();
@@ -1188,7 +1191,7 @@ mod tests {
         function.node_expr_types.insert(key_at(2), ty);
         second.function_facts.insert(
             GlobalDefId {
-                module_id: ModuleId(0),
+                module_id,
                 def_id: nia_ids::DefId(1),
             },
             function.finish(&second_store),

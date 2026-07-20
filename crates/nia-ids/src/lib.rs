@@ -1,32 +1,83 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ModuleId(pub u32);
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ModuleId {
+    owner: u32,
+    index: u32,
+    generation: u32,
+}
 
-impl ModuleId {
-    pub const fn index(self) -> u32 {
-        self.0
+impl std::fmt::Debug for ModuleId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("ModuleId")
+            .field(&self.index)
+            .finish()
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+impl ModuleId {
+    pub const fn index(self) -> u32 {
+        self.index
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ModuleIdAllocator {
+    owner: u32,
     next_index: u32,
 }
 
 impl ModuleIdAllocator {
-    pub const fn new() -> Self {
-        Self { next_index: 0 }
+    pub fn new() -> Self {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        static NEXT_OWNER: AtomicU32 = AtomicU32::new(1);
+        let owner = NEXT_OWNER
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
+                owner.checked_add(1)
+            })
+            .expect("module owner identity space exhausted");
+        Self {
+            owner,
+            next_index: 0,
+        }
     }
 
     pub fn allocate(&mut self) -> ModuleId {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        static NEXT_GENERATION: AtomicU32 = AtomicU32::new(1);
         let index = self.next_index;
         self.next_index = self
             .next_index
             .checked_add(1)
             .expect("module identity space exhausted");
-        ModuleId(index)
+        let generation = NEXT_GENERATION
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |generation| {
+                generation.checked_add(1)
+            })
+            .expect("module generation identity space exhausted");
+        ModuleId {
+            owner: self.owner,
+            index,
+            generation,
+        }
     }
 }
+
+impl Default for ModuleIdAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PartialEq for ModuleIdAllocator {
+    fn eq(&self, other: &Self) -> bool {
+        self.owner == other.owner
+    }
+}
+
+impl Eq for ModuleIdAllocator {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DefId(pub u64);
@@ -1373,6 +1424,28 @@ mod tests {
 
         assert_eq!(allocator.allocate().index(), 0);
         assert_eq!(allocator.allocate().index(), 1);
-        assert_eq!(std::mem::size_of::<ModuleId>(), 4);
+        assert_eq!(std::mem::size_of::<ModuleId>(), 12);
+    }
+
+    #[test]
+    fn module_id_allocator_clones_keep_dense_slots_without_aliasing_new_generations() {
+        let mut allocator = ModuleIdAllocator::new();
+        let first = allocator.allocate();
+        let mut cloned = allocator.clone();
+        let cloned_second = cloned.allocate();
+        let original_second = allocator.allocate();
+
+        assert_eq!(first.index(), 0);
+        assert_eq!(cloned_second.index(), 1);
+        assert_eq!(original_second.index(), 1);
+        assert_ne!(cloned_second, original_second);
+    }
+
+    #[test]
+    fn independent_module_allocators_do_not_alias_handles() {
+        let mut first = ModuleIdAllocator::new();
+        let mut second = ModuleIdAllocator::new();
+
+        assert_ne!(first.allocate(), second.allocate());
     }
 }
