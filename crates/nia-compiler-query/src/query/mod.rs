@@ -2357,6 +2357,10 @@ mod tests {
                 diagnostics: Vec::new(),
             }
         }
+
+        fn database(&self) -> CompilerDatabase {
+            CompilerDatabase::new(CompileRequest::new(self.program()))
+        }
     }
 
     fn loaded_program_with_modules(modules: Vec<LoadedModule>) -> LoadedProgram {
@@ -3316,15 +3320,12 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn type_normalization_appends_to_the_session_type_store() {
-        let module_id = ModuleId(0);
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(
-                    module_id,
-                    "main.nia",
-                    "type ByteRef = &u8; pub fn read(value: ByteRef) u8 { 0 }",
-                ),
-            ])));
+        let fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "type ByteRef = &u8; pub fn read(value: ByteRef) u8 { 0 }",
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
         let lowering = database.db.get(TypeLoweringQuery(module_id));
         let normalization = database.db.get(TypeNormalizationQuery(module_id));
         let type_store = &database.db.context().type_store;
@@ -3345,20 +3346,17 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn const_phases_publish_synthesized_types_to_canonical_store() {
-        let module_id = ModuleId(0);
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(
-                    module_id,
-                    "main.nia",
-                    r#"
+        let fixture = LoadedProgramFixture::new(
+            "main.nia",
+            r#"
 const values = 0usize..3usize;
 const width: usize = values.end();
 
 fn main() i32 { 0 }
 "#,
-                ),
-            ])));
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
         let lowering = database.db.get(TypeLoweringQuery(module_id));
         let _ = database.db.get(TypeNormalizationQuery(module_id));
 
@@ -3387,20 +3385,17 @@ fn main() i32 { 0 }
 
     #[test]
     fn body_check_publishes_synthesized_types_to_canonical_store() {
-        let module_id = ModuleId(0);
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(
-                    module_id,
-                    "main.nia",
-                    r#"
+        let fixture = LoadedProgramFixture::new(
+            "main.nia",
+            r#"
 fn main() i32 {
     let values = [1i32, 2i32, 3i32];
     values[0]
 }
 "#,
-                ),
-            ])));
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
         let _ = database.db.get(ConstQuery(module_id));
 
         let body = database.db.get(BodyCheckQuery(module_id));
@@ -3421,15 +3416,12 @@ fn main() i32 {
     #[test]
     fn signature_and_full_normalization_share_ids_in_either_query_order() {
         fn assert_order(signature_first: bool) {
-            let module_id = ModuleId(0);
-            let database =
-                CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                    loaded_module(
-                        module_id,
-                        "main.nia",
-                        "type Ref[T] = &T; pub fn read(value: Ref[u16]) u16 { 0 }",
-                    ),
-                ])));
+            let fixture = LoadedProgramFixture::new(
+                "main.nia",
+                "type Ref[T] = &T; pub fn read(value: Ref[u16]) u16 { 0 }",
+            );
+            let module_id = fixture.entry_id();
+            let database = fixture.database();
             let signature_key = SignatureTypeNormalizationQuery(
                 module_id,
                 nia_item_tree::SignatureItemSet::Functions,
@@ -3470,24 +3462,21 @@ fn main() i32 {
 
     #[test]
     fn type_store_isolates_compiler_database_handle_identity() {
-        let loaded = || {
-            loaded_program_with_modules(vec![loaded_module(
-                ModuleId(0),
-                "main.nia",
-                "pub struct S { value: i32 }",
-            )])
-        };
-        let first = CompilerDatabase::new(CompileRequest::new(loaded()));
-        let second = CompilerDatabase::new(CompileRequest::new(loaded()));
-        let _ = first.db.get(TypeLoweringQuery(ModuleId(0)));
-        let _ = second.db.get(TypeLoweringQuery(ModuleId(0)));
+        let first_fixture = LoadedProgramFixture::new("main.nia", "pub struct S { value: i32 }");
+        let second_fixture = LoadedProgramFixture::new("main.nia", "pub struct S { value: i32 }");
+        let first_module_id = first_fixture.entry_id();
+        let second_module_id = second_fixture.entry_id();
+        let first = first_fixture.database();
+        let second = second_fixture.database();
+        let _ = first.db.get(TypeLoweringQuery(first_module_id));
+        let _ = second.db.get(TypeLoweringQuery(second_module_id));
         let first_store = &first.db.context().type_store;
         let second_store = &second.db.context().type_store;
         let first_i32 = first_store
-            .append_for_module(ModuleId(0))
+            .append_for_module(first_module_id)
             .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
         let second_i32 = second_store
-            .append_for_module(ModuleId(0))
+            .append_for_module(second_module_id)
             .intern(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32));
 
         assert_ne!(first_store.id(), second_store.id());
@@ -3498,26 +3487,22 @@ fn main() i32 {
 
     #[test]
     fn function_body_update_keeps_public_surface_queries_cached() {
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(
-                    ModuleId(0),
-                    "main.nia",
-                    "pub struct S { value: i32 } fn main() i32 { 0 }",
-                ),
-            ])));
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "pub struct S { value: i32 } fn main() i32 { 0 }",
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
-        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module_with_revision(
-                ModuleId(0),
-                "main.nia",
-                "pub struct S { value: i32 } fn main() i32 { 1 }",
-                SourceRevision(1),
-            ),
-        ])));
+        fixture.update_module_source(
+            module_id,
+            "pub struct S { value: i32 } fn main() i32 { 1 }",
+            SourceRevision(1),
+        );
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
         let invalidated = invalidation
             .invalidated
             .iter()
@@ -3546,26 +3531,22 @@ fn main() i32 {
 
     #[test]
     fn function_body_type_update_keeps_signature_queries_cached() {
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(
-                    ModuleId(0),
-                    "main.nia",
-                    "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }",
-                ),
-            ])));
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }",
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
-        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module_with_revision(
-                ModuleId(0),
-                "main.nia",
-                "pub struct S { value: i32 } fn main() i32 { let value: u8 = 0; value as i32 }",
-                SourceRevision(1),
-            ),
-        ])));
+        fixture.update_module_source(
+            module_id,
+            "pub struct S { value: i32 } fn main() i32 { let value: u8 = 0; value as i32 }",
+            SourceRevision(1),
+        );
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
         let invalidated = invalidation
             .invalidated
             .iter()
@@ -3598,26 +3579,22 @@ fn main() i32 {
 
     #[test]
     fn body_local_type_update_reuses_program_body_signature_indexes() {
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(
-                    ModuleId(0),
-                    "main.nia",
-                    "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }",
-                ),
-            ])));
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }",
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
-        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module_with_revision(
-                ModuleId(0),
-                "main.nia",
-                "pub struct S { value: i32 } fn main() i32 { let value: u8 = 0; value as i32 }",
-                SourceRevision(1),
-            ),
-        ])));
+        fixture.update_module_source(
+            module_id,
+            "pub struct S { value: i32 } fn main() i32 { let value: u8 = 0; value as i32 }",
+            SourceRevision(1),
+        );
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
         let invalidated = invalidation
             .invalidated
             .iter()
@@ -3644,26 +3621,22 @@ fn main() i32 {
 
     #[test]
     fn function_signature_update_keeps_definition_queries_cached() {
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(
-                    ModuleId(0),
-                    "main.nia",
-                    "pub struct S { value: i32 } fn helper() i32 { 1 } fn main() i32 { helper() }",
-                ),
-            ])));
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "pub struct S { value: i32 } fn helper() i32 { 1 } fn main() i32 { helper() }",
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
 
         let first = database.codegen_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
-        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module_with_revision(
-                ModuleId(0),
-                "main.nia",
-                "pub struct S { value: i32 } fn helper() u8 { 1 } fn main() i32 { helper() as i32 }",
-                SourceRevision(1),
-            ),
-        ])));
+        fixture.update_module_source(
+            module_id,
+            "pub struct S { value: i32 } fn helper() u8 { 1 } fn main() i32 { helper() as i32 }",
+            SourceRevision(1),
+        );
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
         let invalidated = invalidation
             .invalidated
             .iter()
@@ -3696,28 +3669,21 @@ fn main() i32 {
 
     #[test]
     fn function_body_type_update_keeps_signature_program_type_context_cached() {
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(
-                    ModuleId(0),
-                    "main.nia",
-                    "fn main() i32 { let value: i32 = 0; value }",
-                ),
-                loaded_module(ModuleId(1), "helper.nia", "fn helper() i32 { 1 }"),
-            ])));
+        let mut fixture =
+            LoadedProgramFixture::new("main.nia", "fn main() i32 { let value: i32 = 0; value }");
+        let entry_id = fixture.entry_id();
+        fixture.add_child(entry_id, "helper", "helper.nia", "fn helper() i32 { 1 }");
+        let database = fixture.database();
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
-        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module_with_revision(
-                ModuleId(0),
-                "main.nia",
-                "fn main() i32 { let value: u8 = 0; value as i32 }",
-                SourceRevision(1),
-            ),
-            loaded_module(ModuleId(1), "helper.nia", "fn helper() i32 { 1 }"),
-        ])));
+        fixture.update_module_source(
+            entry_id,
+            "fn main() i32 { let value: u8 = 0; value as i32 }",
+            SourceRevision(1),
+        );
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
         let invalidated = invalidation
             .invalidated
             .iter()
