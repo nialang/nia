@@ -10,7 +10,7 @@ use nia_defs::DefCollection;
 use nia_diagnostic::{Diagnostic, codes};
 pub use nia_ids::LocalId;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::VersionedNodeKey;
+use nia_node_id::{NodeMap, NodeMapBuilder, NodeStore, VersionedNodeKey};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, SymbolText, symbol_text_from_optional_resolver};
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
@@ -18,9 +18,52 @@ use nia_value_resolve::{ValueNameResolution, ValueResolution};
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalResolution {
     pub locals: LocalMap,
-    pub node_local_defs: HashMap<VersionedNodeKey, LocalId>,
-    pub node_uses: HashMap<VersionedNodeKey, LocalUse>,
+    pub node_local_defs: NodeMap<LocalId>,
+    pub node_uses: NodeMap<LocalUse>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug)]
+pub struct LocalResolutionBuilder {
+    locals: LocalMap,
+    node_local_defs: NodeMapBuilder<LocalId>,
+    node_uses: NodeMapBuilder<LocalUse>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl LocalResolution {
+    pub fn with_store(store: &NodeStore) -> Self {
+        Self {
+            locals: LocalMap::default(),
+            node_local_defs: NodeMap::with_store(store),
+            node_uses: NodeMap::with_store(store),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    pub fn into_builder(self) -> LocalResolutionBuilder {
+        LocalResolutionBuilder {
+            locals: self.locals,
+            node_local_defs: self.node_local_defs.into_builder(),
+            node_uses: self.node_uses.into_builder(),
+            diagnostics: self.diagnostics,
+        }
+    }
+}
+
+impl LocalResolutionBuilder {
+    pub fn remove_node_local_def(&mut self, locator: &VersionedNodeKey) -> Option<LocalId> {
+        self.node_local_defs.remove(locator)
+    }
+
+    pub fn finish(self) -> LocalResolution {
+        LocalResolution {
+            locals: self.locals,
+            node_local_defs: self.node_local_defs.finish(),
+            node_uses: self.node_uses.finish(),
+            diagnostics: self.diagnostics,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -119,7 +162,8 @@ pub fn resolve_module_locals_with_source(
     _source_version: Option<nia_source::SourceVersion>,
 ) -> LocalResolution {
     let item_tree = ModuleItemTree::from_module(module);
-    resolve_module_locals_from_items(&item_tree.items, defs, values)
+    let node_store = NodeStore::new();
+    resolve_module_locals_from_items(&item_tree.items, defs, values, &node_store)
 }
 
 pub fn resolve_module_locals_with_origins(
@@ -127,10 +171,10 @@ pub fn resolve_module_locals_with_origins(
     defs: &DefCollection,
     values: &ValueResolution,
     _source_version: Option<nia_source::SourceVersion>,
-    _origins: &nia_node_id::NodeOriginTable,
+    origins: &nia_node_id::NodeOriginTable,
 ) -> LocalResolution {
     let item_tree = ModuleItemTree::from_module(module);
-    resolve_module_locals_from_items(&item_tree.items, defs, values)
+    resolve_module_locals_from_items(&item_tree.items, defs, values, origins.node_store())
 }
 
 pub fn resolve_module_locals_from_item_tree(
@@ -138,7 +182,8 @@ pub fn resolve_module_locals_from_item_tree(
     defs: &DefCollection,
     values: &ValueResolution,
 ) -> LocalResolution {
-    resolve_module_locals_from_items(&item_tree.items, defs, values)
+    let node_store = NodeStore::new();
+    resolve_module_locals_from_items(&item_tree.items, defs, values, &node_store)
 }
 
 pub fn resolve_module_locals_from_active_item_tree_with_origins(
@@ -146,9 +191,9 @@ pub fn resolve_module_locals_from_active_item_tree_with_origins(
     defs: &DefCollection,
     values: &ValueResolution,
     _source_version: Option<nia_source::SourceVersion>,
-    _origins: &nia_node_id::NodeOriginTable,
+    origins: &nia_node_id::NodeOriginTable,
 ) -> LocalResolution {
-    resolve_module_locals_from_items(&item_tree.items, defs, values)
+    resolve_module_locals_from_items(&item_tree.items, defs, values, origins.node_store())
 }
 
 pub fn resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
@@ -156,10 +201,16 @@ pub fn resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
     defs: &DefCollection,
     values: &ValueResolution,
     _source_version: Option<nia_source::SourceVersion>,
-    _origins: &nia_node_id::NodeOriginTable,
+    origins: &nia_node_id::NodeOriginTable,
     symbols: &dyn SymbolText,
 ) -> LocalResolution {
-    resolve_module_locals_from_items_with_symbols(&item_tree.items, defs, values, Some(symbols))
+    resolve_module_locals_from_items_with_symbols(
+        &item_tree.items,
+        defs,
+        values,
+        Some(symbols),
+        origins.node_store(),
+    )
 }
 
 pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins(
@@ -168,7 +219,7 @@ pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins(
     defs: &DefCollection,
     values: &ValueResolution,
     _source_version: Option<nia_source::SourceVersion>,
-    _origins: &nia_node_id::NodeOriginTable,
+    origins: &nia_node_id::NodeOriginTable,
 ) -> LocalResolution {
     resolve_module_locals_from_filtered_items(
         &filtered_item_tree.items,
@@ -176,6 +227,7 @@ pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins(
         defs,
         values,
         None,
+        origins.node_store(),
     )
 }
 
@@ -185,7 +237,7 @@ pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins_and_sym
     defs: &DefCollection,
     values: &ValueResolution,
     _source_version: Option<nia_source::SourceVersion>,
-    _origins: &nia_node_id::NodeOriginTable,
+    origins: &nia_node_id::NodeOriginTable,
     symbols: &dyn SymbolText,
 ) -> LocalResolution {
     resolve_module_locals_from_filtered_items(
@@ -194,6 +246,7 @@ pub fn resolve_module_locals_from_filtered_active_item_tree_with_origins_and_sym
         defs,
         values,
         Some(symbols),
+        origins.node_store(),
     )
 }
 
@@ -204,7 +257,8 @@ pub fn resolve_module_locals_from_item_tree_with_origins(
     _source_version: Option<nia_source::SourceVersion>,
     _origins: (),
 ) -> LocalResolution {
-    resolve_module_locals_from_items(&item_tree.items, defs, values)
+    let node_store = NodeStore::new();
+    resolve_module_locals_from_items(&item_tree.items, defs, values, &node_store)
 }
 
 fn resolve_module_locals_from_filtered_items(
@@ -213,6 +267,7 @@ fn resolve_module_locals_from_filtered_items(
     defs: &DefCollection,
     values: &ValueResolution,
     symbols: Option<&dyn SymbolText>,
+    node_store: &NodeStore,
 ) -> LocalResolution {
     let allocated = LocalDefinitionAllocator::allocate_items(full_items);
     let mut resolver = LocalResolver {
@@ -228,20 +283,16 @@ fn resolve_module_locals_from_filtered_items(
         definition_ids: Some(allocated.node_local_defs),
     };
     resolver.resolve_items(filtered_items);
-    LocalResolution {
-        locals: resolver.locals,
-        node_local_defs: resolver.node_local_defs,
-        node_uses: resolver.node_uses,
-        diagnostics: resolver.diagnostics,
-    }
+    finish_local_resolution(resolver, node_store)
 }
 
 fn resolve_module_locals_from_items(
     items: &[ItemTreeNode],
     defs: &DefCollection,
     values: &ValueResolution,
+    node_store: &NodeStore,
 ) -> LocalResolution {
-    resolve_module_locals_from_items_with_symbols(items, defs, values, None)
+    resolve_module_locals_from_items_with_symbols(items, defs, values, None, node_store)
 }
 
 fn resolve_module_locals_from_items_with_symbols(
@@ -249,6 +300,7 @@ fn resolve_module_locals_from_items_with_symbols(
     defs: &DefCollection,
     values: &ValueResolution,
     symbols: Option<&dyn SymbolText>,
+    node_store: &NodeStore,
 ) -> LocalResolution {
     let mut resolver = LocalResolver {
         defs,
@@ -263,10 +315,18 @@ fn resolve_module_locals_from_items_with_symbols(
         definition_ids: None,
     };
     resolver.resolve_items(items);
+    finish_local_resolution(resolver, node_store)
+}
+
+fn finish_local_resolution(resolver: LocalResolver<'_>, node_store: &NodeStore) -> LocalResolution {
+    let mut node_local_defs = NodeMap::builder(node_store);
+    node_local_defs.extend(resolver.node_local_defs);
+    let mut node_uses = NodeMap::builder(node_store);
+    node_uses.extend(resolver.node_uses);
     LocalResolution {
         locals: resolver.locals,
-        node_local_defs: resolver.node_local_defs,
-        node_uses: resolver.node_uses,
+        node_local_defs: node_local_defs.finish(),
+        node_uses: node_uses.finish(),
         diagnostics: resolver.diagnostics,
     }
 }
@@ -1563,7 +1623,8 @@ fn value(input: ?S) ?i32 {
         let (module, errors) = parse_module(source);
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
-        let mut values = resolve_module_values(&module, &defs);
+        let values = resolve_module_values(&module, &defs);
+        let mut values = values.into_builder();
         for item in &module.items {
             if let nia_ast::ItemKind::Function(function) = &item.kind
                 && function.name == sym("value")
@@ -1577,7 +1638,7 @@ fn value(input: ?S) ?i32 {
                 && let ExprKind::Ident(name) = &lhs.kind
                 && *name == sym("range")
             {
-                values.node_names.insert(
+                values.insert_node_name(
                     lhs.node_key.clone(),
                     ValueNameResolution::External(GlobalDefId {
                         module_id: ModuleId(99),
@@ -1586,6 +1647,7 @@ fn value(input: ?S) ?i32 {
                 );
             }
         }
+        let values = values.finish();
         let locals = resolve_module_locals(&module, &defs, &values);
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
         let range_id = locals

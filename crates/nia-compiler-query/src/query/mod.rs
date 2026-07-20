@@ -5665,6 +5665,35 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
+    fn resolution_queries_share_compiler_session_node_owner() {
+        let source = "static VALUE: i32 = 1; fn main() i32 { let local: i32 = VALUE; local }";
+        let loaded =
+            loaded_program_with_modules(vec![loaded_module(ModuleId(0), "main.nia", source)]);
+        let db = query_db(loaded);
+        let node_store_id = db.context().node_store().id();
+
+        let values = db.get(ValueResolutionQuery(ModuleId(0)));
+        assert_eq!(values.node_names.store_id(), node_store_id);
+        assert_eq!(values.node_qualified_values.store_id(), node_store_id);
+        assert_eq!(
+            values.node_builtin_associated_values.store_id(),
+            node_store_id
+        );
+        assert_eq!(values.node_variant_enums.store_id(), node_store_id);
+        assert_eq!(
+            values.node_qualified_type_prefixes.store_id(),
+            node_store_id
+        );
+
+        let locals = db.get(LocalResolutionQuery(ModuleId(0)));
+        assert_eq!(locals.node_local_defs.store_id(), node_store_id);
+        assert_eq!(locals.node_uses.store_id(), node_store_id);
+
+        let types = db.get(TypeResolutionQuery(ModuleId(0)));
+        assert_eq!(types.node_const_generic_names.store_id(), node_store_id);
+    }
+
+    #[test]
     fn checked_module_exposes_semantic_use_table_product() {
         let source = "fn main() i32 { let mut local: i32 = 1; local }";
         let checked =

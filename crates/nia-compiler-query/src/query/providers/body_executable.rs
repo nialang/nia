@@ -276,7 +276,7 @@ fn filtered_const_global_initializer_for_body_check(
             let visible_extensions = || db.get(VisibleExtensionsQuery(global_id.module_id));
             let associated_values =
                 LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
-            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
+            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols_in_store(
                 lowered.const_exprs.iter().filter_map(|(id, expr)| {
                     needed_const_exprs.contains(id).then_some(expr.clone())
                 }),
@@ -287,8 +287,11 @@ fn filtered_const_global_initializer_for_body_check(
                 },
                 &public_surfaces.surfaces,
                 using_scope.as_ref(),
-                Some(&associated_values),
-                Some(&symbols),
+                nia_value_resolve::ValueResolveOptions::with_store(
+                    Some(&associated_values),
+                    Some(&symbols),
+                    db.context().node_store(),
+                ),
             )
         },
     );
@@ -378,7 +381,7 @@ fn filtered_const_global_initializer_for_body_check(
             let associated_values =
                 LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
             let symbols = db.context().symbols();
-            nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
+            nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
                 &filtered_active_item_tree,
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
@@ -387,8 +390,11 @@ fn filtered_const_global_initializer_for_body_check(
                 },
                 &public_surfaces.surfaces,
                 using_scope.as_ref(),
-                Some(&associated_values),
-                Some(&symbols),
+                nia_value_resolve::ValueResolveOptions::with_store(
+                    Some(&associated_values),
+                    Some(&symbols),
+                    db.context().node_store(),
+                ),
             )
         },
     );
@@ -1772,20 +1778,10 @@ pub(super) fn executable_signature_checked_module(
         defs: db.get(ModuleDefsQuery(module_id)),
         type_resolution,
         type_lowering,
-        value_resolution: Arc::new(ValueResolution {
-            node_names: HashMap::new(),
-            node_qualified_values: HashMap::new(),
-            node_builtin_associated_values: HashMap::new(),
-            node_variant_enums: HashMap::new(),
-            node_qualified_type_prefixes: HashMap::new(),
-            diagnostics: Vec::new(),
-        }),
-        local_resolution: Arc::new(nia_local_resolve::LocalResolution {
-            locals: nia_local_resolve::LocalMap::default(),
-            node_local_defs: HashMap::new(),
-            node_uses: HashMap::new(),
-            diagnostics: Vec::new(),
-        }),
+        value_resolution: Arc::new(ValueResolution::with_store(db.context().node_store())),
+        local_resolution: Arc::new(nia_local_resolve::LocalResolution::with_store(
+            db.context().node_store(),
+        )),
         type_normalization,
         const_eval: Arc::new(ConstCheck {
             values: Arc::new(HashMap::new()),
@@ -1881,7 +1877,7 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
         let associated_values =
             LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let symbols = db.context().symbols();
-        let values = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
+        let values = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_value_resolve::ProgramDefsContext {
@@ -1890,9 +1886,13 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
             },
             &public_surfaces,
             &using_scope,
-            Some(&associated_values),
-            Some(&symbols),
+            nia_value_resolve::ValueResolveOptions::with_store(
+                Some(&associated_values),
+                Some(&symbols),
+                db.context().node_store(),
+            ),
         );
+        let origins = nia_node_id::NodeOriginTable::with_store(db.context().node_store());
         let locals =
             nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
                 &active_item_tree,
@@ -1900,7 +1900,7 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
                 &defs,
                 &values,
                 None,
-                &nia_node_id::NodeOriginTable::default(),
+                &origins,
                 &symbols,
             );
         let mut index = ExecutableValueRefIndex::default();

@@ -12,7 +12,7 @@ use nia_imports::{
     visibility_allows,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::VersionedNodeKey;
+use nia_node_id::{NodeMap, NodeMapBuilder, NodeStore, VersionedNodeKey};
 use nia_sema_ir::{BuiltinAssociatedValue, PrimitiveIntLimit, supports_primitive_int_limit};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolText, known, symbol_text_from_optional_resolver};
@@ -20,20 +20,105 @@ use nia_ty::PrimitiveTy;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValueResolution {
-    pub node_names: HashMap<VersionedNodeKey, ValueNameResolution>,
-    pub node_qualified_values: HashMap<VersionedNodeKey, GlobalDefId>,
-    pub node_builtin_associated_values: HashMap<VersionedNodeKey, BuiltinAssociatedValue>,
+    pub node_names: NodeMap<ValueNameResolution>,
+    pub node_qualified_values: NodeMap<GlobalDefId>,
+    pub node_builtin_associated_values: NodeMap<BuiltinAssociatedValue>,
     /// For spans whose value resolves to an enum variant (brought in via
     /// `using` or accessed as `mod::Enum::Variant`), the parent enum's
     /// GlobalDefId so consumers can type the bare ident as that enum.
-    pub node_variant_enums: HashMap<VersionedNodeKey, GlobalDefId>,
+    pub node_variant_enums: NodeMap<GlobalDefId>,
     /// For `Qualified` spans like `mod::TypeName` appearing in expression
     /// position (e.g., as a type prefix in `mod::Enum::Variant` or
     /// `mod::Type::associated_fn(...)`), the resolved type's GlobalDefId.
     /// Populated by value-resolve so downstream phases can recognise these
     /// as type prefixes without re-resolving the module alias.
-    pub node_qualified_type_prefixes: HashMap<VersionedNodeKey, GlobalDefId>,
+    pub node_qualified_type_prefixes: NodeMap<GlobalDefId>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug)]
+pub struct ValueResolutionBuilder {
+    node_names: NodeMapBuilder<ValueNameResolution>,
+    node_qualified_values: NodeMapBuilder<GlobalDefId>,
+    node_builtin_associated_values: NodeMapBuilder<BuiltinAssociatedValue>,
+    node_variant_enums: NodeMapBuilder<GlobalDefId>,
+    node_qualified_type_prefixes: NodeMapBuilder<GlobalDefId>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl ValueResolution {
+    pub fn with_store(store: &NodeStore) -> Self {
+        Self {
+            node_names: NodeMap::with_store(store),
+            node_qualified_values: NodeMap::with_store(store),
+            node_builtin_associated_values: NodeMap::with_store(store),
+            node_variant_enums: NodeMap::with_store(store),
+            node_qualified_type_prefixes: NodeMap::with_store(store),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    pub fn builder(store: &NodeStore) -> ValueResolutionBuilder {
+        ValueResolutionBuilder {
+            node_names: NodeMap::builder(store),
+            node_qualified_values: NodeMap::builder(store),
+            node_builtin_associated_values: NodeMap::builder(store),
+            node_variant_enums: NodeMap::builder(store),
+            node_qualified_type_prefixes: NodeMap::builder(store),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    pub fn into_builder(self) -> ValueResolutionBuilder {
+        ValueResolutionBuilder {
+            node_names: self.node_names.into_builder(),
+            node_qualified_values: self.node_qualified_values.into_builder(),
+            node_builtin_associated_values: self.node_builtin_associated_values.into_builder(),
+            node_variant_enums: self.node_variant_enums.into_builder(),
+            node_qualified_type_prefixes: self.node_qualified_type_prefixes.into_builder(),
+            diagnostics: self.diagnostics,
+        }
+    }
+
+    pub fn extend(self, other: Self) -> Self {
+        let mut builder = self.into_builder();
+        builder.extend(other);
+        builder.finish()
+    }
+}
+
+impl ValueResolutionBuilder {
+    pub fn insert_node_name(&mut self, locator: VersionedNodeKey, resolution: ValueNameResolution) {
+        self.node_names.insert(locator, resolution);
+    }
+
+    pub fn insert_node_qualified_value(&mut self, locator: VersionedNodeKey, def_id: GlobalDefId) {
+        self.node_qualified_values.insert(locator, def_id);
+    }
+
+    pub fn extend(&mut self, resolution: ValueResolution) {
+        self.node_names.extend_map(resolution.node_names);
+        self.node_qualified_values
+            .extend_map(resolution.node_qualified_values);
+        self.node_builtin_associated_values
+            .extend_map(resolution.node_builtin_associated_values);
+        self.node_variant_enums
+            .extend_map(resolution.node_variant_enums);
+        self.node_qualified_type_prefixes
+            .extend_map(resolution.node_qualified_type_prefixes);
+        self.diagnostics.extend(resolution.diagnostics);
+    }
+
+    pub fn finish(self) -> ValueResolution {
+        ValueResolution {
+            node_names: self.node_names.finish(),
+            node_qualified_values: self.node_qualified_values.finish(),
+            node_builtin_associated_values: self.node_builtin_associated_values.finish(),
+            node_variant_enums: self.node_variant_enums.finish(),
+            node_qualified_type_prefixes: self.node_qualified_type_prefixes.finish(),
+            diagnostics: self.diagnostics,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +142,27 @@ pub trait AssociatedValueResolver {
         target: AssociatedValueTarget,
         name: &SymbolId,
     ) -> Option<GlobalDefId>;
+}
+
+#[derive(Clone, Copy)]
+pub struct ValueResolveOptions<'a> {
+    associated_values: Option<&'a dyn AssociatedValueResolver>,
+    symbols: Option<&'a dyn SymbolText>,
+    node_store: &'a NodeStore,
+}
+
+impl<'a> ValueResolveOptions<'a> {
+    pub fn with_store(
+        associated_values: Option<&'a dyn AssociatedValueResolver>,
+        symbols: Option<&'a dyn SymbolText>,
+        node_store: &'a NodeStore,
+    ) -> Self {
+        Self {
+            associated_values,
+            symbols,
+            node_store,
+        }
+    }
 }
 
 impl<F> AssociatedValueResolver for F
@@ -242,6 +348,30 @@ pub fn resolve_module_values_from_active_item_tree_with_associated_values_and_sy
     associated_values: Option<&dyn AssociatedValueResolver>,
     symbols: Option<&dyn SymbolText>,
 ) -> ValueResolution {
+    let node_store = NodeStore::new();
+    resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
+        item_tree,
+        defs,
+        program_defs,
+        public_surfaces,
+        using_scope,
+        ValueResolveOptions::with_store(associated_values, symbols, &node_store),
+    )
+}
+
+pub fn resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &dyn PublicSurfaceLookup,
+    using_scope: &dyn UsingScopeLookup,
+    options: ValueResolveOptions<'_>,
+) -> ValueResolution {
+    let ValueResolveOptions {
+        associated_values,
+        symbols,
+        node_store,
+    } = options;
     resolve_module_values_from_items(
         &item_tree.items,
         ValueResolveInputs {
@@ -253,6 +383,7 @@ pub fn resolve_module_values_from_active_item_tree_with_associated_values_and_sy
             associated_values,
             symbols,
         },
+        node_store,
     )
 }
 
@@ -301,6 +432,30 @@ pub fn resolve_module_values_from_exprs_with_associated_values_and_symbols(
     associated_values: Option<&dyn AssociatedValueResolver>,
     symbols: Option<&dyn SymbolText>,
 ) -> ValueResolution {
+    let node_store = NodeStore::new();
+    resolve_module_values_from_exprs_with_associated_values_and_symbols_in_store(
+        exprs,
+        defs,
+        program_defs,
+        public_surfaces,
+        using_scope,
+        ValueResolveOptions::with_store(associated_values, symbols, &node_store),
+    )
+}
+
+pub fn resolve_module_values_from_exprs_with_associated_values_and_symbols_in_store(
+    exprs: impl IntoIterator<Item = Expr>,
+    defs: &DefCollection,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &dyn PublicSurfaceLookup,
+    using_scope: &dyn UsingScopeLookup,
+    options: ValueResolveOptions<'_>,
+) -> ValueResolution {
+    let ValueResolveOptions {
+        associated_values,
+        symbols,
+        node_store,
+    } = options;
     resolve_module_values_from_exprs_inner(
         exprs,
         ValueResolveInputs {
@@ -312,6 +467,7 @@ pub fn resolve_module_values_from_exprs_with_associated_values_and_symbols(
             associated_values,
             symbols,
         },
+        node_store,
     )
 }
 
@@ -319,29 +475,32 @@ fn resolve_module_values_from_item_tree_inner(
     item_tree: &ModuleItemTree,
     inputs: ValueResolveInputs<'_>,
 ) -> ValueResolution {
-    resolve_module_values_from_items(&item_tree.items, inputs)
+    let node_store = NodeStore::new();
+    resolve_module_values_from_items(&item_tree.items, inputs, &node_store)
 }
 
 fn resolve_module_values_from_exprs_inner(
     exprs: impl IntoIterator<Item = Expr>,
     inputs: ValueResolveInputs<'_>,
+    node_store: &NodeStore,
 ) -> ValueResolution {
     let mut resolver = ValueResolver::new(inputs);
     for expr in exprs {
         resolver.visit_expr(&expr);
     }
-    resolver.finish()
+    resolver.finish(node_store)
 }
 
 fn resolve_module_values_from_items(
     items: &[ItemTreeNode],
     inputs: ValueResolveInputs<'_>,
+    node_store: &NodeStore,
 ) -> ValueResolution {
     let mut resolver = ValueResolver::new(inputs);
     for item in items {
         resolver.visit_item_tree_node(item);
     }
-    resolver.finish()
+    resolver.finish(node_store)
 }
 
 struct ValueResolveInputs<'a> {
@@ -389,15 +548,23 @@ impl ValueResolver<'_> {
         }
     }
 
-    fn finish(self) -> ValueResolution {
-        ValueResolution {
-            node_names: self.node_names,
-            node_qualified_values: self.node_qualified_values,
-            node_builtin_associated_values: self.node_builtin_associated_values,
-            node_variant_enums: self.node_variant_enums,
-            node_qualified_type_prefixes: self.node_qualified_type_prefixes,
-            diagnostics: self.diagnostics,
-        }
+    fn finish(self, node_store: &NodeStore) -> ValueResolution {
+        let mut resolution = ValueResolution::builder(node_store);
+        resolution.node_names.extend(self.node_names);
+        resolution
+            .node_qualified_values
+            .extend(self.node_qualified_values);
+        resolution
+            .node_builtin_associated_values
+            .extend(self.node_builtin_associated_values);
+        resolution
+            .node_variant_enums
+            .extend(self.node_variant_enums);
+        resolution
+            .node_qualified_type_prefixes
+            .extend(self.node_qualified_type_prefixes);
+        resolution.diagnostics = self.diagnostics;
+        resolution.finish()
     }
 
     fn graph(&self) -> Option<&dyn ModuleGraphLookup> {

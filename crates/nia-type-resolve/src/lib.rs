@@ -15,7 +15,7 @@ use nia_imports::{
     visibility_allows,
 };
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::{NodeSite, VersionedNodeKey};
+use nia_node_id::{NodeMap, NodeSite, NodeStore, VersionedNodeKey};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolText, known, symbol_text_from_optional_resolver};
 use nia_ty::{BuiltinTrait, PrimitiveTy, PrimitiveTypeSpelling};
@@ -24,7 +24,7 @@ use nia_ty::{BuiltinTrait, PrimitiveTy, PrimitiveTypeSpelling};
 pub struct TypeResolution {
     pub node_type_names: HashMap<NodeSite, TypeNameResolution>,
     pub node_qualified_type_names: HashMap<NodeSite, GlobalDefId>,
-    pub node_const_generic_names: HashMap<VersionedNodeKey, SymbolId>,
+    pub node_const_generic_names: NodeMap<SymbolId>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -159,14 +159,19 @@ pub fn resolve_module_types_from_active_item_tree(
     public_surfaces: &dyn PublicSurfaceLookup,
     using_scope: &dyn UsingScopeLookup,
 ) -> TypeResolution {
-    resolve_module_types_from_items(
+    let node_store = NodeStore::new();
+    resolve_module_types_from_items_with_mode(
         &item_tree.items,
         defs,
         program_defs.graph,
         program_defs,
         Some(public_surfaces),
         Some(using_scope),
-        None,
+        TypeResolveOptions {
+            symbols: None,
+            mode: TypeResolveMode::All,
+            node_store: &node_store,
+        },
     )
 }
 
@@ -177,6 +182,7 @@ pub fn resolve_module_declaration_types_from_active_item_tree(
     public_surfaces: &dyn PublicSurfaceLookup,
     using_scope: &dyn UsingScopeLookup,
 ) -> TypeResolution {
+    let node_store = NodeStore::new();
     resolve_module_types_from_items_with_mode(
         &item_tree.items,
         defs,
@@ -187,6 +193,7 @@ pub fn resolve_module_declaration_types_from_active_item_tree(
         TypeResolveOptions {
             symbols: None,
             mode: TypeResolveMode::Declarations,
+            node_store: &node_store,
         },
     )
 }
@@ -199,14 +206,39 @@ pub fn resolve_module_types_from_active_item_tree_with_symbols(
     using_scope: &dyn UsingScopeLookup,
     symbols: &dyn SymbolText,
 ) -> TypeResolution {
-    resolve_module_types_from_items(
+    let node_store = NodeStore::new();
+    resolve_module_types_from_active_item_tree_with_symbols_in_store(
+        item_tree,
+        defs,
+        program_defs,
+        public_surfaces,
+        using_scope,
+        symbols,
+        &node_store,
+    )
+}
+
+pub fn resolve_module_types_from_active_item_tree_with_symbols_in_store(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &dyn PublicSurfaceLookup,
+    using_scope: &dyn UsingScopeLookup,
+    symbols: &dyn SymbolText,
+    node_store: &NodeStore,
+) -> TypeResolution {
+    resolve_module_types_from_items_with_mode(
         &item_tree.items,
         defs,
         program_defs.graph,
         program_defs,
         Some(public_surfaces),
         Some(using_scope),
-        Some(symbols),
+        TypeResolveOptions {
+            symbols: Some(symbols),
+            mode: TypeResolveMode::All,
+            node_store,
+        },
     )
 }
 
@@ -218,6 +250,27 @@ pub fn resolve_module_declaration_types_from_active_item_tree_with_symbols(
     using_scope: &dyn UsingScopeLookup,
     symbols: &dyn SymbolText,
 ) -> TypeResolution {
+    let node_store = NodeStore::new();
+    resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
+        item_tree,
+        defs,
+        program_defs,
+        public_surfaces,
+        using_scope,
+        symbols,
+        &node_store,
+    )
+}
+
+pub fn resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &dyn PublicSurfaceLookup,
+    using_scope: &dyn UsingScopeLookup,
+    symbols: &dyn SymbolText,
+    node_store: &NodeStore,
+) -> TypeResolution {
     resolve_module_types_from_items_with_mode(
         &item_tree.items,
         defs,
@@ -228,6 +281,7 @@ pub fn resolve_module_declaration_types_from_active_item_tree_with_symbols(
         TypeResolveOptions {
             symbols: Some(symbols),
             mode: TypeResolveMode::Declarations,
+            node_store,
         },
     )
 }
@@ -241,6 +295,7 @@ fn resolve_module_types_from_item_tree_inner(
     using_scope: Option<&dyn UsingScopeLookup>,
     symbols: Option<&dyn SymbolText>,
 ) -> TypeResolution {
+    let node_store = NodeStore::new();
     resolve_module_types_from_items_with_mode(
         &item_tree.items,
         defs,
@@ -251,29 +306,7 @@ fn resolve_module_types_from_item_tree_inner(
         TypeResolveOptions {
             symbols,
             mode: TypeResolveMode::All,
-        },
-    )
-}
-
-fn resolve_module_types_from_items(
-    items: &[ItemTreeNode],
-    defs: &DefCollection,
-    graph: Option<&dyn ModuleGraphLookup>,
-    program_defs: ProgramDefsContext<'_>,
-    public_surfaces: Option<&dyn PublicSurfaceLookup>,
-    using_scope: Option<&dyn UsingScopeLookup>,
-    symbols: Option<&dyn SymbolText>,
-) -> TypeResolution {
-    resolve_module_types_from_items_with_mode(
-        items,
-        defs,
-        graph,
-        program_defs,
-        public_surfaces,
-        using_scope,
-        TypeResolveOptions {
-            symbols,
-            mode: TypeResolveMode::All,
+            node_store: &node_store,
         },
     )
 }
@@ -282,6 +315,7 @@ fn resolve_module_types_from_items(
 struct TypeResolveOptions<'a> {
     symbols: Option<&'a dyn SymbolText>,
     mode: TypeResolveMode,
+    node_store: &'a NodeStore,
 }
 
 fn resolve_module_types_from_items_with_mode(
@@ -293,7 +327,11 @@ fn resolve_module_types_from_items_with_mode(
     using_scope: Option<&dyn UsingScopeLookup>,
     options: TypeResolveOptions<'_>,
 ) -> TypeResolution {
-    let TypeResolveOptions { symbols, mode } = options;
+    let TypeResolveOptions {
+        symbols,
+        mode,
+        node_store,
+    } = options;
     let mut resolver = TypeResolver {
         defs,
         graph,
@@ -313,10 +351,12 @@ fn resolve_module_types_from_items_with_mode(
     for item in items {
         resolver.visit_item_tree_node(item);
     }
+    let mut node_const_generic_names = NodeMap::builder(node_store);
+    node_const_generic_names.extend(resolver.node_const_generic_names);
     TypeResolution {
         node_type_names: resolver.node_type_names,
         node_qualified_type_names: resolver.node_qualified_type_names,
-        node_const_generic_names: resolver.node_const_generic_names,
+        node_const_generic_names: node_const_generic_names.finish(),
         diagnostics: resolver.diagnostics,
     }
 }

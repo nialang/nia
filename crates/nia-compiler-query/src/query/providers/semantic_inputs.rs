@@ -86,7 +86,7 @@ pub(super) fn provide_value_resolution(
         let associated_values =
             LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
         let symbols = db.context().symbols();
-        nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
+        nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_value_resolve::ProgramDefsContext {
@@ -95,8 +95,11 @@ pub(super) fn provide_value_resolution(
             },
             &public_surfaces,
             &using_scope,
-            Some(&associated_values),
-            Some(&symbols),
+            nia_value_resolve::ValueResolveOptions::with_store(
+                Some(&associated_values),
+                Some(&symbols),
+                db.context().node_store(),
+            ),
         )
     })
 }
@@ -109,12 +112,13 @@ pub(super) fn provide_local_resolution(
     let defs = db.get(FullModuleDefsQuery(module_id));
     let values = db.get(ValueResolutionQuery(module_id));
     let symbols = db.context().symbols();
+    let origins = nia_node_id::NodeOriginTable::with_store(db.context().node_store());
     nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins_and_symbols(
         &active_item_tree,
         &defs,
         &values,
         None,
-        &nia_node_id::NodeOriginTable::default(),
+        &origins,
         &symbols,
     )
 }
@@ -145,7 +149,7 @@ pub(super) fn provide_semantic_use_table(
         let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
         let symbols = db.context().symbols();
         Some(
-            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
+            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols_in_store(
                 type_lowering.const_exprs.iter().filter_map(|(id, expr)| {
                     needed_const_exprs.contains(id).then_some(expr.clone())
                 }),
@@ -156,8 +160,11 @@ pub(super) fn provide_semantic_use_table(
                 },
                 &public_surfaces,
                 &using_scope,
-                Some(&associated_values),
-                Some(&symbols),
+                nia_value_resolve::ValueResolveOptions::with_store(
+                    Some(&associated_values),
+                    Some(&symbols),
+                    db.context().node_store(),
+                ),
             ),
         )
     };
@@ -259,14 +266,14 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
             const_expr_value_resolution
                 .node_qualified_values
                 .iter()
-                .filter(|(key, _)| const_expr_nodes.contains(*key))
+                .filter(|(key, _)| const_expr_nodes.contains(key))
                 .map(|(key, global_id)| (key.clone(), *global_id)),
         );
         builder.extend_node_builtin_associated_values(
             const_expr_value_resolution
                 .node_builtin_associated_values
                 .iter()
-                .filter(|(key, _)| const_expr_nodes.contains(*key))
+                .filter(|(key, _)| const_expr_nodes.contains(key))
                 .map(|(key, value)| (key.clone(), *value)),
         );
         builder.extend_node_associated_const_projections(
@@ -278,7 +285,7 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
             ),
         );
         for (key, resolution) in &const_expr_value_resolution.node_names {
-            if !const_expr_nodes.contains(key) {
+            if !const_expr_nodes.contains(&key) {
                 continue;
             }
             match resolution {

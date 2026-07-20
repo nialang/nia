@@ -20,7 +20,7 @@ fn with_signature_const_input<T>(
     let defs = db.get(ModuleDefsQuery(module_id));
     let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id));
     let values = signature_const_value_resolution(db, module_id, &active_item_tree);
-    let locals = empty_local_resolution();
+    let locals = empty_local_resolution(db.context().node_store());
     let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id));
     let type_normalization = db.get(SignatureConstTypeNormalizationQuery(module_id));
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
@@ -143,7 +143,7 @@ pub(super) fn provide_signature_const_module(
     let defs = db.get(ModuleDefsQuery(module_id));
     let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id));
     let values = signature_const_value_resolution(db, module_id, &active_item_tree);
-    let locals = empty_local_resolution();
+    let locals = empty_local_resolution(db.context().node_store());
     let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id));
     let semantic_uses = signature_semantic_use_table_from_resolution_inputs(
         db.context().node_store(),
@@ -247,7 +247,7 @@ fn signature_const_value_resolution(
         .iter()
         .any(item_tree_node_has_const_provider_values);
     if exprs.is_empty() && !has_const_provider_values {
-        return empty_value_resolution();
+        return empty_value_resolution(db.context().node_store());
     }
     let defs = db.get(ModuleDefsQuery(module_id));
     let public_surfaces = db.get(PublicSurfacesQuery);
@@ -257,8 +257,8 @@ fn signature_const_value_resolution(
         LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
     let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
-    let mut values =
-        nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols(
+    let values =
+        nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
             active_item_tree,
             &defs,
             nia_value_resolve::ProgramDefsContext {
@@ -267,14 +267,17 @@ fn signature_const_value_resolution(
             },
             &public_surfaces.surfaces,
             using_scope.as_ref(),
-            Some(&associated_values),
-            Some(&symbols),
+            nia_value_resolve::ValueResolveOptions::with_store(
+                Some(&associated_values),
+                Some(&symbols),
+                db.context().node_store(),
+            ),
         );
     if exprs.is_empty() {
         return values;
     }
     let const_expr_values =
-        nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols(
+        nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols_in_store(
             exprs,
             &defs,
             nia_value_resolve::ProgramDefsContext {
@@ -283,24 +286,13 @@ fn signature_const_value_resolution(
             },
             &public_surfaces.surfaces,
             using_scope.as_ref(),
-            Some(&associated_values),
-            Some(&symbols),
+            nia_value_resolve::ValueResolveOptions::with_store(
+                Some(&associated_values),
+                Some(&symbols),
+                db.context().node_store(),
+            ),
         );
-    values.node_names.extend(const_expr_values.node_names);
-    values
-        .node_qualified_values
-        .extend(const_expr_values.node_qualified_values);
-    values
-        .node_builtin_associated_values
-        .extend(const_expr_values.node_builtin_associated_values);
-    values
-        .node_variant_enums
-        .extend(const_expr_values.node_variant_enums);
-    values
-        .node_qualified_type_prefixes
-        .extend(const_expr_values.node_qualified_type_prefixes);
-    values.diagnostics.extend(const_expr_values.diagnostics);
-    values
+    values.extend(const_expr_values)
 }
 
 fn signature_semantic_use_table_from_resolution_inputs(
@@ -312,7 +304,7 @@ fn signature_semantic_use_table_from_resolution_inputs(
     type_resolution: &TypeResolution,
     type_lowering: &TypeLowering,
 ) -> nia_sema_ir::SemanticUseTable {
-    let empty_locals = empty_local_resolution();
+    let empty_locals = empty_local_resolution(node_store);
     semantic_use_table_from_resolution_inputs_with_const_expr_values(SemanticUseInputs {
         module_id,
         node_store,
@@ -363,24 +355,12 @@ fn item_tree_node_has_const_provider_values(item: &nia_item_tree::ItemTreeNode) 
     }
 }
 
-fn empty_value_resolution() -> ValueResolution {
-    ValueResolution {
-        node_names: HashMap::new(),
-        node_qualified_values: HashMap::new(),
-        node_builtin_associated_values: HashMap::new(),
-        node_variant_enums: HashMap::new(),
-        node_qualified_type_prefixes: HashMap::new(),
-        diagnostics: Vec::new(),
-    }
+fn empty_value_resolution(node_store: &nia_node_id::NodeStore) -> ValueResolution {
+    ValueResolution::with_store(node_store)
 }
 
-fn empty_local_resolution() -> LocalResolution {
-    LocalResolution {
-        locals: nia_local_resolve::LocalMap::default(),
-        node_local_defs: HashMap::new(),
-        node_uses: HashMap::new(),
-        diagnostics: Vec::new(),
-    }
+fn empty_local_resolution(node_store: &nia_node_id::NodeStore) -> LocalResolution {
+    LocalResolution::with_store(node_store)
 }
 
 pub(super) fn signature_layouts_for_types(

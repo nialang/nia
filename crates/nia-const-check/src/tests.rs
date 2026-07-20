@@ -314,13 +314,15 @@ y
         symbols: None,
     });
     let values = resolve_module_values(&module, &defs);
-    let mut locals = resolve_module_locals(&module, &defs, &values);
+    let locals = resolve_module_locals(&module, &defs, &values);
     let removed_key = locals.node_local_defs.iter().find_map(|(key, local_id)| {
         let local = locals.locals.get(*local_id)?;
         (local.name.symbol() == Some(sym("y"))).then_some(key.clone())
     });
     let removed_key = removed_key.expect("local y node key");
-    locals.node_local_defs.remove(&removed_key);
+    let mut locals = locals.into_builder();
+    locals.remove_node_local_def(&removed_key);
+    let locals = locals.finish();
     let removed_span = module
         .items
         .iter()
