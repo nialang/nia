@@ -2305,12 +2305,24 @@ mod tests {
             path: &str,
             source: &str,
         ) -> ModuleId {
-            let module_id = intern_child(
-                &mut self.graph,
+            self.add_child_with_visibility(
                 parent,
                 child_name,
                 nia_ids::Visibility::Public,
-            );
+                path,
+                source,
+            )
+        }
+
+        fn add_child_with_visibility(
+            &mut self,
+            parent: ModuleId,
+            child_name: &str,
+            visibility: nia_ids::Visibility,
+            path: &str,
+            source: &str,
+        ) -> ModuleId {
+            let module_id = intern_child(&mut self.graph, parent, child_name, visibility);
             self.modules.push(loaded_module(module_id, path, source));
             module_id
         }
@@ -4802,8 +4814,7 @@ fn main() i32 {
 
     #[test]
     fn visible_extensions_use_signature_type_normalization_and_nominal_provider_queries() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module facade;
@@ -4814,8 +4825,10 @@ fn main(value: facade::Used) i32 {
 }
 "#,
         );
-        let facade = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let facade_id = fixture.add_child(
+            entry_id,
+            "facade",
             "facade.nia",
             r#"
 module impls;
@@ -4824,8 +4837,10 @@ module types;
 pub using self::types::Used;
 "#,
         );
-        let impls = loaded_module(
-            ModuleId(2),
+        let impls_id = fixture.add_child_with_visibility(
+            facade_id,
+            "impls",
+            nia_ids::Visibility::Private,
             "facade/impls.nia",
             r#"
 using entry::facade::types::Used;
@@ -4837,22 +4852,13 @@ extend Used {
 }
 "#,
         );
-        let types = loaded_module(ModuleId(3), "facade/types.nia", "pub struct Used {}");
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "facade", nia_ids::Visibility::Public);
-        intern_child(&mut graph, facade.id, "impls", nia_ids::Visibility::Private);
-        intern_child(&mut graph, facade.id, "types", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, facade, impls, types],
-            diagnostics: Vec::new(),
-        };
+        fixture.add_child(facade_id, "types", "facade/types.nia", "pub struct Used {}");
+        let impls_description = format!("{impls_id:?}");
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
-        let _ = db.get(VisibleExtensionsQuery(ModuleId(0)));
+        let _ = db.get(VisibleExtensionsQuery(entry_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -4902,7 +4908,7 @@ extend Used {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
                 && dependency.to.name == "extension_provider_module_facts"
-                && dependency.to.description.contains("ModuleId(2)")
+                && dependency.to.description.contains(&impls_description)
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "visible_extensions"
@@ -5186,8 +5192,7 @@ extend Used {
 
     #[test]
     fn executable_visible_extensions_follow_facade_provider_chains() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module facade;
@@ -5205,8 +5210,10 @@ fn main() i32 {
 }
 "#,
         );
-        let facade = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let facade_id = fixture.add_child(
+            entry_id,
+            "facade",
             "facade.nia",
             r#"
 module args_impl;
@@ -5216,25 +5223,10 @@ module types;
 pub using self::types::{Args, ArgsIter, Init};
 "#,
         );
-        let init_impl = loaded_module(
-            ModuleId(2),
-            "facade/init_impl.nia",
-            r#"
-using entry::facade::types::{Args, Init};
-
-extend Init {
-    pub fn init() Init {
-        {}
-    }
-
-    pub fn args(&self) Args {
-        Args {}
-    }
-}
-"#,
-        );
-        let args_impl = loaded_module(
-            ModuleId(3),
+        fixture.add_child_with_visibility(
+            facade_id,
+            "args_impl",
+            nia_ids::Visibility::Private,
             "facade/args_impl.nia",
             r#"
 using entry::facade::types::{Args, ArgsIter};
@@ -5252,8 +5244,28 @@ extend ArgsIter {
 }
 "#,
         );
-        let types = loaded_module(
-            ModuleId(4),
+        fixture.add_child_with_visibility(
+            facade_id,
+            "init_impl",
+            nia_ids::Visibility::Private,
+            "facade/init_impl.nia",
+            r#"
+using entry::facade::types::{Args, Init};
+
+extend Init {
+    pub fn init() Init {
+        {}
+    }
+
+    pub fn args(&self) Args {
+        Args {}
+    }
+}
+"#,
+        );
+        fixture.add_child(
+            facade_id,
+            "types",
             "facade/types.nia",
             r#"
 pub struct Init {}
@@ -5261,29 +5273,8 @@ pub struct Args {}
 pub struct ArgsIter {}
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "facade", nia_ids::Visibility::Public);
-        intern_child(
-            &mut graph,
-            facade.id,
-            "args_impl",
-            nia_ids::Visibility::Private,
-        );
-        intern_child(
-            &mut graph,
-            facade.id,
-            "init_impl",
-            nia_ids::Visibility::Private,
-        );
-        intern_child(&mut graph, facade.id, "types", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, facade, init_impl, args_impl, types],
-            diagnostics: Vec::new(),
-        };
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let checked = db.get(CodegenProgramQuery);
@@ -5293,8 +5284,7 @@ pub struct ArgsIter {}
 
     #[test]
     fn visible_extensions_do_not_expand_using_type_modules_as_provider_modules() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module facade;
@@ -5305,8 +5295,10 @@ fn main(value: facade::Used) i32 {
 }
 "#,
         );
-        let facade = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let facade_id = fixture.add_child(
+            entry_id,
+            "facade",
             "facade.nia",
             r#"
 module impls;
@@ -5315,8 +5307,10 @@ module types;
 pub using self::types::{Unused, Used};
 "#,
         );
-        let impls = loaded_module(
-            ModuleId(2),
+        fixture.add_child_with_visibility(
+            facade_id,
+            "impls",
+            nia_ids::Visibility::Private,
             "facade/impls.nia",
             r#"
 using entry::facade::types::Used;
@@ -5328,26 +5322,19 @@ extend Used {
 }
 "#,
         );
-        let types = loaded_module(
-            ModuleId(3),
+        let types_id = fixture.add_child(
+            facade_id,
+            "types",
             "facade/types.nia",
             r#"
 pub struct Unused {}
 pub struct Used {}
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "facade", nia_ids::Visibility::Public);
-        intern_child(&mut graph, facade.id, "impls", nia_ids::Visibility::Private);
-        intern_child(&mut graph, facade.id, "types", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, facade, impls, types],
-            diagnostics: Vec::new(),
-        };
+        let entry_description = format!("{entry_id:?}");
+        let types_description = format!("{types_id:?}");
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let checked = db.get(CodegenProgramQuery);
@@ -5357,8 +5344,8 @@ pub struct Used {}
         assert!(
             !trace.dependencies.iter().any(|dependency| {
                 dependency.from.name == "visible_extensions"
-                    && dependency.from.description.contains("ModuleId(0)")
-                    && dependency.to.description.contains("ModuleId(3)")
+                    && dependency.from.description.contains(&entry_description)
+                    && dependency.to.description.contains(&types_description)
                     && dependency.to.name == "signature_type_normalization"
             }),
             "visible extensions should not normalize every module that merely defines a using-imported type"
@@ -5367,8 +5354,7 @@ pub struct Used {}
 
     #[test]
     fn visible_trait_impls_follow_facade_reexport_item_modules() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module fmt;
@@ -5379,16 +5365,19 @@ fn main() i32 {
 }
 "#,
         );
-        let fmt = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let fmt_id = fixture.add_child(
+            entry_id,
+            "fmt",
             "fmt.nia",
             r#"
 pub module parse_impl;
 pub using parse_impl::{ParseFrom, parse};
 "#,
         );
-        let parse_impl = loaded_module(
-            ModuleId(2),
+        let parse_impl_id = fixture.add_child(
+            fmt_id,
+            "parse_impl",
             "fmt/parse_impl.nia",
             r#"
 pub trait ParseFrom[Input] {
@@ -5414,32 +5403,16 @@ extend i32 : ParseFrom[&[u8]] {
 }
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "fmt", nia_ids::Visibility::Public);
-        intern_child(
-            &mut graph,
-            fmt.id,
-            "parse_impl",
-            nia_ids::Visibility::Public,
-        );
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::Bare,
-            modules: vec![main, fmt, parse_impl],
-            diagnostics: Vec::new(),
-        };
-        let db = query_db(loaded);
+        let db = query_db(fixture.program());
 
-        let trait_impls = db.get(VisibleTraitImplsQuery(ModuleId(0)));
+        let trait_impls = db.get(VisibleTraitImplsQuery(entry_id));
 
         assert_eq!(trait_impls.trait_impls.len(), 2);
         assert!(
             trait_impls
                 .trait_impls
                 .iter()
-                .all(|impl_signature| impl_signature.module_id == ModuleId(2)),
+                .all(|impl_signature| impl_signature.module_id == parse_impl_id),
             "{:?}",
             trait_impls.trait_impls
         );
@@ -5447,8 +5420,7 @@ extend i32 : ParseFrom[&[u8]] {
 
     #[test]
     fn executable_reachability_keeps_matched_trait_impl_method_bodies() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module parse;
@@ -5459,8 +5431,10 @@ pub fn main() i32 {
 }
 "#,
         );
-        let parse = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let parse_id = fixture.add_child(
+            entry_id,
+            "parse",
             "parse.nia",
             r#"
 pub struct Input {}
@@ -5483,22 +5457,14 @@ extend i32 : ParseFrom[Input] {
 }
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "parse", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, parse],
-            diagnostics: Vec::new(),
-        };
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let checked = db.get(ExecutableCheckedModulesQuery);
         let parse_module = checked
             .iter()
-            .find(|module| module.id == ModuleId(1))
+            .find(|module| module.id == parse_id)
             .expect("parse module should be executable-reachable");
         let parse_from = parse_module
             .defs
@@ -5507,7 +5473,7 @@ extend i32 : ParseFrom[Input] {
             .find_map(|(def_id, def)| {
                 (def.name == sym("parse_from") && def.kind == nia_defs::DefKind::Method).then_some(
                     GlobalDefId {
-                        module_id: ModuleId(1),
+                        module_id: parse_id,
                         def_id,
                     },
                 )
@@ -6111,8 +6077,7 @@ fn main() i32 {
 
     #[test]
     fn executable_filtered_const_resolves_forwarded_array_len_values() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module facade;
@@ -6124,8 +6089,10 @@ fn main() i32 {
 }
 "#,
         );
-        let facade = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let facade_id = fixture.add_child(
+            entry_id,
+            "facade",
             "facade.nia",
             r#"
 module raw;
@@ -6134,30 +6101,22 @@ using self::raw;
 pub const LEN: usize = raw::LEN;
 "#,
         );
-        let raw = loaded_module(
-            ModuleId(2),
+        fixture.add_child(
+            facade_id,
+            "raw",
             "facade/raw.nia",
             r#"
 pub const LEN: usize = 4usize;
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "facade", nia_ids::Visibility::Public);
-        intern_child(&mut graph, facade.id, "raw", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, facade, raw],
-            diagnostics: Vec::new(),
-        };
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let entry = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == entry_id)
             .expect("entry module should be executable-reachable");
 
         assert!(
@@ -6177,8 +6136,7 @@ pub const LEN: usize = 4usize;
 
     #[test]
     fn executable_filtered_const_resolves_local_forwarded_array_len_in_method_body() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module raw;
@@ -6201,29 +6159,23 @@ fn main() usize {
 }
 "#,
         );
-        let raw = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "raw",
             "raw.nia",
             r#"
 pub const LEN: usize = 4usize;
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "raw", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, raw],
-            diagnostics: Vec::new(),
-        };
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let entry = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == entry_id)
             .expect("entry module should be executable-reachable");
 
         assert!(
@@ -6243,8 +6195,7 @@ pub const LEN: usize = 4usize;
 
     #[test]
     fn executable_incremental_body_check_preserves_extension_method_receiver_types() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module writer;
@@ -6260,8 +6211,10 @@ fn main() i32 {
 }
 "#,
         );
-        let writer = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let writer_id = fixture.add_child(
+            entry_id,
+            "writer",
             "writer.nia",
             r#"
 pub trait Writer {
@@ -6301,22 +6254,14 @@ extend Sink : Writer {
 }
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "writer", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, writer],
-            diagnostics: Vec::new(),
-        };
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let writer = modules
             .iter()
-            .find(|module| module.id == ModuleId(1))
+            .find(|module| module.id == writer_id)
             .expect("writer module should be executable-reachable");
         let write_def = writer
             .defs
@@ -6328,7 +6273,7 @@ extend Sink : Writer {
             })
             .expect("write method should be defined");
         let write_id = GlobalDefId {
-            module_id: ModuleId(1),
+            module_id: writer_id,
             def_id: write_def,
         };
         let write_body = writer
@@ -6400,8 +6345,7 @@ extend Sink : Writer {
 
     #[test]
     fn trait_signature_subset_resolves_imported_extend_target_types() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module platform;
@@ -6423,8 +6367,10 @@ extend platform::Errno : IntoError[Error] {
 }
 "#,
         );
-        let platform = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "platform",
             "platform.nia",
             r#"
 pub enum Errno: i32 {
@@ -6433,20 +6379,10 @@ pub enum Errno: i32 {
 }
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "platform", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, platform],
-            diagnostics: Vec::new(),
-        };
-        let db = query_db(loaded);
+        let db = query_db(fixture.program());
 
         let signatures = db.get(SignatureItemSignaturesQuery(
-            ModuleId(0),
+            entry_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
         let impl_signature = signatures
@@ -6466,8 +6402,7 @@ pub enum Errno: i32 {
 
     #[test]
     fn trait_signature_subset_resolves_reexported_extend_target_types() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module platform;
@@ -6489,8 +6424,10 @@ extend platform::Errno : IntoError[Error] {
 }
 "#,
         );
-        let platform = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let platform_id = fixture.add_child(
+            entry_id,
+            "platform",
             "platform.nia",
             r#"
 module types;
@@ -6499,8 +6436,9 @@ using entry::platform::types;
 pub using types::{Errno};
 "#,
         );
-        let types = loaded_module(
-            ModuleId(2),
+        fixture.add_child(
+            platform_id,
+            "types",
             "types.nia",
             r#"
 pub enum Errno: i32 {
@@ -6509,26 +6447,10 @@ pub enum Errno: i32 {
 }
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "platform", nia_ids::Visibility::Public);
-        intern_child(
-            &mut graph,
-            platform.id,
-            "types",
-            nia_ids::Visibility::Public,
-        );
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, platform, types],
-            diagnostics: Vec::new(),
-        };
-        let db = query_db(loaded);
+        let db = query_db(fixture.program());
 
         let signatures = db.get(SignatureItemSignaturesQuery(
-            ModuleId(0),
+            entry_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
         let impl_signature = signatures
@@ -6548,8 +6470,7 @@ pub enum Errno: i32 {
 
     #[test]
     fn executable_incremental_body_check_preserves_reexported_trait_witness_receiver_types() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module platform;
@@ -6591,8 +6512,10 @@ fn main() Error!i32 {
 }
 "#,
         );
-        let platform = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let platform_id = fixture.add_child(
+            entry_id,
+            "platform",
             "platform.nia",
             r#"
 module types;
@@ -6601,8 +6524,9 @@ using entry::platform::types;
 pub using types::{Errno};
 "#,
         );
-        let types = loaded_module(
-            ModuleId(2),
+        fixture.add_child(
+            platform_id,
+            "types",
             "types.nia",
             r#"
 pub enum Errno: i32 {
@@ -6611,28 +6535,14 @@ pub enum Errno: i32 {
 }
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "platform", nia_ids::Visibility::Public);
-        intern_child(
-            &mut graph,
-            platform.id,
-            "types",
-            nia_ids::Visibility::Public,
-        );
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, platform, types],
-            diagnostics: Vec::new(),
-        };
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == entry_id)
             .expect("entry module should be executable-reachable");
         assert!(
             module.body_diagnostics.is_empty(),
@@ -6646,7 +6556,7 @@ pub enum Errno: i32 {
             .find_map(|(def_id, def)| {
                 (def.name == sym("into_error") && def.kind == nia_defs::DefKind::Method).then_some(
                     GlobalDefId {
-                        module_id: ModuleId(0),
+                        module_id: entry_id,
                         def_id,
                     },
                 )
@@ -6673,8 +6583,7 @@ pub enum Errno: i32 {
 
     #[test]
     fn executable_reachability_expands_where_predicates_through_generic_extension_wrappers() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module error;
@@ -6711,8 +6620,10 @@ fn main() i32 {
 }
 "#,
         );
-        let error = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "error",
             "error.nia",
             r#"
 pub trait IntoError[Target] {
@@ -6732,30 +6643,22 @@ where Source: IntoError[Target]
 }
 "#,
         );
-        let facade = loaded_module(
-            ModuleId(2),
+        fixture.add_child(
+            entry_id,
+            "facade",
             "facade.nia",
             r#"
 using entry::error;
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "error", nia_ids::Visibility::Public);
-        intern_child(&mut graph, main.id, "facade", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, error, facade],
-            diagnostics: Vec::new(),
-        };
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == entry_id)
             .expect("entry module should be executable-reachable");
         let into_error = module
             .defs
@@ -6764,7 +6667,7 @@ using entry::error;
             .find_map(|(def_id, def)| {
                 (def.name == sym("into_error") && def.kind == nia_defs::DefKind::Method).then_some(
                     GlobalDefId {
-                        module_id: ModuleId(0),
+                        module_id: entry_id,
                         def_id,
                     },
                 )
@@ -6779,8 +6682,7 @@ using entry::error;
 
     #[test]
     fn executable_reachability_expands_generic_trait_calls_to_cross_module_impl_bodies() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module error;
@@ -6798,8 +6700,10 @@ fn main() i32 {
 }
 "#,
         );
-        let error = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "error",
             "error.nia",
             r#"
 pub trait IntoError[Target] {
@@ -6819,8 +6723,9 @@ where Source: IntoError[Target]
 }
 "#,
         );
-        let impls = loaded_module(
-            ModuleId(2),
+        let impls_id = fixture.add_child(
+            entry_id,
+            "impls",
             "impls.nia",
             r#"
 using entry::error;
@@ -6840,23 +6745,14 @@ extend Source : error::IntoError[Target] {
 }
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "error", nia_ids::Visibility::Public);
-        intern_child(&mut graph, main.id, "impls", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, error, impls],
-            diagnostics: Vec::new(),
-        };
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(2))
+            .find(|module| module.id == impls_id)
             .expect("impl module should be executable-reachable");
         let into_error = module
             .defs
@@ -6865,7 +6761,7 @@ extend Source : error::IntoError[Target] {
             .find_map(|(def_id, def)| {
                 (def.name == sym("into_error") && def.kind == nia_defs::DefKind::Method).then_some(
                     GlobalDefId {
-                        module_id: ModuleId(2),
+                        module_id: impls_id,
                         def_id,
                     },
                 )
@@ -6880,8 +6776,7 @@ extend Source : error::IntoError[Target] {
 
     #[test]
     fn executable_reachability_expands_generic_trait_calls_from_incremental_wrapper_bodies() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module error;
@@ -6899,8 +6794,10 @@ fn main() i32 {
 }
 "#,
         );
-        let error = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "error",
             "error.nia",
             r#"
 pub trait IntoError[Target] {
@@ -6920,8 +6817,9 @@ where Source: IntoError[Target]
 }
 "#,
         );
-        let impls = loaded_module(
-            ModuleId(2),
+        let impls_id = fixture.add_child(
+            entry_id,
+            "impls",
             "impls.nia",
             r#"
 using entry::error;
@@ -6947,23 +6845,14 @@ extend[T] Source!T {
 }
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "error", nia_ids::Visibility::Public);
-        intern_child(&mut graph, main.id, "impls", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, error, impls],
-            diagnostics: Vec::new(),
-        };
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(2))
+            .find(|module| module.id == impls_id)
             .expect("impl module should be executable-reachable");
         let into_error = module
             .defs
@@ -6972,7 +6861,7 @@ extend[T] Source!T {
             .find_map(|(def_id, def)| {
                 (def.name == sym("into_error") && def.kind == nia_defs::DefKind::Method).then_some(
                     GlobalDefId {
-                        module_id: ModuleId(2),
+                        module_id: impls_id,
                         def_id,
                     },
                 )
@@ -7457,8 +7346,7 @@ fn main() i32 {
 
     #[test]
     fn executable_backend_lowering_uses_canonical_external_extension_where_predicates() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module ext;
@@ -7472,8 +7360,10 @@ fn main() i32 {
 }
 "#,
         );
-        let ext = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "ext",
             "ext.nia",
             r#"
 using entry::bounds;
@@ -7497,8 +7387,9 @@ where T: bounds::Marker
 }
 "#,
         );
-        let bounds = loaded_module(
-            ModuleId(2),
+        fixture.add_child(
+            entry_id,
+            "bounds",
             "bounds.nia",
             r#"
 pub trait Marker {}
@@ -7508,17 +7399,8 @@ pub struct Token {}
 extend Token : Marker {}
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "ext", nia_ids::Visibility::Public);
-        intern_child(&mut graph, main.id, "bounds", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, ext, bounds],
-            diagnostics: Vec::new(),
-        };
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let backend_lowering = db.get(BackendLoweringQuery);
@@ -7532,8 +7414,7 @@ extend Token : Marker {}
 
     #[test]
     fn executable_backend_lowering_includes_cross_module_trait_default_vtable_instances() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module module1;
@@ -7548,8 +7429,10 @@ fn main() i32 {
 }
 "#,
         );
-        let traits = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "module1",
             "module1.nia",
             r#"
 pub trait Allocator {
@@ -7561,8 +7444,9 @@ pub trait Allocator {
 }
 "#,
         );
-        let impls = loaded_module(
-            ModuleId(2),
+        fixture.add_child(
+            entry_id,
+            "module2",
             "module2.nia",
             r#"
 using entry::module1;
@@ -7584,17 +7468,8 @@ extend Page : Allocator {
 }
 "#,
         );
-        let mut graph = ModuleGraph::with_symbol_text(main.path.clone(), Arc::new(test_symbols()));
-        intern_child(&mut graph, main.id, "module1", nia_ids::Visibility::Public);
-        intern_child(&mut graph, main.id, "module2", nia_ids::Visibility::Public);
-        let loaded = LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::FreestandingExecutable,
-            modules: vec![main, traits, impls],
-            diagnostics: Vec::new(),
-        };
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let backend_lowering = db.get(BackendLoweringQuery);
