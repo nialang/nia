@@ -1312,7 +1312,7 @@ fn collect_recorded_generics_by_def(
 mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs};
-    use nia_ids::ConstExprId;
+    use nia_ids::{ConstExprId, ModuleIdAllocator};
     use nia_parser::parse_module;
     use nia_sema_ir::GenericInstantiation;
     use nia_span::Span;
@@ -1329,6 +1329,12 @@ mod tests {
 
     struct TestTypes {
         append: TypeStoreAppend,
+    }
+
+    struct TestFixture {
+        module_id: ModuleId,
+        type_store: TypeStore,
+        types: TestTypes,
     }
 
     impl TestTypes {
@@ -1369,12 +1375,18 @@ mod tests {
         }
     }
 
-    fn test_interner() -> (TypeStore, TestTypes) {
+    fn test_fixture() -> TestFixture {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let type_store = TypeStore::new();
         let types = TestTypes {
-            append: type_store.append_for_module(ModuleId(0)),
+            append: type_store.append_for_module(module_id),
         };
-        (type_store, types)
+        TestFixture {
+            module_id,
+            type_store,
+            types,
+        }
     }
 
     fn collect_test_monomorphizations(
@@ -1392,7 +1404,7 @@ mod tests {
         instantiations: &'a [GenericInstantiation],
     ) -> MonomorphizeModuleInput<'a> {
         MonomorphizeModuleInput {
-            module_id: ModuleId(0),
+            module_id: defs.module_id,
             defs,
             normalization,
             const_eval,
@@ -1410,14 +1422,14 @@ mod tests {
     fn deduplicates_generic_instances() {
         let (module, errors) = parse_module("fn id[T](value: T) T { value }");
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let fixture = test_fixture();
+        let defs = collect_module_defs(fixture.module_id, &module);
         let def_id = value_def(&defs, "id");
-        let (type_store, interner) = test_interner();
-        let i32_ty = interner.primitive(PrimitiveTy::I32);
+        let i32_ty = fixture.types.primitive(PrimitiveTy::I32);
         let instantiations = vec![
             inst(
                 GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id: fixture.module_id,
                     def_id,
                 },
                 vec![i32_ty],
@@ -1426,7 +1438,7 @@ mod tests {
             ),
             inst(
                 GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id: fixture.module_id,
                     def_id,
                 },
                 vec![i32_ty],
@@ -1446,7 +1458,7 @@ mod tests {
                 &const_exprs,
                 &instantiations,
             )],
-            &type_store,
+            &fixture.type_store,
         );
 
         assert!(mono.diagnostics.is_empty(), "{:?}", mono.diagnostics);
@@ -1463,18 +1475,18 @@ fn main() i32 { outer(1) }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let fixture = test_fixture();
+        let defs = collect_module_defs(fixture.module_id, &module);
         let inner_id = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             def_id: value_def(&defs, "inner"),
         };
         let outer_id = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             def_id: value_def(&defs, "outer"),
         };
-        let (type_store, interner) = test_interner();
-        let i32_ty = interner.primitive(PrimitiveTy::I32);
-        let generic_t = generic_param(&interner, "T");
+        let i32_ty = fixture.types.primitive(PrimitiveTy::I32);
+        let generic_t = generic_param(&fixture.types, "T");
         let instantiations = vec![
             inst(inner_id, vec![generic_t], Span::new(1, 2), Some(outer_id)),
             inst(outer_id, vec![i32_ty], Span::new(3, 4), None),
@@ -1491,7 +1503,7 @@ fn main() i32 { outer(1) }
                 &const_exprs,
                 &instantiations,
             )],
-            &type_store,
+            &fixture.type_store,
         );
 
         assert!(mono.diagnostics.is_empty(), "{:?}", mono.diagnostics);
@@ -1524,19 +1536,19 @@ fn main() i32 { 0 }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let fixture = test_fixture();
+        let defs = collect_module_defs(fixture.module_id, &module);
         let inner_id = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             def_id: value_def(&defs, "inner"),
         };
         let outer_id = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             def_id: value_def(&defs, "outer"),
         };
-        let (type_store, interner) = test_interner();
-        let i32_ty = interner.primitive(PrimitiveTy::I32);
-        let generic_t = generic_param(&interner, "T");
-        let generic_ptr = interner.intern(TyKind::Pointer {
+        let i32_ty = fixture.types.primitive(PrimitiveTy::I32);
+        let generic_t = generic_param(&fixture.types, "T");
+        let generic_ptr = fixture.types.intern(TyKind::Pointer {
             is_readonly: true,
             elem: generic_t,
         });
@@ -1556,7 +1568,7 @@ fn main() i32 { 0 }
                 &const_exprs,
                 &instantiations,
             )],
-            &type_store,
+            &fixture.type_store,
         );
         let i32_ptr = mono
             .instances
@@ -1570,7 +1582,7 @@ fn main() i32 { 0 }
 
         assert!(mono.diagnostics.is_empty(), "{:?}", mono.diagnostics);
         assert_eq!(
-            type_store.get(i32_ptr),
+            fixture.type_store.get(i32_ptr),
             Some(&TyKind::Pointer {
                 is_readonly: true,
                 elem: i32_ty,
@@ -1593,14 +1605,14 @@ fn main() i32 { 0 }
     fn recursive_generic_body_reuses_same_concrete_instance() {
         let (module, errors) = parse_module("fn recurse[T](value: T) T { recurse[T](value) }");
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let fixture = test_fixture();
+        let defs = collect_module_defs(fixture.module_id, &module);
         let recurse_id = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             def_id: value_def(&defs, "recurse"),
         };
-        let (type_store, interner) = test_interner();
-        let i32_ty = interner.primitive(PrimitiveTy::I32);
-        let generic_t = generic_param(&interner, "T");
+        let i32_ty = fixture.types.primitive(PrimitiveTy::I32);
+        let generic_t = generic_param(&fixture.types, "T");
         let instantiations = vec![
             inst(
                 recurse_id,
@@ -1622,7 +1634,7 @@ fn main() i32 { 0 }
                 &const_exprs,
                 &instantiations,
             )],
-            &type_store,
+            &fixture.type_store,
         );
 
         assert!(mono.diagnostics.is_empty(), "{:?}", mono.diagnostics);
@@ -1635,19 +1647,19 @@ fn main() i32 { 0 }
     fn growing_recursive_generic_body_reports_type_depth_limit() {
         let (module, errors) = parse_module("fn grow[T](value: &T) i32 { grow[&T](&value) }");
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let fixture = test_fixture();
+        let defs = collect_module_defs(fixture.module_id, &module);
         let grow_id = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             def_id: value_def(&defs, "grow"),
         };
-        let (type_store, interner) = test_interner();
-        let i32_ty = interner.primitive(PrimitiveTy::I32);
-        let i32_ptr = interner.intern(TyKind::Pointer {
+        let i32_ty = fixture.types.primitive(PrimitiveTy::I32);
+        let i32_ptr = fixture.types.intern(TyKind::Pointer {
             is_readonly: true,
             elem: i32_ty,
         });
-        let generic_t = generic_param(&interner, "T");
-        let generic_ptr = interner.intern(TyKind::Pointer {
+        let generic_t = generic_param(&fixture.types, "T");
+        let generic_ptr = fixture.types.intern(TyKind::Pointer {
             is_readonly: true,
             elem: generic_t,
         });
@@ -1667,7 +1679,7 @@ fn main() i32 { 0 }
                 &const_exprs,
                 &instantiations,
             )],
-            &type_store,
+            &fixture.type_store,
         );
 
         assert!(
@@ -1700,18 +1712,18 @@ fn main() i32 { 0 }
     fn unresolved_array_lengths_in_symbols_are_diagnostic_not_panic() {
         let (module, errors) = parse_module("fn take[T](value: T) T { value }");
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let fixture = test_fixture();
+        let defs = collect_module_defs(fixture.module_id, &module);
         let take_id = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             def_id: value_def(&defs, "take"),
         };
-        let (type_store, interner) = test_interner();
         let len_id = GlobalConstExprId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             const_expr_id: ConstExprId(0),
         };
-        let elem = interner.primitive(PrimitiveTy::I32);
-        let array_ty = interner.intern(TyKind::Array {
+        let elem = fixture.types.primitive(PrimitiveTy::I32);
+        let array_ty = fixture.types.intern(TyKind::Array {
             len: ArrayLenTy::ConstExpr(len_id),
             elem,
         });
@@ -1735,7 +1747,7 @@ fn main() i32 { 0 }
                 &const_expr_summaries,
                 &instantiations,
             )],
-            &type_store,
+            &fixture.type_store,
         );
 
         assert_eq!(mono.instances.len(), 1);
@@ -1762,22 +1774,22 @@ fn wrap[T](value: T) T { value }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let fixture = test_fixture();
+        let defs = collect_module_defs(fixture.module_id, &module);
         let take_id = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             def_id: value_def(&defs, "take"),
         };
         let wrap_id = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             def_id: value_def(&defs, "wrap"),
         };
-        let (type_store, interner) = test_interner();
         let len_id = GlobalConstExprId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             const_expr_id: ConstExprId(0),
         };
-        let elem = interner.primitive(PrimitiveTy::I32);
-        let array_ty = interner.intern(TyKind::Array {
+        let elem = fixture.types.primitive(PrimitiveTy::I32);
+        let array_ty = fixture.types.intern(TyKind::Array {
             len: ArrayLenTy::ConstExpr(len_id),
             elem,
         });
@@ -1797,7 +1809,7 @@ fn wrap[T](value: T) T { value }
                 &const_exprs,
                 &instantiations,
             )],
-            &type_store,
+            &fixture.type_store,
         );
 
         assert_eq!(mono.instances.len(), 2);
@@ -1806,11 +1818,11 @@ fn wrap[T](value: T) T { value }
 
     #[test]
     fn effective_generics_cache_uses_recorded_generics_by_reference() {
+        let (module_id, mut collector) = empty_collector();
         let def_id = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: nia_ids::DefId(0),
         };
-        let mut collector = empty_collector();
         collector
             .recorded_generics_by_def
             .insert(def_id, vec![sym("T"), sym("U")]);
@@ -1828,8 +1840,8 @@ fn wrap[T](value: T) T { value }
 
     #[test]
     fn ordered_type_substitutions_reuse_existing_ids() {
-        let mut collector = empty_collector();
-        let append = collector.type_store.append_for_module(ModuleId(0));
+        let (module_id, mut collector) = empty_collector();
+        let append = collector.type_store.append_for_module(module_id);
         let i32_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::I32));
         let bool_ty = append.intern(TyKind::Primitive(nia_ty::PrimitiveTy::Bool));
 
@@ -1849,11 +1861,15 @@ fn wrap[T](value: T) T { value }
         );
     }
 
-    fn empty_collector() -> MonoCollector<'static> {
-        static TYPE_STORE: std::sync::LazyLock<TypeStore> =
-            std::sync::LazyLock::new(TypeStore::new);
-        MonoCollector {
-            type_store: &TYPE_STORE,
+    fn empty_collector() -> (ModuleId, MonoCollector<'static>) {
+        static FIXTURE: std::sync::LazyLock<(TypeStore, ModuleId)> =
+            std::sync::LazyLock::new(|| {
+                let mut module_ids = ModuleIdAllocator::new();
+                (TypeStore::new(), module_ids.allocate())
+            });
+        let (type_store, module_id) = &*FIXTURE;
+        let collector = MonoCollector {
+            type_store,
             defs_by_module: HashMap::new(),
             normalizations_by_module: HashMap::new(),
             const_by_module: HashMap::new(),
@@ -1877,6 +1893,7 @@ fn wrap[T](value: T) T { value }
             effective_generics: HashMap::new(),
             missing_array_len_diagnostics: HashSet::new(),
             diagnostics: Vec::new(),
-        }
+        };
+        (*module_id, collector)
     }
 }

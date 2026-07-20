@@ -5,7 +5,7 @@ use nia_function_ir::{
     FunctionExprKind, FunctionLocalKind, FunctionOp, FunctionScope, FunctionScopeId,
     FunctionTerminator, FunctionTryKind, LocalName, validate_function_body,
 };
-use nia_ids::LocalId;
+use nia_ids::{LocalId, ModuleId, ModuleIdAllocator};
 use nia_opt::NiaOptimizationLevel;
 use nia_span::Span;
 use nia_symbol::{SymbolId, stable_hash};
@@ -42,19 +42,30 @@ fn test_body_with_scopes(scopes: Vec<FunctionScope>, blocks: Vec<FunctionBlock>)
 
 fn test_ty() -> nia_ids::InternedTyId {
     test_type_store()
-        .append_for_module(nia_ids::ModuleId(0))
+        .append_for_module(test_module_id())
         .error()
 }
 
 fn test_other_ty() -> nia_ids::InternedTyId {
     test_type_store()
-        .append_for_module(nia_ids::ModuleId(0))
+        .append_for_module(test_module_id())
         .primitive(nia_ty::PrimitiveTy::I8)
 }
 
 fn test_type_store() -> &'static nia_ty::TypeStore {
-    static TYPE_STORE: std::sync::OnceLock<nia_ty::TypeStore> = std::sync::OnceLock::new();
-    TYPE_STORE.get_or_init(nia_ty::TypeStore::new)
+    &test_type_fixture().0
+}
+
+fn test_module_id() -> ModuleId {
+    test_type_fixture().1
+}
+
+fn test_type_fixture() -> &'static (nia_ty::TypeStore, ModuleId) {
+    static FIXTURE: std::sync::OnceLock<(nia_ty::TypeStore, ModuleId)> = std::sync::OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let mut module_ids = ModuleIdAllocator::new();
+        (nia_ty::TypeStore::new(), module_ids.allocate())
+    })
 }
 
 fn sym(text: &str) -> SymbolId {

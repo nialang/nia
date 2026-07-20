@@ -141,7 +141,7 @@ fn preserves_effects_from_unused_local_binding_initializer() {
                 ty,
                 kind: FunctionExprKind::Call {
                     callee: FunctionCallee::Function(nia_ids::GlobalDefId {
-                        module_id: nia_ids::ModuleId(0),
+                        module_id: test_module_id(),
                         def_id: nia_ids::DefId(0),
                     }),
                     args: Vec::new(),
@@ -220,7 +220,7 @@ fn preserves_effects_from_never_read_local_store_value() {
                 ty,
                 kind: FunctionExprKind::Call {
                     callee: FunctionCallee::Function(nia_ids::GlobalDefId {
-                        module_id: nia_ids::ModuleId(0),
+                        module_id: test_module_id(),
                         def_id: nia_ids::DefId(0),
                     }),
                     args: Vec::new(),
@@ -373,7 +373,7 @@ fn preserves_effects_from_overwritten_local_store_value() {
                     ty,
                     kind: FunctionExprKind::Call {
                         callee: FunctionCallee::Function(nia_ids::GlobalDefId {
-                            module_id: nia_ids::ModuleId(0),
+                            module_id: test_module_id(),
                             def_id: nia_ids::DefId(0),
                         }),
                         args: Vec::new(),

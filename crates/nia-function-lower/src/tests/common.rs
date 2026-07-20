@@ -11,7 +11,7 @@ pub(super) use nia_function_ir::{
     FunctionExprKind, FunctionForHeader, FunctionLocalKind, FunctionOp, FunctionPlaceBase,
     FunctionScope, FunctionScopeId, FunctionTerminator, FunctionTryKind,
 };
-pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId};
+pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId, ModuleIdAllocator};
 pub(super) use nia_span::Span;
 pub(super) use nia_symbol::{SymbolId, stable_hash};
 pub(super) use nia_ty::{PrimitiveTy, TyKind, TypeStore};
@@ -32,7 +32,7 @@ pub(super) fn only_next_target(
 
 pub(super) fn test_ty() -> InternedTyId {
     test_type_store()
-        .append_for_module(ModuleId(0))
+        .append_for_module(test_module_id())
         .intern(TyKind::Error)
 }
 
@@ -40,16 +40,27 @@ pub(super) fn lower_test_function_body(
     body: &TypedBody,
 ) -> Result<FunctionBody, FunctionLoweringDiagnostic> {
     lower_function_body(
-        ModuleId(0),
+        test_module_id(),
         body,
-        FunctionTypeContext::for_module(test_type_store(), ModuleId(0)),
+        FunctionTypeContext::for_module(test_type_store(), test_module_id()),
     )
     .map(|lowered| lowered.body)
 }
 
 fn test_type_store() -> &'static TypeStore {
-    static TYPE_STORE: std::sync::OnceLock<TypeStore> = std::sync::OnceLock::new();
-    TYPE_STORE.get_or_init(TypeStore::new)
+    &test_type_fixture().0
+}
+
+fn test_module_id() -> ModuleId {
+    test_type_fixture().1
+}
+
+fn test_type_fixture() -> &'static (TypeStore, ModuleId) {
+    static FIXTURE: std::sync::OnceLock<(TypeStore, ModuleId)> = std::sync::OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        let mut module_ids = ModuleIdAllocator::new();
+        (TypeStore::new(), module_ids.allocate())
+    })
 }
 
 pub(super) fn sym(text: &str) -> SymbolId {
