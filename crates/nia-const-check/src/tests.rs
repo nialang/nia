@@ -4,7 +4,7 @@ use crate::{
 };
 use nia_const_ir::{EarlyConstExpr, EarlyConstExprKind, EarlyConstTypeArg};
 use nia_defs::{DefCollection, DefKind, ModuleId, collect_module_defs};
-use nia_ids::GlobalDefId;
+use nia_ids::{GlobalDefId, ModuleIdAllocator};
 use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::{LocalResolution, resolve_module_locals};
@@ -28,6 +28,7 @@ fn sym(text: &str) -> SymbolId {
 }
 
 struct CheckedFixture {
+    module_id: ModuleId,
     type_store: TypeStore,
     defs: DefCollection,
     locals: LocalResolution,
@@ -36,15 +37,17 @@ struct CheckedFixture {
 }
 
 fn check_source(source: &str) -> CheckedFixture {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let symbols = SymbolTable::new();
     let (module, errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(ModuleId(0), &module);
+    let defs = collect_module_defs(module_id, &module);
     let type_names = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let item_tree = ModuleItemTree::from_module(&module);
     let type_store = TypeStore::new();
     let lowered = lower_module_types_from_item_tree_with_context(
-        ModuleId(0),
+        module_id,
         &item_tree,
         &type_names,
         TypeLoweringContext::empty(&type_store),
@@ -61,7 +64,7 @@ fn check_source(source: &str) -> CheckedFixture {
     let active_item_tree =
         ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default());
     let semantic_uses =
-        semantic_use_table(ModuleId(0), &values, &locals, &lowered, &active_item_tree);
+        semantic_use_table(module_id, &values, &locals, &lowered, &active_item_tree);
     let target = nia_target_config::TargetConfig::host();
     let source_path = SourcePath::new("/tmp/nia-const-check-test/main.nia");
     let const_module = lower_module_const(ConstModuleInput {
@@ -95,6 +98,7 @@ fn check_source(source: &str) -> CheckedFixture {
     };
     let checked = check_module_const(input);
     CheckedFixture {
+        module_id,
         type_store,
         defs,
         locals,
@@ -177,7 +181,7 @@ xs[0]
     );
     let usize_ty = fixture
         .type_store
-        .append_for_module(ModuleId(0))
+        .append_for_module(fixture.module_id)
         .intern(TyKind::Primitive(PrimitiveTy::Usize));
     let width_def = fixture
         .defs
@@ -189,7 +193,7 @@ xs[0]
         .checked
         .typed_values
         .get(&ConstKey::Global(GlobalDefId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             def_id: width_def,
         }))
         .expect("typed global const value");
@@ -236,7 +240,7 @@ const OFF: usize = std::builtin::offset[Pair]("b");
         .checked
         .typed_values
         .get(&ConstKey::Global(GlobalDefId {
-            module_id: ModuleId(0),
+            module_id: fixture.module_id,
             def_id: off_def,
         }))
         .expect("typed global const value");
@@ -263,7 +267,7 @@ fail = 2,
     );
     let u8_ty = fixture
         .type_store
-        .append_for_module(ModuleId(0))
+        .append_for_module(fixture.module_id)
         .intern(TyKind::Primitive(PrimitiveTy::U8));
     let variants = fixture
         .defs
@@ -286,6 +290,8 @@ fail = 2,
 
 #[test]
 fn semantic_const_lowering_requires_resolved_function_locals() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let symbols = SymbolTable::new();
     let (module, errors) = parse_module_with_symbols(
         r#"
@@ -297,11 +303,11 @@ y
         symbols.clone(),
     );
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(ModuleId(0), &module);
+    let defs = collect_module_defs(module_id, &module);
     let type_names = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let type_store = TypeStore::new();
     let lowered = lower_module_types_with_context(
-        ModuleId(0),
+        module_id,
         &module,
         &type_names,
         TypeLoweringContext::empty(&type_store),
@@ -348,7 +354,7 @@ y
     let active_item_tree =
         ActiveModuleItemTree::new(item_tree.active_items_without_const(), Default::default());
     let semantic_uses =
-        semantic_use_table(ModuleId(0), &values, &locals, &lowered, &active_item_tree);
+        semantic_use_table(module_id, &values, &locals, &lowered, &active_item_tree);
     let source_path = SourcePath::new("/tmp/nia-const-check-test/lowering.nia");
 
     let const_module = lower_module_const(ConstModuleInput {

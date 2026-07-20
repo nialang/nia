@@ -26,6 +26,8 @@ fn main() i32 {
 
 #[test]
 fn records_body_facts_by_source_versioned_node_keys() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let version = SourceVersion {
         id: SourceId(7),
         revision: SourceRevision(3),
@@ -43,12 +45,12 @@ fn main() i32 {
     let (module, parse_errors, origins) =
         nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, symbols.clone());
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
-    let defs = collect_module_defs(ModuleId(0), &module);
+    let defs = collect_module_defs(module_id, &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let item_tree = ModuleItemTree::from_module(&module);
     let type_store = TypeStore::new();
     let lowered = lower_module_types_from_item_tree_with_context(
-        ModuleId(0),
+        module_id,
         &item_tree,
         &type_resolved,
         TypeLoweringContext::empty(&type_store),
@@ -57,7 +59,7 @@ fn main() i32 {
     let locals = resolve_module_locals(&module, &defs, &values);
     let active_item_tree = active_item_tree(&module);
     let semantic_uses =
-        semantic_use_table(ModuleId(0), &values, &locals, &lowered, &active_item_tree);
+        semantic_use_table(module_id, &values, &locals, &lowered, &active_item_tree);
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
@@ -172,6 +174,8 @@ fn main() i32 {
 
 #[test]
 fn records_body_facts_by_red_child_path_origins() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let version = SourceVersion {
         id: SourceId(8),
         revision: SourceRevision(2),
@@ -208,12 +212,12 @@ fn main() i32 {
     let (module, parse_errors, origins) =
         nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, symbols.clone());
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
-    let defs = collect_module_defs(ModuleId(0), &module);
+    let defs = collect_module_defs(module_id, &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let item_tree = ModuleItemTree::from_module(&module);
     let type_store = TypeStore::new();
     let lowered = lower_module_types_from_item_tree_with_context(
-        ModuleId(0),
+        module_id,
         &item_tree,
         &type_resolved,
         TypeLoweringContext::empty(&type_store),
@@ -228,7 +232,7 @@ fn main() i32 {
     );
     let active_item_tree = active_item_tree(&module);
     let semantic_uses =
-        semantic_use_table(ModuleId(0), &values, &locals, &lowered, &active_item_tree);
+        semantic_use_table(module_id, &values, &locals, &lowered, &active_item_tree);
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,

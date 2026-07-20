@@ -3,6 +3,7 @@ pub(super) use crate::*;
 pub(super) use nia_defs::{
     DefKind, ModuleId, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs,
 };
+pub(super) use nia_ids::ModuleIdAllocator;
 pub(super) use nia_item_signatures::{
     ItemSignatureInput, ItemSignatureSource, ProgramFunctionSignature, ProgramTraitImplSignature,
     collect_item_signatures,
@@ -138,6 +139,7 @@ impl ProgramSignatureLookup for EmptyBodyProgramSignatures {
 
 pub(super) struct TestBodyCheck {
     pub(super) check: BodyCheck,
+    pub(super) module_id: ModuleId,
     pub(super) type_store: nia_ty::TypeStore,
 }
 
@@ -177,10 +179,12 @@ fn pipeline_with_options(
     ),
     include_visible_extensions: bool,
 ) -> TestBodyCheck {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let symbols = SymbolTable::new();
     let (module, parse_errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
-    let defs = collect_module_defs(ModuleId(0), &module);
+    let defs = collect_module_defs(module_id, &module);
     assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     assert!(
@@ -191,7 +195,7 @@ fn pipeline_with_options(
     let item_tree = ModuleItemTree::from_module(&module);
     let type_store = TypeStore::new();
     let lowered = lower_module_types_from_item_tree_with_context(
-        ModuleId(0),
+        module_id,
         &item_tree,
         &type_resolved,
         TypeLoweringContext::empty(&type_store),
@@ -206,7 +210,7 @@ fn pipeline_with_options(
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
     let active_item_tree = active_item_tree(&module);
     let semantic_uses =
-        semantic_use_table(ModuleId(0), &values, &locals, &lowered, &active_item_tree);
+        semantic_use_table(module_id, &values, &locals, &lowered, &active_item_tree);
     let signatures = collect_item_signatures(ItemSignatureInput {
         source: ItemSignatureSource::Module(&module),
         defs: &defs,
@@ -279,7 +283,7 @@ fn pipeline_with_options(
     let normalization_input = lowered.explicit_type_roots();
     let normalization =
         nia_type_normalize::normalize_module_types(nia_type_normalize::TypeNormalizationInput {
-            module_id: ModuleId(0),
+            module_id,
             type_store: &type_store,
             input_ids: &normalization_input,
             signatures: &signatures,
@@ -324,7 +328,7 @@ fn pipeline_with_options(
                     VisibleExtensionMethod {
                         name: method_def.name,
                         def_id: GlobalDefId {
-                            module_id: ModuleId(0),
+                            module_id,
                             def_id: method_id,
                         },
                         impl_id: impl_signature.impl_id,
@@ -346,8 +350,7 @@ fn pipeline_with_options(
         nia_layout::TargetDataLayout::LP64,
     );
     let mut program_signatures = EmptyBodyProgramSignatures::new();
-    program_signatures.trait_impls =
-        single_module_trait_impls(ModuleId(0), &signatures, &type_store);
+    program_signatures.trait_impls = single_module_trait_impls(module_id, &signatures, &type_store);
     let origins = NodeOriginTable::default();
     let body_input = BodyCheckInput {
         type_store: &type_store,
@@ -381,7 +384,11 @@ fn pipeline_with_options(
         prechecked: None,
     };
     let check = check_module_bodies_with_program_signatures_and_layouts(body_input);
-    TestBodyCheck { check, type_store }
+    TestBodyCheck {
+        check,
+        module_id,
+        type_store,
+    }
 }
 
 pub(super) fn active_item_tree(module: &nia_ast::Module) -> ActiveModuleItemTree {
