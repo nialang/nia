@@ -2,6 +2,7 @@
 use super::common::*;
 
 fn single_module_program(
+    module_id: ModuleId,
     layouts: BackendLayouts,
     structs: Vec<BackendStruct>,
     unions: Vec<BackendUnion>,
@@ -10,7 +11,7 @@ fn single_module_program(
 ) -> BackendProgram {
     BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts,
@@ -31,13 +32,15 @@ fn single_module_program(
 
 #[test]
 fn emits_function_body_from_function_ir_when_available() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: Default::default(),
             layouts: BackendLayouts {
@@ -57,7 +60,7 @@ fn emits_function_body_from_function_ir_when_available() {
             global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(0),
                 },
                 name: sym("main"),
@@ -283,23 +286,25 @@ fn main() i32 {
 
 #[test]
 fn rejects_field_access_with_mismatched_base_struct() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let point_id = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(0),
     };
     let other_id = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(1),
     };
     let point_x = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(2),
     };
     let other_y = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(3),
     };
     let point_ty = interner.intern(TyKind::Nominal {
@@ -332,15 +337,15 @@ fn rejects_field_access_with_mismatched_base_struct() {
         ty: i32_ty,
     };
     let function_body = nia_function_lower::lower_function_body(
-        ModuleId(0),
+        module_id,
         &body,
-        nia_function_lower::FunctionTypeContext::for_module(&type_store, ModuleId(0)),
+        nia_function_lower::FunctionTypeContext::for_module(&type_store, module_id),
     )
     .expect("valid typed body")
     .body;
     let program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -410,7 +415,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
             global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(4),
                 },
                 name: sym("main"),
@@ -446,11 +451,13 @@ fn rejects_field_access_with_mismatched_base_struct() {
 
 #[test]
 fn validates_backend_ir_missing_array_length_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let span = Span::default();
     let len_id = GlobalConstExprId {
-        module_id: ModuleId(0),
+        module_id,
         const_expr_id: ConstExprId(0),
     };
     let elem = interner.primitive(PrimitiveTy::U8);
@@ -462,7 +469,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
     const_eval.array_lengths.insert(len_id, 4);
     let mut program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval,
             layouts: BackendLayouts {
@@ -483,7 +490,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
             enums: Vec::new(),
             globals: vec![BackendGlobal {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(0),
                 },
                 name: sym("buffer"),
@@ -518,11 +525,13 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_runtime_layout_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let box_id = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(0),
     };
     let box_ty = interner.intern(TyKind::Nominal {
@@ -533,7 +542,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -550,7 +559,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
                 generics: Vec::new(),
                 fields: vec![BackendField {
                     def_id: GlobalDefId {
-                        module_id: ModuleId(0),
+                        module_id,
                         def_id: DefId(1),
                     },
                     name: sym("value"),
@@ -568,7 +577,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
             global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(2),
                 },
                 name: sym("take"),
@@ -612,14 +621,16 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
 
 #[test]
 fn validates_backend_ir_error_type_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let error_ty = interner.error();
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -639,7 +650,7 @@ fn validates_backend_ir_error_type_before_llvm() {
             global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(0),
                 },
                 name: sym("take"),
@@ -683,17 +694,19 @@ fn validates_backend_ir_error_type_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let callee_id = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(1),
     };
     let program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -713,7 +726,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
             global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(0),
                 },
                 name: sym("main"),
@@ -745,7 +758,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
                                 kind: FunctionExprKind::Call {
                                     callee: FunctionCallee::FunctionInstance {
                                         def_id: callee_id,
-                                        arg_module_id: ModuleId(0),
+                                        arg_module_id: module_id,
                                         self_arg: None,
                                         args: vec![i32_ty],
                                         const_args: Vec::new(),
@@ -784,11 +797,13 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
 
 #[test]
 fn validates_indexed_function_instances_with_equivalent_type_args() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let struct_id = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(10),
     };
     let canonical_struct_ty = interner.intern(TyKind::Nominal {
@@ -803,12 +818,12 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
     });
     let span = Span::default();
     let callee_id = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(1),
     };
     let program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -845,7 +860,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
             global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(0),
                 },
                 name: sym("main"),
@@ -877,7 +892,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
                                 kind: FunctionExprKind::Call {
                                     callee: FunctionCallee::FunctionInstance {
                                         def_id: callee_id,
-                                        arg_module_id: ModuleId(0),
+                                        arg_module_id: module_id,
                                         self_arg: None,
                                         args: vec![equivalent_struct_ty],
                                         const_args: Vec::new(),
@@ -896,7 +911,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
             function_instances: vec![BackendFunctionInstance {
                 def_id: callee_id,
                 name: sym("make"),
-                arg_module_id: ModuleId(0),
+                arg_module_id: module_id,
                 self_arg: None,
                 args: vec![canonical_struct_ty],
                 const_args: Vec::new(),
@@ -948,13 +963,15 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
 
 #[test]
 fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let object_ty = interner.intern(TyKind::TraitObject {
         is_readonly: true,
         trait_id: TraitId::Source(GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: DefId(0),
         }),
         trait_args: Vec::new(),
@@ -963,12 +980,12 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
     });
     let span = Span::default();
     let missing_fn = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(1),
     };
     let program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -994,13 +1011,13 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
                     object_ty,
                 },
                 trait_id: TraitId::Source(GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(0),
                 }),
                 trait_args: Vec::new(),
                 entries: vec![BackendTraitObjectVtableEntry {
                     trait_id: TraitId::Source(GlobalDefId {
-                        module_id: ModuleId(0),
+                        module_id,
                         def_id: DefId(0),
                     }),
                     method_id: missing_fn,
@@ -1029,8 +1046,10 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
 
 #[test]
 fn validates_backend_ir_static_initializer_refs_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let ptr_ty = interner.intern(TyKind::Pointer {
         is_readonly: true,
@@ -1038,12 +1057,12 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
     });
     let span = Span::default();
     let missing_global = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(9),
     };
     let program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1064,7 +1083,7 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
             enums: Vec::new(),
             globals: vec![BackendGlobal {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(0),
                 },
                 name: sym("ptr"),
@@ -1101,19 +1120,21 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
 
 #[test]
 fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let struct_id = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(0),
     };
     let field_id = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(1),
     };
     let missing_field = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(2),
     };
     let struct_ty = interner.intern(TyKind::Nominal {
@@ -1124,7 +1145,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1167,7 +1188,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
             enums: Vec::new(),
             globals: vec![BackendGlobal {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(3),
                 },
                 name: sym("point"),
@@ -1204,17 +1225,19 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let missing_variant = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(3),
     };
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1231,14 +1254,14 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
             union_instances: Vec::new(),
             enums: vec![BackendEnum {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(0),
                 },
                 name: sym("Mode"),
                 backing_type: i32_ty,
                 variants: vec![BackendEnumVariant {
                     def_id: GlobalDefId {
-                        module_id: ModuleId(0),
+                        module_id,
                         def_id: DefId(1),
                     },
                     name: sym("Known"),
@@ -1251,7 +1274,7 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
             global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(2),
                 },
                 name: sym("main"),
@@ -1311,13 +1334,15 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
 
 #[test]
 fn validates_function_ir_missing_entry_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1337,7 +1362,7 @@ fn validates_function_ir_missing_entry_before_llvm() {
             global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(0),
                 },
                 name: sym("main"),
@@ -1395,13 +1420,15 @@ fn validates_function_ir_missing_entry_before_llvm() {
 
 #[test]
 fn validates_function_ir_missing_successor_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let program = BackendProgram {
         modules: vec![BackendModule {
-            id: ModuleId(0),
+            id: module_id,
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1421,7 +1448,7 @@ fn validates_function_ir_missing_successor_before_llvm() {
             global_instances: Vec::new(),
             functions: vec![BackendFunction {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(0),
                 },
                 name: sym("main"),
@@ -1477,8 +1504,10 @@ fn validates_function_ir_missing_successor_before_llvm() {
 
 #[test]
 fn validates_backend_ir_static_function_address_refs_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let fn_ptr_ty = interner.intern(TyKind::FunctionPointer {
         params: Vec::new(),
@@ -1487,10 +1516,11 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
     });
     let span = Span::default();
     let missing_function = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(9),
     };
     let program = single_module_program(
+        module_id,
         BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![
@@ -1506,7 +1536,7 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
         Vec::new(),
         vec![BackendGlobal {
             def_id: GlobalDefId {
-                module_id: ModuleId(0),
+                module_id,
                 def_id: DefId(0),
             },
             name: sym("ptr"),
@@ -1538,8 +1568,10 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
 
 #[test]
 fn validates_backend_ir_static_address_path_shape_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let ptr_ty = interner.intern(TyKind::Pointer {
         is_readonly: true,
@@ -1547,10 +1579,11 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
     });
     let span = Span::default();
     let source_global = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(0),
     };
     let program = single_module_program(
+        module_id,
         BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![
@@ -1577,7 +1610,7 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
             },
             BackendGlobal {
                 def_id: GlobalDefId {
-                    module_id: ModuleId(0),
+                    module_id,
                     def_id: DefId(1),
                 },
                 name: sym("ptr"),
@@ -1611,19 +1644,21 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let struct_id = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(0),
     };
     let field_id = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(1),
     };
     let missing_field = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(9),
     };
     let struct_ty = interner.intern(TyKind::Nominal {
@@ -1634,7 +1669,7 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
     let span = Span::default();
     let function = BackendFunction {
         def_id: GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: DefId(2),
         },
         name: sym("main"),
@@ -1686,6 +1721,7 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
         span,
     };
     let program = single_module_program(
+        module_id,
         BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![
@@ -1740,13 +1776,15 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
 
 #[test]
 fn validates_backend_ir_missing_local_place_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let function = BackendFunction {
         def_id: GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: DefId(0),
         },
         name: sym("main"),
@@ -1795,6 +1833,7 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
         span,
     };
     let program = single_module_program(
+        module_id,
         BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
@@ -1824,21 +1863,23 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
 
 #[test]
 fn validates_backend_ir_unresolved_trait_method_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let trait_id = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(10),
     };
     let method_id = GlobalDefId {
-        module_id: ModuleId(0),
+        module_id,
         def_id: DefId(11),
     };
     let function = BackendFunction {
         def_id: GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: DefId(0),
         },
         name: sym("main"),
@@ -1894,6 +1935,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
         span,
     };
     let program = single_module_program(
+        module_id,
         BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
@@ -1924,13 +1966,15 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
 
 #[test]
 fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
+    let mut module_ids = nia_ids::ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = nia_ty::TypeStore::new();
-    let interner = type_store.append_for_module(ModuleId(0));
+    let interner = type_store.append_for_module(module_id);
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
     let function = BackendFunction {
         def_id: GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: DefId(0),
         },
         name: sym("main"),
@@ -1983,6 +2027,7 @@ fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
         span,
     };
     let program = single_module_program(
+        module_id,
         BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
             types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
