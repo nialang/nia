@@ -747,7 +747,7 @@ struct CompilerInputs {
     runtime: crate::RuntimeModel,
     optimization: OptimizationPolicy,
     timings: TimingMode,
-    provider_changes: Vec<crate::ProviderDemand>,
+    provider_changes: HashSet<crate::ProviderDemand>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -801,7 +801,7 @@ impl CompilerInputs {
         let target = loaded.target;
         let runtime = loaded.runtime;
         let diagnostics = loaded.diagnostics;
-        let provider_changes = request.provider_changes;
+        let provider_changes = request.provider_changes.into_iter().collect();
         let modules = loaded
             .modules
             .into_iter()
@@ -1597,7 +1597,7 @@ impl CompilerInputDiff {
                 })
                 .map(|node| node.id)
                 .collect(),
-            provider_changes: new.provider_changes.iter().cloned().collect(),
+            provider_changes: new.provider_changes.clone(),
             executable_fact_inputs_changed: executable_fact_inputs_changed(old, new),
             loaded_modules_changed: loaded_module_ids(old) != loaded_module_ids(new)
                 || loaded_module_identity_assignments(old)
@@ -3026,6 +3026,27 @@ pub fn expensive_or_invalid() i32 {
                 .borrow()
                 .contains_key(&entry_id)
         );
+    }
+
+    #[test]
+    fn compiler_inputs_deduplicate_provider_changes() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let demand = crate::ProviderDemand {
+            source_path: SourcePath::new("main.nia"),
+            request: crate::ProviderRequest::Method {
+                target_type_name: None,
+                method_name: SymbolId::default(),
+            },
+        };
+        let database = CompilerDatabase::new(
+            CompileRequest::new(fixture.program()).with_provider_changes([demand.clone(), demand]),
+        );
+
+        let inputs = database
+            .inputs
+            .read()
+            .expect("compiler input lock poisoned");
+        assert_eq!(inputs.provider_changes.len(), 1);
     }
 
     #[test]
