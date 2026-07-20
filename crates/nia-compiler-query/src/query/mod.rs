@@ -2373,63 +2373,6 @@ mod tests {
         }
     }
 
-    fn loaded_program_with_modules(modules: Vec<LoadedModule>) -> LoadedProgram {
-        let graph = module_graph_for_loaded_modules(&modules);
-        LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::Bare,
-            modules,
-            diagnostics: Vec::new(),
-        }
-    }
-
-    fn module_graph_for_loaded_modules(modules: &[LoadedModule]) -> ModuleGraph {
-        let entry = modules
-            .first()
-            .map(|module| module.path.clone())
-            .unwrap_or_else(|| SourcePath::new("main.nia"));
-        let mut graph = ModuleGraph::with_symbol_text(entry, Arc::new(test_symbols()));
-        let max_id = modules
-            .iter()
-            .map(|module| module.id.index())
-            .max()
-            .unwrap_or(graph.entry().index());
-        for id in 1..=max_id {
-            let entry = graph.entry();
-            intern_child(
-                &mut graph,
-                entry,
-                &format!("module{id}"),
-                nia_ids::Visibility::Public,
-            );
-        }
-        graph
-    }
-
-    fn loaded_program_with_entry_child(
-        entry: LoadedModule,
-        child_name: &str,
-        child: LoadedModule,
-    ) -> LoadedProgram {
-        let mut graph = ModuleGraph::with_symbol_text(entry.path.clone(), Arc::new(test_symbols()));
-        intern_child(
-            &mut graph,
-            entry.id,
-            child_name,
-            nia_ids::Visibility::Public,
-        );
-        LoadedProgram {
-            graph: graph.into(),
-            symbols: test_symbols(),
-            target: TargetConfig::host(),
-            runtime: RuntimeModel::Bare,
-            modules: vec![entry, child],
-            diagnostics: Vec::new(),
-        }
-    }
-
     fn loaded_module(id: ModuleId, path: &str, source: &str) -> LoadedModule {
         loaded_module_with_revision(id, path, source, SourceRevision::INITIAL)
     }
@@ -2705,36 +2648,38 @@ pub fn expensive_or_invalid() i32 {
     #[test]
     #[should_panic(expected = "Nia ICE: duplicate loaded module id")]
     fn compiler_inputs_reject_duplicate_module_ids() {
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
-        let _ = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(module_id, "main.nia", "fn main() i32 { 0 }"),
-            loaded_module(module_id, "other.nia", "pub fn value() i32 { 1 }"),
-        ])));
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let module_id = fixture.entry_id();
+        let mut program = fixture.program();
+        program.modules.push(loaded_module(
+            module_id,
+            "other.nia",
+            "pub fn value() i32 { 1 }",
+        ));
+        let _ = CompilerInputs::new(CompileRequest::new(program));
     }
 
     #[test]
     #[should_panic(expected = "Nia ICE: duplicate source identity")]
     fn compiler_inputs_reject_duplicate_source_identities() {
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        let entry_id = module_ids.allocate();
-        let duplicate_id = module_ids.allocate();
-        let _ = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(entry_id, "main.nia", "fn main() i32 { 0 }"),
-            loaded_module(duplicate_id, "main.nia", "pub fn value() i32 { 1 }"),
-        ])));
+        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "duplicate",
+            "main.nia",
+            "pub fn value() i32 { 1 }",
+        );
+        let _ = CompilerInputs::new(CompileRequest::new(fixture.program()));
     }
 
     #[test]
     #[should_panic(expected = "Nia ICE: loaded module")]
     fn compiler_inputs_reject_path_identity_mismatch() {
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        let mut module = loaded_module(module_ids.allocate(), "main.nia", "fn main() i32 { 0 }");
-        module.source_identity = SourcePath::new("other.nia").identity();
-
-        let _ = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            module,
-        ])));
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let mut program = fixture.program();
+        program.modules[0].source_identity = SourcePath::new("other.nia").identity();
+        let _ = CompilerInputs::new(CompileRequest::new(program));
     }
 
     #[test]
@@ -2774,23 +2719,21 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn stable_source_identity_with_new_module_id_invalidates_old_key_and_recomputes_new_key() {
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        let old_module_id = module_ids.allocate();
-        let new_module_id = module_ids.allocate();
-        let old = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(
-                old_module_id,
-                "main.nia",
-                "pub struct S { value: i32 } fn main() i32 { 0 }",
-            ),
-        ])));
-        let new = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(
-                new_module_id,
-                "main.nia",
-                "pub struct S { value: i32 } fn main() i32 { 0 }",
-            ),
-        ])));
+        let source = "pub struct S { value: i32 } fn main() i32 { 0 }";
+        let old_fixture = LoadedProgramFixture::new("main.nia", source);
+        let old_module_id = old_fixture.entry_id();
+        let old_program = old_fixture.program();
+
+        let mut new_fixture = LoadedProgramFixture::new("bootstrap.nia", "");
+        let new_module_id = new_fixture
+            .graph
+            .intern_package_root(&sym("replacement"), SourcePath::new("main.nia"));
+        new_fixture.graph.mark_process_used_paths(new_module_id);
+        new_fixture.modules = vec![loaded_module(new_module_id, "main.nia", source)];
+        let new_program = new_fixture.program();
+
+        let old = CompilerInputs::new(CompileRequest::new(old_program.clone()));
+        let new = CompilerInputs::new(CompileRequest::new(new_program.clone()));
         let diff = CompilerInputDiff::between(&old, &new);
 
         assert!(diff.loaded_modules_changed);
@@ -2800,37 +2743,26 @@ pub fn expensive_or_invalid() i32 {
             vec![old_module_id, new_module_id]
         );
 
-        let database =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(
-                    old_module_id,
-                    "main.nia",
-                    "pub struct S { value: i32 } fn main() i32 { 0 }",
-                ),
-            ])));
+        let database = CompilerDatabase::new(CompileRequest::new(old_program));
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
-        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(
-                new_module_id,
-                "main.nia",
-                "pub struct S { value: i32 } fn main() i32 { 0 }",
-            ),
-        ])));
+        let invalidation = database.update(CompileRequest::new(new_program));
         let invalidated = invalidation
             .invalidated
             .iter()
             .map(|frame| frame.description.as_str())
             .collect::<Vec<_>>();
 
+        let old_module_path = format!("module_path({old_module_id:?})");
+        let old_checked_module = format!("checked_module::CheckedModuleQuery({old_module_id:?})");
         assert!(
-            invalidated.contains(&"module_path(ModuleId(0))"),
+            invalidated.contains(&old_module_path.as_str()),
             "{invalidated:?}"
         );
         assert!(
-            invalidated.contains(&"checked_module::CheckedModuleQuery(ModuleId(0))"),
+            invalidated.contains(&old_checked_module.as_str()),
             "{invalidated:?}"
         );
         assert!(
@@ -2845,14 +2777,11 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn same_module_id_with_new_source_identity_is_replacement() {
-        let mut module_ids = nia_ids::ModuleIdAllocator::new();
-        let module_id = module_ids.allocate();
-        let old = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(module_id, "main.nia", "fn main() i32 { 0 }"),
-        ])));
-        let new = CompilerInputs::new(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module(module_id, "other.nia", "fn main() i32 { 0 }"),
-        ])));
+        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let module_id = fixture.entry_id();
+        let old = CompilerInputs::new(CompileRequest::new(fixture.program()));
+        fixture.update_module_path(module_id, "other.nia");
+        let new = CompilerInputs::new(CompileRequest::new(fixture.program()));
 
         let diff = CompilerInputDiff::between(&old, &new);
 
@@ -5008,14 +4937,12 @@ extend Used {
 
     #[test]
     fn const_uses_precise_program_context_queries() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "const VALUE = 1; fn main() i32 { VALUE }",
-        )]);
-        let db = query_db(loaded);
+        let fixture =
+            LoadedProgramFixture::new("main.nia", "const VALUE = 1; fn main() i32 { VALUE }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let _ = db.get(ConstQuery(ModuleId(0)));
+        let _ = db.get(ConstQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5061,12 +4988,8 @@ extend Used {
 
     #[test]
     fn monomorphization_avoids_removed_program_trait_signature_product() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "pub fn main() i32 { 1 }",
-        )]);
-        let db = query_db(loaded);
+        let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 1 }");
+        let db = query_db(fixture.program());
 
         let _ = db.get(MonomorphizationQuery);
         let trace = db.query_trace();
@@ -5080,11 +5003,8 @@ extend Used {
 
     #[test]
     fn executable_reachability_uses_lazy_signature_resolvers() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "pub fn main() i32 { 1 }",
-        )]);
+        let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 1 }");
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
@@ -5107,21 +5027,18 @@ extend Used {
 
     #[test]
     fn body_check_without_method_lookup_does_not_build_global_extension_method_index() {
-        let loaded = loaded_program_with_modules(vec![
-            loaded_module(
-                ModuleId(0),
-                "main.nia",
-                "module providers; fn main() i32 { 1 }",
-            ),
-            loaded_module(
-                ModuleId(1),
-                "providers.nia",
-                "struct S {} extend S { pub fn make() S { {} } }",
-            ),
-        ]);
-        let db = query_db(loaded);
+        let mut fixture =
+            LoadedProgramFixture::new("main.nia", "module providers; fn main() i32 { 1 }");
+        let module_id = fixture.entry_id();
+        fixture.add_child(
+            module_id,
+            "providers",
+            "providers.nia",
+            "struct S {} extend S { pub fn make() S { {} } }",
+        );
+        let db = query_db(fixture.program());
 
-        let checked = db.get(BodyCheckQuery(ModuleId(0)));
+        let checked = db.get(BodyCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -5138,21 +5055,20 @@ extend Used {
 
     #[test]
     fn body_check_method_lookup_uses_named_extension_method_query() {
-        let loaded = loaded_program_with_modules(vec![
-            loaded_module(
-                ModuleId(0),
-                "main.nia",
-                "module module1; using self::module1::S; fn main() i32 { let s = S::make(); 1 }",
-            ),
-            loaded_module(
-                ModuleId(1),
-                "module1.nia",
-                "pub struct S {} extend S { pub fn make() S { {} } }",
-            ),
-        ]);
-        let db = query_db(loaded);
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "module module1; using self::module1::S; fn main() i32 { let s = S::make(); 1 }",
+        );
+        let module_id = fixture.entry_id();
+        fixture.add_child(
+            module_id,
+            "module1",
+            "module1.nia",
+            "pub struct S {} extend S { pub fn make() S { {} } }",
+        );
+        let db = query_db(fixture.program());
 
-        let checked = db.get(BodyCheckQuery(ModuleId(0)));
+        let checked = db.get(BodyCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -5166,11 +5082,11 @@ extend Used {
 
     #[test]
     fn executable_checked_program_uses_query_backed_extension_method_lookup() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "trait Show { fn show(self) i32; } extend i32 : Show { fn show(self) i32 { self } } pub fn main() i32 { 1.show() }",
-        )]);
+        );
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
@@ -5202,12 +5118,11 @@ extend Used {
 
     #[test]
     fn bare_entry_checked_program_uses_rooted_diagnostics_without_freestanding_start() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "extend ! { fn nope(self) void {} } pub fn main() i32 { 1 }",
-        )]);
-        let db = query_db(loaded);
+        );
+        let db = query_db(fixture.program());
 
         let checked = db.get(EntryCheckedProgramQuery);
         let trace = db.query_trace();
@@ -5236,11 +5151,11 @@ extend Used {
 
     #[test]
     fn freestanding_entry_checked_program_uses_executable_reachability() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "extend ! { fn nope(self) void {} } pub fn main() i32 { 1 }",
-        )]);
+        );
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
@@ -5804,11 +5719,8 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn program_products_share_the_input_module_graph_snapshot() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "fn main() i32 { 0 }",
-        )]);
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let loaded = fixture.program();
         let input_graph = loaded.graph.clone();
         let db = query_db(loaded);
 
@@ -5823,19 +5735,16 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn checked_modules_reuse_cached_definition_handles() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "fn main() i32 { 1 }",
-        )]);
-        let db = query_db(loaded);
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 1 }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let defs = db.get(FullModuleDefsQuery(ModuleId(0)));
-        let checked = db.get(CheckedModuleQuery(ModuleId(0)));
+        let defs = db.get(FullModuleDefsQuery(module_id));
+        let checked = db.get(CheckedModuleQuery(module_id));
         let executable = db.get(ExecutableCheckedModulesQuery);
         let executable = executable
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry executable module");
 
         assert!(Arc::ptr_eq(&checked.defs, &defs));
@@ -5844,35 +5753,35 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn compiler_fact_batches_reuse_cached_product_handles() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "struct S { value: i32 } extend S { fn get(self) i32 { self.value } }",
-        )]);
-        let db = query_db(loaded);
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
         let signature_set = nia_item_tree::SignatureItemSet::Types;
 
-        let signature = db.get(ModuleProgramSignatureFactsQuery(ModuleId(0), signature_set));
-        let abi = db.get(ModuleAbiSignatureFactsQuery(ModuleId(0)));
-        let trait_solving = db.get(ExtensionTraitSolvingModuleFactsQuery(ModuleId(0)));
-        let provider = db.get(ExtensionProviderModuleFactsQuery(ModuleId(0)));
-        let nominal = db.get(ExtensionProviderNominalModuleFactsQuery(ModuleId(0)));
+        let signature = db.get(ModuleProgramSignatureFactsQuery(module_id, signature_set));
+        let abi = db.get(ModuleAbiSignatureFactsQuery(module_id));
+        let trait_solving = db.get(ExtensionTraitSolvingModuleFactsQuery(module_id));
+        let provider = db.get(ExtensionProviderModuleFactsQuery(module_id));
+        let nominal = db.get(ExtensionProviderNominalModuleFactsQuery(module_id));
         let visible_extensions: Arc<VisibleExtensionsForModule> =
-            db.get(VisibleExtensionsQuery(ModuleId(0)));
+            db.get(VisibleExtensionsQuery(module_id));
         let visible_trait_impls: Arc<VisibleTraitImplsForModule> =
-            db.get(VisibleTraitImplsQuery(ModuleId(0)));
+            db.get(VisibleTraitImplsQuery(module_id));
         let trait_method_index: Arc<nia_program_signatures::ProgramTraitMethodIndex> =
             db.get(ProgramTraitMethodIndexQuery);
         let abi_signatures: Arc<ProgramAbiSignaturesValue> = db.get(ProgramAbiSignaturesQuery);
 
         let signature_batch =
-            db.get_many([ModuleProgramSignatureFactsQuery(ModuleId(0), signature_set)]);
-        let abi_batch = db.get_many([ModuleAbiSignatureFactsQuery(ModuleId(0))]);
-        let trait_solving_batch = db.get_many([ExtensionTraitSolvingModuleFactsQuery(ModuleId(0))]);
-        let provider_batch = db.get_many([ExtensionProviderModuleFactsQuery(ModuleId(0))]);
-        let nominal_batch = db.get_many([ExtensionProviderNominalModuleFactsQuery(ModuleId(0))]);
-        let visible_extensions_batch = db.get_many([VisibleExtensionsQuery(ModuleId(0))]);
-        let visible_trait_impls_batch = db.get_many([VisibleTraitImplsQuery(ModuleId(0))]);
+            db.get_many([ModuleProgramSignatureFactsQuery(module_id, signature_set)]);
+        let abi_batch = db.get_many([ModuleAbiSignatureFactsQuery(module_id)]);
+        let trait_solving_batch = db.get_many([ExtensionTraitSolvingModuleFactsQuery(module_id)]);
+        let provider_batch = db.get_many([ExtensionProviderModuleFactsQuery(module_id)]);
+        let nominal_batch = db.get_many([ExtensionProviderNominalModuleFactsQuery(module_id)]);
+        let visible_extensions_batch = db.get_many([VisibleExtensionsQuery(module_id)]);
+        let visible_trait_impls_batch = db.get_many([VisibleTraitImplsQuery(module_id)]);
         let trait_method_index_batch = db.get_many([ProgramTraitMethodIndexQuery]);
         let abi_signatures_batch = db.get_many([ProgramAbiSignaturesQuery]);
 
@@ -5898,24 +5807,24 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn extension_index_queries_reuse_single_layer_product_handles() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "trait Read { fn read(self) i32; } struct S { value: i32 } extend S { fn get(self) i32 { self.value } }",
-        )]);
-        let db = query_db(loaded);
-        let defs = db.get(ModuleDefsQuery(ModuleId(0)));
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+        let defs = db.get(ModuleDefsQuery(module_id));
         let trait_id = nia_ty::TraitId::Source(GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: defs.module_scope.types.get(&sym("Read")).unwrap(),
         });
         let method_id = GlobalDefId {
-            module_id: ModuleId(0),
+            module_id,
             def_id: nia_ids::DefId(0),
         };
 
         let validation: Arc<ExtensionProviderValidationFactsQueryValue> =
-            db.get(ExtensionProviderValidationFactsQuery(ModuleId(0)));
+            db.get(ExtensionProviderValidationFactsQuery(module_id));
         let discovery: Arc<ExtensionProviderDiscoveryIndexQueryValue> =
             db.get(ExtensionProviderDiscoveryIndexQuery);
         let exposure: Arc<TypeExposureIndex> = db.get(TypeExposureIndexQuery);
@@ -5927,18 +5836,18 @@ extend i32 : ParseFrom[Input] {
         let trait_index: Arc<ExtensionTraitSignatureIndex> =
             db.get(ExtensionTraitSignatureIndexQuery);
         let signature_input: Arc<ExtensionSignatureModuleInputQueryValue> =
-            db.get(ExtensionSignatureModuleInputQuery(ModuleId(0)));
+            db.get(ExtensionSignatureModuleInputQuery(module_id));
         let trait_impls: Arc<ExtensionTraitImplsForTraitQueryValue> =
             db.get(ExtensionTraitImplsForTraitQuery(trait_id));
 
-        let validation_batch = db.get_many([ExtensionProviderValidationFactsQuery(ModuleId(0))]);
+        let validation_batch = db.get_many([ExtensionProviderValidationFactsQuery(module_id)]);
         let discovery_batch = db.get_many([ExtensionProviderDiscoveryIndexQuery]);
         let exposure_batch = db.get_many([TypeExposureIndexQuery]);
         let methods_batch = db.get_many([ExtensionMethodIndexQuery]);
         let named_batch = db.get_many([ExtensionMethodsNamedQuery(sym("get"))]);
         let method_batch = db.get_many([ExtensionMethodByIdQuery(method_id)]);
         let trait_index_batch = db.get_many([ExtensionTraitSignatureIndexQuery]);
-        let signature_input_batch = db.get_many([ExtensionSignatureModuleInputQuery(ModuleId(0))]);
+        let signature_input_batch = db.get_many([ExtensionSignatureModuleInputQuery(module_id)]);
         let trait_impls_batch = db.get_many([ExtensionTraitImplsForTraitQuery(trait_id)]);
 
         assert!(Arc::ptr_eq(&validation, &validation_batch[0]));
@@ -5954,20 +5863,17 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn public_surface_queries_reuse_single_layer_product_handles() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "pub struct S { value: i32 }",
-        )]);
-        let db = query_db(loaded);
+        let fixture = LoadedProgramFixture::new("main.nia", "pub struct S { value: i32 }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
         let surfaces: Arc<PublicSurfacesQueryValue> = db.get(PublicSurfacesQuery);
         let using_scopes: Arc<PublicUsingScopesQueryValue> = db.get(PublicUsingScopesQuery);
-        let module_using_scope: Arc<ModuleUsingScope> = db.get(ModuleUsingScopeQuery(ModuleId(0)));
+        let module_using_scope: Arc<ModuleUsingScope> = db.get(ModuleUsingScopeQuery(module_id));
 
         let surfaces_batch = db.get_many([PublicSurfacesQuery]);
         let using_scopes_batch = db.get_many([PublicUsingScopesQuery]);
-        let module_using_scope_batch = db.get_many([ModuleUsingScopeQuery(ModuleId(0))]);
+        let module_using_scope_batch = db.get_many([ModuleUsingScopeQuery(module_id)]);
 
         assert!(Arc::ptr_eq(&surfaces, &surfaces_batch[0]));
         assert!(Arc::ptr_eq(&using_scopes, &using_scopes_batch[0]));
@@ -5979,12 +5885,9 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn backend_lowering_uses_executable_checked_module_body_ir() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "fn main() i32 { static value: i32 = 1; value }",
-        )]);
-        let db = query_db(loaded);
+        let fixture =
+            LoadedProgramFixture::new("main.nia", "fn main() i32 { static value: i32 = 1; value }");
+        let db = query_db(fixture.program());
 
         let _ = db.get(BackendLoweringQuery);
         let trace = db.query_trace();
@@ -6024,12 +5927,11 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn codegen_reuses_lowered_function_bodies_between_mono_and_backend() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "fn helper() i32 { 1 } fn main() i32 { helper() }",
-        )]);
-        let db = query_db(loaded);
+        );
+        let db = query_db(fixture.program());
 
         let codegen = db.get(CodegenProgramQuery);
         let trace = db.query_trace();
@@ -6053,12 +5955,8 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn codegen_public_adapter_reuses_large_product_handles() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "fn main() i32 { 1 }",
-        )]);
-        let database = CompilerDatabase::new(CompileRequest::new(loaded));
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 1 }");
+        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
 
         let cached = database.db.get(CodegenProgramQuery);
         let owned = database.codegen_program();
@@ -6075,8 +5973,7 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn executable_checked_modules_reuse_filtered_const_inputs() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 const fn len() usize {
@@ -6092,14 +5989,16 @@ fn main() i32 {
     values.len() as i32
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         let trace = db.query_trace();
 
@@ -6135,8 +6034,7 @@ fn main() i32 {
 
     #[test]
     fn executable_full_lowering_reuses_explicit_and_inferred_const_types() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 const explicit: usize = 19usize;
@@ -6146,14 +6044,16 @@ fn main() usize {
     explicit + inferred
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
 
         assert!(
@@ -6167,8 +6067,7 @@ fn main() usize {
 
     #[test]
     fn executable_body_check_follows_same_module_call_closure() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 fn f3() i32 {
@@ -6187,14 +6086,16 @@ fn main() i32 {
     f1()
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         assert_eq!(
             module.body_ir.function_bodies.len(),
@@ -6451,8 +6352,7 @@ extend Sink : Writer {
 
     #[test]
     fn trait_signature_subset_resolves_local_extend_target_types() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 trait Writer {
@@ -6475,11 +6375,12 @@ extend Sink : Writer {
     }
 }
 "#,
-        )]);
-        let db = query_db(loaded);
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
         let signatures = db.get(SignatureItemSignaturesQuery(
-            ModuleId(0),
+            module_id,
             nia_item_tree::SignatureItemSet::Traits,
         ));
         let impl_signature = signatures
@@ -7086,8 +6987,7 @@ extend[T] Source!T {
 
     #[test]
     fn executable_checked_modules_include_reachable_builtin_trait_witness_bodies() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 struct Counter {
@@ -7118,26 +7018,24 @@ fn main() i32 {
     total
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         let next = module
             .defs
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Method && def.name == sym("next")).then_some(
-                    GlobalDefId {
-                        module_id: ModuleId(0),
-                        def_id,
-                    },
-                )
+                (def.kind == nia_defs::DefKind::Method && def.name == sym("next"))
+                    .then_some(GlobalDefId { module_id, def_id })
             })
             .expect("Iterator witness method");
 
@@ -7149,8 +7047,7 @@ fn main() i32 {
 
     #[test]
     fn executable_checked_modules_do_not_body_check_unmatched_builtin_trait_witnesses() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 struct Counter {
@@ -7191,26 +7088,24 @@ fn main() i32 {
     total
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         let unused_next = module
             .defs
             .defs
             .iter()
             .filter_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Method && def.name == sym("next")).then_some(
-                    GlobalDefId {
-                        module_id: ModuleId(0),
-                        def_id,
-                    },
-                )
+                (def.kind == nia_defs::DefKind::Method && def.name == sym("next"))
+                    .then_some(GlobalDefId { module_id, def_id })
             })
             .find(|def_id| !module.body_ir.function_bodies.contains_key(def_id))
             .expect("unmatched Iterator witness method");
@@ -7228,8 +7123,7 @@ fn main() i32 {
 
     #[test]
     fn executable_checked_modules_do_not_body_check_unused_trait_witness_methods() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 trait Ops {
@@ -7254,26 +7148,24 @@ fn main() i32 {
     value.used()
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         let unused = module
             .defs
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Method && def.name == sym("unused")).then_some(
-                    GlobalDefId {
-                        module_id: ModuleId(0),
-                        def_id,
-                    },
-                )
+                (def.kind == nia_defs::DefKind::Method && def.name == sym("unused"))
+                    .then_some(GlobalDefId { module_id, def_id })
             })
             .expect("unused witness method");
 
@@ -7285,8 +7177,7 @@ fn main() i32 {
 
     #[test]
     fn executable_checked_modules_include_trait_witnesses_required_by_generic_where_predicates() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 trait IntoError[Target] {
@@ -7336,26 +7227,24 @@ fn main() i32 {
     }
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         let into_error_methods = module
             .defs
             .defs
             .iter()
             .filter_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Method && def.name == sym("into_error")).then_some(
-                    GlobalDefId {
-                        module_id: ModuleId(0),
-                        def_id,
-                    },
-                )
+                (def.kind == nia_defs::DefKind::Method && def.name == sym("into_error"))
+                    .then_some(GlobalDefId { module_id, def_id })
             })
             .collect::<Vec<_>>();
         let reachable_into_error_count = into_error_methods
@@ -7376,8 +7265,7 @@ fn main() i32 {
 
     #[test]
     fn executable_checked_modules_include_trait_witnesses_required_by_default_method_body() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 trait Writer {
@@ -7433,14 +7321,16 @@ fn main() i32!i32 {
     !writer.value
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         let checked_witness_names = module
             .defs
@@ -7448,10 +7338,10 @@ fn main() i32!i32 {
             .iter()
             .filter_map(|(def_id, def)| {
                 (def.kind == nia_defs::DefKind::Method
-                    && module.body_ir.function_bodies.contains_key(&GlobalDefId {
-                        module_id: ModuleId(0),
-                        def_id,
-                    }))
+                    && module
+                        .body_ir
+                        .function_bodies
+                        .contains_key(&GlobalDefId { module_id, def_id }))
                 .then_some(def.name)
             })
             .collect::<Vec<_>>();
@@ -7473,8 +7363,7 @@ fn main() i32!i32 {
 
     #[test]
     fn executable_checked_modules_do_not_body_check_unreachable_globals() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 static unused = missing_symbol;
@@ -7483,26 +7372,24 @@ fn main() i32 {
     0
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         let unused = module
             .defs
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Global && def.name == sym("unused")).then_some(
-                    GlobalDefId {
-                        module_id: ModuleId(0),
-                        def_id,
-                    },
-                )
+                (def.kind == nia_defs::DefKind::Global && def.name == sym("unused"))
+                    .then_some(GlobalDefId { module_id, def_id })
             })
             .expect("unused global");
 
@@ -7519,8 +7406,7 @@ fn main() i32 {
 
     #[test]
     fn executable_backend_lowering_skips_unreachable_recursive_aggregates() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 struct Recursive {
@@ -7535,14 +7421,16 @@ fn main() i32 {
     0
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         assert!(
             module.layouts.diagnostics.is_empty(),
@@ -7555,7 +7443,7 @@ fn main() i32 {
             .program
             .modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be backend-lowered");
         let recursive = sym("Recursive");
         assert!(
@@ -7777,8 +7665,7 @@ extend Page : Allocator {
 
     #[test]
     fn executable_checked_modules_keep_type_owner_modules_type_only() {
-        let entry = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module types;
@@ -7789,8 +7676,10 @@ fn main(value: types::Used) i32 {
 }
 "#,
         );
-        let types = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let types_id = fixture.add_child(
+            entry_id,
+            "types",
             "types.nia",
             r#"
 pub struct Used {
@@ -7802,14 +7691,15 @@ pub fn unused_bad() i32 {
 }
 "#,
         );
-        let mut loaded = loaded_program_with_entry_child(entry, "types", types);
+        let types_description = format!("{types_id:?}");
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let type_module = modules
             .iter()
-            .find(|module| module.id == ModuleId(1))
+            .find(|module| module.id == types_id)
             .expect("type owner module should be present for backend type lookup");
         assert!(
             type_module.executable_type_only,
@@ -7824,7 +7714,7 @@ pub fn unused_bad() i32 {
         assert!(
             !trace.queries.iter().any(|query| {
                 query.frame.name == "executable_body_check"
-                    && query.frame.description.contains("ModuleId(1)")
+                    && query.frame.description.contains(&types_description)
                     && query.stats.executions > 0
             }),
             "type owner module should not be executable-body-checked: {:?}",
@@ -7837,7 +7727,7 @@ pub fn unused_bad() i32 {
         assert!(
             trace.queries.iter().any(|query| {
                 query.frame.name == "signature_type_lowering"
-                    && query.frame.description.contains("ModuleId(1)")
+                    && query.frame.description.contains(&types_description)
                     && query.frame.description.contains("Types")
                     && query.stats.executions > 0
             }),
@@ -7845,14 +7735,14 @@ pub fn unused_bad() i32 {
             trace
                 .queries
                 .iter()
-                .filter(|query| query.frame.description.contains("ModuleId(1)"))
+                .filter(|query| query.frame.description.contains(&types_description))
                 .collect::<Vec<_>>()
         );
         for full_query in ["type_resolution", "type_lowering", "value_resolution"] {
             assert!(
                 !trace.queries.iter().any(|query| {
                     query.frame.name == full_query
-                        && query.frame.description.contains("ModuleId(1)")
+                        && query.frame.description.contains(&types_description)
                         && query.stats.executions > 0
                 }),
                 "type-only module should not execute {full_query}: {:?}",
@@ -7867,8 +7757,7 @@ pub fn unused_bad() i32 {
 
     #[test]
     fn executable_type_only_modules_keep_signature_const_enum_values() {
-        let entry = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module types;
@@ -7879,8 +7768,10 @@ fn main(value: types::Mode) i32 {
 }
 "#,
         );
-        let types = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let types_id = fixture.add_child(
+            entry_id,
+            "types",
             "types.nia",
             r#"
 pub enum Mode: i32 {
@@ -7893,14 +7784,15 @@ pub fn unused_bad() i32 {
 }
 "#,
         );
-        let mut loaded = loaded_program_with_entry_child(entry, "types", types);
+        let types_description = format!("{types_id:?}");
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let type_module = modules
             .iter()
-            .find(|module| module.id == ModuleId(1))
+            .find(|module| module.id == types_id)
             .expect("type owner module should be present for backend type lookup");
         assert!(
             type_module.executable_type_only,
@@ -7929,7 +7821,7 @@ pub fn unused_bad() i32 {
             assert!(
                 !trace.queries.iter().any(|query| {
                     query.frame.name == full_query
-                        && query.frame.description.contains("ModuleId(1)")
+                        && query.frame.description.contains(&types_description)
                         && query.stats.executions > 0
                 }),
                 "type-only enum module should not execute {full_query}: {:?}",
@@ -7944,8 +7836,7 @@ pub fn unused_bad() i32 {
 
     #[test]
     fn executable_type_only_modules_keep_signature_const_array_lengths() {
-        let entry = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module types;
@@ -7956,8 +7847,10 @@ fn main(value: types::Packet) i32 {
 }
 "#,
         );
-        let types = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let types_id = fixture.add_child(
+            entry_id,
+            "types",
             "types.nia",
             r#"
 const N: usize = 4;
@@ -7971,14 +7864,15 @@ pub fn unused_bad() i32 {
 }
 "#,
         );
-        let mut loaded = loaded_program_with_entry_child(entry, "types", types);
+        let types_description = format!("{types_id:?}");
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let type_module = modules
             .iter()
-            .find(|module| module.id == ModuleId(1))
+            .find(|module| module.id == types_id)
             .expect("type owner module should be present for backend type lookup");
         assert!(
             type_module.executable_type_only,
@@ -7999,7 +7893,7 @@ pub fn unused_bad() i32 {
             assert!(
                 !trace.queries.iter().any(|query| {
                     query.frame.name == full_query
-                        && query.frame.description.contains("ModuleId(1)")
+                        && query.frame.description.contains(&types_description)
                         && query.stats.executions > 0
                 }),
                 "type-only array module should not execute {full_query}: {:?}",
@@ -8014,8 +7908,7 @@ pub fn unused_bad() i32 {
 
     #[test]
     fn executable_checked_modules_do_not_body_check_modules_for_generic_metadata_only() {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 module helper;
@@ -8026,8 +7919,10 @@ fn main() i32 {
 }
 "#,
         );
-        let helper = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let helper_id = fixture.add_child(
+            entry_id,
+            "helper",
             "helper.nia",
             r#"
 pub fn id[T](value: T) T {
@@ -8039,14 +7934,14 @@ fn unused_bad() i32 {
 }
 "#,
         );
-        let mut loaded = loaded_program_with_entry_child(main, "helper", helper);
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let helper_module = modules
             .iter()
-            .find(|module| module.id == ModuleId(1))
+            .find(|module| module.id == helper_id)
             .expect("called generic function owner should be executable-reachable");
         let unused_bad = helper_module
             .defs
@@ -8055,7 +7950,7 @@ fn unused_bad() i32 {
             .find_map(|(def_id, def)| {
                 (def.kind == nia_defs::DefKind::Function && def.name == sym("unused_bad"))
                     .then_some(GlobalDefId {
-                        module_id: ModuleId(1),
+                        module_id: helper_id,
                         def_id,
                     })
             })
@@ -8077,8 +7972,7 @@ fn unused_bad() i32 {
 
     #[test]
     fn executable_checked_modules_include_reachable_global_initializers() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 static used: i32 = 1;
@@ -8087,26 +7981,24 @@ fn main() i32 {
     used
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         let used = module
             .defs
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Global && def.name == sym("used")).then_some(
-                    GlobalDefId {
-                        module_id: ModuleId(0),
-                        def_id,
-                    },
-                )
+                (def.kind == nia_defs::DefKind::Global && def.name == sym("used"))
+                    .then_some(GlobalDefId { module_id, def_id })
             })
             .expect("used global");
 
@@ -8118,8 +8010,7 @@ fn main() i32 {
 
     #[test]
     fn executable_checked_modules_include_reachable_local_static_initializers() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 fn option_arg() &u8 {
@@ -8132,26 +8023,24 @@ fn main() i32 {
     0
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         let text = module
             .defs
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Global && def.name == sym("text")).then_some(
-                    GlobalDefId {
-                        module_id: ModuleId(0),
-                        def_id,
-                    },
-                )
+                (def.kind == nia_defs::DefKind::Global && def.name == sym("text"))
+                    .then_some(GlobalDefId { module_id, def_id })
             })
             .expect("local static global");
 
@@ -8163,8 +8052,7 @@ fn main() i32 {
 
     #[test]
     fn executable_checked_modules_include_reachable_extension_method_local_static_initializers() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 enum Mode: i32 {
@@ -8186,26 +8074,24 @@ fn main() i32 {
     0
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
         let o2 = module
             .defs
             .defs
             .iter()
             .find_map(|(def_id, def)| {
-                (def.kind == nia_defs::DefKind::Global && def.name == sym("o2")).then_some(
-                    GlobalDefId {
-                        module_id: ModuleId(0),
-                        def_id,
-                    },
-                )
+                (def.kind == nia_defs::DefKind::Global && def.name == sym("o2"))
+                    .then_some(GlobalDefId { module_id, def_id })
             })
             .expect("local static global");
 
@@ -8218,8 +8104,7 @@ fn main() i32 {
     #[test]
     fn executable_checked_modules_include_cross_module_extension_method_local_static_initializers()
     {
-        let main = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 using helper::Mode;
@@ -8230,8 +8115,10 @@ fn main() i32 {
 }
 "#,
         );
-        let helper = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let helper_id = fixture.add_child(
+            entry_id,
+            "helper",
             "helper.nia",
             r#"
 pub enum Mode: i32 {
@@ -8249,14 +8136,14 @@ extend Mode {
 }
 "#,
         );
-        let mut loaded = loaded_program_with_entry_child(main, "helper", helper);
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(1))
+            .find(|module| module.id == helper_id)
             .expect("helper module should be executable-reachable");
         let o2 = module
             .defs
@@ -8265,7 +8152,7 @@ extend Mode {
             .find_map(|(def_id, def)| {
                 (def.kind == nia_defs::DefKind::Global && def.name == sym("o2")).then_some(
                     GlobalDefId {
-                        module_id: ModuleId(1),
+                        module_id: helper_id,
                         def_id,
                     },
                 )
@@ -8290,7 +8177,7 @@ extend Mode {
             .program
             .modules
             .iter()
-            .find(|module| module.id == ModuleId(1))
+            .find(|module| module.id == helper_id)
             .expect("helper backend module");
         assert!(
             backend_module
@@ -8303,8 +8190,7 @@ extend Mode {
 
     #[test]
     fn executable_checked_modules_do_not_flow_check_unreachable_functions() {
-        let mut loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 fn unused() i32 {
@@ -8314,14 +8200,16 @@ fn main() i32 {
     0
 }
 "#,
-        )]);
+        );
+        let module_id = fixture.entry_id();
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
-            .find(|module| module.id == ModuleId(0))
+            .find(|module| module.id == module_id)
             .expect("entry module should be executable-reachable");
 
         assert!(
@@ -8333,8 +8221,7 @@ fn main() i32 {
 
     #[test]
     fn executable_checked_modules_do_not_body_check_unreachable_loaded_modules() {
-        let entry = loaded_module(
-            ModuleId(0),
+        let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 pub module unused;
@@ -8344,8 +8231,10 @@ fn main() i32 {
 }
 "#,
         );
-        let unused = loaded_module(
-            ModuleId(1),
+        let entry_id = fixture.entry_id();
+        let unused_id = fixture.add_child(
+            entry_id,
+            "unused",
             "unused.nia",
             r#"
 pub fn expensive_or_invalid() i32 {
@@ -8353,7 +8242,8 @@ pub fn expensive_or_invalid() i32 {
 }
 "#,
         );
-        let mut loaded = loaded_program_with_entry_child(entry, "unused", unused);
+        let unused_description = format!("{unused_id:?}");
+        let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
@@ -8361,13 +8251,13 @@ pub fn expensive_or_invalid() i32 {
         let trace = db.query_trace();
 
         assert!(
-            modules.iter().all(|module| module.id != ModuleId(1)),
+            modules.iter().all(|module| module.id != unused_id),
             "unreachable module should not be kept for executable codegen"
         );
         assert!(
             !trace.queries.iter().any(|query| {
                 query.frame.name == "body_check"
-                    && query.frame.description.contains("ModuleId(1)")
+                    && query.frame.description.contains(&unused_description)
                     && query.stats.executions > 0
             }),
             "unreachable module should not be body-checked: {:?}",
@@ -8381,14 +8271,14 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn body_check_uses_const_semantic_modules_not_ast_module_map() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "const N: usize = 4; fn main() i32 { let mut values: [N]i32 = [0; N]; values.len() as i32 }",
-        )]);
-        let db = query_db(loaded);
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let _ = db.get(BodyCheckQuery(ModuleId(0)));
+        let _ = db.get(BodyCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -8429,15 +8319,15 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn direct_module_defs_invalidation_stops_at_snapshot_boundary() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "pub struct S { value: i32 } fn main() i32 { 0 }",
-        )]);
-        let db = query_db(loaded);
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let _ = db.get(TypeResolutionQuery(ModuleId(0)));
-        let invalidation = db.invalidate(ModuleDefsQuery(ModuleId(0)));
+        let _ = db.get(TypeResolutionQuery(module_id));
+        let invalidation = db.invalidate(ModuleDefsQuery(module_id));
         let invalidated = invalidation
             .invalidated
             .iter()
@@ -8456,20 +8346,17 @@ pub fn expensive_or_invalid() i32 {
         );
         assert!(!invalidated.contains(&"type_resolution"), "{invalidated:?}");
 
-        let _ = db.get(TypeResolutionQuery(ModuleId(0)));
+        let _ = db.get(TypeResolutionQuery(module_id));
     }
 
     #[test]
     fn invalidates_module_defs_after_item_tree_changes() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "pub struct S { value: i32 }",
-        )]);
-        let db = query_db(loaded);
+        let fixture = LoadedProgramFixture::new("main.nia", "pub struct S { value: i32 }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let _ = db.get(ModuleDefsQuery(ModuleId(0)));
-        let invalidation = db.invalidate(ModuleItemTreeInputQuery(ModuleId(0)));
+        let _ = db.get(ModuleDefsQuery(module_id));
+        let invalidation = db.invalidate(ModuleItemTreeInputQuery(module_id));
         let invalidated = invalidation
             .invalidated
             .iter()
