@@ -4582,13 +4582,12 @@ extend Value : Ops {
 
     #[test]
     fn extension_provider_module_facts_are_cached_across_body_updates() {
-        let database = CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(
-            vec![loaded_module(
-                ModuleId(0),
-                "main.nia",
-                "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } }",
-            )],
-        )));
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } }",
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
 
         let _ = database.db.get(ExtensionMethodIndexQuery);
         let before_update = database.query_trace();
@@ -4597,14 +4596,12 @@ extend Value : Ops {
             "{before_update:?}"
         );
 
-        let invalidation = database.update(CompileRequest::new(loaded_program_with_modules(vec![
-            loaded_module_with_revision(
-                ModuleId(0),
-                "main.nia",
-                "struct S { value: i32 } extend S { pub fn make(value: i32) S { let next = value; { value: next } } }",
-                SourceRevision(1),
-            ),
-        ])));
+        fixture.update_module_source(
+            module_id,
+            "struct S { value: i32 } extend S { pub fn make(value: i32) S { let next = value; { value: next } } }",
+            SourceRevision(1),
+        );
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
         let invalidated = invalidation
             .invalidated
             .iter()
@@ -4638,14 +4635,12 @@ extend Value : Ops {
 
     #[test]
     fn body_sensitive_resolution_uses_full_active_item_tree_query() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "fn main() i32 { let value = 1; value }",
-        )]);
-        let db = query_db(loaded);
+        let fixture =
+            LoadedProgramFixture::new("main.nia", "fn main() i32 { let value = 1; value }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let _ = db.get(ValueResolutionQuery(ModuleId(0)));
+        let _ = db.get(ValueResolutionQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -4664,23 +4659,21 @@ extend Value : Ops {
 
     #[test]
     fn value_resolution_does_not_build_visible_extensions_for_plain_paths() {
-        let loaded = loaded_program_with_modules(vec![
-            loaded_module(
-                ModuleId(0),
-                "main.nia",
-                r#"
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            r#"
 module helper;
 
 fn main() i32 {
     helper::value()
 }
 "#,
-            ),
-            loaded_module(ModuleId(1), "helper.nia", "pub fn value() i32 { 1 }"),
-        ]);
-        let db = query_db(loaded);
+        );
+        let entry_id = fixture.entry_id();
+        fixture.add_child(entry_id, "helper", "helper.nia", "pub fn value() i32 { 1 }");
+        let db = query_db(fixture.program());
 
-        let values = db.get(ValueResolutionQuery(ModuleId(0)));
+        let values = db.get(ValueResolutionQuery(entry_id));
         let trace = db.query_trace();
 
         assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
@@ -4698,8 +4691,7 @@ fn main() i32 {
 
     #[test]
     fn value_resolution_loads_visible_extensions_for_associated_values() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 struct S {}
@@ -4712,10 +4704,11 @@ fn main() usize {
     S::WIDTH
 }
 "#,
-        )]);
-        let db = query_db(loaded);
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let values = db.get(ValueResolutionQuery(ModuleId(0)));
+        let values = db.get(ValueResolutionQuery(module_id));
         let trace = db.query_trace();
 
         assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
@@ -4728,14 +4721,11 @@ fn main() usize {
 
     #[test]
     fn flow_check_uses_full_active_item_tree_query() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "fn main() i32 { return 1; }",
-        )]);
-        let db = query_db(loaded);
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { return 1; }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let _ = db.get(FlowCheckQuery(ModuleId(0)));
+        let _ = db.get(FlowCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -4754,14 +4744,14 @@ fn main() usize {
 
     #[test]
     fn static_check_uses_full_active_item_tree_query() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "static mut global: i32 = 1; fn main() i32 { global }",
-        )]);
-        let db = query_db(loaded);
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let _ = db.get(StaticCheckQuery(ModuleId(0)));
+        let _ = db.get(StaticCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -4797,14 +4787,14 @@ fn main() usize {
 
     #[test]
     fn body_check_collects_local_signature_subsets_with_full_type_lowering() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "struct S { value: i32 } static mut global: i32 = 1; fn main() i32 { global }",
-        )]);
-        let db = query_db(loaded);
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let _ = db.get(BodyCheckQuery(ModuleId(0)));
+        let _ = db.get(BodyCheckQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -4852,8 +4842,7 @@ fn main() usize {
 
     #[test]
     fn body_check_reads_full_lowering_types_from_canonical_store() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             r#"
 struct Item {
@@ -4873,10 +4862,11 @@ fn main() i32 {
     items[1].state
 }
 "#,
-        )]);
-        let db = query_db(loaded);
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let checked = db.get(BodyCheckQuery(ModuleId(0)));
+        let checked = db.get(BodyCheckQuery(module_id));
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
@@ -5620,14 +5610,14 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn const_module_uses_full_active_item_tree_query() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
+        let fixture = LoadedProgramFixture::new(
             "main.nia",
             "const fn value() usize { 1 } const VALUE = value();",
-        )]);
-        let db = query_db(loaded);
+        );
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let _ = db.get(ConstModuleQuery(ModuleId(0)));
+        let _ = db.get(ConstModuleQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5639,11 +5629,11 @@ extend i32 : ParseFrom[Input] {
     #[test]
     fn semantic_use_table_query_combines_value_local_and_type_resolution() {
         let source = "static VALUE: i32 = 1; fn main() i32 { let mut local: i32 = VALUE; local }";
-        let loaded =
-            loaded_program_with_modules(vec![loaded_module(ModuleId(0), "main.nia", source)]);
-        let db = query_db(loaded);
+        let fixture = LoadedProgramFixture::new("main.nia", source);
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let table = db.get(SemanticUseTableQuery(ModuleId(0)));
+        let table = db.get(SemanticUseTableQuery(module_id));
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
@@ -5682,12 +5672,12 @@ extend i32 : ParseFrom[Input] {
     #[test]
     fn resolution_queries_share_compiler_session_node_owner() {
         let source = "static VALUE: i32 = 1; fn main() i32 { let local: i32 = VALUE; local }";
-        let loaded =
-            loaded_program_with_modules(vec![loaded_module(ModuleId(0), "main.nia", source)]);
-        let db = query_db(loaded);
+        let fixture = LoadedProgramFixture::new("main.nia", source);
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
         let node_store_id = db.context().node_store().id();
 
-        let values = db.get(ValueResolutionQuery(ModuleId(0)));
+        let values = db.get(ValueResolutionQuery(module_id));
         assert_eq!(values.node_names.store_id(), node_store_id);
         assert_eq!(values.node_qualified_values.store_id(), node_store_id);
         assert_eq!(
@@ -5700,22 +5690,19 @@ extend i32 : ParseFrom[Input] {
             node_store_id
         );
 
-        let locals = db.get(LocalResolutionQuery(ModuleId(0)));
+        let locals = db.get(LocalResolutionQuery(module_id));
         assert_eq!(locals.node_local_defs.store_id(), node_store_id);
         assert_eq!(locals.node_uses.store_id(), node_store_id);
 
-        let types = db.get(TypeResolutionQuery(ModuleId(0)));
+        let types = db.get(TypeResolutionQuery(module_id));
         assert_eq!(types.node_const_generic_names.store_id(), node_store_id);
     }
 
     #[test]
     fn checked_module_exposes_semantic_use_table_product() {
         let source = "fn main() i32 { let mut local: i32 = 1; local }";
-        let checked =
-            CompilerDatabase::new(CompileRequest::new(loaded_program_with_modules(vec![
-                loaded_module(ModuleId(0), "main.nia", source),
-            ])))
-            .check_program();
+        let fixture = LoadedProgramFixture::new("main.nia", source);
+        let checked = fixture.database().check_program();
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let module = checked.modules.first().expect("checked module");
@@ -5747,31 +5734,29 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn checked_module_reuses_cached_semantic_product_handles() {
-        let loaded = loaded_program_with_modules(vec![loaded_module(
-            ModuleId(0),
-            "main.nia",
-            "fn main() i32 { let local: i32 = 1; local }",
-        )]);
-        let db = query_db(loaded);
+        let fixture =
+            LoadedProgramFixture::new("main.nia", "fn main() i32 { let local: i32 = 1; local }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
 
-        let checked = db.get(CheckedModuleQuery(ModuleId(0)));
+        let checked = db.get(CheckedModuleQuery(module_id));
         let checked_program = db.get(CheckedProgramQuery);
-        let values = db.get(ValueResolutionQuery(ModuleId(0)));
-        let locals = db.get(LocalResolutionQuery(ModuleId(0)));
-        let semantic_uses = db.get(SemanticUseTableQuery(ModuleId(0)));
-        let type_resolution = db.get(TypeResolutionQuery(ModuleId(0)));
-        let type_lowering = db.get(TypeLoweringQuery(ModuleId(0)));
-        let type_normalization = db.get(TypeNormalizationQuery(ModuleId(0)));
-        let layouts = db.get(LayoutsQuery(ModuleId(0)));
-        let body_check = db.get(BodyCheckQuery(ModuleId(0)));
-        let const_eval = db.get(ConstQuery(ModuleId(0)));
-        let const_array_lengths = db.get(ConstArrayLengthsQuery(ModuleId(0)));
-        let const_enum_values = db.get(ConstEnumValuesQuery(ModuleId(0)));
-        let const_values = db.get(ConstValuesQuery(ModuleId(0)));
-        let const_typed_facts = db.get(ConstTypedFactsQuery(ModuleId(0)));
-        let static_check = db.get(StaticCheckQuery(ModuleId(0)));
-        let abi_check = db.get(AbiCheckQuery(ModuleId(0)));
-        let flow_check = db.get(FlowCheckQuery(ModuleId(0)));
+        let values = db.get(ValueResolutionQuery(module_id));
+        let locals = db.get(LocalResolutionQuery(module_id));
+        let semantic_uses = db.get(SemanticUseTableQuery(module_id));
+        let type_resolution = db.get(TypeResolutionQuery(module_id));
+        let type_lowering = db.get(TypeLoweringQuery(module_id));
+        let type_normalization = db.get(TypeNormalizationQuery(module_id));
+        let layouts = db.get(LayoutsQuery(module_id));
+        let body_check = db.get(BodyCheckQuery(module_id));
+        let const_eval = db.get(ConstQuery(module_id));
+        let const_array_lengths = db.get(ConstArrayLengthsQuery(module_id));
+        let const_enum_values = db.get(ConstEnumValuesQuery(module_id));
+        let const_values = db.get(ConstValuesQuery(module_id));
+        let const_typed_facts = db.get(ConstTypedFactsQuery(module_id));
+        let static_check = db.get(StaticCheckQuery(module_id));
+        let abi_check = db.get(AbiCheckQuery(module_id));
+        let flow_check = db.get(FlowCheckQuery(module_id));
 
         assert!(Arc::ptr_eq(&checked, &checked_program.modules[0]));
         assert!(Arc::ptr_eq(&checked.value_resolution, &values));
