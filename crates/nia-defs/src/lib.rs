@@ -1424,6 +1424,7 @@ impl<'a> Collector<'a> {
 mod tests {
     use super::*;
     use nia_diagnostic::DiagnosticCategory;
+    use nia_ids::ModuleIdAllocator;
     use nia_parser::parse_module;
     use nia_symbol::stable_hash;
 
@@ -1433,6 +1434,8 @@ mod tests {
 
     #[test]
     fn collects_top_level_defs_into_separate_namespaces() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 module math;
@@ -1445,7 +1448,7 @@ static mut counter = 0;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let collection = collect_module_defs(ModuleId(0), &module);
+        let collection = collect_module_defs(module_id, &module);
         assert!(
             collection.diagnostics.is_empty(),
             "{:?}",
@@ -1468,6 +1471,8 @@ static mut counter = 0;
 
     #[test]
     fn reports_duplicates_per_namespace() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 struct Thing { a: i32, a: i32 }
@@ -1478,7 +1483,7 @@ enum E { A, A }
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let collection = collect_module_defs(ModuleId(0), &module);
+        let collection = collect_module_defs(module_id, &module);
         assert_eq!(collection.diagnostics.len(), 4);
         assert!(collection.diagnostics.iter().any(|diagnostic| {
             diagnostic.code.as_str() == "E0101"
@@ -1512,6 +1517,8 @@ enum E { A, A }
 
     #[test]
     fn reports_duplicate_generic_parameters() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 struct Box[T, T] { value: T }
@@ -1527,7 +1534,7 @@ extend[T, T] Methods[T] {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let collection = collect_module_defs(ModuleId(0), &module);
+        let collection = collect_module_defs(module_id, &module);
         let duplicate_count = collection
             .diagnostics
             .iter()
@@ -1544,6 +1551,8 @@ extend[T, T] Methods[T] {
 
     #[test]
     fn maps_top_level_bindings_by_binding_node_key() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 static global: i32 = 1;
@@ -1551,7 +1560,7 @@ const answer: i32 = 42;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let collection = collect_module_defs(ModuleId(0), &module);
+        let collection = collect_module_defs(module_id, &module);
         assert!(
             collection.diagnostics.is_empty(),
             "{:?}",
@@ -1658,7 +1667,9 @@ extend[T] & Box[ T ] {
     fn collect_ok(source: &str) -> DefCollection {
         let (module, errors) = parse_module(source);
         assert!(errors.is_empty(), "{errors:?}");
-        let collection = collect_module_defs(ModuleId(0), &module);
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let collection = collect_module_defs(module_id, &module);
         assert!(
             collection.diagnostics.is_empty(),
             "{:?}",

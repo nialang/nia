@@ -17,7 +17,7 @@
 | A 基线与防回归 | 约 80% | 六 workload、machine-readable 指标、allocator/query/LLVM counters 与同机 guard 已完成；可运行 LLVM suite 的 CI 和 main-branch trend storage 未完成，但不阻塞当前进程内 identity/query/fact graph 临界路径。 |
 | B semantic context / 类型身份 | 100% | session-wide canonical `TypeStore`、全 pass canonical read/append、显式 roots、跨 revision slot 稳定与跨 session 隔离已完成；module view/log、origin、snapshot/checkout、recursive import 和旧 identity 类型均已删除。 |
 | C query value/storage | 100% | cache-owned `get/try_get/get_many`、无 `Value: Clone`、declarative registry 与 aggregate storage policy 已完成，owned runtime adapter 全部删除。 |
-| C 后 ID/arena 专项 | 约 60% | ID-0 query dep-node arena 与 ID-1 source/syntax identity 已完成；ID-2 已建立 stable/local module 映射、删除 full-node query，并让 loader/compiler/checked/codegen 共享 immutable graph snapshot；production 已收敛到显式 allocator，单模块 fixture 迁移已覆盖主要前端产品。 |
+| C 后 ID/arena 专项 | 约 61% | ID-0 query dep-node arena 与 ID-1 source/syntax identity 已完成；ID-2 已建立 stable/local module 映射、删除 full-node query，并让 loader/compiler/checked/codegen 共享 immutable graph snapshot；production 已收敛到显式 allocator，单模块 fixture 迁移已覆盖主要前端产品。 |
 | D 统一依赖图 | 约 5% | 已有 typed query 和若干 fact index，但 loader/compiler/driver/reachability 仍未共享一个 revisioned fact graph，`module_graph_state` 与多层 fixed point 尚在。 |
 | E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；legacy `query_many` 已删除，但 `get_many` 仍创建临时 scoped worker，持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
 | F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
@@ -1156,6 +1156,8 @@ Acceptance：所有调用点使用同一查询入口；cache hit 不深拷贝；
 进展（2026-07-20）：ID-2d 完成首批 semantic fixture 生命周期迁移。`nia-abi-check`、`nia-flow-check`、`nia-type-normalize`、`nia-type-resolve` 与 `nia-value-resolve` 的单模块测试不再直接构造 `ModuleId(0)`；每个测试或 pipeline helper 显式持有局部 `ModuleIdAllocator`，在同一生命周期内复用真实 `module_id`，没有新增全局或 `#[cfg(test)]` 魔法构造 API。上述五个 crate 的裸 `ModuleId(...)` 搜索已归零，为后续 owner/generation 加入 foreign/stale 检查保留清晰 fixture 边界。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；abi-check 2、flow-check 13、type-normalize 7、type-resolve 7、value-resolve 3 项定向测试通过，CLI commands 50 项自然并发 312.32 秒完成，全部 doc tests 通过。ID/arena 专项现约 59%；下一切片继续按单模块/多模块 fixture 分组迁移，优先清理共享 helper 中的裸构造，再进入 public API tuple 私有化前的 owner 设计。
 
 进展（2026-07-20）：ID-2e 完成 item-signature 单模块 fixture 迁移。`nia-item-signatures` 的十个测试以及共享 `signatures_ok` helper 现在都从局部 `ModuleIdAllocator` 获取并复用同一 `module_id`，裸 `ModuleId(...)` 搜索归零；fixture 不通过全局 helper 隐藏 owner，保留后续 foreign/stale handle 回归的注入点。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；item-signatures 10 项定向测试通过，CLI commands 50 项自然并发 314.26 秒完成，全部 doc tests 通过。ID/arena 专项现约 60%；下一切片迁移 layout/type-lower 等仍含大量单模块 helper，再处理多模块 fixture 的显式 allocator 拓扑，之后才评估 `ModuleId` 公共 tuple 字段私有化。
+
+进展（2026-07-20）：ID-2f 完成 defs/layout/type-lower 单模块 fixture 迁移。`nia-defs` 的 6 个 definition collection 测试、`nia-layout` 的 9 个 layout pipeline 测试与 `nia-type-lower` 的 12 个 lowering 测试现在各自持有局部 `ModuleIdAllocator`，`collect_ok`、`compute_test_const`、program-defs map、canonical append 与 active-tree lowering 全部复用同一 `module_id`；三个 crate 的裸 `ModuleId(...)` 搜索归零，未引入共享全局构造 helper。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；defs 6、layout 9、type-lower 12 项定向测试通过，CLI commands 50 项自然并发 313.74 秒完成，全部 doc tests 通过。ID/arena 专项现约 61%；下一切片迁移 local-resolve 等共享 helper，再开始多模块 fixture 的 allocator 拓扑与 owner 语义回归。
 
 ### 阶段 D（P0）：统一模块/provider 依赖
 

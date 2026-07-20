@@ -2223,7 +2223,8 @@ fn const_expr_summary(expr: &Expr) -> ConstExprSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
+    use nia_defs::{collect_module_defs, collect_module_defs_from_active_item_tree};
+    use nia_ids::ModuleIdAllocator;
     use nia_item_tree::ModuleItemTree;
     use nia_parser::{parse_module, parse_module_with_symbols};
     use nia_symbol_table::SymbolTable;
@@ -2262,6 +2263,8 @@ mod tests {
 
     #[test]
     fn lowers_primitive_pointer_array_function_and_nominal_types() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 struct Box[T] {
@@ -2275,7 +2278,7 @@ fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         assert!(
             resolved.diagnostics.is_empty(),
@@ -2284,7 +2287,7 @@ fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
         );
         let (type_store, lowered) = lower_test_module(&module, &defs, &resolved);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
-        let append = type_store.append_for_module(ModuleId(0));
+        let append = type_store.append_for_module(module_id);
         assert!(matches!(
             type_store.get(append.intern(TyKind::Error)),
             Some(TyKind::Error)
@@ -2315,6 +2318,8 @@ fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
 
     #[test]
     fn lowers_const_generic_array_lengths_and_nominal_args() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 struct Buffer[T, N: usize] {
@@ -2325,7 +2330,7 @@ fn use_buffer(buf: Buffer[u8, 4]) void {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
         let resolved = resolve_module_types(&module, &defs);
         assert!(
@@ -2373,6 +2378,8 @@ fn use_buffer(buf: Buffer[u8, 4]) void {}
 
     #[test]
     fn lowers_trait_associated_type_shorthand_to_projection() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 trait Writer {
@@ -2399,7 +2406,7 @@ extend Sink : Writer {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         assert!(
             resolved.diagnostics.is_empty(),
@@ -2423,6 +2430,8 @@ extend Sink : Writer {
 
     #[test]
     fn lowers_slice_extend_target_to_slice_pointee() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 extend[T] [T] {
@@ -2433,7 +2442,7 @@ extend[T] [T] {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         assert!(
             resolved.diagnostics.is_empty(),
@@ -2456,6 +2465,8 @@ extend[T] [T] {
 
     #[test]
     fn rejects_const_value_generic_type_arguments() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 struct Box[T] {
@@ -2468,7 +2479,7 @@ fn make() Box[4] {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let (_type_store, lowered) = lower_test_module(&module, &defs, &resolved);
         assert!(
@@ -2481,6 +2492,8 @@ fn make() Box[4] {
 
     #[test]
     fn reports_generic_type_argument_count_mismatches() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 struct Point {}
@@ -2493,7 +2506,7 @@ fn non_generic_arg(a: Point[i32]) {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
         let resolved = resolve_module_types(&module, &defs);
         assert!(
@@ -2516,6 +2529,8 @@ fn non_generic_arg(a: Point[i32]) {}
 
     #[test]
     fn accepts_void_value_types_but_rejects_never_value_types_and_enum_backing_types() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 enum Bad: bool {
@@ -2537,7 +2552,7 @@ static mut global_void: void;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         let (_type_store, lowered) = lower_test_module(&module, &defs, &resolved);
         assert!(
@@ -2561,6 +2576,8 @@ static mut global_void: void;
 
     #[test]
     fn lowers_trait_object_pointer_types() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 trait Source[T] {
@@ -2572,7 +2589,7 @@ fn write(source: &mut Source[i32, Item = i32]) void {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         assert!(
             resolved.diagnostics.is_empty(),
@@ -2604,6 +2621,8 @@ fn write(source: &mut Source[i32, Item = i32]) void {}
 
     #[test]
     fn validates_trait_object_associated_type_bindings() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let symbols = SymbolTable::new();
         let (module, errors) = parse_module_with_symbols(
             r#"
@@ -2617,18 +2636,18 @@ fn duplicate(source: &Source[Item = i32, Item = bool]) void {}
             symbols.clone(),
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         assert!(
             resolved.diagnostics.is_empty(),
             "{:?}",
             resolved.diagnostics
         );
-        let program_defs = HashMap::from([(ModuleId(0), Arc::new(defs.clone()))]);
+        let program_defs = HashMap::from([(module_id, Arc::new(defs.clone()))]);
         let program_defs_by_module = |module_id| program_defs.get(&module_id).cloned();
         let type_store = nia_ty::TypeStore::new();
         let lowered = lower_module_types_with_context(
-            ModuleId(0),
+            module_id,
             &module,
             &resolved,
             TypeLoweringContext::from_program_defs(
@@ -2657,6 +2676,8 @@ fn duplicate(source: &Source[Item = i32, Item = bool]) void {}
 
     #[test]
     fn rejects_bare_trait_as_value_type() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 trait Show {}
@@ -2665,7 +2686,7 @@ fn bad(value: Show) void {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
+        let defs = collect_module_defs(module_id, &module);
         let resolved = resolve_module_types(&module, &defs);
         assert!(
             resolved.diagnostics.is_empty(),
@@ -2685,6 +2706,8 @@ fn bad(value: Show) void {}
 
     #[test]
     fn lowers_types_from_active_item_tree_only() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let (module, errors) = parse_module(
             r#"
 @[if false]
@@ -2696,7 +2719,7 @@ fn selected(value: i32) void {}
         assert!(errors.is_empty(), "{errors:?}");
         let tree = ModuleItemTree::from_module(&module);
         let active = tree.active_items(&mut BoolResolver(false)).unwrap();
-        let defs = collect_module_defs_from_active_item_tree(ModuleId(0), &active);
+        let defs = collect_module_defs_from_active_item_tree(module_id, &active);
         assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
         let resolved = resolve_module_types_from_active_item_tree(
             &active,
@@ -2712,7 +2735,7 @@ fn selected(value: i32) void {}
         );
         let type_store = nia_ty::TypeStore::new();
         let lowered = lower_module_types_from_active_item_tree_with_context(
-            ModuleId(0),
+            module_id,
             &active,
             &resolved,
             TypeLoweringContext::empty(&type_store),
@@ -2739,7 +2762,8 @@ fn first(pair: &Pair) i32 {
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
-        let module_id = ModuleId(0);
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let tree = ModuleItemTree::from_module(&module);
         let active = tree.active_items(&mut BoolResolver(false)).unwrap();
         let defs = collect_module_defs_from_active_item_tree(module_id, &active);
