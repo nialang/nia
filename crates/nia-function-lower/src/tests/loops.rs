@@ -237,8 +237,10 @@ fn lowers_for_in_iterator_next_payload_and_edges() {
 #[test]
 fn lowering_for_in_appends_synthesized_optional_item_type() {
     let span = Span::default();
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = TypeStore::new();
-    let append = type_store.append_for_module(ModuleId(0));
+    let append = type_store.append_for_module(module_id);
     let item_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
     let bool_ty = append.intern(TyKind::Primitive(PrimitiveTy::Bool));
     let body = TypedBody {
@@ -287,9 +289,9 @@ fn lowering_for_in_appends_synthesized_optional_item_type() {
     };
 
     let lowered = lower_function_body(
-        ModuleId(0),
+        module_id,
         &body,
-        FunctionTypeContext::for_module(&type_store, ModuleId(0)),
+        FunctionTypeContext::for_module(&type_store, module_id),
     )
     .expect("valid typed body");
 

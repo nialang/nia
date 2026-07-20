@@ -249,7 +249,7 @@ fn removes_pure_expr_ops_but_preserves_effectful_expr_ops() {
                 ty,
                 kind: FunctionExprKind::Call {
                     callee: FunctionCallee::Function(nia_ids::GlobalDefId {
-                        module_id: nia_ids::ModuleId(0),
+                        module_id: test_module_id(),
                         def_id: nia_ids::DefId(0),
                     }),
                     args: Vec::new(),
@@ -341,7 +341,7 @@ fn preserves_aggregate_expr_ops_with_effectful_elements() {
                     ty,
                     kind: FunctionExprKind::Call {
                         callee: FunctionCallee::Function(nia_ids::GlobalDefId {
-                            module_id: nia_ids::ModuleId(0),
+                            module_id: test_module_id(),
                             def_id: nia_ids::DefId(0),
                         }),
                         args: Vec::new(),

@@ -212,8 +212,10 @@ fn statement_if_pattern_binding_stores_tagged_union_payload() {
 
 #[test]
 fn statement_if_error_union_pattern_binding_uses_payload_type() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = TypeStore::new();
-    let append = type_store.append_for_module(ModuleId(0));
+    let append = type_store.append_for_module(module_id);
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
     let void_ty = append.intern(TyKind::Primitive(PrimitiveTy::Void));
     let error_ty = append.intern(TyKind::ErrorUnion {
@@ -278,9 +280,9 @@ fn statement_if_error_union_pattern_binding_uses_payload_type() {
     };
 
     let function_body = lower_function_body(
-        ModuleId(0),
+        module_id,
         &body,
-        FunctionTypeContext::for_module(&type_store, ModuleId(0)),
+        FunctionTypeContext::for_module(&type_store, module_id),
     )
     .expect("valid typed body")
     .body;

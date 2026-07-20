@@ -78,8 +78,10 @@ fn non_terminal_ops_branch_to_tail_block() {
 #[test]
 fn lowers_try_expression_to_try_terminator_and_success_local() {
     let span = Span::default();
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let type_store = TypeStore::new();
-    let append = type_store.append_for_module(ModuleId(0));
+    let append = type_store.append_for_module(module_id);
     let i32_ty = append.intern(TyKind::Primitive(PrimitiveTy::I32));
     let optional_i32 = append.intern(TyKind::Optional { elem: i32_ty });
     let body = TypedBody {
@@ -107,9 +109,9 @@ fn lowers_try_expression_to_try_terminator_and_success_local() {
     };
 
     let function_body = lower_function_body(
-        ModuleId(0),
+        module_id,
         &body,
-        FunctionTypeContext::for_module(&type_store, ModuleId(0)),
+        FunctionTypeContext::for_module(&type_store, module_id),
     )
     .expect("valid typed body")
     .body;

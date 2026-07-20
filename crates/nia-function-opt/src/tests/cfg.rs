@@ -471,7 +471,7 @@ fn preserves_same_target_if_with_effectful_condition() {
                     ty,
                     kind: FunctionExprKind::Call {
                         callee: FunctionCallee::Function(nia_ids::GlobalDefId {
-                            module_id: nia_ids::ModuleId(0),
+                            module_id: test_module_id(),
                             def_id: nia_ids::DefId(0),
                         }),
                         args: Vec::new(),
@@ -795,7 +795,7 @@ fn preserves_constant_switch_when_any_pattern_is_not_constant() {
                             ty,
                             kind: FunctionExprKind::Call {
                                 callee: FunctionCallee::Function(nia_ids::GlobalDefId {
-                                    module_id: nia_ids::ModuleId(0),
+                                    module_id: test_module_id(),
                                     def_id: nia_ids::DefId(0),
                                 }),
                                 args: Vec::new(),
@@ -857,7 +857,7 @@ fn preserves_same_target_switch_with_effectful_target() {
                     ty,
                     kind: FunctionExprKind::Call {
                         callee: FunctionCallee::Function(nia_ids::GlobalDefId {
-                            module_id: nia_ids::ModuleId(0),
+                            module_id: test_module_id(),
                             def_id: nia_ids::DefId(0),
                         }),
                         args: Vec::new(),
@@ -919,7 +919,7 @@ fn preserves_same_target_switch_with_effectful_pattern() {
                         ty,
                         kind: FunctionExprKind::Call {
                             callee: FunctionCallee::Function(nia_ids::GlobalDefId {
-                                module_id: nia_ids::ModuleId(0),
+                                module_id: test_module_id(),
                                 def_id: nia_ids::DefId(0),
                             }),
                             args: Vec::new(),
