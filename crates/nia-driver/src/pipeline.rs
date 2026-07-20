@@ -17,7 +17,7 @@ use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::TargetConfig;
 
-use crate::{CheckedProgram, CodegenProgram};
+use crate::{CheckedProgram, CodegenProgram, LoadedProgram};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Runtime {
@@ -169,35 +169,37 @@ impl Driver {
         let loader = self.loader_database(&request);
         let loaded = loader.load_program();
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
-        let (database, mut pending_update) = if let Some(compiler) = &*compiler_guard {
-            (
-                compiler.database.clone(),
-                Some((loaded, Vec::<ProviderDemand>::new())),
-            )
-        } else {
-            let database = CompilerDatabase::new(
-                CompileRequest::new(loaded)
-                    .with_optimization(request.optimization)
-                    .with_timings(request.timings),
-            );
-            *compiler_guard = Some(SessionCompiler {
-                database: database.clone(),
-            });
-            (database, None)
-        };
+        let (database, mut pending_update): (_, Option<ProviderGraphWorkItem>) =
+            if let Some(compiler) = &*compiler_guard {
+                (
+                    compiler.database.clone(),
+                    Some(ProviderGraphWorkItem {
+                        program: loaded,
+                        provider_changes: Vec::new(),
+                    }),
+                )
+            } else {
+                let database = CompilerDatabase::new(
+                    CompileRequest::new(loaded)
+                        .with_optimization(request.optimization)
+                        .with_timings(request.timings),
+                );
+                *compiler_guard = Some(SessionCompiler {
+                    database: database.clone(),
+                });
+                (database, None)
+            };
         let mut provider_demand_rounds = 0_u64;
         loop {
             provider_demand_rounds += 1;
-            let can_finalize_without_discovery =
-                pending_update
-                    .as_ref()
-                    .is_some_and(|(_, provider_changes)| {
-                        !provider_changes.is_empty()
-                            && provider_changes
-                                .iter()
-                                .all(|demand| !demand.request.invalidates_resolved_body_facts())
-                    });
-            if let Some((loaded, provider_changes)) = pending_update.take() {
+            let can_finalize_without_discovery = pending_update
+                .as_ref()
+                .is_some_and(ProviderGraphWorkItem::can_finalize_without_discovery);
+            if let Some(ProviderGraphWorkItem {
+                program: loaded,
+                provider_changes,
+            }) = pending_update.take()
+            {
                 database.update(
                     CompileRequest::new(loaded)
                         .with_optimization(request.optimization)
@@ -212,7 +214,10 @@ impl Driver {
                     new_demands,
                 } = loader.update_provider_demands(database.executable_provider_demands())
             {
-                pending_update = Some((*program, new_demands));
+                pending_update = Some(ProviderGraphWorkItem {
+                    program: *program,
+                    provider_changes: new_demands,
+                });
                 continue;
             }
             let output = compile(&database);
@@ -221,7 +226,12 @@ impl Driver {
                 ProviderDemandUpdate::GraphChanged {
                     program,
                     new_demands,
-                } => pending_update = Some((*program, new_demands)),
+                } => {
+                    pending_update = Some(ProviderGraphWorkItem {
+                        program: *program,
+                        provider_changes: new_demands,
+                    })
+                }
                 ProviderDemandUpdate::NoNewDemands
                 | ProviderDemandUpdate::GraphUnchanged { .. } => {
                     emit_compilation_counters(timings, &database, &output, provider_demand_rounds);
@@ -484,6 +494,22 @@ impl Driver {
         };
         drop(loader_guard);
         database
+    }
+}
+
+#[derive(Debug)]
+struct ProviderGraphWorkItem {
+    program: LoadedProgram,
+    provider_changes: Vec<ProviderDemand>,
+}
+
+impl ProviderGraphWorkItem {
+    fn can_finalize_without_discovery(&self) -> bool {
+        !self.provider_changes.is_empty()
+            && self
+                .provider_changes
+                .iter()
+                .all(|demand| !demand.request.invalidates_resolved_body_facts())
     }
 }
 
