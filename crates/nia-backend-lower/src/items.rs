@@ -523,10 +523,12 @@ mod tests {
 
     #[test]
     fn treats_empty_repeat_static_init_as_zero() {
+        let mut module_ids = nia_ids::ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
         let init = StaticInit::Repeat {
             value: Box::new(StaticInit::AddrOfFunction {
                 function: nia_ids::GlobalDefId {
-                    module_id: nia_ids::ModuleId(0),
+                    module_id,
                     def_id: nia_ids::DefId(0),
                 },
                 args: Vec::new(),

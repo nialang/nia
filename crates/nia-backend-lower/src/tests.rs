@@ -9,7 +9,7 @@ use nia_function_ir::{
     FunctionTerminator,
 };
 use nia_function_lower::{FunctionTypeContext, lower_function_body};
-use nia_ids::{GlobalDefId, LocalId};
+use nia_ids::{GlobalDefId, LocalId, ModuleIdAllocator};
 use nia_item_signatures::{
     ItemSignatureInput, ItemSignatureSource, ProgramFunctionSignature, collect_item_signatures,
 };
@@ -33,6 +33,7 @@ use std::collections::HashMap;
 
 struct TestBackendLowering {
     lowering: BackendLowering,
+    module_id: ModuleId,
     type_store: nia_ty::TypeStore,
 }
 
@@ -319,16 +320,18 @@ fn lower_source_with_body_check_mutation_and_optimization(
     ),
     optimization: nia_opt::OptimizationPolicy,
 ) -> TestBackendLowering {
+    let mut module_ids = ModuleIdAllocator::new();
+    let module_id = module_ids.allocate();
     let symbols = SymbolTable::new();
     let (module, errors) = parse_module_with_symbols(source, symbols.clone());
     assert!(errors.is_empty(), "{errors:?}");
-    let defs = collect_module_defs(ModuleId(0), &module);
+    let defs = collect_module_defs(module_id, &module);
     let type_resolved = resolve_module_types_with_symbols(&module, &defs, &symbols);
     let type_store = nia_ty::TypeStore::new();
     let program_defs =
-        |module_id| (module_id == ModuleId(0)).then(|| std::sync::Arc::new(defs.clone()));
+        |candidate| (candidate == module_id).then(|| std::sync::Arc::new(defs.clone()));
     let type_lowering = lower_module_types_with_context(
-        ModuleId(0),
+        module_id,
         &module,
         &type_resolved,
         TypeLoweringContext::from_program_defs(
@@ -350,7 +353,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let locals = resolve_module_locals(&module, &defs, &values);
     let active_item_tree = active_item_tree(&module);
     let semantic_uses = semantic_use_table(
-        ModuleId(0),
+        module_id,
         &values,
         &locals,
         &type_lowering,
@@ -358,7 +361,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     );
     let normalization_input = type_lowering.explicit_type_roots();
     let normalization = normalize_module_types(nia_type_normalize::TypeNormalizationInput {
-        module_id: ModuleId(0),
+        module_id,
         type_store: &type_store,
         input_ids: &normalization_input,
         signatures: &signatures,
@@ -473,7 +476,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         "{:?}",
         body_check.diagnostics
     );
-    let body_types = type_store.append_for_module(ModuleId(0));
+    let body_types = type_store.append_for_module(module_id);
     mutate_body_check(&mut body_check, &module, &defs, &signatures, &body_types);
     let function_bodies = body_check
         .ir
@@ -481,9 +484,9 @@ fn lower_source_with_body_check_mutation_and_optimization(
         .iter()
         .map(|(def_id, body)| {
             let mut body = lower_function_body(
-                ModuleId(0),
+                module_id,
                 body,
-                FunctionTypeContext::for_module(&type_store, ModuleId(0)),
+                FunctionTypeContext::for_module(&type_store, module_id),
             )
             .expect("valid typed body")
             .body;
@@ -499,7 +502,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         .collect::<Vec<_>>();
     let monomorphization = nia_monomorphize::collect_monomorphizations(
         &[nia_monomorphize::MonomorphizeModuleInput {
-            module_id: ModuleId(0),
+            module_id,
             defs: &defs,
             normalization: &normalization,
             const_eval: &const_eval,
@@ -524,12 +527,12 @@ fn lower_source_with_body_check_mutation_and_optimization(
         values: const_eval.array_lengths.clone(),
         diagnostics: Vec::new(),
     };
-    let program_const = HashMap::from([(ModuleId(0), &const_array_lengths)]);
+    let program_const = HashMap::from([(module_id, &const_array_lengths)]);
     let const_enum_values = const_enum_values_from_check(&const_eval);
     let no_program_defs = |_| None;
 
     let input = BackendLowerModuleInput {
-        module_id: ModuleId(0),
+        module_id,
         module_name: "main".to_string(),
         symbols: &symbols,
         active_item_tree: &active_item_tree,
@@ -568,6 +571,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let lowering = lower_backend_program(&[input], &type_store, &monomorphization, optimization);
     TestBackendLowering {
         lowering,
+        module_id,
         type_store,
     }
 }
