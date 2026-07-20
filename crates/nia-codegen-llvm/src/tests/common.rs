@@ -85,24 +85,22 @@ fn codegen_program_request(
 ) -> nia_compiler_query::CodegenProgram {
     let _permit = nia_test_support::compiler_permit();
     let loader = nia_loader_query::LoaderDatabase::new(request);
-    let mut loaded = loader.load_program();
+    let loaded = loader.load_program();
     let compiler = nia_compiler_query::CompilerDatabase::new(
-        nia_compiler_query::CompileRequest::new(loaded.clone()).with_optimization(optimization),
+        nia_compiler_query::CompileRequest::new(loaded).with_optimization(optimization),
     );
     loop {
-        let provider_changes =
-            loader.add_provider_demands_collect_new(compiler.executable_provider_demands());
-        if !provider_changes.is_empty() {
-            let next_loaded = loader.load_program();
-            if loaded.graph != next_loaded.graph {
-                loaded = next_loaded;
-                compiler.update(
-                    nia_compiler_query::CompileRequest::new(loaded.clone())
-                        .with_optimization(optimization)
-                        .with_provider_changes(provider_changes),
-                );
-                continue;
-            }
+        if let nia_loader_query::ProviderDemandUpdate::GraphChanged {
+            program,
+            new_demands,
+        } = loader.update_provider_demands(compiler.executable_provider_demands())
+        {
+            compiler.update(
+                nia_compiler_query::CompileRequest::new(*program)
+                    .with_optimization(optimization)
+                    .with_provider_changes(new_demands),
+            );
+            continue;
         }
         let output = compiler.codegen_program();
         let demands = output
@@ -110,20 +108,20 @@ fn codegen_program_request(
             .iter()
             .flat_map(|module| module.provider_demands.iter().cloned())
             .collect::<Vec<_>>();
-        let provider_changes = loader.add_provider_demands_collect_new(demands);
-        if provider_changes.is_empty() {
-            return output;
+        match loader.update_provider_demands(demands) {
+            nia_loader_query::ProviderDemandUpdate::GraphChanged {
+                program,
+                new_demands,
+            } => {
+                compiler.update(
+                    nia_compiler_query::CompileRequest::new(*program)
+                        .with_optimization(optimization)
+                        .with_provider_changes(new_demands),
+                );
+            }
+            nia_loader_query::ProviderDemandUpdate::NoNewDemands
+            | nia_loader_query::ProviderDemandUpdate::GraphUnchanged { .. } => return output,
         }
-        let next_loaded = loader.load_program();
-        if loaded.graph == next_loaded.graph {
-            return output;
-        }
-        loaded = next_loaded;
-        compiler.update(
-            nia_compiler_query::CompileRequest::new(loaded.clone())
-                .with_optimization(optimization)
-                .with_provider_changes(provider_changes),
-        );
     }
 }
 

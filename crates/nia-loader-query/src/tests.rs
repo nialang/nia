@@ -836,14 +836,17 @@ pub fn score(&self) i32 {
         .modules()
         .map(|node| (node.path.identity(), node.id))
         .collect::<HashMap<_, _>>();
-    database.add_provider_demands([ProviderDemand {
+    let update = database.update_provider_demands([ProviderDemand {
         source_path,
         request: nia_compiler_query::ProviderRequest::Method {
             target_type_name: Some(sym("Widget")),
             method_name: sym("score"),
         },
     }]);
-    let program = database.load_program();
+    let ProviderDemandUpdate::GraphChanged { program, .. } = update else {
+        panic!("provider demand should grow the module graph");
+    };
+    let program = *program;
 
     assert_no_error_diagnostics(&program);
     for (identity, initial_id) in initial_module_ids {
@@ -867,6 +870,40 @@ pub fn score(&self) i32 {
         root.join("pkg/facade/providers.nia")
             .to_string_lossy()
             .as_ref(),
+    );
+}
+
+#[test]
+fn provider_demand_update_distinguishes_stable_graphs_and_known_demands() {
+    let root = temp_dir("provider_demand_update_distinguishes_stable_graphs_and_known_demands");
+    let main_path = root.join("main.nia");
+    write(&main_path, "fn main() void {}");
+    let database = LoaderDatabase::new(LoadRequest::new(main_path.to_string_lossy().into_owned()));
+    let demand = ProviderDemand {
+        source_path: SourcePath::new(main_path.to_string_lossy()),
+        request: nia_compiler_query::ProviderRequest::Method {
+            target_type_name: None,
+            method_name: sym("missing"),
+        },
+    };
+
+    let ProviderDemandUpdate::GraphUnchanged { new_demands } =
+        database.update_provider_demands([demand.clone()])
+    else {
+        panic!("an unmatched provider demand should leave the graph unchanged");
+    };
+    assert_eq!(new_demands, vec![demand.clone()]);
+    assert_eq!(
+        database.update_provider_demands([demand]),
+        ProviderDemandUpdate::NoNewDemands
+    );
+    assert!(
+        database
+            .query_trace()
+            .queries
+            .iter()
+            .all(|query| query.frame.name != "loaded_program"),
+        "a stable graph should not rebuild the aggregate loaded program"
     );
 }
 
@@ -1376,14 +1413,19 @@ fn load_program_with_provider_demand(
     let database = LoaderDatabase::new(
         LoadRequest::new(entry_path.to_string_lossy().into_owned()).with_module_map(module_map),
     );
-    database.add_provider_demands([ProviderDemand {
+    let update = database.update_provider_demands([ProviderDemand {
         source_path,
         request: nia_compiler_query::ProviderRequest::Method {
             target_type_name: target_type_name.map(sym),
             method_name: sym(method_name),
         },
     }]);
-    database.load_program()
+    match update {
+        ProviderDemandUpdate::GraphChanged { program, .. } => *program,
+        ProviderDemandUpdate::GraphUnchanged { .. } | ProviderDemandUpdate::NoNewDemands => {
+            database.load_program()
+        }
+    }
 }
 
 fn assert_module_loaded(program: &LoadedProgram, suffix: &str) {
