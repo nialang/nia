@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod facade_facts;
 mod graph;
+mod provider_facts;
 mod provider_loading;
 mod queries;
 mod used_paths;
@@ -14,6 +15,7 @@ use nia_query::QueryDb;
 use nia_source::{SourceDatabase, SourceFile, SourceIdentity, SourcePath, SourceVersion};
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
+use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
 use std::{
     collections::{HashMap, HashSet},
@@ -36,6 +38,7 @@ fn loader_query_registry() -> nia_query::QueryRegistry {
         queries::ModuleDeclarationsQuery,
         queries::ModuleFacadeFactsQuery,
         queries::ParsedModuleQuery,
+        provider_facts::ProviderDemandsQuery,
         queries::ProviderSummaryQuery,
         queries::SourceTextQuery,
         queries::SyntaxModuleQuery,
@@ -97,7 +100,7 @@ impl LoaderDatabase {
                 target: request.target,
                 entry_runtime: request.entry_runtime,
                 package_roots_with_used_paths,
-                provider_demands: Arc::new(RwLock::new(HashSet::new())),
+                provider_facts: ProviderFactStore::default(),
                 graph_state: Arc::new(RwLock::new(LoaderGraphState::default())),
             },
             loader_query_registry(),
@@ -137,36 +140,16 @@ impl LoaderDatabase {
         demands: impl IntoIterator<Item = ProviderDemand>,
     ) -> ProviderDemandUpdate {
         let demands = demands.into_iter().collect::<Vec<_>>();
-        let all_known = {
-            let stored = self
-                .db
-                .context()
-                .provider_demands
-                .read()
-                .expect("loader provider demand lock poisoned");
-            demands.iter().all(|demand| stored.contains(demand))
-        };
+        let all_known = self.db.context().provider_facts.contains_all(&demands);
         if all_known {
             return ProviderDemandUpdate::NoNewDemands;
         }
         let previous_graph = self.db.get(graph::ModuleGraphQuery);
-        let mut stored = self
-            .db
-            .context()
-            .provider_demands
-            .write()
-            .expect("loader provider demand lock poisoned");
-        let mut added = HashSet::new();
-        for demand in demands {
-            if stored.insert(demand.clone()) {
-                added.insert(demand);
-            }
-        }
-        drop(stored);
+        let added = self.db.context().provider_facts.insert_new(demands);
         if added.is_empty() {
             return ProviderDemandUpdate::NoNewDemands;
         }
-        self.db.invalidate(graph::ModuleGraphQuery);
+        self.db.invalidate(ProviderDemandsQuery);
         let graph = self.db.get(graph::ModuleGraphQuery);
         if graph == previous_graph {
             ProviderDemandUpdate::GraphUnchanged { new_demands: added }
@@ -179,12 +162,9 @@ impl LoaderDatabase {
     }
 
     fn reset_graph_state(&self) {
-        self.db
-            .context()
-            .provider_demands
-            .write()
-            .expect("loader provider demand lock poisoned")
-            .clear();
+        if self.db.context().provider_facts.clear() {
+            self.db.invalidate(ProviderDemandsQuery);
+        }
         *self
             .db
             .context()
@@ -291,7 +271,7 @@ fn load_program_trace(
             target: TargetConfig::host(),
             entry_runtime: EntryRuntime::None,
             package_roots_with_used_paths: HashSet::new(),
-            provider_demands: Arc::new(RwLock::new(HashSet::new())),
+            provider_facts: ProviderFactStore::default(),
             graph_state: Arc::new(RwLock::new(LoaderGraphState::default())),
         },
         loader_query_registry(),
@@ -329,7 +309,7 @@ pub(crate) struct LoaderContext {
     pub(crate) target: TargetConfig,
     pub(crate) entry_runtime: EntryRuntime,
     pub(crate) package_roots_with_used_paths: HashSet<nia_symbol::SymbolId>,
-    pub(crate) provider_demands: Arc<RwLock<HashSet<ProviderDemand>>>,
+    pub(crate) provider_facts: ProviderFactStore,
     pub(crate) graph_state: Arc<RwLock<LoaderGraphState>>,
 }
 

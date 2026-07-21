@@ -1,4 +1,5 @@
 use super::*;
+use crate::provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use crate::queries::{
     LoadedModuleQuery, ModuleDeclarationsQuery, ModuleFacadeFactsQuery, ParsedModuleQuery,
     ProviderSummaryQuery, SourceTextQuery, SyntaxModuleQuery, provider_summary_query,
@@ -22,6 +23,7 @@ fn sym(text: &str) -> SymbolId {
 
 #[test]
 fn source_frontend_query_keys_are_compact_handles() {
+    assert_eq!(std::mem::size_of::<ProviderDemandsQuery>(), 0);
     assert_eq!(std::mem::size_of::<SourceTextQuery>(), 4);
     assert_eq!(std::mem::size_of::<LoadedModuleQuery>(), 4);
     assert_eq!(std::mem::size_of::<ParsedModuleQuery>(), 16);
@@ -45,7 +47,7 @@ fn test_loader_context(
         target: TargetConfig::host(),
         entry_runtime: EntryRuntime::None,
         package_roots_with_used_paths: HashSet::new(),
-        provider_demands: Arc::new(RwLock::new(HashSet::new())),
+        provider_facts: ProviderFactStore::default(),
         graph_state: Arc::new(RwLock::new(crate::LoaderGraphState::default())),
     }
 }
@@ -58,7 +60,7 @@ fn registered_query_db(context: LoaderContext) -> QueryDb<LoaderContext> {
 fn loader_query_registry_covers_all_declared_query_contracts() {
     let descriptors = crate::loader_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 10);
+    assert_eq!(descriptors.len(), 11);
     assert!(
         descriptors
             .windows(2)
@@ -905,6 +907,16 @@ fn provider_demand_update_distinguishes_stable_graphs_and_known_demands() {
             .all(|query| query.frame.name != "loaded_program"),
         "a stable graph should not rebuild the aggregate loaded program"
     );
+    let trace = database.query_trace();
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "module_graph" && dependency.to.name == "provider_demands"
+    }));
+    let graph_query = trace
+        .queries
+        .iter()
+        .find(|query| query.frame.name == "module_graph")
+        .expect("module graph query trace");
+    assert_eq!(graph_query.stats.executions, 2, "{graph_query:?}");
 }
 
 #[test]
@@ -1244,17 +1256,13 @@ extend types::Widget {
         module_map,
         SourceDatabase::new(),
     ));
-    db.context()
-        .provider_demands
-        .write()
-        .expect("loader provider demand lock poisoned")
-        .insert(ProviderDemand {
-            source_path: entry_path,
-            request: nia_compiler_query::ProviderRequest::Method {
-                target_type_name: Some(sym("Widget")),
-                method_name: sym("score"),
-            },
-        });
+    db.context().provider_facts.insert_new([ProviderDemand {
+        source_path: entry_path,
+        request: nia_compiler_query::ProviderRequest::Method {
+            target_type_name: Some(sym("Widget")),
+            method_name: sym("score"),
+        },
+    }]);
     let program = db.get(LoadedProgramQuery);
 
     assert_no_error_diagnostics(&program);
