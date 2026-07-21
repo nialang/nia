@@ -5,15 +5,17 @@ use std::{
     collections::VecDeque,
     fmt::{self, Debug},
     hash::Hash,
+    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     sync::{
         Arc, Condvar, Mutex, Weak,
         atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
+    thread::JoinHandle,
 };
 
 use nia_hash::{FastHashMap, FastHashSet};
 
-const DEFAULT_MAX_QUERY_MANY_THREADS: usize = 4;
+const DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM: usize = 4;
 const QUERY_THREADS_ENV: &str = "NIA_QUERY_THREADS";
 
 pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
@@ -205,8 +207,58 @@ pub struct QuerySession {
 
 struct QuerySessionInner {
     id: QuerySessionId,
+    executor: QueryExecutor,
     databases: Mutex<FastHashMap<QueryDbId, Arc<dyn ErasedQueryDatabase>>>,
     dependencies: Mutex<QueryDependencyGraph>,
+}
+
+struct QueryTask {
+    batch: usize,
+    run: Box<dyn FnOnce() + Send + 'static>,
+}
+
+struct QueryExecutor {
+    session_id: QuerySessionId,
+    shared: Arc<QueryExecutorShared>,
+    workers: Mutex<QueryExecutorWorkers>,
+}
+
+struct QueryExecutorShared {
+    parallelism: usize,
+    state: Mutex<QueryExecutorState>,
+    ready: Condvar,
+    peak_active: AtomicUsize,
+}
+
+#[derive(Default)]
+struct QueryExecutorState {
+    queue: VecDeque<QueryTask>,
+    active: usize,
+    shutdown: bool,
+}
+
+struct QueryExecutorWorkers {
+    handles: Vec<JoinHandle<()>>,
+}
+
+struct QueryExecutorStackGuard {
+    executor: usize,
+}
+
+struct QueryExecutorActivityGuard {
+    shared: Arc<QueryExecutorShared>,
+    counts_activity: bool,
+}
+
+type QueryBatchOutcome<V> = Result<(Arc<V>, RecordedDependencies), Box<dyn Any + Send>>;
+
+struct QueryBatch<V> {
+    state: Mutex<QueryBatchState<V>>,
+}
+
+struct QueryBatchState<V> {
+    remaining: usize,
+    outcomes: Vec<Option<QueryBatchOutcome<V>>>,
 }
 
 struct QueryDbInner<C> {
@@ -262,6 +314,314 @@ impl QuerySessionId {
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .expect("query session identity space exhausted");
         Self(id)
+    }
+}
+
+impl QueryExecutor {
+    fn new(session_id: QuerySessionId, parallelism: usize) -> Self {
+        assert!(
+            parallelism > 0,
+            "query executor parallelism must be non-zero"
+        );
+        Self {
+            session_id,
+            shared: Arc::new(QueryExecutorShared {
+                parallelism,
+                state: Mutex::new(QueryExecutorState::default()),
+                ready: Condvar::new(),
+                peak_active: AtomicUsize::new(0),
+            }),
+            workers: Mutex::new(QueryExecutorWorkers {
+                handles: Vec::with_capacity(parallelism.saturating_sub(1)),
+            }),
+        }
+    }
+
+    fn ensure_workers(&self, work_items: usize) {
+        let mut workers = self
+            .workers
+            .lock()
+            .expect("query executor worker lock poisoned");
+        let worker_target = self
+            .shared
+            .parallelism
+            .saturating_sub(1)
+            .min(work_items.saturating_sub(1));
+        for worker_index in workers.handles.len()..worker_target {
+            let shared = Arc::clone(&self.shared);
+            let handle = std::thread::Builder::new()
+                .name(format!("nia-query-{}-{worker_index}", self.session_id.0))
+                .spawn(move || shared.worker_loop())
+                .unwrap_or_else(|error| panic!("failed to start query executor worker: {error}"));
+            workers.handles.push(handle);
+        }
+    }
+
+    fn submit_all(&self, tasks: Vec<QueryTask>) {
+        if tasks.is_empty() {
+            return;
+        }
+        self.ensure_workers(tasks.len());
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .expect("query executor state lock poisoned");
+        assert!(
+            !state.shutdown,
+            "query executor accepted work after shutdown"
+        );
+        state.queue.extend(tasks);
+        drop(state);
+        self.shared.ready.notify_all();
+    }
+
+    fn try_run_one(&self, batch: usize) -> bool {
+        let nested = query_executor_is_active(self.identity());
+        let task = {
+            let mut state = self
+                .shared
+                .state
+                .lock()
+                .expect("query executor state lock poisoned");
+            let position = state.queue.iter().rposition(|task| task.batch == batch);
+            if nested {
+                position.map(|position| {
+                    (
+                        state
+                            .queue
+                            .remove(position)
+                            .expect("query batch task position must remain valid"),
+                        false,
+                    )
+                })
+            } else if state.active < self.shared.parallelism {
+                position.map(|position| {
+                    state.active += 1;
+                    self.shared.record_active(state.active);
+                    (
+                        state
+                            .queue
+                            .remove(position)
+                            .expect("query batch task position must remain valid"),
+                        true,
+                    )
+                })
+            } else {
+                None
+            }
+        };
+        let Some((task, counts_activity)) = task else {
+            return false;
+        };
+        self.shared.run_task(task.run, counts_activity);
+        true
+    }
+
+    fn identity(&self) -> usize {
+        Arc::as_ptr(&self.shared) as usize
+    }
+
+    fn wait_for_batch_progress<V>(&self, batch: &QueryBatch<V>) {
+        let state = self
+            .shared
+            .state
+            .lock()
+            .expect("query executor state lock poisoned");
+        if !batch.is_complete() {
+            drop(
+                self.shared
+                    .ready
+                    .wait(state)
+                    .expect("query executor state lock poisoned while waiting"),
+            );
+        }
+    }
+
+    #[cfg(test)]
+    fn peak_active(&self) -> usize {
+        self.shared.peak_active.load(Ordering::Relaxed)
+    }
+}
+
+impl Drop for QueryExecutor {
+    fn drop(&mut self) {
+        {
+            let mut state = self
+                .shared
+                .state
+                .lock()
+                .expect("query executor state lock poisoned");
+            state.shutdown = true;
+        }
+        self.shared.ready.notify_all();
+        let current_thread = std::thread::current().id();
+        let handles = std::mem::take(
+            &mut self
+                .workers
+                .lock()
+                .expect("query executor worker lock poisoned")
+                .handles,
+        );
+        for handle in handles {
+            if handle.thread().id() == current_thread {
+                drop(handle);
+            } else {
+                let _ = handle.join();
+            }
+        }
+    }
+}
+
+impl QueryExecutorShared {
+    fn worker_loop(self: Arc<Self>) {
+        loop {
+            let task = {
+                let mut state = self
+                    .state
+                    .lock()
+                    .expect("query executor state lock poisoned");
+                loop {
+                    if state.shutdown && state.queue.is_empty() {
+                        return;
+                    }
+                    if state.active < self.parallelism
+                        && let Some(task) = state.queue.pop_front()
+                    {
+                        state.active += 1;
+                        self.record_active(state.active);
+                        break task;
+                    }
+                    state = self
+                        .ready
+                        .wait(state)
+                        .expect("query executor state lock poisoned while waiting");
+                }
+            };
+            self.run_task(task.run, true);
+        }
+    }
+
+    fn run_task(self: &Arc<Self>, task: Box<dyn FnOnce() + Send + 'static>, counts_activity: bool) {
+        let _activity = QueryExecutorActivityGuard {
+            shared: Arc::clone(self),
+            counts_activity,
+        };
+        let _stack = QueryExecutorStackGuard::enter(Arc::as_ptr(self) as usize);
+        task();
+    }
+
+    fn record_active(&self, active: usize) {
+        self.peak_active.fetch_max(active, Ordering::Relaxed);
+    }
+
+    fn notify_waiters(&self) {
+        drop(
+            self.state
+                .lock()
+                .expect("query executor state lock poisoned"),
+        );
+        self.ready.notify_all();
+    }
+}
+
+impl Drop for QueryExecutorActivityGuard {
+    fn drop(&mut self) {
+        if !self.counts_activity {
+            return;
+        }
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .expect("query executor state lock poisoned");
+        state.active = state
+            .active
+            .checked_sub(1)
+            .expect("query executor active task count underflow");
+        drop(state);
+        self.shared.ready.notify_all();
+    }
+}
+
+impl QueryExecutorStackGuard {
+    fn enter(executor: usize) -> Self {
+        QUERY_EXECUTOR_STACK.with(|stack| stack.borrow_mut().push(executor));
+        Self { executor }
+    }
+}
+
+impl Drop for QueryExecutorStackGuard {
+    fn drop(&mut self) {
+        QUERY_EXECUTOR_STACK.with(|stack| {
+            assert_eq!(
+                stack.borrow_mut().pop(),
+                Some(self.executor),
+                "query executor stack is unbalanced"
+            );
+        });
+    }
+}
+
+impl<V> QueryBatch<V> {
+    fn new(work_items: usize) -> Self {
+        Self {
+            state: Mutex::new(QueryBatchState {
+                remaining: work_items,
+                outcomes: (0..work_items).map(|_| None).collect(),
+            }),
+        }
+    }
+
+    fn complete(&self, index: usize, outcome: QueryBatchOutcome<V>) {
+        let mut state = self.state.lock().expect("query batch state lock poisoned");
+        let slot = state
+            .outcomes
+            .get_mut(index)
+            .expect("query batch result index out of bounds");
+        assert!(slot.is_none(), "query batch result completed twice");
+        *slot = Some(outcome);
+        state.remaining = state
+            .remaining
+            .checked_sub(1)
+            .expect("query batch remaining count underflow");
+    }
+
+    fn is_complete(&self) -> bool {
+        self.state
+            .lock()
+            .expect("query batch state lock poisoned")
+            .remaining
+            == 0
+    }
+
+    fn finish(&self, records_fingerprints: bool) -> (Vec<Arc<V>>, RecordedDependencies) {
+        let outcomes = {
+            let mut state = self.state.lock().expect("query batch state lock poisoned");
+            assert_eq!(state.remaining, 0, "query batch finished before completion");
+            std::mem::take(&mut state.outcomes)
+        };
+        let mut values = Vec::with_capacity(outcomes.len());
+        let mut dependencies = RecordedDependencies {
+            nodes: FastHashSet::default(),
+            fingerprints: records_fingerprints.then(DependencyFingerprints::default),
+        };
+        for outcome in outcomes {
+            let outcome = outcome.expect("completed query batch result must exist");
+            let (value, task_dependencies) = match outcome {
+                Ok(outcome) => outcome,
+                Err(payload) => resume_unwind(payload),
+            };
+            values.push(value);
+            dependencies.nodes.extend(task_dependencies.nodes);
+            if let (Some(dependencies), Some(task_dependencies)) = (
+                dependencies.fingerprints.as_mut(),
+                task_dependencies.fingerprints,
+            ) {
+                dependencies.extend(task_dependencies);
+            }
+        }
+        (values, dependencies)
     }
 }
 
@@ -612,6 +972,7 @@ struct QueryStackInstallGuard {
 
 thread_local! {
     static QUERY_STACK: RefCell<Vec<QueryStackEntry>> = const { RefCell::new(Vec::new()) };
+    static QUERY_EXECUTOR_STACK: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
 }
 
 impl Default for QuerySession {
@@ -622,9 +983,15 @@ impl Default for QuerySession {
 
 impl QuerySession {
     pub fn new() -> Self {
+        Self::with_parallelism(default_query_parallelism())
+    }
+
+    fn with_parallelism(parallelism: usize) -> Self {
+        let id = QuerySessionId::fresh();
         Self {
             inner: Arc::new(QuerySessionInner {
-                id: QuerySessionId::fresh(),
+                id,
+                executor: QueryExecutor::new(id, parallelism),
                 databases: Mutex::new(FastHashMap::default()),
                 dependencies: Mutex::new(QueryDependencyGraph::default()),
             }),
@@ -633,6 +1000,10 @@ impl QuerySession {
 
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    pub fn executor_parallelism(&self) -> usize {
+        self.inner.executor.shared.parallelism
     }
 
     fn register<C>(&self, db: &QueryDb<C>)
@@ -1034,63 +1405,48 @@ impl<C> QueryDb<C> {
         if keys.is_empty() {
             return Vec::new();
         }
+        if keys.len() == 1 {
+            return keys.into_iter().map(|key| self.get(key)).collect();
+        }
         let parent_stack = current_query_stack();
         let records_fingerprints = parent_stack
             .last()
             .is_some_and(|entry| entry.dependency_fingerprints.is_some());
-        let worker_count = batch_worker_count(keys.len());
-        if worker_count == 1 {
-            return keys.into_iter().map(|key| self.get(key)).collect();
-        }
-        let queue = Arc::new(Mutex::new(
-            keys.into_iter().enumerate().collect::<VecDeque<_>>(),
-        ));
-        std::thread::scope(|scope| {
-            let handles = (0..worker_count)
-                .map(|_| {
-                    let db = self.clone();
-                    let parent_stack = parent_stack.clone();
-                    let queue = queue.clone();
-                    scope.spawn(move || {
-                        let _stack_guard = install_query_stack(parent_stack);
-                        let mut values = Vec::new();
-                        loop {
-                            let work = queue
-                                .lock()
-                                .expect("get_many work queue lock poisoned")
-                                .pop_front();
-                            let Some((index, key)) = work else {
-                                return (values, take_current_stack_dependencies());
-                            };
-                            values.push((index, db.get(key)));
-                        }
-                    })
-                })
-                .collect::<Vec<_>>();
-            let mut values = Vec::new();
-            let mut dependencies = RecordedDependencies {
-                nodes: FastHashSet::default(),
-                fingerprints: records_fingerprints.then(DependencyFingerprints::default),
-            };
-            for handle in handles {
-                match handle.join() {
-                    Ok((worker_values, worker_dependencies)) => {
-                        values.extend(worker_values);
-                        dependencies.nodes.extend(worker_dependencies.nodes);
-                        if let (Some(dependencies), Some(worker_dependencies)) = (
-                            dependencies.fingerprints.as_mut(),
-                            worker_dependencies.fingerprints,
-                        ) {
-                            dependencies.extend(worker_dependencies);
-                        }
-                    }
-                    Err(payload) => std::panic::resume_unwind(payload),
+        let batch = Arc::new(QueryBatch::new(keys.len()));
+        let batch_id = Arc::as_ptr(&batch) as usize;
+        let executor = &self.inner.session.inner.executor;
+        let executor_shared = Arc::clone(&executor.shared);
+        let tasks = keys
+            .into_iter()
+            .enumerate()
+            .map(|(index, key)| {
+                let db = self.clone();
+                let parent_stack = parent_stack.clone();
+                let batch = Arc::clone(&batch);
+                let executor_shared = Arc::clone(&executor_shared);
+                QueryTask {
+                    batch: batch_id,
+                    run: Box::new(move || {
+                        let outcome = catch_unwind(AssertUnwindSafe(|| {
+                            let _stack_guard = install_query_stack(parent_stack);
+                            let value = db.get(key);
+                            (value, take_current_stack_dependencies())
+                        }));
+                        batch.complete(index, outcome);
+                        executor_shared.notify_waiters();
+                    }),
                 }
+            })
+            .collect();
+        executor.submit_all(tasks);
+        while !batch.is_complete() {
+            if !executor.try_run_one(batch_id) {
+                executor.wait_for_batch_progress(&batch);
             }
-            merge_dependencies_into_current_stack(dependencies);
-            values.sort_by_key(|(index, _)| *index);
-            values.into_iter().map(|(_, value)| value).collect()
-        })
+        }
+        let (values, dependencies) = batch.finish(records_fingerprints);
+        merge_dependencies_into_current_stack(dependencies);
+        values
     }
 
     pub fn query_trace(&self) -> QueryTrace {
@@ -1362,25 +1718,19 @@ impl<C> QueryDb<C> {
     }
 }
 
-fn batch_worker_count(work_items: usize) -> usize {
-    if work_items <= 1 {
-        return work_items;
-    }
+fn default_query_parallelism() -> usize {
     let configured = std::env::var(QUERY_THREADS_ENV)
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| *value > 0);
-    let available = configured.unwrap_or_else(default_batch_threads);
-    available.clamp(1, work_items)
-}
-
-fn default_batch_threads() -> usize {
-    let available = std::thread::available_parallelism()
-        .map(usize::from)
-        .unwrap_or(1);
-    available
-        .div_ceil(2)
-        .clamp(1, DEFAULT_MAX_QUERY_MANY_THREADS)
+    configured.unwrap_or_else(|| {
+        let available = std::thread::available_parallelism()
+            .map(usize::from)
+            .unwrap_or(1);
+        available
+            .div_ceil(2)
+            .clamp(1, DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM)
+    })
 }
 
 impl QueryDependencyGraph {
@@ -1607,6 +1957,10 @@ fn current_query_stack() -> Vec<QueryStackEntry> {
     QUERY_STACK.with(|stack| stack.borrow().clone())
 }
 
+fn query_executor_is_active(executor: usize) -> bool {
+    QUERY_EXECUTOR_STACK.with(|stack| stack.borrow().contains(&executor))
+}
+
 fn take_current_stack_dependencies() -> RecordedDependencies {
     QUERY_STACK.with(|stack| {
         stack
@@ -1682,7 +2036,7 @@ fn install_query_stack(stack_snapshot: Vec<QueryStackEntry>) -> QueryStackInstal
 mod tests {
     use super::*;
     use std::sync::{
-        Condvar,
+        Barrier, Condvar,
         atomic::{AtomicUsize, Ordering},
     };
 
@@ -1692,6 +2046,18 @@ mod tests {
 
     struct SessionInputContext {
         value: Arc<AtomicUsize>,
+    }
+
+    struct ExecutorProbeContext {
+        active: AtomicUsize,
+        peak_active: AtomicUsize,
+        barrier: Barrier,
+    }
+
+    struct BatchIsolationContext {
+        session: Mutex<Option<QuerySession>>,
+        child_started: Mutex<bool>,
+        child_ready: Condvar,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1765,6 +2131,92 @@ mod tests {
         fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
             db.context().executions.fetch_add(1, Ordering::SeqCst);
             self.0 * 2
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct ExecutorProbe(usize);
+
+    impl QueryKey<ExecutorProbeContext> for ExecutorProbe {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "executor_probe"
+        }
+
+        fn execute(&self, db: &QueryDb<ExecutorProbeContext>) -> Self::Value {
+            let active = db.context().active.fetch_add(1, Ordering::SeqCst) + 1;
+            db.context().peak_active.fetch_max(active, Ordering::SeqCst);
+            db.context().barrier.wait();
+            db.context().active.fetch_sub(1, Ordering::SeqCst);
+            self.0
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    enum BatchIsolationQuery {
+        Parent,
+        OuterFiller,
+        Child,
+        ChildWait,
+        DependsOnParent,
+        OtherFiller,
+    }
+
+    impl QueryKey<BatchIsolationContext> for BatchIsolationQuery {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "batch_isolation"
+        }
+
+        fn execute(&self, db: &QueryDb<BatchIsolationContext>) -> Self::Value {
+            match self {
+                Self::Parent => db
+                    .get_many([Self::Child, Self::ChildWait])
+                    .into_iter()
+                    .map(|value| *value)
+                    .sum(),
+                Self::OuterFiller => 0,
+                Self::Child => 2,
+                Self::ChildWait => {
+                    *db.context()
+                        .child_started
+                        .lock()
+                        .expect("batch isolation state lock poisoned") = true;
+                    db.context().child_ready.notify_all();
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                    loop {
+                        let session = db
+                            .context()
+                            .session
+                            .lock()
+                            .expect("batch isolation session lock poisoned")
+                            .clone()
+                            .expect("batch isolation session must be installed");
+                        let queued = session
+                            .inner
+                            .executor
+                            .shared
+                            .state
+                            .lock()
+                            .expect("query executor state lock poisoned")
+                            .queue
+                            .len();
+                        if queued >= 3 {
+                            break;
+                        }
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "second batch was not submitted"
+                        );
+                        std::thread::yield_now();
+                    }
+                    1
+                }
+                Self::DependsOnParent => *db.get(Self::Parent),
+                Self::OtherFiller => 4,
+            }
         }
     }
 
@@ -2356,11 +2808,147 @@ mod tests {
     }
 
     #[test]
-    fn default_batch_threads_is_bounded() {
-        let count = default_batch_threads();
+    fn session_executor_caps_concurrent_batch_tasks() {
+        let session = QuerySession::with_parallelism(2);
+        let db = QueryDb::new_with_timings_in_session(
+            ExecutorProbeContext {
+                active: AtomicUsize::new(0),
+                peak_active: AtomicUsize::new(0),
+                barrier: Barrier::new(2),
+            },
+            nia_timing::TimingMode::Off,
+            session.clone(),
+        );
+
+        let values = db.get_many([
+            ExecutorProbe(0),
+            ExecutorProbe(1),
+            ExecutorProbe(2),
+            ExecutorProbe(3),
+        ]);
+
+        assert_eq!(
+            values.iter().map(|value| **value).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
+        assert_eq!(db.context().active.load(Ordering::SeqCst), 0);
+        assert_eq!(db.context().peak_active.load(Ordering::SeqCst), 2);
+        assert_eq!(session.inner.executor.peak_active(), 2);
+    }
+
+    #[test]
+    fn nested_get_many_completes_with_full_session_budget() {
+        let session = QuerySession::with_parallelism(2);
+        let db = QueryDb::new_with_timings_in_session(
+            TestContext {
+                executions: AtomicUsize::new(0),
+            },
+            nia_timing::TimingMode::Off,
+            session,
+        );
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let values = db.get_many([DoubleMany([1, 2]), DoubleMany([3, 4])]);
+            sender
+                .send(values.into_iter().map(|value| *value).collect::<Vec<_>>())
+                .expect("send nested batch result");
+        });
+
+        assert_eq!(
+            receiver.recv_timeout(std::time::Duration::from_secs(2)),
+            Ok(vec![6, 14])
+        );
+    }
+
+    #[test]
+    fn batch_waiter_does_not_run_tasks_that_depend_on_its_paused_query() {
+        let session = QuerySession::with_parallelism(1);
+        let db = QueryDb::new_with_timings_in_session(
+            BatchIsolationContext {
+                session: Mutex::new(Some(session.clone())),
+                child_started: Mutex::new(false),
+                child_ready: Condvar::new(),
+            },
+            nia_timing::TimingMode::Off,
+            session,
+        );
+        let (first_sender, first_receiver) = std::sync::mpsc::channel();
+        let (second_sender, second_receiver) = std::sync::mpsc::channel();
+        let second_db = db.clone();
+        std::thread::spawn(move || {
+            let mut started = second_db
+                .context()
+                .child_started
+                .lock()
+                .expect("batch isolation state lock poisoned");
+            while !*started {
+                started = second_db
+                    .context()
+                    .child_ready
+                    .wait(started)
+                    .expect("batch isolation state lock poisoned while waiting");
+            }
+            drop(started);
+            let values = second_db.get_many([
+                BatchIsolationQuery::DependsOnParent,
+                BatchIsolationQuery::OtherFiller,
+            ]);
+            second_sender
+                .send(values.into_iter().map(|value| *value).collect::<Vec<_>>())
+                .expect("send second isolated batch result");
+        });
+        std::thread::spawn(move || {
+            let values = db.get_many([
+                BatchIsolationQuery::Parent,
+                BatchIsolationQuery::OuterFiller,
+            ]);
+            first_sender
+                .send(values.into_iter().map(|value| *value).collect::<Vec<_>>())
+                .expect("send first isolated batch result");
+        });
+
+        assert_eq!(
+            first_receiver.recv_timeout(std::time::Duration::from_secs(10)),
+            Ok(vec![3, 0])
+        );
+        assert_eq!(
+            second_receiver.recv_timeout(std::time::Duration::from_secs(10)),
+            Ok(vec![3, 4])
+        );
+    }
+
+    #[test]
+    fn get_many_panic_does_not_poison_session_executor() {
+        let session = QuerySession::with_parallelism(2);
+        let db = QueryDb::new_with_timings_in_session(
+            TestContext {
+                executions: AtomicUsize::new(0),
+            },
+            nia_timing::TimingMode::Off,
+            session,
+        );
+
+        let panic = catch_unwind(AssertUnwindSafe(|| db.get_many([PanicsOnce, PanicsOnce])))
+            .expect_err("batch should propagate the query panic");
+        assert!(panic.is::<&'static str>());
+
+        let values = db.get_many([PanicsOnce, PanicsOnce]);
+        assert_eq!(
+            values.iter().map(|value| **value).collect::<Vec<_>>(),
+            vec![99, 99]
+        );
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn default_query_parallelism_is_bounded() {
+        let count = default_query_parallelism();
 
         assert!(count >= 1);
-        assert!(count <= DEFAULT_MAX_QUERY_MANY_THREADS);
+        if std::env::var(QUERY_THREADS_ENV).is_err() {
+            assert!(count <= DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM);
+        }
     }
 
     #[test]
