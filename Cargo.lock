@@ -273,7 +273,6 @@ dependencies = [
  "nia-span",
  "nia-static-ir",
  "nia-symbol",
- "nia-test-support",
  "nia-timing",
  "nia-ty",
 ]
@@ -321,7 +320,6 @@ dependencies = [
  "nia-symbol-table",
  "nia-syntax",
  "nia-target-config",
- "nia-test-support",
  "nia-timing",
  "nia-trait-solve",
  "nia-ty",

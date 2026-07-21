@@ -290,8 +290,6 @@ impl CompilerDatabase {
     }
 
     pub fn check_program(&self) -> CheckedProgram {
-        #[cfg(test)]
-        let _permit = nia_test_support::compiler_permit();
         self.settle_provider_worklist(false, Self::check_program_once, checked_provider_demands)
     }
 
@@ -317,8 +315,6 @@ impl CompilerDatabase {
     }
 
     pub fn entry_check_program(&self) -> CheckedProgram {
-        #[cfg(test)]
-        let _permit = nia_test_support::compiler_permit();
         self.settle_provider_worklist(
             true,
             Self::entry_check_program_once,
@@ -359,8 +355,6 @@ impl CompilerDatabase {
     }
 
     pub fn codegen_program(&self) -> CodegenProgram {
-        #[cfg(test)]
-        let _permit = nia_test_support::compiler_permit();
         self.settle_provider_worklist(true, Self::codegen_program_once, codegen_provider_demands)
     }
 

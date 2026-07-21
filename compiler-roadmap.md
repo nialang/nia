@@ -21,15 +21,16 @@
 | C query value/storage | 100% | cache-owned `get/try_get/get_many`、无 `Value: Clone`、declarative registry 与 aggregate storage policy 已完成，owned runtime adapter 全部删除。 |
 | C 后 ID/arena 专项 | 100% | ID-0 query dep-node arena、ID-1 source/syntax identity、ID-2 graph/fixture 收口与 ID-3 owner/index/generation module handle 均完成；构造、fork、stale lookup 与 local-slot 边界已有守卫。 |
 | D 统一依赖图 | 100% | loader/provider update 已收敛为 append-only revision events 与 revision-keyed graph query，compiler provider/reachability worklist直接读取 tracked facts并在 session transaction内收敛，Driver 只提交一次编译目标；loader/compiler typed DB 共享同一 `QuerySession`，module/source/provider/public/using/executable facts均进入统一图，aggregate snapshot、手写 diff/delta 回灌、Driver fixed point、reachability take/store 与 query 外 checked-module payload均已删除，随机 incremental/clean 差分守卫通过。 |
-| E executor / 资源模型 | 约 80% | `QuerySession` 已拥有惰性持久 executor；`get_many` fan-out 不再创建 scoped worker，不同 session 通过 Cargo/GNU Make jobserver 共享进程级 CPU 预算；全部 LLVM IR/object 入口通过基于有效 system/cgroup memory 的进程级 semaphore 施加 backpressure。compiler API 内测试 permit 删除尚未完成。 |
+| C/D 后 revision retirement | 约 10% | source/current query value 的替换与依赖失效已正确，但审计确认 append-only typed cache/slot identity table 仍会把旧 `SourceVersion` key 留到 session 结束；必须建立 quiescent retirement/generation 边界并验证长寿命 session 槽位有界，不能把 cache owner 当作活跃历史读者。 |
+| E executor / 资源模型 | 100% | session-owned persistent executor、统一 `get_many` fan-out、Cargo/GNU Make jobserver CPU 预算、LLVM memory backpressure 与 test/production API 同构均已完成；unit tests 不再获取全局 compiler permit，只有 integration harness 声明完整 session 权重。 |
 | F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
 | G CGU / 异步 codegen / work products | 约 5% | 已有多 object 输出和 reuse 指标占位，但没有正式 CGU partition、codegen queue、frontend/LLVM overlap、CGU fingerprint 或 object work-product cache。 |
 | H 持久 frontend incremental | 约 0–5% | 只有局部 artifact cache 和进程内 query 复用，不具备 stable module/def key、序列化 dep graph 与持久 frontend product。 |
-| I 错误、诊断与工程重组 | 约 10% | 已删除一批旧 API 并强化部分诊断边界；panic-based query flow、diagnostic store、data-driven harness、测试 permit 和 crate/巨型文件重组均未系统推进。 |
+| I 错误、诊断与工程重组 | 约 10% | compiler API 与 unit-test helper 的隐藏 permit 已删除；panic-based query flow、diagnostic store、data-driven integration harness、外层 session weight替代方案和 crate/巨型文件重组仍未系统推进。 |
 
-综合判断：**整份路线图按剩余工程复杂度加权约完成 66%，合理区间为 64%–68%；A–E 的 P0 基础约完成 93%–95%。** 已完成的是 type identity、query storage、统一 revisioned fact graph、session 内持久 query 调度及进程级 CPU/LLVM memory 协调：loader-owned provider revision graph、typed compiler worklist、跨 typed-DB QuerySession recorder、production loader→compiler field edges、query-derived public/using/executable facts、session-owned provider/reachability convergence、完整 red-green freshness 边界、统一 `get_many` executor、Cargo jobserver 预算与 LLVM memory backpressure 均已落地；测试 permit 删除、item/CGU 粒度和持久增量仍是独立工程，不能按提交数量线性外推后半程。
+综合判断：**整份路线图按剩余工程复杂度加权约完成 67%，合理区间为 65%–69%；A–E 的 P0 功能基础约完成 97%–98%。** 已完成的是 type identity、query storage、统一 revisioned fact graph、session 内持久 query 调度及进程级 CPU/LLVM memory 协调：loader-owned provider revision graph、typed compiler worklist、跨 typed-DB QuerySession recorder、production loader→compiler field edges、query-derived public/using/executable facts、session-owned provider/reachability convergence、完整 red-green freshness 边界、统一 `get_many` executor、Cargo jobserver 预算、LLVM memory backpressure 与 test/production API 同构均已落地。新确认的 revision-slot retirement、item/CGU 粒度和持久增量仍是独立工程，不能因逻辑失效正确就把物理历史回收算作完成。
 
-ID/arena 专项与 Phase D 均已关闭。loader graph 是 provider revision-keyed query product，loader/compiler typed DB 共享同一 QuerySession dependency arena；graph/membership/diagnostics、全部 module field roots、public/using projections、executable value-ref 与 reachability 产品均为 tracked/cache-owned facts。Driver 不再物化或传递 `LoadedProgram`，也不实现语义 fixed point；provider registration 只推进 loader canonical facts，compiler session transaction 串行消费 provider/body/reachability worklist。当前临界路径位于 Phase E：session 内持久 executor、`get_many` 迁移、跨 session jobserver CPU 预算与 LLVM memory backpressure 已完成，下一步让 test harness 只控制外层 session 数并删除 compiler API/LLVM test helper 内的重复 `cfg(test)` permit；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
+ID/arena 专项、Phase D 与 Phase E 均已关闭。loader/compiler typed DB 共享同一 QuerySession dependency arena；Driver 不再实现语义 fixed point，compiler session transaction串行消费 provider/body/reachability worklist；所有 query batch共享进程 CPU预算，LLVM入口另受进程级内存预算约束，测试构建不再改变 compiler/LLVM public API语义。当前临界路径先处理 C/D 后 revision retirement：现有 invalidation能正确替换 current value，但 typed cache与slot identity arena仍保留旧 revision key，违反“cache owner不能充当历史读者”的严格生命周期目标；完成有界回收后再进入 Phase F 的 IR ownership/item粒度。Phase A剩余CI/trend storage在托管环境和基线存储策略明确前不抢占该路径。
 
 ## 1. 范围、版本与方法
 
@@ -575,9 +576,9 @@ Zig 对函数分析后创建 codegen task，并进入 link queue。AIR 可以转
 
 第一轮 `nia-test-support` 虽建立了跨进程 `ResourcePool`，但预算仍过于乐观：每个 compiler unit 按 1.5 GiB、只为系统预留固定 1 GiB，8 GiB WSL 因而允许 4 unit；build test 申请两个 unit，正好可以同时放行两个完整 build 链。2026-07-15 的真实 OOM 证明这不是可靠默认值：两个 `nia` 主编译器各约 1.49 GiB RSS，另有两个 build-script 编译器，而同机 HLS 约 2.9 GiB，最终 7.6 GiB RAM 与 2 GiB swap 全部耗尽并触发 WSL 异常重启。
 
-修订后的临时保护仍以 1.5 GiB 为 compiler unit、build 为两个 unit，但测试总预算最多只占有效内存的一半，并在实际取得跨进程 slot 后检查 system/cgroup 当前可用内存；压力不足时释放 slot 等待，而不是继续启动子进程。容量取 CPU、system memory 与最紧 cgroup 祖先限制的共同约束并最多为 8；cgroup v2 同时按各祖先的 `memory.max - memory.current` 取最小余量，避免租赁机或容器把限制设在父 slice 时误判为无限。Linux 使用 PID + process start time 回收崩溃遗留 slot，无法可靠判活的平台按 age 回收；无法取得内存上限时重编译测试退化为串行。workspace 级 `RUST_TEST_THREADS=2` 已删除，普通 unit test 恢复 libtest 自然并发，只有声明完整 session 的入口参与资源门控。`CompilerDatabase` 的公开 check/codegen 方法仍在 `#[cfg(test)]` 下直接获取 permit。
+修订后的外层 integration harness 仍以 1.5 GiB 为 compiler unit、build 为两个 slot/一个 memory unit，但测试总预算最多只占有效内存的一半，并在实际取得跨进程 slot 后检查 system/cgroup 当前可用内存；压力不足时释放 slot 等待，而不是继续启动子进程。容量取 CPU、system memory 与最紧 cgroup 祖先限制的共同约束并最多为 8；cgroup v2 同时按各祖先的 `memory.max - memory.current` 取最小余量，避免租赁机或容器把限制设在父 slice 时误判为无限。Linux 使用 PID + process start time 回收崩溃遗留 slot，无法可靠判活的平台按 age 回收；无法取得内存上限时重编译测试退化为串行。workspace 级 `RUST_TEST_THREADS=2` 已删除，普通 unit test恢复libtest自然并发且不获取全局compiler permit；只有CLI/Driver等声明完整进程/session的integration入口参与外层资源门控。`CompilerDatabase`与LLVM public API在test/non-test构建下语义一致。
 
-这里不应把 WSL、日常物理开发机和租赁开发机建模为三类 profile。正确的配置维度是进程实际可用的 CPU affinity/quota、cgroup/VM 可见内存和用户显式覆盖：WSL 走 Linux 路径并看到其 VM 资源，容器或受限租赁机采用 cgroup 上限，裸 Linux 开发机采用系统资源。Rust 仓库本身主要通过 `x.py`/bootstrap 统一 suite、jobs/jobserver、compiletest 并发和 CI 机器配置，而不是为机器类别维护不同测试语义；Nia 要吸收的是这个“统一调度入口 + 可覆盖资源预算”的分层。由于 Nia 仍要求根目录无参数 `cargo test` 成为可靠入口，当前轻量的自动探测是必要兼容层，但不应演变成第二套长期调度器。
+这里不应把 WSL、日常物理开发机和租赁开发机建模为三类 profile。正确的配置维度是进程实际可用的 CPU affinity/quota、cgroup/VM 可见内存和用户显式覆盖：WSL 走 Linux 路径并看到其 VM 资源，容器或受限租赁机采用 cgroup 上限，裸 Linux 开发机采用系统资源。Rust 仓库本身主要通过 `x.py`/bootstrap 统一 suite、jobs/jobserver、compiletest 并发和 CI 机器配置，而不是为机器类别维护不同测试语义；Nia 要吸收的是这个“统一调度入口 + 可覆盖资源预算”的分层。根目录无参数 `cargo test` 的外层资源声明是integration harness职责，不是旧compiler API的兼容层，也不能演变成第二套production调度器。
 
 分组实测给出的 `nia-compiler-query` 约 866 MiB、`nia-driver` 约 1.46 GiB、`nia-cli` 约 1.69 GiB 只能说明 1.5 GiB/unit 的数量级，不能证明“系统总内存减 1 GiB”足以覆盖并发峰值。OOM 现场进一步表明 build 链应按复合任务计费，测试预算也必须给开发工具和 WSL 宿主行为留下比例余量。
 
@@ -690,7 +691,7 @@ Nia 约有 1,600 级 `#[test]`，覆盖面可观，这是资产。主要问题�
 - 每个 case 常创建临时工程并完整跑 compiler；
 - libtest 默认并发与 compiler 内部并发相乘；
 - 共享 `/tmp`、进程 ID/计数器命名、linker/环境变量容易形成隐含全局状态；
-- `nia-test-support::compiler_permit` 侵入 compiler 公开入口；
+- `nia-test-support::compiler_permit` 曾侵入 compiler 公开入口，现已删除；
 - semantic unit tests、query invalidation tests、CLI process tests、LLVM/link tests 没有统一的成本分类与调度层。
 
 Rust 并不是靠 `cargo test` 直接跑所有 rustc 行为测试。它有 bootstrap 驱动的 compiletest suite，将 UI、codegen、incremental、run-make 等按语义和成本分组，测试 harness 管理 revision、target、输出 snapshot、并发与工具依赖。Zig 也由 build graph 组织 behavior、compile errors、standalone、link、libc 等 suite，并能给 build step 声明 `max_rss`。
@@ -1272,6 +1273,8 @@ Acceptance：一次冷 check 不再出现 driver 层重复 load/update round；p
 
 进展（2026-07-22）：E-3 为 LLVM 重任务建立进程级 memory semaphore/backpressure。`nia-query::resources` 成为 effective system/cgroup memory limit与available pressure的唯一探测实现；原 `nia-test-support` 约200行重复 Linux/cgroup解析及对应第二份测试已删除，外层跨进程 session pool直接复用 production probe。全部 LLVM IR/object public入口在构建 `ProgramIndex`、LLVM context/module和输出bytes前取得同一个非`Send` RAII permit：capacity按 visible CPU与一半有效内存共同决定，每个重任务按1.5 GiB计费并最多并发4个；未知内存时串行，已有任务占用且当前余量低于2 GiB时阻塞生产者，而 active=0始终允许一个任务前进。thread-local identity depth使nested入口复用permit且乱序drop只在最后一个handle释放槽。timing新增`llvm.memory_permits`/`llvm.memory_waits`；确定性模型锁定capacity计算、两任务峰值、nested/乱序释放与cgroup父层最紧限制，CLI detail timing证明真实LLVM入口取得permit。`nia-query` 52项、LLVM 177项、test-support 8项、CLI定向回归与严格workspace/all-targets/all-features Clippy通过；无环境变量、无线程参数的原样`cargo test --workspace`完整通过，CLI commands 50项自然并发496.94秒、process 39项126.36秒、Driver 485项84.45秒完成，全部emit-exe/integration/doc tests通过。Phase E现约80%，整份roadmap加权约66%；下一切片删除compiler API和LLVM test helper内的`cfg(test)` resource permit，仅由test harness编排外层session。
 
+进展（2026-07-22）：E-4 删除了测试构建对compiler/LLVM public入口的隐藏资源语义并关闭Phase E。`CompilerDatabase::{check_program,entry_check_program,codegen_program}`内三处`#[cfg(test)] compiler_permit`与LLVM unit helper内四处重复permit全部删除，`nia-compiler-query`/`nia-codegen-llvm`对`nia-test-support`的dev-dependency同步归零；unit tests恢复libtest自然并发，只有CLI/Driver integration入口继续把完整进程/session声明给外层resource pool。compiler-query 135项在无permit下0.36秒通过，LLVM 177项由production memory semaphore控制并在4.95秒通过；严格workspace/all-targets/all-features Clippy无warning。无环境变量、无线程参数的原样`cargo test --workspace`完整通过，CLI commands 50项496.79秒、process 39项126.76秒、Driver 485项85.63秒、LLVM 177项5.00秒完成，全部emit-exe/integration/doc tests通过。Phase E五项实现与Acceptance全部满足，现为100%；整份roadmap因同时确认revision-slot retirement缺口加权约67%，下一切片先建立旧revision query slot的quiescent retirement与有界长寿命session模型，再进入Phase F。
+
 ### 阶段 E（P0/P1）：持久 executor 与测试资源模型
 
 1. session 创建 executor，并通过 Cargo jobserver 或基于 visible parallelism 的同构本地 jobserver 共享进程级 CPU 预算。
@@ -1281,6 +1284,14 @@ Acceptance：一次冷 check 不再出现 driver 层重复 load/update round；p
 5. test harness 只控制 session 数，移除 compiler API 内 `cfg(test)` permit。
 
 Acceptance：无 `NIA_QUERY_THREADS` 也能稳定运行；普通 `cargo test` 不需 `--test-threads`；单编译和多测试并发都不超预算。
+
+### C/D 后补充阶段（P0）：revision retirement 与有界 session
+
+当前 query 的逻辑失效语义已经正确：input root变化会清除旧value，derived stable product只在dependency fingerprint一致时保持green，重算后的新value即使语义相等也会替换旧payload。然而typed cache按完整query key持有slot，slot identity table又append-only保留erased key；`ParsedModuleQuery(SourceVersion)`等revision-keyed节点因此可能在value失效后仍把旧local handle保留到session结束。cache本身不是并发读者或显式历史查询，不能援引immutable snapshot例外。
+
+实施顺序：先加入多轮source edit模型，分别观测typed cache、slot identity和dependency edge数量；再定义revision quiescence（无computing/validating节点且旧返回`Arc`只由外部持有）与retirement协议；可回收slot使用generation防止旧`QueryNodeId`误指新节点，或采用不复用index的tombstone并从typed lookup/identity/dependency graph删除旧key；最后让source/node revision owner在没有活跃快照时释放对应locator/payload。不能只清value后保留key，也不能用定期重建整个`QuerySession`逃避增量生命周期。
+
+Acceptance：连续至少100轮body-only source edit后，旧`SourceVersion` query key/value与其forward/reverse edges在quiescence后不可从current cache/slot graph到达；slot/edge/live payload数量相对当前source/module/item规模有界，而不是随revision数线性增长；外部持有的旧immutable `Arc`仍可安全读取且释放后自然回收；retired `QueryNodeId`不能解析到新slot；incremental结果继续与clean recomputation等价。
 
 ### 阶段 F（P1）：IR ownership 与 item 粒度
 
