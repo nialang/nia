@@ -1870,10 +1870,13 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
     owner: GlobalDefId,
 ) -> ExecutableValueRefEdges {
     time_module_provider(db, "executable_value_ref_edges", owner.module_id, || {
-        let Some(item_input) = db.get(ExecutableValueRefItemQuery(owner)).as_ref().clone() else {
+        let item_input = db.get(ExecutableValueRefItemQuery(owner));
+        let Some(item_input) = item_input.as_ref() else {
             return ExecutableValueRefEdges::default();
         };
-        let active_item_tree = executable_value_ref_active_item_tree(&item_input);
+        let full_active_item_tree = db.get(FullActiveModuleItemTreeQuery(owner.module_id));
+        let active_item_tree =
+            executable_value_ref_active_item_tree(item_input, &full_active_item_tree);
         let defs = db.get(ModuleDefsQuery(owner.module_id));
         let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
         let graph = QueryModuleGraphLookup::new(db);
@@ -1902,7 +1905,7 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
         let locals =
             nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
                 &active_item_tree,
-                &item_input.active_item_tree,
+                &full_active_item_tree,
                 &defs,
                 &values,
                 None,
@@ -1929,8 +1932,9 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
 
 fn executable_value_ref_active_item_tree(
     input: &ExecutableValueRefItemInput,
+    full_active_item_tree: &ActiveModuleItemTree,
 ) -> ActiveModuleItemTree {
-    let mut item = input.active_item_tree.items[input.item_index].clone();
+    let mut item = full_active_item_tree.items[input.item_index].clone();
     match &mut item.kind {
         nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
             item_trait
@@ -1947,7 +1951,7 @@ fn executable_value_ref_active_item_tree(
         }
         _ => {}
     }
-    ActiveModuleItemTree::new(vec![item], input.active_item_tree.inactive_spans.clone())
+    ActiveModuleItemTree::new(vec![item], full_active_item_tree.inactive_spans.clone())
 }
 
 fn collect_executable_value_ref_index_for_items(

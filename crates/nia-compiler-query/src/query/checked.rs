@@ -3,7 +3,6 @@ use super::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(in crate::query) struct ExecutableValueRefItemInput {
-    pub(in crate::query) active_item_tree: Arc<ActiveModuleItemTree>,
     pub(in crate::query) item_index: usize,
     pub(in crate::query) owner_node_key: nia_node_id::VersionedNodeKey,
 }
@@ -54,17 +53,92 @@ impl QueryKey<CompilerContext> for ExecutableCheckedModuleSetQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExecutableValueRefItemIndexQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ExecutableValueRefItemIndexQuery {
+    type Value = HashMap<nia_ids::DefId, ExecutableValueRefItemInput>;
+
+    fn name() -> &'static str {
+        "executable_value_ref_item_index"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        let active_item_tree = db.get(FullActiveModuleItemTreeQuery(self.0));
+        let defs = db.get(ModuleDefsQuery(self.0));
+        let mut index = HashMap::new();
+        for (item_index, item) in active_item_tree.items.iter().enumerate() {
+            index_executable_value_ref_item(item, item_index, &defs, &mut index);
+        }
+        index
+    }
+}
+
+fn index_executable_value_ref_item(
+    item: &nia_item_tree::ItemTreeNode,
+    item_index: usize,
+    defs: &DefCollection,
+    index: &mut HashMap<nia_ids::DefId, ExecutableValueRefItemInput>,
+) {
+    let mut insert = |node_key: &nia_node_id::VersionedNodeKey| {
+        let Some(def_id) = defs.def_nodes.get(node_key) else {
+            return;
+        };
+        index.insert(
+            def_id,
+            ExecutableValueRefItemInput {
+                item_index,
+                owner_node_key: node_key.clone(),
+            },
+        );
+    };
+    match &item.kind {
+        nia_item_tree::ItemTreeNodeKind::Function(function)
+            if !function.is_const && function.body.is_some() =>
+        {
+            insert(&function.node_key);
+        }
+        nia_item_tree::ItemTreeNodeKind::Binding(binding)
+            if !binding.is_const() && binding.value.is_some() =>
+        {
+            insert(&binding.node_key);
+        }
+        nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
+            for method in &item_trait.methods {
+                if !method.function.is_const && method.function.body.is_some() {
+                    insert(&method.function.node_key);
+                }
+            }
+        }
+        nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
+            for method in &extend.methods {
+                if !method.function.is_const && method.function.body.is_some() {
+                    insert(&method.function.node_key);
+                }
+            }
+            for value in &extend.associated_values {
+                if !value.binding.is_const() && value.binding.value.is_some() {
+                    insert(&value.binding.node_key);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExecutableValueRefItemQuery(pub(super) GlobalDefId);
 
 impl QueryKey<CompilerContext> for ExecutableValueRefItemQuery {
-    type Value = Option<Arc<ExecutableValueRefItemInput>>;
+    type Value = Option<ExecutableValueRefItemInput>;
 
     fn name() -> &'static str {
         "executable_value_ref_item"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().executable_value_ref_item(self.0)
+        db.get(ExecutableValueRefItemIndexQuery(self.0.module_id))
+            .get(&self.0.def_id)
+            .cloned()
     }
 }
 
