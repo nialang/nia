@@ -17,11 +17,7 @@ use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
 use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
-use std::{
-    collections::HashSet,
-    path::Path,
-    sync::{Arc, RwLock},
-};
+use std::{collections::HashSet, path::Path, sync::Arc};
 
 fn loader_query_registry() -> nia_query::QueryRegistry {
     let mut registry = nia_query::QueryRegistry::new();
@@ -32,6 +28,7 @@ fn loader_query_registry() -> nia_query::QueryRegistry {
     }
     register!(
         graph::ModuleGraphQuery,
+        graph::ModuleGraphRevisionQuery,
         queries::LoadDiagnosticsQuery,
         queries::LoadedModuleQuery,
         queries::LoadedProgramQuery,
@@ -102,7 +99,6 @@ impl LoaderDatabase {
                 entry_runtime: request.entry_runtime,
                 package_roots_with_used_paths,
                 provider_facts: ProviderFactStore::default(),
-                graph_state: Arc::new(RwLock::new(LoaderGraphState::default())),
             },
             loader_query_registry(),
         );
@@ -274,7 +270,6 @@ fn load_program_trace(
             entry_runtime: EntryRuntime::None,
             package_roots_with_used_paths: HashSet::new(),
             provider_facts: ProviderFactStore::default(),
-            graph_state: Arc::new(RwLock::new(LoaderGraphState::default())),
         },
         loader_query_registry(),
     );
@@ -312,11 +307,4 @@ pub(crate) struct LoaderContext {
     pub(crate) entry_runtime: EntryRuntime,
     pub(crate) package_roots_with_used_paths: HashSet<nia_symbol::SymbolId>,
     pub(crate) provider_facts: ProviderFactStore,
-    pub(crate) graph_state: Arc<RwLock<LoaderGraphState>>,
-}
-
-#[derive(Default)]
-pub(crate) struct LoaderGraphState {
-    pub(crate) graph: Option<nia_imports::ModuleGraphSnapshot>,
-    pub(crate) applied_provider_revision: Option<nia_compiler_query::ProviderFactRevision>,
 }

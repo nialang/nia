@@ -26,6 +26,10 @@ fn sym(text: &str) -> SymbolId {
 #[test]
 fn source_frontend_query_keys_are_compact_handles() {
     assert_eq!(std::mem::size_of::<ProviderDemandsQuery>(), 0);
+    assert_eq!(
+        std::mem::size_of::<crate::graph::ModuleGraphRevisionQuery>(),
+        16
+    );
     assert_eq!(std::mem::size_of::<SourceTextQuery>(), 4);
     assert_eq!(std::mem::size_of::<SourceStatusQuery>(), 4);
     assert_eq!(std::mem::size_of::<LoadedModuleQuery>(), 4);
@@ -51,7 +55,6 @@ fn test_loader_context(
         entry_runtime: EntryRuntime::None,
         package_roots_with_used_paths: HashSet::new(),
         provider_facts: ProviderFactStore::default(),
-        graph_state: Arc::new(RwLock::new(crate::LoaderGraphState::default())),
     }
 }
 
@@ -59,11 +62,20 @@ fn registered_query_db(context: LoaderContext) -> QueryDb<LoaderContext> {
     QueryDb::new_registered(context, crate::loader_query_registry())
 }
 
+fn query_executions(trace: &nia_query::QueryTrace, name: &str) -> usize {
+    trace
+        .queries
+        .iter()
+        .filter(|query| query.frame.name == name)
+        .map(|query| query.stats.executions)
+        .sum()
+}
+
 #[test]
 fn loader_query_registry_covers_all_declared_query_contracts() {
     let descriptors = crate::loader_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 12);
+    assert_eq!(descriptors.len(), 13);
     assert!(
         descriptors
             .windows(2)
@@ -846,16 +858,14 @@ fn query_loader_loads_package_private_provider_for_custom_reexported_type() {
     let root = temp_dir("query_loader_loads_package_private_provider_for_custom_reexported_type");
     let main_path = root.join("main.nia");
     let pkg_root = root.join("pkg.nia");
-    write(
-        &main_path,
-        r#"
+    let main_source = r#"
 using dep::facade;
 
 fn main(value: facade::Widget) i32 {
 value.score()
 }
-"#,
-    );
+"#;
+    write(&main_path, main_source);
     write(&pkg_root, "pub module facade;");
     fs::create_dir_all(root.join("pkg").join("facade")).expect("create package dir");
     write(
@@ -936,6 +946,13 @@ pub fn score(&self) i32 {
             .to_string_lossy()
             .as_ref(),
     );
+    let provider_entry = program.graph.entry();
+
+    database.set_source(main_path.to_string_lossy().into_owned(), main_source);
+    let reset = database.load_program();
+
+    assert_ne!(reset.graph.entry(), provider_entry);
+    assert_module_not_loaded(&reset, "pkg/facade/providers.nia");
 }
 
 #[test]
@@ -973,6 +990,10 @@ fn provider_demand_update_distinguishes_stable_graphs_and_known_demands() {
     let trace = database.query_trace();
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "module_graph" && dependency.to.name == "provider_demands"
+    }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "module_graph_revision"
+            && dependency.to.name == "module_graph_revision"
     }));
     let graph_query = trace
         .queries
@@ -1226,7 +1247,7 @@ fn query_trace_records_source_frontend_dependencies() {
         dependency.from.name == "module_declarations" && dependency.to.name == "parsed_module"
     }));
     assert!(trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "module_graph" && dependency.to.name == "source_status"
+        dependency.from.name == "module_graph_revision" && dependency.to.name == "source_status"
     }));
 }
 
@@ -1480,42 +1501,18 @@ fn loader_source_update_replaces_graph_only_at_query_boundary() {
     sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
     let database = LoaderDatabase::new(LoadRequest::new(main.as_str()).with_sources(sources));
     let first = database.load_program();
-    let cached_before_update = database
-        .db
-        .context()
-        .graph_state
-        .read()
-        .expect("loader graph state lock poisoned")
-        .graph
-        .clone()
-        .expect("cached module graph");
-    assert!(cached_before_update.ptr_eq(&first.graph));
+    let executions_before_update = query_executions(&database.query_trace(), "module_graph");
 
     database.set_source(main.as_str(), "module defs;");
 
-    let cached_after_update = database
-        .db
-        .context()
-        .graph_state
-        .read()
-        .expect("loader graph state lock poisoned")
-        .graph
-        .clone()
-        .expect("old graph remains until query execution");
-    assert!(cached_after_update.ptr_eq(&first.graph));
+    assert_eq!(
+        query_executions(&database.query_trace(), "module_graph"),
+        executions_before_update
+    );
     let second = database.load_program();
     assert_ne!(second.graph.entry(), first.graph.entry());
     assert_module_loaded(&second, "defs.nia");
-    let cached_after_query = database
-        .db
-        .context()
-        .graph_state
-        .read()
-        .expect("loader graph state lock poisoned")
-        .graph
-        .clone()
-        .expect("replacement module graph");
-    assert!(cached_after_query.ptr_eq(&second.graph));
+    assert!(query_executions(&database.query_trace(), "module_graph") > executions_before_update);
 }
 
 #[test]
