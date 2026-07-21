@@ -558,7 +558,19 @@ impl CompilerDatabase {
                     }
                 }
                 if module.source_version {
-                    invalidation.extend(self.db.invalidate(ModuleSourceVersionQuery(module_id)));
+                    if let Some(source_version) =
+                        self.db.context().module_source_version_if_loaded(module_id)
+                    {
+                        invalidation.extend(
+                            self.db.validate_input(
+                                ModuleSourceVersionQuery(module_id),
+                                &source_version,
+                            ),
+                        );
+                    } else {
+                        invalidation
+                            .extend(self.db.invalidate(ModuleSourceVersionQuery(module_id)));
+                    }
                 }
                 if module.full_item_tree {
                     invalidation
@@ -1043,6 +1055,13 @@ fn stable_module_sequence_fingerprint(
 fn source_path_fingerprint(domain: &str, path: &SourcePath) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new(domain);
     builder.write_str(path.as_str());
+    builder.finish()
+}
+
+fn source_version_fingerprint(domain: &str, version: SourceVersion) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new(domain);
+    builder.write_u64(u64::from(version.id.0));
+    builder.write_u64(version.revision.0);
     builder.finish()
 }
 
@@ -1552,6 +1571,13 @@ impl CompilerContext {
             module_id,
             |module| module.source_version,
         )
+    }
+
+    fn module_source_version_if_loaded(&self, module_id: ModuleId) -> Option<SourceVersion> {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        inputs
+            .loaded_module(module_id)
+            .map(|module| module.source_version)
     }
 
     fn module_origins(
@@ -2909,10 +2935,23 @@ mod tests {
         source: &str,
         revision: SourceRevision,
     ) -> LoadedModule {
-        let source_version = nia_source::SourceVersion {
-            id: SourceId(id.local_index()),
-            revision,
-        };
+        loaded_module_with_source_version(
+            id,
+            path,
+            source,
+            SourceVersion {
+                id: SourceId(id.local_index()),
+                revision,
+            },
+        )
+    }
+
+    fn loaded_module_with_source_version(
+        id: ModuleId,
+        path: &str,
+        source: &str,
+        source_version: SourceVersion,
+    ) -> LoadedModule {
         let syntax = nia_syntax::parse_source(source, Some(source_version));
         let (module, parse_errors, origins) =
             nia_parser::parse_module_syntax_with_origins_and_symbols(&syntax, test_symbols());
@@ -3074,6 +3113,7 @@ mod tests {
                 | "module_graph_path"
                 | "module_package_root"
                 | "module_path"
+                | "module_source_version"
                 | "parse_ok_module_ids"
                 | "program_signature_module_eligibility"
                 | "program_signature_module_ids"
@@ -3478,6 +3518,7 @@ pub fn expensive_or_invalid() i32 {
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        let first_source_version = database.db.get(ModuleSourceVersionQuery(module_id));
 
         fixture.update_module_source(module_id, "fn main() i32 { true }", SourceRevision(1));
         let invalidation = database.update(CompileRequest::new(fixture.program()));
@@ -3500,6 +3541,9 @@ pub fn expensive_or_invalid() i32 {
             "{invalidated:?}"
         );
         assert!(invalidated.contains(&"checked_program"), "{invalidated:?}");
+        let latest_source_version = database.db.get(ModuleSourceVersionQuery(module_id));
+        assert!(!Arc::ptr_eq(&first_source_version, &latest_source_version));
+        assert_eq!(latest_source_version.revision, SourceRevision(1));
 
         let second = database.check_program();
         assert!(!second.diagnostics.is_empty());
@@ -3513,6 +3557,33 @@ pub fn expensive_or_invalid() i32 {
                         && dependency.to.name == "parse_ok_module_ids"
                 })
         );
+    }
+
+    #[test]
+    fn source_handle_replacement_cannot_reuse_old_source_version() {
+        let source = "fn main() i32 { 0 }";
+        let mut fixture = LoadedProgramFixture::new("main.nia", source);
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
+        let first = database.db.get(ModuleSourceVersionQuery(module_id));
+        let replacement = SourceVersion {
+            id: SourceId(first.id.0 + 1),
+            revision: first.revision,
+        };
+        fixture.modules[0] =
+            loaded_module_with_source_version(module_id, "main.nia", source, replacement);
+
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
+        let latest = database.db.get(ModuleSourceVersionQuery(module_id));
+
+        assert!(
+            invalidation
+                .invalidated
+                .iter()
+                .any(|frame| frame.name == "module_source_version")
+        );
+        assert!(!Arc::ptr_eq(&first, &latest));
+        assert_eq!(*latest, replacement);
     }
 
     #[test]
