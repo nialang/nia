@@ -7,7 +7,7 @@ use std::{
     hash::Hash,
     sync::{
         Arc, Condvar, Mutex, Weak,
-        atomic::{AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -29,6 +29,9 @@ pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     fn fingerprint(&self, _value: &Self::Value) -> Option<QueryFingerprint> {
         None
     }
+    fn values_equal(&self, _old: &Self::Value, _new: &Self::Value) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +43,7 @@ pub enum QueryProviderPolicy {
 pub enum QueryFingerprintPolicy {
     None,
     StableValue,
+    SemanticValue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -218,8 +222,21 @@ struct QueryDbInner<C> {
 struct QuerySlot<V> {
     node_id: QueryNodeId,
     stats: QuerySlotStats,
+    fingerprint_revision: AtomicU64,
     state: Mutex<QueryState<V>>,
     ready: Condvar,
+}
+
+impl<V> QuerySlot<V> {
+    fn next_semantic_fingerprint(&self, query_name: &str) -> QueryFingerprint {
+        let revision = self.fingerprint_revision.fetch_add(1, Ordering::Relaxed);
+        let mut builder = QueryFingerprintBuilder::new("nia.query.semantic-value.v1");
+        builder.write_str(query_name);
+        builder.write_u64(u64::from(self.node_id.db_id.0));
+        builder.write_u64(u64::from(self.node_id.index));
+        builder.write_u64(revision);
+        builder.finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -813,6 +830,7 @@ impl<C> QueryDb<C> {
         nia_timing::time_detail(detail_timing, "query.record_dependency", || {
             record_dependency_on_current_stack(self.inner.session.inner.id, node_id)
         });
+        let mut stale_value = None;
         loop {
             let mut state = slot.state.lock().expect("query cache lock poisoned");
             match &*state {
@@ -890,6 +908,7 @@ impl<C> QueryDb<C> {
                         );
                         return Ok(value);
                     }
+                    stale_value = Some((value, fingerprint));
                     *state = QueryState::Empty;
                     slot.ready.notify_all();
                 }
@@ -913,8 +932,7 @@ impl<C> QueryDb<C> {
                         session_id: self.inner.session.inner.id,
                         node_id,
                         dependencies: FastHashSet::default(),
-                        dependency_fingerprints: (K::FINGERPRINT
-                            == QueryFingerprintPolicy::StableValue)
+                        dependency_fingerprints: (K::FINGERPRINT != QueryFingerprintPolicy::None)
                             .then(DependencyFingerprints::default),
                     };
                     let mut guard = self.enter_query(entry)?;
@@ -944,13 +962,36 @@ impl<C> QueryDb<C> {
                         }
                     };
 
-                    let fingerprint = key.fingerprint(&value);
-                    assert_eq!(
-                        fingerprint.is_some(),
-                        K::FINGERPRINT == QueryFingerprintPolicy::StableValue,
-                        "query `{}` fingerprint implementation does not match its declared policy",
-                        K::name()
-                    );
+                    let fingerprint = match K::FINGERPRINT {
+                        QueryFingerprintPolicy::None => {
+                            assert!(
+                                key.fingerprint(&value).is_none(),
+                                "query `{}` returned a fingerprint without declaring a policy",
+                                K::name()
+                            );
+                            None
+                        }
+                        QueryFingerprintPolicy::StableValue => Some(
+                            key.fingerprint(&value)
+                                .expect("stable value query must produce a fingerprint"),
+                        ),
+                        QueryFingerprintPolicy::SemanticValue => {
+                            assert!(
+                                key.fingerprint(&value).is_none(),
+                                "semantic value query `{}` must use values_equal, not fingerprint",
+                                K::name()
+                            );
+                            Some(
+                                stale_value
+                                    .take()
+                                    .filter(|(old, _)| key.values_equal(old, &value))
+                                    .map_or_else(
+                                        || slot.next_semantic_fingerprint(K::name()),
+                                        |(_, fingerprint)| fingerprint,
+                                    ),
+                            )
+                        }
+                    };
                     let cached = Arc::new(value);
                     let output = Arc::clone(&cached);
                     let mut state = slot.state.lock().expect("query cache lock poisoned");
@@ -1186,6 +1227,7 @@ impl<C> QueryDb<C> {
         let slot = Arc::new(QuerySlot {
             node_id,
             stats: QuerySlotStats::default(),
+            fingerprint_revision: AtomicU64::new(0),
             state: Mutex::new(QueryState::Empty),
             ready: Condvar::new(),
         });
@@ -1843,6 +1885,57 @@ mod tests {
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
             Some(test_usize_fingerprint(
                 "nia.query.test.stable-parity-parent.v1",
+                *value,
+            ))
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct SemanticParity;
+
+    impl QueryKey<RedGreenContext> for SemanticParity {
+        type Value = usize;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+        fn name() -> &'static str {
+            "semantic_parity"
+        }
+
+        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+            db.context()
+                .derived_executions
+                .fetch_add(1, Ordering::SeqCst);
+            *db.get(RedGreenInput) % 2
+        }
+
+        fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+            old == new
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct SemanticParityParent;
+
+    impl QueryKey<RedGreenContext> for SemanticParityParent {
+        type Value = usize;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+        fn name() -> &'static str {
+            "semantic_parity_parent"
+        }
+
+        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+            db.context()
+                .parent_executions
+                .fetch_add(1, Ordering::SeqCst);
+            *db.get(SemanticParity) + 10
+        }
+
+        fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+            Some(test_usize_fingerprint(
+                "nia.query.test.semantic-parity-parent.v1",
                 *value,
             ))
         }
@@ -2540,6 +2633,33 @@ mod tests {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "stable_parity_parent" && dependency.to.name == "stable_parity"
         }));
+    }
+
+    #[test]
+    fn semantic_value_validation_reuses_fingerprint_only_for_equal_outputs() {
+        let db = QueryDb::new(RedGreenContext {
+            input: AtomicUsize::new(7),
+            derived_executions: AtomicUsize::new(0),
+            parent_executions: AtomicUsize::new(0),
+        });
+        let first = db.get(SemanticParityParent);
+        db.context().input.store(9, Ordering::SeqCst);
+        db.validate_input(RedGreenInput, &9);
+
+        let equal = db.get(SemanticParityParent);
+
+        assert!(Arc::ptr_eq(&first, &equal));
+        assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
+        assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 1);
+
+        db.context().input.store(10, Ordering::SeqCst);
+        db.validate_input(RedGreenInput, &10);
+        let changed = db.get(SemanticParityParent);
+
+        assert!(!Arc::ptr_eq(&equal, &changed));
+        assert_eq!(*changed, 10);
+        assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 3);
+        assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 2);
     }
 
     #[test]

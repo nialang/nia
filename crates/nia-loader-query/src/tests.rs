@@ -1,15 +1,17 @@
 use super::*;
 use crate::provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use crate::queries::{
-    LoadedModuleQuery, ModuleDeclarationsQuery, ModuleFacadeFactsQuery, ParsedModuleQuery,
-    ProviderSummaryQuery, SourceStatus, SourceStatusQuery, SourceTextQuery, SyntaxModuleQuery,
-    provider_summary_query,
+    ActiveModuleItemTreeFactQuery, LoadedModuleQuery, ModuleDeclarationsQuery,
+    ModuleFacadeFactsQuery, ModuleItemTreeFactQuery, ModuleOriginsFactQuery,
+    ModuleParseErrorsFactQuery, ParsedModuleQuery, ProviderSummaryQuery, SourceStatus,
+    SourceStatusQuery, SourceTextQuery, SyntaxModuleQuery, provider_summary_query,
 };
 use nia_compiler_query::{
     CompileRequest, CompilerDatabase, ProviderDemand, RuntimeModel, has_error_diagnostics,
 };
 use nia_imports::{ModuleGraph, ModuleNode};
 use nia_item_tree::ItemTreeNodeKind;
+use nia_source::SourceId;
 use nia_symbol::{SymbolId, stable_hash};
 use nia_symbol_table::SymbolTable;
 use std::{
@@ -35,6 +37,10 @@ fn source_frontend_query_keys_are_compact_handles() {
     assert_eq!(std::mem::size_of::<SourceTextQuery>(), 4);
     assert_eq!(std::mem::size_of::<SourceStatusQuery>(), 4);
     assert_eq!(std::mem::size_of::<LoadedModuleQuery>(), 4);
+    assert_eq!(std::mem::size_of::<ModuleOriginsFactQuery>(), 4);
+    assert_eq!(std::mem::size_of::<ModuleParseErrorsFactQuery>(), 4);
+    assert_eq!(std::mem::size_of::<ModuleItemTreeFactQuery>(), 4);
+    assert_eq!(std::mem::size_of::<ActiveModuleItemTreeFactQuery>(), 8);
     assert_eq!(std::mem::size_of::<ParsedModuleQuery>(), 16);
     assert_eq!(std::mem::size_of::<SyntaxModuleQuery>(), 16);
     assert_eq!(std::mem::size_of::<ModuleDeclarationsQuery>(), 16);
@@ -73,21 +79,68 @@ fn query_executions(trace: &nia_query::QueryTrace, name: &str) -> usize {
         .sum()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum SemanticFieldParentKind {
+    Declaration,
+    FunctionSignature,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct SemanticFieldParent(SourceId, SemanticFieldParentKind);
+
+impl nia_query::QueryKey<LoaderContext> for SemanticFieldParent {
+    type Value = usize;
+
+    const FINGERPRINT: nia_query::QueryFingerprintPolicy =
+        nia_query::QueryFingerprintPolicy::StableValue;
+
+    fn name() -> &'static str {
+        "semantic_field_parent"
+    }
+
+    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        match self.1 {
+            SemanticFieldParentKind::Declaration => {
+                db.get(ModuleItemTreeFactQuery(self.0)).items.len()
+            }
+            SemanticFieldParentKind::FunctionSignature => db
+                .get(ActiveModuleItemTreeFactQuery(
+                    self.0,
+                    nia_compiler_query::ActiveModuleItemTreeFactKind::Signature(
+                        nia_item_tree::SignatureItemSet::Functions,
+                    ),
+                ))
+                .items
+                .len(),
+        }
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<nia_query::QueryFingerprint> {
+        let mut builder =
+            nia_query::QueryFingerprintBuilder::new("nia.loader.test.semantic-field-parent.v1");
+        builder.write_u64(*value as u64);
+        Some(builder.finish())
+    }
+}
+
 #[test]
 fn loader_query_registry_covers_all_declared_query_contracts() {
     let descriptors = crate::loader_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 13);
+    assert_eq!(descriptors.len(), 17);
     assert!(
         descriptors
             .windows(2)
             .all(|pair| pair[0].name < pair[1].name)
     );
     assert!(descriptors.iter().all(|descriptor| {
-        let expected_fingerprint = if descriptor.name == "source_status" {
-            nia_query::QueryFingerprintPolicy::StableValue
-        } else {
-            nia_query::QueryFingerprintPolicy::None
+        let expected_fingerprint = match descriptor.name {
+            "source_status" => nia_query::QueryFingerprintPolicy::StableValue,
+            "loader_active_module_item_tree_fact"
+            | "loader_module_item_tree_fact"
+            | "loader_module_origins_fact"
+            | "loader_module_parse_errors_fact" => nia_query::QueryFingerprintPolicy::SemanticValue,
+            _ => nia_query::QueryFingerprintPolicy::None,
         };
         descriptor.context_type == std::any::type_name::<LoaderContext>()
             && descriptor.provider == nia_query::QueryProviderPolicy::KeyExecute
@@ -148,6 +201,119 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
         dependency.from.name == "extension_provider_summary"
             && dependency.to.name == "provider_summary"
     }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "module_item_tree_input"
+            && dependency.to.name == "loader_module_item_tree_fact"
+    }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "signature_item_tree"
+            && dependency.to.name == "loader_active_module_item_tree_fact"
+    }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "module_origins"
+            && dependency.to.name == "loader_module_origins_fact"
+    }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "module_parse_errors"
+            && dependency.to.name == "loader_module_parse_errors_fact"
+    }));
+}
+
+#[test]
+fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
+    let sources = SourceDatabase::new();
+    sources.set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }");
+    let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_sources(sources));
+    let compiler = CompilerDatabase::new_in_session(
+        CompileRequest::new(loader.clone()),
+        loader.query_session(),
+    );
+
+    let first = compiler.check_program();
+    assert!(!has_error_diagnostics(&first.diagnostics));
+    let first_defs = Arc::clone(&first.modules[0].defs);
+    assert!(
+        first_defs
+            .def_nodes
+            .entries()
+            .all(|(key, _)| key.revision == nia_source::SourceRevision::INITIAL)
+    );
+
+    let latest_source = loader.set_source("main.nia", "fn main() i32 { 1 }");
+    compiler.update(CompileRequest::new(loader.clone()));
+    let latest = compiler.check_program();
+
+    assert!(!has_error_diagnostics(&latest.diagnostics));
+    let latest_defs = &latest.modules[0].defs;
+    assert!(!Arc::ptr_eq(&first_defs, latest_defs));
+    assert!(
+        latest_defs
+            .def_nodes
+            .entries()
+            .all(|(key, _)| key.source_version() == latest_source.version())
+    );
+    assert!(
+        first_defs
+            .def_nodes
+            .entries()
+            .all(|(key, _)| key.revision == nia_source::SourceRevision::INITIAL)
+    );
+}
+
+#[test]
+fn body_only_source_change_refreshes_revision_bearing_field_dependents() {
+    let sources = SourceDatabase::new();
+    let path = SourcePath::new("main.nia");
+    let first_source = sources.set_source(path.clone(), "fn main() i32 { 1 }");
+    let db = QueryDb::new(test_loader_context(
+        path.clone(),
+        ModuleMap::default(),
+        sources.clone(),
+    ));
+    let declaration_key =
+        SemanticFieldParent(first_source.id, SemanticFieldParentKind::Declaration);
+    let signature_key =
+        SemanticFieldParent(first_source.id, SemanticFieldParentKind::FunctionSignature);
+    let first_declaration = db.get(declaration_key);
+    let first_signature = db.get(signature_key);
+
+    sources.set_source(path, "fn main() i32 { 2 }");
+    db.invalidate(SourceTextQuery(first_source.id));
+    let latest_declaration = db.get(declaration_key);
+    let latest_signature = db.get(signature_key);
+
+    assert!(!Arc::ptr_eq(&first_declaration, &latest_declaration));
+    assert!(!Arc::ptr_eq(&first_signature, &latest_signature));
+    let trace = db.query_trace();
+    let declaration_fact = trace
+        .queries
+        .iter()
+        .find(|query| query.frame.name == "loader_module_item_tree_fact")
+        .expect("declaration field fact");
+    assert_eq!(declaration_fact.stats.executions, 2);
+    assert_eq!(declaration_fact.stats.green_validations, 0);
+    let signature_fact = trace
+        .queries
+        .iter()
+        .find(|query| {
+            query.frame.name == "loader_active_module_item_tree_fact"
+                && query.frame.description.contains("Signature(Functions)")
+        })
+        .expect("function signature field fact");
+    assert_eq!(signature_fact.stats.executions, 2);
+    assert_eq!(signature_fact.stats.green_validations, 0);
+    let parents = trace
+        .queries
+        .iter()
+        .filter(|query| query.frame.name == "semantic_field_parent")
+        .collect::<Vec<_>>();
+    assert_eq!(parents.len(), 2);
+    assert!(parents.iter().all(|query| query.stats.executions == 2));
+    assert!(
+        parents
+            .iter()
+            .all(|query| query.stats.green_validations == 0)
+    );
 }
 
 fn assert_no_error_diagnostics(program: &nia_compiler_query::LoadedProgram) {

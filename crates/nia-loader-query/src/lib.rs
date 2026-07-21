@@ -30,10 +30,14 @@ fn loader_query_registry() -> nia_query::QueryRegistry {
         graph::ModuleGraphQuery,
         graph::ModuleGraphRevisionQuery,
         queries::LoadDiagnosticsQuery,
+        queries::ActiveModuleItemTreeFactQuery,
         queries::LoadedModuleQuery,
         queries::LoadedProgramQuery,
         queries::ModuleDeclarationsQuery,
         queries::ModuleFacadeFactsQuery,
+        queries::ModuleItemTreeFactQuery,
+        queries::ModuleOriginsFactQuery,
+        queries::ModuleParseErrorsFactQuery,
         queries::ParsedModuleQuery,
         provider_facts::ProviderDemandsQuery,
         queries::ProviderSummaryQuery,
@@ -176,6 +180,15 @@ impl LoaderDatabase {
             self.db.invalidate(ProviderDemandsQuery);
         }
     }
+
+    fn source_id_for_module(
+        &self,
+        module_id: nia_imports::ModuleId,
+    ) -> Option<nia_source::SourceId> {
+        let graph = self.db.get(graph::ModuleGraphQuery);
+        let module = graph.get(module_id)?;
+        Some(self.sources.id_for_path(&module.path))
+    }
 }
 
 impl LoaderFactProvider for LoaderDatabase {
@@ -226,6 +239,59 @@ impl LoaderFactProvider for LoaderDatabase {
         Some(
             self.db
                 .get(queries::provider_summary_query(&self.db, &module.path))
+                .as_ref()
+                .clone(),
+        )
+    }
+
+    fn module_origins(
+        &self,
+        module_id: nia_imports::ModuleId,
+    ) -> Option<nia_node_id::NodeOriginTable> {
+        let source_id = self.source_id_for_module(module_id)?;
+        Some(
+            self.db
+                .get(queries::ModuleOriginsFactQuery(source_id))
+                .as_ref()
+                .clone(),
+        )
+    }
+
+    fn module_parse_errors(
+        &self,
+        module_id: nia_imports::ModuleId,
+    ) -> Option<Vec<nia_parser::ParseError>> {
+        let source_id = self.source_id_for_module(module_id)?;
+        Some(
+            self.db
+                .get(queries::ModuleParseErrorsFactQuery(source_id))
+                .as_ref()
+                .clone(),
+        )
+    }
+
+    fn module_item_tree(
+        &self,
+        module_id: nia_imports::ModuleId,
+    ) -> Option<nia_item_tree::ModuleItemTree> {
+        let source_id = self.source_id_for_module(module_id)?;
+        Some(
+            self.db
+                .get(queries::ModuleItemTreeFactQuery(source_id))
+                .as_ref()
+                .clone(),
+        )
+    }
+
+    fn active_module_item_tree(
+        &self,
+        module_id: nia_imports::ModuleId,
+        kind: nia_compiler_query::ActiveModuleItemTreeFactKind,
+    ) -> Option<nia_item_tree::ActiveModuleItemTree> {
+        let source_id = self.source_id_for_module(module_id)?;
+        Some(
+            self.db
+                .get(queries::ActiveModuleItemTreeFactQuery(source_id, kind))
                 .as_ref()
                 .clone(),
         )
