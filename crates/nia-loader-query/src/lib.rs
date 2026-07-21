@@ -15,7 +15,7 @@ use nia_query::QueryDb;
 use nia_source::{SourceDatabase, SourceFile, SourceIdentity, SourcePath, SourceVersion};
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
-use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
+use provider_facts::{ProviderDemandsQuery, ProviderFactRevision, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
 use std::{
     collections::{HashMap, HashSet},
@@ -316,6 +316,6 @@ pub(crate) struct LoaderContext {
 #[derive(Default)]
 pub(crate) struct LoaderGraphState {
     pub(crate) graph: Option<nia_imports::ModuleGraphSnapshot>,
-    pub(crate) applied_provider_demands: HashSet<ProviderDemand>,
+    pub(crate) applied_provider_revision: ProviderFactRevision,
     pub(crate) source_versions: HashMap<SourceIdentity, Option<SourceVersion>>,
 }
