@@ -79,7 +79,11 @@ impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
     }
 
     fn public_module(&self, module_id: ModuleId, name: &SymbolId) -> Option<ModuleId> {
-        *self.db.get(PublicSurfaceModuleQuery(module_id, *name))
+        let target = self.db.get(PublicSurfaceModuleQuery(module_id, *name));
+        target
+            .as_ref()
+            .as_ref()
+            .and_then(|stable_key| self.db.context().module_id_for_stable_key(stable_key))
     }
 
     fn public_value(&self, module_id: ModuleId, name: &SymbolId) -> Option<nia_defs::PublicItem> {
@@ -110,7 +114,11 @@ impl<'a> QueryUsingScopeLookup<'a> {
 
 impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
     fn using_module(&self, name: &SymbolId) -> Option<ModuleId> {
-        *self.db.get(UsingScopeModuleQuery(self.module_id, *name))
+        let target = self.db.get(UsingScopeModuleQuery(self.module_id, *name));
+        target
+            .as_ref()
+            .as_ref()
+            .and_then(|stable_key| self.db.context().module_id_for_stable_key(stable_key))
     }
 
     fn using_value(&self, name: &SymbolId) -> Option<nia_defs::UsingEntry> {
@@ -260,8 +268,7 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> nia_provider_summary::ProviderSummary,
     pub(super) extension_provider_discovery_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionProviderDiscoveryIndexValue,
-    pub(super) extension_provider_module_ids:
-        fn(&QueryDb<CompilerContext>) -> StableModuleSequence,
+    pub(super) extension_provider_module_ids: fn(&QueryDb<CompilerContext>) -> StableModuleSequence,
     pub(super) extension_provider_module_eligibility:
         fn(&QueryDb<CompilerContext>, ModuleId) -> bool,
     pub(super) extension_signature_module_input:

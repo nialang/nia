@@ -101,10 +101,8 @@ pub(super) fn provide_extension_provider_discovery_index(
 pub(super) fn provide_extension_provider_module_ids(
     db: &QueryDb<CompilerContext>,
 ) -> StableModuleSequence {
-    let parse_ok_modules = resolve_stable_module_sequence_from_current_graph(
-        db,
-        &db.get(ParseOkModuleIdsQuery),
-    );
+    let parse_ok_modules =
+        resolve_stable_module_sequence_from_current_inputs(db, &db.get(ParseOkModuleIdsQuery));
     let module_ids = parse_ok_modules
         .into_iter()
         .filter(|module_id| *db.get(ExtensionProviderModuleEligibilityQuery(*module_id)))

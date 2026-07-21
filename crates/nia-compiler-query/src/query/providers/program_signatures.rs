@@ -5,10 +5,8 @@ pub(super) fn provide_program_signature_module_ids(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
 ) -> StableModuleSequence {
-    let module_ids = resolve_stable_module_sequence_from_current_graph(
-        db,
-        &db.get(SemanticModuleIdsQuery),
-    );
+    let module_ids =
+        resolve_stable_module_sequence_from_current_inputs(db, &db.get(SemanticModuleIdsQuery));
     let eligible = module_ids
         .into_iter()
         .filter(|module_id| *db.get(ProgramSignatureModuleEligibilityQuery(*module_id, set)))
@@ -97,10 +95,8 @@ pub(super) fn program_signature_facts(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
 ) -> Vec<Arc<ModuleProgramSignatureFactsValue>> {
-    let module_ids = resolve_stable_module_sequence(
-        db,
-        &db.get(ProgramSignatureModuleIdsQuery(set)),
-    );
+    let module_ids =
+        resolve_stable_module_sequence(db, &db.get(ProgramSignatureModuleIdsQuery(set)));
     db.get_many(
         module_ids
             .into_iter()
