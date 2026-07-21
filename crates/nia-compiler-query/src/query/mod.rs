@@ -138,6 +138,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         DeclarationTypeResolutionQuery,
         EntryCheckedProgramQuery,
         ExecutableCheckedModuleSetQuery,
+        ExecutableFactEpochQuery,
         ExecutableProviderDemandsQuery,
         ExecutableRootModulesQuery,
         ExecutableValueRefEdgesQuery,
@@ -388,6 +389,7 @@ impl CompilerDatabase {
                 Ok(diff) => {
                     new_inputs.merge_provider_fact_worklist(&inputs);
                     new_inputs.merge_body_activation_worklist(&inputs, &diff);
+                    new_inputs.advance_executable_fact_epoch(&inputs, &diff);
                     *inputs = new_inputs;
                     Ok(diff)
                 }
@@ -421,9 +423,7 @@ impl CompilerDatabase {
     }
 
     fn invalidate_inputs(&self, diff: CompilerInputDiff) -> CompilerInvalidation {
-        if diff.resets_executable_facts() {
-            self.db.context().clear_executable_fact_session();
-        }
+        let reset_executable_facts = diff.resets_executable_facts();
         let mut invalidation = CompilerInvalidation::default();
         if diff.graph_entry_changed {
             invalidation.extend(self.db.invalidate(ModuleGraphEntryQuery));
@@ -507,6 +507,9 @@ impl CompilerDatabase {
         }
         if diff.body_activation_worklist_changed {
             invalidation.extend(self.db.invalidate(BodyActivationWorklistQuery));
+        }
+        if reset_executable_facts {
+            invalidation.extend(self.db.invalidate(ExecutableFactEpochQuery));
         }
         if diff.optimization_changed {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
@@ -779,6 +782,20 @@ struct CompilerInputs {
     timings: TimingMode,
     provider_worklist: Arc<HashSet<crate::ProviderDemand>>,
     body_activation_worklist: Arc<HashSet<ModuleId>>,
+    executable_fact_epoch: ExecutableFactEpoch,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ExecutableFactEpoch(u64);
+
+impl ExecutableFactEpoch {
+    fn next(self) -> Self {
+        Self(
+            self.0
+                .checked_add(1)
+                .expect("executable fact epoch overflow"),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -898,6 +915,7 @@ impl CompilerInputs {
             timings: request.timings,
             provider_worklist,
             body_activation_worklist: Arc::new(HashSet::new()),
+            executable_fact_epoch: ExecutableFactEpoch::default(),
         }
     }
 
@@ -927,6 +945,14 @@ impl CompilerInputs {
         let worklist = Arc::make_mut(&mut self.body_activation_worklist);
         worklist.extend(previous.body_activation_worklist.iter().copied());
         worklist.extend(diff.body_activated_modules.iter().copied());
+    }
+
+    fn advance_executable_fact_epoch(&mut self, previous: &Self, diff: &CompilerInputDiff) {
+        self.executable_fact_epoch = if diff.resets_executable_facts() {
+            previous.executable_fact_epoch.next()
+        } else {
+            previous.executable_fact_epoch
+        };
     }
 }
 
@@ -1046,13 +1072,6 @@ impl CompilerContext {
             .executable_fact_session
             .lock()
             .expect("executable fact session lock poisoned") = session;
-    }
-
-    fn clear_executable_fact_session(&self) {
-        *self
-            .executable_fact_session
-            .lock()
-            .expect("executable fact session lock poisoned") = ExecutableFactSession::default();
     }
 
     fn executable_root_modules(&self) -> (ModuleId, Vec<ModuleId>) {
@@ -1545,6 +1564,13 @@ impl CompilerContext {
         BodyActivationWorklist {
             modules: Arc::clone(&inputs.body_activation_worklist),
         }
+    }
+
+    fn executable_fact_epoch(&self) -> ExecutableFactEpoch {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .executable_fact_epoch
     }
 
     fn optimization(&self) -> OptimizationPolicy {
@@ -2668,7 +2694,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 118);
+        assert_eq!(descriptors.len(), 119);
         assert!(
             !descriptors
                 .iter()
@@ -2676,6 +2702,7 @@ mod tests {
         );
         for name in [
             "body_activation_worklist",
+            "executable_fact_epoch",
             "module_graph_entry",
             "module_graph_path",
             "module_graph_parent",
@@ -3249,6 +3276,8 @@ pub fn expensive_or_invalid() i32 {
         );
         assert_eq!(std::mem::size_of::<ProviderFactWorklistQuery>(), 0);
         assert_eq!(std::mem::size_of::<BodyActivationWorklistQuery>(), 0);
+        assert_eq!(std::mem::size_of::<ExecutableFactEpochQuery>(), 0);
+        assert_eq!(std::mem::size_of::<ExecutableFactEpoch>(), 8);
 
         let _ = database.executable_provider_demands();
         let _ = database.db.get(ExecutableCheckedModuleSetQuery);
@@ -3264,11 +3293,75 @@ pub fn expensive_or_invalid() i32 {
                     dependency.from.name == product && dependency.to.name == worklist
                 }));
             }
+            assert!(dependencies.iter().any(|dependency| {
+                dependency.from.name == product && dependency.to.name == "executable_fact_epoch"
+            }));
         }
         assert!(dependencies.iter().any(|dependency| {
             dependency.from.name == "provider_fact_revision"
                 && dependency.to.name == "provider_fact_worklist"
         }));
+    }
+
+    #[test]
+    fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let database = fixture.database();
+        let _ = database.db.get(ExecutableCheckedModuleSetQuery);
+        let _ = database.executable_provider_demands();
+        let sentinel = crate::ProviderDemand {
+            source_path: SourcePath::new("main.nia"),
+            request: crate::ProviderRequest::Method {
+                target_type_name: None,
+                method_name: SymbolId::default(),
+            },
+        };
+        {
+            let mut session = database
+                .db
+                .context()
+                .executable_fact_session
+                .lock()
+                .expect("executable fact session lock poisoned");
+            assert_eq!(session.epoch, Some(ExecutableFactEpoch::default()));
+            session.applied_provider_changes.insert(sentinel.clone());
+        }
+
+        let mut reset = fixture.program();
+        reset.runtime = RuntimeModel::FreestandingExecutable;
+        let invalidation = database.update(CompileRequest::new(reset));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+        for name in [
+            "executable_fact_epoch",
+            "executable_provider_demands",
+            "executable_checked_module_set",
+        ] {
+            assert!(invalidated.contains(&name), "{invalidated:?}");
+        }
+        {
+            let session = database
+                .db
+                .context()
+                .executable_fact_session
+                .lock()
+                .expect("executable fact session lock poisoned");
+            assert_eq!(session.epoch, Some(ExecutableFactEpoch::default()));
+            assert!(session.applied_provider_changes.contains(&sentinel));
+        }
+
+        let _ = database.executable_provider_demands();
+        let session = database
+            .db
+            .context()
+            .executable_fact_session
+            .lock()
+            .expect("executable fact session lock poisoned");
+        assert_eq!(session.epoch, Some(ExecutableFactEpoch::default().next()));
+        assert!(!session.applied_provider_changes.contains(&sentinel));
     }
 
     #[test]

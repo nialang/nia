@@ -71,6 +71,7 @@ pub(super) struct ExecutableFactModuleState {
 
 #[derive(Default)]
 pub(super) struct ExecutableFactSession {
+    pub(super) epoch: Option<ExecutableFactEpoch>,
     pub(super) modules: HashMap<ModuleId, ExecutableFactModuleState>,
     pub(super) reachability: nia_executable_reachability::IncrementalExecutableReachability,
     pub(super) caches: ExecutableCheckCaches,
@@ -80,6 +81,16 @@ pub(super) struct ExecutableFactSession {
 }
 
 impl ExecutableFactSession {
+    pub(super) fn enter_epoch(&mut self, epoch: ExecutableFactEpoch) {
+        if self.epoch == Some(epoch) {
+            return;
+        }
+        *self = Self {
+            epoch: Some(epoch),
+            ..Self::default()
+        };
+    }
+
     pub(super) fn apply_body_activation_worklist(&mut self, worklist: &BodyActivationWorklist) {
         let pending_activations = worklist
             .modules
