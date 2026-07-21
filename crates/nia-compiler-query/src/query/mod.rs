@@ -481,53 +481,6 @@ impl CompilerDatabase {
         if diff.graph_changed {
             invalidation.extend(self.db.invalidate(ModuleGraphQuery));
         }
-        if diff.public_surfaces_changed {
-            invalidation.extend(self.db.invalidate(PublicSurfacesQuery));
-        }
-        for module_id in diff.changed_public_surface_modules {
-            invalidation.extend(self.db.invalidate(ModulePublicSurfaceQuery(module_id)));
-        }
-        for (module_id, name) in diff.changed_public_surface_module_names {
-            let target = self
-                .db
-                .context()
-                .public_surface_module_key(module_id, &name);
-            invalidation.extend(
-                self.db
-                    .validate_input(PublicSurfaceModuleQuery(module_id, name), &target),
-            );
-        }
-        for (module_id, name) in diff.changed_public_surface_value_names {
-            invalidation.extend(self.db.invalidate(PublicSurfaceValueQuery(module_id, name)));
-        }
-        for (module_id, name) in diff.changed_public_surface_type_names {
-            invalidation.extend(self.db.invalidate(PublicSurfaceTypeQuery(module_id, name)));
-        }
-        if diff.public_using_scopes_changed {
-            invalidation.extend(self.db.invalidate(PublicUsingScopesQuery));
-        }
-        for module_id in diff.changed_public_using_scope_modules {
-            invalidation.extend(self.db.invalidate(ModuleUsingScopeQuery(module_id)));
-        }
-        for (module_id, name) in diff.changed_using_scope_module_names {
-            let target = self.db.context().using_scope_module_key(module_id, &name);
-            invalidation.extend(
-                self.db
-                    .validate_input(UsingScopeModuleQuery(module_id, name), &target),
-            );
-        }
-        for (module_id, name) in diff.changed_using_scope_value_names {
-            invalidation.extend(self.db.invalidate(UsingScopeValueQuery(module_id, name)));
-        }
-        for (module_id, name) in diff.changed_using_scope_type_names {
-            invalidation.extend(self.db.invalidate(UsingScopeTypeQuery(module_id, name)));
-        }
-        for (module_id, name) in diff.changed_using_scope_unresolved_names {
-            invalidation.extend(
-                self.db
-                    .invalidate(UsingScopeUnresolvedQuery(module_id, name)),
-            );
-        }
         for owner in diff.changed_executable_value_ref_items {
             invalidation.extend(self.db.invalidate(ExecutableValueRefItemQuery(owner)));
         }
@@ -905,8 +858,6 @@ struct CompilerInputs {
     modules: Vec<CompilerInputModule>,
     modules_by_id: HashMap<ModuleId, usize>,
     modules_by_source_identity: HashMap<SourceIdentity, usize>,
-    public_surfaces: Arc<PublicSurfacesValue>,
-    public_using_scopes: Arc<PublicUsingScopesValue>,
     executable_value_ref_items: HashMap<GlobalDefId, ExecutableValueRefItemLocation>,
     diagnostics: Vec<ProgramDiagnostic>,
     target: TargetConfig,
@@ -1215,21 +1166,6 @@ impl CompilerInputs {
                 )
             })
             .collect::<Vec<_>>();
-        let exports = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
-        let using_scopes = compute_using_scopes_from_surfaces_with_symbols(
-            &defs,
-            &graph,
-            &exports.surfaces,
-            &symbols,
-        );
-        let public_surfaces = Arc::new(PublicSurfacesQueryValue {
-            surfaces: exports.surfaces,
-            diagnostics: exports.diagnostics,
-        });
-        let public_using_scopes = Arc::new(PublicUsingScopesQueryValue {
-            using_scopes: using_scopes.using_scopes,
-            diagnostics: using_scopes.diagnostics,
-        });
         let executable_value_ref_items = index_executable_value_ref_items(&modules, &defs);
         Self {
             graph,
@@ -1239,8 +1175,6 @@ impl CompilerInputs {
             modules,
             modules_by_id,
             modules_by_source_identity,
-            public_surfaces,
-            public_using_scopes,
             executable_value_ref_items,
             diagnostics,
             target,
@@ -1835,66 +1769,6 @@ impl CompilerContext {
             .module_id_for_stable_key(stable_key)
     }
 
-    fn public_surfaces(&self) -> Arc<PublicSurfacesValue> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .public_surfaces
-            .clone()
-    }
-
-    fn public_surface_module_key(
-        &self,
-        module_id: ModuleId,
-        name: &SymbolId,
-    ) -> Option<StableModuleKey> {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        let target = inputs
-            .public_surfaces
-            .surfaces
-            .get(module_id)?
-            .lookup_module(name)?;
-        inputs.graph.stable_key(target).cloned()
-    }
-
-    fn public_surface_value(
-        &self,
-        module_id: ModuleId,
-        name: &SymbolId,
-    ) -> Option<nia_defs::PublicItem> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .public_surfaces
-            .surfaces
-            .get(module_id)?
-            .lookup_value(name)
-            .cloned()
-    }
-
-    fn public_surface_type(
-        &self,
-        module_id: ModuleId,
-        name: &SymbolId,
-    ) -> Option<nia_defs::PublicItem> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .public_surfaces
-            .surfaces
-            .get(module_id)?
-            .lookup_type(name)
-            .cloned()
-    }
-
-    fn public_using_scopes(&self) -> Arc<PublicUsingScopesValue> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .public_using_scopes
-            .clone()
-    }
-
     fn executable_value_ref_item(
         &self,
         owner: GlobalDefId,
@@ -1908,60 +1782,6 @@ impl CompilerContext {
             item_index: location.item_index,
             owner_node_key: location.owner_node_key.clone(),
         }))
-    }
-
-    fn using_scope_module_key(
-        &self,
-        module_id: ModuleId,
-        name: &SymbolId,
-    ) -> Option<StableModuleKey> {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        let target = inputs
-            .public_using_scopes
-            .using_scopes
-            .get(&module_id)?
-            .lookup_module(name)?;
-        inputs.graph.stable_key(target).cloned()
-    }
-
-    fn using_scope_value(
-        &self,
-        module_id: ModuleId,
-        name: &SymbolId,
-    ) -> Option<nia_defs::UsingEntry> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .public_using_scopes
-            .using_scopes
-            .get(&module_id)?
-            .lookup_value(name)
-            .cloned()
-    }
-
-    fn using_scope_type(
-        &self,
-        module_id: ModuleId,
-        name: &SymbolId,
-    ) -> Option<nia_defs::UsingEntry> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .public_using_scopes
-            .using_scopes
-            .get(&module_id)?
-            .lookup_type(name)
-            .cloned()
-    }
-
-    fn using_scope_unresolved(&self, module_id: ModuleId, name: &SymbolId) -> bool {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .public_using_scopes
-            .using_scopes
-            .get(&module_id)
-            .is_some_and(|scope| scope.has_unresolved_name(name))
     }
 
     fn symbols(&self) -> nia_symbol_table::SymbolTable {
@@ -2045,17 +1865,6 @@ struct CompilerInputDiff {
     changed_graph_parents: HashSet<ModuleId>,
     changed_graph_children: HashSet<(ModuleId, SymbolId)>,
     changed_package_roots: HashSet<SymbolId>,
-    public_surfaces_changed: bool,
-    changed_public_surface_modules: HashSet<ModuleId>,
-    changed_public_surface_module_names: HashSet<(ModuleId, SymbolId)>,
-    changed_public_surface_value_names: HashSet<(ModuleId, SymbolId)>,
-    changed_public_surface_type_names: HashSet<(ModuleId, SymbolId)>,
-    public_using_scopes_changed: bool,
-    changed_public_using_scope_modules: HashSet<ModuleId>,
-    changed_using_scope_module_names: HashSet<(ModuleId, SymbolId)>,
-    changed_using_scope_value_names: HashSet<(ModuleId, SymbolId)>,
-    changed_using_scope_type_names: HashSet<(ModuleId, SymbolId)>,
-    changed_using_scope_unresolved_names: HashSet<(ModuleId, SymbolId)>,
     changed_executable_value_ref_items: HashSet<GlobalDefId>,
     executable_roots_changed: bool,
     body_activated_modules: HashSet<ModuleId>,
@@ -2096,17 +1905,6 @@ impl CompilerInputDiff {
             })
             .map(|node| node.id)
             .collect::<HashSet<_>>();
-        let (
-            changed_public_surface_module_names,
-            changed_public_surface_value_names,
-            changed_public_surface_type_names,
-        ) = changed_public_surface_names(old, new);
-        let (
-            changed_using_scope_module_names,
-            changed_using_scope_value_names,
-            changed_using_scope_type_names,
-            changed_using_scope_unresolved_names,
-        ) = changed_using_scope_names(old, new);
         Ok(Self {
             graph_changed: old.graph != new.graph,
             graph_entry_changed: old.graph.entry() != new.graph.entry(),
@@ -2114,17 +1912,6 @@ impl CompilerInputDiff {
             changed_graph_parents: changed_graph_parents(old, new),
             changed_graph_children: changed_graph_children(old, new),
             changed_package_roots: changed_package_roots(old, new),
-            public_surfaces_changed: old.public_surfaces != new.public_surfaces,
-            changed_public_surface_modules: changed_public_surface_modules(old, new),
-            changed_public_surface_module_names,
-            changed_public_surface_value_names,
-            changed_public_surface_type_names,
-            public_using_scopes_changed: old.public_using_scopes != new.public_using_scopes,
-            changed_public_using_scope_modules: changed_public_using_scope_modules(old, new),
-            changed_using_scope_module_names,
-            changed_using_scope_value_names,
-            changed_using_scope_type_names,
-            changed_using_scope_unresolved_names,
             changed_executable_value_ref_items: changed_executable_value_ref_items(old, new),
             executable_roots_changed,
             body_activated_modules,
@@ -2325,215 +2112,6 @@ fn changed_package_roots(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<
         .chain(new.graph.modules().map(|module| module.module_path.package))
         .filter(|package| old.graph.package_root(package) != new.graph.package_root(package))
         .collect()
-}
-
-fn changed_public_surface_modules(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<ModuleId> {
-    old.public_surfaces
-        .surfaces
-        .iter()
-        .map(|(module_id, _)| *module_id)
-        .chain(
-            new.public_surfaces
-                .surfaces
-                .iter()
-                .map(|(module_id, _)| *module_id),
-        )
-        .filter(|module_id| {
-            old.public_surfaces.surfaces.get(*module_id)
-                != new.public_surfaces.surfaces.get(*module_id)
-        })
-        .collect()
-}
-
-type ChangedPublicSurfaceNames = (
-    HashSet<(ModuleId, SymbolId)>,
-    HashSet<(ModuleId, SymbolId)>,
-    HashSet<(ModuleId, SymbolId)>,
-);
-
-fn changed_public_surface_names(
-    old: &CompilerInputs,
-    new: &CompilerInputs,
-) -> ChangedPublicSurfaceNames {
-    let module_ids = old
-        .public_surfaces
-        .surfaces
-        .iter()
-        .map(|(module_id, _)| *module_id)
-        .chain(
-            new.public_surfaces
-                .surfaces
-                .iter()
-                .map(|(module_id, _)| *module_id),
-        )
-        .collect::<HashSet<_>>();
-    let mut changed_modules = HashSet::new();
-    let mut changed_values = HashSet::new();
-    let mut changed_types = HashSet::new();
-    for module_id in module_ids {
-        let old_surface = old.public_surfaces.surfaces.get(module_id);
-        let new_surface = new.public_surfaces.surfaces.get(module_id);
-        let module_names = old_surface
-            .into_iter()
-            .flat_map(|surface| surface.modules.keys().copied())
-            .chain(
-                new_surface
-                    .into_iter()
-                    .flat_map(|surface| surface.modules.keys().copied()),
-            )
-            .collect::<HashSet<_>>();
-        let value_names = old_surface
-            .into_iter()
-            .flat_map(|surface| surface.values.keys().copied())
-            .chain(
-                new_surface
-                    .into_iter()
-                    .flat_map(|surface| surface.values.keys().copied()),
-            )
-            .collect::<HashSet<_>>();
-        let type_names = old_surface
-            .into_iter()
-            .flat_map(|surface| surface.types.keys().copied())
-            .chain(
-                new_surface
-                    .into_iter()
-                    .flat_map(|surface| surface.types.keys().copied()),
-            )
-            .collect::<HashSet<_>>();
-        for name in module_names {
-            if old_surface.and_then(|surface| surface.lookup_module(&name))
-                != new_surface.and_then(|surface| surface.lookup_module(&name))
-            {
-                changed_modules.insert((module_id, name));
-            }
-        }
-        for name in value_names {
-            if old_surface.and_then(|surface| surface.lookup_value(&name))
-                != new_surface.and_then(|surface| surface.lookup_value(&name))
-            {
-                changed_values.insert((module_id, name));
-            }
-        }
-        for name in type_names {
-            if old_surface.and_then(|surface| surface.lookup_type(&name))
-                != new_surface.and_then(|surface| surface.lookup_type(&name))
-            {
-                changed_types.insert((module_id, name));
-            }
-        }
-    }
-    (changed_modules, changed_values, changed_types)
-}
-
-fn changed_public_using_scope_modules(
-    old: &CompilerInputs,
-    new: &CompilerInputs,
-) -> HashSet<ModuleId> {
-    old.public_using_scopes
-        .using_scopes
-        .keys()
-        .chain(new.public_using_scopes.using_scopes.keys())
-        .copied()
-        .filter(|module_id| {
-            old.public_using_scopes.using_scopes.get(module_id)
-                != new.public_using_scopes.using_scopes.get(module_id)
-        })
-        .collect()
-}
-
-type ChangedUsingScopeNames = (
-    HashSet<(ModuleId, SymbolId)>,
-    HashSet<(ModuleId, SymbolId)>,
-    HashSet<(ModuleId, SymbolId)>,
-    HashSet<(ModuleId, SymbolId)>,
-);
-
-fn changed_using_scope_names(old: &CompilerInputs, new: &CompilerInputs) -> ChangedUsingScopeNames {
-    let module_ids = old
-        .public_using_scopes
-        .using_scopes
-        .keys()
-        .chain(new.public_using_scopes.using_scopes.keys())
-        .copied()
-        .collect::<HashSet<_>>();
-    let mut changed_modules = HashSet::new();
-    let mut changed_values = HashSet::new();
-    let mut changed_types = HashSet::new();
-    let mut changed_unresolved = HashSet::new();
-    for module_id in module_ids {
-        let old_scope = old.public_using_scopes.using_scopes.get(&module_id);
-        let new_scope = new.public_using_scopes.using_scopes.get(&module_id);
-        let module_names = old_scope
-            .into_iter()
-            .flat_map(|scope| scope.modules.keys().copied())
-            .chain(
-                new_scope
-                    .into_iter()
-                    .flat_map(|scope| scope.modules.keys().copied()),
-            )
-            .collect::<HashSet<_>>();
-        let value_names = old_scope
-            .into_iter()
-            .flat_map(|scope| scope.values.keys().copied())
-            .chain(
-                new_scope
-                    .into_iter()
-                    .flat_map(|scope| scope.values.keys().copied()),
-            )
-            .collect::<HashSet<_>>();
-        let type_names = old_scope
-            .into_iter()
-            .flat_map(|scope| scope.types.keys().copied())
-            .chain(
-                new_scope
-                    .into_iter()
-                    .flat_map(|scope| scope.types.keys().copied()),
-            )
-            .collect::<HashSet<_>>();
-        let unresolved_names = old_scope
-            .into_iter()
-            .flat_map(|scope| scope.unresolved_names.iter().copied())
-            .chain(
-                new_scope
-                    .into_iter()
-                    .flat_map(|scope| scope.unresolved_names.iter().copied()),
-            )
-            .collect::<HashSet<_>>();
-        for name in module_names {
-            if old_scope.and_then(|scope| scope.lookup_module(&name))
-                != new_scope.and_then(|scope| scope.lookup_module(&name))
-            {
-                changed_modules.insert((module_id, name));
-            }
-        }
-        for name in value_names {
-            if old_scope.and_then(|scope| scope.lookup_value(&name))
-                != new_scope.and_then(|scope| scope.lookup_value(&name))
-            {
-                changed_values.insert((module_id, name));
-            }
-        }
-        for name in type_names {
-            if old_scope.and_then(|scope| scope.lookup_type(&name))
-                != new_scope.and_then(|scope| scope.lookup_type(&name))
-            {
-                changed_types.insert((module_id, name));
-            }
-        }
-        for name in unresolved_names {
-            if old_scope.is_some_and(|scope| scope.has_unresolved_name(&name))
-                != new_scope.is_some_and(|scope| scope.has_unresolved_name(&name))
-            {
-                changed_unresolved.insert((module_id, name));
-            }
-        }
-    }
-    (
-        changed_modules,
-        changed_values,
-        changed_types,
-        changed_unresolved,
-    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3182,11 +2760,20 @@ mod tests {
                 | "declaration_module_item_tree_input"
                 | "full_active_module_item_tree_input"
                 | "full_module_item_tree_input"
+                | "module_public_surface"
                 | "module_item_tree_input"
                 | "module_origins"
                 | "module_parse_errors"
+                | "module_using_scope"
+                | "public_surface_type"
+                | "public_surface_value"
+                | "public_surfaces"
+                | "public_using_scopes"
                 | "signature_const_item_tree"
-                | "signature_item_tree" => nia_query::QueryFingerprintPolicy::SemanticValue,
+                | "signature_item_tree"
+                | "using_scope_type"
+                | "using_scope_unresolved"
+                | "using_scope_value" => nia_query::QueryFingerprintPolicy::SemanticValue,
                 _ => nia_query::QueryFingerprintPolicy::None,
             };
             assert_eq!(descriptor.fingerprint, expected, "{}", descriptor.name);
@@ -3470,8 +3057,10 @@ pub fn expensive_or_invalid() i32 {
         let latest_using = database.db.get(UsingScopeModuleQuery(entry, child_name));
         assert!(Arc::ptr_eq(&first_child, &latest_child));
         assert!(Arc::ptr_eq(&first_root, &latest_root));
-        assert!(Arc::ptr_eq(&first_public, &latest_public));
-        assert!(Arc::ptr_eq(&first_using, &latest_using));
+        assert!(!Arc::ptr_eq(&first_public, &latest_public));
+        assert!(!Arc::ptr_eq(&first_using, &latest_using));
+        assert_eq!(first_public.as_ref(), latest_public.as_ref());
+        assert_eq!(first_using.as_ref(), latest_using.as_ref());
         let lookup = QueryModuleGraphLookup::new(&database.db);
         assert_eq!(
             lookup.child_declaration(entry, &child_name),
@@ -4819,6 +4408,7 @@ fn main() i32 {
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        let first_using_scope = database.db.get(ModuleUsingScopeQuery(module_id));
 
         fixture.update_module_source(
             module_id,
@@ -4842,14 +4432,16 @@ fn main() i32 {
         );
         assert!(invalidated.contains(&"body_check"), "{invalidated:?}");
         assert!(!invalidated.contains(&"loaded_modules"), "{invalidated:?}");
-        assert!(!invalidated.contains(&"public_surfaces"), "{invalidated:?}");
+        assert!(invalidated.contains(&"public_surfaces"), "{invalidated:?}");
         assert!(
-            !invalidated.contains(&"public_using_scopes"),
+            invalidated.contains(&"public_using_scopes"),
             "{invalidated:?}"
         );
 
         let second = database.check_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        let latest_using_scope = database.db.get(ModuleUsingScopeQuery(module_id));
+        assert!(Arc::ptr_eq(&first_using_scope, &latest_using_scope));
     }
 
     #[test]
@@ -4983,9 +4575,9 @@ fn main() i32 {
             "{invalidated:?}"
         );
         assert!(invalidated.contains(&"module_defs"), "{invalidated:?}");
-        assert!(!invalidated.contains(&"public_surfaces"), "{invalidated:?}");
+        assert!(invalidated.contains(&"public_surfaces"), "{invalidated:?}");
         assert!(
-            !invalidated.contains(&"public_using_scopes"),
+            invalidated.contains(&"public_using_scopes"),
             "{invalidated:?}"
         );
     }
@@ -5052,9 +4644,9 @@ fn main() i32 {
 
         assert!(invalidated.contains(&"loaded_modules"), "{invalidated:?}");
         assert!(invalidated.contains(&"checked_module"), "{invalidated:?}");
-        assert!(!invalidated.contains(&"public_surfaces"), "{invalidated:?}");
+        assert!(invalidated.contains(&"public_surfaces"), "{invalidated:?}");
         assert!(
-            !invalidated.contains(&"public_using_scopes"),
+            invalidated.contains(&"public_using_scopes"),
             "{invalidated:?}"
         );
         assert!(invalidated.contains(&"module_path"), "{invalidated:?}");
@@ -5657,7 +5249,7 @@ extend Value : Ops {
     }
 
     #[test]
-    fn public_surface_snapshots_are_independent_query_inputs() {
+    fn public_surface_snapshots_are_query_derived_facts() {
         let fixture = LoadedProgramFixture::new("main.nia", "pub struct S { value: i32 }");
         let module_id = fixture.entry_id();
         let db = query_db(fixture.program());
@@ -5667,17 +5259,23 @@ extend Value : Ops {
         let _ = db.get(ModuleUsingScopeQuery(module_id));
         let trace = db.query_trace();
 
-        assert!(!trace.dependencies.iter().any(|dependency| {
+        assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "public_surfaces" && dependency.to.name == "module_defs"
         }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "public_surfaces" && dependency.to.name == "module_graph"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "public_using_scopes" && dependency.to.name == "public_surfaces"
         }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "public_using_scopes" && dependency.to.name == "module_defs"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "module_using_scope"
                 && dependency.to.name == "public_using_scopes"
         }));
-        assert!(!trace.dependencies.iter().any(|dependency| {
+        assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "module_public_surface"
                 && dependency.to.name == "public_surfaces"
         }));
