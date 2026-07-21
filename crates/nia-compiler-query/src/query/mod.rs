@@ -237,6 +237,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
 #[derive(Debug, Clone)]
 pub struct CompileRequest {
     pub loaded: LoadedProgram,
+    pub provider_fact_revision: crate::ProviderFactRevision,
     pub optimization: NiaOptimizationLevel,
     pub timings: TimingMode,
     pub provider_changes: HashSet<crate::ProviderDemand>,
@@ -244,8 +245,10 @@ pub struct CompileRequest {
 
 impl CompileRequest {
     pub fn new(loaded: LoadedProgram) -> Self {
+        let provider_fact_revision = loaded.provider_fact_revision;
         Self {
             loaded,
+            provider_fact_revision,
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,
             provider_changes: HashSet::new(),
@@ -267,6 +270,14 @@ impl CompileRequest {
         provider_changes: impl IntoIterator<Item = crate::ProviderDemand>,
     ) -> Self {
         self.provider_changes = provider_changes.into_iter().collect();
+        self
+    }
+
+    pub fn with_provider_fact_revision(
+        mut self,
+        provider_fact_revision: crate::ProviderFactRevision,
+    ) -> Self {
+        self.provider_fact_revision = provider_fact_revision;
         self
     }
 }
@@ -335,6 +346,13 @@ impl CompilerDatabase {
             .try_get(ExecutableProviderDemandsQuery)
             .map(Arc::unwrap_or_clone)
             .unwrap_or_default()
+    }
+
+    pub fn provider_fact_revision(&self) -> crate::ProviderFactRevision {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .provider_fact_revision
     }
 
     pub fn codegen_program(&self) -> CodegenProgram {
@@ -733,6 +751,7 @@ struct ExecutableCheckedModuleSetData {
 #[derive(Debug, Clone)]
 struct CompilerInputs {
     graph: ModuleGraphSnapshot,
+    provider_fact_revision: crate::ProviderFactRevision,
     entry_module: ModuleId,
     runtime_root_modules: Vec<ModuleId>,
     symbols: nia_symbol_table::SymbolTable,
@@ -839,6 +858,7 @@ impl CompilerInputs {
         let executable_value_ref_items = index_executable_value_ref_items(&modules, &defs);
         Self {
             graph,
+            provider_fact_revision: request.provider_fact_revision,
             entry_module,
             runtime_root_modules,
             symbols,
@@ -2372,6 +2392,7 @@ mod tests {
         fn program(&self) -> LoadedProgram {
             LoadedProgram {
                 graph: self.graph.clone().into(),
+                provider_fact_revision: crate::ProviderFactRevision::default(),
                 symbols: test_symbols(),
                 target: TargetConfig::host(),
                 runtime: RuntimeModel::Bare,
@@ -3048,6 +3069,17 @@ pub fn expensive_or_invalid() i32 {
             .read()
             .expect("compiler input lock poisoned");
         assert_eq!(inputs.provider_changes.len(), 1);
+    }
+
+    #[test]
+    fn compiler_inputs_preserve_provider_fact_revision() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let mut program = fixture.program();
+        let revision = crate::ProviderFactRevision::new_store().next();
+        program.provider_fact_revision = revision;
+        let database = CompilerDatabase::new(CompileRequest::new(program));
+
+        assert_eq!(database.provider_fact_revision(), revision);
     }
 
     #[test]

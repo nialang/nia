@@ -45,9 +45,11 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             .is_some_and(|graph| graph_source_versions(db, graph) != source_versions)
         {
             seed = None;
-            applied_provider_revision = Default::default();
+            applied_provider_revision = None;
         }
-        let new_provider_demands = if seed.is_some() {
+        let new_provider_demands = if let (Some(_), Some(applied_provider_revision)) =
+            (&seed, applied_provider_revision)
+        {
             provider_facts
                 .added_after(applied_provider_revision)
                 .cloned()
@@ -145,7 +147,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             .write()
             .expect("loader graph state lock poisoned");
         state.graph = Some(snapshot.clone());
-        state.applied_provider_revision = provider_facts.revision();
+        state.applied_provider_revision = Some(provider_facts.revision());
         state.source_versions = source_versions;
         snapshot
     }

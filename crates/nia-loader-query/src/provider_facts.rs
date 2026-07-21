@@ -1,25 +1,12 @@
 use crate::LoaderContext;
-use nia_compiler_query::ProviderDemand;
+use nia_compiler_query::{ProviderDemand, ProviderFactRevision};
 use nia_query::{QueryDb, QueryKey};
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct ProviderFactRevision(u64);
-
-impl ProviderFactRevision {
-    fn next(self) -> Self {
-        Self(
-            self.0
-                .checked_add(1)
-                .expect("provider fact revision overflow"),
-        )
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderFacts {
     revision: ProviderFactRevision,
     demands: HashMap<ProviderDemand, ProviderFactRevision>,
@@ -40,13 +27,24 @@ impl ProviderFacts {
     ) -> impl Iterator<Item = &ProviderDemand> {
         self.demands
             .iter()
-            .filter_map(move |(demand, added)| (*added > revision).then_some(demand))
+            .filter_map(move |(demand, added)| added.is_newer_than(revision).then_some(demand))
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct ProviderFactStore {
     state: Arc<Mutex<ProviderFacts>>,
+}
+
+impl Default for ProviderFactStore {
+    fn default() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(ProviderFacts {
+                revision: ProviderFactRevision::new_store(),
+                demands: HashMap::new(),
+            })),
+        }
+    }
 }
 
 impl ProviderFactStore {
@@ -127,6 +125,7 @@ mod tests {
 
     #[test]
     fn provider_fact_store_tracks_monotonic_delta_revisions() {
+        assert_eq!(std::mem::size_of::<ProviderFactRevision>(), 16);
         let store = ProviderFactStore::default();
         let demand = ProviderDemand {
             source_path: SourcePath::new("main.nia"),
@@ -137,6 +136,10 @@ mod tests {
         };
         let initial = store.snapshot();
         assert!(initial.demands().next().is_none());
+        assert_ne!(
+            initial.revision(),
+            ProviderFactStore::default().snapshot().revision()
+        );
 
         assert_eq!(store.insert_new([demand.clone()]).len(), 1);
         let added = store.snapshot();

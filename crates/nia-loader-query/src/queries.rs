@@ -1,5 +1,6 @@
 use crate::facade_facts::ModuleFacadeFacts;
 use crate::graph::ModuleGraphQuery;
+use crate::provider_facts::ProviderDemandsQuery;
 use crate::used_paths::{ModuleDeclarations, UsedModulePath, collect_used_modules};
 use crate::{EntryRuntime, LoaderContext};
 use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel};
@@ -31,8 +32,10 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
             })
             .collect::<Vec<_>>();
         let diagnostics = db.get(LoadDiagnosticsQuery);
+        let provider_fact_revision = db.get(ProviderDemandsQuery).revision();
         LoadedProgram {
             graph: graph.as_ref().clone(),
+            provider_fact_revision,
             symbols: db.context().symbols.clone(),
             target: db.context().target.clone(),
             runtime: runtime_model(db.context().entry_runtime),

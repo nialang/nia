@@ -28,7 +28,7 @@ use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 
-pub use nia_body_check::{ProviderDemand, ProviderRequest};
+pub use nia_body_check::{ProviderDemand, ProviderFactRevision, ProviderRequest};
 
 pub use nia_backend_lower::BackendOptimizationChange;
 pub use nia_timing::TimingMode;
@@ -37,6 +37,7 @@ pub use query::{CompileRequest, CompilerDatabase};
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedProgram {
     pub graph: ModuleGraphSnapshot,
+    pub provider_fact_revision: ProviderFactRevision,
     pub symbols: SymbolTable,
     pub target: TargetConfig,
     pub runtime: RuntimeModel,
