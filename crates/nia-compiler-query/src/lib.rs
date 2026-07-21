@@ -88,9 +88,18 @@ impl ProviderFactSnapshot {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderGraphUpdate {
+    Stable,
+    Changed {
+        invalidates_resolved_body_facts: bool,
+    },
+}
+
 pub trait LoaderFactProvider: Send + Sync {
     fn query_session(&self) -> Option<nia_query::QuerySession>;
     fn provider_facts(&self) -> ProviderFactSnapshot;
+    fn update_provider_demands(&self, demands: Vec<ProviderDemand>) -> ProviderGraphUpdate;
     fn node_store(&self) -> nia_node_id::NodeStore;
     fn module_graph(&self) -> ModuleGraphSnapshot;
     fn loaded_module_source_identities(&self) -> Vec<SourceIdentity>;
@@ -129,6 +138,10 @@ impl LoaderFactProvider for LoadedProgram {
 
     fn provider_facts(&self) -> ProviderFactSnapshot {
         ProviderFactSnapshot::empty(self.provider_fact_revision)
+    }
+
+    fn update_provider_demands(&self, _demands: Vec<ProviderDemand>) -> ProviderGraphUpdate {
+        ProviderGraphUpdate::Stable
     }
 
     fn node_store(&self) -> nia_node_id::NodeStore {

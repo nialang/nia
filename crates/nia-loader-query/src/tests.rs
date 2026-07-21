@@ -7,7 +7,8 @@ use crate::queries::{
     SourceStatusQuery, SourceTextQuery, SyntaxModuleQuery, provider_summary_query,
 };
 use nia_compiler_query::{
-    CompileRequest, CompilerDatabase, ProviderDemand, RuntimeModel, has_error_diagnostics,
+    CompileRequest, CompilerDatabase, ProviderDemand, ProviderGraphUpdate, RuntimeModel,
+    has_error_diagnostics,
 };
 use nia_imports::{ModuleGraph, ModuleNode};
 use nia_item_tree::ItemTreeNodeKind;
@@ -180,7 +181,7 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
     assert!(compiler.query_session().ptr_eq(&loader.query_session()));
 
     let checked = compiler.check_program();
-    let _ = compiler.executable_provider_demands();
+    let _ = compiler.provider_fact_revision();
 
     assert!(!has_error_diagnostics(&checked.diagnostics));
     let trace = compiler.query_trace();
@@ -1115,11 +1116,14 @@ pub fn score(&self) i32 {
             method_name: sym("score"),
         },
     }]);
-    let ProviderDemandUpdate::GraphChanged { revision, .. } = update else {
+    let ProviderGraphUpdate::Changed { .. } = update else {
         panic!("provider demand should grow the module graph");
     };
     let program = database.load_program();
-    assert_eq!(program.provider_fact_revision, revision);
+    assert_eq!(
+        program.provider_fact_revision,
+        nia_compiler_query::LoaderFactProvider::provider_facts(&database).revision()
+    );
 
     assert_no_error_diagnostics(&program);
     for (identity, initial_id) in initial_module_ids {
@@ -1154,8 +1158,8 @@ pub fn score(&self) i32 {
 }
 
 #[test]
-fn provider_demand_update_distinguishes_stable_graphs_and_known_demands() {
-    let root = temp_dir("provider_demand_update_distinguishes_stable_graphs_and_known_demands");
+fn provider_demand_update_keeps_unmatched_and_known_demands_graph_stable() {
+    let root = temp_dir("provider_demand_update_keeps_unmatched_and_known_demands_graph_stable");
     let main_path = root.join("main.nia");
     write(&main_path, "fn main() void {}");
     let database = LoaderDatabase::new(LoadRequest::new(main_path.to_string_lossy().into_owned()));
@@ -1167,15 +1171,13 @@ fn provider_demand_update_distinguishes_stable_graphs_and_known_demands() {
         },
     };
 
-    let ProviderDemandUpdate::GraphUnchanged { new_demands, .. } =
-        database.update_provider_demands([demand.clone()])
-    else {
-        panic!("an unmatched provider demand should leave the graph unchanged");
-    };
-    assert_eq!(new_demands, HashSet::from([demand.clone()]));
+    assert_eq!(
+        database.update_provider_demands([demand.clone()]),
+        ProviderGraphUpdate::Stable
+    );
     assert_eq!(
         database.update_provider_demands([demand]),
-        ProviderDemandUpdate::NoNewDemands
+        ProviderGraphUpdate::Stable
     );
     assert!(
         database
@@ -1769,12 +1771,8 @@ fn load_program_with_provider_demand(
             method_name: sym(method_name),
         },
     }]);
-    match update {
-        ProviderDemandUpdate::GraphChanged { .. } => database.load_program(),
-        ProviderDemandUpdate::GraphUnchanged { .. } | ProviderDemandUpdate::NoNewDemands => {
-            database.load_program()
-        }
-    }
+    let _ = update;
+    database.load_program()
 }
 
 fn assert_module_loaded(program: &LoadedProgram, suffix: &str) {

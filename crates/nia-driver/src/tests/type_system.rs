@@ -1182,7 +1182,7 @@ fn driver_replaces_compiler_with_loader_query_session() {
 }
 
 #[test]
-fn driver_finalizes_executable_once_after_provider_discovery() {
+fn compiler_session_settles_providers_before_single_executable_finalization() {
     let _permit = nia_test_support::compiler_permit();
     let driver = Driver::new();
     driver.set_source(
@@ -1203,6 +1203,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(
+        driver.compiler_provider_demand_rounds() > 1,
+        "provider discovery should advance the compiler-owned worklist"
+    );
     assert_eq!(driver.compiler_query_executions("entry_checked_program"), 1);
     assert!(
         driver.compiler_query_executions("executable_provider_demands") > 0,

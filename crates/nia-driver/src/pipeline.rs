@@ -1,19 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    collections::HashSet,
     env, fmt, fs, io,
     path::{Path, PathBuf},
     process::Command,
     sync::Mutex,
 };
 
-use nia_compiler_query::{
-    CompileRequest, CompilerDatabase, ProviderDemand, TimingMode, has_error_diagnostics,
-};
+use nia_compiler_query::{CompileRequest, CompilerDatabase, TimingMode, has_error_diagnostics};
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
 use nia_linker::{LinkOptions, LinkTarget};
-use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase, ProviderDemandUpdate};
+use nia_loader_query::{EntryRuntime, LoadRequest, LoaderDatabase};
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::TargetConfig;
@@ -105,6 +102,16 @@ impl Driver {
     }
 
     #[cfg(test)]
+    pub(crate) fn compiler_provider_demand_rounds(&self) -> u64 {
+        self.compiler
+            .lock()
+            .expect("driver compiler lock poisoned")
+            .as_ref()
+            .map(|compiler| compiler.database.provider_demand_rounds())
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
     pub(crate) fn loader_and_compiler_share_query_session(&self) -> bool {
         let loader = self.loader.lock().expect("driver loader lock poisoned");
         let compiler = self.compiler.lock().expect("driver compiler lock poisoned");
@@ -139,7 +146,7 @@ impl Driver {
     }
 
     fn check_all_modules_inner(&self, request: CheckRequest) -> CheckedProgram {
-        self.compile_with(request, false, CompilerDatabase::check_program)
+        self.compile_with(request, CompilerDatabase::check_program)
     }
 
     pub fn check_entry(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
@@ -153,7 +160,7 @@ impl Driver {
     }
 
     fn check_entry_inner(&self, request: CheckRequest) -> CheckedProgram {
-        self.compile_with(request, true, CompilerDatabase::entry_check_program)
+        self.compile_with(request, CompilerDatabase::entry_check_program)
     }
 
     pub fn codegen(&self, request: CheckRequest) -> DriverOutput<CodegenProgram> {
@@ -167,15 +174,10 @@ impl Driver {
     }
 
     fn codegen_inner(&self, request: CheckRequest) -> CodegenProgram {
-        self.compile_with(request, true, CompilerDatabase::codegen_program)
+        self.compile_with(request, CompilerDatabase::codegen_program)
     }
 
-    fn compile_with<T>(
-        &self,
-        request: CheckRequest,
-        discover_executable_providers: bool,
-        compile: impl Fn(&CompilerDatabase) -> T,
-    ) -> T
+    fn compile_with<T>(&self, request: CheckRequest, compile: impl Fn(&CompilerDatabase) -> T) -> T
     where
         T: ProviderDemandOutput,
     {
@@ -183,64 +185,34 @@ impl Driver {
         let loader = self.loader_database(&request);
         let query_session = loader.query_session();
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
-        let (database, mut pending_update): (_, Option<ProviderGraphWorkItem>) =
-            if let Some(compiler) = &*compiler_guard
-                && compiler.database.query_session().ptr_eq(&query_session)
-            {
-                compiler.database.update(
-                    CompileRequest::new(loader.clone())
-                        .with_optimization(request.optimization)
-                        .with_timings(request.timings),
-                );
-                (
-                    compiler.database.clone(),
-                    Some(ProviderGraphWorkItem {
-                        provider_changes: HashSet::new(),
-                    }),
-                )
-            } else {
-                let database = CompilerDatabase::new(
-                    CompileRequest::new(loader.clone())
-                        .with_optimization(request.optimization)
-                        .with_timings(request.timings),
-                );
-                *compiler_guard = Some(SessionCompiler {
-                    database: database.clone(),
-                });
-                (database, None)
-            };
-        let mut provider_demand_rounds = 0_u64;
-        loop {
-            provider_demand_rounds += 1;
-            let can_finalize_without_discovery = pending_update
-                .as_ref()
-                .is_some_and(ProviderGraphWorkItem::can_finalize_without_discovery);
-            pending_update.take();
-            if discover_executable_providers
-                && !can_finalize_without_discovery
-                && let ProviderDemandUpdate::GraphChanged { new_demands, .. } =
-                    loader.update_provider_demands(database.executable_provider_demands())
-            {
-                pending_update = Some(ProviderGraphWorkItem {
-                    provider_changes: new_demands,
-                });
-                continue;
-            }
-            let output = compile(&database);
-            let provider_demands = output.provider_demands();
-            match loader.update_provider_demands(provider_demands) {
-                ProviderDemandUpdate::GraphChanged { new_demands, .. } => {
-                    pending_update = Some(ProviderGraphWorkItem {
-                        provider_changes: new_demands,
-                    })
-                }
-                ProviderDemandUpdate::NoNewDemands
-                | ProviderDemandUpdate::GraphUnchanged { .. } => {
-                    emit_compilation_counters(timings, &database, &output, provider_demand_rounds);
-                    return output;
-                }
-            }
-        }
+        let database = if let Some(compiler) = &*compiler_guard
+            && compiler.database.query_session().ptr_eq(&query_session)
+        {
+            compiler.database.update(
+                CompileRequest::new(loader.clone())
+                    .with_optimization(request.optimization)
+                    .with_timings(request.timings),
+            );
+            compiler.database.clone()
+        } else {
+            let database = CompilerDatabase::new(
+                CompileRequest::new(loader)
+                    .with_optimization(request.optimization)
+                    .with_timings(request.timings),
+            );
+            *compiler_guard = Some(SessionCompiler {
+                database: database.clone(),
+            });
+            database
+        };
+        let output = compile(&database);
+        emit_compilation_counters(
+            timings,
+            &database,
+            &output,
+            database.provider_demand_rounds(),
+        );
+        output
     }
 
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
@@ -499,35 +471,12 @@ impl Driver {
     }
 }
 
-#[derive(Debug)]
-struct ProviderGraphWorkItem {
-    provider_changes: HashSet<ProviderDemand>,
-}
-
-impl ProviderGraphWorkItem {
-    fn can_finalize_without_discovery(&self) -> bool {
-        !self.provider_changes.is_empty()
-            && self
-                .provider_changes
-                .iter()
-                .all(|demand| !demand.request.invalidates_resolved_body_facts())
-    }
-}
-
 trait ProviderDemandOutput {
-    fn provider_demands(&self) -> Vec<ProviderDemand>;
     fn checked_body_count(&self) -> usize;
     fn reachable_body_count(&self) -> usize;
 }
 
 impl ProviderDemandOutput for CheckedProgram {
-    fn provider_demands(&self) -> Vec<ProviderDemand> {
-        self.modules
-            .iter()
-            .flat_map(|module| module.provider_demands.iter().cloned())
-            .collect()
-    }
-
     fn checked_body_count(&self) -> usize {
         self.modules
             .iter()
@@ -541,13 +490,6 @@ impl ProviderDemandOutput for CheckedProgram {
 }
 
 impl ProviderDemandOutput for CodegenProgram {
-    fn provider_demands(&self) -> Vec<ProviderDemand> {
-        self.modules
-            .iter()
-            .flat_map(|module| module.provider_demands.iter().cloned())
-            .collect()
-    }
-
     fn checked_body_count(&self) -> usize {
         self.modules
             .iter()
