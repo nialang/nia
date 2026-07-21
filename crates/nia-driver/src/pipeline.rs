@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
+    collections::HashSet,
     env, fmt, fs, io,
     path::{Path, PathBuf},
     process::Command,
@@ -175,7 +176,7 @@ impl Driver {
                     compiler.database.clone(),
                     Some(ProviderGraphWorkItem {
                         program: loaded,
-                        provider_changes: Vec::new(),
+                        provider_changes: HashSet::new(),
                     }),
                 )
             } else {
@@ -500,7 +501,7 @@ impl Driver {
 #[derive(Debug)]
 struct ProviderGraphWorkItem {
     program: LoadedProgram,
-    provider_changes: Vec<ProviderDemand>,
+    provider_changes: HashSet<ProviderDemand>,
 }
 
 impl ProviderGraphWorkItem {

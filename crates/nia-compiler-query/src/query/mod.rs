@@ -239,7 +239,7 @@ pub struct CompileRequest {
     pub loaded: LoadedProgram,
     pub optimization: NiaOptimizationLevel,
     pub timings: TimingMode,
-    pub provider_changes: Vec<crate::ProviderDemand>,
+    pub provider_changes: HashSet<crate::ProviderDemand>,
 }
 
 impl CompileRequest {
@@ -248,7 +248,7 @@ impl CompileRequest {
             loaded,
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,
-            provider_changes: Vec::new(),
+            provider_changes: HashSet::new(),
         }
     }
 
@@ -801,7 +801,7 @@ impl CompilerInputs {
         let target = loaded.target;
         let runtime = loaded.runtime;
         let diagnostics = loaded.diagnostics;
-        let provider_changes = request.provider_changes.into_iter().collect();
+        let provider_changes = request.provider_changes;
         let modules = loaded
             .modules
             .into_iter()
@@ -3029,7 +3029,7 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn compiler_inputs_deduplicate_provider_changes() {
+    fn compile_request_deduplicates_provider_changes() {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let demand = crate::ProviderDemand {
             source_path: SourcePath::new("main.nia"),
@@ -3038,9 +3038,10 @@ pub fn expensive_or_invalid() i32 {
                 method_name: SymbolId::default(),
             },
         };
-        let database = CompilerDatabase::new(
-            CompileRequest::new(fixture.program()).with_provider_changes([demand.clone(), demand]),
-        );
+        let request =
+            CompileRequest::new(fixture.program()).with_provider_changes([demand.clone(), demand]);
+        assert_eq!(request.provider_changes.len(), 1);
+        let database = CompilerDatabase::new(request);
 
         let inputs = database
             .inputs
