@@ -4,7 +4,8 @@ use crate::queries::{
     ActiveModuleItemTreeFactQuery, LoadedModuleQuery, ModuleDeclarationsQuery,
     ModuleFacadeFactsQuery, ModuleItemTreeFactQuery, ModuleOriginsFactQuery,
     ModuleParseErrorsFactQuery, ParsedModuleQuery, ProviderSummaryQuery, SourceStatus,
-    SourceStatusQuery, SourceTextQuery, SyntaxModuleQuery, provider_summary_query,
+    SourceStatusQuery, SourceTextQuery, SyntaxModuleQuery, module_declarations_query,
+    module_facade_facts_query, parsed_module_query, provider_summary_query,
 };
 use nia_compiler_query::{
     CompileRequest, CompilerDatabase, ProviderDemand, ProviderGraphUpdate, RuntimeModel,
@@ -170,6 +171,67 @@ fn source_status_tracks_missing_and_present_revisions() {
 
     assert!(!Arc::ptr_eq(&missing, &present));
     assert_eq!(*present, SourceStatus::Present(file.version()));
+}
+
+#[test]
+fn source_updates_retire_revision_keyed_query_slots_without_dropping_old_handles() {
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let first_file = sources.set_source(main.clone(), "fn main() i32 { 0 }");
+    let database = LoaderDatabase::new(LoadRequest::new(main.as_str()).with_sources(sources));
+    assert_no_error_diagnostics(&database.load_program());
+    let first_version = first_file.version();
+    let old_parsed = database.db.get(parsed_module_query(&database.db, &main));
+    database
+        .db
+        .get(module_declarations_query(&database.db, &main));
+    database.db.get(provider_summary_query(&database.db, &main));
+    database
+        .db
+        .get(module_facade_facts_query(&database.db, &main));
+    let initial_query_count = database.query_trace().queries.len();
+
+    let mut latest_version = first_version;
+    for revision in 1..=100 {
+        let file = database.set_source(main.as_str(), format!("fn main() i32 {{ {revision} }}"));
+        latest_version = file.version();
+        assert_no_error_diagnostics(&database.load_program());
+        database.db.get(parsed_module_query(&database.db, &main));
+        database
+            .db
+            .get(module_declarations_query(&database.db, &main));
+        database.db.get(provider_summary_query(&database.db, &main));
+        database
+            .db
+            .get(module_facade_facts_query(&database.db, &main));
+    }
+
+    let trace = database.query_trace();
+    assert_eq!(trace.queries.len(), initial_query_count);
+    for name in [
+        "parsed_module",
+        "syntax_module",
+        "module_declarations",
+        "provider_summary",
+        "module_facade_facts",
+    ] {
+        let queries = trace
+            .queries
+            .iter()
+            .filter(|query| query.frame.name == name)
+            .collect::<Vec<_>>();
+        assert_eq!(queries.len(), 1, "{name}: {queries:?}");
+        assert!(
+            queries[0]
+                .frame
+                .key
+                .contains(&format!("revision: {:?}", latest_version.revision)),
+            "{}",
+            queries[0].frame.key
+        );
+    }
+    assert_eq!(old_parsed.source_version, first_version);
+    assert_eq!(old_parsed.item_tree.items.len(), 1);
 }
 
 #[test]

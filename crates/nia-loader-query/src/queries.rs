@@ -616,6 +616,14 @@ pub(crate) fn module_facade_facts_query(
     ModuleFacadeFactsQuery(source_version(db, source_id))
 }
 
+pub(crate) fn retire_source_revision_queries(db: &QueryDb<LoaderContext>, version: SourceVersion) {
+    db.retire(&ParsedModuleQuery(version));
+    db.retire(&SyntaxModuleQuery(version));
+    db.retire(&ModuleDeclarationsQuery(version));
+    db.retire(&ProviderSummaryQuery(version));
+    db.retire(&ModuleFacadeFactsQuery(version));
+}
+
 fn parsed_module_query_for_id(
     db: &QueryDb<LoaderContext>,
     source_id: SourceId,
