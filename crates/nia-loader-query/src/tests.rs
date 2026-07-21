@@ -892,7 +892,7 @@ fn provider_demand_update_distinguishes_stable_graphs_and_known_demands() {
     else {
         panic!("an unmatched provider demand should leave the graph unchanged");
     };
-    assert_eq!(new_demands, vec![demand.clone()]);
+    assert_eq!(new_demands, HashSet::from([demand.clone()]));
     assert_eq!(
         database.update_provider_demands([demand]),
         ProviderDemandUpdate::NoNewDemands

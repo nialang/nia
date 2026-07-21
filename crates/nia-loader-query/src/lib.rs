@@ -156,10 +156,10 @@ impl LoaderDatabase {
             .provider_demands
             .write()
             .expect("loader provider demand lock poisoned");
-        let mut added = Vec::new();
+        let mut added = HashSet::new();
         for demand in demands {
             if stored.insert(demand.clone()) {
-                added.push(demand);
+                added.insert(demand);
             }
         }
         drop(stored);
@@ -198,11 +198,11 @@ impl LoaderDatabase {
 pub enum ProviderDemandUpdate {
     NoNewDemands,
     GraphUnchanged {
-        new_demands: Vec<ProviderDemand>,
+        new_demands: HashSet<ProviderDemand>,
     },
     GraphChanged {
         program: Box<LoadedProgram>,
-        new_demands: Vec<ProviderDemand>,
+        new_demands: HashSet<ProviderDemand>,
     },
 }
 
