@@ -20,16 +20,16 @@
 | B semantic context / 类型身份 | 100% | session-wide canonical `TypeStore`、全 pass canonical read/append、显式 roots、跨 revision slot 稳定与跨 session 隔离已完成；module view/log、origin、snapshot/checkout、recursive import 和旧 identity 类型均已删除。 |
 | C query value/storage | 100% | cache-owned `get/try_get/get_many`、无 `Value: Clone`、declarative registry 与 aggregate storage policy 已完成，owned runtime adapter 全部删除。 |
 | C 后 ID/arena 专项 | 100% | ID-0 query dep-node arena、ID-1 source/syntax identity、ID-2 graph/fixture 收口与 ID-3 owner/index/generation module handle 均完成；构造、fork、stale lookup 与 local-slot 边界已有守卫。 |
-| D 统一依赖图 | 约 99% | loader/provider update 已收敛为 append-only revision events 与 revision-keyed graph query，compiler provider worklist 直接读取 loader tracked snapshot并在 session 内收敛，Driver 只提交一次编译目标；loader/compiler typed DB 共享同一 `QuerySession`，compiler graph/membership/diagnostics、全部 module field roots、public/using及 executable value-ref facts 已进入统一图，aggregate loaded snapshot、standalone field diff、provider delta 回灌、Driver fixed point与显式 session 配对 API 均已删除。reachability scheduler 尚未完全进入统一图。 |
+| D 统一依赖图 | 100% | loader/provider update 已收敛为 append-only revision events 与 revision-keyed graph query，compiler provider/reachability worklist直接读取 tracked facts并在 session transaction内收敛，Driver 只提交一次编译目标；loader/compiler typed DB 共享同一 `QuerySession`，module/source/provider/public/using/executable facts均进入统一图，aggregate snapshot、手写 diff/delta 回灌、Driver fixed point、reachability take/store 与 query 外 checked-module payload均已删除，随机 incremental/clean 差分守卫通过。 |
 | E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；legacy `query_many` 已删除，但 `get_many` 仍创建临时 scoped worker，持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
 | F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
 | G CGU / 异步 codegen / work products | 约 5% | 已有多 object 输出和 reuse 指标占位，但没有正式 CGU partition、codegen queue、frontend/LLVM overlap、CGU fingerprint 或 object work-product cache。 |
 | H 持久 frontend incremental | 约 0–5% | 只有局部 artifact cache 和进程内 query 复用，不具备 stable module/def key、序列化 dep graph 与持久 frontend product。 |
 | I 错误、诊断与工程重组 | 约 10% | 已删除一批旧 API 并强化部分诊断边界；panic-based query flow、diagnostic store、data-driven harness、测试 permit 和 crate/巨型文件重组均未系统推进。 |
 
-综合判断：**整份路线图按剩余工程复杂度加权约完成 59%，合理区间为 57%–61%；A–E 的 P0 基础约完成 83%–87%。** 已完成的是最先阻塞后续工作的 type identity、query storage、loader-owned provider revision graph、typed compiler worklist、跨 typed-DB QuerySession recorder、production loader→compiler module field edges、aggregate loaded snapshot删除、通用 fingerprint/value-equality red-green 内核路径及 query-derived public/using/executable-item facts；executor、item/CGU 粒度和持久增量仍是独立工程，不能按提交数量线性外推后半程。
+综合判断：**整份路线图按剩余工程复杂度加权约完成 60%，合理区间为 58%–62%；A–E 的 P0 基础约完成 84%–88%。** 已完成的是 type identity、query storage 与统一 revisioned fact graph：loader-owned provider revision graph、typed compiler worklist、跨 typed-DB QuerySession recorder、production loader→compiler field edges、query-derived public/using/executable facts、session-owned provider/reachability convergence及完整 red-green freshness边界均已落地；持久 executor、item/CGU 粒度和持久增量仍是独立工程，不能按提交数量线性外推后半程。
 
-ID/arena 专项已关闭，当前临界路径继续推进 Phase D：driver 重复摘要与 provider fixed point、compiler fact-session update mutation、aggregate loaded module snapshot、standalone field diff及 provider revision/delta 回灌均已删除；provider worklist直接跨 typed DB读取 loader canonical snapshot并由 compiler session收敛，body activation与 executable epoch由当前 graph/source facts推导。loader graph 是 provider revision-keyed query product，loader/compiler typed DB 共享同一 QuerySession dependency arena，graph/membership/diagnostics、全部 module field roots、public/using projections及 executable value-ref item index均已成为 tracked query facts，Driver 不再物化或传递 `LoadedProgram`，symbol/target/runtime 也只从 loader fact owner 读取。下一步收敛 reachability scheduler并关闭 Phase D；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
+ID/arena 专项与 Phase D 均已关闭。loader graph 是 provider revision-keyed query product，loader/compiler typed DB 共享同一 QuerySession dependency arena；graph/membership/diagnostics、全部 module field roots、public/using projections、executable value-ref与 reachability产品均为 tracked/cache-owned facts。Driver 不再物化或传递 `LoadedProgram`，也不实现语义 fixed point；provider registration只推进 loader canonical facts，compiler session transaction串行消费 provider/body/reachability worklist。当前临界路径转入 Phase E：先让 `QuerySession` 正式拥有持久 executor和资源预算，再迁移 `get_many` 临时 scoped workers；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
 
 ## 1. 范围、版本与方法
 
@@ -1195,7 +1195,7 @@ Acceptance：所有调用点使用同一查询入口；cache hit 不深拷贝；
 2. loader 与 compiler 共享 revision/dependency recorder，或成为一个 session DB 的不同 provider group。
 3. 实现 stable fingerprint 与完整 red-green validation。
 4. 把 driver provider-demand loop 转成 dependency-driven worklist。
-5. 把 reachability/foreign-ref worklist接入统一 scheduler 与 key dedup。
+5. 把跨 query/revision 的 reachability lifecycle接入 session scheduler 与 key dedup；单个 backend query 调用栈内的纯局部 foreign-ref traversal按 Phase F/G 的 per-item/CGU 粒度继续拆分，不形成第二份 fact graph。
 6. 删除 `module_graph_state` 摘要式同步协议和 eager-clear 旧图。
 
 Acceptance：一次冷 check 不再出现 driver 层重复 load/update round；provider 新增只注册 typed fact/provider，不修改 driver fixed point；green node 依赖 fingerprint 全部匹配；随机修改下 incremental 与 clean recomputation 等价。
@@ -1264,10 +1264,12 @@ Acceptance：一次冷 check 不再出现 driver 层重复 load/update round；p
 
 进展（2026-07-21）：D-32 删除 Driver 最后的 provider fixed point。`CompilerDatabase::{check_program,entry_check_program,codegen_program}` 现在在 query root返回后向 loader canonical fact owner注册本轮 demands；graph growth通过 shared-session dependency invalidation推进 compiler-owned worklist，resolved-body-sensitive growth继续执行 executable discovery，纯 graph growth直接进入 final root。Driver `compile_with` 只建立/更新 session、调用一次目标入口并上报计数，不再包含 loop、pending DTO、graph update match或 provider semantic policy；LLVM test harness的复制循环也删除。loader 三态 `ProviderDemandUpdate` 收敛为只表达 graph 是否增长及是否影响 resolved body facts的 `ProviderGraphUpdate`，不再把 revision/delta重新暴露给编排层；immutable `LoadedProgram` 明确是单次 compilation fact provider，不伪装可变 loader。回归证明 compiler-owned worklist真实推进多轮，而 `entry_checked_program` 最终只执行一次；`ProviderDemandUpdate`、`ProviderGraphWorkItem`、`pending_update`与公开手工 executable-demand入口在 production 调用面归零。严格 workspace/all-targets/all-features Clippy 无 warning；compiler-query 133、loader-query 47、Driver 485、LLVM 177 项通过。Phase D 仍约 99%，整份 roadmap 加权约 59%；下一切片删除 reachability 的 `take/store` mutable session协议与 query 外 checked-module payload生命周期，再按 Acceptance 审计关闭 Phase D。
 
+进展（2026-07-21）：D-33 关闭 Phase D。两个 executable product现在通过单一 session transaction串行消费同一 `ExecutableFactSession`：transaction开始时在 scheduler guard下取得状态，正常完成后无论 provider-demand还是 checked-modules分支都归还 applied revision/worklists；并发不同 query key不再同时取得空 session、相互覆盖，query panic则留下安全 default并允许后续 transaction恢复。`take_executable_fact_session`/`store_executable_fact_session` 已删除。`ExecutableCheckedModuleSetId`、context side store、materialize/clear API和 test-only `ExecutableCheckedModulesQuery`包装也全部删除；唯一 production `ExecutableCheckedModulesQuery` 直接以 cache-owned `Vec<Arc<CheckedModule>>` 保存 payload，query name不再保留旧 set身份。回归锁定并发 executable products 后 session revision仍存在、revision invalidation更换 cache allocation、稳定 input保持同一 allocation。新增确定性伪随机差分测试，以 24 轮 source revision在同一增量 session和每轮全新 clean session间比较完整 diagnostics及 module defs/body/semantic/provider摘要，全部等价。Acceptance审计同时确认 backend `ReachabilityWorklist` 只存在于单个 `BackendLoweringQuery`调用栈，不保存跨 revision state或第二份 dependency truth；其 per-item/CGU task化明确留在 Phase F/G，持久 worker/backpressure属于 Phase E。严格 workspace/all-targets/all-features Clippy 无 warning，无参数 `cargo test --workspace` 全部通过；compiler-query 135、loader-query 47、Driver 485、LLVM 177 项通过，CLI commands 50 项自然并发 484.51 秒完成，全部 emit-exe/integration与 doc tests通过。Phase D 至此 100%，整份 roadmap 加权约 60%；下一阶段进入 Phase E，先建立 session-owned persistent executor与资源预算，再删除 `get_many` 的临时 scoped worker。
+
 ### 阶段 E（P0/P1）：持久 executor 与测试资源模型
 
 1. session 创建 executor，接入 Cargo jobserver（可先用固定 worker fallback）。
-2. `query_many` 改为提交 task，不创建线程。
+2. `get_many` 与其他 fan-out改为提交 task，不临时创建 scoped worker。
 3. body check、program signature fan-out 和 reachability scan 接入 executor。
 4. LLVM 重任务加入 memory semaphore/backpressure。
 5. test harness 只控制 session 数，移除 compiler API 内 `cfg(test)` permit。

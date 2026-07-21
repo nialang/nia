@@ -142,7 +142,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         DeclarationTypeLoweringQuery,
         DeclarationTypeResolutionQuery,
         EntryCheckedProgramQuery,
-        ExecutableCheckedModuleSetQuery,
+        ExecutableCheckedModulesQuery,
         ExecutableFactEpochQuery,
         ExecutableProviderDemandsQuery,
         ExecutableRootModulesQuery,
@@ -236,11 +236,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         VisibleTraitImplsQuery,
     );
     #[cfg(test)]
-    register!(
-        BackendLoweringQuery,
-        ExecutableCheckedModulesQuery,
-        MonomorphizationQuery,
-    );
+    register!(BackendLoweringQuery, MonomorphizationQuery,);
     registry
 }
 
@@ -488,13 +484,6 @@ impl CompilerDatabase {
         if optimization_changed {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
         }
-        if invalidation
-            .invalidated
-            .iter()
-            .any(|frame| frame.name == "executable_checked_module_set")
-        {
-            self.db.context().clear_executable_checked_module_sets();
-        }
         invalidation
     }
 }
@@ -562,7 +551,6 @@ fn compiler_database_with_providers_in_session(
     }
     let node_store = loader_facts.node_store();
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
-    let executable_checked_modules = Arc::new(RwLock::new(ExecutableCheckedModuleStore::default()));
     let executable_fact_session = Arc::new(std::sync::Mutex::new(ExecutableFactSession::default()));
     let type_store = Arc::new(nia_ty::TypeStore::new());
     let db = QueryDb::new_registered_with_timings_in_session(
@@ -570,8 +558,8 @@ fn compiler_database_with_providers_in_session(
             inputs: inputs.clone(),
             loader_facts,
             providers,
-            executable_checked_modules,
             executable_fact_session,
+            executable_fact_scheduler: std::sync::Mutex::new(()),
             type_store,
             node_store,
             provider_demand_rounds: std::sync::atomic::AtomicU64::new(0),
@@ -654,8 +642,8 @@ struct CompilerContext {
     inputs: Arc<RwLock<CompilerInputs>>,
     loader_facts: Arc<dyn crate::LoaderFactProvider>,
     providers: CompilerQueryProviders,
-    executable_checked_modules: Arc<RwLock<ExecutableCheckedModuleStore>>,
     executable_fact_session: Arc<std::sync::Mutex<ExecutableFactSession>>,
+    executable_fact_scheduler: std::sync::Mutex<()>,
     type_store: Arc<nia_ty::TypeStore>,
     node_store: nia_node_id::NodeStore,
     provider_demand_rounds: std::sync::atomic::AtomicU64,
@@ -697,26 +685,6 @@ fn resolve_stable_module_sequence(
 ) -> Vec<ModuleId> {
     let _graph = db.get(ModuleGraphQuery);
     db.context().resolve_stable_module_sequence(sequence)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExecutableCheckedModuleSetId(u64);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ExecutableCheckedModuleSet {
-    pub(super) id: ExecutableCheckedModuleSetId,
-    pub(super) module_ids: Vec<ModuleId>,
-}
-
-#[derive(Default)]
-struct ExecutableCheckedModuleStore {
-    next_id: u64,
-    sets: HashMap<ExecutableCheckedModuleSetId, ExecutableCheckedModuleSetData>,
-}
-
-struct ExecutableCheckedModuleSetData {
-    module_ids: Vec<ModuleId>,
-    modules: HashMap<ModuleId, Arc<CheckedModule>>,
 }
 
 #[derive(Debug, Clone)]
@@ -947,108 +915,6 @@ impl CompilerContext {
 
     fn node_store(&self) -> &nia_node_id::NodeStore {
         &self.node_store
-    }
-
-    fn take_executable_fact_session(&self) -> ExecutableFactSession {
-        std::mem::take(
-            &mut *self
-                .executable_fact_session
-                .lock()
-                .expect("executable fact session lock poisoned"),
-        )
-    }
-
-    fn store_executable_fact_session(&self, session: ExecutableFactSession) {
-        *self
-            .executable_fact_session
-            .lock()
-            .expect("executable fact session lock poisoned") = session;
-    }
-
-    fn store_executable_checked_modules(
-        &self,
-        modules: Vec<CheckedModule>,
-    ) -> ExecutableCheckedModuleSet {
-        let module_ids = modules.iter().map(|module| module.id).collect::<Vec<_>>();
-        let modules = modules
-            .into_iter()
-            .map(|module| (module.id, Arc::new(module)))
-            .collect::<HashMap<_, _>>();
-        let mut store = self
-            .executable_checked_modules
-            .write()
-            .expect("executable checked module store lock poisoned");
-        let id = ExecutableCheckedModuleSetId(store.next_id);
-        store.next_id += 1;
-        store.sets.insert(
-            id,
-            ExecutableCheckedModuleSetData {
-                module_ids: module_ids.clone(),
-                modules,
-            },
-        );
-        ExecutableCheckedModuleSet { id, module_ids }
-    }
-
-    fn executable_checked_modules(
-        &self,
-        set: &ExecutableCheckedModuleSet,
-    ) -> Vec<Arc<CheckedModule>> {
-        let store = self
-            .executable_checked_modules
-            .read()
-            .expect("executable checked module store lock poisoned");
-        let data = store.sets.get(&set.id).unwrap_or_else(|| {
-            panic!(
-                "Nia ICE: missing executable checked module set {:?}",
-                set.id
-            )
-        });
-        data.module_ids
-            .iter()
-            .map(|module_id| {
-                data.modules
-                    .get(module_id)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "Nia ICE: missing executable checked module {:?} in set {:?}",
-                            module_id, set.id
-                        )
-                    })
-                    .clone()
-            })
-            .collect()
-    }
-
-    fn executable_checked_module(
-        &self,
-        set: &ExecutableCheckedModuleSet,
-        module_id: ModuleId,
-    ) -> Arc<CheckedModule> {
-        let store = self
-            .executable_checked_modules
-            .read()
-            .expect("executable checked module store lock poisoned");
-        let data = store.sets.get(&set.id).unwrap_or_else(|| {
-            panic!(
-                "Nia ICE: missing executable checked module set {:?}",
-                set.id
-            )
-        });
-        Arc::clone(data.modules.get(&module_id).unwrap_or_else(|| {
-            panic!(
-                "Nia ICE: missing executable checked module {:?} in set {:?}",
-                module_id, set.id
-            )
-        }))
-    }
-
-    fn clear_executable_checked_module_sets(&self) {
-        let mut store = self
-            .executable_checked_modules
-            .write()
-            .expect("executable checked module store lock poisoned");
-        store.sets.clear();
     }
 
     fn stable_module_sequence(
@@ -2029,12 +1895,10 @@ mod tests {
                 inputs,
                 loader_facts,
                 providers: CompilerQueryProviders::default(),
-                executable_checked_modules: Arc::new(RwLock::new(
-                    ExecutableCheckedModuleStore::default(),
-                )),
                 executable_fact_session: Arc::new(std::sync::Mutex::new(
                     ExecutableFactSession::default(),
                 )),
+                executable_fact_scheduler: std::sync::Mutex::new(()),
                 type_store: Arc::new(nia_ty::TypeStore::new()),
                 node_store,
                 provider_demand_rounds: std::sync::atomic::AtomicU64::new(0),
@@ -2111,7 +1975,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 120);
+        assert_eq!(descriptors.len(), 119);
         assert!(
             !descriptors
                 .iter()
@@ -2761,14 +2625,22 @@ pub fn expensive_or_invalid() i32 {
         assert_eq!(std::mem::size_of::<ExecutableFactEpochQuery>(), 0);
 
         let _ = database.executable_provider_demands();
-        let _ = database.db.get(ExecutableCheckedModuleSetQuery);
+        let modules = database.db.get(ExecutableCheckedModulesQuery);
+        assert!(!modules.is_empty());
         assert_eq!(database.provider_fact_revision(), revision);
+        assert_eq!(
+            database
+                .db
+                .context()
+                .executable_fact_session
+                .lock()
+                .expect("executable fact session lock poisoned")
+                .applied_provider_fact_revision,
+            Some(revision)
+        );
 
         let dependencies = &database.query_trace().dependencies;
-        for product in [
-            "executable_provider_demands",
-            "executable_checked_module_set",
-        ] {
+        for product in ["executable_provider_demands", "executable_checked_modules"] {
             for worklist in ["body_activation_worklist", "provider_fact_worklist"] {
                 assert!(dependencies.iter().any(|dependency| {
                     dependency.from.name == product && dependency.to.name == worklist
@@ -2782,6 +2654,34 @@ pub fn expensive_or_invalid() i32 {
             dependency.from.name == "provider_fact_revision"
                 && dependency.to.name == "provider_fact_worklist"
         }));
+    }
+
+    #[test]
+    fn executable_products_serialize_the_shared_fact_session() {
+        let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() i32 { 0 }");
+        let mut program = fixture.program();
+        program.runtime = RuntimeModel::FreestandingExecutable;
+        let revision = program.provider_fact_revision;
+        let db = query_db(program);
+
+        let (_demands, modules) = std::thread::scope(|scope| {
+            let demands = scope.spawn(|| db.get(ExecutableProviderDemandsQuery));
+            let modules = scope.spawn(|| db.get(ExecutableCheckedModulesQuery));
+            (
+                demands.join().expect("provider demand query thread"),
+                modules.join().expect("checked modules query thread"),
+            )
+        });
+
+        assert!(!modules.is_empty());
+        assert_eq!(
+            db.context()
+                .executable_fact_session
+                .lock()
+                .expect("executable fact session lock poisoned")
+                .applied_provider_fact_revision,
+            Some(revision)
+        );
     }
 
     #[test]
@@ -2821,7 +2721,7 @@ pub fn expensive_or_invalid() i32 {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let database = fixture.database();
         let first_epoch = database.db.get(ExecutableFactEpochQuery);
-        let _ = database.db.get(ExecutableCheckedModuleSetQuery);
+        let _ = database.db.get(ExecutableCheckedModulesQuery);
         let _ = database.executable_provider_demands();
         let sentinel = crate::ProviderDemand {
             source_path: SourcePath::new("main.nia"),
@@ -2876,7 +2776,7 @@ pub fn expensive_or_invalid() i32 {
         program.provider_fact_revision = revision;
         let database = CompilerDatabase::new(CompileRequest::new(program));
         let _ = database.executable_provider_demands();
-        let first_set = database.db.get(ExecutableCheckedModuleSetQuery);
+        let first_set = database.db.get(ExecutableCheckedModulesQuery);
         assert_eq!(database.provider_fact_revision(), revision);
 
         let invalidation = database.replace_provider_facts(crate::ProviderFactSnapshot::new(
@@ -2894,7 +2794,7 @@ pub fn expensive_or_invalid() i32 {
             "provider_fact_revision",
             "provider_fact_worklist",
             "executable_provider_demands",
-            "executable_checked_module_set",
+            "executable_checked_modules",
         ] {
             assert!(invalidated.contains(&name), "{invalidated:?}");
         }
@@ -2911,15 +2811,9 @@ pub fn expensive_or_invalid() i32 {
             .expect("provider fact revision query trace");
         assert_eq!(revision_query.stats.validations, 1);
         assert_eq!(revision_query.stats.green_validations, 0);
-        let second_set = database.db.get(ExecutableCheckedModuleSetQuery);
-        assert_ne!(first_set.id, second_set.id);
-        assert!(
-            !database
-                .db
-                .context()
-                .executable_checked_modules(&second_set)
-                .is_empty()
-        );
+        let second_set = database.db.get(ExecutableCheckedModulesQuery);
+        assert!(!Arc::ptr_eq(&first_set, &second_set));
+        assert!(!second_set.is_empty());
     }
 
     #[test]
@@ -3094,7 +2988,7 @@ pub fn expensive_or_invalid() i32 {
         let mut program = fixture.program();
         program.provider_fact_revision = revision;
         let database = CompilerDatabase::new(CompileRequest::new(program));
-        let first_set = database.db.get(ExecutableCheckedModuleSetQuery);
+        let first_set = database.db.get(ExecutableCheckedModulesQuery);
         let _ = database.executable_provider_demands();
         let before_update = database.query_trace();
 
@@ -3107,20 +3001,14 @@ pub fn expensive_or_invalid() i32 {
             "{:?}",
             invalidation.invalidated
         );
-        let second_set = database.db.get(ExecutableCheckedModuleSetQuery);
+        let second_set = database.db.get(ExecutableCheckedModulesQuery);
         let _ = database.executable_provider_demands();
-        assert_eq!(first_set.id, second_set.id);
-        assert!(
-            !database
-                .db
-                .context()
-                .executable_checked_modules(&second_set)
-                .is_empty()
-        );
+        assert!(Arc::ptr_eq(&first_set, &second_set));
+        assert!(!second_set.is_empty());
         let after_reuse = database.query_trace();
         for name in [
             "body_activation_worklist",
-            "executable_checked_module_set",
+            "executable_checked_modules",
             "executable_fact_epoch",
             "executable_provider_demands",
             "provider_fact_worklist",
@@ -3569,6 +3457,65 @@ fn main() i32 {
         assert_ne!(first_i32, second_i32);
         assert_eq!(first_store.get(second_i32), None);
         assert_eq!(second_store.get(first_i32), None);
+    }
+
+    #[test]
+    fn randomized_incremental_checks_match_clean_recomputation() {
+        #[derive(Debug, PartialEq)]
+        struct ObservableCheck {
+            diagnostics: Vec<ProgramDiagnostic>,
+            modules: Vec<(String, usize, usize, usize, usize)>,
+        }
+
+        fn observable(program: CheckedProgram) -> ObservableCheck {
+            ObservableCheck {
+                diagnostics: program.diagnostics,
+                modules: program
+                    .modules
+                    .iter()
+                    .map(|module| {
+                        (
+                            module.path.as_str().to_owned(),
+                            module.defs.defs.iter().count(),
+                            module.body_ir.function_bodies.len(),
+                            module.semantic_facts.function_facts.len(),
+                            module.provider_demands.len(),
+                        )
+                    })
+                    .collect(),
+            }
+        }
+
+        let sources = [
+            "fn main() i32 { 0 }",
+            "fn main() i32 { 1 }",
+            "fn helper() i32 { 2 } fn main() i32 { helper() }",
+            "struct Value { field: i32 } fn main() i32 { let value = Value { field: 3 }; value.field }",
+            "fn main() i32 { true }",
+            "fn main() i32 { let value: i32 = 4; value }",
+            "const answer: i32 = 5; fn main() i32 { answer }",
+            "fn main() i32 { missing() }",
+        ];
+        let mut fixture = LoadedProgramFixture::new("main.nia", sources[0]);
+        let module_id = fixture.entry_id();
+        let incremental = fixture.database();
+        let mut random = 0x9e37_79b9_u32;
+
+        for revision in 1..=24_u64 {
+            random = random.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let source = sources[(random as usize) % sources.len()];
+            fixture.update_module_source(module_id, source, SourceRevision(revision));
+            incremental.update(CompileRequest::new(fixture.program()));
+            let incremental_output = observable(incremental.check_program());
+
+            let clean_fixture = LoadedProgramFixture::new("main.nia", source);
+            let clean_output = observable(clean_fixture.database().check_program());
+
+            assert_eq!(
+                incremental_output, clean_output,
+                "incremental/clean mismatch at revision {revision} for `{source}`"
+            );
+        }
     }
 
     #[test]
@@ -5221,16 +5168,16 @@ extend Used {
         let trace = db.query_trace();
 
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_module_set"
+            dependency.from.name == "executable_checked_modules"
                 && dependency.to.name == "program_executable_reachability_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_module_set"
+            dependency.from.name == "executable_checked_modules"
                 && dependency.to.name == "signature_item_signatures"
         }));
         assert!(!depends_on_body_signature_query(
             &trace,
-            "executable_checked_module_set"
+            "executable_checked_modules"
         ));
     }
 
@@ -5304,19 +5251,19 @@ extend Used {
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_module_set"
+            dependency.from.name == "executable_checked_modules"
                 && dependency.to.name == "extension_trait_impls_for_trait"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_module_set"
+            dependency.from.name == "executable_checked_modules"
                 && dependency.to.name == "program_trait_solving_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_module_set"
+            dependency.from.name == "executable_checked_modules"
                 && dependency.to.name == "extension_provider_module_facts"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_module_set"
+            dependency.from.name == "executable_checked_modules"
                 && dependency.to.name == "extension_method_index"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -5346,7 +5293,7 @@ extend Used {
         );
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "entry_checked_program"
-                && dependency.to.name == "executable_checked_module_set"
+                && dependency.to.name == "executable_checked_modules"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "entry_checked_program"
@@ -5381,7 +5328,7 @@ extend Used {
         );
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "entry_checked_program"
-                && dependency.to.name == "executable_checked_module_set"
+                && dependency.to.name == "executable_checked_modules"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "entry_checked_program"
@@ -6063,7 +6010,7 @@ extend i32 : ParseFrom[Input] {
 
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
-                && dependency.to.name == "executable_checked_module_set"
+                && dependency.to.name == "executable_checked_modules"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
@@ -6196,7 +6143,7 @@ fn main() i32 {
                 && dependency.to.name == "program_trait_solving_signatures"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_module_set"
+            dependency.from.name == "executable_checked_modules"
                 && matches!(dependency.to.name, "const" | "const_enum_values")
         }));
     }

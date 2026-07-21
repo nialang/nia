@@ -2,12 +2,12 @@
 use super::*;
 use nia_symbol::known;
 
-pub(in crate::query) fn provide_executable_checked_module_set(
+pub(in crate::query) fn provide_executable_checked_modules(
     db: &QueryDb<CompilerContext>,
-) -> ExecutableCheckedModuleSet {
+) -> Vec<Arc<CheckedModule>> {
     time_provider(
         db.context().timings(),
-        "executable_checked_module_set",
+        "executable_checked_modules",
         || match executable_check(db, ExecutableCheckProduct::Modules) {
             ExecutableCheckOutput::Modules(set) => set,
             ExecutableCheckOutput::ProviderDemands(_) => unreachable!(),
@@ -36,17 +36,7 @@ enum ExecutableCheckProduct {
 
 enum ExecutableCheckOutput {
     ProviderDemands(Vec<crate::ProviderDemand>),
-    Modules(ExecutableCheckedModuleSet),
-}
-
-#[cfg(test)]
-pub(in crate::query) fn provide_executable_checked_modules(
-    db: &QueryDb<CompilerContext>,
-) -> Vec<Arc<CheckedModule>> {
-    time_provider(db.context().timings(), "executable_checked_modules", || {
-        let set = db.get(ExecutableCheckedModuleSetQuery);
-        db.context().executable_checked_modules(&set)
-    })
+    Modules(Vec<Arc<CheckedModule>>),
 }
 
 struct QueryExecutableExtensionLookup<'a> {
@@ -241,12 +231,36 @@ fn executable_check(
     db: &QueryDb<CompilerContext>,
     product: ExecutableCheckProduct,
 ) -> ExecutableCheckOutput {
+    let _scheduler = db
+        .context()
+        .executable_fact_scheduler
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let session = std::mem::take(
+        &mut *db
+            .context()
+            .executable_fact_session
+            .lock()
+            .expect("executable fact session lock poisoned"),
+    );
+    let (output, session) = executable_check_in_session(db, product, session);
+    *db.context()
+        .executable_fact_session
+        .lock()
+        .expect("executable fact session lock poisoned") = session;
+    output
+}
+
+fn executable_check_in_session(
+    db: &QueryDb<CompilerContext>,
+    product: ExecutableCheckProduct,
+    mut session: ExecutableFactSession,
+) -> (ExecutableCheckOutput, ExecutableFactSession) {
     let provider_fact_worklist = db.get(ProviderFactWorklistQuery);
     let body_activation_worklist = db.get(BodyActivationWorklistQuery);
     let executable_fact_epoch = db.get(ExecutableFactEpochQuery);
     let parse_ok = resolve_stable_module_sequence(db, &db.get(SemanticModuleIdsQuery));
     let (entry_module, runtime_root_modules) = db.get(ExecutableRootModulesQuery).as_ref().clone();
-    let mut session = db.context().take_executable_fact_session();
     session.enter_epoch(&executable_fact_epoch);
     session.apply_body_activation_worklist(&body_activation_worklist);
     session.apply_provider_fact_worklist(&provider_fact_worklist, &db.context().type_store);
@@ -669,8 +683,9 @@ fn executable_check(
             .flat_map(|state| state.provider_demands.iter().cloned())
             .collect::<HashSet<_>>();
         demands.extend(executable_module_body_demands(db, &reachability_by_module));
-        db.context()
-            .store_executable_fact_session(ExecutableFactSession {
+        return (
+            ExecutableCheckOutput::ProviderDemands(demands.into_iter().collect()),
+            ExecutableFactSession {
                 epoch,
                 modules: fact_by_id,
                 reachability: reachability_state,
@@ -678,10 +693,10 @@ fn executable_check(
                 applied_provider_fact_revision,
                 applied_provider_changes,
                 applied_body_activations,
-            });
-        return ExecutableCheckOutput::ProviderDemands(demands.into_iter().collect());
+            },
+        );
     }
-    let reachability = reachability_state.into_reachability();
+    let reachability = reachability_state.reachability().clone();
     let reachability_by_module = reachability.by_module();
     if debug_executable_reachability_enabled() {
         eprintln!(
@@ -857,9 +872,18 @@ fn executable_check(
     if let Some(module) = codegen_modules.first_mut() {
         Arc::make_mut(&mut module.provider_demands).extend(module_body_demands);
     }
-    ExecutableCheckOutput::Modules(
-        db.context()
-            .store_executable_checked_modules(codegen_modules),
+    drop(executable_program_layouts);
+    (
+        ExecutableCheckOutput::Modules(codegen_modules.into_iter().map(Arc::new).collect()),
+        ExecutableFactSession {
+            epoch,
+            modules: fact_by_id,
+            reachability: reachability_state,
+            caches,
+            applied_provider_fact_revision,
+            applied_provider_changes,
+            applied_body_activations,
+        },
     )
 }
 

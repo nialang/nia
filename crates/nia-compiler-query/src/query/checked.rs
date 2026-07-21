@@ -38,17 +38,17 @@ impl QueryKey<CompilerContext> for CheckedModuleIdsQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ExecutableCheckedModuleSetQuery;
+pub(super) struct ExecutableCheckedModulesQuery;
 
-impl QueryKey<CompilerContext> for ExecutableCheckedModuleSetQuery {
-    type Value = ExecutableCheckedModuleSet;
+impl QueryKey<CompilerContext> for ExecutableCheckedModulesQuery {
+    type Value = Vec<Arc<CheckedModule>>;
 
     fn name() -> &'static str {
-        "executable_checked_module_set"
+        "executable_checked_modules"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        provide_executable_checked_module_set(db)
+        provide_executable_checked_modules(db)
     }
 }
 
@@ -154,22 +154,5 @@ impl QueryKey<CompilerContext> for ExecutableValueRefEdgesQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         provide_executable_value_ref_edges(db, self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg(test)]
-pub(super) struct ExecutableCheckedModulesQuery;
-
-#[cfg(test)]
-impl QueryKey<CompilerContext> for ExecutableCheckedModulesQuery {
-    type Value = Vec<Arc<CheckedModule>>;
-
-    fn name() -> &'static str {
-        "executable_checked_modules"
-    }
-
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        provide_executable_checked_modules(db)
     }
 }

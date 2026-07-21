@@ -64,19 +64,13 @@ pub(super) fn monomorphization_for_checked_modules(
 pub(super) fn checked_modules_for_codegen(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<Arc<CheckedModule>> {
-    materialize_executable_checked_modules(
-        db,
-        db.get(ExecutableCheckedModuleSetQuery).as_ref().clone(),
-    )
+    db.get(ExecutableCheckedModulesQuery).as_ref().clone()
 }
 
 pub(super) fn checked_modules_for_diagnostics(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<Arc<CheckedModule>> {
-    materialize_executable_checked_modules(
-        db,
-        db.get(ExecutableCheckedModuleSetQuery).as_ref().clone(),
-    )
+    db.get(ExecutableCheckedModulesQuery).as_ref().clone()
 }
 
 pub(super) fn materialize_checked_modules(
@@ -84,13 +78,6 @@ pub(super) fn materialize_checked_modules(
     module_ids: Vec<ModuleId>,
 ) -> Vec<Arc<CheckedModule>> {
     db.get_many(module_ids.into_iter().map(CheckedModuleQuery))
-}
-
-fn materialize_executable_checked_modules(
-    db: &QueryDb<CompilerContext>,
-    set: ExecutableCheckedModuleSet,
-) -> Vec<Arc<CheckedModule>> {
-    db.context().executable_checked_modules(&set)
 }
 
 fn function_bodies_from_checked_modules(
@@ -114,8 +101,12 @@ pub(in crate::query) fn provide_lowered_function_bodies(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> LoweredFunctionBodies {
-    let set = db.get(ExecutableCheckedModuleSetQuery);
-    let module = db.context().executable_checked_module(&set, module_id);
+    let set = db.get(ExecutableCheckedModulesQuery);
+    let module = set
+        .iter()
+        .find(|module| module.id == module_id)
+        .cloned()
+        .unwrap_or_else(|| panic!("Nia ICE: missing executable checked module {module_id:?}"));
     let lowered = nia_function_lower::lower_function_bodies(
         module.id,
         module.body_ir.function_bodies.iter(),
