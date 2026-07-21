@@ -473,6 +473,8 @@ pub(super) struct ModuleSourceVersionQuery(pub(super) ModuleId);
 impl QueryKey<CompilerContext> for ModuleSourceVersionQuery {
     type Value = SourceVersion;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
     fn name() -> &'static str {
         "module_source_version"
     }
@@ -483,6 +485,13 @@ impl QueryKey<CompilerContext> for ModuleSourceVersionQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.context().module_source_version(db, self.0)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(source_version_fingerprint(
+            "nia.compiler.module-source-version.v1",
+            *value,
+        ))
     }
 }
 
