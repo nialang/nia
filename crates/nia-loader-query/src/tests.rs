@@ -2,7 +2,8 @@ use super::*;
 use crate::provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use crate::queries::{
     LoadedModuleQuery, ModuleDeclarationsQuery, ModuleFacadeFactsQuery, ParsedModuleQuery,
-    ProviderSummaryQuery, SourceTextQuery, SyntaxModuleQuery, provider_summary_query,
+    ProviderSummaryQuery, SourceStatus, SourceStatusQuery, SourceTextQuery, SyntaxModuleQuery,
+    provider_summary_query,
 };
 use nia_compiler_query::{ProviderDemand, RuntimeModel, has_error_diagnostics};
 use nia_imports::{ModuleGraph, ModuleNode};
@@ -10,6 +11,7 @@ use nia_item_tree::ItemTreeNodeKind;
 use nia_symbol::{SymbolId, stable_hash};
 use nia_symbol_table::SymbolTable;
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicUsize, Ordering},
@@ -25,6 +27,7 @@ fn sym(text: &str) -> SymbolId {
 fn source_frontend_query_keys_are_compact_handles() {
     assert_eq!(std::mem::size_of::<ProviderDemandsQuery>(), 0);
     assert_eq!(std::mem::size_of::<SourceTextQuery>(), 4);
+    assert_eq!(std::mem::size_of::<SourceStatusQuery>(), 4);
     assert_eq!(std::mem::size_of::<LoadedModuleQuery>(), 4);
     assert_eq!(std::mem::size_of::<ParsedModuleQuery>(), 16);
     assert_eq!(std::mem::size_of::<SyntaxModuleQuery>(), 16);
@@ -60,18 +63,44 @@ fn registered_query_db(context: LoaderContext) -> QueryDb<LoaderContext> {
 fn loader_query_registry_covers_all_declared_query_contracts() {
     let descriptors = crate::loader_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 11);
+    assert_eq!(descriptors.len(), 12);
     assert!(
         descriptors
             .windows(2)
             .all(|pair| pair[0].name < pair[1].name)
     );
     assert!(descriptors.iter().all(|descriptor| {
+        let expected_fingerprint = if descriptor.name == "source_status" {
+            nia_query::QueryFingerprintPolicy::StableValue
+        } else {
+            nia_query::QueryFingerprintPolicy::None
+        };
         descriptor.context_type == std::any::type_name::<LoaderContext>()
             && descriptor.provider == nia_query::QueryProviderPolicy::KeyExecute
-            && descriptor.fingerprint == nia_query::QueryFingerprintPolicy::None
+            && descriptor.fingerprint == expected_fingerprint
             && descriptor.storage == nia_query::QueryStoragePolicy::CacheOwnedArc
     }));
+}
+
+#[test]
+fn source_status_tracks_missing_and_present_revisions() {
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let source_id = sources.id_for_path(&main);
+    let db = registered_query_db(test_loader_context(
+        main.clone(),
+        ModuleMap::default(),
+        sources.clone(),
+    ));
+
+    let missing = db.get(SourceStatusQuery(source_id));
+    assert_eq!(*missing, SourceStatus::Missing);
+    let file = sources.set_source(main, "fn main() i32 { 0 }");
+    db.invalidate(SourceTextQuery(source_id));
+    let present = db.get(SourceStatusQuery(source_id));
+
+    assert!(!Arc::ptr_eq(&missing, &present));
+    assert_eq!(*present, SourceStatus::Present(file.version()));
 }
 
 fn assert_no_error_diagnostics(program: &nia_compiler_query::LoadedProgram) {
@@ -113,6 +142,36 @@ fn query_loader_reports_missing_source() {
             .diagnostics
             .iter()
             .any(|diagnostic| { diagnostic.diagnostic.summary.contains("failed to read") })
+    );
+}
+
+#[test]
+fn source_existence_change_rebuilds_missing_module_graph() {
+    let root = temp_dir("source_existence_change_rebuilds_missing_module_graph");
+    let main = root.join("main.nia");
+    let defs = root.join("defs.nia");
+    write(&main, "module defs;");
+    let database = LoaderDatabase::new(LoadRequest::new(main.to_string_lossy().into_owned()));
+
+    let missing = database.load_program();
+    assert!(has_error_diagnostics(&missing.diagnostics));
+    let missing_entry = missing.graph.entry();
+    write(&defs, "pub fn value() i32 { 1 }");
+
+    database.invalidate_source(defs.to_string_lossy().into_owned());
+    let present = database.load_program();
+
+    assert_no_error_diagnostics(&present);
+    assert_ne!(present.graph.entry(), missing_entry);
+    assert_module_loaded(&present, defs.to_string_lossy().as_ref());
+    let defs_module = present
+        .modules
+        .iter()
+        .find(|module| module.path.as_str() == defs.to_string_lossy())
+        .expect("present defs module");
+    assert_eq!(
+        defs_module.source_version.revision,
+        nia_source::SourceRevision::INITIAL
     );
 }
 
@@ -1166,6 +1225,9 @@ fn query_trace_records_source_frontend_dependencies() {
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "module_declarations" && dependency.to.name == "parsed_module"
     }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "module_graph" && dependency.to.name == "source_status"
+    }));
 }
 
 #[test]
@@ -1393,6 +1455,7 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
     assert_no_error_diagnostics(&first);
     assert_module_loaded(&first, "main.nia");
     assert_module_not_loaded(&first, "defs.nia");
+    let first_entry = first.graph.entry();
 
     let source_id = sources.id_for_path(&main);
     sources.set_source(main, "module defs;");
@@ -1400,12 +1463,59 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
 
     let second = db.get(LoadedProgramQuery);
     assert_no_error_diagnostics(&second);
+    assert_ne!(second.graph.entry(), first_entry);
     assert!(
         second
             .modules
             .iter()
             .any(|module| module.path.as_str() == "defs.nia")
     );
+}
+
+#[test]
+fn loader_source_update_replaces_graph_only_at_query_boundary() {
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    sources.set_source(main.clone(), "");
+    sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
+    let database = LoaderDatabase::new(LoadRequest::new(main.as_str()).with_sources(sources));
+    let first = database.load_program();
+    let cached_before_update = database
+        .db
+        .context()
+        .graph_state
+        .read()
+        .expect("loader graph state lock poisoned")
+        .graph
+        .clone()
+        .expect("cached module graph");
+    assert!(cached_before_update.ptr_eq(&first.graph));
+
+    database.set_source(main.as_str(), "module defs;");
+
+    let cached_after_update = database
+        .db
+        .context()
+        .graph_state
+        .read()
+        .expect("loader graph state lock poisoned")
+        .graph
+        .clone()
+        .expect("old graph remains until query execution");
+    assert!(cached_after_update.ptr_eq(&first.graph));
+    let second = database.load_program();
+    assert_ne!(second.graph.entry(), first.graph.entry());
+    assert_module_loaded(&second, "defs.nia");
+    let cached_after_query = database
+        .db
+        .context()
+        .graph_state
+        .read()
+        .expect("loader graph state lock poisoned")
+        .graph
+        .clone()
+        .expect("replacement module graph");
+    assert!(cached_after_query.ptr_eq(&second.graph));
 }
 
 #[test]
