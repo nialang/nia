@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ModuleGraphQuery;
 
+use crate::provider_facts::ProviderDemandsQuery;
 use crate::provider_loading::{
     add_public_reexport_source_module, module_defines_extensions, process_provider_request,
     process_reexport_provider_request,
@@ -26,12 +27,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let provider_demands = db
-            .context()
-            .provider_demands
-            .read()
-            .expect("loader provider demand lock poisoned")
-            .clone();
+        let provider_demands = db.get(ProviderDemandsQuery);
         let (mut seed, mut applied_provider_demands, source_versions) = {
             let state = db
                 .context()
@@ -145,7 +141,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             .write()
             .expect("loader graph state lock poisoned");
         state.graph = Some(snapshot.clone());
-        state.applied_provider_demands = provider_demands;
+        state.applied_provider_demands = provider_demands.as_ref().clone();
         state.source_versions = source_versions;
         snapshot
     }
