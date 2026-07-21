@@ -83,7 +83,6 @@ fn codegen_program_request(
     request: nia_loader_query::LoadRequest,
     optimization: NiaOptimizationLevel,
 ) -> nia_compiler_query::CodegenProgram {
-    let _permit = nia_test_support::compiler_permit();
     let loader = nia_loader_query::LoaderDatabase::new(request);
     let compiler = nia_compiler_query::CompilerDatabase::new(
         nia_compiler_query::CompileRequest::new(loader.clone()).with_optimization(optimization),
@@ -95,7 +94,6 @@ pub(super) fn emit_llvm_ir(
     program: &BackendProgram,
     type_store: &nia_ty::TypeStore,
 ) -> LlvmCodegenOutput {
-    let _permit = nia_test_support::compiler_permit();
     crate::emit_llvm_ir(program, type_store)
 }
 
@@ -104,7 +102,6 @@ pub(super) fn emit_llvm_ir_with_options(
     type_store: &nia_ty::TypeStore,
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
-    let _permit = nia_test_support::compiler_permit();
     crate::emit_llvm_ir_with_options(program, type_store, options)
 }
 
@@ -113,7 +110,6 @@ pub(super) fn emit_native_objects(
     type_store: &nia_ty::TypeStore,
     options: LlvmCodegenOptions,
 ) -> LlvmObjectOutput {
-    let _permit = nia_test_support::compiler_permit();
     crate::emit_native_objects(program, type_store, options)
 }
 

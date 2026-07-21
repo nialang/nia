@@ -639,7 +639,17 @@ and permits one task. While another LLVM task is active, low currently
 available memory applies backpressure until that task releases its RAII permit;
 one task can always proceed. Nested LLVM work on the same thread reuses its
 permit. Production scheduling and the outer test-session pool read effective
-memory limits and pressure from the same resource probe implementation.
+memory limits and pressure from the same resource probe implementation. Unit
+tests do not acquire a global compiler permit, and compiler/LLVM public APIs
+have identical resource semantics in test and non-test builds. Integration
+harnesses may assign weight to a complete process or compilation session.
+
+Query value invalidation is revision-correct, but revision-keyed typed cache
+entries and slot identities are currently append-only for the session lifetime.
+They are not historical-reader capabilities: obsolete keys must be retired from
+typed lookup and the dependency graph after revision quiescence while external
+immutable value handles remain valid. Bounded long-lived-session retention and
+generation-safe retirement are the next query-lifecycle boundary.
 
 ## 5. Definitions And Modules
 
