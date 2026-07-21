@@ -27,8 +27,8 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let provider_demands = db.get(ProviderDemandsQuery);
-        let (mut seed, mut applied_provider_demands, source_versions) = {
+        let provider_facts = db.get(ProviderDemandsQuery);
+        let (mut seed, mut applied_provider_revision, source_versions) = {
             let state = db
                 .context()
                 .graph_state
@@ -36,7 +36,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
                 .expect("loader graph state lock poisoned");
             (
                 state.graph.clone(),
-                state.applied_provider_demands.clone(),
+                state.applied_provider_revision,
                 state.source_versions.clone(),
             )
         };
@@ -45,12 +45,16 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             .is_some_and(|graph| graph_source_versions(db, graph) != source_versions)
         {
             seed = None;
-            applied_provider_demands.clear();
+            applied_provider_revision = Default::default();
         }
-        let new_provider_demands = provider_demands
-            .difference(&applied_provider_demands)
-            .cloned()
-            .collect::<Vec<_>>();
+        let new_provider_demands = if seed.is_some() {
+            provider_facts
+                .added_after(applied_provider_revision)
+                .cloned()
+                .collect::<Vec<_>>()
+        } else {
+            provider_facts.demands().cloned().collect::<Vec<_>>()
+        };
         let (mut graph, mut index) = match seed {
             Some(snapshot) => {
                 let mut graph = (*snapshot).clone();
@@ -141,7 +145,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             .write()
             .expect("loader graph state lock poisoned");
         state.graph = Some(snapshot.clone());
-        state.applied_provider_demands = provider_demands.as_ref().clone();
+        state.applied_provider_revision = provider_facts.revision();
         state.source_versions = source_versions;
         snapshot
     }
