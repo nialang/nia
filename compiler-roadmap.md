@@ -6,7 +6,7 @@
 >
 > 结论强度标记：**确认**表示可直接由当前源码或实测得到；**推断**表示有明确结构证据、但仍需专项 profiling 验证比例；**建议**表示目标架构判断
 
-## 当前执行状态（2026-07-20）
+## 当前执行状态（2026-07-21）
 
 本文件使用 `compiler-roadmap.md`，而不是 `plan.md` 或 `task.md`：它同时包含长期架构审查、目标模型、阶段路线图和滚动验证记录，不是一次维护任务，也不是执行完即可删除的短期计划。
 
@@ -18,16 +18,16 @@
 | B semantic context / 类型身份 | 100% | session-wide canonical `TypeStore`、全 pass canonical read/append、显式 roots、跨 revision slot 稳定与跨 session 隔离已完成；module view/log、origin、snapshot/checkout、recursive import 和旧 identity 类型均已删除。 |
 | C query value/storage | 100% | cache-owned `get/try_get/get_many`、无 `Value: Clone`、declarative registry 与 aggregate storage policy 已完成，owned runtime adapter 全部删除。 |
 | C 后 ID/arena 专项 | 100% | ID-0 query dep-node arena、ID-1 source/syntax identity、ID-2 graph/fixture 收口与 ID-3 owner/index/generation module handle 均完成；构造、fork、stale lookup 与 local-slot 边界已有守卫。 |
-| D 统一依赖图 | 约 28% | provider keys canonical/stable，loader 已有 fact-query 依赖边与 revisioned delta worklist；owner-aware fact revision 已贯穿 loaded program、driver work item、compile request/input，loader/compiler 开始共享 revision recorder，但 compiler 尚未执行完整 revision/change validation。 |
+| D 统一依赖图 | 约 52% | loader/provider update 已收敛为 revisioned typed worklist，compiler update 已由 cache-owned provider/body worklist 与 executable epoch 驱动；query slot 具备 stable value fingerprint，首批 input roots 已执行 red/green validation，但 derived-node potentially-outdated/依赖 fingerprint 验证与 loader/compiler 单一 session DB 尚未完成。 |
 | E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；legacy `query_many` 已删除，但 `get_many` 仍创建临时 scoped worker，持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
 | F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
 | G CGU / 异步 codegen / work products | 约 5% | 已有多 object 输出和 reuse 指标占位，但没有正式 CGU partition、codegen queue、frontend/LLVM overlap、CGU fingerprint 或 object work-product cache。 |
 | H 持久 frontend incremental | 约 0–5% | 只有局部 artifact cache 和进程内 query 复用，不具备 stable module/def key、序列化 dep graph 与持久 frontend product。 |
 | I 错误、诊断与工程重组 | 约 10% | 已删除一批旧 API 并强化部分诊断边界；panic-based query flow、diagnostic store、data-driven harness、测试 permit 和 crate/巨型文件重组均未系统推进。 |
 
-综合判断：**整份路线图按剩余工程复杂度加权约完成 37%，合理区间为 35%–40%；A–E 的 P0 基础约完成 53%–58%。** 已完成的是最先阻塞后续工作的 type identity、query storage 与 loader provider fact 基础；跨数据库统一 fact graph、executor、item/CGU 粒度和持久增量仍是独立的大型工程，不能按提交数量外推为“路线图已过半”。
+综合判断：**整份路线图按剩余工程复杂度加权约完成 43%，合理区间为 41%–45%；A–E 的 P0 基础约完成 61%–66%。** 已完成的是最先阻塞后续工作的 type identity、query storage、loader-owned provider update、typed compiler worklist 与首批 input fingerprint validation；derived query 完整 red-green、跨数据库统一 fact graph、executor、item/CGU 粒度和持久增量仍是独立的大型工程，不能按提交数量外推为“路线图已过半”。
 
-ID/arena 专项已关闭，最近的临界路径正式进入 Phase D 统一模块/provider 依赖图：driver 重复协议已删除，provider keys canonical/stable，loader graph 由 fact query + revisioned delta 驱动，owner-aware revision 也已贯穿 compiler input；下一步把 revision 纳入 compiler update validation/red-green 判断；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
+ID/arena 专项已关闭，当前临界路径继续推进 Phase D：driver 重复协议和 compiler fact-session update mutation 已删除，provider/body delta 与 executable reset 都由 typed query input 表达，首批稳定 fingerprint 已让内容相同的 input replacement 保持 green。下一步把 slot 状态从 eager transitive clear 扩展为 derived-node potentially-outdated + dependency fingerprint validation；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
 
 ## 1. 范围、版本与方法
 
@@ -1225,6 +1225,8 @@ Acceptance：一次冷 check 不再出现 driver 层重复 load/update round；p
 进展（2026-07-21）：D-13 将 graph body activation 接入第二条 cache-owned typed worklist。新增 0-byte `BodyActivationWorklistQuery` 作为第 118 项 compiler query contract；`CompilerInputs` 在同 graph/session 内累计 `process_used_paths: false→true` 的既有 module handles，连续 graph growth 尚未执行 query 时不丢 key，任何 executable fact full-reset 边界则清空 worklist。两个 executable 产品同时依赖 provider/body worklists，`ExecutableFactSession` 记录已消费 activation keys并只淘汰新激活 module 的旧 body/cache state。`CompilerInputDiff` 统一计算 `resets_executable_facts` 与 worklist 是否真实变化，仅在 payload 变化时 invalidates worklist root；旧 `retain_after_graph_growth` 与 `CompilerContext::retain_executable_facts_after_graph_growth` 已全仓删除，`invalidate_inputs` 不再执行任何 graph-growth retention。回归覆盖 registry、两条产品到双 worklist 的 dependency edges、连续两轮 activation 累积、worklist 传递失效与 session consumption recorder。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；loader-query 41、compiler-query 130、LLVM 177、driver 484 项通过，CLI commands 50 项自然并发 310.12 秒完成，全部集成与 doc tests 通过。Phase D 现约 43%，整份 roadmap 加权约 41%；下一切片引入 typed executable fact epoch/reset query，让 target/runtime/root/source/provider-reset 也在 executable query 消费边界切换 session，删除 `invalidate_inputs` 对 fact session 的最后一条直接 mutation，使 compiler update 收敛为纯 input swap + query invalidation。
 
 进展（2026-07-21）：D-14 以 typed `ExecutableFactEpoch` 关闭 compiler update 对 executable fact session 的直接 mutation。新增 0-byte `ExecutableFactEpochQuery` 作为第 119 项 query contract；compiler-local 8-byte epoch 只在 source/module executable inputs、provider reset、target/runtime 或 executable roots 变化时 checked-increment，普通 graph growth 与 timings update 保持原值。两个 executable 产品依赖 epoch input；`ExecutableFactSession::enter_epoch` 在 query 消费边界比较 recorder，不同 epoch 才原子替换整个旧 session，随后再消费 body/provider worklists。旧 `clear_executable_fact_session` 已全仓删除，`CompilerDatabase::update/invalidate_inputs` 现在只做 validated input swap 与 query invalidation，不再直接修改 executable fact payload。回归锁定 epoch/query footprint、双产品 dependency、reset 传递失效、update 后旧 session 暂存以及首次 query 时 epoch 切换并清除 sentinel facts。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；loader-query 41、compiler-query 131、LLVM 177、driver 484 项通过，CLI commands 50 项自然并发 311.38 秒完成，全部集成与 doc tests 通过。Phase D 现约 47%，整份 roadmap 加权约 42%；下一切片进入 stable fingerprint/red-green validation，先为 compiler input facts、worklists 与 epoch 建立确定性 fingerprint contract，再让 update 对内容相同的 input replacement 保持 green，而不是仅依赖手写字段 diff。
+
+进展（2026-07-21）：D-15 建立 stable value fingerprint 的第一条内核运行路径。`nia-query` 新增 16-byte typed `QueryFingerprint`、domain-separated deterministic builder 与 declarative `StableValue` policy；cache slot 在 provider 执行后保存 value fingerprint，`validate_input` 比较 replacement fingerprint，相同则保留 root、dependency edges 与全部 dependents，变化才沿既有 reverse graph 染红。compiler 的 provider worklist、body activation worklist 与 executable epoch 成为首批三项 stable input contract，`invalidate_inputs` 删除对应 revision/worklist 手写布尔分支并统一走 red/green validation；provider `HashSet` 先逐项 canonical fingerprint 后排序，body activation 则从 revision-local `ModuleId` recorder 改为 `StableModuleKey -> ModuleId` worklist并只编码 stable source identity，避免无序迭代和 owner/generation 污染指纹。回归覆盖 fingerprint 16-byte footprint/domain separation、registry policy、无序集合插入顺序独立、内容相同 input replacement 零失效且 executable 产品零重执行、provider payload 变化精准失效而不误伤 body worklist。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；nia-query 30、loader-query 41、compiler-query 132、LLVM 177、driver 484 项通过，CLI commands 50 项自然并发 321.48 秒完成，全部集成与 doc tests 通过。Phase D 现约 52%，整份 roadmap 加权约 43%；下一切片把 derived slot 从 eager clear 扩展为 potentially-outdated 状态，记录 dependency/value fingerprints并在 demand 时验证，先让少数稳定 derived facts 在上游 red 但结果未变时重新转 green，不把本切片的 input-root validation 虚报为完整 red-green。
 
 ### 阶段 E（P0/P1）：持久 executor 与测试资源模型
 

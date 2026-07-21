@@ -13,7 +13,7 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 #[cfg(test)]
 use nia_imports::ModuleGraph;
-use nia_imports::{ModuleGraphLookup, ModuleGraphSnapshot, ModuleNode};
+use nia_imports::{ModuleGraphLookup, ModuleGraphSnapshot, ModuleNode, StableModuleKey};
 use nia_item_signatures::{
     ItemSignatures, ProgramConstSignature, ProgramEnumSignature, ProgramFunctionSignature,
     ProgramGlobalSignature, ProgramStructSignature, ProgramTraitSignature,
@@ -38,7 +38,10 @@ use nia_public_surface::{
     TypeExposureIndex, compute_exported_public_surfaces_with_symbols,
     compute_using_scopes_from_surfaces_with_symbols,
 };
-use nia_query::{QueryDb, QueryError, QueryFrame, QueryKey, QueryTrace};
+use nia_query::{
+    QueryDb, QueryError, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy,
+    QueryFrame, QueryKey, QueryTrace,
+};
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_symbol::SymbolId;
@@ -423,7 +426,6 @@ impl CompilerDatabase {
     }
 
     fn invalidate_inputs(&self, diff: CompilerInputDiff) -> CompilerInvalidation {
-        let reset_executable_facts = diff.resets_executable_facts();
         let mut invalidation = CompilerInvalidation::default();
         if diff.graph_entry_changed {
             invalidation.extend(self.db.invalidate(ModuleGraphEntryQuery));
@@ -502,15 +504,21 @@ impl CompilerDatabase {
         if diff.runtime_changed {
             invalidation.extend(self.db.invalidate(CompilerRuntimeQuery));
         }
-        if diff.provider_fact_revision_changed {
-            invalidation.extend(self.db.invalidate(ProviderFactWorklistQuery));
-        }
-        if diff.body_activation_worklist_changed {
-            invalidation.extend(self.db.invalidate(BodyActivationWorklistQuery));
-        }
-        if reset_executable_facts {
-            invalidation.extend(self.db.invalidate(ExecutableFactEpochQuery));
-        }
+        let provider_worklist = self.db.context().provider_fact_worklist();
+        invalidation.extend(
+            self.db
+                .validate_input(ProviderFactWorklistQuery, &provider_worklist),
+        );
+        let body_activation_worklist = self.db.context().body_activation_worklist();
+        invalidation.extend(
+            self.db
+                .validate_input(BodyActivationWorklistQuery, &body_activation_worklist),
+        );
+        let executable_fact_epoch = self.db.context().executable_fact_epoch();
+        invalidation.extend(
+            self.db
+                .validate_input(ExecutableFactEpochQuery, &executable_fact_epoch),
+        );
         if diff.optimization_changed {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
         }
@@ -781,7 +789,7 @@ struct CompilerInputs {
     optimization: OptimizationPolicy,
     timings: TimingMode,
     provider_worklist: Arc<HashSet<crate::ProviderDemand>>,
-    body_activation_worklist: Arc<HashSet<ModuleId>>,
+    body_activation_worklist: Arc<HashMap<StableModuleKey, ModuleId>>,
     executable_fact_epoch: ExecutableFactEpoch,
 }
 
@@ -806,7 +814,75 @@ struct ProviderFactWorklist {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BodyActivationWorklist {
-    modules: Arc<HashSet<ModuleId>>,
+    modules: Arc<HashMap<StableModuleKey, ModuleId>>,
+}
+
+fn provider_fact_worklist_fingerprint(worklist: &ProviderFactWorklist) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.compiler.provider-fact-worklist.v1");
+    for part in worklist.revision.fingerprint_parts() {
+        builder.write_u64(part);
+    }
+    let mut changes = worklist
+        .changes
+        .iter()
+        .map(provider_demand_fingerprint)
+        .collect::<Vec<_>>();
+    changes.sort_unstable();
+    builder.write_u64(changes.len() as u64);
+    for change in changes {
+        builder.write_fingerprint(change);
+    }
+    builder.finish()
+}
+
+fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.compiler.provider-demand.v1");
+    builder.write_str(demand.source_path.as_str());
+    match &demand.request {
+        crate::ProviderRequest::Method {
+            target_type_name,
+            method_name,
+        } => {
+            builder.write_u8(0);
+            if let Some(target_type_name) = target_type_name {
+                builder.write_u8(1);
+                builder.write_u64(target_type_name.raw());
+            } else {
+                builder.write_u8(0);
+            }
+            builder.write_u64(method_name.raw());
+        }
+        crate::ProviderRequest::TraitImpl { trait_name } => {
+            builder.write_u8(1);
+            builder.write_u64(trait_name.raw());
+        }
+        crate::ProviderRequest::ModuleSemantic { module_path } => {
+            builder.write_u8(2);
+            builder.write_str(module_path.as_str());
+        }
+        crate::ProviderRequest::ModuleBody { module_path } => {
+            builder.write_u8(3);
+            builder.write_str(module_path.as_str());
+        }
+    }
+    builder.finish()
+}
+
+fn body_activation_worklist_fingerprint(worklist: &BodyActivationWorklist) -> QueryFingerprint {
+    let mut stable_modules = worklist.modules.keys().collect::<Vec<_>>();
+    stable_modules.sort_unstable();
+    let mut builder = QueryFingerprintBuilder::new("nia.compiler.body-activation-worklist.v1");
+    builder.write_u64(stable_modules.len() as u64);
+    for stable_module in stable_modules {
+        builder.write_str(stable_module.source_identity().normalized_path());
+    }
+    builder.finish()
+}
+
+fn executable_fact_epoch_fingerprint(epoch: ExecutableFactEpoch) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.compiler.executable-fact-epoch.v1");
+    builder.write_u64(epoch.0);
+    builder.finish()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -914,7 +990,7 @@ impl CompilerInputs {
             optimization: request.optimization.policy(),
             timings: request.timings,
             provider_worklist,
-            body_activation_worklist: Arc::new(HashSet::new()),
+            body_activation_worklist: Arc::new(HashMap::new()),
             executable_fact_epoch: ExecutableFactEpoch::default(),
         }
     }
@@ -943,8 +1019,18 @@ impl CompilerInputs {
             return;
         }
         let worklist = Arc::make_mut(&mut self.body_activation_worklist);
-        worklist.extend(previous.body_activation_worklist.iter().copied());
-        worklist.extend(diff.body_activated_modules.iter().copied());
+        worklist.extend(
+            previous
+                .body_activation_worklist
+                .iter()
+                .map(|(stable_key, module_id)| (stable_key.clone(), *module_id)),
+        );
+        for module_id in &diff.body_activated_modules {
+            let stable_key = self.graph.stable_key(*module_id).unwrap_or_else(|| {
+                panic!("Nia ICE: missing stable key for activated module {module_id:?}")
+            });
+            worklist.insert(stable_key.clone(), *module_id);
+        }
     }
 
     fn advance_executable_fact_epoch(&mut self, previous: &Self, diff: &CompilerInputDiff) {
@@ -1642,8 +1728,6 @@ struct CompilerInputDiff {
     changed_executable_value_ref_items: HashSet<GlobalDefId>,
     executable_roots_changed: bool,
     body_activated_modules: HashSet<ModuleId>,
-    body_activation_worklist_changed: bool,
-    provider_fact_revision_changed: bool,
     provider_facts_reset: bool,
     executable_fact_inputs_changed: bool,
     loaded_modules_changed: bool,
@@ -1681,16 +1765,6 @@ impl CompilerInputDiff {
             })
             .map(|node| node.id)
             .collect::<HashSet<_>>();
-        let resets_executable_facts = executable_fact_inputs_changed
-            || provider_facts_reset
-            || old.target != new.target
-            || old.runtime != new.runtime
-            || executable_roots_changed;
-        let body_activation_worklist_changed = if resets_executable_facts {
-            !old.body_activation_worklist.is_empty()
-        } else {
-            !body_activated_modules.is_empty()
-        };
         let (
             changed_public_surface_module_names,
             changed_public_surface_value_names,
@@ -1723,9 +1797,6 @@ impl CompilerInputDiff {
             changed_executable_value_ref_items: changed_executable_value_ref_items(old, new),
             executable_roots_changed,
             body_activated_modules,
-            body_activation_worklist_changed,
-            provider_fact_revision_changed: old.provider_fact_revision
-                != new.provider_fact_revision,
             provider_facts_reset,
             executable_fact_inputs_changed,
             loaded_modules_changed: loaded_module_ids(old) != loaded_module_ids(new)
@@ -2724,9 +2795,17 @@ mod tests {
         assert!(descriptors.iter().all(|descriptor| {
             descriptor.context_type == std::any::type_name::<CompilerContext>()
                 && descriptor.provider == nia_query::QueryProviderPolicy::KeyExecute
-                && descriptor.fingerprint == nia_query::QueryFingerprintPolicy::None
                 && descriptor.storage == nia_query::QueryStoragePolicy::CacheOwnedArc
         }));
+        for descriptor in descriptors {
+            let expected = match descriptor.name {
+                "body_activation_worklist" | "executable_fact_epoch" | "provider_fact_worklist" => {
+                    nia_query::QueryFingerprintPolicy::StableValue
+                }
+                _ => nia_query::QueryFingerprintPolicy::None,
+            };
+            assert_eq!(descriptor.fingerprint, expected, "{}", descriptor.name);
+        }
     }
 
     #[test]
@@ -3304,6 +3383,67 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
+    fn compiler_input_fact_fingerprints_are_deterministic_and_order_independent() {
+        let revision = crate::ProviderFactRevision::new_store().next();
+        let method = crate::ProviderDemand {
+            source_path: SourcePath::new("main.nia"),
+            request: crate::ProviderRequest::Method {
+                target_type_name: Some(sym("Thing")),
+                method_name: sym("run"),
+            },
+        };
+        let trait_impl = crate::ProviderDemand {
+            source_path: SourcePath::new("provider.nia"),
+            request: crate::ProviderRequest::TraitImpl {
+                trait_name: sym("Display"),
+            },
+        };
+        let first_provider = ProviderFactWorklist {
+            revision,
+            changes: Arc::new(HashSet::from([method.clone(), trait_impl.clone()])),
+        };
+        let mut reversed_changes = HashSet::new();
+        reversed_changes.insert(trait_impl);
+        reversed_changes.insert(method);
+        let second_provider = ProviderFactWorklist {
+            revision,
+            changes: Arc::new(reversed_changes),
+        };
+        assert_eq!(
+            provider_fact_worklist_fingerprint(&first_provider),
+            provider_fact_worklist_fingerprint(&second_provider)
+        );
+
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let entry = fixture.entry_id();
+        let stable_key = fixture
+            .graph
+            .stable_key(entry)
+            .expect("entry stable key")
+            .clone();
+        let first_body = BodyActivationWorklist {
+            modules: Arc::new(HashMap::from([(stable_key.clone(), entry)])),
+        };
+        let mut second_modules = HashMap::new();
+        second_modules.insert(stable_key, entry);
+        let second_body = BodyActivationWorklist {
+            modules: Arc::new(second_modules),
+        };
+        assert_eq!(
+            body_activation_worklist_fingerprint(&first_body),
+            body_activation_worklist_fingerprint(&second_body)
+        );
+        assert_eq!(
+            executable_fact_epoch_fingerprint(ExecutableFactEpoch::default()),
+            executable_fact_epoch_fingerprint(ExecutableFactEpoch::default())
+        );
+        assert_ne!(
+            executable_fact_epoch_fingerprint(ExecutableFactEpoch::default()),
+            executable_fact_epoch_fingerprint(ExecutableFactEpoch::default().next())
+        );
+    }
+
+    #[test]
     fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let database = fixture.database();
@@ -3392,6 +3532,10 @@ pub fn expensive_or_invalid() i32 {
         ] {
             assert!(invalidated.contains(&name), "{invalidated:?}");
         }
+        assert!(
+            !invalidated.contains(&"body_activation_worklist"),
+            "{invalidated:?}"
+        );
         assert_eq!(database.provider_fact_revision(), revision.next());
         let second_set = database.db.get(ExecutableCheckedModuleSetQuery);
         assert_ne!(first_set.id, second_set.id);
@@ -3503,7 +3647,24 @@ pub fn expensive_or_invalid() i32 {
         database.update(CompileRequest::new(fixture.program()));
 
         let worklist = database.db.get(BodyActivationWorklistQuery);
-        let expected = HashSet::from([first_module, second_module]);
+        let expected = HashMap::from([
+            (
+                fixture
+                    .graph
+                    .stable_key(first_module)
+                    .expect("first stable key")
+                    .clone(),
+                first_module,
+            ),
+            (
+                fixture
+                    .graph
+                    .stable_key(second_module)
+                    .expect("second stable key")
+                    .clone(),
+                second_module,
+            ),
+        ]);
         assert_eq!(worklist.modules.as_ref(), &expected);
 
         let _ = database.executable_provider_demands();
@@ -3513,17 +3674,22 @@ pub fn expensive_or_invalid() i32 {
             .executable_fact_session
             .lock()
             .expect("executable fact session lock poisoned");
-        assert_eq!(session.applied_body_activations, expected);
+        assert_eq!(
+            session.applied_body_activations,
+            expected.keys().cloned().collect()
+        );
     }
 
     #[test]
-    fn stable_provider_revision_keeps_executable_set_materializable() {
+    fn content_identical_input_replacement_keeps_executable_facts_green() {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let revision = crate::ProviderFactRevision::new_store();
         let database = CompilerDatabase::new(
             CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
         );
         let first_set = database.db.get(ExecutableCheckedModuleSetQuery);
+        let _ = database.executable_provider_demands();
+        let before_update = database.query_trace();
 
         let invalidation = database.update(
             CompileRequest::new(fixture.program())
@@ -3532,12 +3698,12 @@ pub fn expensive_or_invalid() i32 {
         );
 
         assert!(
-            !invalidation
-                .invalidated
-                .iter()
-                .any(|frame| frame.name == "executable_checked_module_set")
+            invalidation.invalidated.is_empty(),
+            "{:?}",
+            invalidation.invalidated
         );
         let second_set = database.db.get(ExecutableCheckedModuleSetQuery);
+        let _ = database.executable_provider_demands();
         assert_eq!(first_set.id, second_set.id);
         assert!(
             !database
@@ -3546,6 +3712,16 @@ pub fn expensive_or_invalid() i32 {
                 .executable_checked_modules(&second_set)
                 .is_empty()
         );
+        let after_reuse = database.query_trace();
+        for name in [
+            "body_activation_worklist",
+            "executable_checked_module_set",
+            "executable_fact_epoch",
+            "executable_provider_demands",
+            "provider_fact_worklist",
+        ] {
+            assert_query_executions_unchanged(&before_update, &after_reuse, name);
+        }
     }
 
     #[test]

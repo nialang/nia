@@ -77,7 +77,7 @@ pub(super) struct ExecutableFactSession {
     pub(super) caches: ExecutableCheckCaches,
     pub(super) applied_provider_fact_revision: Option<crate::ProviderFactRevision>,
     pub(super) applied_provider_changes: HashSet<ProviderDemand>,
-    pub(super) applied_body_activations: HashSet<ModuleId>,
+    pub(super) applied_body_activations: HashSet<nia_imports::StableModuleKey>,
 }
 
 impl ExecutableFactSession {
@@ -94,23 +94,32 @@ impl ExecutableFactSession {
     pub(super) fn apply_body_activation_worklist(&mut self, worklist: &BodyActivationWorklist) {
         let pending_activations = worklist
             .modules
-            .difference(&self.applied_body_activations)
-            .copied()
-            .collect::<HashSet<_>>();
+            .iter()
+            .filter(|(stable_key, _)| !self.applied_body_activations.contains(*stable_key))
+            .map(|(stable_key, module_id)| (stable_key.clone(), *module_id))
+            .collect::<Vec<_>>();
         if pending_activations.is_empty() {
             return;
         }
+        let pending_module_ids = pending_activations
+            .iter()
+            .map(|(_, module_id)| *module_id)
+            .collect::<HashSet<_>>();
         self.reachability = Default::default();
         let mut retained_modules = HashSet::new();
         self.modules.retain(|module_id, _| {
-            let retained = !pending_activations.contains(module_id);
+            let retained = !pending_module_ids.contains(module_id);
             if retained {
                 retained_modules.insert(*module_id);
             }
             retained
         });
         self.caches.retain_modules(&retained_modules);
-        self.applied_body_activations.extend(pending_activations);
+        self.applied_body_activations.extend(
+            pending_activations
+                .into_iter()
+                .map(|(stable_key, _)| stable_key),
+        );
     }
 
     pub(super) fn apply_provider_fact_worklist(
