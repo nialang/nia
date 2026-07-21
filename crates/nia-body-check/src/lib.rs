@@ -96,6 +96,14 @@ pub struct ProviderFactRevision {
     index: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderFactRevisionTransition {
+    Unchanged,
+    Advanced,
+    Replaced,
+    Stale,
+}
+
 impl ProviderFactRevision {
     pub fn new_store() -> Self {
         let owner = NEXT_PROVIDER_FACT_OWNER
@@ -117,7 +125,21 @@ impl ProviderFactRevision {
     }
 
     pub fn is_newer_than(self, previous: Self) -> bool {
-        self.owner != previous.owner || self.index > previous.index
+        matches!(
+            self.transition_from(previous),
+            ProviderFactRevisionTransition::Advanced | ProviderFactRevisionTransition::Replaced
+        )
+    }
+
+    pub fn transition_from(self, previous: Self) -> ProviderFactRevisionTransition {
+        if self.owner != previous.owner {
+            return ProviderFactRevisionTransition::Replaced;
+        }
+        match self.index.cmp(&previous.index) {
+            std::cmp::Ordering::Less => ProviderFactRevisionTransition::Stale,
+            std::cmp::Ordering::Equal => ProviderFactRevisionTransition::Unchanged,
+            std::cmp::Ordering::Greater => ProviderFactRevisionTransition::Advanced,
+        }
     }
 }
 
