@@ -95,7 +95,7 @@ pub enum ProviderRequest {
         trait_name: SymbolId,
     },
     ModuleSemantic {
-        module_id: ModuleId,
+        module_path: SourcePath,
     },
     ModuleBody {
         module_path: SourcePath,
@@ -345,6 +345,7 @@ type ExtensionMethodsNamed<'a> = &'a dyn Fn(&SymbolId) -> Vec<ExtensionMethod>;
 #[derive(Clone, Copy)]
 pub struct BodyProgramContext<'a> {
     pub defs: Option<&'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>>,
+    pub module_source_path: Option<&'a dyn Fn(ModuleId) -> Option<SourcePath>>,
     pub type_normalizations: Option<&'a dyn Fn(ModuleId) -> Option<Arc<TypeNormalization>>>,
     pub extension_type_normalizations:
         Option<&'a dyn Fn(ModuleId) -> Option<Arc<TypeNormalization>>>,
@@ -359,6 +360,7 @@ impl<'a> BodyProgramContext<'a> {
     pub fn empty() -> Self {
         Self {
             defs: None,
+            module_source_path: None,
             type_normalizations: None,
             extension_type_normalizations: None,
             signatures: None,
@@ -394,6 +396,7 @@ impl fmt::Debug for BodyProgramContext<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BodyProgramContext")
             .field("defs", &self.defs.is_some())
+            .field("module_source_path", &self.module_source_path.is_some())
             .field("type_normalizations", &self.type_normalizations.is_some())
             .field(
                 "extension_type_normalizations",

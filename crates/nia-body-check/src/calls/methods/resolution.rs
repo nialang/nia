@@ -74,9 +74,16 @@ impl<'a> BodyChecker<'a> {
         if module_id == self.defs.module_id {
             return;
         }
+        let Some(module_path) = self
+            .program
+            .module_source_path
+            .and_then(|module_source_path| module_source_path(module_id))
+        else {
+            return;
+        };
         self.record_provider_demand(crate::ProviderDemand {
             source_path: self.source_path.clone(),
-            request: crate::ProviderRequest::ModuleSemantic { module_id },
+            request: crate::ProviderRequest::ModuleSemantic { module_path },
         });
     }
 

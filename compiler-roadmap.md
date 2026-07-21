@@ -18,7 +18,7 @@
 | B semantic context / 类型身份 | 100% | session-wide canonical `TypeStore`、全 pass canonical read/append、显式 roots、跨 revision slot 稳定与跨 session 隔离已完成；module view/log、origin、snapshot/checkout、recursive import 和旧 identity 类型均已删除。 |
 | C query value/storage | 100% | cache-owned `get/try_get/get_many`、无 `Value: Clone`、declarative registry 与 aggregate storage policy 已完成，owned runtime adapter 全部删除。 |
 | C 后 ID/arena 专项 | 100% | ID-0 query dep-node arena、ID-1 source/syntax identity、ID-2 graph/fixture 收口与 ID-3 owner/index/generation module handle 均完成；构造、fork、stale lookup 与 local-slot 边界已有守卫。 |
-| D 统一依赖图 | 约 15% | driver 的 lossy `module_graph_state` 摘要协议与重复 provider-demand 注册/重载编排已删除，loader typed update、driver work item、compiler request/input 全程以 canonical set 传递 provider dependency keys；但 `ModuleSemantic` 仍携带 revision-local handle，loader/compiler/driver/reachability 也尚未共享一个 revisioned fact graph。 |
+| D 统一依赖图 | 约 18% | driver 的 lossy graph 摘要与重复 provider 编排已删除，provider dependency keys 全程 canonical 去重，`ModuleSemantic` 也已从 revision-local handle 改为 stable source identity 重映射；但 loader 仍以全局 demand set + blanket graph invalidation 驱动，尚未与 compiler/reachability 共享 revisioned fact graph。 |
 | E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；legacy `query_many` 已删除，但 `get_many` 仍创建临时 scoped worker，持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
 | F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
 | G CGU / 异步 codegen / work products | 约 5% | 已有多 object 输出和 reuse 指标占位，但没有正式 CGU partition、codegen queue、frontend/LLVM overlap、CGU fingerprint 或 object work-product cache。 |
@@ -27,7 +27,7 @@
 
 综合判断：**整份路线图按剩余工程复杂度加权约完成 35%，合理区间为 33%–38%；A–E 的 P0 基础约完成 50%–55%。** 已完成的是最先阻塞后续工作的 type identity 与 query storage 主线；统一 fact graph、executor、item/CGU 粒度和持久增量仍是独立的大型工程，不能按提交数量外推为“路线图已过半”。
 
-ID/arena 专项已关闭，最近的临界路径正式进入 Phase D 统一模块/provider 依赖图：driver 的 `module_graph_state`、provider-demand 重复编排和匿名 pending tuple 已删除，provider dependency keys 也已端到端 canonical 去重；下一步审计并消除 `ModuleSemantic` 的 revision-local handle，建立 source reset 后仍可验证的 stable dependency key；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
+ID/arena 专项已关闭，最近的临界路径正式进入 Phase D 统一模块/provider 依赖图：driver 的 graph 摘要、provider-demand 重复编排和匿名 pending tuple 已删除，provider dependency keys 已端到端 canonical 去重并消除 revision-local semantic handle；下一步删除 loader 的全局 demand set + blanket graph invalidation，建立 typed fact/worklist 输入；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
 
 ## 1. 范围、版本与方法
 
@@ -1207,6 +1207,8 @@ Acceptance：一次冷 check 不再出现 driver 层重复 load/update round；p
 进展（2026-07-20）：D-4 将 driver 内部 `(LoadedProgram, Vec<ProviderDemand>)` pending tuple 提升为显式 `ProviderGraphWorkItem`，并把 `can_finalize_without_discovery` 策略封装为 work item 方法。provider graph update 的生产行为、discovery 顺序、compiler update 顺序均保持不变，但 tuple 位置语义和重复条件判断已删除，为后续 scheduler work item 扩展留下单一结构边界。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；compiler-query 120、LLVM 177、driver 全量测试通过，CLI commands 50 项自然并发 311.92 秒完成，全部集成与 doc tests 通过。Phase D 现约 13%；下一切片继续让该 work item 携带可去重的 dependency key，接入 loader/compiler dependency-driven scheduler，而不是再增加 driver fixed-point 分支。
 
 进展（2026-07-21）：D-5 将 provider change 协议从 loader typed update 到 driver work item、`CompileRequest` 和 `CompilerInputs` 全程统一为 `HashSet<ProviderDemand>`。`ProviderDemand` 已具备 `Eq + Hash`，因此它在当前 compilation session 内直接作为 dependency key；新增 demand、finalization policy、compiler diff/invalidation 都消费同一集合语义，不再在层间退回顺序 `Vec` 或重复重建 set。`with_provider_changes` 仍接受任意 iterator，但 request boundary 立即去重；回归直接锁定重复 key 只保留一次。旧 `new_demands: Vec`、`provider_changes: Vec` 与 driver 显式 `Vec<ProviderDemand>` 协议在 crates 中归零。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；loader-query 39、compiler-query 120、LLVM 177、driver 全量测试通过，CLI commands 50 项自然并发 310.47 秒完成，全部集成与 doc tests 通过。Phase D 现约 15%；下一切片审计 `ProviderRequest::ModuleSemantic { ModuleId }` 在 source invalidation/graph reset 后的 revision-local 身份，改为 stable module dependency key或显式重映射，避免把当前 session 去重误称为跨 revision stable fact graph。
+
+进展（2026-07-21）：D-6 消除了 provider dependency key 中最后一个 revision-local module handle。`ProviderRequest::ModuleSemantic` 不再携带 `ModuleId`，而是记录目标 `SourcePath`；production body checker 通过 program context 的 module→source callback 生成该 key，loader 每次在当前 `ModuleGraph` 中按 normalized `SourceIdentity` 重映射后再标记 semantic selection。两个独立 graph owner 即使为同一模块分配不同 local handle，旧 demand 也会命中新 graph 的正确节点；回归显式构造不同 owner/handle 且初始未选中的 provider graph，验证 stable remap。旧 `ModuleSemantic { module_id }` 构造在 crates 中归零，compiler semantic-provider cache 与 driver discovery 顺序保持不变。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；body-check 139、loader-query 40、compiler-query 120、LLVM 177、driver 484 项通过，CLI commands 50 项自然并发 312.13 秒完成，全部集成与 doc tests 通过。Phase D 现约 18%；下一切片把 loader 的全局 `RwLock<HashSet<ProviderDemand>>` 与 blanket `ModuleGraphQuery` invalidation 收敛成 typed provider fact/worklist 输入，使新增 dependency key 能触发精确 graph work，而不是继续依赖共享可变集合。
 
 ### 阶段 E（P0/P1）：持久 executor 与测试资源模型
 
