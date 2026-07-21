@@ -631,8 +631,15 @@ graphs but share one process-wide CPU budget. That budget inherits the
 Cargo/GNU Make jobserver when one is available; otherwise it creates a local
 jobserver from the process-visible parallelism, including one implicit process
 token in either case. There is no environment-variable worker-count override.
-LLVM memory pressure and codegen queue backpressure remain separate scheduler
-work rather than being inferred from the CPU token count.
+LLVM IR and object emission additionally acquire one process-wide heavy-memory
+permit at their only public entry boundary. Capacity is the minimum of visible
+CPU parallelism and half of the effective system/cgroup memory budget charged
+at 1.5 GiB per task, capped at four; an unknown memory limit is conservative
+and permits one task. While another LLVM task is active, low currently
+available memory applies backpressure until that task releases its RAII permit;
+one task can always proceed. Nested LLVM work on the same thread reuses its
+permit. Production scheduling and the outer test-session pool read effective
+memory limits and pressure from the same resource probe implementation.
 
 ## 5. Definitions And Modules
 

@@ -28,6 +28,8 @@ pub fn emit_llvm_ir_with_options(
     type_store: &TypeStore,
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
+    let memory_permit = nia_query::acquire_llvm_memory_permit();
+    record_memory_permit(options.timings, memory_permit.waited());
     catch_llvm_codegen_ice(|| emit_llvm_ir_with_options_inner(program, type_store, options))
 }
 
@@ -85,7 +87,19 @@ pub fn emit_native_objects(
     type_store: &TypeStore,
     options: LlvmCodegenOptions,
 ) -> LlvmObjectOutput {
+    let memory_permit = nia_query::acquire_llvm_memory_permit();
+    record_memory_permit(options.timings, memory_permit.waited());
     catch_llvm_object_ice(|| emit_native_objects_inner(program, type_store, options))
+}
+
+fn record_memory_permit(timings: nia_timing::TimingMode, waited: bool) {
+    if !timings.enabled() {
+        return;
+    }
+    nia_timing::emit_counter("llvm.memory_permits", 1);
+    if waited {
+        nia_timing::emit_counter("llvm.memory_waits", 1);
+    }
 }
 
 fn emit_native_objects_inner(

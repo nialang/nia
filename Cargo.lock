@@ -269,6 +269,7 @@ dependencies = [
  "nia-loader-query",
  "nia-mangle",
  "nia-opt",
+ "nia-query",
  "nia-span",
  "nia-static-ir",
  "nia-symbol",
@@ -926,6 +927,9 @@ dependencies = [
 [[package]]
 name = "nia-test-support"
 version = "0.4.3"
+dependencies = [
+ "nia-query",
+]
 
 [[package]]
 name = "nia-timing"

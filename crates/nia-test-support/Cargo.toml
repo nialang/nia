@@ -6,5 +6,8 @@ authors.workspace = true
 license.workspace = true
 publish = false
 
+[dependencies]
+nia-query.workspace = true
+
 [lib]
 path = "src/lib.rs"

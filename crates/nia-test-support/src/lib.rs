@@ -44,7 +44,7 @@ fn compiler_pool() -> &'static ResourcePool {
         ResourcePool::with_memory_gate(
             parallel_compiler_limit(),
             compiler_slot_root(),
-            effective_memory_limit_bytes(),
+            nia_query::effective_memory_limit_bytes(),
         )
     })
 }
@@ -53,7 +53,7 @@ fn parallel_compiler_limit() -> usize {
     let available_cpus = std::thread::available_parallelism()
         .map(usize::from)
         .unwrap_or(1);
-    compiler_limit(available_cpus, effective_memory_limit_bytes())
+    compiler_limit(available_cpus, nia_query::effective_memory_limit_bytes())
 }
 
 fn compiler_limit(available_cpus: usize, system_memory: Option<usize>) -> usize {
@@ -226,7 +226,7 @@ fn minimum_available_memory(memory_limit: usize, permits: usize) -> usize {
 
 fn memory_pressure_allows(minimum_available_memory: Option<usize>) -> bool {
     minimum_available_memory.is_none_or(|minimum| {
-        effective_available_memory_bytes().is_none_or(|available| available >= minimum)
+        nia_query::effective_available_memory_bytes().is_none_or(|available| available >= minimum)
     })
 }
 
@@ -310,159 +310,6 @@ fn parse_process_start_time(stat: &str) -> Option<u64> {
 
 #[cfg(not(target_os = "linux"))]
 fn process_start_time(_pid: u32) -> Option<u64> {
-    None
-}
-
-fn effective_memory_limit_bytes() -> Option<usize> {
-    [system_memory_bytes(), cgroup_memory_limit_bytes()]
-        .into_iter()
-        .flatten()
-        .min()
-}
-
-fn effective_available_memory_bytes() -> Option<usize> {
-    [
-        system_available_memory_bytes(),
-        cgroup_available_memory_bytes(),
-    ]
-    .into_iter()
-    .flatten()
-    .min()
-}
-
-#[cfg(target_os = "linux")]
-fn system_memory_bytes() -> Option<usize> {
-    meminfo_bytes("MemTotal:")
-}
-
-#[cfg(target_os = "linux")]
-fn system_available_memory_bytes() -> Option<usize> {
-    meminfo_bytes("MemAvailable:")
-}
-
-#[cfg(target_os = "linux")]
-fn meminfo_bytes(field: &str) -> Option<usize> {
-    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
-    let value_kib = meminfo.lines().find_map(|line| {
-        line.strip_prefix(field)?
-            .split_whitespace()
-            .next()?
-            .parse::<usize>()
-            .ok()
-    })?;
-    value_kib.checked_mul(1024)
-}
-
-#[cfg(target_os = "linux")]
-fn cgroup_memory_limit_bytes() -> Option<usize> {
-    let cgroup = fs::read_to_string("/proc/self/cgroup").ok()?;
-    if let Some(directory) = cgroup_v2_directory(&cgroup) {
-        let mount = Path::new("/sys/fs/cgroup");
-        return cgroup_v2_memory_limit(mount, &mount.join(directory));
-    }
-    let path = cgroup_v1_memory_directory(&cgroup)?;
-    let value = fs::read_to_string(
-        Path::new("/sys/fs/cgroup/memory")
-            .join(path)
-            .join("memory.limit_in_bytes"),
-    )
-    .ok()?;
-    parse_memory_limit(&value)
-}
-
-#[cfg(target_os = "linux")]
-fn cgroup_available_memory_bytes() -> Option<usize> {
-    let cgroup = fs::read_to_string("/proc/self/cgroup").ok()?;
-    if let Some(directory) = cgroup_v2_directory(&cgroup) {
-        let mount = Path::new("/sys/fs/cgroup");
-        return cgroup_v2_available_memory(mount, &mount.join(directory));
-    }
-    let path = cgroup_v1_memory_directory(&cgroup)?;
-    let root = Path::new("/sys/fs/cgroup/memory").join(path);
-    let limit = parse_memory_limit(&fs::read_to_string(root.join("memory.limit_in_bytes")).ok()?)?;
-    let current = fs::read_to_string(root.join("memory.usage_in_bytes"))
-        .ok()?
-        .trim()
-        .parse::<usize>()
-        .ok()?;
-    Some(limit.saturating_sub(current))
-}
-
-#[cfg(target_os = "linux")]
-fn cgroup_v2_directory(cgroup: &str) -> Option<&Path> {
-    cgroup
-        .lines()
-        .find_map(|line| line.strip_prefix("0::"))
-        .map(|path| Path::new(path.trim_start_matches('/')))
-}
-
-#[cfg(target_os = "linux")]
-fn cgroup_v1_memory_directory(cgroup: &str) -> Option<&Path> {
-    cgroup.lines().find_map(|line| {
-        let mut fields = line.splitn(3, ':');
-        let _hierarchy = fields.next()?;
-        let controllers = fields.next()?;
-        let path = fields.next()?;
-        controllers
-            .split(',')
-            .any(|item| item == "memory")
-            .then(|| Path::new(path.trim_start_matches('/')))
-    })
-}
-
-#[cfg(target_os = "linux")]
-fn cgroup_v2_memory_limit(mount: &Path, leaf: &Path) -> Option<usize> {
-    cgroup_v2_ancestors(mount, leaf)
-        .filter_map(|directory| {
-            parse_memory_limit(&fs::read_to_string(directory.join("memory.max")).ok()?)
-        })
-        .min()
-}
-
-#[cfg(target_os = "linux")]
-fn cgroup_v2_available_memory(mount: &Path, leaf: &Path) -> Option<usize> {
-    cgroup_v2_ancestors(mount, leaf)
-        .filter_map(|directory| {
-            let limit =
-                parse_memory_limit(&fs::read_to_string(directory.join("memory.max")).ok()?)?;
-            let current = fs::read_to_string(directory.join("memory.current"))
-                .ok()?
-                .trim()
-                .parse::<usize>()
-                .ok()?;
-            Some(limit.saturating_sub(current))
-        })
-        .min()
-}
-
-#[cfg(target_os = "linux")]
-fn cgroup_v2_ancestors<'a>(mount: &'a Path, leaf: &'a Path) -> impl Iterator<Item = &'a Path> {
-    leaf.ancestors()
-        .take_while(move |path| path.starts_with(mount))
-}
-
-#[cfg(not(target_os = "linux"))]
-fn cgroup_memory_limit_bytes() -> Option<usize> {
-    None
-}
-
-#[cfg(not(target_os = "linux"))]
-fn cgroup_available_memory_bytes() -> Option<usize> {
-    None
-}
-
-fn parse_memory_limit(value: &str) -> Option<usize> {
-    let value = value.trim();
-    (value != "max").then(|| value.parse().ok()).flatten()
-}
-
-#[cfg(not(target_os = "linux"))]
-fn system_memory_bytes() -> Option<usize> {
-    None
-}
-
-#[cfg(not(target_os = "linux"))]
-fn system_available_memory_bytes() -> Option<usize> {
     None
 }
 
@@ -561,49 +408,6 @@ mod tests {
             process_is_alive(pid, start_time.saturating_add(1)),
             Some(false)
         );
-    }
-
-    #[test]
-    fn parses_cgroup_memory_limits() {
-        assert_eq!(parse_memory_limit("1073741824\n"), Some(1024 * 1024 * 1024));
-        assert_eq!(parse_memory_limit("max\n"), None);
-        assert_eq!(parse_memory_limit("invalid\n"), None);
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn cgroup_v2_inherits_parent_memory_budget() {
-        let mount = test_slot_root("cgroup_v2_parent");
-        let leaf = mount.join("parent/leaf");
-        fs::create_dir_all(&leaf).expect("create cgroup fixture");
-        fs::write(mount.join("memory.max"), "max").expect("write root memory.max");
-        fs::write(mount.join("memory.current"), "0").expect("write root memory.current");
-        fs::write(mount.join("parent/memory.max"), "4096").expect("write parent memory.max");
-        fs::write(mount.join("parent/memory.current"), "1024")
-            .expect("write parent memory.current");
-        fs::write(leaf.join("memory.max"), "max").expect("write leaf memory.max");
-        fs::write(leaf.join("memory.current"), "512").expect("write leaf memory.current");
-
-        assert_eq!(cgroup_v2_memory_limit(&mount, &leaf), Some(4096));
-        assert_eq!(cgroup_v2_available_memory(&mount, &leaf), Some(3072));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn cgroup_v2_uses_tightest_nested_memory_budget() {
-        let mount = test_slot_root("cgroup_v2_nested");
-        let leaf = mount.join("parent/leaf");
-        fs::create_dir_all(&leaf).expect("create cgroup fixture");
-        fs::write(mount.join("memory.max"), "8192").expect("write root memory.max");
-        fs::write(mount.join("memory.current"), "2048").expect("write root memory.current");
-        fs::write(mount.join("parent/memory.max"), "4096").expect("write parent memory.max");
-        fs::write(mount.join("parent/memory.current"), "1024")
-            .expect("write parent memory.current");
-        fs::write(leaf.join("memory.max"), "2048").expect("write leaf memory.max");
-        fs::write(leaf.join("memory.current"), "512").expect("write leaf memory.current");
-
-        assert_eq!(cgroup_v2_memory_limit(&mount, &leaf), Some(2048));
-        assert_eq!(cgroup_v2_available_memory(&mount, &leaf), Some(1536));
     }
 
     fn test_slot_root(name: &str) -> PathBuf {

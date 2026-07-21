@@ -20,6 +20,7 @@ nia-literals.workspace = true
 nia-mangle.workspace = true
 nia-llvm.workspace = true
 nia-opt.workspace = true
+nia-query.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
 nia-symbol.workspace = true
