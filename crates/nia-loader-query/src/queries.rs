@@ -47,7 +47,7 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
     }
 }
 
-fn runtime_model(entry_runtime: EntryRuntime) -> RuntimeModel {
+pub(crate) fn runtime_model(entry_runtime: EntryRuntime) -> RuntimeModel {
     match entry_runtime {
         EntryRuntime::None => RuntimeModel::Bare,
         EntryRuntime::Freestanding => RuntimeModel::FreestandingExecutable,

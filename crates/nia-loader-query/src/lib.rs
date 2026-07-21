@@ -199,8 +199,52 @@ impl LoaderFactProvider for LoaderDatabase {
             .collect()
     }
 
+    fn module_path(&self, module_id: nia_imports::ModuleId) -> Option<SourcePath> {
+        let graph = self.db.get(graph::ModuleGraphQuery);
+        graph.get(module_id).map(|module| module.path.clone())
+    }
+
+    fn module_source_version(
+        &self,
+        module_id: nia_imports::ModuleId,
+    ) -> Option<nia_source::SourceVersion> {
+        let graph = self.db.get(graph::ModuleGraphQuery);
+        let module = graph.get(module_id)?;
+        let source_id = self.sources.id_for_path(&module.path);
+        match *self.db.get(queries::SourceStatusQuery(source_id)) {
+            queries::SourceStatus::Present(version) => Some(version),
+            queries::SourceStatus::Missing => None,
+        }
+    }
+
+    fn module_provider_summary(
+        &self,
+        module_id: nia_imports::ModuleId,
+    ) -> Option<nia_provider_summary::ProviderSummary> {
+        let graph = self.db.get(graph::ModuleGraphQuery);
+        let module = graph.get(module_id)?;
+        Some(
+            self.db
+                .get(queries::provider_summary_query(&self.db, &module.path))
+                .as_ref()
+                .clone(),
+        )
+    }
+
     fn load_diagnostics(&self) -> Vec<nia_compiler_query::ProgramDiagnostic> {
         self.db.get(queries::LoadDiagnosticsQuery).as_ref().clone()
+    }
+
+    fn symbols(&self) -> SymbolTable {
+        self.db.context().symbols.clone()
+    }
+
+    fn target(&self) -> TargetConfig {
+        self.db.context().target.clone()
+    }
+
+    fn runtime(&self) -> nia_compiler_query::RuntimeModel {
+        queries::runtime_model(self.db.context().entry_runtime)
     }
 }
 

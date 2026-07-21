@@ -262,7 +262,7 @@ impl QueryKey<CompilerContext> for CompilerTargetQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().target()
+        db.context().loader_facts().target()
     }
 }
 
@@ -277,7 +277,7 @@ impl QueryKey<CompilerContext> for CompilerRuntimeQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().runtime()
+        db.context().loader_facts().runtime()
     }
 }
 

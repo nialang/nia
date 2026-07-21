@@ -902,7 +902,6 @@ struct CompilerInputs {
     provider_fact_revision: crate::ProviderFactRevision,
     entry_module: ModuleId,
     runtime_root_modules: Vec<ModuleId>,
-    symbols: nia_symbol_table::SymbolTable,
     modules: Vec<CompilerInputModule>,
     modules_by_id: HashMap<ModuleId, usize>,
     modules_by_source_identity: HashMap<SourceIdentity, usize>,
@@ -1237,7 +1236,6 @@ impl CompilerInputs {
             provider_fact_revision: request.provider_fact_revision,
             entry_module,
             runtime_root_modules,
-            symbols,
             modules,
             modules_by_id,
             modules_by_source_identity,
@@ -1592,16 +1590,18 @@ impl CompilerContext {
     }
 
     fn module_path(&self, db: &QueryDb<CompilerContext>, module_id: ModuleId) -> SourcePath {
-        self.module_field(db, &ModulePathQuery(module_id), module_id, |module| {
-            module.path.clone()
-        })
+        self.loader_facts()
+            .module_path(module_id)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &ModulePathQuery(module_id),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
     }
 
     fn module_path_if_loaded(&self, module_id: ModuleId) -> Option<SourcePath> {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        inputs
-            .loaded_module(module_id)
-            .map(|module| module.path.clone())
+        self.loader_facts().module_path(module_id)
     }
 
     fn module_source_version(
@@ -1609,19 +1609,18 @@ impl CompilerContext {
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
     ) -> SourceVersion {
-        self.module_field(
-            db,
-            &ModuleSourceVersionQuery(module_id),
-            module_id,
-            |module| module.source_version,
-        )
+        self.loader_facts()
+            .module_source_version(module_id)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &ModuleSourceVersionQuery(module_id),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
     }
 
     fn module_source_version_if_loaded(&self, module_id: ModuleId) -> Option<SourceVersion> {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        inputs
-            .loaded_module(module_id)
-            .map(|module| module.source_version)
+        self.loader_facts().module_source_version(module_id)
     }
 
     fn module_origins(
@@ -1731,12 +1730,14 @@ impl CompilerContext {
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
     ) -> nia_provider_summary::ProviderSummary {
-        self.module_field(
-            db,
-            &ExtensionProviderSummaryQuery(module_id),
-            module_id,
-            |module| module.provider_summary.clone(),
-        )
+        self.loader_facts()
+            .module_provider_summary(module_id)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &ExtensionProviderSummaryQuery(module_id),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
     }
 
     fn path_for_module(&self, module_id: ModuleId) -> SourcePath {
@@ -1931,27 +1932,8 @@ impl CompilerContext {
             .is_some_and(|scope| scope.has_unresolved_name(name))
     }
 
-    fn target(&self) -> TargetConfig {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .target
-            .clone()
-    }
-
     fn symbols(&self) -> nia_symbol_table::SymbolTable {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .symbols
-            .clone()
-    }
-
-    fn runtime(&self) -> crate::RuntimeModel {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .runtime
+        self.loader_facts().symbols()
     }
 
     fn provider_fact_worklist(&self) -> ProviderFactWorklist {
