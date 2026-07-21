@@ -644,12 +644,17 @@ tests do not acquire a global compiler permit, and compiler/LLVM public APIs
 have identical resource semantics in test and non-test builds. Integration
 harnesses may assign weight to a complete process or compilation session.
 
-Query value invalidation is revision-correct, but revision-keyed typed cache
-entries and slot identities are currently append-only for the session lifetime.
-They are not historical-reader capabilities: obsolete keys must be retired from
-typed lookup and the dependency graph after revision quiescence while external
-immutable value handles remain valid. Bounded long-lived-session retention and
-generation-safe retirement are the next query-lifecycle boundary.
+Query values and identities have an explicit retirement boundary. A session
+retirement request blocks new query activity, waits for current query execution,
+validation, invalidation, and tracing to become quiescent, then removes the
+obsolete key from typed lookup, the live slot table, and both directions of the
+dependency graph. Slot indices are monotonic and never reused, so a retired
+`QueryNodeId` cannot resolve to a later slot. Source replacement applies this
+protocol to the old revision's parsed module, syntax tree, declarations,
+provider summary, and facade facts. Cache ownership is not a historical-reader
+capability; only immutable values already held by external readers may outlive
+retirement through their own `Arc`. Provider graph revision/event retention and
+revision-owned `NodeStore` locators remain the next lifecycle boundaries.
 
 ## 5. Definitions And Modules
 

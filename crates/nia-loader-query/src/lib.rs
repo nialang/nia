@@ -128,9 +128,16 @@ impl LoaderDatabase {
 
     pub fn set_source(&self, path: impl Into<String>, text: impl Into<Arc<str>>) -> SourceFile {
         let path = SourcePath::new(path.into());
+        let previous_version = self
+            .sources
+            .source_for_path(&path)
+            .map(|file| file.version());
         let file = self.sources.set_source(path.clone(), text);
         self.reset_provider_facts();
         self.db.invalidate(SourceTextQuery(file.id));
+        if let Some(previous_version) = previous_version {
+            queries::retire_source_revision_queries(&self.db, previous_version);
+        }
         file
     }
 

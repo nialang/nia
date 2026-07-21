@@ -216,6 +216,22 @@ struct QuerySessionInner {
     executor: QueryExecutor,
     databases: Mutex<FastHashMap<QueryDbId, Arc<dyn ErasedQueryDatabase>>>,
     dependencies: Mutex<QueryDependencyGraph>,
+    activity: Mutex<QueryActivityState>,
+    activity_ready: Condvar,
+}
+
+#[derive(Default)]
+struct QueryActivityState {
+    active: usize,
+    retiring: bool,
+}
+
+struct QueryActivityGuard<'a> {
+    session: &'a QuerySessionInner,
+}
+
+struct QueryRetirementGuard<'a> {
+    session: &'a QuerySessionInner,
 }
 
 struct QueryTask {
@@ -914,13 +930,15 @@ struct QueryNodeId {
 }
 
 struct QuerySlotTable<C> {
-    entries: Vec<QuerySlotRecord<C>>,
+    next_index: u32,
+    entries: FastHashMap<u32, QuerySlotRecord<C>>,
 }
 
 impl<C> Default for QuerySlotTable<C> {
     fn default() -> Self {
         Self {
-            entries: Vec::new(),
+            next_index: 0,
+            entries: FastHashMap::default(),
         }
     }
 }
@@ -932,8 +950,12 @@ struct QuerySlotRecord<C> {
 }
 
 impl<C> QuerySlotTable<C> {
-    fn next_id(&self, db_id: QueryDbId) -> QueryNodeId {
-        let index = u32::try_from(self.entries.len()).expect("query node identity space exhausted");
+    fn next_id(&mut self, db_id: QueryDbId) -> QueryNodeId {
+        let index = self.next_index;
+        self.next_index = self
+            .next_index
+            .checked_add(1)
+            .expect("query node identity space exhausted");
         QueryNodeId { db_id, index }
     }
 
@@ -944,19 +966,28 @@ impl<C> QuerySlotTable<C> {
         slot: Arc<dyn ErasedQuerySlot>,
         ensure: fn(&QueryDb<C>, &dyn ErasedQueryKey) -> QueryResult<()>,
     ) {
-        assert_eq!(node_id.index as usize, self.entries.len());
-        self.entries.push(QuerySlotRecord {
-            identity,
-            slot,
-            ensure,
-        });
+        let previous = self.entries.insert(
+            node_id.index,
+            QuerySlotRecord {
+                identity,
+                slot,
+                ensure,
+            },
+        );
+        assert!(previous.is_none(), "query node identity was reused");
     }
 
     fn get(&self, db_id: QueryDbId, node_id: QueryNodeId) -> Option<&QuerySlotRecord<C>> {
         if node_id.db_id != db_id {
             return None;
         }
-        self.entries.get(node_id.index as usize)
+        self.entries.get(&node_id.index)
+    }
+
+    fn remove(&mut self, db_id: QueryDbId, node_id: QueryNodeId) -> Option<QuerySlotRecord<C>> {
+        (node_id.db_id == db_id)
+            .then(|| self.entries.remove(&node_id.index))
+            .flatten()
     }
 
     fn frame(&self, db_id: QueryDbId, node_id: QueryNodeId) -> QueryFrame {
@@ -1256,6 +1287,7 @@ thread_local! {
     static QUERY_STACK: RefCell<Vec<QueryStackEntry>> = const { RefCell::new(Vec::new()) };
     static QUERY_EXECUTOR_STACK: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
     static QUERY_EXECUTION_BUDGET_STACK: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    static QUERY_ACTIVITY_DEPTHS: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
 }
 
 impl Default for QuerySession {
@@ -1289,6 +1321,8 @@ impl QuerySession {
                 executor: QueryExecutor::new(id, parallelism, execution_budget),
                 databases: Mutex::new(FastHashMap::default()),
                 dependencies: Mutex::new(QueryDependencyGraph::default()),
+                activity: Mutex::new(QueryActivityState::default()),
+                activity_ready: Condvar::new(),
             }),
         }
     }
@@ -1299,6 +1333,63 @@ impl QuerySession {
 
     pub fn executor_parallelism(&self) -> usize {
         self.inner.executor.shared.parallelism
+    }
+
+    fn enter_activity(&self) -> QueryActivityGuard<'_> {
+        let identity = Arc::as_ptr(&self.inner) as usize;
+        let nested = query_activity_is_active(identity);
+        if !nested {
+            let mut state = self
+                .inner
+                .activity
+                .lock()
+                .expect("query activity lock poisoned");
+            while state.retiring {
+                state = self
+                    .inner
+                    .activity_ready
+                    .wait(state)
+                    .expect("query activity lock poisoned while waiting");
+            }
+            state.active += 1;
+        }
+        enter_query_activity(identity);
+        QueryActivityGuard {
+            session: &self.inner,
+        }
+    }
+
+    fn enter_retirement(&self) -> QueryRetirementGuard<'_> {
+        let identity = Arc::as_ptr(&self.inner) as usize;
+        assert!(
+            !query_activity_is_active(identity),
+            "query cache retirement cannot run inside an active query"
+        );
+        let mut state = self
+            .inner
+            .activity
+            .lock()
+            .expect("query activity lock poisoned");
+        while state.retiring {
+            state = self
+                .inner
+                .activity_ready
+                .wait(state)
+                .expect("query activity lock poisoned while waiting");
+        }
+        state.retiring = true;
+        self.inner.activity_ready.notify_all();
+        while state.active > 0 {
+            state = self
+                .inner
+                .activity_ready
+                .wait(state)
+                .expect("query activity lock poisoned while waiting for quiescence");
+        }
+        drop(state);
+        QueryRetirementGuard {
+            session: &self.inner,
+        }
     }
 
     fn register<C>(&self, db: &QueryDb<C>)
@@ -1341,6 +1432,40 @@ impl QuerySession {
 
     fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()> {
         self.database(node_id.db_id).ensure(node_id)
+    }
+}
+
+impl Drop for QueryActivityGuard<'_> {
+    fn drop(&mut self) {
+        let identity = self.session as *const QuerySessionInner as usize;
+        if !leave_query_activity(identity) {
+            return;
+        }
+        let mut state = self
+            .session
+            .activity
+            .lock()
+            .expect("query activity lock poisoned");
+        state.active = state
+            .active
+            .checked_sub(1)
+            .expect("query activity count underflow");
+        drop(state);
+        self.session.activity_ready.notify_all();
+    }
+}
+
+impl Drop for QueryRetirementGuard<'_> {
+    fn drop(&mut self) {
+        let mut state = self
+            .session
+            .activity
+            .lock()
+            .expect("query activity lock poisoned");
+        assert!(state.retiring, "query retirement guard released twice");
+        state.retiring = false;
+        drop(state);
+        self.session.activity_ready.notify_all();
     }
 }
 
@@ -1490,6 +1615,7 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
+        let _activity = self.inner.session.enter_activity();
         let detail_timing = self.inner.timings.detail();
         let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key));
         let node_id = slot.node_id;
@@ -1696,6 +1822,7 @@ impl<C> QueryDb<C> {
         C: Send + Sync + 'static,
         K: QueryKey<C>,
     {
+        let _activity = self.inner.session.enter_activity();
         let keys = keys.into_iter().collect::<Vec<_>>();
         if keys.is_empty() {
             return Vec::new();
@@ -1745,6 +1872,7 @@ impl<C> QueryDb<C> {
     }
 
     pub fn query_trace(&self) -> QueryTrace {
+        let _activity = self.inner.session.enter_activity();
         let queries = {
             let slots = self
                 .inner
@@ -1770,6 +1898,7 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
+        let _activity = self.inner.session.enter_activity();
         let Some(root) = self.cached_slot(&key).map(|slot| slot.node_id) else {
             return QueryInvalidation {
                 invalidated: vec![query_frame::<C, K>(&key)],
@@ -1782,6 +1911,7 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
+        let _activity = self.inner.session.enter_activity();
         assert_eq!(
             K::FINGERPRINT,
             QueryFingerprintPolicy::StableValue,
@@ -1809,6 +1939,51 @@ impl<C> QueryDb<C> {
         } else {
             self.invalidate_cached_root(slot.node_id)
         }
+    }
+
+    pub fn retire<K>(&self, key: &K) -> bool
+    where
+        K: QueryKey<C>,
+    {
+        if let Some(registry) = &self.inner.registry {
+            registry.assert_registered::<C, K>();
+        }
+        let _retirement = self.inner.session.enter_retirement();
+        let mut caches = self.inner.caches.lock().expect("query cache lock poisoned");
+        let Some(cache) = caches.get_mut(&TypeId::of::<K>()) else {
+            return false;
+        };
+        let cache = cache
+            .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
+            .expect("query cache type mismatch");
+        let mut cache = cache.lock().expect("query cache lock poisoned");
+        let Some(node_id) = cache.get(key).map(|slot| slot.node_id) else {
+            return false;
+        };
+
+        self.invalidate_cached_root(node_id);
+        let (_, slot) = cache
+            .remove_entry(key)
+            .expect("retired query cache entry must remain present");
+        let record = self
+            .inner
+            .slots
+            .lock()
+            .expect("query cache slot lock poisoned")
+            .remove(self.inner.id, node_id)
+            .expect("retired query slot must remain registered");
+        assert!(
+            Arc::ptr_eq(&record.slot, &(slot as Arc<dyn ErasedQuerySlot>)),
+            "retired typed cache and slot identity disagree"
+        );
+        self.inner
+            .session
+            .inner
+            .dependencies
+            .lock()
+            .expect("query dependency lock poisoned")
+            .remove_node(node_id);
+        true
     }
 
     fn invalidate_cached_root(&self, root: QueryNodeId) -> QueryInvalidation {
@@ -1935,13 +2110,12 @@ impl<C> QueryDb<C> {
         let mut queries = slots
             .entries
             .iter()
-            .enumerate()
             .map(|(index, record)| QueryTraceQuery {
                 frame: slots.frame(
                     db_id,
                     QueryNodeId {
                         db_id,
-                        index: index as u32,
+                        index: *index,
                     },
                 ),
                 stats: record.slot.stats(),
@@ -2108,6 +2282,20 @@ impl QueryDependencyGraph {
             }
         }
     }
+
+    fn remove_node(&mut self, node: QueryNodeId) {
+        self.remove_dependencies_from(node);
+        if let Some(dependents) = self.reverse.remove(&node) {
+            for dependent in dependents {
+                if let Some(targets) = self.forward.get_mut(&dependent) {
+                    targets.remove(&node);
+                    if targets.is_empty() {
+                        self.forward.remove(&dependent);
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn query_frame<C, K>(key: &K) -> QueryFrame
@@ -2118,6 +2306,15 @@ where
         name: K::name(),
         key: format!("{key:?}"),
         description: key.description(),
+    }
+}
+
+fn retired_query_frame(node_id: QueryNodeId) -> QueryFrame {
+    let key = format!("{}:{}", node_id.db_id.0, node_id.index);
+    QueryFrame {
+        name: "<retired-query>",
+        description: format!("retired query node {key}"),
+        key,
     }
 }
 
@@ -2184,9 +2381,12 @@ where
             .expect("query dependency database was dropped");
         let (key, ensure) = {
             let slots = inner.slots.lock().expect("query cache slot lock poisoned");
-            let record = slots
-                .get(inner.id, node_id)
-                .expect("query dependency must reference a registered slot");
+            let Some(record) = slots.get(inner.id, node_id) else {
+                return Err(QueryError::InvalidInput {
+                    query: retired_query_frame(node_id),
+                    message: "query dependency was retired".into(),
+                });
+            };
             (Arc::clone(&record.identity.key), record.ensure)
         };
         ensure(&QueryDb { inner }, key.as_ref())
@@ -2257,6 +2457,49 @@ fn query_executor_is_active(executor: usize) -> bool {
 
 fn query_execution_budget_is_active(budget: usize) -> bool {
     QUERY_EXECUTION_BUDGET_STACK.with(|stack| stack.borrow().contains(&budget))
+}
+
+fn query_activity_is_active(session: usize) -> bool {
+    QUERY_ACTIVITY_DEPTHS.with(|depths| {
+        depths
+            .borrow()
+            .iter()
+            .any(|(active_session, _depth)| *active_session == session)
+    })
+}
+
+fn enter_query_activity(session: usize) {
+    QUERY_ACTIVITY_DEPTHS.with(|depths| {
+        let mut depths = depths.borrow_mut();
+        if let Some((_, depth)) = depths
+            .iter_mut()
+            .find(|(active_session, _depth)| *active_session == session)
+        {
+            *depth += 1;
+        } else {
+            depths.push((session, 1));
+        }
+    });
+}
+
+fn leave_query_activity(session: usize) -> bool {
+    QUERY_ACTIVITY_DEPTHS.with(|depths| {
+        let mut depths = depths.borrow_mut();
+        let position = depths
+            .iter()
+            .position(|(active_session, _depth)| *active_session == session)
+            .expect("query activity guard dropped without an active depth");
+        let depth = &mut depths[position].1;
+        *depth = depth
+            .checked_sub(1)
+            .expect("query activity depth underflow");
+        if *depth == 0 {
+            depths.swap_remove(position);
+            true
+        } else {
+            false
+        }
+    })
 }
 
 fn take_current_stack_dependencies() -> RecordedDependencies {
@@ -3566,6 +3809,119 @@ mod tests {
 
         assert_eq!(*db.get(Double(9)), 18);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn retiring_query_key_removes_its_slot_and_edges_without_reusing_node_id() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+        let old_parent = db.get(DoubleTwice(7));
+        let old_node = db
+            .cached_slot(&Double(7))
+            .expect("cached child slot")
+            .node_id;
+        assert_eq!(db.query_trace().dependencies.len(), 1);
+
+        assert!(db.retire(&Double(7)));
+
+        let retired_trace = db.query_trace();
+        assert_eq!(retired_trace.queries.len(), 1);
+        assert!(retired_trace.dependencies.is_empty());
+        assert_eq!(*old_parent, 28);
+        assert!(
+            db.inner
+                .session
+                .database(db.inner.id)
+                .slot(old_node)
+                .is_none()
+        );
+
+        let latest_parent = db.get(DoubleTwice(7));
+        let latest_node = db
+            .cached_slot(&Double(7))
+            .expect("replacement child slot")
+            .node_id;
+        assert_eq!(*latest_parent, 28);
+        assert_ne!(old_node, latest_node);
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+        assert_eq!(db.query_trace().dependencies.len(), 1);
+    }
+
+    #[test]
+    fn retirement_waits_for_active_query_before_releasing_cached_slot() {
+        let control = Arc::new((Mutex::new(RaceState::default()), Condvar::new()));
+        let db = QueryDb::new(RaceContext {
+            executions: AtomicUsize::new(0),
+            control: Arc::clone(&control),
+        });
+        let worker_db = db.clone();
+        let query = std::thread::spawn(move || worker_db.get(SlowDouble(1)));
+        let (lock, ready) = &*control;
+        let mut state = lock.lock().expect("race state lock poisoned");
+        while !state.started {
+            state = ready.wait(state).expect("race state lock poisoned");
+        }
+        drop(state);
+
+        let retirement_db = db.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let retirement = std::thread::spawn(move || {
+            sender
+                .send(retirement_db.retire(&SlowDouble(1)))
+                .expect("send retirement result");
+        });
+        let mut activity = db
+            .inner
+            .session
+            .inner
+            .activity
+            .lock()
+            .expect("query activity lock poisoned");
+        while !activity.retiring {
+            activity = db
+                .inner
+                .session
+                .inner
+                .activity_ready
+                .wait(activity)
+                .expect("query activity lock poisoned while waiting");
+        }
+        drop(activity);
+        assert_eq!(
+            receiver.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        );
+        let trace_db = db.clone();
+        let (trace_sender, trace_receiver) = std::sync::mpsc::channel();
+        let trace = std::thread::spawn(move || {
+            trace_sender
+                .send(trace_db.query_trace())
+                .expect("send query trace");
+        });
+        assert_eq!(
+            trace_receiver.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        );
+
+        let mut state = lock.lock().expect("race state lock poisoned");
+        state.release = true;
+        ready.notify_all();
+        drop(state);
+        let old_value = query.join().expect("query worker panicked");
+        assert_eq!(receiver.recv(), Ok(true));
+        retirement.join().expect("retirement worker panicked");
+        assert!(
+            trace_receiver
+                .recv()
+                .expect("receive query trace")
+                .queries
+                .is_empty()
+        );
+        trace.join().expect("query trace worker panicked");
+
+        assert_eq!(*old_value, 2);
+        assert!(db.query_trace().queries.is_empty());
     }
 
     #[test]
