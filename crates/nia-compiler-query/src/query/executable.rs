@@ -81,12 +81,12 @@ pub(super) struct ExecutableFactSession {
 }
 
 impl ExecutableFactSession {
-    pub(super) fn enter_epoch(&mut self, epoch: ExecutableFactEpoch) {
-        if self.epoch == Some(epoch) {
+    pub(super) fn enter_epoch(&mut self, epoch: &ExecutableFactEpoch) {
+        if self.epoch.as_ref() == Some(epoch) {
             return;
         }
         *self = Self {
-            epoch: Some(epoch),
+            epoch: Some(epoch.clone()),
             ..Self::default()
         };
     }
@@ -129,6 +129,20 @@ impl ExecutableFactSession {
     ) {
         if self.applied_provider_fact_revision == Some(worklist.revision) {
             return;
+        }
+        let reset = self.applied_provider_fact_revision.is_some_and(|previous| {
+            use crate::ProviderFactRevisionTransition::{Advanced, Replaced};
+
+            matches!(worklist.revision.transition_from(previous), Replaced)
+                || matches!(worklist.revision.transition_from(previous), Advanced)
+                    && worklist.changes.is_empty()
+        });
+        if reset {
+            let epoch = self.epoch.clone();
+            *self = Self {
+                epoch,
+                ..Self::default()
+            };
         }
         let pending_changes = worklist
             .changes

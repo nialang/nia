@@ -175,10 +175,8 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
     let sources = SourceDatabase::new();
     sources.set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }");
     let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_sources(sources));
-    let compiler = CompilerDatabase::new_in_session(
-        CompileRequest::new(loader.clone()),
-        loader.query_session(),
-    );
+    let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()));
+    assert!(compiler.query_session().ptr_eq(&loader.query_session()));
 
     let checked = compiler.check_program();
 
@@ -224,10 +222,7 @@ fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
     let sources = SourceDatabase::new();
     sources.set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }");
     let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_sources(sources));
-    let compiler = CompilerDatabase::new_in_session(
-        CompileRequest::new(loader.clone()),
-        loader.query_session(),
-    );
+    let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()));
 
     let first = compiler.check_program();
     assert!(!has_error_diagnostics(&first.diagnostics));

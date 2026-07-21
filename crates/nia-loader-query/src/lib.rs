@@ -192,12 +192,16 @@ impl LoaderDatabase {
 }
 
 impl LoaderFactProvider for LoaderDatabase {
-    fn loaded_program(&self) -> LoadedProgram {
-        self.load_program()
+    fn query_session(&self) -> Option<QuerySession> {
+        Some(self.query_session())
     }
 
     fn provider_fact_revision(&self) -> nia_compiler_query::ProviderFactRevision {
         self.db.get(ProviderDemandsQuery).revision()
+    }
+
+    fn node_store(&self) -> nia_node_id::NodeStore {
+        self.db.context().node_store.clone()
     }
 
     fn module_graph(&self) -> nia_imports::ModuleGraphSnapshot {

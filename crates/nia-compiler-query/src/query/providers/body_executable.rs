@@ -1169,11 +1169,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     };
     let program_visible_extensions =
         |module_id| Some(db.get(VisibleExtensionsQuery(module_id)).methods.clone());
-    let program_module_source_path = |module_id| {
-        db.context()
-            .loaded_module(module_id)
-            .map(|module| module.path)
-    };
+    let program_module_source_path = |module_id| db.context().loader_facts().module_path(module_id);
     let run_body_check =
         |inputs: &BodyCheckResolutionInputs,
          body_const: nia_body_check::BodyConst<'_>,

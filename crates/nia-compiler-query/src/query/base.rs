@@ -91,7 +91,11 @@ impl QueryKey<CompilerContext> for ModuleGraphEntryQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_graph_entry_key()
+        let graph = db.get(ModuleGraphQuery);
+        graph
+            .stable_key(graph.entry())
+            .cloned()
+            .expect("compiler entry must have a stable module key")
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -119,7 +123,9 @@ impl QueryKey<CompilerContext> for ModuleGraphPathQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_graph_path(self.0)
+        db.get(ModuleGraphQuery)
+            .get(self.0)
+            .map(|module| module.module_path.clone())
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -144,7 +150,9 @@ impl QueryKey<CompilerContext> for ModuleGraphParentQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_graph_parent_key(self.0)
+        let graph = db.get(ModuleGraphQuery);
+        let parent = graph.get(self.0)?.parent?;
+        graph.stable_key(parent).cloned()
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -172,7 +180,14 @@ impl QueryKey<CompilerContext> for ModuleGraphChildQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_graph_child_key(self.0, &self.1)
+        let graph = db.get(ModuleGraphQuery);
+        let module = graph.get(self.0)?;
+        let target = module.children.get(&self.1).copied()?;
+        let declaration = module
+            .declarations
+            .iter()
+            .find(|declaration| declaration.name == self.1 && declaration.target == target)?;
+        Some((graph.stable_key(target)?.clone(), declaration.visibility))
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -197,7 +212,9 @@ impl QueryKey<CompilerContext> for ModulePackageRootQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_package_root_key(&self.0)
+        let graph = db.get(ModuleGraphQuery);
+        let root = graph.package_root(&self.0)?;
+        graph.stable_key(root).cloned()
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -329,18 +346,34 @@ pub(super) struct BodyActivationWorklistQuery;
 impl QueryKey<CompilerContext> for BodyActivationWorklistQuery {
     type Value = BodyActivationWorklist;
 
-    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "body_activation_worklist"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().body_activation_worklist()
+        let graph = db.get(ModuleGraphQuery);
+        let modules = graph
+            .modules()
+            .filter(|module| module.process_used_paths)
+            .map(|module| {
+                let stable_key = graph.stable_key(module.id).unwrap_or_else(|| {
+                    panic!(
+                        "Nia ICE: missing stable key for activated module {:?}",
+                        module.id
+                    )
+                });
+                (stable_key.clone(), module.id)
+            })
+            .collect();
+        BodyActivationWorklist {
+            modules: Arc::new(modules),
+        }
     }
 
-    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
-        Some(body_activation_worklist_fingerprint(value))
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -350,18 +383,34 @@ pub(super) struct ExecutableFactEpochQuery;
 impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
     type Value = ExecutableFactEpoch;
 
-    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "executable_fact_epoch"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().executable_fact_epoch()
+        let graph = db.get(ModuleGraphQuery);
+        let modules = graph
+            .modules()
+            .map(|module| (module.id, *db.get(ModuleSourceVersionQuery(module.id))))
+            .collect();
+        let runtime_root_modules = graph
+            .modules()
+            .filter(|module| graph.is_executable_root_module(module.id))
+            .map(|module| module.id)
+            .collect();
+        ExecutableFactEpoch {
+            entry_module: graph.entry(),
+            runtime_root_modules,
+            modules,
+            target: db.get(CompilerTargetQuery).as_ref().clone(),
+            runtime: *db.get(CompilerRuntimeQuery),
+        }
     }
 
-    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
-        Some(executable_fact_epoch_fingerprint(*value))
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -376,7 +425,13 @@ impl QueryKey<CompilerContext> for ExecutableRootModulesQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().executable_root_modules()
+        let graph = db.get(ModuleGraphQuery);
+        let runtime_root_modules = graph
+            .modules()
+            .filter(|module| graph.is_executable_root_module(module.id))
+            .map(|module| module.id)
+            .collect();
+        (graph.entry(), runtime_root_modules)
     }
 }
 

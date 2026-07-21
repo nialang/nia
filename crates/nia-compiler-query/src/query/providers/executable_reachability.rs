@@ -243,11 +243,11 @@ fn executable_check(
 ) -> ExecutableCheckOutput {
     let provider_fact_worklist = db.get(ProviderFactWorklistQuery);
     let body_activation_worklist = db.get(BodyActivationWorklistQuery);
-    let executable_fact_epoch = *db.get(ExecutableFactEpochQuery);
+    let executable_fact_epoch = db.get(ExecutableFactEpochQuery);
     let parse_ok = resolve_stable_module_sequence(db, &db.get(SemanticModuleIdsQuery));
     let (entry_module, runtime_root_modules) = db.get(ExecutableRootModulesQuery).as_ref().clone();
     let mut session = db.context().take_executable_fact_session();
-    session.enter_epoch(executable_fact_epoch);
+    session.enter_epoch(&executable_fact_epoch);
     session.apply_body_activation_worklist(&body_activation_worklist);
     session.apply_provider_fact_worklist(&provider_fact_worklist, &db.context().type_store);
     let ExecutableFactSession {

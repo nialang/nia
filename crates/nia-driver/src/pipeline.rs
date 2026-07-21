@@ -194,11 +194,10 @@ impl Driver {
                     }),
                 )
             } else {
-                let database = CompilerDatabase::new_in_session(
+                let database = CompilerDatabase::new(
                     CompileRequest::new(loader.clone())
                         .with_optimization(request.optimization)
                         .with_timings(request.timings),
-                    query_session,
                 );
                 *compiler_guard = Some(SessionCompiler {
                     database: database.clone(),
