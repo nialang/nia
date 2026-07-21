@@ -275,6 +275,21 @@ impl QueryKey<CompilerContext> for BodyActivationWorklistQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExecutableFactEpochQuery;
+
+impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
+    type Value = ExecutableFactEpoch;
+
+    fn name() -> &'static str {
+        "executable_fact_epoch"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().executable_fact_epoch()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExecutableRootModulesQuery;
 
 impl QueryKey<CompilerContext> for ExecutableRootModulesQuery {
