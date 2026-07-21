@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod resources;
+
+pub use resources::{
+    ProcessMemoryPermit, acquire_llvm_memory_permit, effective_available_memory_bytes,
+    effective_memory_limit_bytes,
+};
+
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
