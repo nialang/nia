@@ -6,7 +6,7 @@ use std::{
     fmt::{self, Debug},
     hash::Hash,
     sync::{
-        Arc, Condvar, Mutex,
+        Arc, Condvar, Mutex, Weak,
         atomic::{AtomicU32, AtomicUsize, Ordering},
     },
 };
@@ -194,14 +194,25 @@ pub struct QueryDb<C> {
     inner: Arc<QueryDbInner<C>>,
 }
 
+#[derive(Clone)]
+pub struct QuerySession {
+    inner: Arc<QuerySessionInner>,
+}
+
+struct QuerySessionInner {
+    id: QuerySessionId,
+    databases: Mutex<FastHashMap<QueryDbId, Arc<dyn ErasedQueryDatabase>>>,
+    dependencies: Mutex<QueryDependencyGraph>,
+}
+
 struct QueryDbInner<C> {
     id: QueryDbId,
+    session: QuerySession,
     context: C,
     timings: nia_timing::TimingMode,
     registry: Option<QueryRegistry>,
     caches: Mutex<FastHashMap<TypeId, Box<dyn Any + Send + Sync>>>,
     slots: Mutex<QuerySlotTable<C>>,
-    dependencies: Mutex<QueryDependencyGraph>,
 }
 
 struct QuerySlot<V> {
@@ -220,6 +231,19 @@ impl QueryDbId {
         let id = NEXT_QUERY_DB_ID
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .expect("query database identity space exhausted");
+        Self(id)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct QuerySessionId(u32);
+
+impl QuerySessionId {
+    fn fresh() -> Self {
+        static NEXT_QUERY_SESSION_ID: AtomicU32 = AtomicU32::new(1);
+        let id = NEXT_QUERY_SESSION_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .expect("query session identity space exhausted");
         Self(id)
     }
 }
@@ -485,6 +509,16 @@ struct QueryDependencyGraph {
     reverse: FastHashMap<QueryNodeId, FastHashSet<QueryNodeId>>,
 }
 
+trait ErasedQueryDatabase: Send + Sync {
+    fn frame(&self, node_id: QueryNodeId) -> Option<QueryFrame>;
+    fn slot(&self, node_id: QueryNodeId) -> Option<Arc<dyn ErasedQuerySlot>>;
+    fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()>;
+}
+
+struct QueryDbRegistration<C> {
+    inner: Weak<QueryDbInner<C>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryError {
     Cycle { cycle: Vec<QueryFrame> },
@@ -539,6 +573,7 @@ pub struct QueryTraceQuery {
 
 #[derive(Debug, Clone)]
 struct QueryStackEntry {
+    session_id: QuerySessionId,
     node_id: QueryNodeId,
     dependencies: FastHashSet<QueryNodeId>,
     dependency_fingerprints: Option<DependencyFingerprints>,
@@ -562,47 +597,177 @@ thread_local! {
     static QUERY_STACK: RefCell<Vec<QueryStackEntry>> = const { RefCell::new(Vec::new()) };
 }
 
+impl Default for QuerySession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl QuerySession {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(QuerySessionInner {
+                id: QuerySessionId::fresh(),
+                databases: Mutex::new(FastHashMap::default()),
+                dependencies: Mutex::new(QueryDependencyGraph::default()),
+            }),
+        }
+    }
+
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    fn register<C>(&self, db: &QueryDb<C>)
+    where
+        C: Send + Sync + 'static,
+    {
+        let registration: Arc<dyn ErasedQueryDatabase> = Arc::new(QueryDbRegistration {
+            inner: Arc::downgrade(&db.inner),
+        });
+        let previous = self
+            .inner
+            .databases
+            .lock()
+            .expect("query session database lock poisoned")
+            .insert(db.inner.id, registration);
+        assert!(previous.is_none(), "query database registered twice");
+    }
+
+    fn database(&self, db_id: QueryDbId) -> Arc<dyn ErasedQueryDatabase> {
+        self.inner
+            .databases
+            .lock()
+            .expect("query session database lock poisoned")
+            .get(&db_id)
+            .cloned()
+            .expect("query node references an unknown database")
+    }
+
+    fn frame(&self, node_id: QueryNodeId) -> QueryFrame {
+        self.database(node_id.db_id)
+            .frame(node_id)
+            .expect("query node id must reference a registered slot")
+    }
+
+    fn slot(&self, node_id: QueryNodeId) -> Arc<dyn ErasedQuerySlot> {
+        self.database(node_id.db_id)
+            .slot(node_id)
+            .expect("query node id must reference a registered slot")
+    }
+
+    fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()> {
+        self.database(node_id.db_id).ensure(node_id)
+    }
+}
+
 impl<C> QueryDb<C> {
-    pub fn new(context: C) -> Self {
+    pub fn new(context: C) -> Self
+    where
+        C: Send + Sync + 'static,
+    {
         Self::new_with_timings(context, nia_timing::TimingMode::Off)
     }
 
-    pub fn new_with_timings(context: C, timings: nia_timing::TimingMode) -> Self {
-        Self::new_inner(context, timings, None)
+    pub fn new_with_timings(context: C, timings: nia_timing::TimingMode) -> Self
+    where
+        C: Send + Sync + 'static,
+    {
+        Self::new_with_timings_in_session(context, timings, QuerySession::new())
     }
 
-    pub fn new_registered(context: C, registry: QueryRegistry) -> Self {
+    pub fn new_with_timings_in_session(
+        context: C,
+        timings: nia_timing::TimingMode,
+        session: QuerySession,
+    ) -> Self
+    where
+        C: Send + Sync + 'static,
+    {
+        Self::new_inner(context, timings, None, session)
+    }
+
+    pub fn new_registered(context: C, registry: QueryRegistry) -> Self
+    where
+        C: Send + Sync + 'static,
+    {
         Self::new_registered_with_timings(context, nia_timing::TimingMode::Off, registry)
+    }
+
+    pub fn new_registered_in_session(
+        context: C,
+        registry: QueryRegistry,
+        session: QuerySession,
+    ) -> Self
+    where
+        C: Send + Sync + 'static,
+    {
+        Self::new_registered_with_timings_in_session(
+            context,
+            nia_timing::TimingMode::Off,
+            registry,
+            session,
+        )
     }
 
     pub fn new_registered_with_timings(
         context: C,
         timings: nia_timing::TimingMode,
         registry: QueryRegistry,
-    ) -> Self {
-        Self::new_inner(context, timings, Some(registry))
+    ) -> Self
+    where
+        C: Send + Sync + 'static,
+    {
+        Self::new_registered_with_timings_in_session(
+            context,
+            timings,
+            registry,
+            QuerySession::new(),
+        )
+    }
+
+    pub fn new_registered_with_timings_in_session(
+        context: C,
+        timings: nia_timing::TimingMode,
+        registry: QueryRegistry,
+        session: QuerySession,
+    ) -> Self
+    where
+        C: Send + Sync + 'static,
+    {
+        Self::new_inner(context, timings, Some(registry), session)
     }
 
     fn new_inner(
         context: C,
         timings: nia_timing::TimingMode,
         registry: Option<QueryRegistry>,
-    ) -> Self {
-        Self {
+        session: QuerySession,
+    ) -> Self
+    where
+        C: Send + Sync + 'static,
+    {
+        let db = Self {
             inner: Arc::new(QueryDbInner {
                 id: QueryDbId::fresh(),
+                session: session.clone(),
                 context,
                 timings,
                 registry,
                 caches: Mutex::new(FastHashMap::default()),
                 slots: Mutex::new(QuerySlotTable::default()),
-                dependencies: Mutex::new(QueryDependencyGraph::default()),
             }),
-        }
+        };
+        session.register(&db);
+        db
     }
 
     pub fn context(&self) -> &C {
         &self.inner.context
+    }
+
+    pub fn session(&self) -> QuerySession {
+        self.inner.session.clone()
     }
 
     pub fn registered_queries(&self) -> Vec<QueryDescriptor> {
@@ -646,7 +811,7 @@ impl<C> QueryDb<C> {
         let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key));
         let node_id = slot.node_id;
         nia_timing::time_detail(detail_timing, "query.record_dependency", || {
-            record_dependency_on_current_stack(node_id)
+            record_dependency_on_current_stack(self.inner.session.inner.id, node_id)
         });
         loop {
             let mut state = slot.state.lock().expect("query cache lock poisoned");
@@ -657,7 +822,11 @@ impl<C> QueryDb<C> {
                     nia_timing::time_detail(detail_timing, "query.record_cache_hit", || {
                         slot.stats.record_cache_hit()
                     });
-                    record_dependency_fingerprint_on_current_stack(node_id, *fingerprint);
+                    record_dependency_fingerprint_on_current_stack(
+                        self.inner.session.inner.id,
+                        node_id,
+                        *fingerprint,
+                    );
                     return Ok(Arc::clone(value));
                 }
                 QueryState::PotentiallyOutdated { .. } => {
@@ -677,6 +846,7 @@ impl<C> QueryDb<C> {
                     drop(state);
 
                     let entry = QueryStackEntry {
+                        session_id: self.inner.session.inner.id,
                         node_id,
                         dependencies: FastHashSet::default(),
                         dependency_fingerprints: Some(DependencyFingerprints::default()),
@@ -713,7 +883,11 @@ impl<C> QueryDb<C> {
                         slot.stats.record_green_validation();
                         slot.stats.record_cache_hit();
                         slot.ready.notify_all();
-                        record_dependency_fingerprint_on_current_stack(node_id, Some(fingerprint));
+                        record_dependency_fingerprint_on_current_stack(
+                            self.inner.session.inner.id,
+                            node_id,
+                            Some(fingerprint),
+                        );
                         return Ok(value);
                     }
                     *state = QueryState::Empty;
@@ -736,6 +910,7 @@ impl<C> QueryDb<C> {
 
                     self.clear_dependencies_from(node_id);
                     let entry = QueryStackEntry {
+                        session_id: self.inner.session.inner.id,
                         node_id,
                         dependencies: FastHashSet::default(),
                         dependency_fingerprints: (K::FINGERPRINT
@@ -799,6 +974,7 @@ impl<C> QueryDb<C> {
                     }
                     slot.ready.notify_all();
                     record_dependency_fingerprint_on_current_stack(
+                        self.inner.session.inner.id,
                         node_id,
                         (!was_invalidated).then_some(fingerprint).flatten(),
                     );
@@ -877,19 +1053,24 @@ impl<C> QueryDb<C> {
     }
 
     pub fn query_trace(&self) -> QueryTrace {
-        let slots = self
-            .inner
-            .slots
-            .lock()
-            .expect("query cache slot lock poisoned");
+        let queries = {
+            let slots = self
+                .inner
+                .slots
+                .lock()
+                .expect("query cache slot lock poisoned");
+            Self::query_stats(self.inner.id, &slots)
+        };
         QueryTrace {
             dependencies: self
+                .inner
+                .session
                 .inner
                 .dependencies
                 .lock()
                 .expect("query dependency lock poisoned")
-                .dependencies(self.inner.id, &slots),
-            queries: Self::query_stats(self.inner.id, &slots),
+                .dependencies(self.inner.id, &self.inner.session),
+            queries,
         }
     }
 
@@ -940,21 +1121,14 @@ impl<C> QueryDb<C> {
 
     fn invalidate_cached_root(&self, root: QueryNodeId) -> QueryInvalidation {
         let invalidated = self.collect_invalidated_nodes(root);
-        let slots = self
-            .inner
-            .slots
-            .lock()
-            .expect("query cache slot lock poisoned");
         let mut cleared = Vec::new();
         for (index, node_id) in invalidated.iter().enumerate() {
-            let Some(record) = slots.get(self.inner.id, *node_id) else {
-                continue;
-            };
+            let slot = self.inner.session.slot(*node_id);
             let disposition = if index == 0 {
-                record.slot.invalidate();
+                slot.invalidate();
                 QueryInvalidationDisposition::Cleared
             } else {
-                record.slot.mark_potentially_outdated()
+                slot.mark_potentially_outdated()
             };
             if disposition == QueryInvalidationDisposition::Cleared {
                 cleared.push(*node_id);
@@ -962,11 +1136,12 @@ impl<C> QueryDb<C> {
         }
         let frames = invalidated
             .iter()
-            .map(|node_id| slots.frame(self.inner.id, *node_id))
+            .map(|node_id| self.inner.session.frame(*node_id))
             .collect::<Vec<_>>();
-        drop(slots);
 
         let mut dependencies = self
+            .inner
+            .session
             .inner
             .dependencies
             .lock()
@@ -1086,22 +1261,19 @@ impl<C> QueryDb<C> {
     }
 
     fn collect_invalidated_nodes(&self, root: QueryNodeId) -> Vec<QueryNodeId> {
-        let slots = self
-            .inner
-            .slots
-            .lock()
-            .expect("query cache slot lock poisoned");
         let dependencies = self
+            .inner
+            .session
             .inner
             .dependencies
             .lock()
             .expect("query dependency lock poisoned");
-        dependencies.collect_dependents(self.inner.id, &slots, root)
+        dependencies.collect_dependents(&self.inner.session, root)
     }
 
     fn dependencies_are_green(&self, expected: &DependencyFingerprints) -> bool {
         let mut dependencies = expected.iter().collect::<Vec<_>>();
-        dependencies.sort_unstable_by_key(|(node_id, _)| node_id.index);
+        dependencies.sort_unstable_by_key(|(node_id, _)| (node_id.db_id.0, node_id.index));
         for (node_id, expected_fingerprint) in dependencies {
             let Some(expected_fingerprint) = expected_fingerprint else {
                 return false;
@@ -1116,39 +1288,17 @@ impl<C> QueryDb<C> {
     }
 
     fn ensure_node(&self, node_id: QueryNodeId) -> QueryResult<()> {
-        let (key, ensure) = {
-            let slots = self
-                .inner
-                .slots
-                .lock()
-                .expect("query cache slot lock poisoned");
-            let record = slots
-                .get(self.inner.id, node_id)
-                .expect("query dependency must reference a registered slot");
-            (Arc::clone(&record.identity.key), record.ensure)
-        };
-        ensure(self, key.as_ref())
+        self.inner.session.ensure(node_id)
     }
 
     fn node_fingerprint(&self, node_id: QueryNodeId) -> Option<QueryFingerprint> {
-        let slot = {
-            let slots = self
-                .inner
-                .slots
-                .lock()
-                .expect("query cache slot lock poisoned");
-            Arc::clone(
-                &slots
-                    .get(self.inner.id, node_id)
-                    .expect("query dependency must reference a registered slot")
-                    .slot,
-            )
-        };
-        slot.fingerprint()
+        self.inner.session.slot(node_id).fingerprint()
     }
 
     fn clear_dependencies_from(&self, from: QueryNodeId) {
         self.inner
+            .session
+            .inner
             .dependencies
             .lock()
             .expect("query dependency lock poisoned")
@@ -1156,8 +1306,9 @@ impl<C> QueryDb<C> {
     }
 
     fn replace_dependencies_from(&self, from: QueryNodeId, targets: FastHashSet<QueryNodeId>) {
-        debug_assert!(targets.iter().all(|target| target.db_id == from.db_id));
         self.inner
+            .session
+            .inner
             .dependencies
             .lock()
             .expect("query dependency lock poisoned")
@@ -1165,11 +1316,7 @@ impl<C> QueryDb<C> {
     }
 
     fn frame(&self, node_id: QueryNodeId) -> QueryFrame {
-        self.inner
-            .slots
-            .lock()
-            .expect("query cache slot lock poisoned")
-            .frame(self.inner.id, node_id)
+        self.inner.session.frame(node_id)
     }
 }
 
@@ -1206,14 +1353,15 @@ impl QueryDependencyGraph {
         self.forward.insert(from, targets);
     }
 
-    fn dependencies<C>(&self, db_id: QueryDbId, slots: &QuerySlotTable<C>) -> Vec<QueryDependency> {
+    fn dependencies(&self, db_id: QueryDbId, session: &QuerySession) -> Vec<QueryDependency> {
         let mut dependencies = self
             .forward
             .iter()
+            .filter(|(from, _)| from.db_id == db_id)
             .flat_map(|(from, targets)| {
                 targets.iter().map(move |to| QueryDependency {
-                    from: slots.frame(db_id, *from),
-                    to: slots.frame(db_id, *to),
+                    from: session.frame(*from),
+                    to: session.frame(*to),
                 })
             })
             .collect::<Vec<_>>();
@@ -1234,12 +1382,7 @@ impl QueryDependencyGraph {
         dependencies
     }
 
-    fn collect_dependents<C>(
-        &self,
-        db_id: QueryDbId,
-        slots: &QuerySlotTable<C>,
-        root: QueryNodeId,
-    ) -> Vec<QueryNodeId> {
+    fn collect_dependents(&self, session: &QuerySession, root: QueryNodeId) -> Vec<QueryNodeId> {
         let mut seen = FastHashSet::default();
         let mut queue = vec![root];
         let mut invalidated = Vec::new();
@@ -1257,7 +1400,7 @@ impl QueryDependencyGraph {
                 .flat_map(|dependents| dependents.iter().cloned())
                 .collect::<Vec<_>>();
             dependents.sort_by_key(|dependent| {
-                let frame = slots.frame(db_id, *dependent);
+                let frame = session.frame(*dependent);
                 (frame.name, frame.key)
             });
             dependents.reverse();
@@ -1322,6 +1465,46 @@ where
         .downcast_ref::<K>()
         .expect("query frame identity key type mismatch");
     query_frame::<C, K>(key)
+}
+
+impl<C> ErasedQueryDatabase for QueryDbRegistration<C>
+where
+    C: Send + Sync + 'static,
+{
+    fn frame(&self, node_id: QueryNodeId) -> Option<QueryFrame> {
+        let inner = self.inner.upgrade()?;
+        inner
+            .slots
+            .lock()
+            .expect("query cache slot lock poisoned")
+            .get(inner.id, node_id)
+            .map(|record| record.identity.frame())
+    }
+
+    fn slot(&self, node_id: QueryNodeId) -> Option<Arc<dyn ErasedQuerySlot>> {
+        let inner = self.inner.upgrade()?;
+        inner
+            .slots
+            .lock()
+            .expect("query cache slot lock poisoned")
+            .get(inner.id, node_id)
+            .map(|record| Arc::clone(&record.slot))
+    }
+
+    fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()> {
+        let inner = self
+            .inner
+            .upgrade()
+            .expect("query dependency database was dropped");
+        let (key, ensure) = {
+            let slots = inner.slots.lock().expect("query cache slot lock poisoned");
+            let record = slots
+                .get(inner.id, node_id)
+                .expect("query dependency must reference a registered slot");
+            (Arc::clone(&record.identity.key), record.ensure)
+        };
+        ensure(&QueryDb { inner }, key.as_ref())
+    }
 }
 
 impl<C> Clone for QueryDb<C> {
@@ -1395,13 +1578,13 @@ fn take_current_stack_dependencies() -> RecordedDependencies {
     })
 }
 
-fn record_dependency_on_current_stack(to: QueryNodeId) {
+fn record_dependency_on_current_stack(session_id: QuerySessionId, to: QueryNodeId) {
     QUERY_STACK.with(|stack| {
         let mut stack = stack.borrow_mut();
         let Some(from) = stack.last_mut() else {
             return;
         };
-        if from.node_id.db_id == to.db_id {
+        if from.session_id == session_id {
             from.dependencies.insert(to);
             if let Some(fingerprints) = &mut from.dependency_fingerprints {
                 fingerprints.entry(to).or_insert(None);
@@ -1411,6 +1594,7 @@ fn record_dependency_on_current_stack(to: QueryNodeId) {
 }
 
 fn record_dependency_fingerprint_on_current_stack(
+    session_id: QuerySessionId,
     to: QueryNodeId,
     fingerprint: Option<QueryFingerprint>,
 ) {
@@ -1419,7 +1603,7 @@ fn record_dependency_fingerprint_on_current_stack(
         let Some(from) = stack.last_mut() else {
             return;
         };
-        if from.node_id.db_id == to.db_id
+        if from.session_id == session_id
             && let Some(fingerprints) = &mut from.dependency_fingerprints
         {
             fingerprints.insert(to, fingerprint);
@@ -1462,6 +1646,64 @@ mod tests {
 
     struct TestContext {
         executions: AtomicUsize,
+    }
+
+    struct SessionInputContext {
+        value: Arc<AtomicUsize>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct SessionInput;
+
+    impl QueryKey<SessionInputContext> for SessionInput {
+        type Value = usize;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+        fn name() -> &'static str {
+            "session_input"
+        }
+
+        fn execute(&self, db: &QueryDb<SessionInputContext>) -> Self::Value {
+            db.context().value.load(Ordering::SeqCst)
+        }
+
+        fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+            Some(test_usize_fingerprint(
+                "nia.query.test.session-input.v1",
+                *value,
+            ))
+        }
+    }
+
+    struct SessionParentContext {
+        input_db: QueryDb<SessionInputContext>,
+        executions: Arc<AtomicUsize>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct SessionParent;
+
+    impl QueryKey<SessionParentContext> for SessionParent {
+        type Value = usize;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+        fn name() -> &'static str {
+            "session_parent"
+        }
+
+        fn execute(&self, db: &QueryDb<SessionParentContext>) -> Self::Value {
+            db.context().executions.fetch_add(1, Ordering::SeqCst);
+            *db.context().input_db.get(SessionInput) * 2
+        }
+
+        fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+            Some(test_usize_fingerprint(
+                "nia.query.test.session-parent.v1",
+                *value,
+            ))
+        }
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1916,6 +2158,79 @@ mod tests {
         assert_ne!(first_id, second_id);
         assert_eq!(first_id.index, second_id.index);
         assert_ne!(first_id.db_id, second_id.db_id);
+    }
+
+    #[test]
+    fn shared_session_records_and_invalidates_cross_database_dependencies() {
+        let session = QuerySession::new();
+        let value = Arc::new(AtomicUsize::new(3));
+        let input_db = QueryDb::new_with_timings_in_session(
+            SessionInputContext {
+                value: Arc::clone(&value),
+            },
+            nia_timing::TimingMode::Off,
+            session.clone(),
+        );
+        let executions = Arc::new(AtomicUsize::new(0));
+        let parent_db = QueryDb::new_with_timings_in_session(
+            SessionParentContext {
+                input_db: input_db.clone(),
+                executions: Arc::clone(&executions),
+            },
+            nia_timing::TimingMode::Off,
+            session,
+        );
+
+        assert!(parent_db.session().ptr_eq(&input_db.session()));
+        assert_eq!(*parent_db.get(SessionParent), 6);
+        value.store(4, Ordering::SeqCst);
+        let invalidation = input_db.invalidate(SessionInput);
+
+        assert!(
+            invalidation
+                .invalidated
+                .iter()
+                .any(|frame| frame.name == "session_parent")
+        );
+        assert_eq!(*parent_db.get(SessionParent), 8);
+        assert_eq!(executions.load(Ordering::SeqCst), 2);
+        assert!(
+            parent_db
+                .query_trace()
+                .dependencies
+                .iter()
+                .any(|dependency| {
+                    dependency.from.name == "session_parent"
+                        && dependency.to.name == "session_input"
+                })
+        );
+    }
+
+    #[test]
+    fn separate_sessions_do_not_record_cross_database_dependencies() {
+        let value = Arc::new(AtomicUsize::new(3));
+        let input_db = QueryDb::new(SessionInputContext {
+            value: Arc::clone(&value),
+        });
+        let executions = Arc::new(AtomicUsize::new(0));
+        let parent_db = QueryDb::new(SessionParentContext {
+            input_db: input_db.clone(),
+            executions: Arc::clone(&executions),
+        });
+
+        assert!(!parent_db.session().ptr_eq(&input_db.session()));
+        assert_eq!(*parent_db.get(SessionParent), 6);
+        value.store(4, Ordering::SeqCst);
+        let invalidation = input_db.invalidate(SessionInput);
+
+        assert!(
+            invalidation
+                .invalidated
+                .iter()
+                .all(|frame| frame.name != "session_parent")
+        );
+        assert_eq!(*parent_db.get(SessionParent), 6);
+        assert_eq!(executions.load(Ordering::SeqCst), 1);
     }
 
     #[test]

@@ -104,6 +104,19 @@ impl Driver {
             .unwrap_or_default()
     }
 
+    #[cfg(test)]
+    pub(crate) fn loader_and_compiler_share_query_session(&self) -> bool {
+        let loader = self.loader.lock().expect("driver loader lock poisoned");
+        let compiler = self.compiler.lock().expect("driver compiler lock poisoned");
+        match (loader.as_ref(), compiler.as_ref()) {
+            (Some(loader), Some(compiler)) => loader
+                .database
+                .query_session()
+                .ptr_eq(&compiler.database.query_session()),
+            _ => false,
+        }
+    }
+
     pub fn set_source(&self, path: impl Into<String>, text: impl Into<std::sync::Arc<str>>) {
         let path = path.into();
         let loader = self.loader.lock().expect("driver loader lock poisoned");
@@ -169,9 +182,12 @@ impl Driver {
         let timings = request.timings;
         let loader = self.loader_database(&request);
         let loaded = loader.load_program();
+        let query_session = loader.query_session();
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
         let (database, mut pending_update): (_, Option<ProviderGraphWorkItem>) =
-            if let Some(compiler) = &*compiler_guard {
+            if let Some(compiler) = &*compiler_guard
+                && compiler.database.query_session().ptr_eq(&query_session)
+            {
                 (
                     compiler.database.clone(),
                     Some(ProviderGraphWorkItem {
@@ -181,10 +197,11 @@ impl Driver {
                     }),
                 )
             } else {
-                let database = CompilerDatabase::new(
+                let database = CompilerDatabase::new_in_session(
                     CompileRequest::new(loaded)
                         .with_optimization(request.optimization)
                         .with_timings(request.timings),
+                    query_session,
                 );
                 *compiler_guard = Some(SessionCompiler {
                     database: database.clone(),
