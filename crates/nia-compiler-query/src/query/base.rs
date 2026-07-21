@@ -386,7 +386,9 @@ impl QueryKey<CompilerContext> for CompilerOptimizationQuery {
 pub(super) struct ParseOkModuleIdsQuery;
 
 impl QueryKey<CompilerContext> for ParseOkModuleIdsQuery {
-    type Value = Vec<ModuleId>;
+    type Value = StableModuleSequence;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
     fn name() -> &'static str {
         "parse_ok_module_ids"
@@ -395,13 +397,22 @@ impl QueryKey<CompilerContext> for ParseOkModuleIdsQuery {
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.parse_ok_module_ids)(db)
     }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(stable_module_sequence_fingerprint(
+            "nia.compiler.parse-ok-module-ids.v1",
+            value,
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct SemanticModuleIdsQuery;
 
 impl QueryKey<CompilerContext> for SemanticModuleIdsQuery {
-    type Value = Vec<ModuleId>;
+    type Value = StableModuleSequence;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
     fn name() -> &'static str {
         "semantic_module_ids"
@@ -409,6 +420,13 @@ impl QueryKey<CompilerContext> for SemanticModuleIdsQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.semantic_module_ids)(db)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(stable_module_sequence_fingerprint(
+            "nia.compiler.semantic-module-ids.v1",
+            value,
+        ))
     }
 }
 

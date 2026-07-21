@@ -4,12 +4,16 @@ use super::*;
 pub(super) fn provide_program_signature_module_ids(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
-) -> Vec<ModuleId> {
-    db.get(SemanticModuleIdsQuery)
-        .iter()
-        .copied()
+) -> StableModuleSequence {
+    let module_ids = resolve_stable_module_sequence_from_current_graph(
+        db,
+        &db.get(SemanticModuleIdsQuery),
+    );
+    let eligible = module_ids
+        .into_iter()
         .filter(|module_id| *db.get(ProgramSignatureModuleEligibilityQuery(*module_id, set)))
-        .collect()
+        .collect::<Vec<_>>();
+    stable_module_sequence(db, eligible)
 }
 
 pub(super) fn provide_program_signature_module_eligibility(
@@ -93,10 +97,13 @@ pub(super) fn program_signature_facts(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
 ) -> Vec<Arc<ModuleProgramSignatureFactsValue>> {
+    let module_ids = resolve_stable_module_sequence(
+        db,
+        &db.get(ProgramSignatureModuleIdsQuery(set)),
+    );
     db.get_many(
-        db.get(ProgramSignatureModuleIdsQuery(set))
-            .iter()
-            .copied()
+        module_ids
+            .into_iter()
             .map(|module_id| ModuleProgramSignatureFactsQuery(module_id, set)),
     )
 }
@@ -281,14 +288,13 @@ pub(super) fn provide_program_abi_signatures(
     db: &QueryDb<CompilerContext>,
 ) -> ProgramAbiSignaturesValue {
     time_provider(db.context().timings(), "program_abi_signatures", || {
-        let facts = db.get_many(
-            db.get(ProgramSignatureModuleIdsQuery(
+        let module_ids = resolve_stable_module_sequence(
+            db,
+            &db.get(ProgramSignatureModuleIdsQuery(
                 nia_item_tree::SignatureItemSet::Types,
-            ))
-            .iter()
-            .copied()
-            .map(ModuleAbiSignatureFactsQuery),
+            )),
         );
+        let facts = db.get_many(module_ids.into_iter().map(ModuleAbiSignatureFactsQuery));
         let mut structs = HashMap::new();
         let mut unions = HashMap::new();
         let mut enums = HashMap::new();

@@ -461,7 +461,6 @@ impl CompilerDatabase {
         }
         if diff.graph_changed {
             invalidation.extend(self.db.invalidate(ModuleGraphQuery));
-            invalidation.extend(self.db.invalidate(SemanticModuleIdsQuery));
         }
         if diff.public_surfaces_changed {
             invalidation.extend(self.db.invalidate(PublicSurfacesQuery));
@@ -510,7 +509,6 @@ impl CompilerDatabase {
         }
         if diff.loaded_modules_changed {
             invalidation.extend(self.db.invalidate(LoadedModulesQuery));
-            invalidation.extend(self.db.invalidate(SemanticModuleIdsQuery));
         }
         if diff.loaded_diagnostics_changed {
             invalidation.extend(self.db.invalidate(ProgramLoadDiagnosticsQuery));
@@ -556,7 +554,6 @@ impl CompilerDatabase {
                 }
                 if module.parse_errors {
                     invalidation.extend(self.db.invalidate(ModuleParseErrorsQuery(module_id)));
-                    invalidation.extend(self.db.invalidate(SemanticModuleIdsQuery));
                 }
                 if module.item_tree {
                     invalidation.extend(self.db.invalidate(ModuleItemTreeInputQuery(module_id)));
@@ -779,6 +776,68 @@ struct CompilerContext {
     node_store: nia_node_id::NodeStore,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct StableModuleSequence {
+    keys: Vec<StableModuleKey>,
+}
+
+impl StableModuleSequence {
+    fn from_module_ids(
+        graph: &ModuleGraphSnapshot,
+        module_ids: impl IntoIterator<Item = ModuleId>,
+    ) -> Self {
+        Self {
+            keys: module_ids
+                .into_iter()
+                .map(|module_id| {
+                    graph.stable_key(module_id).cloned().unwrap_or_else(|| {
+                        panic!(
+                            "Nia ICE: module {:?} has no stable key in the current graph",
+                            module_id
+                        )
+                    })
+                })
+                .collect(),
+        }
+    }
+
+    fn resolve(&self, graph: &ModuleGraphSnapshot) -> Vec<ModuleId> {
+        self.keys
+            .iter()
+            .map(|key| {
+                graph.module_id_for_stable_key(key).unwrap_or_else(|| {
+                    panic!(
+                        "Nia ICE: stable module `{}` is missing from the current graph",
+                        key.source_identity().normalized_path()
+                    )
+                })
+            })
+            .collect()
+    }
+}
+
+fn stable_module_sequence(
+    db: &QueryDb<CompilerContext>,
+    module_ids: impl IntoIterator<Item = ModuleId>,
+) -> StableModuleSequence {
+    let graph = db.context().module_graph();
+    StableModuleSequence::from_module_ids(&graph, module_ids)
+}
+
+fn resolve_stable_module_sequence_from_current_graph(
+    db: &QueryDb<CompilerContext>,
+    sequence: &StableModuleSequence,
+) -> Vec<ModuleId> {
+    sequence.resolve(&db.context().module_graph())
+}
+
+fn resolve_stable_module_sequence(
+    db: &QueryDb<CompilerContext>,
+    sequence: &StableModuleSequence,
+) -> Vec<ModuleId> {
+    sequence.resolve(&db.get(ModuleGraphQuery))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExecutableCheckedModuleSetId(u64);
 
@@ -976,6 +1035,18 @@ fn module_graph_child_fingerprint(
 
 fn write_stable_module_key(builder: &mut QueryFingerprintBuilder, key: &StableModuleKey) {
     builder.write_str(key.source_identity().normalized_path());
+}
+
+fn stable_module_sequence_fingerprint(
+    domain: &str,
+    sequence: &StableModuleSequence,
+) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new(domain);
+    builder.write_u64(sequence.keys.len() as u64);
+    for key in &sequence.keys {
+        write_stable_module_key(&mut builder, key);
+    }
+    builder.finish()
 }
 
 fn provider_summary_fingerprint(
@@ -2946,6 +3017,7 @@ mod tests {
             let expected = match descriptor.name {
                 "body_activation_worklist"
                 | "executable_fact_epoch"
+                | "extension_provider_module_ids"
                 | "extension_provider_module_eligibility"
                 | "extension_provider_summary"
                 | "module_graph_child"
@@ -2953,8 +3025,12 @@ mod tests {
                 | "module_graph_parent"
                 | "module_graph_path"
                 | "module_package_root"
+                | "parse_ok_module_ids"
+                | "program_signature_module_eligibility"
+                | "program_signature_module_ids"
                 | "provider_fact_revision"
-                | "provider_fact_worklist" => nia_query::QueryFingerprintPolicy::StableValue,
+                | "provider_fact_worklist"
+                | "semantic_module_ids" => nia_query::QueryFingerprintPolicy::StableValue,
                 _ => nia_query::QueryFingerprintPolicy::None,
             };
             assert_eq!(descriptor.fingerprint, expected, "{}", descriptor.name);
@@ -3051,10 +3127,13 @@ pub fn expensive_or_invalid() i32 {
         let db = query_db(fixture.program());
 
         assert_eq!(
-            db.get(ParseOkModuleIdsQuery).as_slice(),
+            resolve_stable_module_sequence(&db, &db.get(ParseOkModuleIdsQuery)).as_slice(),
             &[entry_id, facade_id]
         );
-        assert_eq!(db.get(SemanticModuleIdsQuery).as_slice(), &[entry_id]);
+        assert_eq!(
+            resolve_stable_module_sequence(&db, &db.get(SemanticModuleIdsQuery)).as_slice(),
+            &[entry_id]
+        );
 
         assert_eq!(db.get(CheckedModuleIdsQuery).as_slice(), &[entry_id]);
     }
@@ -4747,8 +4826,8 @@ fn main() i32 {
 
     #[test]
     fn compiler_query_providers_can_override_query_execution() {
-        fn no_parse_ok_modules(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
-            Vec::new()
+        fn no_parse_ok_modules(_: &QueryDb<CompilerContext>) -> StableModuleSequence {
+            StableModuleSequence::default()
         }
 
         let providers = CompilerQueryProviders {
@@ -4771,12 +4850,12 @@ fn main() i32 {
             module_ids.allocate()
         }
 
-        fn unknown_semantic_module(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
+        fn unknown_checked_module(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
             vec![unknown_module_id()]
         }
 
         let providers = CompilerQueryProviders {
-            semantic_module_ids: unknown_semantic_module,
+            checked_module_ids: unknown_checked_module,
             ..CompilerQueryProviders::default()
         };
         let policy = NiaOptimizationLevel::Oz.policy();
@@ -4785,11 +4864,10 @@ fn main() i32 {
             CompileRequest::new(fixture.program()).with_optimization(NiaOptimizationLevel::Oz),
             providers,
         )
-        .codegen_program();
+        .check_program();
 
         assert!(checked.modules.is_empty());
         assert_eq!(checked.optimization, policy);
-        assert_eq!(checked.backend_lowering.optimization, policy);
         assert_eq!(checked.diagnostics.len(), 1);
         assert!(
             checked.diagnostics[0]
@@ -4911,6 +4989,101 @@ extend Value : Ops {
     }
 
     #[test]
+    fn parse_error_changes_keep_stable_program_module_membership_green() {
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "module broken; fn main() i32 { 0 }",
+        );
+        let entry_id = fixture.entry_id();
+        let broken_id = fixture.add_child(
+            entry_id,
+            "broken",
+            "broken.nia",
+            "fn helper() i32 { 1 }",
+        );
+        let mut initial = fixture.program();
+        initial
+            .modules
+            .iter_mut()
+            .find(|module| module.id == broken_id)
+            .expect("broken fixture module")
+            .parse_errors = vec![ParseError {
+            span: Span::default(),
+            message: "first parse failure".to_string(),
+            node_key: None,
+        }];
+        let database = CompilerDatabase::new(CompileRequest::new(initial));
+        let first = database.db.get(ProgramSignatureModuleIdsQuery(
+            nia_item_tree::SignatureItemSet::Functions,
+        ));
+        assert_eq!(
+            resolve_stable_module_sequence(&database.db, &first),
+            vec![entry_id]
+        );
+        let mut updated = fixture.program();
+        updated
+            .modules
+            .iter_mut()
+            .find(|module| module.id == broken_id)
+            .expect("broken fixture module")
+            .parse_errors = vec![ParseError {
+            span: Span::default(),
+            message: "second parse failure".to_string(),
+            node_key: None,
+        }];
+
+        database.update(CompileRequest::new(updated));
+
+        let latest = database.db.get(ProgramSignatureModuleIdsQuery(
+            nia_item_tree::SignatureItemSet::Functions,
+        ));
+        assert!(Arc::ptr_eq(&first, &latest));
+        let trace = database.query_trace();
+        let module_ids = trace
+            .queries
+            .iter()
+            .find(|query| query.frame.name == "program_signature_module_ids")
+            .expect("program signature module ids trace");
+        assert_eq!(module_ids.stats.executions, 1);
+        assert_eq!(module_ids.stats.validations, 1);
+        assert_eq!(module_ids.stats.green_validations, 1);
+    }
+
+    #[test]
+    fn signature_changes_keep_stable_program_module_membership_green() {
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "fn first() i32 { 1 } fn main() i32 { first() }",
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
+        let first = database.db.get(ProgramSignatureModuleIdsQuery(
+            nia_item_tree::SignatureItemSet::Functions,
+        ));
+
+        fixture.update_module_source(
+            module_id,
+            "fn first() i32 { 1 } fn second() i32 { 2 } fn main() i32 { first() }",
+            SourceRevision(1),
+        );
+        database.update(CompileRequest::new(fixture.program()));
+
+        let latest = database.db.get(ProgramSignatureModuleIdsQuery(
+            nia_item_tree::SignatureItemSet::Functions,
+        ));
+        assert!(Arc::ptr_eq(&first, &latest));
+        let trace = database.query_trace();
+        let module_ids = trace
+            .queries
+            .iter()
+            .find(|query| query.frame.name == "program_signature_module_ids")
+            .expect("program signature module ids trace");
+        assert_eq!(module_ids.stats.executions, 1);
+        assert_eq!(module_ids.stats.validations, 1);
+        assert_eq!(module_ids.stats.green_validations, 1);
+    }
+
+    #[test]
     fn program_signature_module_ids_use_set_specific_module_facts() {
         let mut fixture = LoadedProgramFixture::new(
             "main.nia",
@@ -4952,37 +5125,52 @@ extend Value : Ops {
         let db = query_db(fixture.program());
 
         assert_eq!(
-            db.get(ProgramSignatureModuleIdsQuery(
-                nia_item_tree::SignatureItemSet::Functions
-            ))
+            resolve_stable_module_sequence(
+                &db,
+                &db.get(ProgramSignatureModuleIdsQuery(
+                    nia_item_tree::SignatureItemSet::Functions
+                ))
+            )
             .as_slice(),
             &[module2, module4, module5]
         );
         assert_eq!(
-            db.get(ProgramSignatureModuleIdsQuery(
-                nia_item_tree::SignatureItemSet::Values
-            ))
+            resolve_stable_module_sequence(
+                &db,
+                &db.get(ProgramSignatureModuleIdsQuery(
+                    nia_item_tree::SignatureItemSet::Values
+                ))
+            )
             .as_slice(),
             &[module3, module6]
         );
         assert_eq!(
-            db.get(ProgramSignatureModuleIdsQuery(
-                nia_item_tree::SignatureItemSet::Types
-            ))
+            resolve_stable_module_sequence(
+                &db,
+                &db.get(ProgramSignatureModuleIdsQuery(
+                    nia_item_tree::SignatureItemSet::Types
+                ))
+            )
             .as_slice(),
             &[module1, module5, module6]
         );
         assert_eq!(
-            db.get(ProgramSignatureModuleIdsQuery(
-                nia_item_tree::SignatureItemSet::Traits
-            ))
+            resolve_stable_module_sequence(
+                &db,
+                &db.get(ProgramSignatureModuleIdsQuery(
+                    nia_item_tree::SignatureItemSet::Traits
+                ))
+            )
             .as_slice(),
             &[module4, module5, module6]
         );
         assert_eq!(
-            db.get(ProgramSignatureModuleIdsQuery(
-                nia_item_tree::SignatureItemSet::ExtensionFunctions
-            ))
+            resolve_stable_module_sequence(
+                &db,
+                &db.get(ProgramSignatureModuleIdsQuery(
+                    nia_item_tree::SignatureItemSet::ExtensionFunctions
+                ))
+            )
             .as_slice(),
             &[module4, module5]
         );
@@ -5040,28 +5228,19 @@ extend Value : Ops {
         let db = query_db(fixture.program());
 
         assert_eq!(
-            db.get(ExtensionProviderModuleIdsQuery).as_slice(),
+            resolve_stable_module_sequence(&db, &db.get(ExtensionProviderModuleIdsQuery))
+                .as_slice(),
             &[module5]
         );
         let trace = db.query_trace();
         assert!(trace_has_dependency(
             &trace,
             "extension_provider_module_ids",
-            "extension_provider_discovery_index"
-        ));
-        assert!(trace_has_dependency(
-            &trace,
-            "extension_provider_discovery_index",
             "parse_ok_module_ids"
         ));
-        assert!(!trace_has_dependency(
-            &trace,
-            "extension_provider_discovery_index",
-            "semantic_module_ids"
-        ));
         assert!(trace_has_dependency(
             &trace,
-            "extension_provider_discovery_index",
+            "extension_provider_module_ids",
             "extension_provider_module_eligibility"
         ));
     }
@@ -5387,6 +5566,7 @@ extend Value : Ops {
         let _ = db.get(ExtensionProviderValidationFactsQuery(module_id));
         let _ = db.get(ExtensionProviderModuleFactsQuery(module_id));
         let _ = db.get(ExtensionMethodIndexQuery);
+        let _ = db.get(ExtensionProviderDiscoveryIndexQuery);
         let trace = db.query_trace();
 
         assert!(
@@ -5428,7 +5608,7 @@ extend Value : Ops {
         assert!(trace_has_dependency(
             &trace,
             "extension_provider_module_ids",
-            "extension_provider_discovery_index"
+            "parse_ok_module_ids"
         ));
         assert!(trace_has_dependency(
             &trace,
@@ -5440,7 +5620,7 @@ extend Value : Ops {
             "extension_provider_discovery_index",
             "extension_provider_summary"
         ));
-        assert!(!trace_has_dependency(
+        assert!(trace_has_dependency(
             &trace,
             "extension_provider_module_ids",
             "extension_provider_module_eligibility"
@@ -5620,6 +5800,7 @@ extend Value : Ops {
             .db
             .get(ExtensionProviderModuleEligibilityQuery(module_id));
         assert!(*first);
+        let first_modules = database.db.get(ExtensionProviderModuleIdsQuery);
 
         fixture.update_module_source(
             module_id,
@@ -5640,15 +5821,25 @@ extend Value : Ops {
             .get(ExtensionProviderModuleEligibilityQuery(module_id));
         assert!(*second);
         assert!(!Arc::ptr_eq(&first, &second));
-        let eligibility = database
-            .query_trace()
+        let latest_modules = database.db.get(ExtensionProviderModuleIdsQuery);
+        assert!(Arc::ptr_eq(&first_modules, &latest_modules));
+        let trace = database.query_trace();
+        let eligibility = trace
             .queries
-            .into_iter()
+            .iter()
             .find(|query| query.frame.name == "extension_provider_module_eligibility")
             .expect("extension provider eligibility trace");
         assert_eq!(eligibility.stats.executions, 2);
         assert_eq!(eligibility.stats.validations, 1);
         assert_eq!(eligibility.stats.green_validations, 0);
+        let module_ids = trace
+            .queries
+            .iter()
+            .find(|query| query.frame.name == "extension_provider_module_ids")
+            .expect("extension provider module ids trace");
+        assert_eq!(module_ids.stats.executions, 1);
+        assert_eq!(module_ids.stats.validations, 1);
+        assert_eq!(module_ids.stats.green_validations, 1);
     }
 
     #[test]

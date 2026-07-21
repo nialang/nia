@@ -199,8 +199,8 @@ pub(super) struct CompilerQueryProviders {
     pub(super) entry_checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgram,
     pub(super) codegen_program: fn(&QueryDb<CompilerContext>) -> CodegenProgram,
     pub(super) module_graph: fn(&QueryDb<CompilerContext>) -> nia_imports::ModuleGraphSnapshot,
-    pub(super) parse_ok_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
-    pub(super) semantic_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
+    pub(super) parse_ok_module_ids: fn(&QueryDb<CompilerContext>) -> StableModuleSequence,
+    pub(super) semantic_module_ids: fn(&QueryDb<CompilerContext>) -> StableModuleSequence,
     pub(super) module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
     pub(super) active_module_item_tree:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
@@ -246,7 +246,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) signature_const_module:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ConstModuleLowering,
     pub(super) program_signature_module_ids:
-        fn(&QueryDb<CompilerContext>, nia_item_tree::SignatureItemSet) -> Vec<ModuleId>,
+        fn(&QueryDb<CompilerContext>, nia_item_tree::SignatureItemSet) -> StableModuleSequence,
     pub(super) program_signature_module_eligibility:
         fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> bool,
     pub(super) module_program_signature_facts: fn(
@@ -260,7 +260,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> nia_provider_summary::ProviderSummary,
     pub(super) extension_provider_discovery_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionProviderDiscoveryIndexValue,
-    pub(super) extension_provider_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
+    pub(super) extension_provider_module_ids:
+        fn(&QueryDb<CompilerContext>) -> StableModuleSequence,
     pub(super) extension_provider_module_eligibility:
         fn(&QueryDb<CompilerContext>, ModuleId) -> bool,
     pub(super) extension_signature_module_input:

@@ -2184,7 +2184,7 @@ fn collect_executable_value_ref_edge_for_key(
 
 pub(super) fn provide_checked_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
     time_provider(db.context().timings(), "checked_module_ids", || {
-        db.get(SemanticModuleIdsQuery).as_ref().clone()
+        resolve_stable_module_sequence(db, &db.get(SemanticModuleIdsQuery))
     })
 }
 

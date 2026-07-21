@@ -143,7 +143,9 @@ impl QueryKey<CompilerContext> for ExtensionProviderDiscoveryIndexQuery {
 pub(super) struct ExtensionProviderModuleIdsQuery;
 
 impl QueryKey<CompilerContext> for ExtensionProviderModuleIdsQuery {
-    type Value = Vec<ModuleId>;
+    type Value = StableModuleSequence;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
     fn name() -> &'static str {
         "extension_provider_module_ids"
@@ -151,6 +153,13 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleIdsQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_provider_module_ids)(db)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(stable_module_sequence_fingerprint(
+            "nia.compiler.extension-provider-module-ids.v1",
+            value,
+        ))
     }
 }
 
