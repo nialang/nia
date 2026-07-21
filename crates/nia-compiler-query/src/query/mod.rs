@@ -428,7 +428,8 @@ impl CompilerDatabase {
     fn invalidate_inputs(&self, diff: CompilerInputDiff) -> CompilerInvalidation {
         let mut invalidation = CompilerInvalidation::default();
         if diff.graph_entry_changed {
-            invalidation.extend(self.db.invalidate(ModuleGraphEntryQuery));
+            let entry = self.db.context().module_graph_entry_key();
+            invalidation.extend(self.db.validate_input(ModuleGraphEntryQuery, &entry));
         }
         for module_id in diff.changed_graph_paths {
             let path = self.db.context().module_graph_path(module_id);
@@ -438,13 +439,25 @@ impl CompilerDatabase {
             );
         }
         for module_id in diff.changed_graph_parents {
-            invalidation.extend(self.db.invalidate(ModuleGraphParentQuery(module_id)));
+            let parent = self.db.context().module_graph_parent_key(module_id);
+            invalidation.extend(
+                self.db
+                    .validate_input(ModuleGraphParentQuery(module_id), &parent),
+            );
         }
         for (module_id, name) in diff.changed_graph_children {
-            invalidation.extend(self.db.invalidate(ModuleGraphChildQuery(module_id, name)));
+            let child = self.db.context().module_graph_child_key(module_id, &name);
+            invalidation.extend(
+                self.db
+                    .validate_input(ModuleGraphChildQuery(module_id, name), &child),
+            );
         }
         for package in diff.changed_package_roots {
-            invalidation.extend(self.db.invalidate(ModulePackageRootQuery(package)));
+            let root = self.db.context().module_package_root_key(&package);
+            invalidation.extend(
+                self.db
+                    .validate_input(ModulePackageRootQuery(package), &root),
+            );
         }
         if diff.graph_changed {
             invalidation.extend(self.db.invalidate(ModuleGraphQuery));
@@ -920,6 +933,49 @@ fn module_graph_path_fingerprint(path: &Option<nia_imports::ModulePath>) -> Quer
         builder.write_u64(segment.raw());
     }
     builder.finish()
+}
+
+fn stable_module_key_fingerprint(domain: &str, key: &StableModuleKey) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new(domain);
+    write_stable_module_key(&mut builder, key);
+    builder.finish()
+}
+
+fn optional_stable_module_key_fingerprint(
+    domain: &str,
+    key: Option<&StableModuleKey>,
+) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new(domain);
+    if let Some(key) = key {
+        builder.write_u8(1);
+        write_stable_module_key(&mut builder, key);
+    } else {
+        builder.write_u8(0);
+    }
+    builder.finish()
+}
+
+fn module_graph_child_fingerprint(
+    child: &Option<(StableModuleKey, nia_ids::Visibility)>,
+) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.compiler.module-graph-child.v1");
+    let Some((key, visibility)) = child else {
+        builder.write_u8(0);
+        return builder.finish();
+    };
+    builder.write_u8(1);
+    write_stable_module_key(&mut builder, key);
+    builder.write_u8(match visibility {
+        nia_ids::Visibility::Private => 0,
+        nia_ids::Visibility::PublicSuper => 1,
+        nia_ids::Visibility::PublicPkg => 2,
+        nia_ids::Visibility::Public => 3,
+    });
+    builder.finish()
+}
+
+fn write_stable_module_key(builder: &mut QueryFingerprintBuilder, key: &StableModuleKey) {
+    builder.write_str(key.source_identity().normalized_path());
 }
 
 fn provider_summary_fingerprint(
@@ -1518,12 +1574,13 @@ impl CompilerContext {
             .clone()
     }
 
-    fn module_graph_entry(&self) -> ModuleId {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
+    fn module_graph_entry_key(&self) -> StableModuleKey {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        inputs
             .graph
-            .entry()
+            .stable_key(inputs.graph.entry())
+            .cloned()
+            .expect("compiler entry must have a stable module key")
     }
 
     fn module_graph_path(&self, module_id: ModuleId) -> Option<nia_imports::ModulePath> {
@@ -1535,20 +1592,17 @@ impl CompilerContext {
             .map(|module| module.module_path.clone())
     }
 
-    fn module_graph_parent(&self, module_id: ModuleId) -> Option<ModuleId> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .graph
-            .get(module_id)
-            .and_then(|module| module.parent)
+    fn module_graph_parent_key(&self, module_id: ModuleId) -> Option<StableModuleKey> {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        let parent = inputs.graph.get(module_id)?.parent?;
+        inputs.graph.stable_key(parent).cloned()
     }
 
-    fn module_graph_child(
+    fn module_graph_child_key(
         &self,
         module_id: ModuleId,
         name: &SymbolId,
-    ) -> Option<(ModuleId, nia_ids::Visibility)> {
+    ) -> Option<(StableModuleKey, nia_ids::Visibility)> {
         let inputs = self.inputs.read().expect("compiler input lock poisoned");
         let module = inputs.graph.get(module_id)?;
         let target = module.children.get(name).copied()?;
@@ -1556,15 +1610,24 @@ impl CompilerContext {
             .declarations
             .iter()
             .find(|declaration| declaration.name == *name && declaration.target == target)?;
-        Some((target, declaration.visibility))
+        Some((
+            inputs.graph.stable_key(target)?.clone(),
+            declaration.visibility,
+        ))
     }
 
-    fn module_package_root(&self, package: &SymbolId) -> Option<ModuleId> {
+    fn module_package_root_key(&self, package: &SymbolId) -> Option<StableModuleKey> {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        let root = inputs.graph.package_root(package)?;
+        inputs.graph.stable_key(root).cloned()
+    }
+
+    fn module_id_for_stable_key(&self, stable_key: &StableModuleKey) -> Option<ModuleId> {
         self.inputs
             .read()
             .expect("compiler input lock poisoned")
             .graph
-            .package_root(package)
+            .module_id_for_stable_key(stable_key)
     }
 
     fn public_surfaces(&self) -> Arc<PublicSurfacesValue> {
@@ -2885,7 +2948,11 @@ mod tests {
                 | "executable_fact_epoch"
                 | "extension_provider_module_eligibility"
                 | "extension_provider_summary"
+                | "module_graph_child"
+                | "module_graph_entry"
+                | "module_graph_parent"
                 | "module_graph_path"
+                | "module_package_root"
                 | "provider_fact_revision"
                 | "provider_fact_worklist" => nia_query::QueryFingerprintPolicy::StableValue,
                 _ => nia_query::QueryFingerprintPolicy::None,
@@ -3076,6 +3143,80 @@ pub fn expensive_or_invalid() i32 {
 
         assert!(diff.loaded_modules_changed);
         assert!(!diff.executable_fact_inputs_changed);
+    }
+
+    #[test]
+    fn stable_graph_entry_remaps_after_module_graph_owner_replacement() {
+        let old_fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let new_fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let old_entry = old_fixture.entry_id();
+        let new_entry = new_fixture.entry_id();
+        assert_ne!(old_entry, new_entry);
+        let database = old_fixture.database();
+        let first = database.db.get(ModuleGraphEntryQuery);
+
+        database.update(CompileRequest::new(new_fixture.program()));
+
+        let latest = database.db.get(ModuleGraphEntryQuery);
+        assert!(Arc::ptr_eq(&first, &latest));
+        assert_eq!(
+            QueryModuleGraphLookup::new(&database.db).entry_module(),
+            new_entry
+        );
+    }
+
+    #[test]
+    fn stable_graph_relations_remap_fork_local_module_handles() {
+        let base = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let entry = base.entry_id();
+        let mut old_fixture = LoadedProgramFixture {
+            graph: base.graph.clone(),
+            modules: base.modules.clone(),
+        };
+        let mut new_fixture = LoadedProgramFixture {
+            graph: base.graph.clone(),
+            modules: base.modules,
+        };
+        let child_name = sym("child");
+        let package = sym("pkg");
+        let old_child =
+            old_fixture.add_child(entry, "child", "main/child.nia", "pub fn value() i32 { 1 }");
+        let new_child =
+            new_fixture.add_child(entry, "child", "main/child.nia", "pub fn value() i32 { 1 }");
+        let old_root = old_fixture
+            .graph
+            .intern_package_root(&package, SourcePath::new("pkg/root.nia"));
+        old_fixture.modules.push(loaded_module(
+            old_root,
+            "pkg/root.nia",
+            "pub fn root() i32 { 1 }",
+        ));
+        let new_root = new_fixture
+            .graph
+            .intern_package_root(&package, SourcePath::new("pkg/root.nia"));
+        new_fixture.modules.push(loaded_module(
+            new_root,
+            "pkg/root.nia",
+            "pub fn root() i32 { 1 }",
+        ));
+        assert_ne!(old_child, new_child);
+        assert_ne!(old_root, new_root);
+        let database = old_fixture.database();
+        let first_child = database.db.get(ModuleGraphChildQuery(entry, child_name));
+        let first_root = database.db.get(ModulePackageRootQuery(package));
+
+        database.update(CompileRequest::new(new_fixture.program()));
+
+        let latest_child = database.db.get(ModuleGraphChildQuery(entry, child_name));
+        let latest_root = database.db.get(ModulePackageRootQuery(package));
+        assert!(Arc::ptr_eq(&first_child, &latest_child));
+        assert!(Arc::ptr_eq(&first_root, &latest_root));
+        let lookup = QueryModuleGraphLookup::new(&database.db);
+        assert_eq!(
+            lookup.child_declaration(entry, &child_name),
+            Some((new_child, nia_ids::Visibility::Public))
+        );
+        assert_eq!(lookup.package_root_module(&package), Some(new_root));
     }
 
     #[test]
