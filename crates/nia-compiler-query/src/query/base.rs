@@ -235,12 +235,18 @@ pub(super) struct ProviderFactRevisionQuery;
 impl QueryKey<CompilerContext> for ProviderFactRevisionQuery {
     type Value = crate::ProviderFactRevision;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
     fn name() -> &'static str {
         "provider_fact_revision"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.get(ProviderFactWorklistQuery).revision
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(provider_fact_revision_fingerprint(*value))
     }
 }
 

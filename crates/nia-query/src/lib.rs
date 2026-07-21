@@ -200,7 +200,7 @@ struct QueryDbInner<C> {
     timings: nia_timing::TimingMode,
     registry: Option<QueryRegistry>,
     caches: Mutex<FastHashMap<TypeId, Box<dyn Any + Send + Sync>>>,
-    slots: Mutex<QuerySlotTable>,
+    slots: Mutex<QuerySlotTable<C>>,
     dependencies: Mutex<QueryDependencyGraph>,
 }
 
@@ -230,17 +230,25 @@ struct QueryNodeId {
     index: u32,
 }
 
-#[derive(Default)]
-struct QuerySlotTable {
-    entries: Vec<QuerySlotRecord>,
+struct QuerySlotTable<C> {
+    entries: Vec<QuerySlotRecord<C>>,
 }
 
-struct QuerySlotRecord {
+impl<C> Default for QuerySlotTable<C> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+}
+
+struct QuerySlotRecord<C> {
     identity: QuerySlotIdentity,
     slot: Arc<dyn ErasedQuerySlot>,
+    ensure: fn(&QueryDb<C>, &dyn ErasedQueryKey) -> QueryResult<()>,
 }
 
-impl QuerySlotTable {
+impl<C> QuerySlotTable<C> {
     fn next_id(&self, db_id: QueryDbId) -> QueryNodeId {
         let index = u32::try_from(self.entries.len()).expect("query node identity space exhausted");
         QueryNodeId { db_id, index }
@@ -251,12 +259,17 @@ impl QuerySlotTable {
         node_id: QueryNodeId,
         identity: QuerySlotIdentity,
         slot: Arc<dyn ErasedQuerySlot>,
+        ensure: fn(&QueryDb<C>, &dyn ErasedQueryKey) -> QueryResult<()>,
     ) {
         assert_eq!(node_id.index as usize, self.entries.len());
-        self.entries.push(QuerySlotRecord { identity, slot });
+        self.entries.push(QuerySlotRecord {
+            identity,
+            slot,
+            ensure,
+        });
     }
 
-    fn get(&self, db_id: QueryDbId, node_id: QueryNodeId) -> Option<&QuerySlotRecord> {
+    fn get(&self, db_id: QueryDbId, node_id: QueryNodeId) -> Option<&QuerySlotRecord<C>> {
         if node_id.db_id != db_id {
             return None;
         }
@@ -276,6 +289,8 @@ struct QuerySlotStats {
     executions: AtomicUsize,
     cache_hits: AtomicUsize,
     waits: AtomicUsize,
+    validations: AtomicUsize,
+    green_validations: AtomicUsize,
 }
 
 impl QuerySlotStats {
@@ -291,11 +306,21 @@ impl QuerySlotStats {
         self.waits.fetch_add(1, Ordering::Relaxed);
     }
 
+    fn record_validation(&self) {
+        self.validations.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_green_validation(&self) {
+        self.green_validations.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn snapshot(&self) -> QueryFrameStats {
         QueryFrameStats {
             executions: self.executions.load(Ordering::Relaxed),
             cache_hits: self.cache_hits.load(Ordering::Relaxed),
             waits: self.waits.load(Ordering::Relaxed),
+            validations: self.validations.load(Ordering::Relaxed),
+            green_validations: self.green_validations.load(Ordering::Relaxed),
         }
     }
 }
@@ -305,14 +330,33 @@ enum QueryState<V> {
     Computing {
         invalidated: bool,
     },
+    Validating {
+        invalidated: bool,
+    },
     Ready {
         value: Arc<V>,
         fingerprint: Option<QueryFingerprint>,
+        dependency_fingerprints: DependencyFingerprints,
     },
+    PotentiallyOutdated {
+        value: Arc<V>,
+        fingerprint: QueryFingerprint,
+        dependency_fingerprints: DependencyFingerprints,
+    },
+}
+
+type DependencyFingerprints = FastHashMap<QueryNodeId, Option<QueryFingerprint>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QueryInvalidationDisposition {
+    Cleared,
+    PotentiallyOutdated,
 }
 
 trait ErasedQuerySlot: Send + Sync {
     fn invalidate(&self);
+    fn mark_potentially_outdated(&self) -> QueryInvalidationDisposition;
+    fn fingerprint(&self) -> Option<QueryFingerprint>;
     fn stats(&self) -> QueryFrameStats;
 }
 
@@ -324,13 +368,67 @@ where
         let mut state = self.state.lock().expect("query cache lock poisoned");
         match &mut *state {
             QueryState::Empty => {}
-            QueryState::Computing { invalidated } => {
+            QueryState::Computing { invalidated } | QueryState::Validating { invalidated } => {
                 *invalidated = true;
             }
-            QueryState::Ready { .. } => {
+            QueryState::Ready { .. } | QueryState::PotentiallyOutdated { .. } => {
                 *state = QueryState::Empty;
                 self.ready.notify_all();
             }
+        }
+    }
+
+    fn mark_potentially_outdated(&self) -> QueryInvalidationDisposition {
+        let mut state = self.state.lock().expect("query cache lock poisoned");
+        let previous = std::mem::replace(&mut *state, QueryState::Empty);
+        match previous {
+            QueryState::Ready {
+                value,
+                fingerprint: Some(fingerprint),
+                dependency_fingerprints,
+            } => {
+                *state = QueryState::PotentiallyOutdated {
+                    value,
+                    fingerprint,
+                    dependency_fingerprints,
+                };
+                QueryInvalidationDisposition::PotentiallyOutdated
+            }
+            QueryState::PotentiallyOutdated {
+                value,
+                fingerprint,
+                dependency_fingerprints,
+            } => {
+                *state = QueryState::PotentiallyOutdated {
+                    value,
+                    fingerprint,
+                    dependency_fingerprints,
+                };
+                QueryInvalidationDisposition::PotentiallyOutdated
+            }
+            QueryState::Computing { .. } => {
+                *state = QueryState::Computing { invalidated: true };
+                QueryInvalidationDisposition::Cleared
+            }
+            QueryState::Validating { .. } => {
+                *state = QueryState::Validating { invalidated: true };
+                QueryInvalidationDisposition::Cleared
+            }
+            QueryState::Empty | QueryState::Ready { .. } => {
+                self.ready.notify_all();
+                QueryInvalidationDisposition::Cleared
+            }
+        }
+    }
+
+    fn fingerprint(&self) -> Option<QueryFingerprint> {
+        let state = self.state.lock().expect("query cache lock poisoned");
+        match &*state {
+            QueryState::Ready { fingerprint, .. } => *fingerprint,
+            QueryState::Empty
+            | QueryState::Computing { .. }
+            | QueryState::Validating { .. }
+            | QueryState::PotentiallyOutdated { .. } => None,
         }
     }
 
@@ -429,6 +527,8 @@ pub struct QueryFrameStats {
     pub executions: usize,
     pub cache_hits: usize,
     pub waits: usize,
+    pub validations: usize,
+    pub green_validations: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -441,6 +541,13 @@ pub struct QueryTraceQuery {
 struct QueryStackEntry {
     node_id: QueryNodeId,
     dependencies: FastHashSet<QueryNodeId>,
+    dependency_fingerprints: Option<DependencyFingerprints>,
+}
+
+#[derive(Default)]
+struct RecordedDependencies {
+    nodes: FastHashSet<QueryNodeId>,
+    fingerprints: Option<DependencyFingerprints>,
 }
 
 struct QueryStackGuard {
@@ -544,13 +651,75 @@ impl<C> QueryDb<C> {
         loop {
             let mut state = slot.state.lock().expect("query cache lock poisoned");
             match &*state {
-                QueryState::Ready { value, .. } => {
+                QueryState::Ready {
+                    value, fingerprint, ..
+                } => {
                     nia_timing::time_detail(detail_timing, "query.record_cache_hit", || {
                         slot.stats.record_cache_hit()
                     });
+                    record_dependency_fingerprint_on_current_stack(node_id, *fingerprint);
                     return Ok(Arc::clone(value));
                 }
-                QueryState::Computing { .. } => {
+                QueryState::PotentiallyOutdated { .. } => {
+                    self.check_not_recursive_node(node_id)?;
+                    let previous = std::mem::replace(
+                        &mut *state,
+                        QueryState::Validating { invalidated: false },
+                    );
+                    let QueryState::PotentiallyOutdated {
+                        value,
+                        fingerprint,
+                        dependency_fingerprints,
+                    } = previous
+                    else {
+                        unreachable!("query state changed while locked")
+                    };
+                    drop(state);
+
+                    let entry = QueryStackEntry {
+                        node_id,
+                        dependencies: FastHashSet::default(),
+                        dependency_fingerprints: Some(DependencyFingerprints::default()),
+                    };
+                    let mut guard = match self.enter_query(entry) {
+                        Ok(guard) => guard,
+                        Err(error) => {
+                            let mut state = slot.state.lock().expect("query cache lock poisoned");
+                            *state = QueryState::PotentiallyOutdated {
+                                value,
+                                fingerprint,
+                                dependency_fingerprints,
+                            };
+                            slot.ready.notify_all();
+                            return Err(error);
+                        }
+                    };
+                    slot.stats.record_validation();
+                    let is_green = self.dependencies_are_green(&dependency_fingerprints);
+                    guard.discard();
+
+                    let mut state = slot.state.lock().expect("query cache lock poisoned");
+                    let was_invalidated = matches!(
+                        &*state,
+                        QueryState::Validating { invalidated: true }
+                            | QueryState::Computing { invalidated: true }
+                    );
+                    if is_green && !was_invalidated {
+                        *state = QueryState::Ready {
+                            value: Arc::clone(&value),
+                            fingerprint: Some(fingerprint),
+                            dependency_fingerprints,
+                        };
+                        slot.stats.record_green_validation();
+                        slot.stats.record_cache_hit();
+                        slot.ready.notify_all();
+                        record_dependency_fingerprint_on_current_stack(node_id, Some(fingerprint));
+                        return Ok(value);
+                    }
+                    *state = QueryState::Empty;
+                    slot.ready.notify_all();
+                }
+                QueryState::Computing { .. } | QueryState::Validating { .. } => {
                     self.check_not_recursive_node(node_id)?;
                     nia_timing::time_detail(detail_timing, "query.record_wait", || {
                         slot.stats.record_wait()
@@ -569,6 +738,9 @@ impl<C> QueryDb<C> {
                     let entry = QueryStackEntry {
                         node_id,
                         dependencies: FastHashSet::default(),
+                        dependency_fingerprints: (K::FINGERPRINT
+                            == QueryFingerprintPolicy::StableValue)
+                            .then(DependencyFingerprints::default),
                     };
                     let mut guard = self.enter_query(entry)?;
                     nia_timing::time_detail(detail_timing, "query.record_execution", || {
@@ -618,13 +790,18 @@ impl<C> QueryDb<C> {
                         self.clear_dependencies_from(node_id);
                     } else {
                         let dependencies = guard.take_dependencies();
-                        self.replace_dependencies_from(node_id, dependencies);
+                        self.replace_dependencies_from(node_id, dependencies.nodes);
                         *state = QueryState::Ready {
                             value: cached,
                             fingerprint,
+                            dependency_fingerprints: dependencies.fingerprints.unwrap_or_default(),
                         };
                     }
                     slot.ready.notify_all();
+                    record_dependency_fingerprint_on_current_stack(
+                        node_id,
+                        (!was_invalidated).then_some(fingerprint).flatten(),
+                    );
                     return Ok(output);
                 }
             }
@@ -641,6 +818,9 @@ impl<C> QueryDb<C> {
             return Vec::new();
         }
         let parent_stack = current_query_stack();
+        let records_fingerprints = parent_stack
+            .last()
+            .is_some_and(|entry| entry.dependency_fingerprints.is_some());
         let worker_count = batch_worker_count(keys.len());
         if worker_count == 1 {
             return keys.into_iter().map(|key| self.get(key)).collect();
@@ -671,12 +851,21 @@ impl<C> QueryDb<C> {
                 })
                 .collect::<Vec<_>>();
             let mut values = Vec::new();
-            let mut dependencies = FastHashSet::default();
+            let mut dependencies = RecordedDependencies {
+                nodes: FastHashSet::default(),
+                fingerprints: records_fingerprints.then(DependencyFingerprints::default),
+            };
             for handle in handles {
                 match handle.join() {
                     Ok((worker_values, worker_dependencies)) => {
                         values.extend(worker_values);
-                        dependencies.extend(worker_dependencies);
+                        dependencies.nodes.extend(worker_dependencies.nodes);
+                        if let (Some(dependencies), Some(worker_dependencies)) = (
+                            dependencies.fingerprints.as_mut(),
+                            worker_dependencies.fingerprints,
+                        ) {
+                            dependencies.extend(worker_dependencies);
+                        }
                     }
                     Err(payload) => std::panic::resume_unwind(payload),
                 }
@@ -763,14 +952,57 @@ impl<C> QueryDb<C> {
             let state = slot.state.lock().expect("query cache lock poisoned");
             match &*state {
                 QueryState::Empty => return QueryInvalidation::default(),
-                QueryState::Computing { .. } => false,
+                QueryState::Computing { .. }
+                | QueryState::Validating { .. }
+                | QueryState::PotentiallyOutdated { .. } => false,
                 QueryState::Ready { fingerprint, .. } => *fingerprint == Some(current_fingerprint),
             }
         };
         if is_green {
             QueryInvalidation::default()
         } else {
-            self.invalidate(key)
+            self.invalidate_input_root(slot.node_id)
+        }
+    }
+
+    fn invalidate_input_root(&self, root: QueryNodeId) -> QueryInvalidation {
+        let invalidated = self.collect_invalidated_nodes(root);
+        let slots = self
+            .inner
+            .slots
+            .lock()
+            .expect("query cache slot lock poisoned");
+        let mut cleared = Vec::new();
+        for (index, node_id) in invalidated.iter().enumerate() {
+            let Some(record) = slots.get(self.inner.id, *node_id) else {
+                continue;
+            };
+            let disposition = if index == 0 {
+                record.slot.invalidate();
+                QueryInvalidationDisposition::Cleared
+            } else {
+                record.slot.mark_potentially_outdated()
+            };
+            if disposition == QueryInvalidationDisposition::Cleared {
+                cleared.push(*node_id);
+            }
+        }
+        let frames = invalidated
+            .iter()
+            .map(|node_id| slots.frame(self.inner.id, *node_id))
+            .collect::<Vec<_>>();
+        drop(slots);
+
+        let mut dependencies = self
+            .inner
+            .dependencies
+            .lock()
+            .expect("query dependency lock poisoned");
+        for node_id in cleared {
+            dependencies.remove_dependencies_from(node_id);
+        }
+        QueryInvalidation {
+            invalidated: frames,
         }
     }
 
@@ -810,7 +1042,12 @@ impl<C> QueryDb<C> {
             ready: Condvar::new(),
         });
         cache.insert(key, slot.clone());
-        slots.push(node_id, identity, slot.clone() as Arc<dyn ErasedQuerySlot>);
+        slots.push(
+            node_id,
+            identity,
+            slot.clone() as Arc<dyn ErasedQuerySlot>,
+            ensure_query_from_erased::<C, K>,
+        );
         slot
     }
 
@@ -853,7 +1090,7 @@ impl<C> QueryDb<C> {
         })
     }
 
-    fn query_stats(db_id: QueryDbId, slots: &QuerySlotTable) -> Vec<QueryTraceQuery> {
+    fn query_stats(db_id: QueryDbId, slots: &QuerySlotTable<C>) -> Vec<QueryTraceQuery> {
         let mut queries = slots
             .entries
             .iter()
@@ -887,6 +1124,54 @@ impl<C> QueryDb<C> {
             .lock()
             .expect("query dependency lock poisoned");
         dependencies.collect_dependents(self.inner.id, &slots, root)
+    }
+
+    fn dependencies_are_green(&self, expected: &DependencyFingerprints) -> bool {
+        let mut dependencies = expected.iter().collect::<Vec<_>>();
+        dependencies.sort_unstable_by_key(|(node_id, _)| node_id.index);
+        for (node_id, expected_fingerprint) in dependencies {
+            let Some(expected_fingerprint) = expected_fingerprint else {
+                return false;
+            };
+            if self.ensure_node(*node_id).is_err()
+                || self.node_fingerprint(*node_id) != Some(*expected_fingerprint)
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn ensure_node(&self, node_id: QueryNodeId) -> QueryResult<()> {
+        let (key, ensure) = {
+            let slots = self
+                .inner
+                .slots
+                .lock()
+                .expect("query cache slot lock poisoned");
+            let record = slots
+                .get(self.inner.id, node_id)
+                .expect("query dependency must reference a registered slot");
+            (Arc::clone(&record.identity.key), record.ensure)
+        };
+        ensure(self, key.as_ref())
+    }
+
+    fn node_fingerprint(&self, node_id: QueryNodeId) -> Option<QueryFingerprint> {
+        let slot = {
+            let slots = self
+                .inner
+                .slots
+                .lock()
+                .expect("query cache slot lock poisoned");
+            Arc::clone(
+                &slots
+                    .get(self.inner.id, node_id)
+                    .expect("query dependency must reference a registered slot")
+                    .slot,
+            )
+        };
+        slot.fingerprint()
     }
 
     fn clear_dependencies_from(&self, from: QueryNodeId) {
@@ -948,7 +1233,7 @@ impl QueryDependencyGraph {
         self.forward.insert(from, targets);
     }
 
-    fn dependencies(&self, db_id: QueryDbId, slots: &QuerySlotTable) -> Vec<QueryDependency> {
+    fn dependencies<C>(&self, db_id: QueryDbId, slots: &QuerySlotTable<C>) -> Vec<QueryDependency> {
         let mut dependencies = self
             .forward
             .iter()
@@ -976,10 +1261,10 @@ impl QueryDependencyGraph {
         dependencies
     }
 
-    fn collect_dependents(
+    fn collect_dependents<C>(
         &self,
         db_id: QueryDbId,
-        slots: &QuerySlotTable,
+        slots: &QuerySlotTable<C>,
         root: QueryNodeId,
     ) -> Vec<QueryNodeId> {
         let mut seen = FastHashSet::default();
@@ -1044,6 +1329,17 @@ where
     }
 }
 
+fn ensure_query_from_erased<C, K>(db: &QueryDb<C>, key: &dyn ErasedQueryKey) -> QueryResult<()>
+where
+    K: QueryKey<C>,
+{
+    let key = key
+        .as_any()
+        .downcast_ref::<K>()
+        .expect("query ensure identity key type mismatch");
+    db.try_get(key.clone()).map(drop)
+}
+
 fn query_frame_from_erased<C, K>(key: &dyn ErasedQueryKey) -> QueryFrame
 where
     K: QueryKey<C>,
@@ -1083,16 +1379,19 @@ impl QueryStackGuard {
         }
     }
 
-    fn take_dependencies(&mut self) -> FastHashSet<QueryNodeId> {
+    fn take_dependencies(&mut self) -> RecordedDependencies {
         if !self.active {
-            return FastHashSet::default();
+            return RecordedDependencies::default();
         }
         self.active = false;
         QUERY_STACK.with(|stack| {
             stack
                 .borrow_mut()
                 .pop()
-                .map(|entry| entry.dependencies)
+                .map(|entry| RecordedDependencies {
+                    nodes: entry.dependencies,
+                    fingerprints: entry.dependency_fingerprints,
+                })
                 .unwrap_or_default()
         })
     }
@@ -1110,12 +1409,15 @@ fn current_query_stack() -> Vec<QueryStackEntry> {
     QUERY_STACK.with(|stack| stack.borrow().clone())
 }
 
-fn take_current_stack_dependencies() -> FastHashSet<QueryNodeId> {
+fn take_current_stack_dependencies() -> RecordedDependencies {
     QUERY_STACK.with(|stack| {
         stack
             .borrow_mut()
             .last_mut()
-            .map(|entry| std::mem::take(&mut entry.dependencies))
+            .map(|entry| RecordedDependencies {
+                nodes: std::mem::take(&mut entry.dependencies),
+                fingerprints: entry.dependency_fingerprints.as_mut().map(std::mem::take),
+            })
             .unwrap_or_default()
     })
 }
@@ -1128,12 +1430,32 @@ fn record_dependency_on_current_stack(to: QueryNodeId) {
         };
         if from.node_id.db_id == to.db_id {
             from.dependencies.insert(to);
+            if let Some(fingerprints) = &mut from.dependency_fingerprints {
+                fingerprints.entry(to).or_insert(None);
+            }
         }
     });
 }
 
-fn merge_dependencies_into_current_stack(dependencies: FastHashSet<QueryNodeId>) {
-    if dependencies.is_empty() {
+fn record_dependency_fingerprint_on_current_stack(
+    to: QueryNodeId,
+    fingerprint: Option<QueryFingerprint>,
+) {
+    QUERY_STACK.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        let Some(from) = stack.last_mut() else {
+            return;
+        };
+        if from.node_id.db_id == to.db_id
+            && let Some(fingerprints) = &mut from.dependency_fingerprints
+        {
+            fingerprints.insert(to, fingerprint);
+        }
+    });
+}
+
+fn merge_dependencies_into_current_stack(dependencies: RecordedDependencies) {
+    if dependencies.nodes.is_empty() {
         return;
     }
     QUERY_STACK.with(|stack| {
@@ -1141,7 +1463,13 @@ fn merge_dependencies_into_current_stack(dependencies: FastHashSet<QueryNodeId>)
         let Some(entry) = stack.last_mut() else {
             return;
         };
-        entry.dependencies.extend(dependencies);
+        entry.dependencies.extend(dependencies.nodes);
+        if let (Some(entry_fingerprints), Some(fingerprints)) = (
+            entry.dependency_fingerprints.as_mut(),
+            dependencies.fingerprints,
+        ) {
+            entry_fingerprints.extend(fingerprints);
+        }
     });
 }
 
@@ -1219,6 +1547,96 @@ mod tests {
         fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
             *db.get(StableInput) * 2
         }
+    }
+
+    struct RedGreenContext {
+        input: AtomicUsize,
+        derived_executions: AtomicUsize,
+        parent_executions: AtomicUsize,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct RedGreenInput;
+
+    impl QueryKey<RedGreenContext> for RedGreenInput {
+        type Value = usize;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+        fn name() -> &'static str {
+            "red_green_input"
+        }
+
+        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+            db.context().input.load(Ordering::SeqCst)
+        }
+
+        fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+            Some(test_usize_fingerprint(
+                "nia.query.test.red-green-input.v1",
+                *value,
+            ))
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct StableParity;
+
+    impl QueryKey<RedGreenContext> for StableParity {
+        type Value = usize;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+        fn name() -> &'static str {
+            "stable_parity"
+        }
+
+        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+            db.context()
+                .derived_executions
+                .fetch_add(1, Ordering::SeqCst);
+            *db.get(RedGreenInput) % 2
+        }
+
+        fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+            Some(test_usize_fingerprint(
+                "nia.query.test.stable-parity.v1",
+                *value,
+            ))
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct StableParityParent;
+
+    impl QueryKey<RedGreenContext> for StableParityParent {
+        type Value = usize;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+        fn name() -> &'static str {
+            "stable_parity_parent"
+        }
+
+        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+            db.context()
+                .parent_executions
+                .fetch_add(1, Ordering::SeqCst);
+            *db.get(StableParity) + 10
+        }
+
+        fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+            Some(test_usize_fingerprint(
+                "nia.query.test.stable-parity-parent.v1",
+                *value,
+            ))
+        }
+    }
+
+    fn test_usize_fingerprint(domain: &str, value: usize) -> QueryFingerprint {
+        let mut builder = QueryFingerprintBuilder::new(domain);
+        builder.write_u64(value as u64);
+        builder.finish()
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1665,6 +2083,69 @@ mod tests {
 
         assert_eq!(invalidated, ["stable_input", "stable_input_parent"]);
         assert_eq!(*db.get(StableInputParent), 18);
+    }
+
+    #[test]
+    fn derived_red_green_validation_reuses_dependents_when_output_is_unchanged() {
+        let db = QueryDb::new(RedGreenContext {
+            input: AtomicUsize::new(7),
+            derived_executions: AtomicUsize::new(0),
+            parent_executions: AtomicUsize::new(0),
+        });
+        let first = db.get(StableParityParent);
+        assert_eq!(*first, 11);
+        db.context().input.store(9, Ordering::SeqCst);
+
+        let invalidation = db.validate_input(RedGreenInput, &9);
+        assert_eq!(
+            invalidation
+                .invalidated
+                .iter()
+                .map(|frame| frame.name)
+                .collect::<Vec<_>>(),
+            ["red_green_input", "stable_parity", "stable_parity_parent"]
+        );
+        let second = db.get(StableParityParent);
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
+        assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 1);
+        let trace = db.query_trace();
+        let parent = trace
+            .queries
+            .iter()
+            .find(|query| query.frame.name == "stable_parity_parent")
+            .expect("stable parent trace");
+        assert_eq!(parent.stats.validations, 1);
+        assert_eq!(parent.stats.green_validations, 1);
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "stable_parity_parent" && dependency.to.name == "stable_parity"
+        }));
+    }
+
+    #[test]
+    fn derived_red_green_validation_reexecutes_dependents_when_output_changes() {
+        let db = QueryDb::new(RedGreenContext {
+            input: AtomicUsize::new(7),
+            derived_executions: AtomicUsize::new(0),
+            parent_executions: AtomicUsize::new(0),
+        });
+        assert_eq!(*db.get(StableParityParent), 11);
+        db.context().input.store(8, Ordering::SeqCst);
+
+        db.validate_input(RedGreenInput, &8);
+        assert_eq!(*db.get(StableParityParent), 10);
+
+        assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
+        assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 2);
+        let trace = db.query_trace();
+        let parent = trace
+            .queries
+            .iter()
+            .find(|query| query.frame.name == "stable_parity_parent")
+            .expect("stable parent trace");
+        assert_eq!(parent.stats.validations, 1);
+        assert_eq!(parent.stats.green_validations, 0);
     }
 
     #[test]
