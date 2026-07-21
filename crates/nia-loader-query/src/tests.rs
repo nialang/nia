@@ -5,7 +5,9 @@ use crate::queries::{
     ProviderSummaryQuery, SourceStatus, SourceStatusQuery, SourceTextQuery, SyntaxModuleQuery,
     provider_summary_query,
 };
-use nia_compiler_query::{ProviderDemand, RuntimeModel, has_error_diagnostics};
+use nia_compiler_query::{
+    CompileRequest, CompilerDatabase, ProviderDemand, RuntimeModel, has_error_diagnostics,
+};
 use nia_imports::{ModuleGraph, ModuleNode};
 use nia_item_tree::ItemTreeNodeKind;
 use nia_symbol::{SymbolId, stable_hash};
@@ -113,6 +115,29 @@ fn source_status_tracks_missing_and_present_revisions() {
 
     assert!(!Arc::ptr_eq(&missing, &present));
     assert_eq!(*present, SourceStatus::Present(file.version()));
+}
+
+#[test]
+fn compiler_loader_roots_record_cross_database_dependencies() {
+    let sources = SourceDatabase::new();
+    sources.set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }");
+    let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_sources(sources));
+    let compiler = CompilerDatabase::new_in_session(
+        CompileRequest::new(loader.clone()),
+        loader.query_session(),
+    );
+
+    let checked = compiler.check_program();
+
+    assert!(!has_error_diagnostics(&checked.diagnostics));
+    let trace = compiler.query_trace();
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "loaded_modules" && dependency.to.name == "module_graph"
+    }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "program_load_diagnostics"
+            && dependency.to.name == "load_diagnostics"
+    }));
 }
 
 fn assert_no_error_diagnostics(program: &nia_compiler_query::LoadedProgram) {
@@ -914,13 +939,10 @@ pub fn score(&self) i32 {
             method_name: sym("score"),
         },
     }]);
-    let ProviderDemandUpdate::GraphChanged {
-        revision, program, ..
-    } = update
-    else {
+    let ProviderDemandUpdate::GraphChanged { revision, .. } = update else {
         panic!("provider demand should grow the module graph");
     };
-    let program = *program;
+    let program = database.load_program();
     assert_eq!(program.provider_fact_revision, revision);
 
     assert_no_error_diagnostics(&program);
@@ -1572,7 +1594,7 @@ fn load_program_with_provider_demand(
         },
     }]);
     match update {
-        ProviderDemandUpdate::GraphChanged { program, .. } => *program,
+        ProviderDemandUpdate::GraphChanged { .. } => database.load_program(),
         ProviderDemandUpdate::GraphUnchanged { .. } | ProviderDemandUpdate::NoNewDemands => {
             database.load_program()
         }

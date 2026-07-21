@@ -36,6 +36,14 @@ pub use nia_backend_lower::BackendOptimizationChange;
 pub use nia_timing::TimingMode;
 pub use query::{CompileRequest, CompilerDatabase};
 
+pub trait LoaderFactProvider: Send + Sync {
+    fn loaded_program(&self) -> LoadedProgram;
+    fn provider_fact_revision(&self) -> ProviderFactRevision;
+    fn module_graph(&self) -> ModuleGraphSnapshot;
+    fn loaded_module_source_identities(&self) -> Vec<SourceIdentity>;
+    fn load_diagnostics(&self) -> Vec<ProgramDiagnostic>;
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedProgram {
     pub graph: ModuleGraphSnapshot,
@@ -45,6 +53,31 @@ pub struct LoadedProgram {
     pub runtime: RuntimeModel,
     pub modules: Vec<LoadedModule>,
     pub diagnostics: Vec<ProgramDiagnostic>,
+}
+
+impl LoaderFactProvider for LoadedProgram {
+    fn loaded_program(&self) -> LoadedProgram {
+        self.clone()
+    }
+
+    fn provider_fact_revision(&self) -> ProviderFactRevision {
+        self.provider_fact_revision
+    }
+
+    fn module_graph(&self) -> ModuleGraphSnapshot {
+        self.graph.clone()
+    }
+
+    fn loaded_module_source_identities(&self) -> Vec<SourceIdentity> {
+        self.modules
+            .iter()
+            .map(|module| module.source_identity.clone())
+            .collect()
+    }
+
+    fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {
+        self.diagnostics.clone()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
