@@ -250,12 +250,18 @@ pub(super) struct ProviderFactWorklistQuery;
 impl QueryKey<CompilerContext> for ProviderFactWorklistQuery {
     type Value = ProviderFactWorklist;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
     fn name() -> &'static str {
         "provider_fact_worklist"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.context().provider_fact_worklist()
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(provider_fact_worklist_fingerprint(value))
     }
 }
 
@@ -265,12 +271,18 @@ pub(super) struct BodyActivationWorklistQuery;
 impl QueryKey<CompilerContext> for BodyActivationWorklistQuery {
     type Value = BodyActivationWorklist;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
     fn name() -> &'static str {
         "body_activation_worklist"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.context().body_activation_worklist()
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(body_activation_worklist_fingerprint(value))
     }
 }
 
@@ -280,12 +292,18 @@ pub(super) struct ExecutableFactEpochQuery;
 impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
     type Value = ExecutableFactEpoch;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
     fn name() -> &'static str {
         "executable_fact_epoch"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.context().executable_fact_epoch()
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(executable_fact_epoch_fingerprint(*value))
     }
 }
 

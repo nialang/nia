@@ -141,6 +141,11 @@ impl ProviderFactRevision {
             std::cmp::Ordering::Greater => ProviderFactRevisionTransition::Advanced,
         }
     }
+
+    #[doc(hidden)]
+    pub const fn fingerprint_parts(self) -> [u64; 2] {
+        [self.owner, self.index]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

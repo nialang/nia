@@ -19,11 +19,16 @@ const QUERY_THREADS_ENV: &str = "NIA_QUERY_THREADS";
 pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     type Value: Send + Sync + 'static;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::None;
+
     fn name() -> &'static str;
     fn description(&self) -> String {
         format!("{}::{self:?}", Self::name())
     }
     fn execute(&self, db: &QueryDb<C>) -> Self::Value;
+    fn fingerprint(&self, _value: &Self::Value) -> Option<QueryFingerprint> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +39,73 @@ pub enum QueryProviderPolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueryFingerprintPolicy {
     None,
+    StableValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct QueryFingerprint([u64; 2]);
+
+impl QueryFingerprint {
+    pub const fn parts(self) -> [u64; 2] {
+        self.0
+    }
+}
+
+pub struct QueryFingerprintBuilder {
+    state: [u64; 2],
+}
+
+impl QueryFingerprintBuilder {
+    const FIRST_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const FIRST_PRIME: u64 = 0x0000_0100_0000_01b3;
+    const SECOND_OFFSET: u64 = 0x6c62_272e_07bb_0142;
+    const SECOND_PRIME: u64 = 0x9e37_79b1_85eb_ca87;
+
+    pub fn new(domain: &str) -> Self {
+        let mut builder = Self {
+            state: [Self::FIRST_OFFSET, Self::SECOND_OFFSET],
+        };
+        builder.write_str(domain);
+        builder
+    }
+
+    pub fn write_u8(&mut self, value: u8) {
+        self.write_raw_bytes(&[value]);
+    }
+
+    pub fn write_u64(&mut self, value: u64) {
+        self.write_raw_bytes(&value.to_le_bytes());
+    }
+
+    pub fn write_bytes(&mut self, bytes: &[u8]) {
+        self.write_u64(bytes.len() as u64);
+        self.write_raw_bytes(bytes);
+    }
+
+    pub fn write_str(&mut self, text: &str) {
+        self.write_bytes(text.as_bytes());
+    }
+
+    pub fn write_fingerprint(&mut self, fingerprint: QueryFingerprint) {
+        for part in fingerprint.parts() {
+            self.write_u64(part);
+        }
+    }
+
+    pub fn finish(self) -> QueryFingerprint {
+        QueryFingerprint(self.state)
+    }
+
+    fn write_raw_bytes(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.state[0] ^= u64::from(*byte);
+            self.state[0] = self.state[0].wrapping_mul(Self::FIRST_PRIME);
+            self.state[1] ^= u64::from(*byte);
+            self.state[1] = self.state[1]
+                .rotate_left(7)
+                .wrapping_mul(Self::SECOND_PRIME);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,7 +166,7 @@ impl QueryRegistry {
                 key_type: std::any::type_name::<K>(),
                 value_type: std::any::type_name::<K::Value>(),
                 provider: QueryProviderPolicy::KeyExecute,
-                fingerprint: QueryFingerprintPolicy::None,
+                fingerprint: K::FINGERPRINT,
                 storage: QueryStoragePolicy::CacheOwnedArc,
             },
         );
@@ -230,8 +302,13 @@ impl QuerySlotStats {
 
 enum QueryState<V> {
     Empty,
-    Computing { invalidated: bool },
-    Ready(Arc<V>),
+    Computing {
+        invalidated: bool,
+    },
+    Ready {
+        value: Arc<V>,
+        fingerprint: Option<QueryFingerprint>,
+    },
 }
 
 trait ErasedQuerySlot: Send + Sync {
@@ -250,7 +327,7 @@ where
             QueryState::Computing { invalidated } => {
                 *invalidated = true;
             }
-            QueryState::Ready(_) => {
+            QueryState::Ready { .. } => {
                 *state = QueryState::Empty;
                 self.ready.notify_all();
             }
@@ -467,7 +544,7 @@ impl<C> QueryDb<C> {
         loop {
             let mut state = slot.state.lock().expect("query cache lock poisoned");
             match &*state {
-                QueryState::Ready(value) => {
+                QueryState::Ready { value, .. } => {
                     nia_timing::time_detail(detail_timing, "query.record_cache_hit", || {
                         slot.stats.record_cache_hit()
                     });
@@ -520,6 +597,13 @@ impl<C> QueryDb<C> {
                         }
                     };
 
+                    let fingerprint = key.fingerprint(&value);
+                    assert_eq!(
+                        fingerprint.is_some(),
+                        K::FINGERPRINT == QueryFingerprintPolicy::StableValue,
+                        "query `{}` fingerprint implementation does not match its declared policy",
+                        K::name()
+                    );
                     let cached = Arc::new(value);
                     let output = Arc::clone(&cached);
                     let mut state = slot.state.lock().expect("query cache lock poisoned");
@@ -535,7 +619,10 @@ impl<C> QueryDb<C> {
                     } else {
                         let dependencies = guard.take_dependencies();
                         self.replace_dependencies_from(node_id, dependencies);
-                        *state = QueryState::Ready(cached);
+                        *state = QueryState::Ready {
+                            value: cached,
+                            fingerprint,
+                        };
                     }
                     slot.ready.notify_all();
                     return Ok(output);
@@ -653,6 +740,37 @@ impl<C> QueryDb<C> {
         }
         QueryInvalidation {
             invalidated: frames,
+        }
+    }
+
+    pub fn validate_input<K>(&self, key: K, current_value: &K::Value) -> QueryInvalidation
+    where
+        K: QueryKey<C>,
+    {
+        assert_eq!(
+            K::FINGERPRINT,
+            QueryFingerprintPolicy::StableValue,
+            "query `{}` must declare a stable value fingerprint before input validation",
+            K::name()
+        );
+        let current_fingerprint = key
+            .fingerprint(current_value)
+            .expect("stable value query must produce a fingerprint");
+        let Some(slot) = self.cached_slot(&key) else {
+            return QueryInvalidation::default();
+        };
+        let is_green = {
+            let state = slot.state.lock().expect("query cache lock poisoned");
+            match &*state {
+                QueryState::Empty => return QueryInvalidation::default(),
+                QueryState::Computing { .. } => false,
+                QueryState::Ready { fingerprint, .. } => *fingerprint == Some(current_fingerprint),
+            }
+        };
+        if is_green {
+            QueryInvalidation::default()
+        } else {
+            self.invalidate(key)
         }
     }
 
@@ -1066,6 +1184,44 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct StableInput;
+
+    impl QueryKey<TestContext> for StableInput {
+        type Value = usize;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+        fn name() -> &'static str {
+            "stable_input"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.context().executions.load(Ordering::SeqCst)
+        }
+
+        fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+            let mut builder = QueryFingerprintBuilder::new("nia.query.test.stable-input.v1");
+            builder.write_u64(*value as u64);
+            Some(builder.finish())
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct StableInputParent;
+
+    impl QueryKey<TestContext> for StableInputParent {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "stable_input_parent"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            *db.get(StableInput) * 2
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     struct DuplicateDoubleName;
 
     impl QueryKey<TestContext> for DuplicateDoubleName {
@@ -1178,6 +1334,32 @@ mod tests {
 
         let missing = std::panic::catch_unwind(|| db.get(NonCloneValueQuery));
         assert!(missing.is_err());
+    }
+
+    #[test]
+    fn fingerprint_builder_is_deterministic_and_domain_separated() {
+        let fingerprint = |domain| {
+            let mut builder = QueryFingerprintBuilder::new(domain);
+            builder.write_u8(7);
+            builder.write_u64(42);
+            builder.write_str("nia");
+            builder.finish()
+        };
+
+        assert_eq!(fingerprint("query-a.v1"), fingerprint("query-a.v1"));
+        assert_ne!(fingerprint("query-a.v1"), fingerprint("query-b.v1"));
+        assert_eq!(std::mem::size_of::<QueryFingerprint>(), 16);
+    }
+
+    #[test]
+    fn declarative_registry_records_stable_value_fingerprints() {
+        let mut registry = QueryRegistry::new();
+        registry.register::<TestContext, StableInput>();
+
+        assert_eq!(
+            registry.descriptors()[0].fingerprint,
+            QueryFingerprintPolicy::StableValue
+        );
     }
 
     #[test]
@@ -1449,6 +1631,40 @@ mod tests {
 
         assert_eq!(*db.get(Double(9)), 18);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn stable_input_validation_keeps_identical_values_green() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(7),
+        });
+        let first = db.get(StableInputParent);
+        assert_eq!(*first, 14);
+
+        let invalidation = db.validate_input(StableInput, &7);
+
+        assert!(invalidation.invalidated.is_empty());
+        let second = db.get(StableInputParent);
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn stable_input_validation_invalidates_changed_values_and_dependents() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(7),
+        });
+        assert_eq!(*db.get(StableInputParent), 14);
+        db.context().executions.store(9, Ordering::SeqCst);
+
+        let invalidation = db.validate_input(StableInput, &9);
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(invalidated, ["stable_input", "stable_input_parent"]);
+        assert_eq!(*db.get(StableInputParent), 18);
     }
 
     #[test]
