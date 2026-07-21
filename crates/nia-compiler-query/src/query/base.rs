@@ -74,7 +74,7 @@ impl QueryKey<CompilerContext> for ModuleGraphQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        (db.context().providers.module_graph)(db)
+        db.context().loader_facts().module_graph()
     }
 }
 
@@ -221,7 +221,11 @@ impl QueryKey<CompilerContext> for LoadedModulesQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        stable_module_sequence(db, db.context().loaded_modules())
+        StableModuleSequence::from_source_identities(
+            db.context()
+                .loader_facts()
+                .loaded_module_source_identities(),
+        )
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -243,7 +247,7 @@ impl QueryKey<CompilerContext> for ProgramLoadDiagnosticsQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().load_diagnostics()
+        db.context().loader_facts().load_diagnostics()
     }
 }
 

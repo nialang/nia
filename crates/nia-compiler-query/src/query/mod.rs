@@ -241,9 +241,9 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
     registry
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CompileRequest {
-    pub loaded: LoadedProgram,
+    loader_facts: Arc<dyn crate::LoaderFactProvider>,
     pub provider_fact_revision: crate::ProviderFactRevision,
     pub optimization: NiaOptimizationLevel,
     pub timings: TimingMode,
@@ -251,10 +251,11 @@ pub struct CompileRequest {
 }
 
 impl CompileRequest {
-    pub fn new(loaded: LoadedProgram) -> Self {
-        let provider_fact_revision = loaded.provider_fact_revision;
+    pub fn new(loader_facts: impl crate::LoaderFactProvider + 'static) -> Self {
+        let loader_facts: Arc<dyn crate::LoaderFactProvider> = Arc::new(loader_facts);
+        let provider_fact_revision = loader_facts.provider_fact_revision();
         Self {
-            loaded,
+            loader_facts,
             provider_fact_revision,
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,
@@ -293,6 +294,7 @@ impl CompileRequest {
 pub struct CompilerDatabase {
     db: QueryDb<CompilerContext>,
     inputs: Arc<RwLock<CompilerInputs>>,
+    loader_facts: Arc<RwLock<Arc<dyn crate::LoaderFactProvider>>>,
 }
 
 impl CompilerDatabase {
@@ -397,6 +399,7 @@ impl CompilerDatabase {
     }
 
     pub fn update(&self, request: CompileRequest) -> CompilerInvalidation {
+        let loader_facts = Arc::clone(&request.loader_facts);
         let mut new_inputs = CompilerInputs::new(request);
         let update = {
             let mut inputs = self.inputs.write().expect("compiler input lock poisoned");
@@ -415,6 +418,10 @@ impl CompilerDatabase {
             Ok(diff) => diff,
             Err(error) => panic!("Nia ICE: {error}"),
         };
+        *self
+            .loader_facts
+            .write()
+            .expect("compiler loader fact lock poisoned") = loader_facts;
         self.invalidate_inputs(diff)
     }
 
@@ -721,6 +728,7 @@ fn compiler_database_with_providers_in_session(
     session: nia_query::QuerySession,
 ) -> CompilerDatabase {
     let timings = request.timings;
+    let loader_facts = Arc::new(RwLock::new(Arc::clone(&request.loader_facts)));
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
     let node_store = inputs
         .read()
@@ -735,6 +743,7 @@ fn compiler_database_with_providers_in_session(
     let db = QueryDb::new_registered_with_timings_in_session(
         CompilerContext {
             inputs: inputs.clone(),
+            loader_facts: loader_facts.clone(),
             providers,
             executable_checked_modules,
             executable_fact_session,
@@ -745,7 +754,11 @@ fn compiler_database_with_providers_in_session(
         compiler_query_registry(),
         session,
     );
-    CompilerDatabase { db, inputs }
+    CompilerDatabase {
+        db,
+        inputs,
+        loader_facts,
+    }
 }
 
 fn checked_program_from_query_error(
@@ -817,6 +830,7 @@ fn query_error_diagnostic(err: QueryError) -> Diagnostic {
 
 struct CompilerContext {
     inputs: Arc<RwLock<CompilerInputs>>,
+    loader_facts: Arc<RwLock<Arc<dyn crate::LoaderFactProvider>>>,
     providers: CompilerQueryProviders,
     executable_checked_modules: Arc<RwLock<ExecutableCheckedModuleStore>>,
     executable_fact_session: Arc<std::sync::Mutex<ExecutableFactSession>>,
@@ -1169,7 +1183,7 @@ impl CompilerInputModule {
 
 impl CompilerInputs {
     fn new(request: CompileRequest) -> Self {
-        let loaded = request.loaded;
+        let loaded = request.loader_facts.loaded_program();
         validate_loaded_module_identities(&loaded);
         let graph = loaded.graph;
         let entry_module = graph.entry();
@@ -1382,6 +1396,15 @@ fn validate_loaded_module_identities(loaded: &LoadedProgram) {
 }
 
 impl CompilerContext {
+    fn loader_facts(&self) -> Arc<dyn crate::LoaderFactProvider> {
+        Arc::clone(
+            &self
+                .loader_facts
+                .read()
+                .expect("compiler loader fact lock poisoned"),
+        )
+    }
+
     fn type_store(&self) -> &nia_ty::TypeStore {
         &self.type_store
     }
@@ -1723,14 +1746,6 @@ impl CompilerContext {
             .clone()
     }
 
-    fn module_graph(&self) -> ModuleGraphSnapshot {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .graph
-            .clone()
-    }
-
     fn module_graph_entry_key(&self) -> StableModuleKey {
         let inputs = self.inputs.read().expect("compiler input lock poisoned");
         inputs
@@ -1914,14 +1929,6 @@ impl CompilerContext {
             .using_scopes
             .get(&module_id)
             .is_some_and(|scope| scope.has_unresolved_name(name))
-    }
-
-    fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .diagnostics
-            .clone()
     }
 
     fn target(&self) -> TargetConfig {
@@ -2996,6 +3003,7 @@ mod tests {
     }
 
     fn query_db(loaded: LoadedProgram) -> QueryDb<CompilerContext> {
+        let loader_facts: Arc<dyn crate::LoaderFactProvider> = Arc::new(loaded.clone());
         let inputs = Arc::new(RwLock::new(CompilerInputs::new(CompileRequest::new(
             loaded,
         ))));
@@ -3009,6 +3017,7 @@ mod tests {
         QueryDb::new_registered(
             CompilerContext {
                 inputs,
+                loader_facts: Arc::new(RwLock::new(loader_facts)),
                 providers: CompilerQueryProviders::default(),
                 executable_checked_modules: Arc::new(RwLock::new(
                     ExecutableCheckedModuleStore::default(),

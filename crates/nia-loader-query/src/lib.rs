@@ -9,7 +9,7 @@ mod used_paths;
 #[cfg(test)]
 mod tests;
 
-use nia_compiler_query::{LoadedProgram, ProviderDemand};
+use nia_compiler_query::{LoadedProgram, LoaderFactProvider, ProviderDemand};
 use nia_imports::ModuleMap;
 use nia_query::{QueryDb, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath};
@@ -166,7 +166,6 @@ impl LoaderDatabase {
         } else {
             ProviderDemandUpdate::GraphChanged {
                 revision,
-                program: Box::new(self.load_program()),
                 new_demands: added,
             }
         }
@@ -179,6 +178,32 @@ impl LoaderDatabase {
     }
 }
 
+impl LoaderFactProvider for LoaderDatabase {
+    fn loaded_program(&self) -> LoadedProgram {
+        self.load_program()
+    }
+
+    fn provider_fact_revision(&self) -> nia_compiler_query::ProviderFactRevision {
+        self.db.get(ProviderDemandsQuery).revision()
+    }
+
+    fn module_graph(&self) -> nia_imports::ModuleGraphSnapshot {
+        self.db.get(graph::ModuleGraphQuery).as_ref().clone()
+    }
+
+    fn loaded_module_source_identities(&self) -> Vec<nia_source::SourceIdentity> {
+        self.db
+            .get(graph::ModuleGraphQuery)
+            .modules()
+            .map(|module| module.path.identity())
+            .collect()
+    }
+
+    fn load_diagnostics(&self) -> Vec<nia_compiler_query::ProgramDiagnostic> {
+        self.db.get(queries::LoadDiagnosticsQuery).as_ref().clone()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProviderDemandUpdate {
     NoNewDemands,
@@ -188,7 +213,6 @@ pub enum ProviderDemandUpdate {
     },
     GraphChanged {
         revision: nia_compiler_query::ProviderFactRevision,
-        program: Box<LoadedProgram>,
         new_demands: HashSet<ProviderDemand>,
     },
 }

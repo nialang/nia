@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-pub(super) fn provide_module_graph(
-    db: &QueryDb<CompilerContext>,
-) -> nia_imports::ModuleGraphSnapshot {
-    db.context().module_graph()
-}
-
 pub(super) fn provide_parse_ok_module_ids(db: &QueryDb<CompilerContext>) -> StableModuleSequence {
     let loaded_modules = resolve_stable_module_sequence(db, &db.get(LoadedModulesQuery));
     let module_ids = loaded_modules
