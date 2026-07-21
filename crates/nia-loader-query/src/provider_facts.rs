@@ -1,6 +1,6 @@
 use crate::LoaderContext;
-use nia_compiler_query::{ProviderDemand, ProviderFactRevision};
-use nia_query::{QueryDb, QueryKey};
+use nia_compiler_query::{ProviderDemand, ProviderFactRevision, ProviderFactSnapshot};
+use nia_query::{QueryDb, QueryFingerprintPolicy, QueryKey};
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
@@ -9,7 +9,8 @@ use std::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderFacts {
     revision: ProviderFactRevision,
-    demands: HashMap<ProviderDemand, ProviderFactRevision>,
+    reset_revision: ProviderFactRevision,
+    demands: HashSet<ProviderDemand>,
 }
 
 impl ProviderFacts {
@@ -17,19 +18,17 @@ impl ProviderFacts {
         self.revision
     }
 
-    #[cfg(test)]
-    pub(crate) fn demands(&self) -> impl Iterator<Item = &ProviderDemand> {
-        self.demands.keys()
+    pub(crate) fn as_snapshot(&self) -> ProviderFactSnapshot {
+        ProviderFactSnapshot::new(
+            self.revision,
+            self.reset_revision,
+            self.demands.iter().cloned(),
+        )
     }
 
     #[cfg(test)]
-    pub(crate) fn added_after(
-        &self,
-        revision: ProviderFactRevision,
-    ) -> impl Iterator<Item = &ProviderDemand> {
-        self.demands
-            .iter()
-            .filter_map(move |(demand, added)| added.is_newer_than(revision).then_some(demand))
+    pub(crate) fn demands(&self) -> impl Iterator<Item = &ProviderDemand> {
+        self.demands.iter()
     }
 }
 
@@ -61,7 +60,8 @@ impl Default for ProviderFactStore {
             state: Arc::new(Mutex::new(ProviderFactState {
                 current: ProviderFacts {
                     revision,
-                    demands: HashMap::new(),
+                    reset_revision: revision,
+                    demands: HashSet::new(),
                 },
                 events: HashMap::from([(revision, ProviderFactEvent::Root)]),
             })),
@@ -77,7 +77,7 @@ impl ProviderFactStore {
             .expect("loader provider fact store lock poisoned");
         demands
             .iter()
-            .all(|demand| state.current.demands.contains_key(demand))
+            .all(|demand| state.current.demands.contains(demand))
     }
 
     pub(crate) fn insert_new(
@@ -90,16 +90,13 @@ impl ProviderFactStore {
             .expect("loader provider fact store lock poisoned");
         let added = demands
             .into_iter()
-            .filter(|demand| !state.current.demands.contains_key(demand))
+            .filter(|demand| !state.current.demands.contains(demand))
             .collect::<HashSet<_>>();
         if !added.is_empty() {
             let previous = state.current.revision;
             let revision = previous.next();
             state.current.revision = revision;
-            state
-                .current
-                .demands
-                .extend(added.iter().cloned().map(|demand| (demand, revision)));
+            state.current.demands.extend(added.iter().cloned());
             state.events.insert(
                 revision,
                 ProviderFactEvent::Added {
@@ -122,6 +119,7 @@ impl ProviderFactStore {
             let revision = previous.next();
             state.current.demands.clear();
             state.current.revision = revision;
+            state.current.reset_revision = revision;
             state.events.insert(revision, ProviderFactEvent::Reset);
         }
         changed
@@ -151,12 +149,18 @@ pub(crate) struct ProviderDemandsQuery;
 impl QueryKey<LoaderContext> for ProviderDemandsQuery {
     type Value = ProviderFacts;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "provider_demands"
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         db.context().provider_facts.snapshot()
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -188,7 +192,6 @@ mod tests {
         assert_eq!(store.insert_new([demand.clone()]).len(), 1);
         let added = store.snapshot();
         assert!(added.revision() > initial.revision());
-        assert_eq!(added.added_after(initial.revision()).count(), 1);
         assert!(store.insert_new([demand]).is_empty());
         assert_eq!(store.snapshot().revision(), added.revision());
 

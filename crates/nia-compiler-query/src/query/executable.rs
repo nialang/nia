@@ -124,19 +124,15 @@ impl ExecutableFactSession {
 
     pub(super) fn apply_provider_fact_worklist(
         &mut self,
-        worklist: &ProviderFactWorklist,
+        worklist: &crate::ProviderFactSnapshot,
         type_store: &nia_ty::TypeStore,
     ) {
-        if self.applied_provider_fact_revision == Some(worklist.revision) {
+        if self.applied_provider_fact_revision == Some(worklist.revision()) {
             return;
         }
-        let reset = self.applied_provider_fact_revision.is_some_and(|previous| {
-            use crate::ProviderFactRevisionTransition::{Advanced, Replaced};
-
-            matches!(worklist.revision.transition_from(previous), Replaced)
-                || matches!(worklist.revision.transition_from(previous), Advanced)
-                    && worklist.changes.is_empty()
-        });
+        let reset = self
+            .applied_provider_fact_revision
+            .is_some_and(|previous| worklist.reset_revision().is_newer_than(previous));
         if reset {
             let epoch = self.epoch.clone();
             *self = Self {
@@ -145,7 +141,7 @@ impl ExecutableFactSession {
             };
         }
         let pending_changes = worklist
-            .changes
+            .demands()
             .difference(&self.applied_provider_changes)
             .cloned()
             .collect::<HashSet<_>>();
@@ -162,7 +158,7 @@ impl ExecutableFactSession {
             self.caches.retain_modules(&retained_modules);
             self.applied_provider_changes.extend(pending_changes);
         }
-        self.applied_provider_fact_revision = Some(worklist.revision);
+        self.applied_provider_fact_revision = Some(worklist.revision());
     }
 }
 

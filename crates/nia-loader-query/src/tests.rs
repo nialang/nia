@@ -136,7 +136,8 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
     assert!(descriptors.iter().all(|descriptor| {
         let expected_fingerprint = match descriptor.name {
             "source_status" => nia_query::QueryFingerprintPolicy::StableValue,
-            "loader_active_module_item_tree_fact"
+            "provider_demands"
+            | "loader_active_module_item_tree_fact"
             | "loader_module_item_tree_fact"
             | "loader_module_origins_fact"
             | "loader_module_parse_errors_fact" => nia_query::QueryFingerprintPolicy::SemanticValue,
@@ -179,6 +180,7 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
     assert!(compiler.query_session().ptr_eq(&loader.query_session()));
 
     let checked = compiler.check_program();
+    let _ = compiler.executable_provider_demands();
 
     assert!(!has_error_diagnostics(&checked.diagnostics));
     let trace = compiler.query_trace();
@@ -214,6 +216,9 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "module_parse_errors"
             && dependency.to.name == "loader_module_parse_errors_fact"
+    }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "provider_fact_worklist" && dependency.to.name == "provider_demands"
     }));
 }
 

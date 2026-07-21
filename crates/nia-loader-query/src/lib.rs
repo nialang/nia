@@ -196,8 +196,8 @@ impl LoaderFactProvider for LoaderDatabase {
         Some(self.query_session())
     }
 
-    fn provider_fact_revision(&self) -> nia_compiler_query::ProviderFactRevision {
-        self.db.get(ProviderDemandsQuery).revision()
+    fn provider_facts(&self) -> nia_compiler_query::ProviderFactSnapshot {
+        self.db.get(ProviderDemandsQuery).as_snapshot()
     }
 
     fn node_store(&self) -> nia_node_id::NodeStore {

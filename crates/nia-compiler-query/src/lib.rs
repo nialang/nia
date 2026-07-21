@@ -43,9 +43,54 @@ pub enum ActiveModuleItemTreeFactKind {
     Full,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderFactSnapshot {
+    revision: ProviderFactRevision,
+    reset_revision: ProviderFactRevision,
+    demands: std::collections::HashSet<ProviderDemand>,
+}
+
+impl ProviderFactSnapshot {
+    pub fn new(
+        revision: ProviderFactRevision,
+        reset_revision: ProviderFactRevision,
+        demands: impl IntoIterator<Item = ProviderDemand>,
+    ) -> Self {
+        assert!(
+            matches!(
+                revision.transition_from(reset_revision),
+                ProviderFactRevisionTransition::Unchanged
+                    | ProviderFactRevisionTransition::Advanced
+            ),
+            "Nia ICE: provider fact reset revision must belong to the current lineage"
+        );
+        Self {
+            revision,
+            reset_revision,
+            demands: demands.into_iter().collect(),
+        }
+    }
+
+    pub fn empty(revision: ProviderFactRevision) -> Self {
+        Self::new(revision, revision, std::iter::empty())
+    }
+
+    pub fn revision(&self) -> ProviderFactRevision {
+        self.revision
+    }
+
+    pub fn reset_revision(&self) -> ProviderFactRevision {
+        self.reset_revision
+    }
+
+    pub fn demands(&self) -> &std::collections::HashSet<ProviderDemand> {
+        &self.demands
+    }
+}
+
 pub trait LoaderFactProvider: Send + Sync {
     fn query_session(&self) -> Option<nia_query::QuerySession>;
-    fn provider_fact_revision(&self) -> ProviderFactRevision;
+    fn provider_facts(&self) -> ProviderFactSnapshot;
     fn node_store(&self) -> nia_node_id::NodeStore;
     fn module_graph(&self) -> ModuleGraphSnapshot;
     fn loaded_module_source_identities(&self) -> Vec<SourceIdentity>;
@@ -82,8 +127,8 @@ impl LoaderFactProvider for LoadedProgram {
         None
     }
 
-    fn provider_fact_revision(&self) -> ProviderFactRevision {
-        self.provider_fact_revision
+    fn provider_facts(&self) -> ProviderFactSnapshot {
+        ProviderFactSnapshot::empty(self.provider_fact_revision)
     }
 
     fn node_store(&self) -> nia_node_id::NodeStore {
