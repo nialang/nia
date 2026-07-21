@@ -875,12 +875,18 @@ pub(super) struct PublicSurfacesQuery;
 impl QueryKey<CompilerContext> for PublicSurfacesQuery {
     type Value = PublicSurfacesValue;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "public_surfaces"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.public_surfaces)(db)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -889,6 +895,8 @@ pub(super) struct ModulePublicSurfaceQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ModulePublicSurfaceQuery {
     type Value = Option<Arc<ModulePublicSurface>>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "module_public_surface"
@@ -900,6 +908,10 @@ impl QueryKey<CompilerContext> for ModulePublicSurfaceQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.module_public_surface)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -920,7 +932,9 @@ impl QueryKey<CompilerContext> for PublicSurfaceModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().public_surface_module_key(self.0, &self.1)
+        let surface = db.get(ModulePublicSurfaceQuery(self.0));
+        let target = surface.as_ref().as_ref()?.lookup_module(&self.1)?;
+        db.get(ModuleGraphQuery).stable_key(target).cloned()
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -937,6 +951,8 @@ pub(super) struct PublicSurfaceValueQuery(pub(super) ModuleId, pub(super) Symbol
 impl QueryKey<CompilerContext> for PublicSurfaceValueQuery {
     type Value = Option<nia_defs::PublicItem>;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "public_surface_value"
     }
@@ -946,7 +962,15 @@ impl QueryKey<CompilerContext> for PublicSurfaceValueQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().public_surface_value(self.0, &self.1)
+        db.get(ModulePublicSurfaceQuery(self.0))
+            .as_ref()
+            .as_ref()?
+            .lookup_value(&self.1)
+            .cloned()
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -955,6 +979,8 @@ pub(super) struct PublicSurfaceTypeQuery(pub(super) ModuleId, pub(super) SymbolI
 
 impl QueryKey<CompilerContext> for PublicSurfaceTypeQuery {
     type Value = Option<nia_defs::PublicItem>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "public_surface_type"
@@ -965,7 +991,15 @@ impl QueryKey<CompilerContext> for PublicSurfaceTypeQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().public_surface_type(self.0, &self.1)
+        db.get(ModulePublicSurfaceQuery(self.0))
+            .as_ref()
+            .as_ref()?
+            .lookup_type(&self.1)
+            .cloned()
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -975,12 +1009,18 @@ pub(super) struct PublicUsingScopesQuery;
 impl QueryKey<CompilerContext> for PublicUsingScopesQuery {
     type Value = PublicUsingScopesValue;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "public_using_scopes"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.public_using_scopes)(db)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -989,6 +1029,8 @@ pub(super) struct ModuleUsingScopeQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ModuleUsingScopeQuery {
     type Value = ModuleUsingScope;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "module_using_scope"
@@ -1000,6 +1042,10 @@ impl QueryKey<CompilerContext> for ModuleUsingScopeQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.module_using_scope)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -1020,7 +1066,9 @@ impl QueryKey<CompilerContext> for UsingScopeModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().using_scope_module_key(self.0, &self.1)
+        let scope = db.get(ModuleUsingScopeQuery(self.0));
+        let target = scope.lookup_module(&self.1)?;
+        db.get(ModuleGraphQuery).stable_key(target).cloned()
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -1037,6 +1085,8 @@ pub(super) struct UsingScopeValueQuery(pub(super) ModuleId, pub(super) SymbolId)
 impl QueryKey<CompilerContext> for UsingScopeValueQuery {
     type Value = Option<nia_defs::UsingEntry>;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "using_scope_value"
     }
@@ -1046,7 +1096,13 @@ impl QueryKey<CompilerContext> for UsingScopeValueQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().using_scope_value(self.0, &self.1)
+        db.get(ModuleUsingScopeQuery(self.0))
+            .lookup_value(&self.1)
+            .cloned()
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -1055,6 +1111,8 @@ pub(super) struct UsingScopeTypeQuery(pub(super) ModuleId, pub(super) SymbolId);
 
 impl QueryKey<CompilerContext> for UsingScopeTypeQuery {
     type Value = Option<nia_defs::UsingEntry>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "using_scope_type"
@@ -1065,7 +1123,13 @@ impl QueryKey<CompilerContext> for UsingScopeTypeQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().using_scope_type(self.0, &self.1)
+        db.get(ModuleUsingScopeQuery(self.0))
+            .lookup_type(&self.1)
+            .cloned()
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -1074,6 +1138,8 @@ pub(super) struct UsingScopeUnresolvedQuery(pub(super) ModuleId, pub(super) Symb
 
 impl QueryKey<CompilerContext> for UsingScopeUnresolvedQuery {
     type Value = bool;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "using_scope_unresolved"
@@ -1084,7 +1150,12 @@ impl QueryKey<CompilerContext> for UsingScopeUnresolvedQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().using_scope_unresolved(self.0, &self.1)
+        db.get(ModuleUsingScopeQuery(self.0))
+            .has_unresolved_name(&self.1)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 

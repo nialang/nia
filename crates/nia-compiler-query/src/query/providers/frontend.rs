@@ -102,7 +102,14 @@ fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<Arc<DefCollection
 
 pub(super) fn provide_public_surfaces(db: &QueryDb<CompilerContext>) -> PublicSurfacesValue {
     time_provider(db.context().timings(), "public_surfaces", || {
-        db.context().public_surfaces().as_ref().clone()
+        let defs = shared_defs_by_module(db);
+        let graph = db.get(ModuleGraphQuery);
+        let symbols = db.context().symbols();
+        let exports = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
+        PublicSurfacesQueryValue {
+            surfaces: exports.surfaces,
+            diagnostics: exports.diagnostics,
+        }
     })
 }
 
@@ -110,15 +117,27 @@ pub(super) fn provide_module_public_surface(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> Option<Arc<ModulePublicSurface>> {
-    db.context()
-        .public_surfaces()
+    db.get(PublicSurfacesQuery)
         .surfaces
         .public_surface(module_id)
 }
 
 pub(super) fn provide_public_using_scopes(db: &QueryDb<CompilerContext>) -> PublicUsingScopesValue {
     time_provider(db.context().timings(), "public_using_scopes", || {
-        db.context().public_using_scopes().as_ref().clone()
+        let defs = shared_defs_by_module(db);
+        let graph = db.get(ModuleGraphQuery);
+        let public_surfaces = db.get(PublicSurfacesQuery);
+        let symbols = db.context().symbols();
+        let using_scopes = compute_using_scopes_from_surfaces_with_symbols(
+            &defs,
+            &graph,
+            &public_surfaces.surfaces,
+            &symbols,
+        );
+        PublicUsingScopesQueryValue {
+            using_scopes: using_scopes.using_scopes,
+            diagnostics: using_scopes.diagnostics,
+        }
     })
 }
 
@@ -126,8 +145,7 @@ pub(super) fn provide_module_using_scope(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> ModuleUsingScope {
-    db.context()
-        .public_using_scopes()
+    db.get(PublicUsingScopesQuery)
         .using_scopes
         .get(&module_id)
         .cloned()
