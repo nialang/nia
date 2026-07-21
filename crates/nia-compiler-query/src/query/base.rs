@@ -230,6 +230,21 @@ impl QueryKey<CompilerContext> for CompilerRuntimeQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProviderFactRevisionQuery;
+
+impl QueryKey<CompilerContext> for ProviderFactRevisionQuery {
+    type Value = crate::ProviderFactRevision;
+
+    fn name() -> &'static str {
+        "provider_fact_revision"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().provider_fact_revision()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExecutableRootModulesQuery;
 
 impl QueryKey<CompilerContext> for ExecutableRootModulesQuery {
