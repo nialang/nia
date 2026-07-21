@@ -7,29 +7,37 @@ pub(super) fn provide_module_graph(
     db.context().module_graph()
 }
 
-pub(super) fn provide_parse_ok_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
-    db.get(LoadedModulesQuery)
+pub(super) fn provide_parse_ok_module_ids(
+    db: &QueryDb<CompilerContext>,
+) -> StableModuleSequence {
+    let module_ids = db
+        .get(LoadedModulesQuery)
         .iter()
         .copied()
         .filter(|module_id| {
             let parse_errors = db.get(ModuleParseErrorsQuery(*module_id));
             parse_errors.is_empty()
         })
-        .collect()
+        .collect::<Vec<_>>();
+    stable_module_sequence(db, module_ids)
 }
 
-pub(super) fn provide_semantic_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
+pub(super) fn provide_semantic_module_ids(
+    db: &QueryDb<CompilerContext>,
+) -> StableModuleSequence {
     let graph = db.get(ModuleGraphQuery);
     let entry = graph.entry();
-    db.get(ParseOkModuleIdsQuery)
-        .iter()
-        .copied()
+    let module_ids = db
+        .get(ParseOkModuleIdsQuery)
+        .resolve(&graph)
+        .into_iter()
         .filter(|module_id| {
             graph
                 .get(*module_id)
                 .is_some_and(|node| *module_id == entry || node.process_used_paths)
         })
-        .collect()
+        .collect::<Vec<_>>();
+    StableModuleSequence::from_module_ids(&graph, module_ids)
 }
 
 pub(super) fn provide_module_item_tree(
@@ -97,9 +105,9 @@ pub(super) fn provide_full_module_defs(
 }
 
 fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<Arc<DefCollection>> {
-    db.get(ParseOkModuleIdsQuery)
-        .iter()
-        .copied()
+    let module_ids = resolve_stable_module_sequence(db, &db.get(ParseOkModuleIdsQuery));
+    module_ids
+        .into_iter()
         .map(|module_id| db.get(ModuleDefsQuery(module_id)))
         .collect()
 }

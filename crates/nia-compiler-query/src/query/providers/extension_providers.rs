@@ -40,10 +40,9 @@ pub(super) fn provide_extension_provider_discovery_index(
     db: &QueryDb<CompilerContext>,
 ) -> ExtensionProviderDiscoveryIndexValue {
     let timings = db.context().timings();
-    let trait_modules = db
-        .get(ParseOkModuleIdsQuery)
-        .iter()
-        .copied()
+    let parse_ok_modules = resolve_stable_module_sequence(db, &db.get(ParseOkModuleIdsQuery));
+    let trait_modules = parse_ok_modules
+        .into_iter()
         .filter(|module_id| *db.get(ExtensionProviderModuleEligibilityQuery(*module_id)))
         .collect::<Vec<_>>();
     time_provider(timings, "extension_provider_discovery_index", || {
@@ -101,10 +100,16 @@ pub(super) fn provide_extension_provider_discovery_index(
 
 pub(super) fn provide_extension_provider_module_ids(
     db: &QueryDb<CompilerContext>,
-) -> Vec<ModuleId> {
-    db.get(ExtensionProviderDiscoveryIndexQuery)
-        .provider_modules
-        .clone()
+) -> StableModuleSequence {
+    let parse_ok_modules = resolve_stable_module_sequence_from_current_graph(
+        db,
+        &db.get(ParseOkModuleIdsQuery),
+    );
+    let module_ids = parse_ok_modules
+        .into_iter()
+        .filter(|module_id| *db.get(ExtensionProviderModuleEligibilityQuery(*module_id)))
+        .collect::<Vec<_>>();
+    stable_module_sequence(db, module_ids)
 }
 
 pub(super) fn provide_extension_provider_module_eligibility(
@@ -303,10 +308,10 @@ pub(super) fn provide_extension_provider_validation_facts(
 fn extension_provider_module_facts(
     db: &QueryDb<CompilerContext>,
 ) -> Vec<Arc<ExtensionProviderModuleFactsValue>> {
+    let module_ids = resolve_stable_module_sequence(db, &db.get(ExtensionProviderModuleIdsQuery));
     db.get_many(
-        db.get(ExtensionProviderModuleIdsQuery)
-            .iter()
-            .copied()
+        module_ids
+            .into_iter()
             .map(ExtensionProviderModuleFactsQuery),
     )
 }

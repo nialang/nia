@@ -5,7 +5,9 @@ use super::*;
 pub(super) struct ProgramSignatureModuleIdsQuery(pub(super) nia_item_tree::SignatureItemSet);
 
 impl QueryKey<CompilerContext> for ProgramSignatureModuleIdsQuery {
-    type Value = Vec<ModuleId>;
+    type Value = StableModuleSequence;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
     fn name() -> &'static str {
         "program_signature_module_ids"
@@ -18,6 +20,13 @@ impl QueryKey<CompilerContext> for ProgramSignatureModuleIdsQuery {
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_signature_module_ids)(db, self.0)
     }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(stable_module_sequence_fingerprint(
+            "nia.compiler.program-signature-module-ids.v1",
+            value,
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -28,6 +37,8 @@ pub(super) struct ProgramSignatureModuleEligibilityQuery(
 
 impl QueryKey<CompilerContext> for ProgramSignatureModuleEligibilityQuery {
     type Value = bool;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
     fn name() -> &'static str {
         "program_signature_module_eligibility"
@@ -42,6 +53,13 @@ impl QueryKey<CompilerContext> for ProgramSignatureModuleEligibilityQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.program_signature_module_eligibility)(db, self.0, self.1)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(bool_query_fingerprint(
+            "nia.compiler.program-signature-module-eligibility.v1",
+            *value,
+        ))
     }
 }
 

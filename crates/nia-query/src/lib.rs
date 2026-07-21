@@ -902,34 +902,7 @@ impl<C> QueryDb<C> {
                 invalidated: vec![query_frame::<C, K>(&key)],
             };
         };
-        let invalidated = self.collect_invalidated_nodes(root);
-        let slots = self
-            .inner
-            .slots
-            .lock()
-            .expect("query cache slot lock poisoned");
-        for node_id in &invalidated {
-            if let Some(record) = slots.get(self.inner.id, *node_id) {
-                record.slot.invalidate();
-            }
-        }
-        let frames = invalidated
-            .iter()
-            .map(|node_id| slots.frame(self.inner.id, *node_id))
-            .collect::<Vec<_>>();
-        drop(slots);
-
-        let mut dependencies = self
-            .inner
-            .dependencies
-            .lock()
-            .expect("query dependency lock poisoned");
-        for node_id in &invalidated {
-            dependencies.remove_dependencies_from(*node_id);
-        }
-        QueryInvalidation {
-            invalidated: frames,
-        }
+        self.invalidate_cached_root(root)
     }
 
     pub fn validate_input<K>(&self, key: K, current_value: &K::Value) -> QueryInvalidation
@@ -961,11 +934,11 @@ impl<C> QueryDb<C> {
         if is_green {
             QueryInvalidation::default()
         } else {
-            self.invalidate_input_root(slot.node_id)
+            self.invalidate_cached_root(slot.node_id)
         }
     }
 
-    fn invalidate_input_root(&self, root: QueryNodeId) -> QueryInvalidation {
+    fn invalidate_cached_root(&self, root: QueryNodeId) -> QueryInvalidation {
         let invalidated = self.collect_invalidated_nodes(root);
         let slots = self
             .inner
@@ -2252,6 +2225,40 @@ mod tests {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "stable_parity_parent" && dependency.to.name == "stable_parity"
         }));
+    }
+
+    #[test]
+    fn direct_invalidation_preserves_stable_dependents_for_validation() {
+        let db = QueryDb::new(RedGreenContext {
+            input: AtomicUsize::new(7),
+            derived_executions: AtomicUsize::new(0),
+            parent_executions: AtomicUsize::new(0),
+        });
+        let first = db.get(StableParityParent);
+        db.context().input.store(9, Ordering::SeqCst);
+
+        let invalidation = db.invalidate(RedGreenInput);
+        assert_eq!(
+            invalidation
+                .invalidated
+                .iter()
+                .map(|frame| frame.name)
+                .collect::<Vec<_>>(),
+            ["red_green_input", "stable_parity", "stable_parity_parent"]
+        );
+        let latest = db.get(StableParityParent);
+
+        assert!(Arc::ptr_eq(&first, &latest));
+        assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
+        assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 1);
+        let trace = db.query_trace();
+        let parent = trace
+            .queries
+            .iter()
+            .find(|query| query.frame.name == "stable_parity_parent")
+            .expect("stable parent trace");
+        assert_eq!(parent.stats.validations, 1);
+        assert_eq!(parent.stats.green_validations, 1);
     }
 
     #[test]
