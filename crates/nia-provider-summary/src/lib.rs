@@ -75,6 +75,10 @@ where
 }
 
 impl ProviderSummary {
+    pub fn providers(&self) -> &[Provider] {
+        &self.providers
+    }
+
     pub fn from_active_item_tree(item_tree: &ActiveModuleItemTree) -> Self {
         let mut local_nominal_names = local_nominal_type_names(item_tree);
         let mut local_trait_names = local_trait_names(item_tree);

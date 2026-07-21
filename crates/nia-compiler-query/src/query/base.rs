@@ -99,6 +99,8 @@ pub(super) struct ModuleGraphPathQuery(pub(super) ModuleId);
 impl QueryKey<CompilerContext> for ModuleGraphPathQuery {
     type Value = Option<nia_imports::ModulePath>;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
     fn name() -> &'static str {
         "module_graph_path"
     }
@@ -109,6 +111,10 @@ impl QueryKey<CompilerContext> for ModuleGraphPathQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.context().module_graph_path(self.0)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(module_graph_path_fingerprint(value))
     }
 }
 
