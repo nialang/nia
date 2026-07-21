@@ -819,9 +819,7 @@ struct BodyActivationWorklist {
 
 fn provider_fact_worklist_fingerprint(worklist: &ProviderFactWorklist) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.compiler.provider-fact-worklist.v1");
-    for part in worklist.revision.fingerprint_parts() {
-        builder.write_u64(part);
-    }
+    builder.write_fingerprint(provider_fact_revision_fingerprint(worklist.revision));
     let mut changes = worklist
         .changes
         .iter()
@@ -831,6 +829,14 @@ fn provider_fact_worklist_fingerprint(worklist: &ProviderFactWorklist) -> QueryF
     builder.write_u64(changes.len() as u64);
     for change in changes {
         builder.write_fingerprint(change);
+    }
+    builder.finish()
+}
+
+fn provider_fact_revision_fingerprint(revision: crate::ProviderFactRevision) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.compiler.provider-fact-revision.v1");
+    for part in revision.fingerprint_parts() {
+        builder.write_u64(part);
     }
     builder.finish()
 }
@@ -2799,9 +2805,10 @@ mod tests {
         }));
         for descriptor in descriptors {
             let expected = match descriptor.name {
-                "body_activation_worklist" | "executable_fact_epoch" | "provider_fact_worklist" => {
-                    nia_query::QueryFingerprintPolicy::StableValue
-                }
+                "body_activation_worklist"
+                | "executable_fact_epoch"
+                | "provider_fact_revision"
+                | "provider_fact_worklist" => nia_query::QueryFingerprintPolicy::StableValue,
                 _ => nia_query::QueryFingerprintPolicy::None,
             };
             assert_eq!(descriptor.fingerprint, expected, "{}", descriptor.name);
@@ -3537,6 +3544,14 @@ pub fn expensive_or_invalid() i32 {
             "{invalidated:?}"
         );
         assert_eq!(database.provider_fact_revision(), revision.next());
+        let revision_query = database
+            .query_trace()
+            .queries
+            .into_iter()
+            .find(|query| query.frame.name == "provider_fact_revision")
+            .expect("provider fact revision query trace");
+        assert_eq!(revision_query.stats.validations, 1);
+        assert_eq!(revision_query.stats.green_validations, 0);
         let second_set = database.db.get(ExecutableCheckedModuleSetQuery);
         assert_ne!(first_set.id, second_set.id);
         assert!(
