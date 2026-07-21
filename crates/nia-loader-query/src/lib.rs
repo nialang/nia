@@ -12,13 +12,13 @@ mod tests;
 use nia_compiler_query::{LoadedProgram, ProviderDemand};
 use nia_imports::ModuleMap;
 use nia_query::QueryDb;
-use nia_source::{SourceDatabase, SourceFile, SourceIdentity, SourcePath, SourceVersion};
+use nia_source::{SourceDatabase, SourceFile, SourcePath};
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
 use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     path::Path,
     sync::{Arc, RwLock},
 };
@@ -40,6 +40,7 @@ fn loader_query_registry() -> nia_query::QueryRegistry {
         queries::ParsedModuleQuery,
         provider_facts::ProviderDemandsQuery,
         queries::ProviderSummaryQuery,
+        queries::SourceStatusQuery,
         queries::SourceTextQuery,
         queries::SyntaxModuleQuery,
     );
@@ -119,7 +120,7 @@ impl LoaderDatabase {
     pub fn set_source(&self, path: impl Into<String>, text: impl Into<Arc<str>>) -> SourceFile {
         let path = SourcePath::new(path.into());
         let file = self.sources.set_source(path.clone(), text);
-        self.reset_graph_state();
+        self.reset_provider_facts();
         self.db.invalidate(SourceTextQuery(file.id));
         file
     }
@@ -127,7 +128,7 @@ impl LoaderDatabase {
     pub fn invalidate_source(&self, path: impl Into<String>) -> nia_query::QueryInvalidation {
         let path = SourcePath::new(path.into());
         let source_id = self.sources.id_for_path(&path);
-        self.reset_graph_state();
+        self.reset_provider_facts();
         self.db.invalidate(SourceTextQuery(source_id))
     }
 
@@ -166,16 +167,10 @@ impl LoaderDatabase {
         }
     }
 
-    fn reset_graph_state(&self) {
+    fn reset_provider_facts(&self) {
         if self.db.context().provider_facts.clear() {
             self.db.invalidate(ProviderDemandsQuery);
         }
-        *self
-            .db
-            .context()
-            .graph_state
-            .write()
-            .expect("loader graph state lock poisoned") = LoaderGraphState::default();
     }
 }
 
@@ -324,5 +319,4 @@ pub(crate) struct LoaderContext {
 pub(crate) struct LoaderGraphState {
     pub(crate) graph: Option<nia_imports::ModuleGraphSnapshot>,
     pub(crate) applied_provider_revision: Option<nia_compiler_query::ProviderFactRevision>,
-    pub(crate) source_versions: HashMap<SourceIdentity, Option<SourceVersion>>,
 }

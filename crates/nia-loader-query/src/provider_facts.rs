@@ -9,6 +9,7 @@ use std::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderFacts {
     revision: ProviderFactRevision,
+    reset_revision: ProviderFactRevision,
     demands: HashMap<ProviderDemand, ProviderFactRevision>,
 }
 
@@ -29,6 +30,13 @@ impl ProviderFacts {
             .iter()
             .filter_map(move |(demand, added)| added.is_newer_than(revision).then_some(demand))
     }
+
+    pub(crate) fn can_extend_graph_after(&self, revision: ProviderFactRevision) -> bool {
+        matches!(
+            self.revision.transition_from(revision),
+            nia_compiler_query::ProviderFactRevisionTransition::Advanced
+        ) && !self.reset_revision.is_newer_than(revision)
+    }
 }
 
 #[derive(Clone)]
@@ -38,9 +46,11 @@ pub(crate) struct ProviderFactStore {
 
 impl Default for ProviderFactStore {
     fn default() -> Self {
+        let revision = ProviderFactRevision::new_store();
         Self {
             state: Arc::new(Mutex::new(ProviderFacts {
-                revision: ProviderFactRevision::new_store(),
+                revision,
+                reset_revision: revision,
                 demands: HashMap::new(),
             })),
         }
@@ -89,6 +99,7 @@ impl ProviderFactStore {
         if changed {
             state.demands.clear();
             state.revision = state.revision.next();
+            state.reset_revision = state.revision;
         }
         changed
     }
@@ -144,6 +155,7 @@ mod tests {
         assert_eq!(store.insert_new([demand.clone()]).len(), 1);
         let added = store.snapshot();
         assert!(added.revision() > initial.revision());
+        assert!(added.can_extend_graph_after(initial.revision()));
         assert_eq!(added.added_after(initial.revision()).count(), 1);
         assert!(store.insert_new([demand]).is_empty());
         assert_eq!(store.snapshot().revision(), added.revision());
@@ -152,5 +164,20 @@ mod tests {
         let cleared = store.snapshot();
         assert!(cleared.revision() > added.revision());
         assert!(cleared.demands().next().is_none());
+        assert!(!cleared.can_extend_graph_after(added.revision()));
+
+        let replacement = ProviderDemand {
+            source_path: SourcePath::new("main.nia"),
+            request: ProviderRequest::TraitImpl {
+                trait_name: SymbolId::default(),
+            },
+        };
+        assert_eq!(
+            store.insert_new([replacement.clone()]),
+            HashSet::from([replacement])
+        );
+        let replaced = store.snapshot();
+        assert!(!replaced.can_extend_graph_after(added.revision()));
+        assert!(replaced.can_extend_graph_after(cleared.revision()));
     }
 }

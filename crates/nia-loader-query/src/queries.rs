@@ -8,7 +8,9 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::resolve_module_declarations_from_active_item_tree_with_symbols;
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_provider_summary::ProviderSummary;
-use nia_query::{QueryDb, QueryKey};
+use nia_query::{
+    QueryDb, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy, QueryKey,
+};
 use nia_source::{SourceFile, SourceId, SourcePath, SourceRevision, SourceVersion};
 use nia_target_config::prune_module_for_target_with_symbols;
 
@@ -323,6 +325,51 @@ pub(crate) struct SourceText {
     pub(crate) diagnostic: Option<Diagnostic>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SourceStatus {
+    Missing,
+    Present(SourceVersion),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct SourceStatusQuery(pub(crate) SourceId);
+
+impl QueryKey<LoaderContext> for SourceStatusQuery {
+    type Value = SourceStatus;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+    fn name() -> &'static str {
+        "source_status"
+    }
+
+    fn description(&self) -> String {
+        format!("source_status({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        db.get(SourceTextQuery(self.0))
+            .file
+            .as_ref()
+            .map_or(SourceStatus::Missing, |file| {
+                SourceStatus::Present(file.version())
+            })
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        let mut builder = QueryFingerprintBuilder::new("nia.loader.source-status.v1");
+        builder.write_u64(u64::from(self.0.0));
+        match value {
+            SourceStatus::Missing => builder.write_u8(0),
+            SourceStatus::Present(version) => {
+                builder.write_u8(1);
+                builder.write_u64(version.revision.0);
+            }
+        }
+        Some(builder.finish())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ModuleDeclarationsQuery(SourceVersion);
 
@@ -463,14 +510,13 @@ fn provider_summary_query_for_id(
 }
 
 fn source_version(db: &QueryDb<LoaderContext>, source_id: SourceId) -> SourceVersion {
-    db.get(SourceTextQuery(source_id))
-        .file
-        .as_ref()
-        .map(SourceFile::version)
-        .unwrap_or(SourceVersion {
+    match *db.get(SourceStatusQuery(source_id)) {
+        SourceStatus::Present(version) => version,
+        SourceStatus::Missing => SourceVersion {
             id: source_id,
             revision: SourceRevision::INITIAL,
-        })
+        },
+    }
 }
 
 fn module_diagnostics(path: &SourcePath, diagnostics: &[Diagnostic]) -> Vec<ProgramDiagnostic> {

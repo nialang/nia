@@ -6,7 +6,7 @@ use crate::provider_loading::{
     add_public_reexport_source_module, module_defines_extensions, process_provider_request,
     process_reexport_provider_request,
 };
-use crate::queries::{SourceTextQuery, module_declarations_query};
+use crate::queries::module_declarations_query;
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
 use crate::{EntryRuntime, LoaderContext, default_std_module_path};
 use nia_diagnostic::Diagnostic;
@@ -15,7 +15,7 @@ use nia_imports::{
     module_declaration_visibility_allows,
 };
 use nia_query::{QueryDb, QueryKey};
-use nia_source::{SourceIdentity, SourcePath, SourceVersion};
+use nia_source::SourcePath;
 use nia_span::Span;
 use nia_symbol::{SymbolId, known};
 
@@ -28,21 +28,17 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let provider_facts = db.get(ProviderDemandsQuery);
-        let (mut seed, mut applied_provider_revision, source_versions) = {
+        let (mut seed, mut applied_provider_revision) = {
             let state = db
                 .context()
                 .graph_state
                 .read()
                 .expect("loader graph state lock poisoned");
-            (
-                state.graph.clone(),
-                state.applied_provider_revision,
-                state.source_versions.clone(),
-            )
+            (state.graph.clone(), state.applied_provider_revision)
         };
-        if seed
-            .as_ref()
-            .is_some_and(|graph| graph_source_versions(db, graph) != source_versions)
+        if seed.is_some()
+            && !applied_provider_revision
+                .is_some_and(|revision| provider_facts.can_extend_graph_after(revision))
         {
             seed = None;
             applied_provider_revision = None;
@@ -139,7 +135,6 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             );
             index += 1;
         }
-        let source_versions = graph_source_versions(db, &graph);
         let snapshot = ModuleGraphSnapshot::new(graph);
         let mut state = db
             .context()
@@ -148,26 +143,8 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             .expect("loader graph state lock poisoned");
         state.graph = Some(snapshot.clone());
         state.applied_provider_revision = Some(provider_facts.revision());
-        state.source_versions = source_versions;
         snapshot
     }
-}
-
-fn graph_source_versions(
-    db: &QueryDb<LoaderContext>,
-    graph: &ModuleGraph,
-) -> std::collections::HashMap<SourceIdentity, Option<SourceVersion>> {
-    graph
-        .modules()
-        .map(|node| {
-            let source_id = db.context().sources.id_for_path(&node.path);
-            let source = db.get(SourceTextQuery(source_id));
-            (
-                node.path.identity(),
-                source.file.as_ref().map(nia_source::SourceFile::version),
-            )
-        })
-        .collect()
 }
 
 pub(crate) fn mark_semantic_provider_module(graph: &mut ModuleGraph, module_path: &SourcePath) {
