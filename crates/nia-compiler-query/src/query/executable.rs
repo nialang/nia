@@ -76,20 +76,30 @@ pub(super) struct ExecutableFactSession {
     pub(super) caches: ExecutableCheckCaches,
     pub(super) applied_provider_fact_revision: Option<crate::ProviderFactRevision>,
     pub(super) applied_provider_changes: HashSet<ProviderDemand>,
+    pub(super) applied_body_activations: HashSet<ModuleId>,
 }
 
 impl ExecutableFactSession {
-    pub(super) fn retain_after_graph_growth(&mut self, body_activated: &HashSet<ModuleId>) {
+    pub(super) fn apply_body_activation_worklist(&mut self, worklist: &BodyActivationWorklist) {
+        let pending_activations = worklist
+            .modules
+            .difference(&self.applied_body_activations)
+            .copied()
+            .collect::<HashSet<_>>();
+        if pending_activations.is_empty() {
+            return;
+        }
         self.reachability = Default::default();
         let mut retained_modules = HashSet::new();
         self.modules.retain(|module_id, _| {
-            let retained = !body_activated.contains(module_id);
+            let retained = !pending_activations.contains(module_id);
             if retained {
                 retained_modules.insert(*module_id);
             }
             retained
         });
         self.caches.retain_modules(&retained_modules);
+        self.applied_body_activations.extend(pending_activations);
     }
 
     pub(super) fn apply_provider_fact_worklist(

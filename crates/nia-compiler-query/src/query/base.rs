@@ -260,6 +260,21 @@ impl QueryKey<CompilerContext> for ProviderFactWorklistQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct BodyActivationWorklistQuery;
+
+impl QueryKey<CompilerContext> for BodyActivationWorklistQuery {
+    type Value = BodyActivationWorklist;
+
+    fn name() -> &'static str {
+        "body_activation_worklist"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().body_activation_worklist()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExecutableRootModulesQuery;
 
 impl QueryKey<CompilerContext> for ExecutableRootModulesQuery {

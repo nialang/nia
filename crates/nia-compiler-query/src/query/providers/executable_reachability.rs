@@ -242,9 +242,11 @@ fn executable_check(
     product: ExecutableCheckProduct,
 ) -> ExecutableCheckOutput {
     let provider_fact_worklist = db.get(ProviderFactWorklistQuery);
+    let body_activation_worklist = db.get(BodyActivationWorklistQuery);
     let parse_ok = db.get(SemanticModuleIdsQuery);
     let (entry_module, runtime_root_modules) = db.get(ExecutableRootModulesQuery).as_ref().clone();
     let mut session = db.context().take_executable_fact_session();
+    session.apply_body_activation_worklist(&body_activation_worklist);
     session.apply_provider_fact_worklist(&provider_fact_worklist, &db.context().type_store);
     let ExecutableFactSession {
         mut modules,
@@ -252,6 +254,7 @@ fn executable_check(
         caches,
         applied_provider_fact_revision,
         applied_provider_changes,
+        applied_body_activations,
     } = session;
     let mut non_function_signatures = None::<ProgramExecutableNonFunctionSignatures>;
     let function_signature = |def_id: GlobalDefId| {
@@ -670,6 +673,7 @@ fn executable_check(
                 caches,
                 applied_provider_fact_revision,
                 applied_provider_changes,
+                applied_body_activations,
             });
         return ExecutableCheckOutput::ProviderDemands(demands.into_iter().collect());
     }
