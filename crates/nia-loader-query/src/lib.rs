@@ -148,29 +148,26 @@ impl LoaderDatabase {
     pub fn update_provider_demands(
         &self,
         demands: impl IntoIterator<Item = ProviderDemand>,
-    ) -> ProviderDemandUpdate {
+    ) -> nia_compiler_query::ProviderGraphUpdate {
         let demands = demands.into_iter().collect::<Vec<_>>();
         let all_known = self.db.context().provider_facts.contains_all(&demands);
         if all_known {
-            return ProviderDemandUpdate::NoNewDemands;
+            return nia_compiler_query::ProviderGraphUpdate::Stable;
         }
         let previous_graph = self.db.get(graph::ModuleGraphQuery);
         let added = self.db.context().provider_facts.insert_new(demands);
         if added.is_empty() {
-            return ProviderDemandUpdate::NoNewDemands;
+            return nia_compiler_query::ProviderGraphUpdate::Stable;
         }
         self.db.invalidate(ProviderDemandsQuery);
         let graph = self.db.get(graph::ModuleGraphQuery);
-        let revision = self.db.get(ProviderDemandsQuery).revision();
         if graph == previous_graph {
-            ProviderDemandUpdate::GraphUnchanged {
-                revision,
-                new_demands: added,
-            }
+            nia_compiler_query::ProviderGraphUpdate::Stable
         } else {
-            ProviderDemandUpdate::GraphChanged {
-                revision,
-                new_demands: added,
+            nia_compiler_query::ProviderGraphUpdate::Changed {
+                invalidates_resolved_body_facts: added
+                    .iter()
+                    .any(|demand| demand.request.invalidates_resolved_body_facts()),
             }
         }
     }
@@ -198,6 +195,13 @@ impl LoaderFactProvider for LoaderDatabase {
 
     fn provider_facts(&self) -> nia_compiler_query::ProviderFactSnapshot {
         self.db.get(ProviderDemandsQuery).as_snapshot()
+    }
+
+    fn update_provider_demands(
+        &self,
+        demands: Vec<ProviderDemand>,
+    ) -> nia_compiler_query::ProviderGraphUpdate {
+        LoaderDatabase::update_provider_demands(self, demands)
     }
 
     fn node_store(&self) -> nia_node_id::NodeStore {
@@ -316,19 +320,6 @@ impl LoaderFactProvider for LoaderDatabase {
     fn runtime(&self) -> nia_compiler_query::RuntimeModel {
         queries::runtime_model(self.db.context().entry_runtime)
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ProviderDemandUpdate {
-    NoNewDemands,
-    GraphUnchanged {
-        revision: nia_compiler_query::ProviderFactRevision,
-        new_demands: HashSet<ProviderDemand>,
-    },
-    GraphChanged {
-        revision: nia_compiler_query::ProviderFactRevision,
-        new_demands: HashSet<ProviderDemand>,
-    },
 }
 
 #[derive(Debug, Clone)]

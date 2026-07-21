@@ -296,6 +296,10 @@ impl CompilerDatabase {
     pub fn check_program(&self) -> CheckedProgram {
         #[cfg(test)]
         let _permit = nia_test_support::compiler_permit();
+        self.settle_provider_worklist(false, Self::check_program_once, checked_provider_demands)
+    }
+
+    fn check_program_once(&self) -> CheckedProgram {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_get(CheckedProgramQuery)
         })) {
@@ -319,6 +323,14 @@ impl CompilerDatabase {
     pub fn entry_check_program(&self) -> CheckedProgram {
         #[cfg(test)]
         let _permit = nia_test_support::compiler_permit();
+        self.settle_provider_worklist(
+            true,
+            Self::entry_check_program_once,
+            checked_provider_demands,
+        )
+    }
+
+    fn entry_check_program_once(&self) -> CheckedProgram {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_get(EntryCheckedProgramQuery)
         })) {
@@ -339,9 +351,7 @@ impl CompilerDatabase {
         }
     }
 
-    pub fn executable_provider_demands(&self) -> Vec<crate::ProviderDemand> {
-        #[cfg(test)]
-        let _permit = nia_test_support::compiler_permit();
+    fn executable_provider_demands(&self) -> Vec<crate::ProviderDemand> {
         self.db
             .try_get(ExecutableProviderDemandsQuery)
             .map(Arc::unwrap_or_clone)
@@ -355,6 +365,10 @@ impl CompilerDatabase {
     pub fn codegen_program(&self) -> CodegenProgram {
         #[cfg(test)]
         let _permit = nia_test_support::compiler_permit();
+        self.settle_provider_worklist(true, Self::codegen_program_once, codegen_provider_demands)
+    }
+
+    fn codegen_program_once(&self) -> CodegenProgram {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_get(CodegenProgramQuery)
         })) {
@@ -375,6 +389,60 @@ impl CompilerDatabase {
                 Err(payload) => std::panic::resume_unwind(payload),
             },
         }
+    }
+
+    fn settle_provider_worklist<T>(
+        &self,
+        discover_executable_providers: bool,
+        compile: impl Fn(&Self) -> T,
+        provider_demands: impl Fn(&T) -> Vec<crate::ProviderDemand>,
+    ) -> T {
+        let mut skip_executable_discovery = false;
+        let mut rounds = 0_u64;
+        loop {
+            rounds += 1;
+            if discover_executable_providers
+                && !skip_executable_discovery
+                && let crate::ProviderGraphUpdate::Changed {
+                    invalidates_resolved_body_facts,
+                } = self
+                    .db
+                    .context()
+                    .loader_facts()
+                    .update_provider_demands(self.executable_provider_demands())
+            {
+                skip_executable_discovery = !invalidates_resolved_body_facts;
+                continue;
+            }
+            let output = compile(self);
+            match self
+                .db
+                .context()
+                .loader_facts()
+                .update_provider_demands(provider_demands(&output))
+            {
+                crate::ProviderGraphUpdate::Changed {
+                    invalidates_resolved_body_facts,
+                } => {
+                    skip_executable_discovery =
+                        discover_executable_providers && !invalidates_resolved_body_facts;
+                }
+                crate::ProviderGraphUpdate::Stable => {
+                    self.db
+                        .context()
+                        .provider_demand_rounds
+                        .store(rounds, std::sync::atomic::Ordering::Relaxed);
+                    return output;
+                }
+            }
+        }
+    }
+
+    pub fn provider_demand_rounds(&self) -> u64 {
+        self.db
+            .context()
+            .provider_demand_rounds
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn update(&self, request: CompileRequest) -> CompilerInvalidation {
@@ -440,6 +508,22 @@ impl std::fmt::Debug for CompilerDatabase {
     }
 }
 
+fn checked_provider_demands(program: &CheckedProgram) -> Vec<crate::ProviderDemand> {
+    program
+        .modules
+        .iter()
+        .flat_map(|module| module.provider_demands.iter().cloned())
+        .collect()
+}
+
+fn codegen_provider_demands(program: &CodegenProgram) -> Vec<crate::ProviderDemand> {
+    program
+        .modules
+        .iter()
+        .flat_map(|module| module.provider_demands.iter().cloned())
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CompilerInvalidation {
     pub invalidated: Vec<QueryFrame>,
@@ -490,6 +574,7 @@ fn compiler_database_with_providers_in_session(
             executable_fact_session,
             type_store,
             node_store,
+            provider_demand_rounds: std::sync::atomic::AtomicU64::new(0),
         },
         timings,
         compiler_query_registry(),
@@ -573,6 +658,7 @@ struct CompilerContext {
     executable_fact_session: Arc<std::sync::Mutex<ExecutableFactSession>>,
     type_store: Arc<nia_ty::TypeStore>,
     node_store: nia_node_id::NodeStore,
+    provider_demand_rounds: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1489,6 +1575,13 @@ mod tests {
             self.db.get(TestProviderFactsQuery).as_ref().clone()
         }
 
+        fn update_provider_demands(
+            &self,
+            _demands: Vec<crate::ProviderDemand>,
+        ) -> crate::ProviderGraphUpdate {
+            crate::ProviderGraphUpdate::Stable
+        }
+
         fn node_store(&self) -> nia_node_id::NodeStore {
             self.program()
                 .modules
@@ -1944,6 +2037,7 @@ mod tests {
                 )),
                 type_store: Arc::new(nia_ty::TypeStore::new()),
                 node_store,
+                provider_demand_rounds: std::sync::atomic::AtomicU64::new(0),
             },
             compiler_query_registry(),
         )

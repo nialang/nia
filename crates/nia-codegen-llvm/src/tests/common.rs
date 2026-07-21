@@ -88,27 +88,7 @@ fn codegen_program_request(
     let compiler = nia_compiler_query::CompilerDatabase::new(
         nia_compiler_query::CompileRequest::new(loader.clone()).with_optimization(optimization),
     );
-    loop {
-        if let nia_loader_query::ProviderDemandUpdate::GraphChanged { new_demands, .. } =
-            loader.update_provider_demands(compiler.executable_provider_demands())
-        {
-            let _ = new_demands;
-            continue;
-        }
-        let output = compiler.codegen_program();
-        let demands = output
-            .modules
-            .iter()
-            .flat_map(|module| module.provider_demands.iter().cloned())
-            .collect::<Vec<_>>();
-        match loader.update_provider_demands(demands) {
-            nia_loader_query::ProviderDemandUpdate::GraphChanged { new_demands, .. } => {
-                let _ = new_demands;
-            }
-            nia_loader_query::ProviderDemandUpdate::NoNewDemands
-            | nia_loader_query::ProviderDemandUpdate::GraphUnchanged { .. } => return output,
-        }
-    }
+    compiler.codegen_program()
 }
 
 pub(super) fn emit_llvm_ir(
