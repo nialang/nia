@@ -469,9 +469,13 @@ impl CompilerDatabase {
             invalidation.extend(self.db.invalidate(ModulePublicSurfaceQuery(module_id)));
         }
         for (module_id, name) in diff.changed_public_surface_module_names {
+            let target = self
+                .db
+                .context()
+                .public_surface_module_key(module_id, &name);
             invalidation.extend(
                 self.db
-                    .invalidate(PublicSurfaceModuleQuery(module_id, name)),
+                    .validate_input(PublicSurfaceModuleQuery(module_id, name), &target),
             );
         }
         for (module_id, name) in diff.changed_public_surface_value_names {
@@ -487,7 +491,11 @@ impl CompilerDatabase {
             invalidation.extend(self.db.invalidate(ModuleUsingScopeQuery(module_id)));
         }
         for (module_id, name) in diff.changed_using_scope_module_names {
-            invalidation.extend(self.db.invalidate(UsingScopeModuleQuery(module_id, name)));
+            let target = self.db.context().using_scope_module_key(module_id, &name);
+            invalidation.extend(
+                self.db
+                    .validate_input(UsingScopeModuleQuery(module_id, name), &target),
+            );
         }
         for (module_id, name) in diff.changed_using_scope_value_names {
             invalidation.extend(self.db.invalidate(UsingScopeValueQuery(module_id, name)));
@@ -508,7 +516,9 @@ impl CompilerDatabase {
             invalidation.extend(self.db.invalidate(ExecutableRootModulesQuery));
         }
         if diff.loaded_modules_changed {
-            invalidation.extend(self.db.invalidate(LoadedModulesQuery));
+            let loaded_modules =
+                stable_module_sequence(&self.db, self.db.context().loaded_modules());
+            invalidation.extend(self.db.validate_input(LoadedModulesQuery, &loaded_modules));
         }
         if diff.loaded_diagnostics_changed {
             invalidation.extend(self.db.invalidate(ProgramLoadDiagnosticsQuery));
@@ -540,7 +550,12 @@ impl CompilerDatabase {
         for module in diff.changed_modules {
             for module_id in module.ids {
                 if module.path {
-                    invalidation.extend(self.db.invalidate(ModulePathQuery(module_id)));
+                    if let Some(path) = self.db.context().module_path_if_loaded(module_id) {
+                        invalidation
+                            .extend(self.db.validate_input(ModulePathQuery(module_id), &path));
+                    } else {
+                        invalidation.extend(self.db.invalidate(ModulePathQuery(module_id)));
+                    }
                 }
                 if module.source_version {
                     invalidation.extend(self.db.invalidate(ModuleSourceVersionQuery(module_id)));
@@ -782,37 +797,13 @@ pub(super) struct StableModuleSequence {
 }
 
 impl StableModuleSequence {
-    fn from_module_ids(
-        graph: &ModuleGraphSnapshot,
-        module_ids: impl IntoIterator<Item = ModuleId>,
-    ) -> Self {
+    fn from_source_identities(source_identities: impl IntoIterator<Item = SourceIdentity>) -> Self {
         Self {
-            keys: module_ids
+            keys: source_identities
                 .into_iter()
-                .map(|module_id| {
-                    graph.stable_key(module_id).cloned().unwrap_or_else(|| {
-                        panic!(
-                            "Nia ICE: module {:?} has no stable key in the current graph",
-                            module_id
-                        )
-                    })
-                })
+                .map(StableModuleKey::from_source_identity)
                 .collect(),
         }
-    }
-
-    fn resolve(&self, graph: &ModuleGraphSnapshot) -> Vec<ModuleId> {
-        self.keys
-            .iter()
-            .map(|key| {
-                graph.module_id_for_stable_key(key).unwrap_or_else(|| {
-                    panic!(
-                        "Nia ICE: stable module `{}` is missing from the current graph",
-                        key.source_identity().normalized_path()
-                    )
-                })
-            })
-            .collect()
     }
 }
 
@@ -820,22 +811,22 @@ fn stable_module_sequence(
     db: &QueryDb<CompilerContext>,
     module_ids: impl IntoIterator<Item = ModuleId>,
 ) -> StableModuleSequence {
-    let graph = db.context().module_graph();
-    StableModuleSequence::from_module_ids(&graph, module_ids)
+    db.context().stable_module_sequence(module_ids)
 }
 
-fn resolve_stable_module_sequence_from_current_graph(
+fn resolve_stable_module_sequence_from_current_inputs(
     db: &QueryDb<CompilerContext>,
     sequence: &StableModuleSequence,
 ) -> Vec<ModuleId> {
-    sequence.resolve(&db.context().module_graph())
+    db.context().resolve_stable_module_sequence(sequence)
 }
 
 fn resolve_stable_module_sequence(
     db: &QueryDb<CompilerContext>,
     sequence: &StableModuleSequence,
 ) -> Vec<ModuleId> {
-    sequence.resolve(&db.get(ModuleGraphQuery))
+    let _graph = db.get(ModuleGraphQuery);
+    db.context().resolve_stable_module_sequence(sequence)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1046,6 +1037,12 @@ fn stable_module_sequence_fingerprint(
     for key in &sequence.keys {
         write_stable_module_key(&mut builder, key);
     }
+    builder.finish()
+}
+
+fn source_path_fingerprint(domain: &str, path: &SourcePath) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new(domain);
+    builder.write_str(path.as_str());
     builder.finish()
 }
 
@@ -1487,6 +1484,41 @@ impl CompilerContext {
             .collect()
     }
 
+    fn stable_module_sequence(
+        &self,
+        module_ids: impl IntoIterator<Item = ModuleId>,
+    ) -> StableModuleSequence {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        StableModuleSequence::from_source_identities(module_ids.into_iter().map(|module_id| {
+            inputs
+                .loaded_module(module_id)
+                .unwrap_or_else(|| {
+                    panic!("Nia ICE: module {module_id:?} is not loaded in compiler inputs")
+                })
+                .source_identity
+                .clone()
+        }))
+    }
+
+    fn resolve_stable_module_sequence(&self, sequence: &StableModuleSequence) -> Vec<ModuleId> {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        sequence
+            .keys
+            .iter()
+            .map(|key| {
+                inputs
+                    .loaded_module_by_source_identity(key.source_identity())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Nia ICE: stable loaded module `{}` is missing from compiler inputs",
+                            key.source_identity().normalized_path()
+                        )
+                    })
+                    .id
+            })
+            .collect()
+    }
+
     fn loaded_module(&self, module_id: ModuleId) -> Option<CompilerInputModule> {
         let inputs = self.inputs.read().expect("compiler input lock poisoned");
         inputs
@@ -1500,6 +1532,13 @@ impl CompilerContext {
         self.module_field(db, &ModulePathQuery(module_id), module_id, |module| {
             module.path.clone()
         })
+    }
+
+    fn module_path_if_loaded(&self, module_id: ModuleId) -> Option<SourcePath> {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        inputs
+            .loaded_module(module_id)
+            .map(|module| module.path.clone())
     }
 
     fn module_source_version(
@@ -1709,14 +1748,18 @@ impl CompilerContext {
             .clone()
     }
 
-    fn public_surface_module(&self, module_id: ModuleId, name: &SymbolId) -> Option<ModuleId> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
+    fn public_surface_module_key(
+        &self,
+        module_id: ModuleId,
+        name: &SymbolId,
+    ) -> Option<StableModuleKey> {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        let target = inputs
             .public_surfaces
             .surfaces
             .get(module_id)?
-            .lookup_module(name)
+            .lookup_module(name)?;
+        inputs.graph.stable_key(target).cloned()
     }
 
     fn public_surface_value(
@@ -1772,14 +1815,18 @@ impl CompilerContext {
         }))
     }
 
-    fn using_scope_module(&self, module_id: ModuleId, name: &SymbolId) -> Option<ModuleId> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
+    fn using_scope_module_key(
+        &self,
+        module_id: ModuleId,
+        name: &SymbolId,
+    ) -> Option<StableModuleKey> {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        let target = inputs
             .public_using_scopes
             .using_scopes
             .get(&module_id)?
-            .lookup_module(name)
+            .lookup_module(name)?;
+        inputs.graph.stable_key(target).cloned()
     }
 
     fn using_scope_value(
@@ -3020,17 +3067,21 @@ mod tests {
                 | "extension_provider_module_ids"
                 | "extension_provider_module_eligibility"
                 | "extension_provider_summary"
+                | "loaded_modules"
                 | "module_graph_child"
                 | "module_graph_entry"
                 | "module_graph_parent"
                 | "module_graph_path"
                 | "module_package_root"
+                | "module_path"
                 | "parse_ok_module_ids"
                 | "program_signature_module_eligibility"
                 | "program_signature_module_ids"
                 | "provider_fact_revision"
                 | "provider_fact_worklist"
-                | "semantic_module_ids" => nia_query::QueryFingerprintPolicy::StableValue,
+                | "public_surface_module"
+                | "semantic_module_ids"
+                | "using_scope_module" => nia_query::QueryFingerprintPolicy::StableValue,
                 _ => nia_query::QueryFingerprintPolicy::None,
             };
             assert_eq!(descriptor.fingerprint, expected, "{}", descriptor.name);
@@ -3193,16 +3244,26 @@ pub fn expensive_or_invalid() i32 {
     fn loaded_module_reorder_invalidates_list_without_field_changes() {
         let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let entry_id = fixture.entry_id();
-        fixture.add_child(entry_id, "pkg", "pkg/root.nia", "pub fn value() i32 { 1 }");
+        let package_id =
+            fixture.add_child(entry_id, "pkg", "pkg/root.nia", "pub fn value() i32 { 1 }");
         let old = CompilerInputs::new(CompileRequest::new(fixture.program()));
+        let database = fixture.database();
+        let first = database.db.get(LoadedModulesQuery);
         let mut reordered = fixture.program();
         reordered.modules.reverse();
-        let new = CompilerInputs::new(CompileRequest::new(reordered));
+        let new = CompilerInputs::new(CompileRequest::new(reordered.clone()));
 
         let diff = CompilerInputDiff::between(&old, &new);
 
         assert!(diff.loaded_modules_changed);
         assert_eq!(diff.changed_modules, Vec::new());
+        database.update(CompileRequest::new(reordered));
+        let latest = database.db.get(LoadedModulesQuery);
+        assert!(!Arc::ptr_eq(&first, &latest));
+        assert_eq!(
+            resolve_stable_module_sequence(&database.db, &latest),
+            vec![package_id, entry_id]
+        );
     }
 
     #[test]
@@ -3233,11 +3294,18 @@ pub fn expensive_or_invalid() i32 {
         assert_ne!(old_entry, new_entry);
         let database = old_fixture.database();
         let first = database.db.get(ModuleGraphEntryQuery);
+        let first_loaded = database.db.get(LoadedModulesQuery);
 
         database.update(CompileRequest::new(new_fixture.program()));
 
         let latest = database.db.get(ModuleGraphEntryQuery);
+        let latest_loaded = database.db.get(LoadedModulesQuery);
         assert!(Arc::ptr_eq(&first, &latest));
+        assert!(Arc::ptr_eq(&first_loaded, &latest_loaded));
+        assert_eq!(
+            resolve_stable_module_sequence(&database.db, &latest_loaded),
+            vec![new_entry]
+        );
         assert_eq!(
             QueryModuleGraphLookup::new(&database.db).entry_module(),
             new_entry
@@ -3246,7 +3314,10 @@ pub fn expensive_or_invalid() i32 {
 
     #[test]
     fn stable_graph_relations_remap_fork_local_module_handles() {
-        let base = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let base = LoadedProgramFixture::new(
+            "main.nia",
+            "pub module child; using self::child; fn main() i32 { 0 }",
+        );
         let entry = base.entry_id();
         let mut old_fixture = LoadedProgramFixture {
             graph: base.graph.clone(),
@@ -3283,19 +3354,33 @@ pub fn expensive_or_invalid() i32 {
         let database = old_fixture.database();
         let first_child = database.db.get(ModuleGraphChildQuery(entry, child_name));
         let first_root = database.db.get(ModulePackageRootQuery(package));
+        let first_public = database.db.get(PublicSurfaceModuleQuery(entry, child_name));
+        let first_using = database.db.get(UsingScopeModuleQuery(entry, child_name));
 
         database.update(CompileRequest::new(new_fixture.program()));
 
         let latest_child = database.db.get(ModuleGraphChildQuery(entry, child_name));
         let latest_root = database.db.get(ModulePackageRootQuery(package));
+        let latest_public = database.db.get(PublicSurfaceModuleQuery(entry, child_name));
+        let latest_using = database.db.get(UsingScopeModuleQuery(entry, child_name));
         assert!(Arc::ptr_eq(&first_child, &latest_child));
         assert!(Arc::ptr_eq(&first_root, &latest_root));
+        assert!(Arc::ptr_eq(&first_public, &latest_public));
+        assert!(Arc::ptr_eq(&first_using, &latest_using));
         let lookup = QueryModuleGraphLookup::new(&database.db);
         assert_eq!(
             lookup.child_declaration(entry, &child_name),
             Some((new_child, nia_ids::Visibility::Public))
         );
         assert_eq!(lookup.package_root_module(&package), Some(new_root));
+        assert_eq!(
+            QueryPublicSurfaceLookup::new(&database.db).public_module(entry, &child_name),
+            Some(new_child)
+        );
+        assert_eq!(
+            QueryUsingScopeLookup::new(&database.db, entry).using_module(&child_name),
+            Some(new_child)
+        );
     }
 
     #[test]
@@ -3328,6 +3413,7 @@ pub fn expensive_or_invalid() i32 {
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        let first_loaded = database.db.get(LoadedModulesQuery);
 
         let invalidation = database.update(CompileRequest::new(new_program));
         let invalidated = invalidation
@@ -3347,8 +3433,14 @@ pub fn expensive_or_invalid() i32 {
             "{invalidated:?}"
         );
         assert!(
-            invalidated.contains(&"loaded_modules::LoadedModulesQuery"),
+            !invalidated.contains(&"loaded_modules::LoadedModulesQuery"),
             "{invalidated:?}"
+        );
+        let latest_loaded = database.db.get(LoadedModulesQuery);
+        assert!(Arc::ptr_eq(&first_loaded, &latest_loaded));
+        assert_eq!(
+            resolve_stable_module_sequence(&database.db, &latest_loaded),
+            vec![new_module_id]
         );
 
         let second = database.check_program();
@@ -4990,17 +5082,11 @@ extend Value : Ops {
 
     #[test]
     fn parse_error_changes_keep_stable_program_module_membership_green() {
-        let mut fixture = LoadedProgramFixture::new(
-            "main.nia",
-            "module broken; fn main() i32 { 0 }",
-        );
+        let mut fixture =
+            LoadedProgramFixture::new("main.nia", "module broken; fn main() i32 { 0 }");
         let entry_id = fixture.entry_id();
-        let broken_id = fixture.add_child(
-            entry_id,
-            "broken",
-            "broken.nia",
-            "fn helper() i32 { 1 }",
-        );
+        let broken_id =
+            fixture.add_child(entry_id, "broken", "broken.nia", "fn helper() i32 { 1 }");
         let mut initial = fixture.program();
         initial
             .modules
@@ -5051,10 +5137,8 @@ extend Value : Ops {
 
     #[test]
     fn signature_changes_keep_stable_program_module_membership_green() {
-        let mut fixture = LoadedProgramFixture::new(
-            "main.nia",
-            "fn first() i32 { 1 } fn main() i32 { first() }",
-        );
+        let mut fixture =
+            LoadedProgramFixture::new("main.nia", "fn first() i32 { 1 } fn main() i32 { first() }");
         let module_id = fixture.entry_id();
         let database = fixture.database();
         let first = database.db.get(ProgramSignatureModuleIdsQuery(

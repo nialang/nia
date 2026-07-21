@@ -212,14 +212,23 @@ impl QueryKey<CompilerContext> for ModulePackageRootQuery {
 pub(super) struct LoadedModulesQuery;
 
 impl QueryKey<CompilerContext> for LoadedModulesQuery {
-    type Value = Vec<ModuleId>;
+    type Value = StableModuleSequence;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
     fn name() -> &'static str {
         "loaded_modules"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().loaded_modules()
+        stable_module_sequence(db, db.context().loaded_modules())
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(stable_module_sequence_fingerprint(
+            "nia.compiler.loaded-modules.v1",
+            value,
+        ))
     }
 }
 
@@ -436,6 +445,8 @@ pub(super) struct ModulePathQuery(pub(super) ModuleId);
 impl QueryKey<CompilerContext> for ModulePathQuery {
     type Value = SourcePath;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
     fn name() -> &'static str {
         "module_path"
     }
@@ -446,6 +457,13 @@ impl QueryKey<CompilerContext> for ModulePathQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.context().module_path(db, self.0)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(source_path_fingerprint(
+            "nia.compiler.module-source-path.v1",
+            value,
+        ))
     }
 }
 
@@ -840,7 +858,9 @@ impl QueryKey<CompilerContext> for ModulePublicSurfaceQuery {
 pub(super) struct PublicSurfaceModuleQuery(pub(super) ModuleId, pub(super) SymbolId);
 
 impl QueryKey<CompilerContext> for PublicSurfaceModuleQuery {
-    type Value = Option<ModuleId>;
+    type Value = Option<StableModuleKey>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
     fn name() -> &'static str {
         "public_surface_module"
@@ -851,7 +871,14 @@ impl QueryKey<CompilerContext> for PublicSurfaceModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().public_surface_module(self.0, &self.1)
+        db.context().public_surface_module_key(self.0, &self.1)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(optional_stable_module_key_fingerprint(
+            "nia.compiler.public-surface-module.v1",
+            value.as_ref(),
+        ))
     }
 }
 
@@ -931,7 +958,9 @@ impl QueryKey<CompilerContext> for ModuleUsingScopeQuery {
 pub(super) struct UsingScopeModuleQuery(pub(super) ModuleId, pub(super) SymbolId);
 
 impl QueryKey<CompilerContext> for UsingScopeModuleQuery {
-    type Value = Option<ModuleId>;
+    type Value = Option<StableModuleKey>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
     fn name() -> &'static str {
         "using_scope_module"
@@ -942,7 +971,14 @@ impl QueryKey<CompilerContext> for UsingScopeModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().using_scope_module(self.0, &self.1)
+        db.context().using_scope_module_key(self.0, &self.1)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(optional_stable_module_key_fingerprint(
+            "nia.compiler.using-scope-module.v1",
+            value.as_ref(),
+        ))
     }
 }
 

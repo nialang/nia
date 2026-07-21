@@ -302,7 +302,8 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
 
 pub(super) fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
     let mut diagnostics = db.get(ProgramLoadDiagnosticsQuery).as_ref().clone();
-    for module_id in db.get(LoadedModulesQuery).iter().copied() {
+    let loaded_modules = resolve_stable_module_sequence(db, &db.get(LoadedModulesQuery));
+    for module_id in loaded_modules {
         let parse_errors = db.get(ModuleParseErrorsQuery(module_id));
         let path = db.get(ModulePathQuery(module_id));
         for error in parse_errors.iter() {
