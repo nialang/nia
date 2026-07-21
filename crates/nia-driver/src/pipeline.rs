@@ -187,6 +187,11 @@ impl Driver {
             if let Some(compiler) = &*compiler_guard
                 && compiler.database.query_session().ptr_eq(&query_session)
             {
+                compiler.database.update(
+                    CompileRequest::new(loader.clone())
+                        .with_optimization(request.optimization)
+                        .with_timings(request.timings),
+                );
                 (
                     compiler.database.clone(),
                     Some(ProviderGraphWorkItem {
@@ -210,14 +215,7 @@ impl Driver {
             let can_finalize_without_discovery = pending_update
                 .as_ref()
                 .is_some_and(ProviderGraphWorkItem::can_finalize_without_discovery);
-            if let Some(ProviderGraphWorkItem { provider_changes }) = pending_update.take() {
-                database.update(
-                    CompileRequest::new(loader.clone())
-                        .with_optimization(request.optimization)
-                        .with_timings(request.timings)
-                        .with_provider_changes(provider_changes),
-                );
-            }
+            pending_update.take();
             if discover_executable_providers
                 && !can_finalize_without_discovery
                 && let ProviderDemandUpdate::GraphChanged { new_demands, .. } =

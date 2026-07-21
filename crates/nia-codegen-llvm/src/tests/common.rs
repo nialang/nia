@@ -92,11 +92,7 @@ fn codegen_program_request(
         if let nia_loader_query::ProviderDemandUpdate::GraphChanged { new_demands, .. } =
             loader.update_provider_demands(compiler.executable_provider_demands())
         {
-            compiler.update(
-                nia_compiler_query::CompileRequest::new(loader.clone())
-                    .with_optimization(optimization)
-                    .with_provider_changes(new_demands),
-            );
+            let _ = new_demands;
             continue;
         }
         let output = compiler.codegen_program();
@@ -107,11 +103,7 @@ fn codegen_program_request(
             .collect::<Vec<_>>();
         match loader.update_provider_demands(demands) {
             nia_loader_query::ProviderDemandUpdate::GraphChanged { new_demands, .. } => {
-                compiler.update(
-                    nia_compiler_query::CompileRequest::new(loader.clone())
-                        .with_optimization(optimization)
-                        .with_provider_changes(new_demands),
-                );
+                let _ = new_demands;
             }
             nia_loader_query::ProviderDemandUpdate::NoNewDemands
             | nia_loader_query::ProviderDemandUpdate::GraphUnchanged { .. } => return output,

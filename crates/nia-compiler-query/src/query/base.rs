@@ -311,7 +311,7 @@ impl QueryKey<CompilerContext> for ProviderFactRevisionQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.get(ProviderFactWorklistQuery).revision
+        db.get(ProviderFactWorklistQuery).revision()
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -323,7 +323,7 @@ impl QueryKey<CompilerContext> for ProviderFactRevisionQuery {
 pub(super) struct ProviderFactWorklistQuery;
 
 impl QueryKey<CompilerContext> for ProviderFactWorklistQuery {
-    type Value = ProviderFactWorklist;
+    type Value = crate::ProviderFactSnapshot;
 
     const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
