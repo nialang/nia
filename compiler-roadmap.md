@@ -18,7 +18,7 @@
 | B semantic context / 类型身份 | 100% | session-wide canonical `TypeStore`、全 pass canonical read/append、显式 roots、跨 revision slot 稳定与跨 session 隔离已完成；module view/log、origin、snapshot/checkout、recursive import 和旧 identity 类型均已删除。 |
 | C query value/storage | 100% | cache-owned `get/try_get/get_many`、无 `Value: Clone`、declarative registry 与 aggregate storage policy 已完成，owned runtime adapter 全部删除。 |
 | C 后 ID/arena 专项 | 100% | ID-0 query dep-node arena、ID-1 source/syntax identity、ID-2 graph/fixture 收口与 ID-3 owner/index/generation module handle 均完成；构造、fork、stale lookup 与 local-slot 边界已有守卫。 |
-| D 统一依赖图 | 约 25% | driver 的 lossy graph 摘要与重复 provider 编排已删除，provider keys canonical/stable；loader 已有正式 fact-query 依赖边与 revisioned delta worklist，graph state 不再复制 applied-demand set，但 driver/compiler/reachability 尚未共享 revision recorder。 |
+| D 统一依赖图 | 约 28% | provider keys canonical/stable，loader 已有 fact-query 依赖边与 revisioned delta worklist；owner-aware fact revision 已贯穿 loaded program、driver work item、compile request/input，loader/compiler 开始共享 revision recorder，但 compiler 尚未执行完整 revision/change validation。 |
 | E executor / 资源模型 | 约 25% | 无参数 `cargo test` 与跨进程测试资源门控已稳定；legacy `query_many` 已删除，但 `get_many` 仍创建临时 scoped worker，持久 executor、Cargo jobserver 和 LLVM backpressure 尚未解决。 |
 | F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
 | G CGU / 异步 codegen / work products | 约 5% | 已有多 object 输出和 reuse 指标占位，但没有正式 CGU partition、codegen queue、frontend/LLVM overlap、CGU fingerprint 或 object work-product cache。 |
@@ -27,7 +27,7 @@
 
 综合判断：**整份路线图按剩余工程复杂度加权约完成 37%，合理区间为 35%–40%；A–E 的 P0 基础约完成 53%–58%。** 已完成的是最先阻塞后续工作的 type identity、query storage 与 loader provider fact 基础；跨数据库统一 fact graph、executor、item/CGU 粒度和持久增量仍是独立的大型工程，不能按提交数量外推为“路线图已过半”。
 
-ID/arena 专项已关闭，最近的临界路径正式进入 Phase D 统一模块/provider 依赖图：driver 重复协议已删除，provider keys 已 canonical/stable，loader graph 已通过正式 fact query 和 revisioned delta worklist 驱动；下一步让 driver/compiler 携带同一 provider fact revision，开始共享 revision recorder；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
+ID/arena 专项已关闭，最近的临界路径正式进入 Phase D 统一模块/provider 依赖图：driver 重复协议已删除，provider keys canonical/stable，loader graph 由 fact query + revisioned delta 驱动，owner-aware revision 也已贯穿 compiler input；下一步把 revision 纳入 compiler update validation/red-green 判断；Phase A 剩余 CI/trend storage 在托管环境和基线存储策略明确前不抢占该路径。
 
 ## 1. 范围、版本与方法
 
@@ -1213,6 +1213,8 @@ Acceptance：一次冷 check 不再出现 driver 层重复 load/update round；p
 进展（2026-07-21）：D-7 建立了 loader provider fact 到 module graph 的第一条正式 query dependency。raw `LoaderContext.provider_demands: Arc<RwLock<HashSet<_>>>` 被封装的 `ProviderFactStore` 取代，store 负责 canonical insertion/clear/snapshot；新增 cache-owned `ProviderDemandsQuery` 注册进 loader registry，`ModuleGraphQuery` 通过 `db.get` 读取该 fact。`update_provider_demands` 现在只 invalidates provider fact node，由 query runtime 沿 `module_graph → provider_demands` 依赖边传递失效，不再直接 `invalidate(ModuleGraphQuery)`；重复 key 不产生第三次 graph execution，稳定 graph 仍不重建 aggregate `LoadedProgram`。回归锁定 0-byte fact key、11 项 declarative registry、依赖边与精确 execution count；旧 raw demand lock 访问和直接 graph invalidation 在 loader 中归零。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；loader-query 40、compiler-query 120、LLVM 177、driver 484 项通过，CLI commands 50 项自然并发 310.13 秒完成，全部集成与 doc tests 通过。Phase D 现约 22%；下一切片删除 `LoaderGraphState.applied_provider_demands` 这份重复 truth source，让 provider fact store 暴露 revision/delta，graph state 只记录 applied revision 并消费 typed worklist。
 
 进展（2026-07-21）：D-8 将 loader provider facts 升级为 revisioned delta worklist。`ProviderFactStore` 现在保存单调 `ProviderFactRevision` 以及每个 canonical demand 的加入 revision；cache-owned `ProviderFacts` snapshot 可精确枚举全量 facts 或 `added_after(revision)`。`LoaderGraphState.applied_provider_demands` 整套集合副本已删除，只保留 8-byte applied revision；增量 graph update 仅消费新 revision 的 keys，source graph 重建则消费当前全量 facts。重复 key 不推进 revision，clear 在真实变化时推进 revision并清空 facts，均有自动化回归。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；loader-query 41、compiler-query 120、LLVM 177、driver 484 项通过，CLI commands 50 项自然并发 311.64 秒完成，全部集成与 doc tests 通过。Phase D 现约 25%，整份 roadmap 加权约 37%；下一切片让 `ProviderDemandUpdate`、driver work item 与 `CompileRequest` 携带 provider fact revision，使 loader/compiler 开始共享 revision recorder，而不只共享 demand payload。
+
+进展（2026-07-21）：D-9 将 provider fact revision 从 loader-local `u64` 升级为共享、owner-aware 的 `(store owner, index)` typed revision，并贯穿 `LoadedProgram`、`ProviderDemandUpdate`、driver `ProviderGraphWorkItem`、`CompileRequest` 与 `CompilerInputs`。revision 类型下沉到 provider 协议层并由 compiler-query 重导出，避免 loader↔compiler crate cycle；每个 `ProviderFactStore` 分配独立 owner，同 store 内 index 单调增长，不同 loader session 即使 index 相同也不相等。owner 分配与 revision index 均有 overflow guard，16-byte footprint、不同 store 隔离、loader update/program revision 一致以及 compiler 精确保留 request revision均有回归。严格 workspace/all-targets/all-features Clippy 无 warning，无参数的 `cargo test --workspace` 全部通过；loader-query 41、compiler-query 121、LLVM 177、driver 484 项通过，CLI commands 50 项自然并发 313.05 秒完成，全部集成与 doc tests 通过。Phase D 现约 28%；下一切片把 revision 变化纳入 `CompilerInputDiff` validation，明确同 owner monotonic、owner replacement 与 provider change set 的合法组合，为 red-green validation 建立跨数据库事实版本守卫。
 
 ### 阶段 E（P0/P1）：持久 executor 与测试资源模型
 

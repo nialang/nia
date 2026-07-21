@@ -93,6 +93,7 @@ fn codegen_program_request(
         if let nia_loader_query::ProviderDemandUpdate::GraphChanged {
             program,
             new_demands,
+            ..
         } = loader.update_provider_demands(compiler.executable_provider_demands())
         {
             compiler.update(
@@ -112,6 +113,7 @@ fn codegen_program_request(
             nia_loader_query::ProviderDemandUpdate::GraphChanged {
                 program,
                 new_demands,
+                ..
             } => {
                 compiler.update(
                     nia_compiler_query::CompileRequest::new(*program)

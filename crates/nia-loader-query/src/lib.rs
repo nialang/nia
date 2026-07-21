@@ -15,7 +15,7 @@ use nia_query::QueryDb;
 use nia_source::{SourceDatabase, SourceFile, SourceIdentity, SourcePath, SourceVersion};
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
-use provider_facts::{ProviderDemandsQuery, ProviderFactRevision, ProviderFactStore};
+use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
 use std::{
     collections::{HashMap, HashSet},
@@ -151,10 +151,15 @@ impl LoaderDatabase {
         }
         self.db.invalidate(ProviderDemandsQuery);
         let graph = self.db.get(graph::ModuleGraphQuery);
+        let revision = self.db.get(ProviderDemandsQuery).revision();
         if graph == previous_graph {
-            ProviderDemandUpdate::GraphUnchanged { new_demands: added }
+            ProviderDemandUpdate::GraphUnchanged {
+                revision,
+                new_demands: added,
+            }
         } else {
             ProviderDemandUpdate::GraphChanged {
+                revision,
                 program: Box::new(self.load_program()),
                 new_demands: added,
             }
@@ -178,9 +183,11 @@ impl LoaderDatabase {
 pub enum ProviderDemandUpdate {
     NoNewDemands,
     GraphUnchanged {
+        revision: nia_compiler_query::ProviderFactRevision,
         new_demands: HashSet<ProviderDemand>,
     },
     GraphChanged {
+        revision: nia_compiler_query::ProviderFactRevision,
         program: Box<LoadedProgram>,
         new_demands: HashSet<ProviderDemand>,
     },
@@ -316,6 +323,6 @@ pub(crate) struct LoaderContext {
 #[derive(Default)]
 pub(crate) struct LoaderGraphState {
     pub(crate) graph: Option<nia_imports::ModuleGraphSnapshot>,
-    pub(crate) applied_provider_revision: ProviderFactRevision,
+    pub(crate) applied_provider_revision: Option<nia_compiler_query::ProviderFactRevision>,
     pub(crate) source_versions: HashMap<SourceIdentity, Option<SourceVersion>>,
 }

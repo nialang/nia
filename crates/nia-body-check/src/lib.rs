@@ -4,8 +4,13 @@ use std::fmt;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     rc::Rc,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
+
+static NEXT_PROVIDER_FACT_OWNER: AtomicU64 = AtomicU64::new(1);
 
 mod aggregates;
 mod bir;
@@ -83,6 +88,37 @@ pub struct BodyCheck {
 pub struct ProviderDemand {
     pub source_path: SourcePath,
     pub request: ProviderRequest,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ProviderFactRevision {
+    owner: u64,
+    index: u64,
+}
+
+impl ProviderFactRevision {
+    pub fn new_store() -> Self {
+        let owner = NEXT_PROVIDER_FACT_OWNER
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
+                owner.checked_add(1)
+            })
+            .expect("provider fact owner space exhausted");
+        Self { owner, index: 0 }
+    }
+
+    pub fn next(self) -> Self {
+        Self {
+            owner: self.owner,
+            index: self
+                .index
+                .checked_add(1)
+                .expect("provider fact revision overflow"),
+        }
+    }
+
+    pub fn is_newer_than(self, previous: Self) -> bool {
+        self.owner != previous.owner || self.index > previous.index
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

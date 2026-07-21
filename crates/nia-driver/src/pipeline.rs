@@ -175,6 +175,7 @@ impl Driver {
                 (
                     compiler.database.clone(),
                     Some(ProviderGraphWorkItem {
+                        provider_fact_revision: loaded.provider_fact_revision,
                         program: loaded,
                         provider_changes: HashSet::new(),
                     }),
@@ -197,12 +198,14 @@ impl Driver {
                 .as_ref()
                 .is_some_and(ProviderGraphWorkItem::can_finalize_without_discovery);
             if let Some(ProviderGraphWorkItem {
+                provider_fact_revision,
                 program: loaded,
                 provider_changes,
             }) = pending_update.take()
             {
                 database.update(
                     CompileRequest::new(loaded)
+                        .with_provider_fact_revision(provider_fact_revision)
                         .with_optimization(request.optimization)
                         .with_timings(request.timings)
                         .with_provider_changes(provider_changes),
@@ -211,11 +214,13 @@ impl Driver {
             if discover_executable_providers
                 && !can_finalize_without_discovery
                 && let ProviderDemandUpdate::GraphChanged {
+                    revision,
                     program,
                     new_demands,
                 } = loader.update_provider_demands(database.executable_provider_demands())
             {
                 pending_update = Some(ProviderGraphWorkItem {
+                    provider_fact_revision: revision,
                     program: *program,
                     provider_changes: new_demands,
                 });
@@ -225,10 +230,12 @@ impl Driver {
             let provider_demands = output.provider_demands();
             match loader.update_provider_demands(provider_demands) {
                 ProviderDemandUpdate::GraphChanged {
+                    revision,
                     program,
                     new_demands,
                 } => {
                     pending_update = Some(ProviderGraphWorkItem {
+                        provider_fact_revision: revision,
                         program: *program,
                         provider_changes: new_demands,
                     })
@@ -500,6 +507,7 @@ impl Driver {
 
 #[derive(Debug)]
 struct ProviderGraphWorkItem {
+    provider_fact_revision: nia_compiler_query::ProviderFactRevision,
     program: LoadedProgram,
     provider_changes: HashSet<ProviderDemand>,
 }

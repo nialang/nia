@@ -845,10 +845,14 @@ pub fn score(&self) i32 {
             method_name: sym("score"),
         },
     }]);
-    let ProviderDemandUpdate::GraphChanged { program, .. } = update else {
+    let ProviderDemandUpdate::GraphChanged {
+        revision, program, ..
+    } = update
+    else {
         panic!("provider demand should grow the module graph");
     };
     let program = *program;
+    assert_eq!(program.provider_fact_revision, revision);
 
     assert_no_error_diagnostics(&program);
     for (identity, initial_id) in initial_module_ids {
@@ -889,7 +893,7 @@ fn provider_demand_update_distinguishes_stable_graphs_and_known_demands() {
         },
     };
 
-    let ProviderDemandUpdate::GraphUnchanged { new_demands } =
+    let ProviderDemandUpdate::GraphUnchanged { new_demands, .. } =
         database.update_provider_demands([demand.clone()])
     else {
         panic!("an unmatched provider demand should leave the graph unchanged");
