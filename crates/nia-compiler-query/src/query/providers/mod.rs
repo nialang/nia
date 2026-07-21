@@ -146,11 +146,18 @@ impl<'a> QueryModuleGraphLookup<'a> {
 
 impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
     fn entry_module(&self) -> ModuleId {
-        *self.db.get(ModuleGraphEntryQuery)
+        let stable_key = self.db.get(ModuleGraphEntryQuery);
+        self.db
+            .context()
+            .module_id_for_stable_key(&stable_key)
+            .expect("compiler entry stable key must resolve in current module graph")
     }
 
     fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId> {
-        *self.db.get(ModulePackageRootQuery(*package))
+        let root = self.db.get(ModulePackageRootQuery(*package));
+        root.as_ref()
+            .as_ref()
+            .and_then(|stable_key| self.db.context().module_id_for_stable_key(stable_key))
     }
 
     fn module_path(&self, module_id: ModuleId) -> Option<nia_imports::ModulePath> {
@@ -161,7 +168,11 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
     }
 
     fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
-        *self.db.get(ModuleGraphParentQuery(module_id))
+        let parent = self.db.get(ModuleGraphParentQuery(module_id));
+        parent
+            .as_ref()
+            .as_ref()
+            .and_then(|stable_key| self.db.context().module_id_for_stable_key(stable_key))
     }
 
     fn child_declaration(
@@ -169,7 +180,16 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
         module_id: ModuleId,
         name: &SymbolId,
     ) -> Option<(ModuleId, nia_ids::Visibility)> {
-        *self.db.get(ModuleGraphChildQuery(module_id, *name))
+        let child = self.db.get(ModuleGraphChildQuery(module_id, *name));
+        child
+            .as_ref()
+            .as_ref()
+            .and_then(|(stable_key, visibility)| {
+                self.db
+                    .context()
+                    .module_id_for_stable_key(stable_key)
+                    .map(|module_id| (module_id, *visibility))
+            })
     }
 }
 

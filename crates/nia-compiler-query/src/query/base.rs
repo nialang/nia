@@ -82,14 +82,23 @@ impl QueryKey<CompilerContext> for ModuleGraphQuery {
 pub(super) struct ModuleGraphEntryQuery;
 
 impl QueryKey<CompilerContext> for ModuleGraphEntryQuery {
-    type Value = ModuleId;
+    type Value = StableModuleKey;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
     fn name() -> &'static str {
         "module_graph_entry"
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_graph_entry()
+        db.context().module_graph_entry_key()
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(stable_module_key_fingerprint(
+            "nia.compiler.module-graph-entry.v1",
+            value,
+        ))
     }
 }
 
@@ -122,7 +131,9 @@ impl QueryKey<CompilerContext> for ModuleGraphPathQuery {
 pub(super) struct ModuleGraphParentQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ModuleGraphParentQuery {
-    type Value = Option<ModuleId>;
+    type Value = Option<StableModuleKey>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
     fn name() -> &'static str {
         "module_graph_parent"
@@ -133,7 +144,14 @@ impl QueryKey<CompilerContext> for ModuleGraphParentQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_graph_parent(self.0)
+        db.context().module_graph_parent_key(self.0)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(optional_stable_module_key_fingerprint(
+            "nia.compiler.module-graph-parent.v1",
+            value.as_ref(),
+        ))
     }
 }
 
@@ -141,7 +159,9 @@ impl QueryKey<CompilerContext> for ModuleGraphParentQuery {
 pub(super) struct ModuleGraphChildQuery(pub(super) ModuleId, pub(super) SymbolId);
 
 impl QueryKey<CompilerContext> for ModuleGraphChildQuery {
-    type Value = Option<(ModuleId, nia_ids::Visibility)>;
+    type Value = Option<(StableModuleKey, nia_ids::Visibility)>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
     fn name() -> &'static str {
         "module_graph_child"
@@ -152,7 +172,11 @@ impl QueryKey<CompilerContext> for ModuleGraphChildQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_graph_child(self.0, &self.1)
+        db.context().module_graph_child_key(self.0, &self.1)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(module_graph_child_fingerprint(value))
     }
 }
 
@@ -160,7 +184,9 @@ impl QueryKey<CompilerContext> for ModuleGraphChildQuery {
 pub(super) struct ModulePackageRootQuery(pub(super) SymbolId);
 
 impl QueryKey<CompilerContext> for ModulePackageRootQuery {
-    type Value = Option<ModuleId>;
+    type Value = Option<StableModuleKey>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
 
     fn name() -> &'static str {
         "module_package_root"
@@ -171,7 +197,14 @@ impl QueryKey<CompilerContext> for ModulePackageRootQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_package_root(&self.0)
+        db.context().module_package_root_key(&self.0)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(optional_stable_module_key_fingerprint(
+            "nia.compiler.module-package-root.v1",
+            value.as_ref(),
+        ))
     }
 }
 
