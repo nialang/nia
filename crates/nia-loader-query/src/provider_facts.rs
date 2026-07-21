@@ -9,7 +9,6 @@ use std::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderFacts {
     revision: ProviderFactRevision,
-    reset_revision: ProviderFactRevision,
     demands: HashMap<ProviderDemand, ProviderFactRevision>,
 }
 
@@ -18,10 +17,12 @@ impl ProviderFacts {
         self.revision
     }
 
+    #[cfg(test)]
     pub(crate) fn demands(&self) -> impl Iterator<Item = &ProviderDemand> {
         self.demands.keys()
     }
 
+    #[cfg(test)]
     pub(crate) fn added_after(
         &self,
         revision: ProviderFactRevision,
@@ -30,28 +31,39 @@ impl ProviderFacts {
             .iter()
             .filter_map(move |(demand, added)| added.is_newer_than(revision).then_some(demand))
     }
+}
 
-    pub(crate) fn can_extend_graph_after(&self, revision: ProviderFactRevision) -> bool {
-        matches!(
-            self.revision.transition_from(revision),
-            nia_compiler_query::ProviderFactRevisionTransition::Advanced
-        ) && !self.reset_revision.is_newer_than(revision)
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ProviderFactEvent {
+    Root,
+    Added {
+        previous: ProviderFactRevision,
+        demands: HashSet<ProviderDemand>,
+    },
+    Reset,
+}
+
+#[derive(Debug)]
+struct ProviderFactState {
+    current: ProviderFacts,
+    events: HashMap<ProviderFactRevision, ProviderFactEvent>,
 }
 
 #[derive(Clone)]
 pub(crate) struct ProviderFactStore {
-    state: Arc<Mutex<ProviderFacts>>,
+    state: Arc<Mutex<ProviderFactState>>,
 }
 
 impl Default for ProviderFactStore {
     fn default() -> Self {
         let revision = ProviderFactRevision::new_store();
         Self {
-            state: Arc::new(Mutex::new(ProviderFacts {
-                revision,
-                reset_revision: revision,
-                demands: HashMap::new(),
+            state: Arc::new(Mutex::new(ProviderFactState {
+                current: ProviderFacts {
+                    revision,
+                    demands: HashMap::new(),
+                },
+                events: HashMap::from([(revision, ProviderFactEvent::Root)]),
             })),
         }
     }
@@ -65,7 +77,7 @@ impl ProviderFactStore {
             .expect("loader provider fact store lock poisoned");
         demands
             .iter()
-            .all(|demand| state.demands.contains_key(demand))
+            .all(|demand| state.current.demands.contains_key(demand))
     }
 
     pub(crate) fn insert_new(
@@ -78,14 +90,23 @@ impl ProviderFactStore {
             .expect("loader provider fact store lock poisoned");
         let added = demands
             .into_iter()
-            .filter(|demand| !state.demands.contains_key(demand))
+            .filter(|demand| !state.current.demands.contains_key(demand))
             .collect::<HashSet<_>>();
         if !added.is_empty() {
-            state.revision = state.revision.next();
-            let revision = state.revision;
+            let previous = state.current.revision;
+            let revision = previous.next();
+            state.current.revision = revision;
             state
+                .current
                 .demands
                 .extend(added.iter().cloned().map(|demand| (demand, revision)));
+            state.events.insert(
+                revision,
+                ProviderFactEvent::Added {
+                    previous,
+                    demands: added.clone(),
+                },
+            );
         }
         added
     }
@@ -95,19 +116,31 @@ impl ProviderFactStore {
             .state
             .lock()
             .expect("loader provider fact store lock poisoned");
-        let changed = !state.demands.is_empty();
+        let changed = !state.current.demands.is_empty();
         if changed {
-            state.demands.clear();
-            state.revision = state.revision.next();
-            state.reset_revision = state.revision;
+            let previous = state.current.revision;
+            let revision = previous.next();
+            state.current.demands.clear();
+            state.current.revision = revision;
+            state.events.insert(revision, ProviderFactEvent::Reset);
         }
         changed
+    }
+
+    pub(crate) fn event(&self, revision: ProviderFactRevision) -> Option<ProviderFactEvent> {
+        self.state
+            .lock()
+            .expect("loader provider fact store lock poisoned")
+            .events
+            .get(&revision)
+            .cloned()
     }
 
     fn snapshot(&self) -> ProviderFacts {
         self.state
             .lock()
             .expect("loader provider fact store lock poisoned")
+            .current
             .clone()
     }
 }
@@ -155,7 +188,6 @@ mod tests {
         assert_eq!(store.insert_new([demand.clone()]).len(), 1);
         let added = store.snapshot();
         assert!(added.revision() > initial.revision());
-        assert!(added.can_extend_graph_after(initial.revision()));
         assert_eq!(added.added_after(initial.revision()).count(), 1);
         assert!(store.insert_new([demand]).is_empty());
         assert_eq!(store.snapshot().revision(), added.revision());
@@ -164,7 +196,10 @@ mod tests {
         let cleared = store.snapshot();
         assert!(cleared.revision() > added.revision());
         assert!(cleared.demands().next().is_none());
-        assert!(!cleared.can_extend_graph_after(added.revision()));
+        assert_eq!(
+            store.event(cleared.revision()),
+            Some(ProviderFactEvent::Reset)
+        );
 
         let replacement = ProviderDemand {
             source_path: SourcePath::new("main.nia"),
@@ -177,7 +212,17 @@ mod tests {
             HashSet::from([replacement])
         );
         let replaced = store.snapshot();
-        assert!(!replaced.can_extend_graph_after(added.revision()));
-        assert!(replaced.can_extend_graph_after(cleared.revision()));
+        assert_eq!(
+            store.event(replaced.revision()),
+            Some(ProviderFactEvent::Added {
+                previous: cleared.revision(),
+                demands: HashSet::from([ProviderDemand {
+                    source_path: SourcePath::new("main.nia"),
+                    request: ProviderRequest::TraitImpl {
+                        trait_name: SymbolId::default(),
+                    },
+                }])
+            })
+        );
     }
 }

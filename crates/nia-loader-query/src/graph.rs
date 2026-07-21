@@ -1,7 +1,10 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ModuleGraphQuery;
 
-use crate::provider_facts::ProviderDemandsQuery;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ModuleGraphRevisionQuery(pub(crate) nia_compiler_query::ProviderFactRevision);
+
+use crate::provider_facts::{ProviderDemandsQuery, ProviderFactEvent};
 use crate::provider_loading::{
     add_public_reexport_source_module, module_defines_extensions, process_provider_request,
     process_reexport_provider_request,
@@ -28,123 +31,131 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let provider_facts = db.get(ProviderDemandsQuery);
-        let (mut seed, mut applied_provider_revision) = {
-            let state = db
-                .context()
-                .graph_state
-                .read()
-                .expect("loader graph state lock poisoned");
-            (state.graph.clone(), state.applied_provider_revision)
-        };
-        if seed.is_some()
-            && !applied_provider_revision
-                .is_some_and(|revision| provider_facts.can_extend_graph_after(revision))
-        {
-            seed = None;
-            applied_provider_revision = None;
+        db.get(ModuleGraphRevisionQuery(provider_facts.revision()))
+            .as_ref()
+            .clone()
+    }
+}
+
+impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
+    type Value = ModuleGraphSnapshot;
+
+    fn name() -> &'static str {
+        "module_graph_revision"
+    }
+
+    fn description(&self) -> String {
+        format!("module_graph_revision({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        let event = db
+            .context()
+            .provider_facts
+            .event(self.0)
+            .unwrap_or_else(|| {
+                db.invalid_input(self, format!("unknown provider fact revision {:?}", self.0))
+            });
+        match event {
+            ProviderFactEvent::Root | ProviderFactEvent::Reset => {
+                build_module_graph(db, None, &std::collections::HashSet::new())
+            }
+            ProviderFactEvent::Added { previous, demands } => {
+                let seed = db.get(ModuleGraphRevisionQuery(previous));
+                build_module_graph(db, Some(seed.as_ref().clone()), &demands)
+            }
         }
-        let new_provider_demands = if let (Some(_), Some(applied_provider_revision)) =
-            (&seed, applied_provider_revision)
-        {
-            provider_facts
-                .added_after(applied_provider_revision)
-                .cloned()
-                .collect::<Vec<_>>()
-        } else {
-            provider_facts.demands().cloned().collect::<Vec<_>>()
-        };
-        let (mut graph, mut index) = match seed {
-            Some(snapshot) => {
-                let mut graph = (*snapshot).clone();
-                let existing_modules = graph.modules().count();
-                for demand in &new_provider_demands {
-                    match &demand.request {
-                        nia_compiler_query::ProviderRequest::ModuleSemantic { module_path } => {
-                            mark_semantic_provider_module(&mut graph, module_path);
-                        }
-                        nia_compiler_query::ProviderRequest::ModuleBody { module_path } => {
-                            if let Some(module_id) = graph.module_id_for_path(module_path.as_str())
-                                && let Err(diagnostic) =
-                                    mark_process_used_paths_and_process(db, &mut graph, module_id)
-                            {
-                                graph.push_diagnostic(module_path.clone(), diagnostic);
-                            }
-                        }
-                        nia_compiler_query::ProviderRequest::Method { .. }
-                        | nia_compiler_query::ProviderRequest::TraitImpl { .. } => {}
+    }
+}
+
+fn build_module_graph(
+    db: &QueryDb<LoaderContext>,
+    seed: Option<ModuleGraphSnapshot>,
+    new_provider_demands: &std::collections::HashSet<nia_compiler_query::ProviderDemand>,
+) -> ModuleGraphSnapshot {
+    let (mut graph, mut index) = match seed {
+        Some(snapshot) => {
+            let mut graph = (*snapshot).clone();
+            let existing_modules = graph.modules().count();
+            for demand in new_provider_demands {
+                match &demand.request {
+                    nia_compiler_query::ProviderRequest::ModuleSemantic { module_path } => {
+                        mark_semantic_provider_module(&mut graph, module_path);
                     }
+                    nia_compiler_query::ProviderRequest::ModuleBody { module_path } => {
+                        if let Some(module_id) = graph.module_id_for_path(module_path.as_str())
+                            && let Err(diagnostic) =
+                                mark_process_used_paths_and_process(db, &mut graph, module_id)
+                        {
+                            graph.push_diagnostic(module_path.clone(), diagnostic);
+                        }
+                    }
+                    nia_compiler_query::ProviderRequest::Method { .. }
+                    | nia_compiler_query::ProviderRequest::TraitImpl { .. } => {}
                 }
-                let existing_nodes = graph
-                    .modules()
-                    .take(existing_modules)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                for node in existing_nodes {
-                    let declarations = db.get(module_declarations_query(db, &node.path));
-                    apply_provider_demands(
-                        db,
-                        &mut graph,
-                        &node,
-                        &declarations.explicit_imports,
-                        &new_provider_demands,
-                    );
-                }
-                (graph, existing_modules)
             }
-            None => {
-                let mut graph = ModuleGraph::with_symbol_text(
-                    db.context().entry_path.clone(),
-                    std::sync::Arc::new(db.context().symbols.clone()),
+            let existing_nodes = graph
+                .modules()
+                .take(existing_modules)
+                .cloned()
+                .collect::<Vec<_>>();
+            for node in existing_nodes {
+                let declarations = db.get(module_declarations_query(db, &node.path));
+                apply_provider_demands(
+                    db,
+                    &mut graph,
+                    &node,
+                    &declarations.explicit_imports,
+                    new_provider_demands,
                 );
-                inject_entry_runtime(db, &mut graph);
-                (graph, 0)
             }
+            (graph, existing_modules)
+        }
+        None => {
+            let mut graph = ModuleGraph::with_symbol_text(
+                db.context().entry_path.clone(),
+                std::sync::Arc::new(db.context().symbols.clone()),
+            );
+            inject_entry_runtime(db, &mut graph);
+            (graph, 0)
+        }
+    };
+    loop {
+        let node = graph.modules().nth(index).cloned();
+        let Some(node) = node else {
+            break;
         };
-        loop {
-            let node = graph.modules().nth(index).cloned();
-            let Some(node) = node else {
-                break;
-            };
-            let declarations = db.get(module_declarations_query(db, &node.path));
-            for package in &declarations.package_roots {
-                if graph.package_root(package).is_none()
-                    && let Some(path) = db.context().module_map.get_name(package)
-                {
-                    graph.intern_package_root(package, path.clone());
-                }
+        let declarations = db.get(module_declarations_query(db, &node.path));
+        for package in &declarations.package_roots {
+            if graph.package_root(package).is_none()
+                && let Some(path) = db.context().module_map.get_name(package)
+            {
+                graph.intern_package_root(package, path.clone());
             }
-            if should_eager_add_declarations(db.context(), &node) {
-                let result = add_declared_module_children(db, &mut graph, node.id);
-                if let Err(diagnostic) = result {
+        }
+        if should_eager_add_declarations(db.context(), &node) {
+            let result = add_declared_module_children(db, &mut graph, node.id);
+            if let Err(diagnostic) = result {
+                graph.push_diagnostic(node.path.clone(), diagnostic);
+            }
+        }
+        if should_process_used_module_paths(db.context(), &graph, &node) {
+            for path in &declarations.used_module_paths {
+                if let Err(diagnostic) = add_used_module_path(db, &mut graph, node.id, path) {
                     graph.push_diagnostic(node.path.clone(), diagnostic);
                 }
             }
-            if should_process_used_module_paths(db.context(), &graph, &node) {
-                for path in &declarations.used_module_paths {
-                    if let Err(diagnostic) = add_used_module_path(db, &mut graph, node.id, path) {
-                        graph.push_diagnostic(node.path.clone(), diagnostic);
-                    }
-                }
-            }
-            apply_provider_demands(
-                db,
-                &mut graph,
-                &node,
-                &declarations.explicit_imports,
-                &new_provider_demands,
-            );
-            index += 1;
         }
-        let snapshot = ModuleGraphSnapshot::new(graph);
-        let mut state = db
-            .context()
-            .graph_state
-            .write()
-            .expect("loader graph state lock poisoned");
-        state.graph = Some(snapshot.clone());
-        state.applied_provider_revision = Some(provider_facts.revision());
-        snapshot
+        apply_provider_demands(
+            db,
+            &mut graph,
+            &node,
+            &declarations.explicit_imports,
+            new_provider_demands,
+        );
+        index += 1;
     }
+    ModuleGraphSnapshot::new(graph)
 }
 
 pub(crate) fn mark_semantic_provider_module(graph: &mut ModuleGraph, module_path: &SourcePath) {
@@ -158,7 +169,7 @@ fn apply_provider_demands(
     graph: &mut ModuleGraph,
     node: &ModuleNode,
     imports: &[crate::used_paths::ExplicitUsingImport],
-    provider_demands: &[nia_compiler_query::ProviderDemand],
+    provider_demands: &std::collections::HashSet<nia_compiler_query::ProviderDemand>,
 ) {
     let demands = provider_demands
         .iter()
