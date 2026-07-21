@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
-    ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CodegenProgram, LoadedModule,
-    LoadedProgram, ProgramDiagnostic, RuntimeModel, TimingMode, module_diagnostics,
+    ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CodegenProgram, ProgramDiagnostic,
+    RuntimeModel, TimingMode, module_diagnostics,
 };
+#[cfg(test)]
+use crate::{LoadedModule, LoadedProgram};
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_const_check::{ConstCheck, ConstModuleLowering};
 use nia_defs::{
@@ -13,7 +15,7 @@ use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 #[cfg(test)]
 use nia_imports::ModuleGraph;
-use nia_imports::{ModuleGraphLookup, ModuleGraphSnapshot, ModuleNode, StableModuleKey};
+use nia_imports::{ModuleGraphLookup, ModuleGraphSnapshot, StableModuleKey};
 use nia_item_signatures::{
     ItemSignatures, ProgramConstSignature, ProgramEnumSignature, ProgramFunctionSignature,
     ProgramGlobalSignature, ProgramStructSignature, ProgramTraitSignature,
@@ -289,26 +291,23 @@ impl CompileRequest {
         self.provider_fact_revision = provider_fact_revision;
         self
     }
+
+    #[cfg(test)]
+    fn with_loader_facts(mut self, loader_facts: impl crate::LoaderFactProvider + 'static) -> Self {
+        self.loader_facts = Arc::new(loader_facts);
+        self
+    }
 }
 
 #[derive(Clone)]
 pub struct CompilerDatabase {
     db: QueryDb<CompilerContext>,
     inputs: Arc<RwLock<CompilerInputs>>,
-    loader_facts: Arc<RwLock<Arc<dyn crate::LoaderFactProvider>>>,
 }
 
 impl CompilerDatabase {
     pub fn new(request: CompileRequest) -> Self {
         compiler_database_with_providers(request, CompilerQueryProviders::default())
-    }
-
-    pub fn new_in_session(request: CompileRequest, session: nia_query::QuerySession) -> Self {
-        compiler_database_with_providers_in_session(
-            request,
-            CompilerQueryProviders::default(),
-            session,
-        )
     }
 
     pub fn query_session(&self) -> nia_query::QuerySession {
@@ -400,30 +399,31 @@ impl CompilerDatabase {
     }
 
     pub fn update(&self, request: CompileRequest) -> CompilerInvalidation {
-        let loader_facts = Arc::clone(&request.loader_facts);
+        let loader_session = request.loader_facts.query_session().unwrap_or_else(|| {
+            panic!("Nia ICE: compiler updates require a tracked loader fact provider")
+        });
+        assert!(
+            self.db.session().ptr_eq(&loader_session),
+            "Nia ICE: compiler update loader facts belong to a different query session"
+        );
         let mut new_inputs = CompilerInputs::new(request);
         let update = {
             let mut inputs = self.inputs.write().expect("compiler input lock poisoned");
-            match CompilerInputDiff::try_between(&inputs, &new_inputs) {
-                Ok(diff) => {
+            match validate_provider_fact_update(&inputs, &new_inputs) {
+                Ok(()) => {
+                    let optimization_changed = inputs.optimization != new_inputs.optimization;
                     new_inputs.merge_provider_fact_worklist(&inputs);
-                    new_inputs.merge_body_activation_worklist(&inputs, &diff);
-                    new_inputs.advance_executable_fact_epoch(&inputs, &diff);
                     *inputs = new_inputs;
-                    Ok(diff)
+                    Ok(optimization_changed)
                 }
                 Err(error) => Err(error),
             }
         };
-        let diff = match update {
-            Ok(diff) => diff,
+        let optimization_changed = match update {
+            Ok(optimization_changed) => optimization_changed,
             Err(error) => panic!("Nia ICE: {error}"),
         };
-        *self
-            .loader_facts
-            .write()
-            .expect("compiler loader fact lock poisoned") = loader_facts;
-        self.invalidate_inputs(diff)
+        self.invalidate_inputs(optimization_changed)
     }
 
     pub fn query_trace(&self) -> QueryTrace {
@@ -431,11 +431,7 @@ impl CompilerDatabase {
     }
 
     fn current_graph(&self) -> ModuleGraphSnapshot {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .graph
-            .clone()
+        self.db.context().loader_facts.module_graph()
     }
 
     fn current_optimization(&self) -> OptimizationPolicy {
@@ -445,190 +441,15 @@ impl CompilerDatabase {
             .optimization
     }
 
-    fn invalidate_inputs(&self, diff: CompilerInputDiff) -> CompilerInvalidation {
+    fn invalidate_inputs(&self, optimization_changed: bool) -> CompilerInvalidation {
         let mut invalidation = CompilerInvalidation::default();
-        if diff.graph_entry_changed {
-            let entry = self.db.context().module_graph_entry_key();
-            invalidation.extend(self.db.validate_input(ModuleGraphEntryQuery, &entry));
-        }
-        for module_id in diff.changed_graph_paths {
-            let path = self.db.context().module_graph_path(module_id);
-            invalidation.extend(
-                self.db
-                    .validate_input(ModuleGraphPathQuery(module_id), &path),
-            );
-        }
-        for module_id in diff.changed_graph_parents {
-            let parent = self.db.context().module_graph_parent_key(module_id);
-            invalidation.extend(
-                self.db
-                    .validate_input(ModuleGraphParentQuery(module_id), &parent),
-            );
-        }
-        for (module_id, name) in diff.changed_graph_children {
-            let child = self.db.context().module_graph_child_key(module_id, &name);
-            invalidation.extend(
-                self.db
-                    .validate_input(ModuleGraphChildQuery(module_id, name), &child),
-            );
-        }
-        for package in diff.changed_package_roots {
-            let root = self.db.context().module_package_root_key(&package);
-            invalidation.extend(
-                self.db
-                    .validate_input(ModulePackageRootQuery(package), &root),
-            );
-        }
-        if diff.graph_changed {
-            invalidation.extend(self.db.invalidate(ModuleGraphQuery));
-        }
-        if diff.executable_roots_changed {
-            invalidation.extend(self.db.invalidate(ExecutableRootModulesQuery));
-        }
-        if diff.loaded_modules_changed {
-            let loaded_modules =
-                stable_module_sequence(&self.db, self.db.context().loaded_modules());
-            invalidation.extend(self.db.validate_input(LoadedModulesQuery, &loaded_modules));
-        }
-        if diff.loaded_diagnostics_changed {
-            invalidation.extend(self.db.invalidate(ProgramLoadDiagnosticsQuery));
-        }
-        if diff.target_changed {
-            invalidation.extend(self.db.invalidate(CompilerTargetQuery));
-        }
-        if diff.runtime_changed {
-            invalidation.extend(self.db.invalidate(CompilerRuntimeQuery));
-        }
         let provider_worklist = self.db.context().provider_fact_worklist();
         invalidation.extend(
             self.db
                 .validate_input(ProviderFactWorklistQuery, &provider_worklist),
         );
-        let body_activation_worklist = self.db.context().body_activation_worklist();
-        invalidation.extend(
-            self.db
-                .validate_input(BodyActivationWorklistQuery, &body_activation_worklist),
-        );
-        let executable_fact_epoch = self.db.context().executable_fact_epoch();
-        invalidation.extend(
-            self.db
-                .validate_input(ExecutableFactEpochQuery, &executable_fact_epoch),
-        );
-        if diff.optimization_changed {
+        if optimization_changed {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
-        }
-        for module in diff.changed_modules {
-            for module_id in module.ids {
-                if module.path {
-                    if let Some(path) = self.db.context().module_path_if_loaded(module_id) {
-                        invalidation
-                            .extend(self.db.validate_input(ModulePathQuery(module_id), &path));
-                    } else {
-                        invalidation.extend(self.db.invalidate(ModulePathQuery(module_id)));
-                    }
-                }
-                if module.source_version {
-                    if let Some(source_version) =
-                        self.db.context().module_source_version_if_loaded(module_id)
-                    {
-                        invalidation.extend(
-                            self.db.validate_input(
-                                ModuleSourceVersionQuery(module_id),
-                                &source_version,
-                            ),
-                        );
-                    } else {
-                        invalidation
-                            .extend(self.db.invalidate(ModuleSourceVersionQuery(module_id)));
-                    }
-                }
-                if module.full_item_tree {
-                    invalidation
-                        .extend(self.db.invalidate(FullModuleItemTreeInputQuery(module_id)));
-                }
-                if module.origins {
-                    invalidation.extend(self.db.invalidate(ModuleOriginsQuery(module_id)));
-                }
-                if module.parse_errors {
-                    invalidation.extend(self.db.invalidate(ModuleParseErrorsQuery(module_id)));
-                }
-                if module.item_tree {
-                    invalidation.extend(self.db.invalidate(ModuleItemTreeInputQuery(module_id)));
-                }
-                if module.declaration_item_tree {
-                    invalidation.extend(
-                        self.db
-                            .invalidate(DeclarationModuleItemTreeInputQuery(module_id)),
-                    );
-                }
-                if module.active_item_tree {
-                    invalidation.extend(
-                        self.db
-                            .invalidate(ActiveModuleItemTreeInputQuery(module_id)),
-                    );
-                }
-                if module.declaration_active_item_tree {
-                    invalidation.extend(
-                        self.db
-                            .invalidate(DeclarationActiveModuleItemTreeInputQuery(module_id)),
-                    );
-                }
-                if module.signature_function_items {
-                    invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
-                        module_id,
-                        nia_item_tree::SignatureItemSet::Functions,
-                    )));
-                }
-                if module.signature_extension_function_items {
-                    invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
-                        module_id,
-                        nia_item_tree::SignatureItemSet::ExtensionFunctions,
-                    )));
-                }
-                if module.signature_value_items {
-                    invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
-                        module_id,
-                        nia_item_tree::SignatureItemSet::Values,
-                    )));
-                }
-                if module.signature_type_items {
-                    invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
-                        module_id,
-                        nia_item_tree::SignatureItemSet::Types,
-                    )));
-                }
-                if module.provider_summary {
-                    if let Some(summary) = self
-                        .db
-                        .context()
-                        .loaded_module(module_id)
-                        .map(|module| module.provider_summary)
-                    {
-                        invalidation.extend(
-                            self.db
-                                .validate_input(ExtensionProviderSummaryQuery(module_id), &summary),
-                        );
-                    } else {
-                        invalidation
-                            .extend(self.db.invalidate(ExtensionProviderSummaryQuery(module_id)));
-                    }
-                }
-                if module.signature_trait_items {
-                    invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
-                        module_id,
-                        nia_item_tree::SignatureItemSet::Traits,
-                    )));
-                }
-                if module.signature_const_items {
-                    invalidation.extend(self.db.invalidate(SignatureConstItemTreeQuery(module_id)));
-                }
-                if module.full_active_item_tree {
-                    invalidation.extend(
-                        self.db
-                            .invalidate(FullActiveModuleItemTreeInputQuery(module_id)),
-                    );
-                }
-            }
         }
         if invalidation
             .invalidated
@@ -645,7 +466,6 @@ impl std::fmt::Debug for CompilerDatabase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inputs = self.inputs.read().expect("compiler input lock poisoned");
         f.debug_struct("CompilerDatabase")
-            .field("graph", &inputs.graph)
             .field("optimization", &inputs.optimization)
             .finish_non_exhaustive()
     }
@@ -670,7 +490,8 @@ fn compiler_database_with_providers(
     request: CompileRequest,
     providers: CompilerQueryProviders,
 ) -> CompilerDatabase {
-    compiler_database_with_providers_in_session(request, providers, nia_query::QuerySession::new())
+    let session = request.loader_facts.query_session().unwrap_or_default();
+    compiler_database_with_providers_in_session(request, providers, session)
 }
 
 fn compiler_database_with_providers_in_session(
@@ -679,22 +500,22 @@ fn compiler_database_with_providers_in_session(
     session: nia_query::QuerySession,
 ) -> CompilerDatabase {
     let timings = request.timings;
-    let loader_facts = Arc::new(RwLock::new(Arc::clone(&request.loader_facts)));
+    let loader_facts = Arc::clone(&request.loader_facts);
+    if let Some(loader_session) = loader_facts.query_session() {
+        assert!(
+            session.ptr_eq(&loader_session),
+            "Nia ICE: compiler and loader facts must share one query session"
+        );
+    }
+    let node_store = loader_facts.node_store();
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
-    let node_store = inputs
-        .read()
-        .expect("compiler input lock poisoned")
-        .modules
-        .first()
-        .map(|module| module.origins.node_store().clone())
-        .unwrap_or_default();
     let executable_checked_modules = Arc::new(RwLock::new(ExecutableCheckedModuleStore::default()));
     let executable_fact_session = Arc::new(std::sync::Mutex::new(ExecutableFactSession::default()));
     let type_store = Arc::new(nia_ty::TypeStore::new());
     let db = QueryDb::new_registered_with_timings_in_session(
         CompilerContext {
             inputs: inputs.clone(),
-            loader_facts: loader_facts.clone(),
+            loader_facts,
             providers,
             executable_checked_modules,
             executable_fact_session,
@@ -705,11 +526,7 @@ fn compiler_database_with_providers_in_session(
         compiler_query_registry(),
         session,
     );
-    CompilerDatabase {
-        db,
-        inputs,
-        loader_facts,
-    }
+    CompilerDatabase { db, inputs }
 }
 
 fn checked_program_from_query_error(
@@ -781,7 +598,7 @@ fn query_error_diagnostic(err: QueryError) -> Diagnostic {
 
 struct CompilerContext {
     inputs: Arc<RwLock<CompilerInputs>>,
-    loader_facts: Arc<RwLock<Arc<dyn crate::LoaderFactProvider>>>,
+    loader_facts: Arc<dyn crate::LoaderFactProvider>,
     providers: CompilerQueryProviders,
     executable_checked_modules: Arc<RwLock<ExecutableCheckedModuleStore>>,
     executable_fact_session: Arc<std::sync::Mutex<ExecutableFactSession>>,
@@ -849,34 +666,19 @@ struct ExecutableCheckedModuleSetData {
 
 #[derive(Debug, Clone)]
 struct CompilerInputs {
-    graph: ModuleGraphSnapshot,
     provider_fact_revision: crate::ProviderFactRevision,
-    entry_module: ModuleId,
-    runtime_root_modules: Vec<ModuleId>,
-    modules: Vec<CompilerInputModule>,
-    modules_by_id: HashMap<ModuleId, usize>,
-    modules_by_source_identity: HashMap<SourceIdentity, usize>,
-    diagnostics: Vec<ProgramDiagnostic>,
-    target: TargetConfig,
-    runtime: crate::RuntimeModel,
     optimization: OptimizationPolicy,
     timings: TimingMode,
     provider_worklist: Arc<HashSet<crate::ProviderDemand>>,
-    body_activation_worklist: Arc<HashMap<StableModuleKey, ModuleId>>,
-    executable_fact_epoch: ExecutableFactEpoch,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct ExecutableFactEpoch(u64);
-
-impl ExecutableFactEpoch {
-    fn next(self) -> Self {
-        Self(
-            self.0
-                .checked_add(1)
-                .expect("executable fact epoch overflow"),
-        )
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExecutableFactEpoch {
+    entry_module: ModuleId,
+    runtime_root_modules: Vec<ModuleId>,
+    modules: Vec<(ModuleId, SourceVersion)>,
+    target: TargetConfig,
+    runtime: crate::RuntimeModel,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -944,23 +746,6 @@ fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> QueryFingerpri
             builder.write_str(module_path.as_str());
         }
     }
-    builder.finish()
-}
-
-fn body_activation_worklist_fingerprint(worklist: &BodyActivationWorklist) -> QueryFingerprint {
-    let mut stable_modules = worklist.modules.keys().collect::<Vec<_>>();
-    stable_modules.sort_unstable();
-    let mut builder = QueryFingerprintBuilder::new("nia.compiler.body-activation-worklist.v1");
-    builder.write_u64(stable_modules.len() as u64);
-    for stable_module in stable_modules {
-        builder.write_str(stable_module.source_identity().normalized_path());
-    }
-    builder.finish()
-}
-
-fn executable_fact_epoch_fingerprint(epoch: ExecutableFactEpoch) -> QueryFingerprint {
-    let mut builder = QueryFingerprintBuilder::new("nia.compiler.executable-fact-epoch.v1");
-    builder.write_u64(epoch.0);
     builder.finish()
 }
 
@@ -1092,73 +877,14 @@ fn bool_query_fingerprint(domain: &str, value: bool) -> QueryFingerprint {
     builder.finish()
 }
 
-#[derive(Debug, Clone)]
-struct CompilerInputModule {
-    id: ModuleId,
-    path: SourcePath,
-    source_identity: SourceIdentity,
-    source_version: SourceVersion,
-    item_tree: Arc<ModuleItemTree>,
-    active_item_tree: Arc<ActiveModuleItemTree>,
-    provider_summary: nia_provider_summary::ProviderSummary,
-    origins: NodeOriginTable,
-    parse_errors: Vec<ParseError>,
-}
-
-impl CompilerInputModule {
-    fn from_loaded(module: LoadedModule) -> Self {
-        Self {
-            id: module.id,
-            path: module.path,
-            source_identity: module.source_identity,
-            source_version: module.source_version,
-            item_tree: Arc::new(module.item_tree),
-            active_item_tree: Arc::new(module.active_item_tree),
-            provider_summary: module.provider_summary,
-            origins: module.origins,
-            parse_errors: module.parse_errors,
-        }
-    }
-}
-
 impl CompilerInputs {
     fn new(request: CompileRequest) -> Self {
-        let loaded = request.loader_facts.loaded_program();
-        validate_loaded_module_identities(&loaded);
-        let graph = loaded.graph;
-        let entry_module = graph.entry();
-        let runtime_root_modules = graph
-            .modules()
-            .filter(|node| graph.is_executable_root_module(node.id))
-            .map(|node| node.id)
-            .collect();
-        let target = loaded.target;
-        let runtime = loaded.runtime;
-        let diagnostics = loaded.diagnostics;
         let provider_worklist = Arc::new(request.provider_changes);
-        let modules = loaded
-            .modules
-            .into_iter()
-            .map(CompilerInputModule::from_loaded)
-            .collect::<Vec<_>>();
-        let modules_by_id = index_input_modules(&modules);
-        let modules_by_source_identity = index_input_module_identities(&modules);
         Self {
-            graph,
             provider_fact_revision: request.provider_fact_revision,
-            entry_module,
-            runtime_root_modules,
-            modules,
-            modules_by_id,
-            modules_by_source_identity,
-            diagnostics,
-            target,
-            runtime,
             optimization: request.optimization.policy(),
             timings: request.timings,
             provider_worklist,
-            body_activation_worklist: Arc::new(HashMap::new()),
-            executable_fact_epoch: ExecutableFactEpoch::default(),
         }
     }
 
@@ -1180,58 +906,11 @@ impl CompilerInputs {
             _ => {}
         }
     }
-
-    fn merge_body_activation_worklist(&mut self, previous: &Self, diff: &CompilerInputDiff) {
-        if diff.resets_executable_facts() {
-            return;
-        }
-        let worklist = Arc::make_mut(&mut self.body_activation_worklist);
-        worklist.extend(
-            previous
-                .body_activation_worklist
-                .iter()
-                .map(|(stable_key, module_id)| (stable_key.clone(), *module_id)),
-        );
-        for module_id in &diff.body_activated_modules {
-            let stable_key = self.graph.stable_key(*module_id).unwrap_or_else(|| {
-                panic!("Nia ICE: missing stable key for activated module {module_id:?}")
-            });
-            worklist.insert(stable_key.clone(), *module_id);
-        }
-    }
-
-    fn advance_executable_fact_epoch(&mut self, previous: &Self, diff: &CompilerInputDiff) {
-        self.executable_fact_epoch = if diff.resets_executable_facts() {
-            previous.executable_fact_epoch.next()
-        } else {
-            previous.executable_fact_epoch
-        };
-    }
-}
-
-fn validate_loaded_module_identities(loaded: &LoadedProgram) {
-    for module in &loaded.modules {
-        let expected = module.path.identity();
-        if module.source_identity != expected {
-            panic!(
-                "Nia ICE: loaded module {:?} has source identity `{}` but path `{}` implies `{}`",
-                module.id,
-                module.source_identity.normalized_path(),
-                module.path.as_str(),
-                expected.normalized_path()
-            );
-        }
-    }
 }
 
 impl CompilerContext {
-    fn loader_facts(&self) -> Arc<dyn crate::LoaderFactProvider> {
-        Arc::clone(
-            &self
-                .loader_facts
-                .read()
-                .expect("compiler loader fact lock poisoned"),
-        )
+    fn loader_facts(&self) -> &dyn crate::LoaderFactProvider {
+        self.loader_facts.as_ref()
     }
 
     fn type_store(&self) -> &nia_ty::TypeStore {
@@ -1256,11 +935,6 @@ impl CompilerContext {
             .executable_fact_session
             .lock()
             .expect("executable fact session lock poisoned") = session;
-    }
-
-    fn executable_root_modules(&self) -> (ModuleId, Vec<ModuleId>) {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        (inputs.entry_module, inputs.runtime_root_modules.clone())
     }
 
     fn store_executable_checked_modules(
@@ -1349,58 +1023,44 @@ impl CompilerContext {
         store.sets.clear();
     }
 
-    fn loaded_modules(&self) -> Vec<ModuleId> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .modules
-            .iter()
-            .map(|module| module.id)
-            .collect()
-    }
-
     fn stable_module_sequence(
         &self,
         module_ids: impl IntoIterator<Item = ModuleId>,
     ) -> StableModuleSequence {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        let graph = self.loader_facts.module_graph();
         StableModuleSequence::from_source_identities(module_ids.into_iter().map(|module_id| {
-            inputs
-                .loaded_module(module_id)
-                .unwrap_or_else(|| {
-                    panic!("Nia ICE: module {module_id:?} is not loaded in compiler inputs")
-                })
-                .source_identity
-                .clone()
+            graph
+                .get(module_id)
+                .unwrap_or_else(|| panic!("Nia ICE: module {module_id:?} is not loaded"));
+            self.loader_facts
+                .module_path(module_id)
+                .unwrap_or_else(|| panic!("Nia ICE: module {module_id:?} has no source path"))
+                .identity()
         }))
     }
 
     fn resolve_stable_module_sequence(&self, sequence: &StableModuleSequence) -> Vec<ModuleId> {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        let graph = self.loader_facts.module_graph();
         sequence
             .keys
             .iter()
             .map(|key| {
-                inputs
-                    .loaded_module_by_source_identity(key.source_identity())
+                graph
+                    .modules()
+                    .find(|module| {
+                        self.loader_facts
+                            .module_path(module.id)
+                            .is_some_and(|path| path.identity() == *key.source_identity())
+                    })
+                    .map(|module| module.id)
                     .unwrap_or_else(|| {
                         panic!(
-                            "Nia ICE: stable loaded module `{}` is missing from compiler inputs",
+                            "Nia ICE: stable loaded module `{}` is missing from current loader facts",
                             key.source_identity().normalized_path()
                         )
                     })
-                    .id
             })
             .collect()
-    }
-
-    fn loaded_module(&self, module_id: ModuleId) -> Option<CompilerInputModule> {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        inputs
-            .modules_by_id
-            .get(&module_id)
-            .and_then(|index| inputs.modules.get(*index))
-            .cloned()
     }
 
     fn module_path(&self, db: &QueryDb<CompilerContext>, module_id: ModuleId) -> SourcePath {
@@ -1412,10 +1072,6 @@ impl CompilerContext {
                     format!("missing loaded module {module_id:?}"),
                 )
             })
-    }
-
-    fn module_path_if_loaded(&self, module_id: ModuleId) -> Option<SourcePath> {
-        self.loader_facts().module_path(module_id)
     }
 
     fn module_source_version(
@@ -1431,10 +1087,6 @@ impl CompilerContext {
                     format!("missing loaded module {module_id:?}"),
                 )
             })
-    }
-
-    fn module_source_version_if_loaded(&self, module_id: ModuleId) -> Option<SourceVersion> {
-        self.loader_facts().module_source_version(module_id)
     }
 
     fn module_origins(
@@ -1604,65 +1256,14 @@ impl CompilerContext {
     }
 
     fn path_for_module(&self, module_id: ModuleId) -> SourcePath {
-        self.loaded_module(module_id)
+        self.loader_facts
+            .module_path(module_id)
             .unwrap_or_else(|| panic!("Nia ICE: missing loaded module {module_id:?}"))
-            .path
-            .clone()
-    }
-
-    fn module_graph_entry_key(&self) -> StableModuleKey {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        inputs
-            .graph
-            .stable_key(inputs.graph.entry())
-            .cloned()
-            .expect("compiler entry must have a stable module key")
-    }
-
-    fn module_graph_path(&self, module_id: ModuleId) -> Option<nia_imports::ModulePath> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .graph
-            .get(module_id)
-            .map(|module| module.module_path.clone())
-    }
-
-    fn module_graph_parent_key(&self, module_id: ModuleId) -> Option<StableModuleKey> {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        let parent = inputs.graph.get(module_id)?.parent?;
-        inputs.graph.stable_key(parent).cloned()
-    }
-
-    fn module_graph_child_key(
-        &self,
-        module_id: ModuleId,
-        name: &SymbolId,
-    ) -> Option<(StableModuleKey, nia_ids::Visibility)> {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        let module = inputs.graph.get(module_id)?;
-        let target = module.children.get(name).copied()?;
-        let declaration = module
-            .declarations
-            .iter()
-            .find(|declaration| declaration.name == *name && declaration.target == target)?;
-        Some((
-            inputs.graph.stable_key(target)?.clone(),
-            declaration.visibility,
-        ))
-    }
-
-    fn module_package_root_key(&self, package: &SymbolId) -> Option<StableModuleKey> {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        let root = inputs.graph.package_root(package)?;
-        inputs.graph.stable_key(root).cloned()
     }
 
     fn module_id_for_stable_key(&self, stable_key: &StableModuleKey) -> Option<ModuleId> {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .graph
+        self.loader_facts
+            .module_graph()
             .module_id_for_stable_key(stable_key)
     }
 
@@ -1676,20 +1277,6 @@ impl CompilerContext {
             revision: inputs.provider_fact_revision,
             changes: Arc::clone(&inputs.provider_worklist),
         }
-    }
-
-    fn body_activation_worklist(&self) -> BodyActivationWorklist {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        BodyActivationWorklist {
-            modules: Arc::clone(&inputs.body_activation_worklist),
-        }
-    }
-
-    fn executable_fact_epoch(&self) -> ExecutableFactEpoch {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .executable_fact_epoch
     }
 
     fn optimization(&self) -> OptimizationPolicy {
@@ -1707,120 +1294,10 @@ impl CompilerContext {
     }
 }
 
-fn index_input_modules(modules: &[CompilerInputModule]) -> HashMap<ModuleId, usize> {
-    let mut modules_by_id = HashMap::new();
-    for (index, module) in modules.iter().enumerate() {
-        if let Some(existing) = modules_by_id.insert(module.id, index) {
-            panic!(
-                "Nia ICE: duplicate loaded module id {:?} at indexes {existing} and {index}",
-                module.id
-            );
-        }
-    }
-    modules_by_id
-}
-
-fn index_input_module_identities(
-    modules: &[CompilerInputModule],
-) -> HashMap<SourceIdentity, usize> {
-    let mut modules_by_source_identity = HashMap::new();
-    for (index, module) in modules.iter().enumerate() {
-        if let Some(existing) =
-            modules_by_source_identity.insert(module.source_identity.clone(), index)
-        {
-            panic!(
-                "Nia ICE: duplicate source identity `{}` for loaded modules {:?} and {:?}",
-                module.source_identity.normalized_path(),
-                modules[existing].id,
-                module.id
-            );
-        }
-    }
-    modules_by_source_identity
-}
-
-#[derive(Debug, Default)]
-struct CompilerInputDiff {
-    graph_changed: bool,
-    graph_entry_changed: bool,
-    changed_graph_paths: HashSet<ModuleId>,
-    changed_graph_parents: HashSet<ModuleId>,
-    changed_graph_children: HashSet<(ModuleId, SymbolId)>,
-    changed_package_roots: HashSet<SymbolId>,
-    executable_roots_changed: bool,
-    body_activated_modules: HashSet<ModuleId>,
-    provider_facts_reset: bool,
-    executable_fact_inputs_changed: bool,
-    loaded_modules_changed: bool,
-    loaded_diagnostics_changed: bool,
-    target_changed: bool,
-    runtime_changed: bool,
-    optimization_changed: bool,
-    changed_modules: Vec<ChangedModuleInput>,
-}
-
-impl CompilerInputDiff {
-    #[cfg(test)]
-    fn between(old: &CompilerInputs, new: &CompilerInputs) -> Self {
-        Self::try_between(old, new).unwrap_or_else(|error| panic!("Nia ICE: {error}"))
-    }
-
-    fn try_between(
-        old: &CompilerInputs,
-        new: &CompilerInputs,
-    ) -> Result<Self, ProviderFactInputError> {
-        let provider_facts_reset = validate_provider_fact_update(old, new)?;
-        let changed_modules = changed_loaded_modules(old, new);
-        let executable_roots_changed = old.entry_module != new.entry_module
-            || old.runtime_root_modules != new.runtime_root_modules;
-        let executable_fact_inputs_changed = executable_fact_inputs_changed(old, new);
-        let body_activated_modules = new
-            .graph
-            .modules()
-            .filter(|node| {
-                node.process_used_paths
-                    && old
-                        .graph
-                        .get(node.id)
-                        .is_some_and(|old| !old.process_used_paths)
-            })
-            .map(|node| node.id)
-            .collect::<HashSet<_>>();
-        Ok(Self {
-            graph_changed: old.graph != new.graph,
-            graph_entry_changed: old.graph.entry() != new.graph.entry(),
-            changed_graph_paths: changed_graph_paths(old, new),
-            changed_graph_parents: changed_graph_parents(old, new),
-            changed_graph_children: changed_graph_children(old, new),
-            changed_package_roots: changed_package_roots(old, new),
-            executable_roots_changed,
-            body_activated_modules,
-            provider_facts_reset,
-            executable_fact_inputs_changed,
-            loaded_modules_changed: loaded_module_ids(old) != loaded_module_ids(new)
-                || loaded_module_identity_assignments(old)
-                    != loaded_module_identity_assignments(new),
-            loaded_diagnostics_changed: old.diagnostics != new.diagnostics,
-            target_changed: old.target != new.target,
-            runtime_changed: old.runtime != new.runtime,
-            optimization_changed: old.optimization != new.optimization,
-            changed_modules,
-        })
-    }
-
-    fn resets_executable_facts(&self) -> bool {
-        self.executable_fact_inputs_changed
-            || self.provider_facts_reset
-            || self.target_changed
-            || self.runtime_changed
-            || self.executable_roots_changed
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProviderFactInputError {
     ChangesAtUnchangedRevision,
-    ChangesFromReplacementOwner,
+    ReplacementOwner,
     StaleRevision,
 }
 
@@ -1830,8 +1307,8 @@ impl std::fmt::Display for ProviderFactInputError {
             Self::ChangesAtUnchangedRevision => {
                 formatter.write_str("provider changes require an advanced provider fact revision")
             }
-            Self::ChangesFromReplacementOwner => {
-                formatter.write_str("provider fact owner replacement cannot carry provider changes")
+            Self::ReplacementOwner => {
+                formatter.write_str("provider fact owner cannot change within a compiler session")
             }
             Self::StaleRevision => {
                 formatter.write_str("provider fact revision cannot move backwards")
@@ -1843,7 +1320,7 @@ impl std::fmt::Display for ProviderFactInputError {
 fn validate_provider_fact_update(
     old: &CompilerInputs,
     new: &CompilerInputs,
-) -> Result<bool, ProviderFactInputError> {
+) -> Result<(), ProviderFactInputError> {
     use crate::ProviderFactRevisionTransition::{Advanced, Replaced, Stale, Unchanged};
 
     match (
@@ -1851,353 +1328,10 @@ fn validate_provider_fact_update(
             .transition_from(old.provider_fact_revision),
         new.provider_worklist.is_empty(),
     ) {
-        (Unchanged, true) | (Advanced, false) => Ok(false),
-        (Advanced | Replaced, true) => Ok(true),
+        (Unchanged, true) | (Advanced, _) => Ok(()),
         (Unchanged, false) => Err(ProviderFactInputError::ChangesAtUnchangedRevision),
-        (Replaced, false) => Err(ProviderFactInputError::ChangesFromReplacementOwner),
+        (Replaced, _) => Err(ProviderFactInputError::ReplacementOwner),
         (Stale, _) => Err(ProviderFactInputError::StaleRevision),
-    }
-}
-
-fn executable_fact_inputs_changed(old: &CompilerInputs, new: &CompilerInputs) -> bool {
-    old.modules.iter().any(|old_module| {
-        let Some(new_module) = new.loaded_module_by_source_identity(&old_module.source_identity)
-        else {
-            return true;
-        };
-        old_module.id != new_module.id
-            || ChangedModuleInput::between_source_identity(Some(old_module), Some(new_module))
-                .is_some()
-    })
-}
-
-fn changed_graph_paths(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<ModuleId> {
-    old.graph
-        .modules()
-        .map(|module| module.id)
-        .chain(new.graph.modules().map(|module| module.id))
-        .filter(|module_id| {
-            old.graph.get(*module_id).map(|module| &module.module_path)
-                != new.graph.get(*module_id).map(|module| &module.module_path)
-        })
-        .collect()
-}
-
-fn changed_graph_parents(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<ModuleId> {
-    old.graph
-        .modules()
-        .map(|module| module.id)
-        .chain(new.graph.modules().map(|module| module.id))
-        .filter(|module_id| {
-            old.graph.get(*module_id).and_then(|module| module.parent)
-                != new.graph.get(*module_id).and_then(|module| module.parent)
-        })
-        .collect()
-}
-
-fn changed_graph_children(
-    old: &CompilerInputs,
-    new: &CompilerInputs,
-) -> HashSet<(ModuleId, SymbolId)> {
-    let module_ids = old
-        .graph
-        .modules()
-        .map(|module| module.id)
-        .chain(new.graph.modules().map(|module| module.id))
-        .collect::<HashSet<_>>();
-    let mut changed = HashSet::new();
-    for module_id in module_ids {
-        let names = old
-            .graph
-            .get(module_id)
-            .into_iter()
-            .flat_map(|module| module.children.keys().copied())
-            .chain(
-                new.graph
-                    .get(module_id)
-                    .into_iter()
-                    .flat_map(|module| module.children.keys().copied()),
-            )
-            .collect::<HashSet<_>>();
-        for name in names {
-            let old_child = old
-                .graph
-                .get(module_id)
-                .and_then(|module| graph_child_declaration(module, name));
-            let new_child = new
-                .graph
-                .get(module_id)
-                .and_then(|module| graph_child_declaration(module, name));
-            if old_child != new_child {
-                changed.insert((module_id, name));
-            }
-        }
-    }
-    changed
-}
-
-fn graph_child_declaration(
-    module: &ModuleNode,
-    name: SymbolId,
-) -> Option<(ModuleId, nia_ids::Visibility)> {
-    let target = module.children.get(&name).copied()?;
-    let declaration = module
-        .declarations
-        .iter()
-        .find(|declaration| declaration.name == name && declaration.target == target)?;
-    Some((target, declaration.visibility))
-}
-
-fn changed_package_roots(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<SymbolId> {
-    old.graph
-        .modules()
-        .map(|module| module.module_path.package)
-        .chain(new.graph.modules().map(|module| module.module_path.package))
-        .filter(|package| old.graph.package_root(package) != new.graph.package_root(package))
-        .collect()
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ChangedModuleInput {
-    ids: Vec<ModuleId>,
-    path: bool,
-    source_identity: bool,
-    source_version: bool,
-    origins: bool,
-    parse_errors: bool,
-    item_tree: bool,
-    declaration_item_tree: bool,
-    full_item_tree: bool,
-    active_item_tree: bool,
-    declaration_active_item_tree: bool,
-    signature_function_items: bool,
-    signature_extension_function_items: bool,
-    signature_value_items: bool,
-    signature_type_items: bool,
-    provider_summary: bool,
-    signature_trait_items: bool,
-    signature_const_items: bool,
-    full_active_item_tree: bool,
-}
-
-impl ChangedModuleInput {
-    fn between_source_identity(
-        old: Option<&CompilerInputModule>,
-        new: Option<&CompilerInputModule>,
-    ) -> Option<Self> {
-        let ids = changed_module_ids(old, new);
-        if ids.is_empty() {
-            return None;
-        }
-
-        let changed = match (old, new) {
-            (Some(old), Some(new)) if old.id == new.id => {
-                let source_revision_changed = old.source_version != new.source_version;
-                Self {
-                    ids,
-                    path: old.path != new.path,
-                    source_identity: old.source_identity != new.source_identity,
-                    source_version: source_revision_changed,
-                    origins: source_revision_changed || old.origins != new.origins,
-                    parse_errors: old.parse_errors != new.parse_errors,
-                    item_tree: source_revision_changed
-                        || !old.item_tree.definition_eq(&new.item_tree),
-                    declaration_item_tree: source_revision_changed
-                        || !old.item_tree.declaration_eq(&new.item_tree),
-                    full_item_tree: source_revision_changed || old.item_tree != new.item_tree,
-                    active_item_tree: source_revision_changed
-                        || !old.active_item_tree.definition_eq(&new.active_item_tree),
-                    declaration_active_item_tree: source_revision_changed
-                        || !old.active_item_tree.declaration_eq(&new.active_item_tree),
-                    signature_function_items: source_revision_changed
-                        || !old
-                            .active_item_tree
-                            .signature_items(nia_item_tree::SignatureItemSet::Functions)
-                            .declaration_eq(
-                                &new.active_item_tree
-                                    .signature_items(nia_item_tree::SignatureItemSet::Functions),
-                            ),
-                    signature_extension_function_items: source_revision_changed
-                        || !old
-                            .active_item_tree
-                            .signature_items(nia_item_tree::SignatureItemSet::ExtensionFunctions)
-                            .declaration_eq(&new.active_item_tree.signature_items(
-                                nia_item_tree::SignatureItemSet::ExtensionFunctions,
-                            )),
-                    signature_value_items: source_revision_changed
-                        || !old
-                            .active_item_tree
-                            .signature_items(nia_item_tree::SignatureItemSet::Values)
-                            .declaration_eq(
-                                &new.active_item_tree
-                                    .signature_items(nia_item_tree::SignatureItemSet::Values),
-                            ),
-                    signature_type_items: source_revision_changed
-                        || !old
-                            .active_item_tree
-                            .signature_items(nia_item_tree::SignatureItemSet::Types)
-                            .declaration_eq(
-                                &new.active_item_tree
-                                    .signature_items(nia_item_tree::SignatureItemSet::Types),
-                            ),
-                    provider_summary: old.provider_summary != new.provider_summary,
-                    signature_trait_items: source_revision_changed
-                        || !old
-                            .active_item_tree
-                            .signature_items(nia_item_tree::SignatureItemSet::Traits)
-                            .declaration_eq(
-                                &new.active_item_tree
-                                    .signature_items(nia_item_tree::SignatureItemSet::Traits),
-                            ),
-                    signature_const_items: source_revision_changed
-                        || old.active_item_tree.const_signature_items()
-                            != new.active_item_tree.const_signature_items(),
-                    full_active_item_tree: source_revision_changed
-                        || old.active_item_tree != new.active_item_tree,
-                }
-            }
-            (Some(_), Some(_)) => Self::all_inputs_changed(ids),
-            (Some(_), None) | (None, Some(_)) => Self {
-                ids,
-                path: true,
-                source_identity: true,
-                source_version: true,
-                origins: true,
-                parse_errors: true,
-                item_tree: true,
-                declaration_item_tree: true,
-                full_item_tree: true,
-                active_item_tree: true,
-                declaration_active_item_tree: true,
-                signature_function_items: true,
-                signature_extension_function_items: true,
-                signature_value_items: true,
-                signature_type_items: true,
-                provider_summary: true,
-                signature_trait_items: true,
-                signature_const_items: true,
-                full_active_item_tree: true,
-            },
-            (None, None) => return None,
-        };
-        if changed.path
-            || changed.source_identity
-            || changed.source_version
-            || changed.origins
-            || changed.parse_errors
-            || changed.item_tree
-            || changed.declaration_item_tree
-            || changed.full_item_tree
-            || changed.active_item_tree
-            || changed.declaration_active_item_tree
-            || changed.signature_function_items
-            || changed.signature_extension_function_items
-            || changed.signature_value_items
-            || changed.signature_type_items
-            || changed.provider_summary
-            || changed.signature_trait_items
-            || changed.signature_const_items
-            || changed.full_active_item_tree
-        {
-            Some(changed)
-        } else {
-            None
-        }
-    }
-
-    fn all_inputs_changed(ids: Vec<ModuleId>) -> Self {
-        Self {
-            ids,
-            path: true,
-            source_identity: true,
-            source_version: true,
-            origins: true,
-            parse_errors: true,
-            item_tree: true,
-            declaration_item_tree: true,
-            full_item_tree: true,
-            active_item_tree: true,
-            declaration_active_item_tree: true,
-            signature_function_items: true,
-            signature_extension_function_items: true,
-            signature_value_items: true,
-            signature_type_items: true,
-            provider_summary: true,
-            signature_trait_items: true,
-            signature_const_items: true,
-            full_active_item_tree: true,
-        }
-    }
-}
-
-fn changed_loaded_modules(old: &CompilerInputs, new: &CompilerInputs) -> Vec<ChangedModuleInput> {
-    let source_identities = old
-        .modules
-        .iter()
-        .map(|module| module.source_identity.clone())
-        .chain(
-            new.modules
-                .iter()
-                .map(|module| module.source_identity.clone()),
-        )
-        .collect::<HashSet<_>>();
-    let mut changed = source_identities
-        .into_iter()
-        .filter_map(|source_identity| {
-            ChangedModuleInput::between_source_identity(
-                old.loaded_module_by_source_identity(&source_identity),
-                new.loaded_module_by_source_identity(&source_identity),
-            )
-        })
-        .collect::<Vec<_>>();
-    changed.sort_by_key(|module| module.ids.first().map_or(u32::MAX, |id| id.local_index()));
-    changed
-}
-
-fn changed_module_ids(
-    old: Option<&CompilerInputModule>,
-    new: Option<&CompilerInputModule>,
-) -> Vec<ModuleId> {
-    let mut ids = Vec::new();
-    if let Some(module) = old {
-        ids.push(module.id);
-    }
-    if let Some(module) = new {
-        ids.push(module.id);
-    }
-    ids.sort();
-    ids.dedup();
-    ids
-}
-
-fn loaded_module_ids(inputs: &CompilerInputs) -> Vec<ModuleId> {
-    inputs.modules.iter().map(|module| module.id).collect()
-}
-
-fn loaded_module_identity_assignments(inputs: &CompilerInputs) -> Vec<(ModuleId, SourceIdentity)> {
-    let mut assignments = inputs
-        .modules
-        .iter()
-        .map(|module| (module.id, module.source_identity.clone()))
-        .collect::<Vec<_>>();
-    assignments.sort_by_key(|(id, _)| *id);
-    assignments
-}
-
-impl CompilerInputs {
-    fn loaded_module(&self, module_id: ModuleId) -> Option<&CompilerInputModule> {
-        self.modules_by_id
-            .get(&module_id)
-            .and_then(|index| self.modules.get(*index))
-    }
-
-    fn loaded_module_by_source_identity(
-        &self,
-        source_identity: &SourceIdentity,
-    ) -> Option<&CompilerInputModule> {
-        self.modules_by_source_identity
-            .get(source_identity)
-            .and_then(|index| self.modules.get(*index))
     }
 }
 
@@ -2208,6 +1342,7 @@ mod tests {
     use nia_sema_ir::SemanticValueUse;
     use nia_source::{SourceId, SourceRevision};
     use nia_symbol::{SymbolId, stable_hash};
+    use std::ops::Deref;
 
     thread_local! {
         static TEST_SYMBOLS: nia_symbol_table::SymbolTable = nia_symbol_table::SymbolTable::new();
@@ -2222,6 +1357,395 @@ mod tests {
             .intern(text)
             .unwrap_or_else(|err| panic!("test symbol collision: {err}"));
         SymbolId::from_stable_hash(stable_hash(text))
+    }
+
+    struct TestLoaderContext {
+        program: RwLock<LoadedProgram>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct TestLoadedProgramQuery;
+
+    impl QueryKey<TestLoaderContext> for TestLoadedProgramQuery {
+        type Value = LoadedProgram;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+        fn name() -> &'static str {
+            "test_loaded_program"
+        }
+
+        fn execute(&self, db: &QueryDb<TestLoaderContext>) -> Self::Value {
+            db.context()
+                .program
+                .read()
+                .expect("test loader program lock poisoned")
+                .clone()
+        }
+
+        fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+            old == new
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    enum TestLoaderFactKey {
+        Graph,
+        LoadedModuleSourceIdentities,
+        ModulePath(ModuleId),
+        ModuleSourceVersion(ModuleId),
+        ModuleProviderSummary(ModuleId),
+        ModuleOrigins(ModuleId),
+        ModuleParseErrors(ModuleId),
+        ModuleItemTree(ModuleId),
+        ActiveModuleItemTree(ModuleId, ActiveModuleItemTreeFactKind),
+        LoadDiagnostics,
+        Target,
+        Runtime,
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    enum TestLoaderFactValue {
+        Graph(ModuleGraphSnapshot),
+        LoadedModuleSourceIdentities(Vec<SourceIdentity>),
+        ModulePath(Option<SourcePath>),
+        ModuleSourceVersion(Option<SourceVersion>),
+        ModuleProviderSummary(Option<nia_provider_summary::ProviderSummary>),
+        ModuleOrigins(Option<NodeOriginTable>),
+        ModuleParseErrors(Option<Vec<ParseError>>),
+        ModuleItemTree(Option<ModuleItemTree>),
+        ActiveModuleItemTree(Option<ActiveModuleItemTree>),
+        LoadDiagnostics(Vec<ProgramDiagnostic>),
+        Target(TargetConfig),
+        Runtime(RuntimeModel),
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    struct TestLoaderFactQuery(TestLoaderFactKey);
+
+    impl QueryKey<TestLoaderContext> for TestLoaderFactQuery {
+        type Value = TestLoaderFactValue;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+        fn name() -> &'static str {
+            "test_loader_fact"
+        }
+
+        fn execute(&self, db: &QueryDb<TestLoaderContext>) -> Self::Value {
+            let program = db.get(TestLoadedProgramQuery);
+            let module = |module_id| program.modules.iter().find(|module| module.id == module_id);
+            match self.0 {
+                TestLoaderFactKey::Graph => Self::Value::Graph(program.graph.clone()),
+                TestLoaderFactKey::LoadedModuleSourceIdentities => {
+                    Self::Value::LoadedModuleSourceIdentities(
+                        program
+                            .modules
+                            .iter()
+                            .map(|module| module.source_identity.clone())
+                            .collect(),
+                    )
+                }
+                TestLoaderFactKey::ModulePath(module_id) => {
+                    Self::Value::ModulePath(module(module_id).map(|module| module.path.clone()))
+                }
+                TestLoaderFactKey::ModuleSourceVersion(module_id) => {
+                    Self::Value::ModuleSourceVersion(
+                        module(module_id).map(|module| module.source_version),
+                    )
+                }
+                TestLoaderFactKey::ModuleProviderSummary(module_id) => {
+                    Self::Value::ModuleProviderSummary(
+                        module(module_id).map(|module| module.provider_summary.clone()),
+                    )
+                }
+                TestLoaderFactKey::ModuleOrigins(module_id) => Self::Value::ModuleOrigins(
+                    module(module_id).map(|module| module.origins.clone()),
+                ),
+                TestLoaderFactKey::ModuleParseErrors(module_id) => Self::Value::ModuleParseErrors(
+                    module(module_id).map(|module| module.parse_errors.clone()),
+                ),
+                TestLoaderFactKey::ModuleItemTree(module_id) => Self::Value::ModuleItemTree(
+                    module(module_id).map(|module| module.item_tree.clone()),
+                ),
+                TestLoaderFactKey::ActiveModuleItemTree(module_id, kind) => {
+                    let tree = module(module_id).map(|module| match kind {
+                        ActiveModuleItemTreeFactKind::Signature(set) => {
+                            module.active_item_tree.signature_items(set)
+                        }
+                        ActiveModuleItemTreeFactKind::ConstSignature => {
+                            module.active_item_tree.const_signature_items()
+                        }
+                        ActiveModuleItemTreeFactKind::Full => module.active_item_tree.clone(),
+                    });
+                    Self::Value::ActiveModuleItemTree(tree)
+                }
+                TestLoaderFactKey::LoadDiagnostics => {
+                    Self::Value::LoadDiagnostics(program.diagnostics.clone())
+                }
+                TestLoaderFactKey::Target => Self::Value::Target(program.target.clone()),
+                TestLoaderFactKey::Runtime => Self::Value::Runtime(program.runtime),
+            }
+        }
+
+        fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+            old == new
+        }
+    }
+
+    #[derive(Clone)]
+    struct TestLoaderFacts {
+        db: QueryDb<TestLoaderContext>,
+    }
+
+    impl TestLoaderFacts {
+        fn new(program: LoadedProgram) -> Self {
+            let mut registry = nia_query::QueryRegistry::new();
+            registry.register::<TestLoaderContext, TestLoadedProgramQuery>();
+            registry.register::<TestLoaderContext, TestLoaderFactQuery>();
+            Self {
+                db: QueryDb::new_registered(
+                    TestLoaderContext {
+                        program: RwLock::new(program),
+                    },
+                    registry,
+                ),
+            }
+        }
+
+        fn program(&self) -> Arc<LoadedProgram> {
+            self.db.get(TestLoadedProgramQuery)
+        }
+
+        fn fact(&self, key: TestLoaderFactKey) -> Arc<TestLoaderFactValue> {
+            self.db.get(TestLoaderFactQuery(key))
+        }
+
+        fn replace_program(&self, program: LoadedProgram) -> nia_query::QueryInvalidation {
+            let mut current = self
+                .db
+                .context()
+                .program
+                .write()
+                .expect("test loader program lock poisoned");
+            if *current == program {
+                return nia_query::QueryInvalidation::default();
+            }
+            *current = program;
+            drop(current);
+            self.db.invalidate(TestLoadedProgramQuery)
+        }
+    }
+
+    impl crate::LoaderFactProvider for TestLoaderFacts {
+        fn query_session(&self) -> Option<nia_query::QuerySession> {
+            Some(self.db.session())
+        }
+
+        fn provider_fact_revision(&self) -> crate::ProviderFactRevision {
+            self.program().provider_fact_revision
+        }
+
+        fn node_store(&self) -> nia_node_id::NodeStore {
+            self.program()
+                .modules
+                .first()
+                .map(|module| module.origins.node_store().clone())
+                .unwrap_or_default()
+        }
+
+        fn module_graph(&self) -> ModuleGraphSnapshot {
+            let fact = self.fact(TestLoaderFactKey::Graph);
+            let TestLoaderFactValue::Graph(graph) = fact.as_ref() else {
+                unreachable!()
+            };
+            graph.clone()
+        }
+
+        fn loaded_module_source_identities(&self) -> Vec<SourceIdentity> {
+            let fact = self.fact(TestLoaderFactKey::LoadedModuleSourceIdentities);
+            let TestLoaderFactValue::LoadedModuleSourceIdentities(identities) = fact.as_ref()
+            else {
+                unreachable!()
+            };
+            identities.clone()
+        }
+
+        fn module_path(&self, module_id: ModuleId) -> Option<SourcePath> {
+            let fact = self.fact(TestLoaderFactKey::ModulePath(module_id));
+            let TestLoaderFactValue::ModulePath(path) = fact.as_ref() else {
+                unreachable!()
+            };
+            path.clone()
+        }
+
+        fn module_source_version(&self, module_id: ModuleId) -> Option<SourceVersion> {
+            let fact = self.fact(TestLoaderFactKey::ModuleSourceVersion(module_id));
+            let TestLoaderFactValue::ModuleSourceVersion(version) = fact.as_ref() else {
+                unreachable!()
+            };
+            *version
+        }
+
+        fn module_provider_summary(
+            &self,
+            module_id: ModuleId,
+        ) -> Option<nia_provider_summary::ProviderSummary> {
+            let fact = self.fact(TestLoaderFactKey::ModuleProviderSummary(module_id));
+            let TestLoaderFactValue::ModuleProviderSummary(summary) = fact.as_ref() else {
+                unreachable!()
+            };
+            summary.clone()
+        }
+
+        fn module_origins(&self, module_id: ModuleId) -> Option<NodeOriginTable> {
+            let fact = self.fact(TestLoaderFactKey::ModuleOrigins(module_id));
+            let TestLoaderFactValue::ModuleOrigins(origins) = fact.as_ref() else {
+                unreachable!()
+            };
+            origins.clone()
+        }
+
+        fn module_parse_errors(&self, module_id: ModuleId) -> Option<Vec<ParseError>> {
+            let fact = self.fact(TestLoaderFactKey::ModuleParseErrors(module_id));
+            let TestLoaderFactValue::ModuleParseErrors(errors) = fact.as_ref() else {
+                unreachable!()
+            };
+            errors.clone()
+        }
+
+        fn module_item_tree(&self, module_id: ModuleId) -> Option<ModuleItemTree> {
+            let fact = self.fact(TestLoaderFactKey::ModuleItemTree(module_id));
+            let TestLoaderFactValue::ModuleItemTree(tree) = fact.as_ref() else {
+                unreachable!()
+            };
+            tree.clone()
+        }
+
+        fn active_module_item_tree(
+            &self,
+            module_id: ModuleId,
+            kind: ActiveModuleItemTreeFactKind,
+        ) -> Option<ActiveModuleItemTree> {
+            let fact = self.fact(TestLoaderFactKey::ActiveModuleItemTree(module_id, kind));
+            let TestLoaderFactValue::ActiveModuleItemTree(tree) = fact.as_ref() else {
+                unreachable!()
+            };
+            tree.clone()
+        }
+
+        fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {
+            let fact = self.fact(TestLoaderFactKey::LoadDiagnostics);
+            let TestLoaderFactValue::LoadDiagnostics(diagnostics) = fact.as_ref() else {
+                unreachable!()
+            };
+            diagnostics.clone()
+        }
+
+        fn symbols(&self) -> nia_symbol_table::SymbolTable {
+            self.program().symbols.clone()
+        }
+
+        fn target(&self) -> TargetConfig {
+            let fact = self.fact(TestLoaderFactKey::Target);
+            let TestLoaderFactValue::Target(target) = fact.as_ref() else {
+                unreachable!()
+            };
+            target.clone()
+        }
+
+        fn runtime(&self) -> RuntimeModel {
+            let fact = self.fact(TestLoaderFactKey::Runtime);
+            let TestLoaderFactValue::Runtime(runtime) = fact.as_ref() else {
+                unreachable!()
+            };
+            *runtime
+        }
+    }
+
+    #[derive(Clone)]
+    struct CompilerDatabase {
+        compiler: super::CompilerDatabase,
+        loader: TestLoaderFacts,
+    }
+
+    impl CompilerDatabase {
+        fn new(request: CompileRequest) -> Self {
+            let program = materialize_loader_facts(request.loader_facts.as_ref());
+            let loader = TestLoaderFacts::new(program);
+            let request = request.with_loader_facts(loader.clone());
+            let compiler = super::CompilerDatabase::new(request);
+            Self { compiler, loader }
+        }
+
+        fn update(&self, request: CompileRequest) -> CompilerInvalidation {
+            let program = materialize_loader_facts(request.loader_facts.as_ref());
+            self.loader.replace_program(program);
+            let request = request.with_loader_facts(self.loader.clone());
+            self.compiler.update(request)
+        }
+    }
+
+    impl Deref for CompilerDatabase {
+        type Target = super::CompilerDatabase;
+
+        fn deref(&self) -> &Self::Target {
+            &self.compiler
+        }
+    }
+
+    fn materialize_loader_facts(facts: &dyn crate::LoaderFactProvider) -> LoadedProgram {
+        let graph = facts.module_graph();
+        let modules = facts
+            .loaded_module_source_identities()
+            .into_iter()
+            .map(|identity| {
+                let module_id = graph
+                    .modules()
+                    .find_map(|module| {
+                        facts
+                            .module_path(module.id)
+                            .is_some_and(|path| path.identity() == identity)
+                            .then_some(module.id)
+                    })
+                    .expect("test loaded module identity must resolve in graph");
+                LoadedModule {
+                    id: module_id,
+                    path: facts.module_path(module_id).expect("test module path"),
+                    source_identity: facts
+                        .module_path(module_id)
+                        .expect("test module path")
+                        .identity(),
+                    source_version: facts
+                        .module_source_version(module_id)
+                        .expect("test module source version"),
+                    item_tree: facts
+                        .module_item_tree(module_id)
+                        .expect("test module item tree"),
+                    active_item_tree: facts
+                        .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)
+                        .expect("test active module item tree"),
+                    provider_summary: facts
+                        .module_provider_summary(module_id)
+                        .expect("test module provider summary"),
+                    origins: facts
+                        .module_origins(module_id)
+                        .expect("test module origins"),
+                    parse_errors: facts
+                        .module_parse_errors(module_id)
+                        .expect("test module parse errors"),
+                }
+            })
+            .collect();
+        LoadedProgram {
+            graph,
+            provider_fact_revision: facts.provider_fact_revision(),
+            symbols: facts.symbols(),
+            target: facts.target(),
+            runtime: facts.runtime(),
+            modules,
+            diagnostics: facts.load_diagnostics(),
+        }
     }
 
     struct VtableFunctionInstanceRef<'a> {
@@ -2450,20 +1974,14 @@ mod tests {
 
     fn query_db(loaded: LoadedProgram) -> QueryDb<CompilerContext> {
         let loader_facts: Arc<dyn crate::LoaderFactProvider> = Arc::new(loaded.clone());
+        let node_store = loader_facts.node_store();
         let inputs = Arc::new(RwLock::new(CompilerInputs::new(CompileRequest::new(
             loaded,
         ))));
-        let node_store = inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .modules
-            .first()
-            .map(|module| module.origins.node_store().clone())
-            .unwrap_or_default();
         QueryDb::new_registered(
             CompilerContext {
                 inputs,
-                loader_facts: Arc::new(RwLock::new(loader_facts)),
+                loader_facts,
                 providers: CompilerQueryProviders::default(),
                 executable_checked_modules: Arc::new(RwLock::new(
                     ExecutableCheckedModuleStore::default(),
@@ -2482,14 +2000,17 @@ mod tests {
         db: &QueryDb<CompilerContext>,
         identity: &SourceIdentity,
     ) -> Option<ModuleId> {
-        let inputs = db
-            .context()
-            .inputs
-            .read()
-            .expect("compiler input lock poisoned");
-        inputs
-            .loaded_module_by_source_identity(identity)
-            .map(|module| module.id)
+        db.context()
+            .loader_facts
+            .module_graph()
+            .modules()
+            .find_map(|module| {
+                db.context()
+                    .loader_facts
+                    .module_path(module.id)
+                    .is_some_and(|path| path.identity() == *identity)
+                    .then_some(module.id)
+            })
     }
 
     fn query_executions(trace: &QueryTrace, name: &'static str) -> usize {
@@ -2577,9 +2098,7 @@ mod tests {
         }));
         for descriptor in descriptors {
             let expected = match descriptor.name {
-                "body_activation_worklist"
-                | "executable_fact_epoch"
-                | "extension_provider_module_ids"
+                "extension_provider_module_ids"
                 | "extension_provider_module_eligibility"
                 | "extension_provider_summary"
                 | "loaded_modules"
@@ -2599,9 +2118,11 @@ mod tests {
                 | "semantic_module_ids"
                 | "using_scope_module" => nia_query::QueryFingerprintPolicy::StableValue,
                 "active_module_item_tree_input"
+                | "body_activation_worklist"
                 | "declaration_active_module_item_tree_input"
                 | "declaration_module_item_tree_input"
                 | "full_active_module_item_tree_input"
+                | "executable_fact_epoch"
                 | "full_module_item_tree_input"
                 | "module_public_surface"
                 | "module_item_tree_input"
@@ -2725,7 +2246,7 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn compiler_inputs_index_modules_by_source_identity() {
+    fn loader_facts_map_modules_by_source_identity() {
         let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let entry_id = fixture.entry_id();
         let package_id =
@@ -2739,59 +2260,15 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    #[should_panic(expected = "Nia ICE: duplicate loaded module id")]
-    fn compiler_inputs_reject_duplicate_module_ids() {
-        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
-        let module_id = fixture.entry_id();
-        let mut program = fixture.program();
-        program.modules.push(loaded_module(
-            module_id,
-            "other.nia",
-            "pub fn value() i32 { 1 }",
-        ));
-        let _ = CompilerInputs::new(CompileRequest::new(program));
-    }
-
-    #[test]
-    #[should_panic(expected = "Nia ICE: duplicate source identity")]
-    fn compiler_inputs_reject_duplicate_source_identities() {
-        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
-        let entry_id = fixture.entry_id();
-        fixture.add_child(
-            entry_id,
-            "duplicate",
-            "main.nia",
-            "pub fn value() i32 { 1 }",
-        );
-        let _ = CompilerInputs::new(CompileRequest::new(fixture.program()));
-    }
-
-    #[test]
-    #[should_panic(expected = "Nia ICE: loaded module")]
-    fn compiler_inputs_reject_path_identity_mismatch() {
-        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
-        let mut program = fixture.program();
-        program.modules[0].source_identity = SourcePath::new("other.nia").identity();
-        let _ = CompilerInputs::new(CompileRequest::new(program));
-    }
-
-    #[test]
     fn loaded_module_reorder_invalidates_list_without_field_changes() {
         let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let entry_id = fixture.entry_id();
         let package_id =
             fixture.add_child(entry_id, "pkg", "pkg/root.nia", "pub fn value() i32 { 1 }");
-        let old = CompilerInputs::new(CompileRequest::new(fixture.program()));
         let database = fixture.database();
         let first = database.db.get(LoadedModulesQuery);
         let mut reordered = fixture.program();
         reordered.modules.reverse();
-        let new = CompilerInputs::new(CompileRequest::new(reordered.clone()));
-
-        let diff = CompilerInputDiff::between(&old, &new);
-
-        assert!(diff.loaded_modules_changed);
-        assert_eq!(diff.changed_modules, Vec::new());
         database.update(CompileRequest::new(reordered));
         let latest = database.db.get(LoadedModulesQuery);
         assert!(!Arc::ptr_eq(&first, &latest));
@@ -2802,22 +2279,23 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn additive_module_growth_preserves_existing_executable_fact_inputs() {
+    fn additive_module_growth_refreshes_query_derived_executable_epoch() {
         let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
-        let old = CompilerInputs::new(CompileRequest::new(fixture.program()));
         let entry_id = fixture.entry_id();
+        let database = fixture.database();
+        let first = database.db.get(ExecutableFactEpochQuery);
         fixture.add_child(
             entry_id,
             "provider",
             "main/provider.nia",
             "pub fn value() i32 { 1 }",
         );
-        let new = CompilerInputs::new(CompileRequest::new(fixture.program()));
+        database.update(CompileRequest::new(fixture.program()));
+        let latest = database.db.get(ExecutableFactEpochQuery);
 
-        let diff = CompilerInputDiff::between(&old, &new);
-
-        assert!(diff.loaded_modules_changed);
-        assert!(!diff.executable_fact_inputs_changed);
+        assert_ne!(first.as_ref(), latest.as_ref());
+        assert_eq!(first.modules.len() + 1, latest.modules.len());
+        assert_eq!(first.modules[0], latest.modules[0]);
     }
 
     #[test]
@@ -2835,7 +2313,8 @@ pub fn expensive_or_invalid() i32 {
 
         let latest = database.db.get(ModuleGraphEntryQuery);
         let latest_loaded = database.db.get(LoadedModulesQuery);
-        assert!(Arc::ptr_eq(&first, &latest));
+        assert!(!Arc::ptr_eq(&first, &latest));
+        assert_eq!(first.as_ref(), latest.as_ref());
         assert!(Arc::ptr_eq(&first_loaded, &latest_loaded));
         assert_eq!(
             resolve_stable_module_sequence(&database.db, &latest_loaded),
@@ -2898,8 +2377,10 @@ pub fn expensive_or_invalid() i32 {
         let latest_root = database.db.get(ModulePackageRootQuery(package));
         let latest_public = database.db.get(PublicSurfaceModuleQuery(entry, child_name));
         let latest_using = database.db.get(UsingScopeModuleQuery(entry, child_name));
-        assert!(Arc::ptr_eq(&first_child, &latest_child));
-        assert!(Arc::ptr_eq(&first_root, &latest_root));
+        assert!(!Arc::ptr_eq(&first_child, &latest_child));
+        assert!(!Arc::ptr_eq(&first_root, &latest_root));
+        assert_eq!(first_child.as_ref(), latest_child.as_ref());
+        assert_eq!(first_root.as_ref(), latest_root.as_ref());
         assert!(!Arc::ptr_eq(&first_public, &latest_public));
         assert!(!Arc::ptr_eq(&first_using, &latest_using));
         assert_eq!(first_public.as_ref(), latest_public.as_ref());
@@ -2924,7 +2405,6 @@ pub fn expensive_or_invalid() i32 {
     fn stable_source_identity_with_new_module_id_invalidates_old_key_and_recomputes_new_key() {
         let source = "pub struct S { value: i32 } fn main() i32 { 0 }";
         let old_fixture = LoadedProgramFixture::new("main.nia", source);
-        let old_module_id = old_fixture.entry_id();
         let old_program = old_fixture.program();
 
         let mut new_fixture = LoadedProgramFixture::new("bootstrap.nia", "");
@@ -2935,44 +2415,13 @@ pub fn expensive_or_invalid() i32 {
         new_fixture.modules = vec![loaded_module(new_module_id, "main.nia", source)];
         let new_program = new_fixture.program();
 
-        let old = CompilerInputs::new(CompileRequest::new(old_program.clone()));
-        let new = CompilerInputs::new(CompileRequest::new(new_program.clone()));
-        let diff = CompilerInputDiff::between(&old, &new);
-
-        assert!(diff.loaded_modules_changed);
-        assert_eq!(diff.changed_modules.len(), 1);
-        assert_eq!(
-            diff.changed_modules[0].ids,
-            vec![old_module_id, new_module_id]
-        );
-
         let database = CompilerDatabase::new(CompileRequest::new(old_program));
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
         let first_loaded = database.db.get(LoadedModulesQuery);
 
-        let invalidation = database.update(CompileRequest::new(new_program));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.description.as_str())
-            .collect::<Vec<_>>();
-
-        let old_module_path = format!("module_path({old_module_id:?})");
-        let old_checked_module = format!("checked_module::CheckedModuleQuery({old_module_id:?})");
-        assert!(
-            invalidated.contains(&old_module_path.as_str()),
-            "{invalidated:?}"
-        );
-        assert!(
-            invalidated.contains(&old_checked_module.as_str()),
-            "{invalidated:?}"
-        );
-        assert!(
-            !invalidated.contains(&"loaded_modules::LoadedModulesQuery"),
-            "{invalidated:?}"
-        );
+        database.update(CompileRequest::new(new_program));
         let latest_loaded = database.db.get(LoadedModulesQuery);
         assert!(Arc::ptr_eq(&first_loaded, &latest_loaded));
         assert_eq!(
@@ -2986,29 +2435,7 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn same_module_id_with_new_source_identity_is_replacement() {
-        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
-        let module_id = fixture.entry_id();
-        let old = CompilerInputs::new(CompileRequest::new(fixture.program()));
-        fixture.update_module_path(module_id, "other.nia");
-        let new = CompilerInputs::new(CompileRequest::new(fixture.program()));
-
-        let diff = CompilerInputDiff::between(&old, &new);
-
-        assert!(diff.loaded_modules_changed);
-        assert_eq!(diff.changed_modules.len(), 2);
-        assert!(diff.changed_modules.iter().all(|module| {
-            module.ids == vec![module_id]
-                && module.path
-                && module.source_identity
-                && module.source_version
-                && module.item_tree
-                && module.full_item_tree
-        }));
-    }
-
-    #[test]
-    fn compiler_database_update_invalidates_changed_module_field_inputs() {
+    fn tracked_loader_update_refreshes_changed_module_field_inputs() {
         let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let module_id = fixture.entry_id();
         let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
@@ -3018,26 +2445,7 @@ pub fn expensive_or_invalid() i32 {
         let first_source_version = database.db.get(ModuleSourceVersionQuery(module_id));
 
         fixture.update_module_source(module_id, "fn main() i32 { true }", SourceRevision(1));
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-
-        assert!(
-            invalidated.contains(&"module_source_version"),
-            "{invalidated:?}"
-        );
-        assert!(
-            invalidated.contains(&"module_item_tree_input"),
-            "{invalidated:?}"
-        );
-        assert!(
-            invalidated.contains(&"full_module_item_tree_input"),
-            "{invalidated:?}"
-        );
-        assert!(invalidated.contains(&"checked_program"), "{invalidated:?}");
+        database.update(CompileRequest::new(fixture.program()));
         let latest_source_version = database.db.get(ModuleSourceVersionQuery(module_id));
         assert!(!Arc::ptr_eq(&first_source_version, &latest_source_version));
         assert_eq!(latest_source_version.revision, SourceRevision(1));
@@ -3070,15 +2478,9 @@ pub fn expensive_or_invalid() i32 {
         fixture.modules[0] =
             loaded_module_with_source_version(module_id, "main.nia", source, replacement);
 
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
+        database.update(CompileRequest::new(fixture.program()));
         let latest = database.db.get(ModuleSourceVersionQuery(module_id));
 
-        assert!(
-            invalidation
-                .invalidated
-                .iter()
-                .any(|frame| frame.name == "module_source_version")
-        );
         assert!(!Arc::ptr_eq(&first, &latest));
         assert_eq!(*latest, replacement);
     }
@@ -3115,7 +2517,7 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn provider_graph_growth_keeps_executable_roots_cached() {
+    fn provider_graph_growth_recomputes_query_derived_executable_roots() {
         let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let entry_id = fixture.entry_id();
         let provider_id = fixture.add_shallow_child(
@@ -3136,22 +2538,17 @@ pub fn expensive_or_invalid() i32 {
         let mut graph = (*grown.graph).clone();
         assert!(graph.mark_semantic_selected(provider_id));
         grown.graph = graph.into();
-        let invalidation = database.update(CompileRequest::new(grown));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-
-        assert!(invalidated.contains(&"module_graph"), "{invalidated:?}");
-        assert!(!invalidated.contains(&"type_resolution"), "{invalidated:?}");
-        assert!(
-            !invalidated.contains(&"executable_root_modules"),
-            "{invalidated:?}"
-        );
+        let before_update = database.query_trace();
+        database.update(CompileRequest::new(grown));
         assert_eq!(
             database.db.get(ExecutableRootModulesQuery).as_ref(),
             &(entry_id, Vec::new())
+        );
+        let after_update = database.query_trace();
+        assert_query_executions_unchanged(&before_update, &after_update, "type_resolution");
+        assert!(
+            query_executions(&before_update, "executable_root_modules")
+                < query_executions(&after_update, "executable_root_modules")
         );
     }
 
@@ -3322,7 +2719,6 @@ pub fn expensive_or_invalid() i32 {
         assert_eq!(std::mem::size_of::<ProviderFactWorklistQuery>(), 0);
         assert_eq!(std::mem::size_of::<BodyActivationWorklistQuery>(), 0);
         assert_eq!(std::mem::size_of::<ExecutableFactEpochQuery>(), 0);
-        assert_eq!(std::mem::size_of::<ExecutableFactEpoch>(), 8);
 
         let _ = database.executable_provider_demands();
         let _ = database.db.get(ExecutableCheckedModuleSetQuery);
@@ -3349,7 +2745,7 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn compiler_input_fact_fingerprints_are_deterministic_and_order_independent() {
+    fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
         let revision = crate::ProviderFactRevision::new_store().next();
         let method = crate::ProviderDemand {
             source_path: SourcePath::new("main.nia"),
@@ -3379,40 +2775,13 @@ pub fn expensive_or_invalid() i32 {
             provider_fact_worklist_fingerprint(&first_provider),
             provider_fact_worklist_fingerprint(&second_provider)
         );
-
-        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
-        let entry = fixture.entry_id();
-        let stable_key = fixture
-            .graph
-            .stable_key(entry)
-            .expect("entry stable key")
-            .clone();
-        let first_body = BodyActivationWorklist {
-            modules: Arc::new(HashMap::from([(stable_key.clone(), entry)])),
-        };
-        let mut second_modules = HashMap::new();
-        second_modules.insert(stable_key, entry);
-        let second_body = BodyActivationWorklist {
-            modules: Arc::new(second_modules),
-        };
-        assert_eq!(
-            body_activation_worklist_fingerprint(&first_body),
-            body_activation_worklist_fingerprint(&second_body)
-        );
-        assert_eq!(
-            executable_fact_epoch_fingerprint(ExecutableFactEpoch::default()),
-            executable_fact_epoch_fingerprint(ExecutableFactEpoch::default())
-        );
-        assert_ne!(
-            executable_fact_epoch_fingerprint(ExecutableFactEpoch::default()),
-            executable_fact_epoch_fingerprint(ExecutableFactEpoch::default().next())
-        );
     }
 
     #[test]
     fn executable_fact_epoch_defers_full_reset_to_query_boundary() {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let database = fixture.database();
+        let first_epoch = database.db.get(ExecutableFactEpochQuery);
         let _ = database.db.get(ExecutableCheckedModuleSetQuery);
         let _ = database.executable_provider_demands();
         let sentinel = crate::ProviderDemand {
@@ -3429,25 +2798,13 @@ pub fn expensive_or_invalid() i32 {
                 .executable_fact_session
                 .lock()
                 .expect("executable fact session lock poisoned");
-            assert_eq!(session.epoch, Some(ExecutableFactEpoch::default()));
+            assert_eq!(session.epoch.as_ref(), Some(first_epoch.as_ref()));
             session.applied_provider_changes.insert(sentinel.clone());
         }
 
         let mut reset = fixture.program();
         reset.runtime = RuntimeModel::FreestandingExecutable;
-        let invalidation = database.update(CompileRequest::new(reset));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-        for name in [
-            "executable_fact_epoch",
-            "executable_provider_demands",
-            "executable_checked_module_set",
-        ] {
-            assert!(invalidated.contains(&name), "{invalidated:?}");
-        }
+        database.update(CompileRequest::new(reset));
         {
             let session = database
                 .db
@@ -3455,18 +2812,20 @@ pub fn expensive_or_invalid() i32 {
                 .executable_fact_session
                 .lock()
                 .expect("executable fact session lock poisoned");
-            assert_eq!(session.epoch, Some(ExecutableFactEpoch::default()));
+            assert_eq!(session.epoch.as_ref(), Some(first_epoch.as_ref()));
             assert!(session.applied_provider_changes.contains(&sentinel));
         }
 
         let _ = database.executable_provider_demands();
+        let latest_epoch = database.db.get(ExecutableFactEpochQuery);
         let session = database
             .db
             .context()
             .executable_fact_session
             .lock()
             .expect("executable fact session lock poisoned");
-        assert_eq!(session.epoch, Some(ExecutableFactEpoch::default().next()));
+        assert_ne!(first_epoch.as_ref(), latest_epoch.as_ref());
+        assert_eq!(session.epoch.as_ref(), Some(latest_epoch.as_ref()));
         assert!(!session.applied_provider_changes.contains(&sentinel));
     }
 
@@ -3603,25 +2962,21 @@ pub fn expensive_or_invalid() i32 {
         let _ = database.executable_provider_demands();
 
         assert!(fixture.graph.mark_process_used_paths(first_module));
-        let first_invalidation = database.update(CompileRequest::new(fixture.program()));
-        assert!(
-            first_invalidation
-                .invalidated
-                .iter()
-                .any(|frame| frame.name == "body_activation_worklist")
-        );
-        assert!(
-            first_invalidation
-                .invalidated
-                .iter()
-                .any(|frame| frame.name == "executable_provider_demands")
-        );
+        database.update(CompileRequest::new(fixture.program()));
 
         assert!(fixture.graph.mark_process_used_paths(second_module));
         database.update(CompileRequest::new(fixture.program()));
 
         let worklist = database.db.get(BodyActivationWorklistQuery);
         let expected = HashMap::from([
+            (
+                fixture
+                    .graph
+                    .stable_key(entry_id)
+                    .expect("entry stable key")
+                    .clone(),
+                entry_id,
+            ),
             (
                 fixture
                     .graph
@@ -3699,7 +3054,7 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn compiler_input_diff_classifies_provider_fact_resets() {
+    fn compiler_input_update_accepts_reset_and_rejects_replacement() {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let revision = crate::ProviderFactRevision::new_store();
         let old = CompilerInputs::new(
@@ -3713,8 +3068,11 @@ pub fn expensive_or_invalid() i32 {
                 .with_provider_fact_revision(crate::ProviderFactRevision::new_store()),
         );
 
-        assert!(CompilerInputDiff::between(&old, &cleared).provider_facts_reset);
-        assert!(CompilerInputDiff::between(&old, &replaced).provider_facts_reset);
+        validate_provider_fact_update(&old, &cleared).unwrap();
+        assert_eq!(
+            validate_provider_fact_update(&old, &replaced),
+            Err(ProviderFactInputError::ReplacementOwner)
+        );
     }
 
     #[test]
@@ -3745,8 +3103,20 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    #[should_panic(expected = "provider fact owner replacement cannot carry provider changes")]
-    fn compiler_input_diff_rejects_provider_changes_from_replacement_owner() {
+    fn compiler_update_rejects_untracked_snapshot_provider() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let database = super::CompilerDatabase::new(CompileRequest::new(fixture.program()));
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            database.update(CompileRequest::new(fixture.program()));
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "provider fact owner cannot change within a compiler session")]
+    fn compiler_input_update_rejects_provider_changes_from_replacement_owner() {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let old = CompilerInputs::new(
             CompileRequest::new(fixture.program())
@@ -3765,12 +3135,14 @@ pub fn expensive_or_invalid() i32 {
                 .with_provider_changes([demand]),
         );
 
-        let _ = CompilerInputDiff::between(&old, &new);
+        if let Err(error) = validate_provider_fact_update(&old, &new) {
+            panic!("Nia ICE: {error}");
+        }
     }
 
     #[test]
     #[should_panic(expected = "provider fact revision cannot move backwards")]
-    fn compiler_input_diff_rejects_stale_provider_fact_revision() {
+    fn compiler_input_update_rejects_stale_provider_fact_revision() {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let revision = crate::ProviderFactRevision::new_store();
         let old = CompilerInputs::new(
@@ -3780,7 +3152,9 @@ pub fn expensive_or_invalid() i32 {
             CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
         );
 
-        let _ = CompilerInputDiff::between(&old, &new);
+        if let Err(error) = validate_provider_fact_update(&old, &new) {
+            panic!("Nia ICE: {error}");
+        }
     }
 
     #[test]
@@ -3968,36 +3342,7 @@ pub fn expensive_or_invalid() i32 {
         );
 
         fixture.update_module_source(module_id, source, SourceRevision(1));
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-
-        assert!(
-            invalidated.contains(&"module_source_version"),
-            "{invalidated:?}"
-        );
-        assert!(
-            invalidated.contains(&"full_module_item_tree_input"),
-            "{invalidated:?}"
-        );
-        assert!(invalidated.contains(&"body_check"), "{invalidated:?}");
-        assert!(
-            invalidated.contains(&"module_item_tree_input"),
-            "{invalidated:?}"
-        );
-        assert!(invalidated.contains(&"module_defs"), "{invalidated:?}");
-        assert!(
-            invalidated.contains(&"declaration_type_lowering"),
-            "{invalidated:?}"
-        );
-        assert!(invalidated.contains(&"item_signatures"), "{invalidated:?}");
-        assert!(
-            invalidated.contains(&"signature_type_lowering"),
-            "{invalidated:?}"
-        );
+        database.update(CompileRequest::new(fixture.program()));
         let before_second_check = database.query_trace();
 
         let second = database.check_program();
@@ -4258,28 +3603,7 @@ fn main() i32 {
             "pub struct S { value: i32 } fn main() i32 { 1 }",
             SourceRevision(1),
         );
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-
-        assert!(
-            invalidated.contains(&"full_module_item_tree_input"),
-            "{invalidated:?}"
-        );
-        assert!(
-            invalidated.contains(&"module_item_tree_input"),
-            "{invalidated:?}"
-        );
-        assert!(invalidated.contains(&"body_check"), "{invalidated:?}");
-        assert!(!invalidated.contains(&"loaded_modules"), "{invalidated:?}");
-        assert!(invalidated.contains(&"public_surfaces"), "{invalidated:?}");
-        assert!(
-            invalidated.contains(&"public_using_scopes"),
-            "{invalidated:?}"
-        );
+        database.update(CompileRequest::new(fixture.program()));
 
         let second = database.check_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
@@ -4304,32 +3628,7 @@ fn main() i32 {
             "pub struct S { value: i32 } fn main() i32 { let value: u8 = 0; value as i32 }",
             SourceRevision(1),
         );
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-
-        assert!(
-            invalidated.contains(&"full_module_item_tree_input"),
-            "{invalidated:?}"
-        );
-        assert!(invalidated.contains(&"type_lowering"), "{invalidated:?}");
-        assert!(invalidated.contains(&"body_check"), "{invalidated:?}");
-        assert!(
-            invalidated.contains(&"declaration_type_lowering"),
-            "{invalidated:?}"
-        );
-        assert!(invalidated.contains(&"item_signatures"), "{invalidated:?}");
-        assert!(
-            !invalidated.iter().any(|name| is_body_signature_query(name)),
-            "{invalidated:?}"
-        );
-        assert!(
-            !invalidated.contains(&"extension_methods"),
-            "{invalidated:?}"
-        );
+        database.update(CompileRequest::new(fixture.program()));
 
         let second = database.check_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
@@ -4352,18 +3651,7 @@ fn main() i32 {
             "pub struct S { value: i32 } fn main() i32 { let value: u8 = 0; value as i32 }",
             SourceRevision(1),
         );
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-
-        assert!(invalidated.contains(&"type_lowering"), "{invalidated:?}");
-        assert!(
-            !invalidated.iter().any(|name| is_body_signature_query(name)),
-            "{invalidated:?}"
-        );
+        database.update(CompileRequest::new(fixture.program()));
         let before_second_check = database.query_trace();
 
         let second = database.check_program();
@@ -4394,35 +3682,7 @@ fn main() i32 {
             "pub struct S { value: i32 } fn helper() u8 { 1 } fn main() i32 { helper() as i32 }",
             SourceRevision(1),
         );
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-
-        assert!(
-            invalidated.contains(&"declaration_module_item_tree_input"),
-            "{invalidated:?}"
-        );
-        assert!(
-            invalidated.contains(&"declaration_type_lowering"),
-            "{invalidated:?}"
-        );
-        assert!(
-            !invalidated.contains(&"extension_methods"),
-            "{invalidated:?}"
-        );
-        assert!(
-            invalidated.contains(&"module_item_tree_input"),
-            "{invalidated:?}"
-        );
-        assert!(invalidated.contains(&"module_defs"), "{invalidated:?}");
-        assert!(invalidated.contains(&"public_surfaces"), "{invalidated:?}");
-        assert!(
-            invalidated.contains(&"public_using_scopes"),
-            "{invalidated:?}"
-        );
+        database.update(CompileRequest::new(fixture.program()));
     }
 
     #[test]
@@ -4441,18 +3701,7 @@ fn main() i32 {
             "fn main() i32 { let value: u8 = 0; value as i32 }",
             SourceRevision(1),
         );
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-
-        assert!(invalidated.contains(&"type_lowering"), "{invalidated:?}");
-        assert!(
-            invalidated.contains(&"declaration_type_lowering"),
-            "{invalidated:?}"
-        );
+        database.update(CompileRequest::new(fixture.program()));
         let before_second_check = database.query_trace();
 
         let second = database.check_program();
@@ -4478,21 +3727,7 @@ fn main() i32 {
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
         fixture.update_module_path(module_id, "renamed.nia");
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-
-        assert!(invalidated.contains(&"loaded_modules"), "{invalidated:?}");
-        assert!(invalidated.contains(&"checked_module"), "{invalidated:?}");
-        assert!(invalidated.contains(&"public_surfaces"), "{invalidated:?}");
-        assert!(
-            invalidated.contains(&"public_using_scopes"),
-            "{invalidated:?}"
-        );
-        assert!(invalidated.contains(&"module_path"), "{invalidated:?}");
+        database.update(CompileRequest::new(fixture.program()));
 
         let second = database.check_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
@@ -4507,15 +3742,16 @@ fn main() i32 {
         let _ = database.check_program();
 
         fixture.update_module_path(module_id, "other.nia");
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-
-        assert!(invalidated.contains(&"loaded_modules"), "{invalidated:?}");
-        assert!(invalidated.contains(&"module_path"), "{invalidated:?}");
+        database.update(CompileRequest::new(fixture.program()));
+        let loaded = database.db.get(LoadedModulesQuery);
+        assert_eq!(
+            resolve_stable_module_sequence(&database.db, &loaded),
+            vec![module_id]
+        );
+        assert_eq!(
+            database.db.get(ModulePathQuery(module_id)).as_str(),
+            "other.nia"
+        );
     }
 
     #[test]
@@ -5220,16 +4456,7 @@ extend Value : Ops {
         );
 
         fixture.update_module_source(module_id, source, SourceRevision(1));
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-        assert!(
-            invalidated.contains(&"executable_value_ref_item"),
-            "{invalidated:?}"
-        );
+        database.update(CompileRequest::new(fixture.program()));
 
         let latest = database.db.get(ExecutableValueRefItemQuery(owner));
         assert!(!Arc::ptr_eq(&first, &latest));
@@ -5500,21 +4727,7 @@ extend Value : Ops {
             "struct S { value: i32 } extend S { pub fn make(value: i32) S { let next = value; { value: next } } }",
             SourceRevision(1),
         );
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-
-        assert!(
-            invalidated.contains(&"extension_provider_module_facts"),
-            "{invalidated:?}"
-        );
-        assert!(
-            !invalidated.contains(&"extension_provider_summary"),
-            "{invalidated:?}"
-        );
+        database.update(CompileRequest::new(fixture.program()));
         let before_second_query = database.query_trace();
 
         let _ = database.db.get(ExtensionMethodIndexQuery);
@@ -5550,14 +4763,7 @@ extend Value : Ops {
             "struct S {} extend S { pub fn first() i32 { 1 } pub fn second() i32 { 2 } }",
             SourceRevision(1),
         );
-        let invalidation = database.update(CompileRequest::new(fixture.program()));
-        let invalidated = invalidation
-            .invalidated
-            .iter()
-            .map(|frame| frame.name)
-            .collect::<Vec<_>>();
-        assert!(invalidated.contains(&"extension_provider_summary"));
-        assert!(invalidated.contains(&"extension_provider_module_eligibility"));
+        database.update(CompileRequest::new(fixture.program()));
 
         let second = database
             .db

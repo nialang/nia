@@ -44,8 +44,9 @@ pub enum ActiveModuleItemTreeFactKind {
 }
 
 pub trait LoaderFactProvider: Send + Sync {
-    fn loaded_program(&self) -> LoadedProgram;
+    fn query_session(&self) -> Option<nia_query::QuerySession>;
     fn provider_fact_revision(&self) -> ProviderFactRevision;
+    fn node_store(&self) -> nia_node_id::NodeStore;
     fn module_graph(&self) -> ModuleGraphSnapshot;
     fn loaded_module_source_identities(&self) -> Vec<SourceIdentity>;
     fn module_path(&self, module_id: ModuleId) -> Option<SourcePath>;
@@ -77,12 +78,19 @@ pub struct LoadedProgram {
 }
 
 impl LoaderFactProvider for LoadedProgram {
-    fn loaded_program(&self) -> LoadedProgram {
-        self.clone()
+    fn query_session(&self) -> Option<nia_query::QuerySession> {
+        None
     }
 
     fn provider_fact_revision(&self) -> ProviderFactRevision {
         self.provider_fact_revision
+    }
+
+    fn node_store(&self) -> nia_node_id::NodeStore {
+        self.modules
+            .first()
+            .map(|module| module.origins.node_store().clone())
+            .unwrap_or_default()
     }
 
     fn module_graph(&self) -> ModuleGraphSnapshot {
