@@ -240,7 +240,22 @@ impl QueryKey<CompilerContext> for ProviderFactRevisionQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().provider_fact_revision()
+        db.get(ProviderFactWorklistQuery).revision
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProviderFactWorklistQuery;
+
+impl QueryKey<CompilerContext> for ProviderFactWorklistQuery {
+    type Value = ProviderFactWorklist;
+
+    fn name() -> &'static str {
+        "provider_fact_worklist"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().provider_fact_worklist()
     }
 }
 
