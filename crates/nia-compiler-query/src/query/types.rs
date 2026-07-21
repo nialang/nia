@@ -101,6 +101,8 @@ pub(super) struct SignatureItemTreeQuery(
 impl QueryKey<CompilerContext> for SignatureItemTreeQuery {
     type Value = ActiveModuleItemTree;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "signature_item_tree"
     }
@@ -111,6 +113,10 @@ impl QueryKey<CompilerContext> for SignatureItemTreeQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.context().signature_item_tree(db, self.0, self.1)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -208,6 +214,8 @@ pub(super) struct SignatureConstItemTreeQuery(pub(super) ModuleId);
 impl QueryKey<CompilerContext> for SignatureConstItemTreeQuery {
     type Value = ActiveModuleItemTree;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "signature_const_item_tree"
     }
@@ -218,6 +226,10 @@ impl QueryKey<CompilerContext> for SignatureConstItemTreeQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.context().signature_const_item_tree(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 

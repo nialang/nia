@@ -36,6 +36,13 @@ pub use nia_backend_lower::BackendOptimizationChange;
 pub use nia_timing::TimingMode;
 pub use query::{CompileRequest, CompilerDatabase};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ActiveModuleItemTreeFactKind {
+    Signature(nia_item_tree::SignatureItemSet),
+    ConstSignature,
+    Full,
+}
+
 pub trait LoaderFactProvider: Send + Sync {
     fn loaded_program(&self) -> LoadedProgram;
     fn provider_fact_revision(&self) -> ProviderFactRevision;
@@ -44,6 +51,14 @@ pub trait LoaderFactProvider: Send + Sync {
     fn module_path(&self, module_id: ModuleId) -> Option<SourcePath>;
     fn module_source_version(&self, module_id: ModuleId) -> Option<SourceVersion>;
     fn module_provider_summary(&self, module_id: ModuleId) -> Option<ProviderSummary>;
+    fn module_origins(&self, module_id: ModuleId) -> Option<NodeOriginTable>;
+    fn module_parse_errors(&self, module_id: ModuleId) -> Option<Vec<ParseError>>;
+    fn module_item_tree(&self, module_id: ModuleId) -> Option<ModuleItemTree>;
+    fn active_module_item_tree(
+        &self,
+        module_id: ModuleId,
+        kind: ActiveModuleItemTreeFactKind,
+    ) -> Option<ActiveModuleItemTree>;
     fn load_diagnostics(&self) -> Vec<ProgramDiagnostic>;
     fn symbols(&self) -> SymbolTable;
     fn target(&self) -> TargetConfig;
@@ -100,6 +115,44 @@ impl LoaderFactProvider for LoadedProgram {
             .iter()
             .find(|module| module.id == module_id)
             .map(|module| module.provider_summary.clone())
+    }
+
+    fn module_origins(&self, module_id: ModuleId) -> Option<NodeOriginTable> {
+        self.modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .map(|module| module.origins.clone())
+    }
+
+    fn module_parse_errors(&self, module_id: ModuleId) -> Option<Vec<ParseError>> {
+        self.modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .map(|module| module.parse_errors.clone())
+    }
+
+    fn module_item_tree(&self, module_id: ModuleId) -> Option<ModuleItemTree> {
+        self.modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .map(|module| module.item_tree.clone())
+    }
+
+    fn active_module_item_tree(
+        &self,
+        module_id: ModuleId,
+        kind: ActiveModuleItemTreeFactKind,
+    ) -> Option<ActiveModuleItemTree> {
+        let tree = &self
+            .modules
+            .iter()
+            .find(|module| module.id == module_id)?
+            .active_item_tree;
+        Some(match kind {
+            ActiveModuleItemTreeFactKind::Signature(set) => tree.signature_items(set),
+            ActiveModuleItemTreeFactKind::ConstSignature => tree.const_signature_items(),
+            ActiveModuleItemTreeFactKind::Full => tree.clone(),
+        })
     }
 
     fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {

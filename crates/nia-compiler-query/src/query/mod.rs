@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
-    CheckedModule, CheckedProgram, CodegenProgram, LoadedModule, LoadedProgram, ProgramDiagnostic,
-    RuntimeModel, TimingMode, module_diagnostics,
+    ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CodegenProgram, LoadedModule,
+    LoadedProgram, ProgramDiagnostic, RuntimeModel, TimingMode, module_diagnostics,
 };
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_const_check::{ConstCheck, ConstModuleLowering};
@@ -1518,23 +1518,6 @@ impl CompilerContext {
         store.sets.clear();
     }
 
-    fn module_field<T, K>(
-        &self,
-        db: &QueryDb<CompilerContext>,
-        key: &K,
-        module_id: ModuleId,
-        field: impl FnOnce(&CompilerInputModule) -> T,
-    ) -> T
-    where
-        K: QueryKey<CompilerContext>,
-    {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        let Some(module) = inputs.loaded_module(module_id) else {
-            db.invalid_input(key, format!("missing loaded module {module_id:?}"));
-        };
-        field(module)
-    }
-
     fn loaded_modules(&self) -> Vec<ModuleId> {
         self.inputs
             .read()
@@ -1628,9 +1611,14 @@ impl CompilerContext {
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
     ) -> NodeOriginTable {
-        self.module_field(db, &ModuleOriginsQuery(module_id), module_id, |module| {
-            module.origins.clone()
-        })
+        self.loader_facts()
+            .module_origins(module_id)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &ModuleOriginsQuery(module_id),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
     }
 
     fn module_parse_errors(
@@ -1638,64 +1626,104 @@ impl CompilerContext {
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
     ) -> Vec<ParseError> {
-        self.module_field(
-            db,
-            &ModuleParseErrorsQuery(module_id),
-            module_id,
-            |module| module.parse_errors.clone(),
-        )
+        self.loader_facts()
+            .module_parse_errors(module_id)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &ModuleParseErrorsQuery(module_id),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
     }
 
     fn module_item_tree(
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> Arc<ModuleItemTree> {
-        self.module_field(
-            db,
-            &ModuleItemTreeInputQuery(module_id),
-            module_id,
-            |module| Arc::clone(&module.item_tree),
-        )
+    ) -> ModuleItemTree {
+        self.loader_facts()
+            .module_item_tree(module_id)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &ModuleItemTreeInputQuery(module_id),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
     }
 
     fn declaration_module_item_tree(
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> Arc<ModuleItemTree> {
-        self.module_field(
-            db,
-            &DeclarationModuleItemTreeInputQuery(module_id),
-            module_id,
-            |module| Arc::clone(&module.item_tree),
-        )
+    ) -> ModuleItemTree {
+        self.loader_facts()
+            .module_item_tree(module_id)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &DeclarationModuleItemTreeInputQuery(module_id),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
+    }
+
+    fn full_module_item_tree(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+    ) -> ModuleItemTree {
+        self.loader_facts()
+            .module_item_tree(module_id)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &FullModuleItemTreeInputQuery(module_id),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
     }
 
     fn active_module_item_tree(
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> Arc<ActiveModuleItemTree> {
-        self.module_field(
-            db,
-            &ActiveModuleItemTreeInputQuery(module_id),
-            module_id,
-            |module| Arc::clone(&module.active_item_tree),
-        )
+    ) -> ActiveModuleItemTree {
+        self.loader_facts()
+            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &ActiveModuleItemTreeInputQuery(module_id),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
     }
 
     fn declaration_active_module_item_tree(
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> Arc<ActiveModuleItemTree> {
-        self.module_field(
-            db,
-            &DeclarationActiveModuleItemTreeInputQuery(module_id),
-            module_id,
-            |module| Arc::clone(&module.active_item_tree),
-        )
+    ) -> ActiveModuleItemTree {
+        self.loader_facts()
+            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &DeclarationActiveModuleItemTreeInputQuery(module_id),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
+    }
+
+    fn full_active_module_item_tree(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+    ) -> ActiveModuleItemTree {
+        self.loader_facts()
+            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &FullActiveModuleItemTreeInputQuery(module_id),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
     }
 
     fn signature_item_tree(
@@ -1704,12 +1732,14 @@ impl CompilerContext {
         module_id: ModuleId,
         set: nia_item_tree::SignatureItemSet,
     ) -> ActiveModuleItemTree {
-        self.module_field(
-            db,
-            &SignatureItemTreeQuery(module_id, set),
-            module_id,
-            |module| module.active_item_tree.signature_items(set),
-        )
+        self.loader_facts()
+            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Signature(set))
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &SignatureItemTreeQuery(module_id, set),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
     }
 
     fn signature_const_item_tree(
@@ -1717,12 +1747,14 @@ impl CompilerContext {
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
     ) -> ActiveModuleItemTree {
-        self.module_field(
-            db,
-            &SignatureConstItemTreeQuery(module_id),
-            module_id,
-            |module| module.active_item_tree.const_signature_items(),
-        )
+        self.loader_facts()
+            .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::ConstSignature)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    &SignatureConstItemTreeQuery(module_id),
+                    format!("missing loaded module {module_id:?}"),
+                )
+            })
     }
 
     fn module_provider_summary(
@@ -2538,60 +2570,71 @@ impl ChangedModuleInput {
         }
 
         let changed = match (old, new) {
-            (Some(old), Some(new)) if old.id == new.id => Self {
-                ids,
-                path: old.path != new.path,
-                source_identity: old.source_identity != new.source_identity,
-                source_version: old.source_version != new.source_version,
-                origins: old.origins != new.origins,
-                parse_errors: old.parse_errors != new.parse_errors,
-                item_tree: !old.item_tree.definition_eq(&new.item_tree),
-                declaration_item_tree: !old.item_tree.declaration_eq(&new.item_tree),
-                full_item_tree: old.item_tree != new.item_tree,
-                active_item_tree: !old.active_item_tree.definition_eq(&new.active_item_tree),
-                declaration_active_item_tree: !old
-                    .active_item_tree
-                    .declaration_eq(&new.active_item_tree),
-                signature_function_items: !old
-                    .active_item_tree
-                    .signature_items(nia_item_tree::SignatureItemSet::Functions)
-                    .declaration_eq(
-                        &new.active_item_tree
-                            .signature_items(nia_item_tree::SignatureItemSet::Functions),
-                    ),
-                signature_extension_function_items: !old
-                    .active_item_tree
-                    .signature_items(nia_item_tree::SignatureItemSet::ExtensionFunctions)
-                    .declaration_eq(
-                        &new.active_item_tree
-                            .signature_items(nia_item_tree::SignatureItemSet::ExtensionFunctions),
-                    ),
-                signature_value_items: !old
-                    .active_item_tree
-                    .signature_items(nia_item_tree::SignatureItemSet::Values)
-                    .declaration_eq(
-                        &new.active_item_tree
-                            .signature_items(nia_item_tree::SignatureItemSet::Values),
-                    ),
-                signature_type_items: !old
-                    .active_item_tree
-                    .signature_items(nia_item_tree::SignatureItemSet::Types)
-                    .declaration_eq(
-                        &new.active_item_tree
-                            .signature_items(nia_item_tree::SignatureItemSet::Types),
-                    ),
-                provider_summary: old.provider_summary != new.provider_summary,
-                signature_trait_items: !old
-                    .active_item_tree
-                    .signature_items(nia_item_tree::SignatureItemSet::Traits)
-                    .declaration_eq(
-                        &new.active_item_tree
-                            .signature_items(nia_item_tree::SignatureItemSet::Traits),
-                    ),
-                signature_const_items: old.active_item_tree.const_signature_items()
-                    != new.active_item_tree.const_signature_items(),
-                full_active_item_tree: old.active_item_tree != new.active_item_tree,
-            },
+            (Some(old), Some(new)) if old.id == new.id => {
+                let source_revision_changed = old.source_version != new.source_version;
+                Self {
+                    ids,
+                    path: old.path != new.path,
+                    source_identity: old.source_identity != new.source_identity,
+                    source_version: source_revision_changed,
+                    origins: source_revision_changed || old.origins != new.origins,
+                    parse_errors: old.parse_errors != new.parse_errors,
+                    item_tree: source_revision_changed
+                        || !old.item_tree.definition_eq(&new.item_tree),
+                    declaration_item_tree: source_revision_changed
+                        || !old.item_tree.declaration_eq(&new.item_tree),
+                    full_item_tree: source_revision_changed || old.item_tree != new.item_tree,
+                    active_item_tree: source_revision_changed
+                        || !old.active_item_tree.definition_eq(&new.active_item_tree),
+                    declaration_active_item_tree: source_revision_changed
+                        || !old.active_item_tree.declaration_eq(&new.active_item_tree),
+                    signature_function_items: source_revision_changed
+                        || !old
+                            .active_item_tree
+                            .signature_items(nia_item_tree::SignatureItemSet::Functions)
+                            .declaration_eq(
+                                &new.active_item_tree
+                                    .signature_items(nia_item_tree::SignatureItemSet::Functions),
+                            ),
+                    signature_extension_function_items: source_revision_changed
+                        || !old
+                            .active_item_tree
+                            .signature_items(nia_item_tree::SignatureItemSet::ExtensionFunctions)
+                            .declaration_eq(&new.active_item_tree.signature_items(
+                                nia_item_tree::SignatureItemSet::ExtensionFunctions,
+                            )),
+                    signature_value_items: source_revision_changed
+                        || !old
+                            .active_item_tree
+                            .signature_items(nia_item_tree::SignatureItemSet::Values)
+                            .declaration_eq(
+                                &new.active_item_tree
+                                    .signature_items(nia_item_tree::SignatureItemSet::Values),
+                            ),
+                    signature_type_items: source_revision_changed
+                        || !old
+                            .active_item_tree
+                            .signature_items(nia_item_tree::SignatureItemSet::Types)
+                            .declaration_eq(
+                                &new.active_item_tree
+                                    .signature_items(nia_item_tree::SignatureItemSet::Types),
+                            ),
+                    provider_summary: old.provider_summary != new.provider_summary,
+                    signature_trait_items: source_revision_changed
+                        || !old
+                            .active_item_tree
+                            .signature_items(nia_item_tree::SignatureItemSet::Traits)
+                            .declaration_eq(
+                                &new.active_item_tree
+                                    .signature_items(nia_item_tree::SignatureItemSet::Traits),
+                            ),
+                    signature_const_items: source_revision_changed
+                        || old.active_item_tree.const_signature_items()
+                            != new.active_item_tree.const_signature_items(),
+                    full_active_item_tree: source_revision_changed
+                        || old.active_item_tree != new.active_item_tree,
+                }
+            }
             (Some(_), Some(_)) => Self::all_inputs_changed(ids),
             (Some(_), None) | (None, Some(_)) => Self {
                 ids,
@@ -3134,6 +3177,16 @@ mod tests {
                 | "public_surface_module"
                 | "semantic_module_ids"
                 | "using_scope_module" => nia_query::QueryFingerprintPolicy::StableValue,
+                "active_module_item_tree_input"
+                | "declaration_active_module_item_tree_input"
+                | "declaration_module_item_tree_input"
+                | "full_active_module_item_tree_input"
+                | "full_module_item_tree_input"
+                | "module_item_tree_input"
+                | "module_origins"
+                | "module_parse_errors"
+                | "signature_const_item_tree"
+                | "signature_item_tree" => nia_query::QueryFingerprintPolicy::SemanticValue,
                 _ => nia_query::QueryFingerprintPolicy::None,
             };
             assert_eq!(descriptor.fingerprint, expected, "{}", descriptor.name);
@@ -3545,7 +3598,7 @@ pub fn expensive_or_invalid() i32 {
             "{invalidated:?}"
         );
         assert!(
-            !invalidated.contains(&"module_item_tree_input"),
+            invalidated.contains(&"module_item_tree_input"),
             "{invalidated:?}"
         );
         assert!(
@@ -4457,7 +4510,7 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn revision_only_update_keeps_declaration_and_type_queries_cached() {
+    fn revision_only_update_refreshes_all_revision_bearing_products() {
         let source = "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }";
         let mut fixture = LoadedProgramFixture::new("main.nia", source);
         let module_id = fixture.entry_id();
@@ -4465,6 +4518,22 @@ pub fn expensive_or_invalid() i32 {
 
         let first = database.check_program();
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        let first_tree = database
+            .db
+            .get(DeclarationModuleItemTreeInputQuery(module_id));
+        let first_defs = database.db.get(ModuleDefsQuery(module_id));
+        assert!(
+            first_tree
+                .items
+                .iter()
+                .all(|item| item.node_key.revision == SourceRevision::INITIAL)
+        );
+        assert!(
+            first_defs
+                .def_nodes
+                .entries()
+                .all(|(key, _)| key.revision == SourceRevision::INITIAL)
+        );
 
         fixture.update_module_source(module_id, source, SourceRevision(1));
         let invalidation = database.update(CompileRequest::new(fixture.program()));
@@ -4484,35 +4553,50 @@ pub fn expensive_or_invalid() i32 {
         );
         assert!(invalidated.contains(&"body_check"), "{invalidated:?}");
         assert!(
-            !invalidated.contains(&"module_item_tree_input"),
+            invalidated.contains(&"module_item_tree_input"),
             "{invalidated:?}"
         );
+        assert!(invalidated.contains(&"module_defs"), "{invalidated:?}");
         assert!(
-            !invalidated.contains(&"declaration_type_lowering"),
+            invalidated.contains(&"declaration_type_lowering"),
             "{invalidated:?}"
         );
-        assert!(!invalidated.contains(&"item_signatures"), "{invalidated:?}");
+        assert!(invalidated.contains(&"item_signatures"), "{invalidated:?}");
         assert!(
-            !invalidated.iter().any(|name| is_body_signature_query(name)),
+            invalidated.contains(&"signature_type_lowering"),
             "{invalidated:?}"
         );
         let before_second_check = database.query_trace();
 
         let second = database.check_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        let latest_tree = database
+            .db
+            .get(DeclarationModuleItemTreeInputQuery(module_id));
+        let latest_defs = database.db.get(ModuleDefsQuery(module_id));
         let after_second_check = database.query_trace();
 
-        assert_eq!(
-            query_executions(&before_second_check, "declaration_type_lowering"),
-            query_executions(&after_second_check, "declaration_type_lowering"),
-        );
-        assert_eq!(
-            query_executions(&before_second_check, "item_signatures"),
-            query_executions(&after_second_check, "item_signatures"),
+        assert!(!Arc::ptr_eq(&first_tree, &latest_tree));
+        assert!(!Arc::ptr_eq(&first_defs, &latest_defs));
+        assert!(
+            latest_tree
+                .items
+                .iter()
+                .all(|item| item.node_key.revision == SourceRevision(1))
         );
         assert!(
-            query_cache_hits(&after_second_check, "item_signatures")
-                > query_cache_hits(&before_second_check, "item_signatures"),
+            latest_defs
+                .def_nodes
+                .entries()
+                .all(|(key, _)| key.revision == SourceRevision(1))
+        );
+        assert!(
+            query_executions(&before_second_check, "declaration_type_lowering")
+                < query_executions(&after_second_check, "declaration_type_lowering")
+        );
+        assert!(
+            query_executions(&before_second_check, "item_signatures")
+                < query_executions(&after_second_check, "item_signatures")
         );
     }
 
@@ -4725,7 +4809,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn function_body_update_keeps_public_surface_queries_cached() {
+    fn function_body_update_refreshes_handles_but_keeps_public_snapshots_green() {
         let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             "pub struct S { value: i32 } fn main() i32 { 0 }",
@@ -4753,7 +4837,7 @@ fn main() i32 {
             "{invalidated:?}"
         );
         assert!(
-            !invalidated.contains(&"module_item_tree_input"),
+            invalidated.contains(&"module_item_tree_input"),
             "{invalidated:?}"
         );
         assert!(invalidated.contains(&"body_check"), "{invalidated:?}");
@@ -4769,7 +4853,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn function_body_type_update_keeps_signature_queries_cached() {
+    fn function_body_type_update_refreshes_revision_bearing_signature_queries() {
         let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             "pub struct S { value: i32 } fn main() i32 { let value: i32 = 0; value }",
@@ -4799,10 +4883,10 @@ fn main() i32 {
         assert!(invalidated.contains(&"type_lowering"), "{invalidated:?}");
         assert!(invalidated.contains(&"body_check"), "{invalidated:?}");
         assert!(
-            !invalidated.contains(&"declaration_type_lowering"),
+            invalidated.contains(&"declaration_type_lowering"),
             "{invalidated:?}"
         );
-        assert!(!invalidated.contains(&"item_signatures"), "{invalidated:?}");
+        assert!(invalidated.contains(&"item_signatures"), "{invalidated:?}");
         assert!(
             !invalidated.iter().any(|name| is_body_signature_query(name)),
             "{invalidated:?}"
@@ -4859,7 +4943,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn function_signature_update_keeps_definition_queries_cached() {
+    fn function_signature_update_refreshes_revision_bearing_definition_queries() {
         let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             "pub struct S { value: i32 } fn helper() i32 { 1 } fn main() i32 { helper() }",
@@ -4895,10 +4979,10 @@ fn main() i32 {
             "{invalidated:?}"
         );
         assert!(
-            !invalidated.contains(&"module_item_tree_input"),
+            invalidated.contains(&"module_item_tree_input"),
             "{invalidated:?}"
         );
-        assert!(!invalidated.contains(&"module_defs"), "{invalidated:?}");
+        assert!(invalidated.contains(&"module_defs"), "{invalidated:?}");
         assert!(!invalidated.contains(&"public_surfaces"), "{invalidated:?}");
         assert!(
             !invalidated.contains(&"public_using_scopes"),
@@ -4907,7 +4991,7 @@ fn main() i32 {
     }
 
     #[test]
-    fn function_body_type_update_keeps_signature_program_type_context_cached() {
+    fn function_body_type_update_refreshes_signature_program_type_context() {
         let mut fixture =
             LoadedProgramFixture::new("main.nia", "fn main() i32 { let value: i32 = 0; value }");
         let entry_id = fixture.entry_id();
@@ -4931,7 +5015,7 @@ fn main() i32 {
 
         assert!(invalidated.contains(&"type_lowering"), "{invalidated:?}");
         assert!(
-            !invalidated.contains(&"declaration_type_lowering"),
+            invalidated.contains(&"declaration_type_lowering"),
             "{invalidated:?}"
         );
         let before_second_check = database.query_trace();
@@ -4940,9 +5024,9 @@ fn main() i32 {
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
         let after_second_check = database.query_trace();
 
-        assert_eq!(
-            query_executions(&before_second_check, "signature_type_normalization"),
-            query_executions(&after_second_check, "signature_type_normalization"),
+        assert!(
+            query_executions(&before_second_check, "signature_type_normalization")
+                < query_executions(&after_second_check, "signature_type_normalization")
         );
     }
 
@@ -5903,7 +5987,7 @@ extend Value : Ops {
     }
 
     #[test]
-    fn extension_provider_module_facts_are_cached_across_body_updates() {
+    fn extension_provider_module_facts_refresh_across_source_revisions() {
         let mut fixture = LoadedProgramFixture::new(
             "main.nia",
             "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } }",
@@ -5931,7 +6015,7 @@ extend Value : Ops {
             .collect::<Vec<_>>();
 
         assert!(
-            !invalidated.contains(&"extension_provider_module_facts"),
+            invalidated.contains(&"extension_provider_module_facts"),
             "{invalidated:?}"
         );
         assert!(
@@ -5948,10 +6032,9 @@ extend Value : Ops {
             &after_second_query,
             "extension_provider_summary",
         );
-        assert_query_executions_unchanged(
-            &before_second_query,
-            &after_second_query,
-            "extension_provider_module_facts",
+        assert!(
+            query_executions(&before_second_query, "extension_provider_module_facts")
+                < query_executions(&after_second_query, "extension_provider_module_facts")
         );
     }
 

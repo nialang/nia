@@ -3,7 +3,9 @@ use crate::graph::ModuleGraphQuery;
 use crate::provider_facts::ProviderDemandsQuery;
 use crate::used_paths::{ModuleDeclarations, UsedModulePath, collect_used_modules};
 use crate::{EntryRuntime, LoaderContext};
-use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel};
+use nia_compiler_query::{
+    ActiveModuleItemTreeFactKind, LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel,
+};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::resolve_module_declarations_from_active_item_tree_with_symbols;
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
@@ -278,6 +280,125 @@ pub(crate) struct ParsedModule {
     pub(crate) parse_errors: Vec<nia_parser::ParseError>,
     pub(crate) prune_diagnostics: Vec<Diagnostic>,
     pub(crate) read_diagnostic: Option<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ModuleItemTreeFactQuery(pub(crate) SourceId);
+
+impl QueryKey<LoaderContext> for ModuleItemTreeFactQuery {
+    type Value = ModuleItemTree;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "loader_module_item_tree_fact"
+    }
+
+    fn description(&self) -> String {
+        format!("loader_module_item_tree_fact({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        db.get(parsed_module_query_for_id(db, self.0))
+            .item_tree
+            .clone()
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ActiveModuleItemTreeFactQuery(
+    pub(crate) SourceId,
+    pub(crate) ActiveModuleItemTreeFactKind,
+);
+
+impl QueryKey<LoaderContext> for ActiveModuleItemTreeFactQuery {
+    type Value = ActiveModuleItemTree;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "loader_active_module_item_tree_fact"
+    }
+
+    fn description(&self) -> String {
+        format!(
+            "loader_active_module_item_tree_fact({:?}, {:?})",
+            self.0, self.1
+        )
+    }
+
+    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        let tree = &db
+            .get(parsed_module_query_for_id(db, self.0))
+            .active_item_tree;
+        match self.1 {
+            ActiveModuleItemTreeFactKind::Signature(set) => tree.signature_items(set),
+            ActiveModuleItemTreeFactKind::ConstSignature => tree.const_signature_items(),
+            ActiveModuleItemTreeFactKind::Full => tree.clone(),
+        }
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ModuleOriginsFactQuery(pub(crate) SourceId);
+
+impl QueryKey<LoaderContext> for ModuleOriginsFactQuery {
+    type Value = nia_node_id::NodeOriginTable;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "loader_module_origins_fact"
+    }
+
+    fn description(&self) -> String {
+        format!("loader_module_origins_fact({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        db.get(parsed_module_query_for_id(db, self.0))
+            .origins
+            .clone()
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ModuleParseErrorsFactQuery(pub(crate) SourceId);
+
+impl QueryKey<LoaderContext> for ModuleParseErrorsFactQuery {
+    type Value = Vec<nia_parser::ParseError>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "loader_module_parse_errors_fact"
+    }
+
+    fn description(&self) -> String {
+        format!("loader_module_parse_errors_fact({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        db.get(parsed_module_query_for_id(db, self.0))
+            .parse_errors
+            .clone()
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

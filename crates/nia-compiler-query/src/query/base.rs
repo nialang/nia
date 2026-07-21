@@ -505,6 +505,8 @@ pub(super) struct ModuleOriginsQuery(pub(super) ModuleId);
 impl QueryKey<CompilerContext> for ModuleOriginsQuery {
     type Value = NodeOriginTable;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "module_origins"
     }
@@ -516,6 +518,10 @@ impl QueryKey<CompilerContext> for ModuleOriginsQuery {
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.context().module_origins(db, self.0)
     }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -523,6 +529,8 @@ pub(super) struct ModuleParseErrorsQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ModuleParseErrorsQuery {
     type Value = Vec<ParseError>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "module_parse_errors"
@@ -535,6 +543,10 @@ impl QueryKey<CompilerContext> for ModuleParseErrorsQuery {
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         db.context().module_parse_errors(db, self.0)
     }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -542,6 +554,8 @@ pub(super) struct ModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ModuleItemTreeInputQuery {
     type Value = ModuleItemTree;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "module_item_tree_input"
@@ -552,7 +566,11 @@ impl QueryKey<CompilerContext> for ModuleItemTreeInputQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_item_tree(db, self.0).as_ref().clone()
+        db.context().module_item_tree(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -561,6 +579,8 @@ pub(super) struct DeclarationModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for DeclarationModuleItemTreeInputQuery {
     type Value = ModuleItemTree;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "declaration_module_item_tree_input"
@@ -571,10 +591,11 @@ impl QueryKey<CompilerContext> for DeclarationModuleItemTreeInputQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context()
-            .declaration_module_item_tree(db, self.0)
-            .as_ref()
-            .clone()
+        db.context().declaration_module_item_tree(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -583,6 +604,8 @@ pub(super) struct ActiveModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ActiveModuleItemTreeInputQuery {
     type Value = ActiveModuleItemTree;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "active_module_item_tree_input"
@@ -593,10 +616,11 @@ impl QueryKey<CompilerContext> for ActiveModuleItemTreeInputQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context()
-            .active_module_item_tree(db, self.0)
-            .as_ref()
-            .clone()
+        db.context().active_module_item_tree(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -605,6 +629,8 @@ pub(super) struct DeclarationActiveModuleItemTreeInputQuery(pub(super) ModuleId)
 
 impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeInputQuery {
     type Value = ActiveModuleItemTree;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "declaration_active_module_item_tree_input"
@@ -615,10 +641,11 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeInputQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context()
-            .declaration_active_module_item_tree(db, self.0)
-            .as_ref()
-            .clone()
+        db.context().declaration_active_module_item_tree(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -627,6 +654,8 @@ pub(super) struct FullModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for FullModuleItemTreeInputQuery {
     type Value = ModuleItemTree;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "full_module_item_tree_input"
@@ -637,7 +666,11 @@ impl QueryKey<CompilerContext> for FullModuleItemTreeInputQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().module_item_tree(db, self.0).as_ref().clone()
+        db.context().full_module_item_tree(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -646,6 +679,8 @@ pub(super) struct FullActiveModuleItemTreeInputQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for FullActiveModuleItemTreeInputQuery {
     type Value = ActiveModuleItemTree;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "full_active_module_item_tree_input"
@@ -656,10 +691,11 @@ impl QueryKey<CompilerContext> for FullActiveModuleItemTreeInputQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context()
-            .active_module_item_tree(db, self.0)
-            .as_ref()
-            .clone()
+        db.context().full_active_module_item_tree(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
