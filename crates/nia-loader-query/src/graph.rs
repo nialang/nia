@@ -14,7 +14,7 @@ use nia_imports::{
     module_declaration_visibility_allows,
 };
 use nia_query::{QueryDb, QueryKey};
-use nia_source::{SourceIdentity, SourceVersion};
+use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_symbol::{SymbolId, known};
 
@@ -61,8 +61,8 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
                 let existing_modules = graph.modules().count();
                 for demand in &new_provider_demands {
                     match &demand.request {
-                        nia_compiler_query::ProviderRequest::ModuleSemantic { module_id } => {
-                            graph.mark_semantic_selected(*module_id);
+                        nia_compiler_query::ProviderRequest::ModuleSemantic { module_path } => {
+                            mark_semantic_provider_module(&mut graph, module_path);
                         }
                         nia_compiler_query::ProviderRequest::ModuleBody { module_path } => {
                             if let Some(module_id) = graph.module_id_for_path(module_path.as_str())
@@ -168,6 +168,12 @@ fn graph_source_versions(
         .collect()
 }
 
+pub(crate) fn mark_semantic_provider_module(graph: &mut ModuleGraph, module_path: &SourcePath) {
+    if let Some(module_id) = graph.module_id_for_source_identity(&module_path.identity()) {
+        graph.mark_semantic_selected(module_id);
+    }
+}
+
 fn apply_provider_demands(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
@@ -181,8 +187,9 @@ fn apply_provider_demands(
         .cloned()
         .collect::<Vec<_>>();
     for demand in demands {
-        if let nia_compiler_query::ProviderRequest::ModuleSemantic { module_id } = demand.request {
-            graph.mark_semantic_selected(module_id);
+        if let nia_compiler_query::ProviderRequest::ModuleSemantic { module_path } = demand.request
+        {
+            mark_semantic_provider_module(graph, &module_path);
             continue;
         }
         for import in imports {

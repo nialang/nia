@@ -1169,6 +1169,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     };
     let program_visible_extensions =
         |module_id| Some(db.get(VisibleExtensionsQuery(module_id)).methods.clone());
+    let program_module_source_path = |module_id| {
+        db.context()
+            .loaded_module(module_id)
+            .map(|module| module.path)
+    };
     let run_body_check =
         |inputs: &BodyCheckResolutionInputs,
          body_const: nia_body_check::BodyConst<'_>,
@@ -1203,6 +1208,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     program_extension_methods,
                     program: nia_body_check::BodyProgramContext {
                         defs: Some(&program_defs),
+                        module_source_path: Some(&program_module_source_path),
                         type_normalizations: Some(&program_type_normalization),
                         extension_type_normalizations: Some(&extension_method_normalization),
                         signatures: Some(&item_signatures_for_module),

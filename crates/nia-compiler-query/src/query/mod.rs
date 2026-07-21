@@ -3056,7 +3056,7 @@ pub fn expensive_or_invalid() i32 {
         let entry_id = fixture.entry_id();
         let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
         let _ = database.executable_provider_demands();
-        let provider_id = fixture.add_child(
+        fixture.add_child(
             entry_id,
             "provider",
             "main/provider.nia",
@@ -3065,7 +3065,7 @@ pub fn expensive_or_invalid() i32 {
         let provider_change = crate::ProviderDemand {
             source_path: SourcePath::new("main.nia"),
             request: crate::ProviderRequest::ModuleSemantic {
-                module_id: provider_id,
+                module_path: SourcePath::new("main/provider.nia"),
             },
         };
         let checked_function = {

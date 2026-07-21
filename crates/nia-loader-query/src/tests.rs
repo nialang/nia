@@ -4,7 +4,7 @@ use crate::queries::{
     ProviderSummaryQuery, SourceTextQuery, SyntaxModuleQuery, provider_summary_query,
 };
 use nia_compiler_query::{ProviderDemand, RuntimeModel, has_error_diagnostics};
-use nia_imports::ModuleNode;
+use nia_imports::{ModuleGraph, ModuleNode};
 use nia_item_tree::ItemTreeNodeKind;
 use nia_symbol::{SymbolId, stable_hash};
 use nia_symbol_table::SymbolTable;
@@ -905,6 +905,38 @@ fn provider_demand_update_distinguishes_stable_graphs_and_known_demands() {
             .all(|query| query.frame.name != "loaded_program"),
         "a stable graph should not rebuild the aggregate loaded program"
     );
+}
+
+#[test]
+fn semantic_provider_demand_remaps_across_graph_owners() {
+    let mut initial = ModuleGraph::new(SourcePath::new("main.nia"));
+    let initial_provider = initial
+        .intern_declared_child_with_processing(
+            initial.entry(),
+            &sym("provider"),
+            nia_ast::Visibility::Private,
+            nia_span::Span::default(),
+            false,
+            false,
+        )
+        .expect("initial provider module");
+    let provider_path = initial.get(initial_provider).unwrap().path.clone();
+    let mut rebuilt = ModuleGraph::new(SourcePath::new("main.nia"));
+    let rebuilt_provider = rebuilt
+        .intern_declared_child_with_processing(
+            rebuilt.entry(),
+            &sym("provider"),
+            nia_ast::Visibility::Private,
+            nia_span::Span::default(),
+            false,
+            false,
+        )
+        .expect("rebuilt provider module");
+
+    assert_ne!(rebuilt_provider, initial_provider);
+    assert!(!rebuilt.get(rebuilt_provider).unwrap().semantic_selected);
+    crate::graph::mark_semantic_provider_module(&mut rebuilt, &provider_path);
+    assert!(rebuilt.get(rebuilt_provider).unwrap().semantic_selected);
 }
 
 #[test]
