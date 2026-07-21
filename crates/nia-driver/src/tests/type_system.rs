@@ -1133,6 +1133,7 @@ fn main() i32 {
         checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(driver.loader_and_compiler_share_query_session());
     assert!(
         program
             .modules
@@ -1158,6 +1159,26 @@ fn driver_invalidates_reused_loader_sources() {
     let second =
         checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
     assert!(!second.diagnostics.is_empty());
+}
+
+#[test]
+fn driver_replaces_compiler_with_loader_query_session() {
+    let _permit = nia_test_support::compiler_permit();
+    let driver = Driver::new();
+    driver.set_source("main.nia", "fn main() i32 { 1 }");
+    let first =
+        checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(driver.loader_and_compiler_share_query_session());
+
+    let mut module_map = nia_imports::ModuleMap::new();
+    module_map.insert("dep", nia_source::SourcePath::new("dep.nia"));
+    let second = checked_program_from_output(
+        driver.check_all_modules(CheckRequest::new("main.nia").with_module_map(module_map)),
+    );
+
+    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    assert!(driver.loader_and_compiler_share_query_session());
 }
 
 #[test]

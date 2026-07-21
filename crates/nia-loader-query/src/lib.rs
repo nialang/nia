@@ -11,7 +11,7 @@ mod tests;
 
 use nia_compiler_query::{LoadedProgram, ProviderDemand};
 use nia_imports::ModuleMap;
-use nia_query::QueryDb;
+use nia_query::{QueryDb, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath};
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
@@ -79,6 +79,10 @@ pub struct LoaderDatabase {
 
 impl LoaderDatabase {
     pub fn new(request: LoadRequest) -> Self {
+        Self::new_in_session(request, QuerySession::new())
+    }
+
+    pub fn new_in_session(request: LoadRequest, session: QuerySession) -> Self {
         let entry_path = SourcePath::new(request.entry_path);
         let package_roots_with_used_paths = if request.package_root_used_paths {
             request.module_map.entries().map(|(name, _)| name).collect()
@@ -88,7 +92,7 @@ impl LoaderDatabase {
         let module_map = effective_module_map(&entry_path, request.module_map);
         let sources = request.sources;
         let symbols = SymbolTable::new();
-        let db = QueryDb::new_registered(
+        let db = QueryDb::new_registered_in_session(
             LoaderContext {
                 entry_path,
                 module_map,
@@ -101,8 +105,13 @@ impl LoaderDatabase {
                 provider_facts: ProviderFactStore::default(),
             },
             loader_query_registry(),
+            session,
         );
         Self { db, sources }
+    }
+
+    pub fn query_session(&self) -> QuerySession {
+        self.db.session()
     }
 
     pub fn load_program(&self) -> LoadedProgram {

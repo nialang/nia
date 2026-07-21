@@ -300,6 +300,18 @@ impl CompilerDatabase {
         compiler_database_with_providers(request, CompilerQueryProviders::default())
     }
 
+    pub fn new_in_session(request: CompileRequest, session: nia_query::QuerySession) -> Self {
+        compiler_database_with_providers_in_session(
+            request,
+            CompilerQueryProviders::default(),
+            session,
+        )
+    }
+
+    pub fn query_session(&self) -> nia_query::QuerySession {
+        self.db.session()
+    }
+
     pub fn check_program(&self) -> CheckedProgram {
         #[cfg(test)]
         let _permit = nia_test_support::compiler_permit();
@@ -700,6 +712,14 @@ fn compiler_database_with_providers(
     request: CompileRequest,
     providers: CompilerQueryProviders,
 ) -> CompilerDatabase {
+    compiler_database_with_providers_in_session(request, providers, nia_query::QuerySession::new())
+}
+
+fn compiler_database_with_providers_in_session(
+    request: CompileRequest,
+    providers: CompilerQueryProviders,
+    session: nia_query::QuerySession,
+) -> CompilerDatabase {
     let timings = request.timings;
     let inputs = Arc::new(RwLock::new(CompilerInputs::new(request)));
     let node_store = inputs
@@ -712,7 +732,7 @@ fn compiler_database_with_providers(
     let executable_checked_modules = Arc::new(RwLock::new(ExecutableCheckedModuleStore::default()));
     let executable_fact_session = Arc::new(std::sync::Mutex::new(ExecutableFactSession::default()));
     let type_store = Arc::new(nia_ty::TypeStore::new());
-    let db = QueryDb::new_registered_with_timings(
+    let db = QueryDb::new_registered_with_timings_in_session(
         CompilerContext {
             inputs: inputs.clone(),
             providers,
@@ -723,6 +743,7 @@ fn compiler_database_with_providers(
         },
         timings,
         compiler_query_registry(),
+        session,
     );
     CompilerDatabase { db, inputs }
 }
