@@ -115,6 +115,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         AbiCheckQuery,
         ActiveModuleItemTreeInputQuery,
         ActiveModuleItemTreeQuery,
+        BodyActivationWorklistQuery,
         BodyCheckQuery,
         CheckedModuleIdsQuery,
         CheckedModuleQuery,
@@ -386,6 +387,7 @@ impl CompilerDatabase {
             match CompilerInputDiff::try_between(&inputs, &new_inputs) {
                 Ok(diff) => {
                     new_inputs.merge_provider_fact_worklist(&inputs);
+                    new_inputs.merge_body_activation_worklist(&inputs, &diff);
                     *inputs = new_inputs;
                     Ok(diff)
                 }
@@ -419,17 +421,8 @@ impl CompilerDatabase {
     }
 
     fn invalidate_inputs(&self, diff: CompilerInputDiff) -> CompilerInvalidation {
-        let reset_executable_facts = diff.executable_fact_inputs_changed
-            || diff.provider_facts_reset
-            || diff.target_changed
-            || diff.runtime_changed
-            || diff.executable_roots_changed;
-        if reset_executable_facts {
+        if diff.resets_executable_facts() {
             self.db.context().clear_executable_fact_session();
-        } else if diff.graph_changed {
-            self.db
-                .context()
-                .retain_executable_facts_after_graph_growth(&diff.body_activated_modules);
         }
         let mut invalidation = CompilerInvalidation::default();
         if diff.graph_entry_changed {
@@ -511,6 +504,9 @@ impl CompilerDatabase {
         }
         if diff.provider_fact_revision_changed {
             invalidation.extend(self.db.invalidate(ProviderFactWorklistQuery));
+        }
+        if diff.body_activation_worklist_changed {
+            invalidation.extend(self.db.invalidate(BodyActivationWorklistQuery));
         }
         if diff.optimization_changed {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
@@ -782,12 +778,18 @@ struct CompilerInputs {
     optimization: OptimizationPolicy,
     timings: TimingMode,
     provider_worklist: Arc<HashSet<crate::ProviderDemand>>,
+    body_activation_worklist: Arc<HashSet<ModuleId>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ProviderFactWorklist {
     revision: crate::ProviderFactRevision,
     changes: Arc<HashSet<crate::ProviderDemand>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BodyActivationWorklist {
+    modules: Arc<HashSet<ModuleId>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -895,6 +897,7 @@ impl CompilerInputs {
             optimization: request.optimization.policy(),
             timings: request.timings,
             provider_worklist,
+            body_activation_worklist: Arc::new(HashSet::new()),
         }
     }
 
@@ -915,6 +918,15 @@ impl CompilerInputs {
             }
             _ => {}
         }
+    }
+
+    fn merge_body_activation_worklist(&mut self, previous: &Self, diff: &CompilerInputDiff) {
+        if diff.resets_executable_facts() {
+            return;
+        }
+        let worklist = Arc::make_mut(&mut self.body_activation_worklist);
+        worklist.extend(previous.body_activation_worklist.iter().copied());
+        worklist.extend(diff.body_activated_modules.iter().copied());
     }
 }
 
@@ -1041,13 +1053,6 @@ impl CompilerContext {
             .executable_fact_session
             .lock()
             .expect("executable fact session lock poisoned") = ExecutableFactSession::default();
-    }
-
-    fn retain_executable_facts_after_graph_growth(&self, body_activated: &HashSet<ModuleId>) {
-        self.executable_fact_session
-            .lock()
-            .expect("executable fact session lock poisoned")
-            .retain_after_graph_growth(body_activated);
     }
 
     fn executable_root_modules(&self) -> (ModuleId, Vec<ModuleId>) {
@@ -1535,6 +1540,13 @@ impl CompilerContext {
         }
     }
 
+    fn body_activation_worklist(&self) -> BodyActivationWorklist {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        BodyActivationWorklist {
+            modules: Arc::clone(&inputs.body_activation_worklist),
+        }
+    }
+
     fn optimization(&self) -> OptimizationPolicy {
         self.inputs
             .read()
@@ -1604,6 +1616,7 @@ struct CompilerInputDiff {
     changed_executable_value_ref_items: HashSet<GlobalDefId>,
     executable_roots_changed: bool,
     body_activated_modules: HashSet<ModuleId>,
+    body_activation_worklist_changed: bool,
     provider_fact_revision_changed: bool,
     provider_facts_reset: bool,
     executable_fact_inputs_changed: bool,
@@ -1627,6 +1640,31 @@ impl CompilerInputDiff {
     ) -> Result<Self, ProviderFactInputError> {
         let provider_facts_reset = validate_provider_fact_update(old, new)?;
         let changed_modules = changed_loaded_modules(old, new);
+        let executable_roots_changed = old.entry_module != new.entry_module
+            || old.runtime_root_modules != new.runtime_root_modules;
+        let executable_fact_inputs_changed = executable_fact_inputs_changed(old, new);
+        let body_activated_modules = new
+            .graph
+            .modules()
+            .filter(|node| {
+                node.process_used_paths
+                    && old
+                        .graph
+                        .get(node.id)
+                        .is_some_and(|old| !old.process_used_paths)
+            })
+            .map(|node| node.id)
+            .collect::<HashSet<_>>();
+        let resets_executable_facts = executable_fact_inputs_changed
+            || provider_facts_reset
+            || old.target != new.target
+            || old.runtime != new.runtime
+            || executable_roots_changed;
+        let body_activation_worklist_changed = if resets_executable_facts {
+            !old.body_activation_worklist.is_empty()
+        } else {
+            !body_activated_modules.is_empty()
+        };
         let (
             changed_public_surface_module_names,
             changed_public_surface_value_names,
@@ -1657,24 +1695,13 @@ impl CompilerInputDiff {
             changed_using_scope_type_names,
             changed_using_scope_unresolved_names,
             changed_executable_value_ref_items: changed_executable_value_ref_items(old, new),
-            executable_roots_changed: old.entry_module != new.entry_module
-                || old.runtime_root_modules != new.runtime_root_modules,
-            body_activated_modules: new
-                .graph
-                .modules()
-                .filter(|node| {
-                    node.process_used_paths
-                        && old
-                            .graph
-                            .get(node.id)
-                            .is_some_and(|old| !old.process_used_paths)
-                })
-                .map(|node| node.id)
-                .collect(),
+            executable_roots_changed,
+            body_activated_modules,
+            body_activation_worklist_changed,
             provider_fact_revision_changed: old.provider_fact_revision
                 != new.provider_fact_revision,
             provider_facts_reset,
-            executable_fact_inputs_changed: executable_fact_inputs_changed(old, new),
+            executable_fact_inputs_changed,
             loaded_modules_changed: loaded_module_ids(old) != loaded_module_ids(new)
                 || loaded_module_identity_assignments(old)
                     != loaded_module_identity_assignments(new),
@@ -1684,6 +1711,14 @@ impl CompilerInputDiff {
             optimization_changed: old.optimization != new.optimization,
             changed_modules,
         })
+    }
+
+    fn resets_executable_facts(&self) -> bool {
+        self.executable_fact_inputs_changed
+            || self.provider_facts_reset
+            || self.target_changed
+            || self.runtime_changed
+            || self.executable_roots_changed
     }
 }
 
@@ -2633,13 +2668,14 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 117);
+        assert_eq!(descriptors.len(), 118);
         assert!(
             !descriptors
                 .iter()
                 .any(|descriptor| descriptor.name == "module_graph_node")
         );
         for name in [
+            "body_activation_worklist",
             "module_graph_entry",
             "module_graph_path",
             "module_graph_parent",
@@ -3205,13 +3241,14 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn executable_products_depend_on_provider_fact_worklist() {
+    fn executable_products_depend_on_incremental_worklists() {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let revision = crate::ProviderFactRevision::new_store();
         let database = CompilerDatabase::new(
             CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
         );
         assert_eq!(std::mem::size_of::<ProviderFactWorklistQuery>(), 0);
+        assert_eq!(std::mem::size_of::<BodyActivationWorklistQuery>(), 0);
 
         let _ = database.executable_provider_demands();
         let _ = database.db.get(ExecutableCheckedModuleSetQuery);
@@ -3222,9 +3259,11 @@ pub fn expensive_or_invalid() i32 {
             "executable_provider_demands",
             "executable_checked_module_set",
         ] {
-            assert!(dependencies.iter().any(|dependency| {
-                dependency.from.name == product && dependency.to.name == "provider_fact_worklist"
-            }));
+            for worklist in ["body_activation_worklist", "provider_fact_worklist"] {
+                assert!(dependencies.iter().any(|dependency| {
+                    dependency.from.name == product && dependency.to.name == worklist
+                }));
+            }
         }
         assert!(dependencies.iter().any(|dependency| {
             dependency.from.name == "provider_fact_revision"
@@ -3329,6 +3368,59 @@ pub fn expensive_or_invalid() i32 {
         let reset = database.db.get(ProviderFactWorklistQuery);
         assert_eq!(reset.revision, reset_revision);
         assert!(reset.changes.is_empty());
+    }
+
+    #[test]
+    fn body_activation_worklist_accumulates_until_consumed() {
+        let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let entry_id = fixture.entry_id();
+        let first_module = fixture.add_shallow_child(
+            entry_id,
+            "first",
+            "main/first.nia",
+            "pub fn first() i32 { 1 }",
+        );
+        let second_module = fixture.add_shallow_child(
+            entry_id,
+            "second",
+            "main/second.nia",
+            "pub fn second() i32 { 2 }",
+        );
+        assert!(fixture.graph.mark_semantic_selected(first_module));
+        assert!(fixture.graph.mark_semantic_selected(second_module));
+        let database = fixture.database();
+        let _ = database.executable_provider_demands();
+
+        assert!(fixture.graph.mark_process_used_paths(first_module));
+        let first_invalidation = database.update(CompileRequest::new(fixture.program()));
+        assert!(
+            first_invalidation
+                .invalidated
+                .iter()
+                .any(|frame| frame.name == "body_activation_worklist")
+        );
+        assert!(
+            first_invalidation
+                .invalidated
+                .iter()
+                .any(|frame| frame.name == "executable_provider_demands")
+        );
+
+        assert!(fixture.graph.mark_process_used_paths(second_module));
+        database.update(CompileRequest::new(fixture.program()));
+
+        let worklist = database.db.get(BodyActivationWorklistQuery);
+        let expected = HashSet::from([first_module, second_module]);
+        assert_eq!(worklist.modules.as_ref(), &expected);
+
+        let _ = database.executable_provider_demands();
+        let session = database
+            .db
+            .context()
+            .executable_fact_session
+            .lock()
+            .expect("executable fact session lock poisoned");
+        assert_eq!(session.applied_body_activations, expected);
     }
 
     #[test]
