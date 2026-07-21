@@ -193,6 +193,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ProgramSignatureModuleIdsQuery,
         ProgramTraitMethodIndexQuery,
         ProgramTypeAliasSignatureQuery,
+        ProviderFactRevisionQuery,
         PublicSurfaceModuleQuery,
         PublicSurfaceTypeQuery,
         PublicSurfaceValueQuery,
@@ -349,10 +350,7 @@ impl CompilerDatabase {
     }
 
     pub fn provider_fact_revision(&self) -> crate::ProviderFactRevision {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .provider_fact_revision
+        *self.db.get(ProviderFactRevisionQuery)
     }
 
     pub fn codegen_program(&self) -> CodegenProgram {
@@ -434,7 +432,6 @@ impl CompilerDatabase {
                     &diff.provider_changes,
                 );
         }
-        self.db.context().clear_executable_checked_module_sets();
         let mut invalidation = CompilerInvalidation::default();
         if diff.graph_entry_changed {
             invalidation.extend(self.db.invalidate(ModuleGraphEntryQuery));
@@ -512,6 +509,9 @@ impl CompilerDatabase {
         }
         if diff.runtime_changed {
             invalidation.extend(self.db.invalidate(CompilerRuntimeQuery));
+        }
+        if diff.provider_fact_revision_changed {
+            invalidation.extend(self.db.invalidate(ProviderFactRevisionQuery));
         }
         if diff.optimization_changed {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
@@ -600,6 +600,13 @@ impl CompilerDatabase {
                     );
                 }
             }
+        }
+        if invalidation
+            .invalidated
+            .iter()
+            .any(|frame| frame.name == "executable_checked_module_set")
+        {
+            self.db.context().clear_executable_checked_module_sets();
         }
         invalidation
     }
@@ -1500,6 +1507,13 @@ impl CompilerContext {
             .runtime
     }
 
+    fn provider_fact_revision(&self) -> crate::ProviderFactRevision {
+        self.inputs
+            .read()
+            .expect("compiler input lock poisoned")
+            .provider_fact_revision
+    }
+
     fn optimization(&self) -> OptimizationPolicy {
         self.inputs
             .read()
@@ -1570,6 +1584,7 @@ struct CompilerInputDiff {
     executable_roots_changed: bool,
     body_activated_modules: HashSet<ModuleId>,
     provider_changes: HashSet<crate::ProviderDemand>,
+    provider_fact_revision_changed: bool,
     provider_facts_reset: bool,
     executable_fact_inputs_changed: bool,
     loaded_modules_changed: bool,
@@ -1637,6 +1652,8 @@ impl CompilerInputDiff {
                 .map(|node| node.id)
                 .collect(),
             provider_changes: new.provider_changes.clone(),
+            provider_fact_revision_changed: old.provider_fact_revision
+                != new.provider_fact_revision,
             provider_facts_reset,
             executable_fact_inputs_changed: executable_fact_inputs_changed(old, new),
             loaded_modules_changed: loaded_module_ids(old) != loaded_module_ids(new)
@@ -2597,7 +2614,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 115);
+        assert_eq!(descriptors.len(), 116);
         assert!(
             !descriptors
                 .iter()
@@ -2609,6 +2626,7 @@ mod tests {
             "module_graph_parent",
             "module_graph_child",
             "module_package_root",
+            "provider_fact_revision",
         ] {
             assert!(
                 descriptors.iter().any(|descriptor| descriptor.name == name),
@@ -3148,6 +3166,98 @@ pub fn expensive_or_invalid() i32 {
         let database = CompilerDatabase::new(CompileRequest::new(program));
 
         assert_eq!(database.provider_fact_revision(), revision);
+    }
+
+    #[test]
+    fn executable_products_depend_on_provider_fact_revision() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let revision = crate::ProviderFactRevision::new_store();
+        let database = CompilerDatabase::new(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
+        );
+
+        let _ = database.executable_provider_demands();
+        let _ = database.db.get(ExecutableCheckedModuleSetQuery);
+
+        let dependencies = &database.query_trace().dependencies;
+        for product in [
+            "executable_provider_demands",
+            "executable_checked_module_set",
+        ] {
+            assert!(dependencies.iter().any(|dependency| {
+                dependency.from.name == product && dependency.to.name == "provider_fact_revision"
+            }));
+        }
+    }
+
+    #[test]
+    fn provider_revision_update_invalidates_executable_products() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let revision = crate::ProviderFactRevision::new_store();
+        let database = CompilerDatabase::new(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
+        );
+        let _ = database.executable_provider_demands();
+        let first_set = database.db.get(ExecutableCheckedModuleSetQuery);
+
+        let invalidation = database.update(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision.next()),
+        );
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        for name in [
+            "provider_fact_revision",
+            "executable_provider_demands",
+            "executable_checked_module_set",
+        ] {
+            assert!(invalidated.contains(&name), "{invalidated:?}");
+        }
+        assert_eq!(database.provider_fact_revision(), revision.next());
+        let second_set = database.db.get(ExecutableCheckedModuleSetQuery);
+        assert_ne!(first_set.id, second_set.id);
+        assert!(
+            !database
+                .db
+                .context()
+                .executable_checked_modules(&second_set)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn stable_provider_revision_keeps_executable_set_materializable() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let revision = crate::ProviderFactRevision::new_store();
+        let database = CompilerDatabase::new(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
+        );
+        let first_set = database.db.get(ExecutableCheckedModuleSetQuery);
+
+        let invalidation = database.update(
+            CompileRequest::new(fixture.program())
+                .with_provider_fact_revision(revision)
+                .with_timings(crate::TimingMode::Summary),
+        );
+
+        assert!(
+            !invalidation
+                .invalidated
+                .iter()
+                .any(|frame| frame.name == "executable_checked_module_set")
+        );
+        let second_set = database.db.get(ExecutableCheckedModuleSetQuery);
+        assert_eq!(first_set.id, second_set.id);
+        assert!(
+            !database
+                .db
+                .context()
+                .executable_checked_modules(&second_set)
+                .is_empty()
+        );
     }
 
     #[test]

@@ -241,6 +241,7 @@ fn executable_check(
     db: &QueryDb<CompilerContext>,
     product: ExecutableCheckProduct,
 ) -> ExecutableCheckOutput {
+    let _provider_fact_revision = db.get(ProviderFactRevisionQuery);
     let parse_ok = db.get(SemanticModuleIdsQuery);
     let (entry_module, runtime_root_modules) = db.get(ExecutableRootModulesQuery).as_ref().clone();
     let ExecutableFactSession {
