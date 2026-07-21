@@ -1633,6 +1633,137 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct StableModulo(usize);
+
+    impl QueryKey<RedGreenContext> for StableModulo {
+        type Value = usize;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+        fn name() -> &'static str {
+            "stable_modulo"
+        }
+
+        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+            db.context()
+                .derived_executions
+                .fetch_add(1, Ordering::SeqCst);
+            *db.get(RedGreenInput) % self.0
+        }
+
+        fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+            Some(test_usize_fingerprint(
+                "nia.query.test.stable-modulo.v1",
+                *value,
+            ))
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct StableModuloBatchParent;
+
+    impl QueryKey<RedGreenContext> for StableModuloBatchParent {
+        type Value = usize;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+        fn name() -> &'static str {
+            "stable_modulo_batch_parent"
+        }
+
+        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+            db.context()
+                .parent_executions
+                .fetch_add(1, Ordering::SeqCst);
+            db.get_many([StableModulo(2), StableModulo(3)])
+                .into_iter()
+                .map(|value| *value)
+                .sum()
+        }
+
+        fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+            Some(test_usize_fingerprint(
+                "nia.query.test.stable-modulo-batch-parent.v1",
+                *value,
+            ))
+        }
+    }
+
+    struct ValidationRaceContext {
+        input: AtomicUsize,
+        input_executions: AtomicUsize,
+        derived_executions: AtomicUsize,
+        control: Arc<(Mutex<ValidationRaceState>, Condvar)>,
+    }
+
+    #[derive(Default)]
+    struct ValidationRaceState {
+        started: bool,
+        release: bool,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct ValidationRaceInput;
+
+    impl QueryKey<ValidationRaceContext> for ValidationRaceInput {
+        type Value = usize;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+        fn name() -> &'static str {
+            "validation_race_input"
+        }
+
+        fn execute(&self, db: &QueryDb<ValidationRaceContext>) -> Self::Value {
+            let execution = db.context().input_executions.fetch_add(1, Ordering::SeqCst);
+            if execution > 0 {
+                let (lock, ready) = &*db.context().control;
+                let mut state = lock.lock().expect("validation race lock poisoned");
+                state.started = true;
+                ready.notify_all();
+                while !state.release {
+                    state = ready.wait(state).expect("validation race lock poisoned");
+                }
+            }
+            db.context().input.load(Ordering::SeqCst)
+        }
+
+        fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+            Some(test_usize_fingerprint(
+                "nia.query.test.validation-race-input.v1",
+                *value,
+            ))
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct ValidationRaceDerived;
+
+    impl QueryKey<ValidationRaceContext> for ValidationRaceDerived {
+        type Value = usize;
+
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+        fn name() -> &'static str {
+            "validation_race_derived"
+        }
+
+        fn execute(&self, db: &QueryDb<ValidationRaceContext>) -> Self::Value {
+            db.context()
+                .derived_executions
+                .fetch_add(1, Ordering::SeqCst);
+            *db.get(ValidationRaceInput) % 2
+        }
+
+        fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+            Some(test_usize_fingerprint(
+                "nia.query.test.validation-race-derived.v1",
+                *value,
+            ))
+        }
+    }
+
     fn test_usize_fingerprint(domain: &str, value: usize) -> QueryFingerprint {
         let mut builder = QueryFingerprintBuilder::new(domain);
         builder.write_u64(value as u64);
@@ -2146,6 +2277,104 @@ mod tests {
             .expect("stable parent trace");
         assert_eq!(parent.stats.validations, 1);
         assert_eq!(parent.stats.green_validations, 0);
+    }
+
+    #[test]
+    fn consecutive_input_revisions_validate_against_latest_value() {
+        let db = QueryDb::new(RedGreenContext {
+            input: AtomicUsize::new(7),
+            derived_executions: AtomicUsize::new(0),
+            parent_executions: AtomicUsize::new(0),
+        });
+        let first = db.get(StableParityParent);
+        db.context().input.store(9, Ordering::SeqCst);
+        db.validate_input(RedGreenInput, &9);
+        db.context().input.store(11, Ordering::SeqCst);
+        db.validate_input(RedGreenInput, &11);
+
+        let latest = db.get(StableParityParent);
+
+        assert!(Arc::ptr_eq(&first, &latest));
+        assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
+        assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn stable_get_many_records_dependency_fingerprints_for_green_validation() {
+        let db = QueryDb::new(RedGreenContext {
+            input: AtomicUsize::new(7),
+            derived_executions: AtomicUsize::new(0),
+            parent_executions: AtomicUsize::new(0),
+        });
+        let first = db.get(StableModuloBatchParent);
+        assert_eq!(*first, 2);
+        db.context().input.store(13, Ordering::SeqCst);
+        db.validate_input(RedGreenInput, &13);
+
+        let latest = db.get(StableModuloBatchParent);
+
+        assert!(Arc::ptr_eq(&first, &latest));
+        assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 4);
+        assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 1);
+        let trace = db.query_trace();
+        assert_eq!(
+            trace
+                .dependencies
+                .iter()
+                .filter(|dependency| {
+                    dependency.from.name == "stable_modulo_batch_parent"
+                        && dependency.to.name == "stable_modulo"
+                })
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn invalidation_during_validation_cannot_restore_stale_green_value() {
+        let control = Arc::new((Mutex::new(ValidationRaceState::default()), Condvar::new()));
+        let db = QueryDb::new(ValidationRaceContext {
+            input: AtomicUsize::new(7),
+            input_executions: AtomicUsize::new(0),
+            derived_executions: AtomicUsize::new(0),
+            control: Arc::clone(&control),
+        });
+        let first = db.get(ValidationRaceDerived);
+        db.context().input.store(9, Ordering::SeqCst);
+        db.validate_input(ValidationRaceInput, &9);
+        let worker_db = db.clone();
+
+        let latest = std::thread::scope(|scope| {
+            let handle = scope.spawn(move || worker_db.get(ValidationRaceDerived));
+            let (lock, ready) = &*control;
+            let mut state = lock.lock().expect("validation race lock poisoned");
+            while !state.started {
+                state = ready.wait(state).expect("validation race lock poisoned");
+            }
+            drop(state);
+
+            db.context().input.store(11, Ordering::SeqCst);
+            db.validate_input(ValidationRaceInput, &11);
+
+            let mut state = lock.lock().expect("validation race lock poisoned");
+            state.release = true;
+            ready.notify_all();
+            drop(state);
+            handle.join().expect("validation worker panicked")
+        });
+
+        assert_eq!(*latest, 1);
+        assert!(!Arc::ptr_eq(&first, &latest));
+        assert_eq!(db.context().input_executions.load(Ordering::SeqCst), 3);
+        assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 2);
+        let trace = db.query_trace();
+        let derived = trace
+            .queries
+            .iter()
+            .find(|query| query.frame.name == "validation_race_derived")
+            .expect("validation race derived trace");
+        assert_eq!(derived.stats.validations, 1);
+        assert_eq!(derived.stats.green_validations, 0);
     }
 
     #[test]

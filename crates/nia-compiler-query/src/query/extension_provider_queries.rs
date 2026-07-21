@@ -48,6 +48,8 @@ pub(super) struct ExtensionProviderSummaryQuery(pub(super) ModuleId);
 impl QueryKey<CompilerContext> for ExtensionProviderSummaryQuery {
     type Value = nia_provider_summary::ProviderSummary;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
     fn name() -> &'static str {
         "extension_provider_summary"
     }
@@ -58,6 +60,10 @@ impl QueryKey<CompilerContext> for ExtensionProviderSummaryQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_provider_summary)(db, self.0)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(provider_summary_fingerprint(value))
     }
 }
 
@@ -154,6 +160,8 @@ pub(super) struct ExtensionProviderModuleEligibilityQuery(pub(super) ModuleId);
 impl QueryKey<CompilerContext> for ExtensionProviderModuleEligibilityQuery {
     type Value = bool;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
     fn name() -> &'static str {
         "extension_provider_module_eligibility"
     }
@@ -164,6 +172,13 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleEligibilityQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.extension_provider_module_eligibility)(db, self.0)
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(bool_query_fingerprint(
+            "nia.compiler.extension-provider-module-eligibility.v1",
+            *value,
+        ))
     }
 }
 

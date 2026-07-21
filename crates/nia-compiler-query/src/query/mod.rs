@@ -431,7 +431,11 @@ impl CompilerDatabase {
             invalidation.extend(self.db.invalidate(ModuleGraphEntryQuery));
         }
         for module_id in diff.changed_graph_paths {
-            invalidation.extend(self.db.invalidate(ModuleGraphPathQuery(module_id)));
+            let path = self.db.context().module_graph_path(module_id);
+            invalidation.extend(
+                self.db
+                    .validate_input(ModuleGraphPathQuery(module_id), &path),
+            );
         }
         for module_id in diff.changed_graph_parents {
             invalidation.extend(self.db.invalidate(ModuleGraphParentQuery(module_id)));
@@ -587,8 +591,20 @@ impl CompilerDatabase {
                     )));
                 }
                 if module.provider_summary {
-                    invalidation
-                        .extend(self.db.invalidate(ExtensionProviderSummaryQuery(module_id)));
+                    if let Some(summary) = self
+                        .db
+                        .context()
+                        .loaded_module(module_id)
+                        .map(|module| module.provider_summary)
+                    {
+                        invalidation.extend(
+                            self.db
+                                .validate_input(ExtensionProviderSummaryQuery(module_id), &summary),
+                        );
+                    } else {
+                        invalidation
+                            .extend(self.db.invalidate(ExtensionProviderSummaryQuery(module_id)));
+                    }
                 }
                 if module.signature_trait_items {
                     invalidation.extend(self.db.invalidate(SignatureItemTreeQuery(
@@ -888,6 +904,66 @@ fn body_activation_worklist_fingerprint(worklist: &BodyActivationWorklist) -> Qu
 fn executable_fact_epoch_fingerprint(epoch: ExecutableFactEpoch) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.compiler.executable-fact-epoch.v1");
     builder.write_u64(epoch.0);
+    builder.finish()
+}
+
+fn module_graph_path_fingerprint(path: &Option<nia_imports::ModulePath>) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.compiler.module-graph-path.v1");
+    let Some(path) = path else {
+        builder.write_u8(0);
+        return builder.finish();
+    };
+    builder.write_u8(1);
+    builder.write_u64(path.package.raw());
+    builder.write_u64(path.segments.len() as u64);
+    for segment in &path.segments {
+        builder.write_u64(segment.raw());
+    }
+    builder.finish()
+}
+
+fn provider_summary_fingerprint(
+    summary: &nia_provider_summary::ProviderSummary,
+) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.compiler.provider-summary.v1");
+    builder.write_u64(summary.providers().len() as u64);
+    for provider in summary.providers() {
+        provider_type_ref_fingerprint(&mut builder, &provider.target.ty);
+        if let Some(trait_ref) = &provider.trait_ref {
+            builder.write_u8(1);
+            provider_type_ref_fingerprint(&mut builder, trait_ref);
+        } else {
+            builder.write_u8(0);
+        }
+        builder.write_u64(provider.associated_methods.len() as u64);
+        for method in &provider.associated_methods {
+            builder.write_u64(method.raw());
+        }
+        builder.write_u64(provider.associated_values.len() as u64);
+        for value in &provider.associated_values {
+            builder.write_u64(value.raw());
+        }
+    }
+    builder.finish()
+}
+
+fn provider_type_ref_fingerprint(
+    builder: &mut QueryFingerprintBuilder,
+    type_ref: &nia_provider_summary::ProviderTypeRef,
+) {
+    if let Some(last_name) = type_ref.last_name {
+        builder.write_u8(1);
+        builder.write_u64(last_name.raw());
+    } else {
+        builder.write_u8(0);
+    }
+    builder.write_u8(u8::from(type_ref.is_generic_or_structural_target));
+    builder.write_u8(u8::from(type_ref.semantic_is_conservative));
+}
+
+fn bool_query_fingerprint(domain: &str, value: bool) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new(domain);
+    builder.write_u8(u8::from(value));
     builder.finish()
 }
 
@@ -2807,6 +2883,9 @@ mod tests {
             let expected = match descriptor.name {
                 "body_activation_worklist"
                 | "executable_fact_epoch"
+                | "extension_provider_module_eligibility"
+                | "extension_provider_summary"
+                | "module_graph_path"
                 | "provider_fact_revision"
                 | "provider_fact_worklist" => nia_query::QueryFingerprintPolicy::StableValue,
                 _ => nia_query::QueryFingerprintPolicy::None,
@@ -5386,6 +5465,49 @@ extend Value : Ops {
             &after_second_query,
             "extension_provider_module_facts",
         );
+    }
+
+    #[test]
+    fn provider_summary_changes_validate_stable_module_eligibility() {
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "struct S {} extend S { pub fn first() i32 { 1 } }",
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
+        let first = database
+            .db
+            .get(ExtensionProviderModuleEligibilityQuery(module_id));
+        assert!(*first);
+
+        fixture.update_module_source(
+            module_id,
+            "struct S {} extend S { pub fn first() i32 { 1 } pub fn second() i32 { 2 } }",
+            SourceRevision(1),
+        );
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+        assert!(invalidated.contains(&"extension_provider_summary"));
+        assert!(invalidated.contains(&"extension_provider_module_eligibility"));
+
+        let second = database
+            .db
+            .get(ExtensionProviderModuleEligibilityQuery(module_id));
+        assert!(*second);
+        assert!(!Arc::ptr_eq(&first, &second));
+        let eligibility = database
+            .query_trace()
+            .queries
+            .into_iter()
+            .find(|query| query.frame.name == "extension_provider_module_eligibility")
+            .expect("extension provider eligibility trace");
+        assert_eq!(eligibility.stats.executions, 2);
+        assert_eq!(eligibility.stats.validations, 1);
+        assert_eq!(eligibility.stats.green_validations, 0);
     }
 
     #[test]
