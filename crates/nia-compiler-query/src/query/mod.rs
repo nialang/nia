@@ -194,6 +194,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ProgramTraitMethodIndexQuery,
         ProgramTypeAliasSignatureQuery,
         ProviderFactRevisionQuery,
+        ProviderFactWorklistQuery,
         PublicSurfaceModuleQuery,
         PublicSurfaceTypeQuery,
         PublicSurfaceValueQuery,
@@ -379,11 +380,12 @@ impl CompilerDatabase {
     }
 
     pub fn update(&self, request: CompileRequest) -> CompilerInvalidation {
-        let new_inputs = CompilerInputs::new(request);
+        let mut new_inputs = CompilerInputs::new(request);
         let update = {
             let mut inputs = self.inputs.write().expect("compiler input lock poisoned");
             match CompilerInputDiff::try_between(&inputs, &new_inputs) {
                 Ok(diff) => {
+                    new_inputs.merge_provider_fact_worklist(&inputs);
                     *inputs = new_inputs;
                     Ok(diff)
                 }
@@ -427,10 +429,7 @@ impl CompilerDatabase {
         } else if diff.graph_changed {
             self.db
                 .context()
-                .retain_executable_facts_after_graph_growth(
-                    &diff.body_activated_modules,
-                    &diff.provider_changes,
-                );
+                .retain_executable_facts_after_graph_growth(&diff.body_activated_modules);
         }
         let mut invalidation = CompilerInvalidation::default();
         if diff.graph_entry_changed {
@@ -511,7 +510,7 @@ impl CompilerDatabase {
             invalidation.extend(self.db.invalidate(CompilerRuntimeQuery));
         }
         if diff.provider_fact_revision_changed {
-            invalidation.extend(self.db.invalidate(ProviderFactRevisionQuery));
+            invalidation.extend(self.db.invalidate(ProviderFactWorklistQuery));
         }
         if diff.optimization_changed {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery));
@@ -782,7 +781,13 @@ struct CompilerInputs {
     runtime: crate::RuntimeModel,
     optimization: OptimizationPolicy,
     timings: TimingMode,
-    provider_changes: HashSet<crate::ProviderDemand>,
+    provider_worklist: Arc<HashSet<crate::ProviderDemand>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProviderFactWorklist {
+    revision: crate::ProviderFactRevision,
+    changes: Arc<HashSet<crate::ProviderDemand>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -836,7 +841,7 @@ impl CompilerInputs {
         let target = loaded.target;
         let runtime = loaded.runtime;
         let diagnostics = loaded.diagnostics;
-        let provider_changes = request.provider_changes;
+        let provider_worklist = Arc::new(request.provider_changes);
         let modules = loaded
             .modules
             .into_iter()
@@ -889,7 +894,26 @@ impl CompilerInputs {
             runtime,
             optimization: request.optimization.policy(),
             timings: request.timings,
-            provider_changes,
+            provider_worklist,
+        }
+    }
+
+    fn merge_provider_fact_worklist(&mut self, previous: &Self) {
+        use crate::ProviderFactRevisionTransition::{Advanced, Unchanged};
+
+        match self
+            .provider_fact_revision
+            .transition_from(previous.provider_fact_revision)
+        {
+            Unchanged => {
+                debug_assert!(self.provider_worklist.is_empty());
+                self.provider_worklist = Arc::clone(&previous.provider_worklist);
+            }
+            Advanced if !self.provider_worklist.is_empty() => {
+                Arc::make_mut(&mut self.provider_worklist)
+                    .extend(previous.provider_worklist.iter().cloned());
+            }
+            _ => {}
         }
     }
 }
@@ -1019,15 +1043,11 @@ impl CompilerContext {
             .expect("executable fact session lock poisoned") = ExecutableFactSession::default();
     }
 
-    fn retain_executable_facts_after_graph_growth(
-        &self,
-        body_activated: &HashSet<ModuleId>,
-        provider_changes: &HashSet<crate::ProviderDemand>,
-    ) {
+    fn retain_executable_facts_after_graph_growth(&self, body_activated: &HashSet<ModuleId>) {
         self.executable_fact_session
             .lock()
             .expect("executable fact session lock poisoned")
-            .retain_after_graph_growth(body_activated, provider_changes, &self.type_store);
+            .retain_after_graph_growth(body_activated);
     }
 
     fn executable_root_modules(&self) -> (ModuleId, Vec<ModuleId>) {
@@ -1507,11 +1527,12 @@ impl CompilerContext {
             .runtime
     }
 
-    fn provider_fact_revision(&self) -> crate::ProviderFactRevision {
-        self.inputs
-            .read()
-            .expect("compiler input lock poisoned")
-            .provider_fact_revision
+    fn provider_fact_worklist(&self) -> ProviderFactWorklist {
+        let inputs = self.inputs.read().expect("compiler input lock poisoned");
+        ProviderFactWorklist {
+            revision: inputs.provider_fact_revision,
+            changes: Arc::clone(&inputs.provider_worklist),
+        }
     }
 
     fn optimization(&self) -> OptimizationPolicy {
@@ -1583,7 +1604,6 @@ struct CompilerInputDiff {
     changed_executable_value_ref_items: HashSet<GlobalDefId>,
     executable_roots_changed: bool,
     body_activated_modules: HashSet<ModuleId>,
-    provider_changes: HashSet<crate::ProviderDemand>,
     provider_fact_revision_changed: bool,
     provider_facts_reset: bool,
     executable_fact_inputs_changed: bool,
@@ -1651,7 +1671,6 @@ impl CompilerInputDiff {
                 })
                 .map(|node| node.id)
                 .collect(),
-            provider_changes: new.provider_changes.clone(),
             provider_fact_revision_changed: old.provider_fact_revision
                 != new.provider_fact_revision,
             provider_facts_reset,
@@ -1700,7 +1719,7 @@ fn validate_provider_fact_update(
     match (
         new.provider_fact_revision
             .transition_from(old.provider_fact_revision),
-        new.provider_changes.is_empty(),
+        new.provider_worklist.is_empty(),
     ) {
         (Unchanged, true) | (Advanced, false) => Ok(false),
         (Advanced | Replaced, true) => Ok(true),
@@ -2614,7 +2633,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 116);
+        assert_eq!(descriptors.len(), 117);
         assert!(
             !descriptors
                 .iter()
@@ -2627,6 +2646,7 @@ mod tests {
             "module_graph_child",
             "module_package_root",
             "provider_fact_revision",
+            "provider_fact_worklist",
         ] {
             assert!(
                 descriptors.iter().any(|descriptor| descriptor.name == name),
@@ -3119,12 +3139,24 @@ pub fn expensive_or_invalid() i32 {
                 .with_provider_changes(provider_changes),
         );
 
-        let session = database
+        {
+            let session = database
+                .db
+                .context()
+                .executable_fact_session
+                .lock()
+                .expect("executable fact session lock poisoned");
+            assert!(session.modules.contains_key(&entry_id));
+            assert_eq!(session.applied_provider_fact_revision, Some(revision));
+        }
+        let worklist = database.db.get(ProviderFactWorklistQuery);
+        let mut session = database
             .db
             .context()
             .executable_fact_session
             .lock()
             .expect("executable fact session lock poisoned");
+        session.apply_provider_fact_worklist(&worklist, &database.db.context().type_store);
         assert!(!session.modules.contains_key(&entry_id));
         assert!(
             !session
@@ -3132,6 +3164,10 @@ pub fn expensive_or_invalid() i32 {
                 .body_resolution_inputs
                 .borrow()
                 .contains_key(&entry_id)
+        );
+        assert_eq!(
+            session.applied_provider_fact_revision,
+            Some(revision.next())
         );
     }
 
@@ -3154,7 +3190,7 @@ pub fn expensive_or_invalid() i32 {
             .inputs
             .read()
             .expect("compiler input lock poisoned");
-        assert_eq!(inputs.provider_changes.len(), 1);
+        assert_eq!(inputs.provider_worklist.len(), 1);
     }
 
     #[test]
@@ -3169,15 +3205,17 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
-    fn executable_products_depend_on_provider_fact_revision() {
+    fn executable_products_depend_on_provider_fact_worklist() {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let revision = crate::ProviderFactRevision::new_store();
         let database = CompilerDatabase::new(
             CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
         );
+        assert_eq!(std::mem::size_of::<ProviderFactWorklistQuery>(), 0);
 
         let _ = database.executable_provider_demands();
         let _ = database.db.get(ExecutableCheckedModuleSetQuery);
+        assert_eq!(database.provider_fact_revision(), revision);
 
         let dependencies = &database.query_trace().dependencies;
         for product in [
@@ -3185,9 +3223,13 @@ pub fn expensive_or_invalid() i32 {
             "executable_checked_module_set",
         ] {
             assert!(dependencies.iter().any(|dependency| {
-                dependency.from.name == product && dependency.to.name == "provider_fact_revision"
+                dependency.from.name == product && dependency.to.name == "provider_fact_worklist"
             }));
         }
+        assert!(dependencies.iter().any(|dependency| {
+            dependency.from.name == "provider_fact_revision"
+                && dependency.to.name == "provider_fact_worklist"
+        }));
     }
 
     #[test]
@@ -3199,6 +3241,7 @@ pub fn expensive_or_invalid() i32 {
         );
         let _ = database.executable_provider_demands();
         let first_set = database.db.get(ExecutableCheckedModuleSetQuery);
+        assert_eq!(database.provider_fact_revision(), revision);
 
         let invalidation = database.update(
             CompileRequest::new(fixture.program()).with_provider_fact_revision(revision.next()),
@@ -3211,6 +3254,7 @@ pub fn expensive_or_invalid() i32 {
 
         for name in [
             "provider_fact_revision",
+            "provider_fact_worklist",
             "executable_provider_demands",
             "executable_checked_module_set",
         ] {
@@ -3226,6 +3270,65 @@ pub fn expensive_or_invalid() i32 {
                 .executable_checked_modules(&second_set)
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn provider_worklist_accumulates_until_consumed() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let revision = crate::ProviderFactRevision::new_store();
+        let database = CompilerDatabase::new(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
+        );
+        let first_demand = crate::ProviderDemand {
+            source_path: SourcePath::new("main.nia"),
+            request: crate::ProviderRequest::Method {
+                target_type_name: None,
+                method_name: SymbolId::default(),
+            },
+        };
+        let second_demand = crate::ProviderDemand {
+            source_path: SourcePath::new("main.nia"),
+            request: crate::ProviderRequest::TraitImpl {
+                trait_name: SymbolId::default(),
+            },
+        };
+        let first_revision = revision.next();
+        let second_revision = first_revision.next();
+
+        database.update(
+            CompileRequest::new(fixture.program())
+                .with_provider_fact_revision(first_revision)
+                .with_provider_changes([first_demand.clone()]),
+        );
+        database.update(
+            CompileRequest::new(fixture.program())
+                .with_provider_fact_revision(second_revision)
+                .with_provider_changes([second_demand.clone()]),
+        );
+        database.update(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(second_revision),
+        );
+
+        let worklist = database.db.get(ProviderFactWorklistQuery);
+        let expected_changes = HashSet::from([first_demand, second_demand]);
+        assert_eq!(worklist.revision, second_revision);
+        assert_eq!(worklist.changes.as_ref(), &expected_changes);
+
+        let mut session = ExecutableFactSession::default();
+        session.apply_provider_fact_worklist(&worklist, &database.db.context().type_store);
+        assert_eq!(
+            session.applied_provider_fact_revision,
+            Some(second_revision)
+        );
+        assert_eq!(session.applied_provider_changes, expected_changes);
+
+        let reset_revision = second_revision.next();
+        database.update(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(reset_revision),
+        );
+        let reset = database.db.get(ProviderFactWorklistQuery);
+        assert_eq!(reset.revision, reset_revision);
+        assert!(reset.changes.is_empty());
     }
 
     #[test]
@@ -3396,6 +3499,7 @@ pub fn expensive_or_invalid() i32 {
                 .with_provider_fact_revision(revision.next())
                 .with_provider_changes([provider_change]),
         );
+        let _ = database.executable_provider_demands();
 
         let session = database
             .db
@@ -3408,6 +3512,10 @@ pub fn expensive_or_invalid() i32 {
             .get(&entry_id)
             .expect("preserved entry executable facts");
         assert!(state.checked_functions.contains(&checked_function));
+        assert_eq!(
+            session.applied_provider_fact_revision,
+            Some(revision.next())
+        );
         assert!(
             session
                 .caches
@@ -3472,13 +3580,15 @@ pub fn expensive_or_invalid() i32 {
                 .with_provider_fact_revision(revision.next())
                 .with_provider_changes(provider_changes),
         );
+        let worklist = database.db.get(ProviderFactWorklistQuery);
 
-        let session = database
+        let mut session = database
             .db
             .context()
             .executable_fact_session
             .lock()
             .expect("executable fact session lock poisoned");
+        session.apply_provider_fact_worklist(&worklist, &database.db.context().type_store);
         let state = session
             .modules
             .get(&entry_id)

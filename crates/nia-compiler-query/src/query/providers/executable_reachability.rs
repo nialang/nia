@@ -241,14 +241,18 @@ fn executable_check(
     db: &QueryDb<CompilerContext>,
     product: ExecutableCheckProduct,
 ) -> ExecutableCheckOutput {
-    let _provider_fact_revision = db.get(ProviderFactRevisionQuery);
+    let provider_fact_worklist = db.get(ProviderFactWorklistQuery);
     let parse_ok = db.get(SemanticModuleIdsQuery);
     let (entry_module, runtime_root_modules) = db.get(ExecutableRootModulesQuery).as_ref().clone();
+    let mut session = db.context().take_executable_fact_session();
+    session.apply_provider_fact_worklist(&provider_fact_worklist, &db.context().type_store);
     let ExecutableFactSession {
         mut modules,
         reachability,
         caches,
-    } = db.context().take_executable_fact_session();
+        applied_provider_fact_revision,
+        applied_provider_changes,
+    } = session;
     let mut non_function_signatures = None::<ProgramExecutableNonFunctionSignatures>;
     let function_signature = |def_id: GlobalDefId| {
         if let Some(signature) = caches
@@ -664,6 +668,8 @@ fn executable_check(
                 modules: fact_by_id,
                 reachability: reachability_state,
                 caches,
+                applied_provider_fact_revision,
+                applied_provider_changes,
             });
         return ExecutableCheckOutput::ProviderDemands(demands.into_iter().collect());
     }

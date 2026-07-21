@@ -74,26 +74,51 @@ pub(super) struct ExecutableFactSession {
     pub(super) modules: HashMap<ModuleId, ExecutableFactModuleState>,
     pub(super) reachability: nia_executable_reachability::IncrementalExecutableReachability,
     pub(super) caches: ExecutableCheckCaches,
+    pub(super) applied_provider_fact_revision: Option<crate::ProviderFactRevision>,
+    pub(super) applied_provider_changes: HashSet<ProviderDemand>,
 }
 
 impl ExecutableFactSession {
-    pub(super) fn retain_after_graph_growth(
-        &mut self,
-        body_activated: &HashSet<ModuleId>,
-        provider_changes: &HashSet<ProviderDemand>,
-        type_store: &nia_ty::TypeStore,
-    ) {
+    pub(super) fn retain_after_graph_growth(&mut self, body_activated: &HashSet<ModuleId>) {
         self.reachability = Default::default();
         let mut retained_modules = HashSet::new();
-        self.modules.retain(|module_id, state| {
-            let retained = !body_activated.contains(module_id)
-                && state.invalidate_provider_changes(provider_changes, type_store);
+        self.modules.retain(|module_id, _| {
+            let retained = !body_activated.contains(module_id);
             if retained {
                 retained_modules.insert(*module_id);
             }
             retained
         });
         self.caches.retain_modules(&retained_modules);
+    }
+
+    pub(super) fn apply_provider_fact_worklist(
+        &mut self,
+        worklist: &ProviderFactWorklist,
+        type_store: &nia_ty::TypeStore,
+    ) {
+        if self.applied_provider_fact_revision == Some(worklist.revision) {
+            return;
+        }
+        let pending_changes = worklist
+            .changes
+            .difference(&self.applied_provider_changes)
+            .cloned()
+            .collect::<HashSet<_>>();
+        if !pending_changes.is_empty() {
+            self.reachability = Default::default();
+            let mut retained_modules = HashSet::new();
+            self.modules.retain(|module_id, state| {
+                let retained = state.invalidate_provider_changes(&pending_changes, type_store);
+                if retained {
+                    retained_modules.insert(*module_id);
+                }
+                retained
+            });
+            self.caches.retain_modules(&retained_modules);
+            self.applied_provider_changes.extend(pending_changes);
+        }
+        self.applied_provider_fact_revision = Some(worklist.revision);
     }
 }
 
