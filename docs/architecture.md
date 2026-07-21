@@ -624,6 +624,16 @@ timing boundaries rather than owning program analysis or backend input shape.
 The query frontend is batch-friendly. Persistent caches, cross-session reuse,
 LSP scheduling, cancellation, and priority handling are separate future layers.
 
+`QuerySession` owns a lazily started persistent executor. `get_many` submits
+work to that executor, and nested batches reuse the permit already held by the
+current execution thread. Distinct sessions retain separate queues and query
+graphs but share one process-wide CPU budget. That budget inherits the
+Cargo/GNU Make jobserver when one is available; otherwise it creates a local
+jobserver from the process-visible parallelism, including one implicit process
+token in either case. There is no environment-variable worker-count override.
+LLVM memory pressure and codegen queue backpressure remain separate scheduler
+work rather than being inferred from the CPU token count.
+
 ## 5. Definitions And Modules
 
 ### 5.1 `nia-defs`
