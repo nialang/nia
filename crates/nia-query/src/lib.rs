@@ -7,7 +7,7 @@ use std::{
     hash::Hash,
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     sync::{
-        Arc, Condvar, Mutex, Weak,
+        Arc, Condvar, Mutex, OnceLock, Weak,
         atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
     thread::JoinHandle,
@@ -16,7 +16,6 @@ use std::{
 use nia_hash::{FastHashMap, FastHashSet};
 
 const DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM: usize = 4;
-const QUERY_THREADS_ENV: &str = "NIA_QUERY_THREADS";
 
 pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     type Value: Send + Sync + 'static;
@@ -220,6 +219,7 @@ struct QueryTask {
 struct QueryExecutor {
     session_id: QuerySessionId,
     shared: Arc<QueryExecutorShared>,
+    execution_budget: Arc<QueryExecutionBudget>,
     workers: Mutex<QueryExecutorWorkers>,
 }
 
@@ -248,6 +248,36 @@ struct QueryExecutorStackGuard {
 struct QueryExecutorActivityGuard {
     shared: Arc<QueryExecutorShared>,
     counts_activity: bool,
+    _execution_permit: Option<QueryExecutionPermit>,
+}
+
+struct QueryExecutionBudget {
+    shared: Arc<QueryExecutionBudgetShared>,
+    helper: Mutex<jobserver::HelperThread>,
+}
+
+struct QueryExecutionBudgetShared {
+    state: Mutex<QueryExecutionBudgetState>,
+    ready: Condvar,
+    peak_active: AtomicUsize,
+}
+
+struct QueryExecutionBudgetState {
+    implicit_available: bool,
+    waiting: usize,
+    pending_requests: usize,
+    active: usize,
+    deliveries: VecDeque<Result<jobserver::Acquired, String>>,
+}
+
+struct QueryExecutionPermit {
+    shared: Arc<QueryExecutionBudgetShared>,
+    implicit: bool,
+    token: Option<jobserver::Acquired>,
+}
+
+struct QueryExecutionBudgetStackGuard {
+    budget: usize,
 }
 
 type QueryBatchOutcome<V> = Result<(Arc<V>, RecordedDependencies), Box<dyn Any + Send>>;
@@ -317,8 +347,176 @@ impl QuerySessionId {
     }
 }
 
+impl QueryExecutionBudget {
+    fn from_environment(parallelism: usize) -> Self {
+        // SAFETY: the process launcher owns the jobserver environment contract. We validate that
+        // inherited Unix descriptors are pipes, and the process-wide OnceLock below ensures Nia
+        // opens them only once instead of creating competing clients for the same raw descriptors.
+        let inherited = unsafe { jobserver::Client::from_env_ext(true) };
+        let client = match inherited.client {
+            Ok(client) => client,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    jobserver::FromEnvErrorKind::NoEnvVar
+                        | jobserver::FromEnvErrorKind::NoJobserver
+                ) =>
+            {
+                jobserver::Client::new(parallelism.saturating_sub(1))
+                    .unwrap_or_else(|error| panic!("failed to create query jobserver: {error}"))
+            }
+            Err(error) => panic!("failed to inherit query jobserver: {error}"),
+        };
+        Self::from_client(client)
+    }
+
+    #[cfg(test)]
+    fn owned(parallelism: usize) -> Self {
+        let client = jobserver::Client::new(parallelism.saturating_sub(1))
+            .unwrap_or_else(|error| panic!("failed to create query jobserver: {error}"));
+        Self::from_client(client)
+    }
+
+    fn from_client(client: jobserver::Client) -> Self {
+        let shared = Arc::new(QueryExecutionBudgetShared {
+            state: Mutex::new(QueryExecutionBudgetState {
+                implicit_available: true,
+                waiting: 0,
+                pending_requests: 0,
+                active: 0,
+                deliveries: VecDeque::new(),
+            }),
+            ready: Condvar::new(),
+            peak_active: AtomicUsize::new(0),
+        });
+        let callback_shared = Arc::clone(&shared);
+        let helper = client
+            .into_helper_thread(move |delivery| {
+                let delivery = delivery.map_err(|error| error.to_string());
+                let mut state = callback_shared
+                    .state
+                    .lock()
+                    .expect("query execution budget lock poisoned");
+                state.pending_requests = state
+                    .pending_requests
+                    .checked_sub(1)
+                    .expect("query execution budget request count underflow");
+                if state.waiting > 0 {
+                    state.deliveries.push_back(delivery);
+                }
+                drop(state);
+                callback_shared.ready.notify_all();
+            })
+            .unwrap_or_else(|error| panic!("failed to start query jobserver helper: {error}"));
+        Self {
+            shared,
+            helper: Mutex::new(helper),
+        }
+    }
+
+    fn acquire(&self) -> QueryExecutionPermit {
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .expect("query execution budget lock poisoned");
+        state.waiting += 1;
+        loop {
+            if let Some(delivery) = state.deliveries.pop_front() {
+                state.waiting -= 1;
+                let token = match delivery {
+                    Ok(token) => token,
+                    Err(error) => {
+                        drop(state);
+                        panic!("failed to acquire query jobserver token: {error}");
+                    }
+                };
+                state.active += 1;
+                self.shared.record_active(state.active);
+                drop(state);
+                return QueryExecutionPermit {
+                    shared: Arc::clone(&self.shared),
+                    implicit: false,
+                    token: Some(token),
+                };
+            }
+            if state.implicit_available {
+                state.implicit_available = false;
+                state.waiting -= 1;
+                state.active += 1;
+                self.shared.record_active(state.active);
+                return QueryExecutionPermit {
+                    shared: Arc::clone(&self.shared),
+                    implicit: true,
+                    token: None,
+                };
+            }
+            let represented_waiters = state.pending_requests + state.deliveries.len();
+            let requests = state.waiting.saturating_sub(represented_waiters);
+            state.pending_requests += requests;
+            if requests > 0 {
+                let helper = self
+                    .helper
+                    .lock()
+                    .expect("query jobserver helper lock poisoned");
+                for _ in 0..requests {
+                    helper.request_token();
+                }
+            }
+            state = self
+                .shared
+                .ready
+                .wait(state)
+                .expect("query execution budget lock poisoned while waiting");
+        }
+    }
+
+    fn identity(&self) -> usize {
+        Arc::as_ptr(&self.shared) as usize
+    }
+
+    #[cfg(test)]
+    fn peak_active(&self) -> usize {
+        self.shared.peak_active.load(Ordering::Relaxed)
+    }
+}
+
+impl QueryExecutionBudgetShared {
+    fn record_active(&self, active: usize) {
+        self.peak_active.fetch_max(active, Ordering::Relaxed);
+    }
+}
+
+impl Drop for QueryExecutionPermit {
+    fn drop(&mut self) {
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .expect("query execution budget lock poisoned");
+        state.active = state
+            .active
+            .checked_sub(1)
+            .expect("query execution budget active count underflow");
+        if self.implicit {
+            assert!(
+                !state.implicit_available,
+                "query execution budget returned the implicit token twice"
+            );
+            state.implicit_available = true;
+        }
+        drop(state);
+        drop(self.token.take());
+        self.shared.ready.notify_all();
+    }
+}
+
 impl QueryExecutor {
-    fn new(session_id: QuerySessionId, parallelism: usize) -> Self {
+    fn new(
+        session_id: QuerySessionId,
+        parallelism: usize,
+        execution_budget: Arc<QueryExecutionBudget>,
+    ) -> Self {
         assert!(
             parallelism > 0,
             "query executor parallelism must be non-zero"
@@ -331,6 +529,7 @@ impl QueryExecutor {
                 ready: Condvar::new(),
                 peak_active: AtomicUsize::new(0),
             }),
+            execution_budget,
             workers: Mutex::new(QueryExecutorWorkers {
                 handles: Vec::with_capacity(parallelism.saturating_sub(1)),
             }),
@@ -349,9 +548,10 @@ impl QueryExecutor {
             .min(work_items.saturating_sub(1));
         for worker_index in workers.handles.len()..worker_target {
             let shared = Arc::clone(&self.shared);
+            let execution_budget = Arc::clone(&self.execution_budget);
             let handle = std::thread::Builder::new()
                 .name(format!("nia-query-{}-{worker_index}", self.session_id.0))
-                .spawn(move || shared.worker_loop())
+                .spawn(move || shared.worker_loop(execution_budget))
                 .unwrap_or_else(|error| panic!("failed to start query executor worker: {error}"));
             workers.handles.push(handle);
         }
@@ -378,6 +578,24 @@ impl QueryExecutor {
 
     fn try_run_one(&self, batch: usize) -> bool {
         let nested = query_executor_is_active(self.identity());
+        let can_run = {
+            let state = self
+                .shared
+                .state
+                .lock()
+                .expect("query executor state lock poisoned");
+            state.queue.iter().any(|task| task.batch == batch)
+                && (nested || state.active < self.shared.parallelism)
+        };
+        if !can_run {
+            return false;
+        }
+        let execution_permit = if query_execution_budget_is_active(self.execution_budget.identity())
+        {
+            None
+        } else {
+            Some(self.execution_budget.acquire())
+        };
         let task = {
             let mut state = self
                 .shared
@@ -412,9 +630,15 @@ impl QueryExecutor {
             }
         };
         let Some((task, counts_activity)) = task else {
+            drop(execution_permit);
             return false;
         };
-        self.shared.run_task(task.run, counts_activity);
+        self.shared.run_task(
+            task.run,
+            counts_activity,
+            execution_permit,
+            self.execution_budget.identity(),
+        );
         true
     }
 
@@ -474,9 +698,9 @@ impl Drop for QueryExecutor {
 }
 
 impl QueryExecutorShared {
-    fn worker_loop(self: Arc<Self>) {
+    fn worker_loop(self: Arc<Self>, execution_budget: Arc<QueryExecutionBudget>) {
         loop {
-            let task = {
+            {
                 let mut state = self
                     .state
                     .lock()
@@ -485,28 +709,60 @@ impl QueryExecutorShared {
                     if state.shutdown && state.queue.is_empty() {
                         return;
                     }
-                    if state.active < self.parallelism
-                        && let Some(task) = state.queue.pop_front()
-                    {
-                        state.active += 1;
-                        self.record_active(state.active);
-                        break task;
+                    if state.active < self.parallelism && !state.queue.is_empty() {
+                        break;
                     }
                     state = self
                         .ready
                         .wait(state)
                         .expect("query executor state lock poisoned while waiting");
                 }
+            }
+            let execution_permit = execution_budget.acquire();
+            let task = {
+                let mut state = self
+                    .state
+                    .lock()
+                    .expect("query executor state lock poisoned");
+                if state.active < self.parallelism {
+                    match state.queue.pop_front() {
+                        Some(task) => {
+                            state.active += 1;
+                            self.record_active(state.active);
+                            Some(task)
+                        }
+                        None => None,
+                    }
+                } else {
+                    None
+                }
             };
-            self.run_task(task.run, true);
+            let Some(task) = task else {
+                drop(execution_permit);
+                continue;
+            };
+            self.run_task(
+                task.run,
+                true,
+                Some(execution_permit),
+                execution_budget.identity(),
+            );
         }
     }
 
-    fn run_task(self: &Arc<Self>, task: Box<dyn FnOnce() + Send + 'static>, counts_activity: bool) {
+    fn run_task(
+        self: &Arc<Self>,
+        task: Box<dyn FnOnce() + Send + 'static>,
+        counts_activity: bool,
+        execution_permit: Option<QueryExecutionPermit>,
+        execution_budget: usize,
+    ) {
         let _activity = QueryExecutorActivityGuard {
             shared: Arc::clone(self),
             counts_activity,
+            _execution_permit: execution_permit,
         };
+        let _execution_budget_stack = QueryExecutionBudgetStackGuard::enter(execution_budget);
         let _stack = QueryExecutorStackGuard::enter(Arc::as_ptr(self) as usize);
         task();
     }
@@ -548,6 +804,25 @@ impl QueryExecutorStackGuard {
     fn enter(executor: usize) -> Self {
         QUERY_EXECUTOR_STACK.with(|stack| stack.borrow_mut().push(executor));
         Self { executor }
+    }
+}
+
+impl QueryExecutionBudgetStackGuard {
+    fn enter(budget: usize) -> Self {
+        QUERY_EXECUTION_BUDGET_STACK.with(|stack| stack.borrow_mut().push(budget));
+        Self { budget }
+    }
+}
+
+impl Drop for QueryExecutionBudgetStackGuard {
+    fn drop(&mut self) {
+        QUERY_EXECUTION_BUDGET_STACK.with(|stack| {
+            assert_eq!(
+                stack.borrow_mut().pop(),
+                Some(self.budget),
+                "query execution budget stack is unbalanced"
+            );
+        });
     }
 }
 
@@ -973,6 +1248,7 @@ struct QueryStackInstallGuard {
 thread_local! {
     static QUERY_STACK: RefCell<Vec<QueryStackEntry>> = const { RefCell::new(Vec::new()) };
     static QUERY_EXECUTOR_STACK: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    static QUERY_EXECUTION_BUDGET_STACK: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
 }
 
 impl Default for QuerySession {
@@ -983,15 +1259,27 @@ impl Default for QuerySession {
 
 impl QuerySession {
     pub fn new() -> Self {
-        Self::with_parallelism(default_query_parallelism())
+        let parallelism = default_query_parallelism();
+        Self::with_execution_budget(parallelism, process_query_execution_budget(parallelism))
     }
 
+    #[cfg(test)]
     fn with_parallelism(parallelism: usize) -> Self {
+        Self::with_execution_budget(
+            parallelism,
+            Arc::new(QueryExecutionBudget::owned(parallelism)),
+        )
+    }
+
+    fn with_execution_budget(
+        parallelism: usize,
+        execution_budget: Arc<QueryExecutionBudget>,
+    ) -> Self {
         let id = QuerySessionId::fresh();
         Self {
             inner: Arc::new(QuerySessionInner {
                 id,
-                executor: QueryExecutor::new(id, parallelism),
+                executor: QueryExecutor::new(id, parallelism, execution_budget),
                 databases: Mutex::new(FastHashMap::default()),
                 dependencies: Mutex::new(QueryDependencyGraph::default()),
             }),
@@ -1719,18 +2007,17 @@ impl<C> QueryDb<C> {
 }
 
 fn default_query_parallelism() -> usize {
-    let configured = std::env::var(QUERY_THREADS_ENV)
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0);
-    configured.unwrap_or_else(|| {
-        let available = std::thread::available_parallelism()
-            .map(usize::from)
-            .unwrap_or(1);
-        available
-            .div_ceil(2)
-            .clamp(1, DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM)
-    })
+    let available = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1);
+    available
+        .div_ceil(2)
+        .clamp(1, DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM)
+}
+
+fn process_query_execution_budget(parallelism: usize) -> Arc<QueryExecutionBudget> {
+    static BUDGET: OnceLock<Arc<QueryExecutionBudget>> = OnceLock::new();
+    Arc::clone(BUDGET.get_or_init(|| Arc::new(QueryExecutionBudget::from_environment(parallelism))))
 }
 
 impl QueryDependencyGraph {
@@ -1961,6 +2248,10 @@ fn query_executor_is_active(executor: usize) -> bool {
     QUERY_EXECUTOR_STACK.with(|stack| stack.borrow().contains(&executor))
 }
 
+fn query_execution_budget_is_active(budget: usize) -> bool {
+    QUERY_EXECUTION_BUDGET_STACK.with(|stack| stack.borrow().contains(&budget))
+}
+
 fn take_current_stack_dependencies() -> RecordedDependencies {
     QUERY_STACK.with(|stack| {
         stack
@@ -2051,7 +2342,7 @@ mod tests {
     struct ExecutorProbeContext {
         active: AtomicUsize,
         peak_active: AtomicUsize,
-        barrier: Barrier,
+        barrier: Arc<Barrier>,
     }
 
     struct BatchIsolationContext {
@@ -2089,6 +2380,10 @@ mod tests {
         executions: Arc<AtomicUsize>,
     }
 
+    struct CrossSessionBatchContext {
+        input_db: QueryDb<TestContext>,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     struct SessionParent;
 
@@ -2111,6 +2406,26 @@ mod tests {
                 "nia.query.test.session-parent.v1",
                 *value,
             ))
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct CrossSessionBatch;
+
+    impl QueryKey<CrossSessionBatchContext> for CrossSessionBatch {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "cross_session_batch"
+        }
+
+        fn execute(&self, db: &QueryDb<CrossSessionBatchContext>) -> Self::Value {
+            db.context()
+                .input_db
+                .get_many([Double(2), Double(5)])
+                .into_iter()
+                .map(|value| *value)
+                .sum()
         }
     }
 
@@ -2814,7 +3129,7 @@ mod tests {
             ExecutorProbeContext {
                 active: AtomicUsize::new(0),
                 peak_active: AtomicUsize::new(0),
-                barrier: Barrier::new(2),
+                barrier: Arc::new(Barrier::new(2)),
             },
             nia_timing::TimingMode::Off,
             session.clone(),
@@ -2834,6 +3149,103 @@ mod tests {
         assert_eq!(db.context().active.load(Ordering::SeqCst), 0);
         assert_eq!(db.context().peak_active.load(Ordering::SeqCst), 2);
         assert_eq!(session.inner.executor.peak_active(), 2);
+    }
+
+    #[test]
+    fn shared_execution_budget_caps_tasks_across_sessions() {
+        let execution_budget = Arc::new(QueryExecutionBudget::owned(2));
+        let first_session = QuerySession::with_execution_budget(2, Arc::clone(&execution_budget));
+        let second_session = QuerySession::with_execution_budget(2, Arc::clone(&execution_budget));
+        let barrier = Arc::new(Barrier::new(2));
+        let first_db = QueryDb::new_with_timings_in_session(
+            ExecutorProbeContext {
+                active: AtomicUsize::new(0),
+                peak_active: AtomicUsize::new(0),
+                barrier: Arc::clone(&barrier),
+            },
+            nia_timing::TimingMode::Off,
+            first_session,
+        );
+        let second_db = QueryDb::new_with_timings_in_session(
+            ExecutorProbeContext {
+                active: AtomicUsize::new(0),
+                peak_active: AtomicUsize::new(0),
+                barrier,
+            },
+            nia_timing::TimingMode::Off,
+            second_session,
+        );
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let second_sender = sender.clone();
+        std::thread::spawn(move || {
+            let values = first_db.get_many([ExecutorProbe(0), ExecutorProbe(1)]);
+            sender
+                .send(values.into_iter().map(|value| *value).collect::<Vec<_>>())
+                .expect("send first shared-budget batch");
+        });
+        std::thread::spawn(move || {
+            let values = second_db.get_many([ExecutorProbe(2), ExecutorProbe(3)]);
+            second_sender
+                .send(values.into_iter().map(|value| *value).collect::<Vec<_>>())
+                .expect("send second shared-budget batch");
+        });
+
+        let mut batches = vec![
+            receiver
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("first shared-budget batch must complete"),
+            receiver
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("second shared-budget batch must complete"),
+        ];
+        batches.sort();
+        assert_eq!(batches, vec![vec![0, 1], vec![2, 3]]);
+        assert_eq!(execution_budget.peak_active(), 2);
+    }
+
+    #[test]
+    fn default_sessions_share_the_process_execution_budget() {
+        let first = QuerySession::new();
+        let second = QuerySession::new();
+
+        assert!(!first.ptr_eq(&second));
+        assert!(Arc::ptr_eq(
+            &first.inner.executor.execution_budget,
+            &second.inner.executor.execution_budget
+        ));
+    }
+
+    #[test]
+    fn nested_batches_across_sessions_reuse_the_current_process_permit() {
+        let execution_budget = Arc::new(QueryExecutionBudget::owned(1));
+        let input_session = QuerySession::with_execution_budget(1, Arc::clone(&execution_budget));
+        let parent_session = QuerySession::with_execution_budget(1, Arc::clone(&execution_budget));
+        let input_db = QueryDb::new_with_timings_in_session(
+            TestContext {
+                executions: AtomicUsize::new(0),
+            },
+            nia_timing::TimingMode::Off,
+            input_session,
+        );
+        let parent_db = QueryDb::new_with_timings_in_session(
+            CrossSessionBatchContext { input_db },
+            nia_timing::TimingMode::Off,
+            parent_session,
+        );
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let values = parent_db.get_many([CrossSessionBatch]);
+            sender
+                .send(values.into_iter().map(|value| *value).collect::<Vec<_>>())
+                .expect("send cross-session batch result");
+        });
+
+        assert_eq!(
+            receiver.recv_timeout(std::time::Duration::from_secs(2)),
+            Ok(vec![14])
+        );
+        assert_eq!(execution_budget.peak_active(), 1);
     }
 
     #[test]
@@ -2946,9 +3358,7 @@ mod tests {
         let count = default_query_parallelism();
 
         assert!(count >= 1);
-        if std::env::var(QUERY_THREADS_ENV).is_err() {
-            assert!(count <= DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM);
-        }
+        assert!(count <= DEFAULT_MAX_QUERY_EXECUTOR_PARALLELISM);
     }
 
     #[test]
