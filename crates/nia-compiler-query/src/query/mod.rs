@@ -382,11 +382,19 @@ impl CompilerDatabase {
 
     pub fn update(&self, request: CompileRequest) -> CompilerInvalidation {
         let new_inputs = CompilerInputs::new(request);
-        let diff = {
+        let update = {
             let mut inputs = self.inputs.write().expect("compiler input lock poisoned");
-            let diff = CompilerInputDiff::between(&inputs, &new_inputs);
-            *inputs = new_inputs;
-            diff
+            match CompilerInputDiff::try_between(&inputs, &new_inputs) {
+                Ok(diff) => {
+                    *inputs = new_inputs;
+                    Ok(diff)
+                }
+                Err(error) => Err(error),
+            }
+        };
+        let diff = match update {
+            Ok(diff) => diff,
+            Err(error) => panic!("Nia ICE: {error}"),
         };
         self.invalidate_inputs(diff)
     }
@@ -412,6 +420,7 @@ impl CompilerDatabase {
 
     fn invalidate_inputs(&self, diff: CompilerInputDiff) -> CompilerInvalidation {
         let reset_executable_facts = diff.executable_fact_inputs_changed
+            || diff.provider_facts_reset
             || diff.target_changed
             || diff.runtime_changed
             || diff.executable_roots_changed;
@@ -1561,6 +1570,7 @@ struct CompilerInputDiff {
     executable_roots_changed: bool,
     body_activated_modules: HashSet<ModuleId>,
     provider_changes: HashSet<crate::ProviderDemand>,
+    provider_facts_reset: bool,
     executable_fact_inputs_changed: bool,
     loaded_modules_changed: bool,
     loaded_diagnostics_changed: bool,
@@ -1571,7 +1581,16 @@ struct CompilerInputDiff {
 }
 
 impl CompilerInputDiff {
+    #[cfg(test)]
     fn between(old: &CompilerInputs, new: &CompilerInputs) -> Self {
+        Self::try_between(old, new).unwrap_or_else(|error| panic!("Nia ICE: {error}"))
+    }
+
+    fn try_between(
+        old: &CompilerInputs,
+        new: &CompilerInputs,
+    ) -> Result<Self, ProviderFactInputError> {
+        let provider_facts_reset = validate_provider_fact_update(old, new)?;
         let changed_modules = changed_loaded_modules(old, new);
         let (
             changed_public_surface_module_names,
@@ -1584,7 +1603,7 @@ impl CompilerInputDiff {
             changed_using_scope_type_names,
             changed_using_scope_unresolved_names,
         ) = changed_using_scope_names(old, new);
-        Self {
+        Ok(Self {
             graph_changed: old.graph != new.graph,
             graph_entry_changed: old.graph.entry() != new.graph.entry(),
             changed_graph_paths: changed_graph_paths(old, new),
@@ -1618,6 +1637,7 @@ impl CompilerInputDiff {
                 .map(|node| node.id)
                 .collect(),
             provider_changes: new.provider_changes.clone(),
+            provider_facts_reset,
             executable_fact_inputs_changed: executable_fact_inputs_changed(old, new),
             loaded_modules_changed: loaded_module_ids(old) != loaded_module_ids(new)
                 || loaded_module_identity_assignments(old)
@@ -1627,7 +1647,49 @@ impl CompilerInputDiff {
             runtime_changed: old.runtime != new.runtime,
             optimization_changed: old.optimization != new.optimization,
             changed_modules,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProviderFactInputError {
+    ChangesAtUnchangedRevision,
+    ChangesFromReplacementOwner,
+    StaleRevision,
+}
+
+impl std::fmt::Display for ProviderFactInputError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ChangesAtUnchangedRevision => {
+                formatter.write_str("provider changes require an advanced provider fact revision")
+            }
+            Self::ChangesFromReplacementOwner => {
+                formatter.write_str("provider fact owner replacement cannot carry provider changes")
+            }
+            Self::StaleRevision => {
+                formatter.write_str("provider fact revision cannot move backwards")
+            }
         }
+    }
+}
+
+fn validate_provider_fact_update(
+    old: &CompilerInputs,
+    new: &CompilerInputs,
+) -> Result<bool, ProviderFactInputError> {
+    use crate::ProviderFactRevisionTransition::{Advanced, Replaced, Stale, Unchanged};
+
+    match (
+        new.provider_fact_revision
+            .transition_from(old.provider_fact_revision),
+        new.provider_changes.is_empty(),
+    ) {
+        (Unchanged, true) | (Advanced, false) => Ok(false),
+        (Advanced | Replaced, true) => Ok(true),
+        (Unchanged, false) => Err(ProviderFactInputError::ChangesAtUnchangedRevision),
+        (Replaced, false) => Err(ProviderFactInputError::ChangesFromReplacementOwner),
+        (Stale, _) => Err(ProviderFactInputError::StaleRevision),
     }
 }
 
@@ -2998,7 +3060,10 @@ pub fn expensive_or_invalid() i32 {
     fn provider_changes_discard_affected_executable_fact_caches() {
         let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let entry_id = fixture.entry_id();
-        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
+        let revision = crate::ProviderFactRevision::new_store();
+        let database = CompilerDatabase::new(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
+        );
         let _ = database.executable_provider_demands();
         let provider_changes = vec![crate::ProviderDemand {
             source_path: SourcePath::new("main.nia"),
@@ -3030,8 +3095,11 @@ pub fn expensive_or_invalid() i32 {
             "main/provider.nia",
             "pub fn value() i32 { 1 }",
         );
-        database
-            .update(CompileRequest::new(fixture.program()).with_provider_changes(provider_changes));
+        database.update(
+            CompileRequest::new(fixture.program())
+                .with_provider_fact_revision(revision.next())
+                .with_provider_changes(provider_changes),
+        );
 
         let session = database
             .db
@@ -3083,10 +3151,98 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
+    fn compiler_input_diff_classifies_provider_fact_resets() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let revision = crate::ProviderFactRevision::new_store();
+        let old = CompilerInputs::new(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
+        );
+        let cleared = CompilerInputs::new(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision.next()),
+        );
+        let replaced = CompilerInputs::new(
+            CompileRequest::new(fixture.program())
+                .with_provider_fact_revision(crate::ProviderFactRevision::new_store()),
+        );
+
+        assert!(CompilerInputDiff::between(&old, &cleared).provider_facts_reset);
+        assert!(CompilerInputDiff::between(&old, &replaced).provider_facts_reset);
+    }
+
+    #[test]
+    fn compiler_update_rejects_provider_changes_at_unchanged_revision() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let revision = crate::ProviderFactRevision::new_store();
+        let database = CompilerDatabase::new(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
+        );
+        let demand = crate::ProviderDemand {
+            source_path: SourcePath::new("main.nia"),
+            request: crate::ProviderRequest::Method {
+                target_type_name: None,
+                method_name: SymbolId::default(),
+            },
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            database.update(
+                CompileRequest::new(fixture.program())
+                    .with_provider_fact_revision(revision)
+                    .with_provider_changes([demand]),
+            );
+        }));
+
+        assert!(result.is_err());
+        assert_eq!(database.provider_fact_revision(), revision);
+    }
+
+    #[test]
+    #[should_panic(expected = "provider fact owner replacement cannot carry provider changes")]
+    fn compiler_input_diff_rejects_provider_changes_from_replacement_owner() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let old = CompilerInputs::new(
+            CompileRequest::new(fixture.program())
+                .with_provider_fact_revision(crate::ProviderFactRevision::new_store()),
+        );
+        let demand = crate::ProviderDemand {
+            source_path: SourcePath::new("main.nia"),
+            request: crate::ProviderRequest::Method {
+                target_type_name: None,
+                method_name: SymbolId::default(),
+            },
+        };
+        let new = CompilerInputs::new(
+            CompileRequest::new(fixture.program())
+                .with_provider_fact_revision(crate::ProviderFactRevision::new_store())
+                .with_provider_changes([demand]),
+        );
+
+        let _ = CompilerInputDiff::between(&old, &new);
+    }
+
+    #[test]
+    #[should_panic(expected = "provider fact revision cannot move backwards")]
+    fn compiler_input_diff_rejects_stale_provider_fact_revision() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let revision = crate::ProviderFactRevision::new_store();
+        let old = CompilerInputs::new(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision.next()),
+        );
+        let new = CompilerInputs::new(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
+        );
+
+        let _ = CompilerInputDiff::between(&old, &new);
+    }
+
+    #[test]
     fn semantic_provider_activation_preserves_resolved_caller_facts() {
         let mut fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let entry_id = fixture.entry_id();
-        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
+        let revision = crate::ProviderFactRevision::new_store();
+        let database = CompilerDatabase::new(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
+        );
         let _ = database.executable_provider_demands();
         fixture.add_child(
             entry_id,
@@ -3126,7 +3282,9 @@ pub fn expensive_or_invalid() i32 {
         };
 
         database.update(
-            CompileRequest::new(fixture.program()).with_provider_changes([provider_change]),
+            CompileRequest::new(fixture.program())
+                .with_provider_fact_revision(revision.next())
+                .with_provider_changes([provider_change]),
         );
 
         let session = database
@@ -3156,7 +3314,10 @@ pub fn expensive_or_invalid() i32 {
             "struct Value {} fn helper() i32 { 1 } fn main(value: Value) i32 { value.missing() }",
         );
         let entry_id = fixture.entry_id();
-        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
+        let revision = crate::ProviderFactRevision::new_store();
+        let database = CompilerDatabase::new(
+            CompileRequest::new(fixture.program()).with_provider_fact_revision(revision),
+        );
         let provider_changes = database
             .executable_provider_demands()
             .into_iter()
@@ -3196,8 +3357,11 @@ pub fn expensive_or_invalid() i32 {
             "main/provider.nia",
             "pub fn value() i32 { 1 }",
         );
-        database
-            .update(CompileRequest::new(fixture.program()).with_provider_changes(provider_changes));
+        database.update(
+            CompileRequest::new(fixture.program())
+                .with_provider_fact_revision(revision.next())
+                .with_provider_changes(provider_changes),
+        );
 
         let session = database
             .db
