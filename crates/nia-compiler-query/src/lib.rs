@@ -41,7 +41,13 @@ pub trait LoaderFactProvider: Send + Sync {
     fn provider_fact_revision(&self) -> ProviderFactRevision;
     fn module_graph(&self) -> ModuleGraphSnapshot;
     fn loaded_module_source_identities(&self) -> Vec<SourceIdentity>;
+    fn module_path(&self, module_id: ModuleId) -> Option<SourcePath>;
+    fn module_source_version(&self, module_id: ModuleId) -> Option<SourceVersion>;
+    fn module_provider_summary(&self, module_id: ModuleId) -> Option<ProviderSummary>;
     fn load_diagnostics(&self) -> Vec<ProgramDiagnostic>;
+    fn symbols(&self) -> SymbolTable;
+    fn target(&self) -> TargetConfig;
+    fn runtime(&self) -> RuntimeModel;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,8 +81,41 @@ impl LoaderFactProvider for LoadedProgram {
             .collect()
     }
 
+    fn module_path(&self, module_id: ModuleId) -> Option<SourcePath> {
+        self.modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .map(|module| module.path.clone())
+    }
+
+    fn module_source_version(&self, module_id: ModuleId) -> Option<SourceVersion> {
+        self.modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .map(|module| module.source_version)
+    }
+
+    fn module_provider_summary(&self, module_id: ModuleId) -> Option<ProviderSummary> {
+        self.modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .map(|module| module.provider_summary.clone())
+    }
+
     fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {
         self.diagnostics.clone()
+    }
+
+    fn symbols(&self) -> SymbolTable {
+        self.symbols.clone()
+    }
+
+    fn target(&self) -> TargetConfig {
+        self.target.clone()
+    }
+
+    fn runtime(&self) -> RuntimeModel {
+        self.runtime
     }
 }
 

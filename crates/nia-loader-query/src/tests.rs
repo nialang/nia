@@ -138,6 +138,16 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
         dependency.from.name == "program_load_diagnostics"
             && dependency.to.name == "load_diagnostics"
     }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "module_path" && dependency.to.name == "module_graph"
+    }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "module_source_version" && dependency.to.name == "source_status"
+    }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "extension_provider_summary"
+            && dependency.to.name == "provider_summary"
+    }));
 }
 
 fn assert_no_error_diagnostics(program: &nia_compiler_query::LoadedProgram) {
