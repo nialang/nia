@@ -145,6 +145,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ExecutableProviderDemandsQuery,
         ExecutableRootModulesQuery,
         ExecutableValueRefEdgesQuery,
+        ExecutableValueRefItemIndexQuery,
         ExecutableValueRefItemQuery,
         ExtensionMethodByIdQuery,
         ExtensionMethodIndexQuery,
@@ -480,9 +481,6 @@ impl CompilerDatabase {
         }
         if diff.graph_changed {
             invalidation.extend(self.db.invalidate(ModuleGraphQuery));
-        }
-        for owner in diff.changed_executable_value_ref_items {
-            invalidation.extend(self.db.invalidate(ExecutableValueRefItemQuery(owner)));
         }
         if diff.executable_roots_changed {
             invalidation.extend(self.db.invalidate(ExecutableRootModulesQuery));
@@ -858,7 +856,6 @@ struct CompilerInputs {
     modules: Vec<CompilerInputModule>,
     modules_by_id: HashMap<ModuleId, usize>,
     modules_by_source_identity: HashMap<SourceIdentity, usize>,
-    executable_value_ref_items: HashMap<GlobalDefId, ExecutableValueRefItemLocation>,
     diagnostics: Vec<ProgramDiagnostic>,
     target: TargetConfig,
     runtime: crate::RuntimeModel,
@@ -1095,13 +1092,6 @@ fn bool_query_fingerprint(domain: &str, value: bool) -> QueryFingerprint {
     builder.finish()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ExecutableValueRefItemLocation {
-    module_id: ModuleId,
-    item_index: usize,
-    owner_node_key: nia_node_id::VersionedNodeKey,
-}
-
 #[derive(Debug, Clone)]
 struct CompilerInputModule {
     id: ModuleId,
@@ -1142,7 +1132,6 @@ impl CompilerInputs {
             .filter(|node| graph.is_executable_root_module(node.id))
             .map(|node| node.id)
             .collect();
-        let symbols = loaded.symbols;
         let target = loaded.target;
         let runtime = loaded.runtime;
         let diagnostics = loaded.diagnostics;
@@ -1154,19 +1143,6 @@ impl CompilerInputs {
             .collect::<Vec<_>>();
         let modules_by_id = index_input_modules(&modules);
         let modules_by_source_identity = index_input_module_identities(&modules);
-        let defs = modules
-            .iter()
-            .filter(|module| module.parse_errors.is_empty())
-            .map(|module| {
-                nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
-                    module.id,
-                    &module.active_item_tree,
-                    module.origins.node_store(),
-                    &symbols,
-                )
-            })
-            .collect::<Vec<_>>();
-        let executable_value_ref_items = index_executable_value_ref_items(&modules, &defs);
         Self {
             graph,
             provider_fact_revision: request.provider_fact_revision,
@@ -1175,7 +1151,6 @@ impl CompilerInputs {
             modules,
             modules_by_id,
             modules_by_source_identity,
-            executable_value_ref_items,
             diagnostics,
             target,
             runtime,
@@ -1231,84 +1206,6 @@ impl CompilerInputs {
         } else {
             previous.executable_fact_epoch
         };
-    }
-}
-
-fn index_executable_value_ref_items(
-    modules: &[CompilerInputModule],
-    defs_by_module: &[DefCollection],
-) -> HashMap<GlobalDefId, ExecutableValueRefItemLocation> {
-    let defs_by_id = defs_by_module
-        .iter()
-        .map(|defs| (defs.module_id, defs))
-        .collect::<HashMap<_, _>>();
-    let mut items = HashMap::new();
-    for module in modules {
-        let Some(defs) = defs_by_id.get(&module.id).copied() else {
-            continue;
-        };
-        for (item_index, item) in module.active_item_tree.items.iter().enumerate() {
-            index_executable_value_ref_item(module.id, item_index, item, defs, &mut items);
-        }
-    }
-    items
-}
-
-fn index_executable_value_ref_item(
-    module_id: ModuleId,
-    item_index: usize,
-    item: &nia_item_tree::ItemTreeNode,
-    defs: &DefCollection,
-    items: &mut HashMap<GlobalDefId, ExecutableValueRefItemLocation>,
-) {
-    let mut insert = |node_key: &nia_node_id::VersionedNodeKey| {
-        let Some(def_id) = defs.def_nodes.get(node_key) else {
-            return;
-        };
-        items.insert(
-            GlobalDefId { module_id, def_id },
-            ExecutableValueRefItemLocation {
-                module_id,
-                item_index,
-                owner_node_key: node_key.clone(),
-            },
-        );
-    };
-    match &item.kind {
-        nia_item_tree::ItemTreeNodeKind::Function(function)
-            if !function.is_const && function.body.is_some() =>
-        {
-            insert(&function.node_key);
-        }
-        nia_item_tree::ItemTreeNodeKind::Binding(binding)
-            if !binding.is_const() && binding.value.is_some() =>
-        {
-            insert(&binding.node_key);
-        }
-        nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
-            for method in &item_trait.methods {
-                if method.function.is_const || method.function.body.is_none() {
-                    continue;
-                }
-                insert(&method.function.node_key);
-            }
-        }
-        nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
-            for method in &extend.methods {
-                if method.function.is_const || method.function.body.is_none() {
-                    continue;
-                }
-                insert(&method.function.node_key);
-            }
-            for associated_value in &extend.associated_values {
-                let binding = &associated_value.binding;
-                if binding.is_const() || binding.value.is_none() {
-                    continue;
-                }
-                insert(&binding.node_key);
-            }
-        }
-        _ => {}
     }
 }
 
@@ -1769,21 +1666,6 @@ impl CompilerContext {
             .module_id_for_stable_key(stable_key)
     }
 
-    fn executable_value_ref_item(
-        &self,
-        owner: GlobalDefId,
-    ) -> Option<Arc<ExecutableValueRefItemInput>> {
-        let inputs = self.inputs.read().expect("compiler input lock poisoned");
-        let location = inputs.executable_value_ref_items.get(&owner)?;
-        let module = inputs.loaded_module(location.module_id)?;
-        module.active_item_tree.items.get(location.item_index)?;
-        Some(Arc::new(ExecutableValueRefItemInput {
-            active_item_tree: module.active_item_tree.clone(),
-            item_index: location.item_index,
-            owner_node_key: location.owner_node_key.clone(),
-        }))
-    }
-
     fn symbols(&self) -> nia_symbol_table::SymbolTable {
         self.loader_facts().symbols()
     }
@@ -1865,7 +1747,6 @@ struct CompilerInputDiff {
     changed_graph_parents: HashSet<ModuleId>,
     changed_graph_children: HashSet<(ModuleId, SymbolId)>,
     changed_package_roots: HashSet<SymbolId>,
-    changed_executable_value_ref_items: HashSet<GlobalDefId>,
     executable_roots_changed: bool,
     body_activated_modules: HashSet<ModuleId>,
     provider_facts_reset: bool,
@@ -1912,7 +1793,6 @@ impl CompilerInputDiff {
             changed_graph_parents: changed_graph_parents(old, new),
             changed_graph_children: changed_graph_children(old, new),
             changed_package_roots: changed_package_roots(old, new),
-            changed_executable_value_ref_items: changed_executable_value_ref_items(old, new),
             executable_roots_changed,
             body_activated_modules,
             provider_facts_reset,
@@ -1989,43 +1869,6 @@ fn executable_fact_inputs_changed(old: &CompilerInputs, new: &CompilerInputs) ->
             || ChangedModuleInput::between_source_identity(Some(old_module), Some(new_module))
                 .is_some()
     })
-}
-
-fn changed_executable_value_ref_items(
-    old: &CompilerInputs,
-    new: &CompilerInputs,
-) -> HashSet<GlobalDefId> {
-    old.executable_value_ref_items
-        .keys()
-        .chain(new.executable_value_ref_items.keys())
-        .copied()
-        .filter(|owner| executable_value_ref_item_changed(old, new, *owner))
-        .collect()
-}
-
-fn executable_value_ref_item_changed(
-    old: &CompilerInputs,
-    new: &CompilerInputs,
-    owner: GlobalDefId,
-) -> bool {
-    executable_value_ref_item_snapshot(old, owner) != executable_value_ref_item_snapshot(new, owner)
-}
-
-fn executable_value_ref_item_snapshot(
-    inputs: &CompilerInputs,
-    owner: GlobalDefId,
-) -> Option<(
-    &ExecutableValueRefItemLocation,
-    &nia_item_tree::ItemTreeNode,
-    &HashSet<Span>,
-)> {
-    let location = inputs.executable_value_ref_items.get(&owner)?;
-    let module = inputs.loaded_module(location.module_id)?;
-    Some((
-        location,
-        module.active_item_tree.items.get(location.item_index)?,
-        &module.active_item_tree.inactive_spans,
-    ))
 }
 
 fn changed_graph_paths(old: &CompilerInputs, new: &CompilerInputs) -> HashSet<ModuleId> {
@@ -2700,7 +2543,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 119);
+        assert_eq!(descriptors.len(), 120);
         assert!(
             !descriptors
                 .iter()
@@ -5337,11 +5180,63 @@ extend Value : Ops {
             "executable_value_ref_edges",
             "value_resolution"
         ));
-        assert!(!trace_has_dependency(
+        assert!(trace_has_dependency(
             &trace,
             "executable_value_ref_edges",
             "full_active_module_item_tree"
         ));
+        assert!(trace_has_dependency(
+            &trace,
+            "executable_value_ref_item",
+            "executable_value_ref_item_index"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "executable_value_ref_item_index",
+            "full_active_module_item_tree"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "executable_value_ref_item_index",
+            "module_defs"
+        ));
+    }
+
+    #[test]
+    fn executable_value_ref_item_refreshes_from_current_module_facts() {
+        let source = "fn helper() i32 { 1 } fn main() i32 { helper() }";
+        let mut fixture = LoadedProgramFixture::new("main.nia", source);
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
+        let defs = database.db.get(ModuleDefsQuery(module_id));
+        let owner = GlobalDefId {
+            module_id,
+            def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
+        };
+        let first = database.db.get(ExecutableValueRefItemQuery(owner));
+        assert_eq!(
+            first.as_ref().as_ref().unwrap().owner_node_key.revision,
+            SourceRevision::INITIAL
+        );
+
+        fixture.update_module_source(module_id, source, SourceRevision(1));
+        let invalidation = database.update(CompileRequest::new(fixture.program()));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+        assert!(
+            invalidated.contains(&"executable_value_ref_item"),
+            "{invalidated:?}"
+        );
+
+        let latest = database.db.get(ExecutableValueRefItemQuery(owner));
+        assert!(!Arc::ptr_eq(&first, &latest));
+        assert_eq!(
+            latest.as_ref().as_ref().unwrap().owner_node_key.revision,
+            SourceRevision(1)
+        );
     }
 
     #[test]
