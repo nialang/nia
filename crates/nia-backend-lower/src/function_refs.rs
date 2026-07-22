@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 use nia_function_ir::{
     FunctionArrayElements, FunctionBlock, FunctionBody, FunctionCallee, FunctionDeferBody,
@@ -72,7 +72,7 @@ impl FunctionInstanceRef {
 
 #[derive(Debug, Default)]
 pub(crate) struct FunctionRefs {
-    pub(crate) functions: HashSet<GlobalDefId>,
+    pub(crate) functions: BTreeSet<GlobalDefId>,
     pub(crate) instances: Vec<FunctionInstanceRef>,
     pub(crate) global_instances: Vec<GlobalInstanceRef>,
 }

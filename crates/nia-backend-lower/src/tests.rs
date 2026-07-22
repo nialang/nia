@@ -9,7 +9,7 @@ use nia_function_ir::{
     FunctionTerminator,
 };
 use nia_function_lower::{FunctionTypeContext, lower_function_body};
-use nia_ids::{GlobalDefId, LocalId, ModuleIdAllocator};
+use nia_ids::{DefId, GlobalDefId, LocalId, ModuleIdAllocator};
 use nia_item_signatures::{
     ItemSignatureInput, ItemSignatureSource, ProgramFunctionSignature, collect_item_signatures,
 };
@@ -74,6 +74,50 @@ fn local_name(text: &str) -> nia_function_ir::LocalName {
 
 fn sym(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(nia_symbol::stable_hash(text))
+}
+
+#[test]
+fn foreign_backend_item_plan_groups_and_orders_source_functions_by_owner() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let entry = module_ids.allocate();
+    let child = module_ids.allocate();
+    let entry_low = GlobalDefId {
+        module_id: entry,
+        def_id: DefId(1),
+    };
+    let entry_high = GlobalDefId {
+        module_id: entry,
+        def_id: DefId(3),
+    };
+    let child_function = GlobalDefId {
+        module_id: child,
+        def_id: DefId(2),
+    };
+    let mut pending = PendingForeignBackendItems::default();
+    pending
+        .functions
+        .extend([entry_high, child_function, entry_low, entry_high]);
+    let module_indices = HashMap::from([(child, 0), (entry, 1)]);
+
+    let plan = pending.drain_plan(&module_indices, 2);
+
+    assert_eq!(plan.functions_by_owner[0], vec![child_function]);
+    assert_eq!(plan.functions_by_owner[1], vec![entry_low, entry_high]);
+    assert!(pending.is_empty());
+}
+
+#[test]
+#[should_panic(expected = "foreign backend source function owner")]
+fn foreign_backend_item_plan_rejects_missing_owner_module() {
+    let mut module_ids = ModuleIdAllocator::new();
+    let missing = module_ids.allocate();
+    let mut pending = PendingForeignBackendItems::default();
+    pending.functions.push_back(GlobalDefId {
+        module_id: missing,
+        def_id: DefId(1),
+    });
+
+    let _ = pending.drain_plan(&HashMap::new(), 0);
 }
 
 struct EmptyBodyProgramSignatures {

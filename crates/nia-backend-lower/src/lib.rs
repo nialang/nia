@@ -207,8 +207,7 @@ pub fn lower_backend_program_with_timings(
             .collect::<Vec<_>>()
     });
     let mut lowered_modules = Vec::new();
-    let mut pending_foreign_instances = VecDeque::new();
-    let mut pending_foreign_global_instances = VecDeque::new();
+    let mut pending_foreign_items = PendingForeignBackendItems::default();
     time_backend_stage(timing, "backend_lower.initial_modules", || {
         for lowerer in &mut lowerers {
             let module = lowerer.lower_module();
@@ -224,10 +223,7 @@ pub fn lower_backend_program_with_timings(
                     ),
                 );
             }
-            pending_foreign_instances
-                .extend(std::mem::take(&mut lowerer.foreign_function_instance_refs));
-            pending_foreign_global_instances
-                .extend(std::mem::take(&mut lowerer.foreign_global_instance_refs));
+            pending_foreign_items.extend_from_lowerer(lowerer);
             diagnostics.extend(std::mem::take(&mut lowerer.diagnostics));
             optimization_report.changed_passes.extend(std::mem::take(
                 &mut lowerer.optimization_report.changed_passes,
@@ -240,29 +236,15 @@ pub fn lower_backend_program_with_timings(
         .enumerate()
         .map(|(index, module)| (module.id, index))
         .collect::<HashMap<_, _>>();
-    let mut pending_foreign_functions = lowerers
-        .iter_mut()
-        .flat_map(|lowerer| std::mem::take(&mut lowerer.foreign_function_refs))
-        .collect::<VecDeque<_>>();
-    let mut queued_foreign_functions = HashSet::new();
-    let mut queued_foreign_instances = HashSet::new();
-    let mut queued_foreign_global_instances = HashSet::new();
-    time_backend_stage(timing, "backend_lower.foreign_instances", || {
-        while !pending_foreign_functions.is_empty()
-            || !pending_foreign_instances.is_empty()
-            || !pending_foreign_global_instances.is_empty()
-        {
-            let mut function_batches = (0..lowerers.len()).map(|_| Vec::new()).collect::<Vec<_>>();
-            while let Some(function) = pending_foreign_functions.pop_front() {
-                if !queued_foreign_functions.insert(function) {
-                    continue;
-                }
-                let Some(owner_index) = module_indices.get(&function.module_id).copied() else {
-                    continue;
-                };
-                function_batches[owner_index].push(function);
-            }
-            for (owner_index, refs) in function_batches.into_iter().enumerate() {
+    assert_eq!(
+        module_indices.len(),
+        lowered_modules.len(),
+        "Nia ICE: backend module plan contains duplicate module owners"
+    );
+    time_backend_stage(timing, "backend_lower.foreign_items", || {
+        while !pending_foreign_items.is_empty() {
+            let plan = pending_foreign_items.drain_plan(&module_indices, lowerers.len());
+            for (owner_index, refs) in plan.functions_by_owner.into_iter().enumerate() {
                 if refs.is_empty() {
                     continue;
                 }
@@ -270,34 +252,14 @@ pub fn lower_backend_program_with_timings(
                     let lowerer = &mut lowerers[owner_index];
                     lowerer.lower_additional_functions(refs, &mut lowered_modules[owner_index]);
                 }
-                pending_foreign_functions.extend(std::mem::take(
-                    &mut lowerers[owner_index].foreign_function_refs,
-                ));
-                pending_foreign_instances.extend(std::mem::take(
-                    &mut lowerers[owner_index].foreign_function_instance_refs,
-                ));
-                pending_foreign_global_instances.extend(std::mem::take(
-                    &mut lowerers[owner_index].foreign_global_instance_refs,
-                ));
+                pending_foreign_items.extend_from_lowerer(&mut lowerers[owner_index]);
                 diagnostics.extend(std::mem::take(&mut lowerers[owner_index].diagnostics));
                 optimization_report.changed_passes.extend(std::mem::take(
                     &mut lowerers[owner_index].optimization_report.changed_passes,
                 ));
             }
 
-            let mut instance_batches = (0..lowerers.len()).map(|_| Vec::new()).collect::<Vec<_>>();
-            while let Some(instance) = pending_foreign_instances.pop_front() {
-                if !queued_foreign_instances.insert(instance.key()) {
-                    continue;
-                }
-                let Some(owner_index) = module_indices.get(&instance.def_id.module_id).copied()
-                else {
-                    continue;
-                };
-                instance_batches[owner_index].push(instance);
-            }
-
-            for (owner_index, refs) in instance_batches.into_iter().enumerate() {
+            for (owner_index, refs) in plan.function_instances_by_owner.into_iter().enumerate() {
                 if refs.is_empty() {
                     continue;
                 }
@@ -319,35 +281,14 @@ pub fn lower_backend_program_with_timings(
                         &mut lowered_modules[owner_index],
                     );
                 }
-                pending_foreign_functions.extend(std::mem::take(
-                    &mut lowerers[owner_index].foreign_function_refs,
-                ));
-                pending_foreign_instances.extend(std::mem::take(
-                    &mut lowerers[owner_index].foreign_function_instance_refs,
-                ));
-                pending_foreign_global_instances.extend(std::mem::take(
-                    &mut lowerers[owner_index].foreign_global_instance_refs,
-                ));
+                pending_foreign_items.extend_from_lowerer(&mut lowerers[owner_index]);
                 diagnostics.extend(std::mem::take(&mut lowerers[owner_index].diagnostics));
                 optimization_report.changed_passes.extend(std::mem::take(
                     &mut lowerers[owner_index].optimization_report.changed_passes,
                 ));
             }
 
-            let mut global_instance_batches =
-                (0..lowerers.len()).map(|_| Vec::new()).collect::<Vec<_>>();
-            while let Some(instance) = pending_foreign_global_instances.pop_front() {
-                if !queued_foreign_global_instances.insert(instance.key()) {
-                    continue;
-                }
-                let Some(owner_index) = module_indices.get(&instance.def_id.module_id).copied()
-                else {
-                    continue;
-                };
-                global_instance_batches[owner_index].push(instance);
-            }
-
-            for (owner_index, refs) in global_instance_batches.into_iter().enumerate() {
+            for (owner_index, refs) in plan.global_instances_by_owner.into_iter().enumerate() {
                 if refs.is_empty() {
                     continue;
                 }
@@ -356,15 +297,7 @@ pub fn lower_backend_program_with_timings(
                     lowerer
                         .lower_additional_global_instances(refs, &mut lowered_modules[owner_index]);
                 }
-                pending_foreign_functions.extend(std::mem::take(
-                    &mut lowerers[owner_index].foreign_function_refs,
-                ));
-                pending_foreign_instances.extend(std::mem::take(
-                    &mut lowerers[owner_index].foreign_function_instance_refs,
-                ));
-                pending_foreign_global_instances.extend(std::mem::take(
-                    &mut lowerers[owner_index].foreign_global_instance_refs,
-                ));
+                pending_foreign_items.extend_from_lowerer(&mut lowerers[owner_index]);
                 diagnostics.extend(std::mem::take(&mut lowerers[owner_index].diagnostics));
                 optimization_report.changed_passes.extend(std::mem::take(
                     &mut lowerers[owner_index].optimization_report.changed_passes,
@@ -550,6 +483,95 @@ enum BackendAggregateSource<'a> {
         span: nia_span::Span,
         item: &'a nia_ast::UnionItem,
     },
+}
+
+#[derive(Default)]
+struct PendingForeignBackendItems {
+    functions: VecDeque<GlobalDefId>,
+    function_instances: VecDeque<FunctionInstanceRef>,
+    global_instances: VecDeque<GlobalInstanceRef>,
+    queued_functions: HashSet<GlobalDefId>,
+    queued_function_instances: HashSet<FunctionInstanceKey>,
+    queued_global_instances: HashSet<GlobalInstanceKey>,
+}
+
+struct ForeignBackendItemPlan {
+    functions_by_owner: Vec<Vec<GlobalDefId>>,
+    function_instances_by_owner: Vec<Vec<FunctionInstanceRef>>,
+    global_instances_by_owner: Vec<Vec<GlobalInstanceRef>>,
+}
+
+impl PendingForeignBackendItems {
+    fn extend_from_lowerer(&mut self, lowerer: &mut ModuleLowerer<'_>) {
+        self.functions
+            .extend(std::mem::take(&mut lowerer.foreign_function_refs));
+        self.function_instances
+            .extend(std::mem::take(&mut lowerer.foreign_function_instance_refs));
+        self.global_instances
+            .extend(std::mem::take(&mut lowerer.foreign_global_instance_refs));
+    }
+
+    fn is_empty(&self) -> bool {
+        self.functions.is_empty()
+            && self.function_instances.is_empty()
+            && self.global_instances.is_empty()
+    }
+
+    fn drain_plan(
+        &mut self,
+        module_indices: &HashMap<ModuleId, usize>,
+        module_count: usize,
+    ) -> ForeignBackendItemPlan {
+        let mut plan = ForeignBackendItemPlan {
+            functions_by_owner: (0..module_count).map(|_| Vec::new()).collect(),
+            function_instances_by_owner: (0..module_count).map(|_| Vec::new()).collect(),
+            global_instances_by_owner: (0..module_count).map(|_| Vec::new()).collect(),
+        };
+        while let Some(function) = self.functions.pop_front() {
+            if !self.queued_functions.insert(function) {
+                continue;
+            }
+            let owner_index =
+                foreign_item_owner_index(module_indices, function.module_id, "source function");
+            plan.functions_by_owner[owner_index].push(function);
+        }
+        for functions in &mut plan.functions_by_owner {
+            functions.sort_unstable();
+        }
+        while let Some(instance) = self.function_instances.pop_front() {
+            if !self.queued_function_instances.insert(instance.key()) {
+                continue;
+            }
+            let owner_index = foreign_item_owner_index(
+                module_indices,
+                instance.def_id.module_id,
+                "function instance",
+            );
+            plan.function_instances_by_owner[owner_index].push(instance);
+        }
+        while let Some(instance) = self.global_instances.pop_front() {
+            if !self.queued_global_instances.insert(instance.key()) {
+                continue;
+            }
+            let owner_index = foreign_item_owner_index(
+                module_indices,
+                instance.def_id.module_id,
+                "global instance",
+            );
+            plan.global_instances_by_owner[owner_index].push(instance);
+        }
+        plan
+    }
+}
+
+fn foreign_item_owner_index(
+    module_indices: &HashMap<ModuleId, usize>,
+    owner: ModuleId,
+    item_kind: &'static str,
+) -> usize {
+    module_indices.get(&owner).copied().unwrap_or_else(|| {
+        panic!("Nia ICE: foreign backend {item_kind} owner {owner:?} is not in the module plan")
+    })
 }
 
 #[derive(Default)]
