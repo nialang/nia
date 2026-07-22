@@ -15,14 +15,6 @@ pub(crate) fn validate_backend_lowering_inputs(
     for input in modules {
         validate_function_bodies(
             input
-                .function_bodies
-                .iter()
-                .map(|(def_id, _, body)| (def_id, body)),
-            &mut validated,
-            &mut diagnostics,
-        );
-        validate_function_bodies(
-            input
                 .program_function_bodies
                 .iter()
                 .map(|(def_id, body)| (*def_id, *body)),

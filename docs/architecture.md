@@ -1135,6 +1135,10 @@ MIR and does not own diagnostics or checking policy. It is the durable data
 product of body checking and the input boundary for later lowering,
 monomorphization, and backend phases. `BodyFacts` carries semantic side facts;
 `BodyIr` carries runtime typed bodies and static data.
+Each function entry owns an `Arc<TypedBody>`. This sharing is intentional:
+the executable module aggregate and the per-function checked-body query are
+concurrent immutable owners of the same payload. Extracting an item query does
+not deep-clone the checked body.
 Facts derived from const execution during body checking, such as array repeat
 counts and switch pattern values, are recorded here so later lowering can
 consume checked facts instead of re-running expression evaluation from source
@@ -1172,14 +1176,11 @@ Function IR is deliberately separate from static/global initialization. Static
 initializers describe compile-time data for storage; function IR describes
 runtime executable control and value flow.
 
-Lowered bodies are owned by an immutable `FunctionBodyStore`. The store maps
-`GlobalDefId` semantic identities to eight-byte `FunctionBodyId` storage
-handles and owns the corresponding `FunctionBody` payloads. A handle contains
-the store owner id and local index; lookup in a foreign store fails rather than
-interpreting the same index as another body. Store ids are allocation-local,
-not persistent identities. The store is owned by its query product rather than
-by a session-global append-only arena, so dropping a retired query product
-releases its payload and indexes without retaining revision history.
+Each lowered body is owned directly by
+`LoweredFunctionBodyQuery(GlobalDefId)`. There is no module-level body store,
+storage id, session arena, or second semantic identity. Dropping a retired
+query product releases that function's payload without retaining revision
+history.
 
 ### 9.5 `nia-function-lower`
 
@@ -1300,31 +1301,31 @@ resolution, and coercions, and consumes typed runtime bodies for function
 lowering. Typed bodies are not exposed through backend IR as the function
 codegen boundary.
 
-Function identity and Function IR storage identity are separate concerns.
-`GlobalDefId` remains the semantic identity of a function. A future
-owner-scoped `LoweredFunctionId` may identify one stored lowered product and
-carry generation checks, but it must not become a second semantic function id
-or escape its owning session/store. Immutable shared snapshots use `Arc` only
+`GlobalDefId` is the semantic identity and query key of a function. The
+per-function ownership audit found no cross-structure edge that needed a
+separate storage identity, so the transitional `FunctionBodyId` and
+`FunctionBodyStore` were removed. Immutable shared snapshots use `Arc` only
 when they have real concurrent owners; a single-call read path uses a borrow,
 and a unique consumer receives owned data. ID handles are therefore not a
 mechanical replacement for every pointer-shaped relationship.
 
-The current module-level `LoweredFunctionBodies` query product owns one
-immutable `FunctionBodyStore`; compiler-query no longer defines a duplicate
-lowered-body DTO or transfers payloads through an owned `HashMap`. Backend
-module inputs resolve local functions through the typed store. Backend input
-assembly builds its whole-program function index from references to store
-payloads; it does not clone every body into a second owned map.
+`ExecutableFunctionBodyQuery(GlobalDefId)` publishes a semantic-value checked
+body product. `LoweredFunctionBodyQuery(GlobalDefId)` depends only on that
+item product and owns one `FunctionBody`. A body-only module update re-extracts
+the checked item products, but equality preserves the fingerprint of unchanged
+bodies, so their lowered query products validate green without executing.
+Monomorphization and backend lowering share the same cache-owned handles.
+Backend input assembly builds a short-lived whole-program index from references
+to those query payloads; module-local lookup uses that same borrowed index and
+does not clone bodies into a second owned map.
 Materialization copies a body only when creating the corresponding
 `BackendFunction` or `BackendFunctionInstance`. Generic-instance reference
 discovery scans the body already owned by the newly appended backend instance,
-rather than cloning a temporary discovery body. The next boundary is a
-per-function query/product that can preserve unrelated lowered bodies across a
-single body edit, followed by explicit borrow/extraction into per-item or
-per-CGU backend ownership. That migration must also re-audit whether any real
-cross-structure consumer still stores `FunctionBodyId`. If the per-function
-query key and borrowed product cover every use, the module store and its local
-handle are removed rather than retained as a speculative identity layer.
+rather than cloning a temporary discovery body. Checked-body production itself
+is still module/executable-aggregate shaped; the item query currently extracts
+a shared payload from that aggregate. Moving body checking to an item producer,
+then explicit borrow/extraction into per-item or per-CGU backend ownership, is
+the next boundary.
 
 ### 11.3 Static Initializer IR
 

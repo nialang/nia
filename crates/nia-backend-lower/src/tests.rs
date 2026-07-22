@@ -494,11 +494,6 @@ fn lower_source_with_body_check_mutation_and_optimization(
             (*def_id, body)
         })
         .collect::<HashMap<_, _>>();
-    let mut function_body_store = nia_function_ir::FunctionBodyStore::builder();
-    for (def_id, body) in function_bodies {
-        function_body_store.insert(def_id, body);
-    }
-    let function_bodies = function_body_store.finish();
     let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::default();
     let semantic_instantiations = body_check
         .facts
@@ -537,7 +532,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let no_program_defs = |_| None;
     let program_function_bodies = function_bodies
         .iter()
-        .map(|(def_id, _, body)| (def_id, body))
+        .map(|(def_id, body)| (*def_id, body))
         .collect::<HashMap<_, _>>();
 
     let input = BackendLowerModuleInput {
@@ -558,7 +553,6 @@ fn lower_source_with_body_check_mutation_and_optimization(
         const_enum_values: &const_enum_values,
         program_const: &program_const,
         layouts: &layouts,
-        function_bodies: &function_bodies,
         roots: BackendFunctionRoots::Public,
         reachable_globals: None,
         reachable_structs: None,

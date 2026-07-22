@@ -14,7 +14,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
     visible_extension_modules: &'a [(ModuleId, Arc<VisibleExtensionsValue>)],
     checked_modules: &'a [Arc<CheckedModule>],
     const_array_lengths: &'a [nia_const_check::ConstArrayLengths],
-    function_bodies: &'a [Arc<nia_function_lower::LoweredFunctionBodies>],
+    function_bodies: &'a [LoweredFunctionBodyHandle],
 ) -> BackendLoweringIndexes<'a> {
     let program_extensions = visible_extension_modules
         .iter()
@@ -22,12 +22,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
         .collect::<HashMap<_, _>>();
     let program_function_bodies = function_bodies
         .iter()
-        .flat_map(|lowered| {
-            lowered
-                .bodies
-                .iter()
-                .map(|(def_id, _, body)| (def_id, body))
-        })
+        .filter_map(|lowered| lowered.value.body().map(|body| (lowered.def_id, body)))
         .collect::<HashMap<_, _>>();
     let program_const = checked_modules
         .iter()
@@ -61,7 +56,6 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) const_array_lengths: &'a [nia_const_check::ConstArrayLengths],
     pub(super) const_enum_values: &'a [nia_const_check::ConstEnumValues],
     pub(super) visible_extensions: &'a [Arc<VisibleExtensionsValue>],
-    pub(super) function_bodies: &'a [Arc<nia_function_lower::LoweredFunctionBodies>],
     pub(super) extension_methods: &'a nia_defs::ExtensionMethods,
     pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     pub(super) program_signatures: ProgramCodegenSignatures<'a>,
@@ -79,20 +73,13 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
         .zip(input.const_array_lengths.iter())
         .zip(input.const_enum_values.iter())
         .zip(input.visible_extensions.iter())
-        .zip(input.function_bodies.iter())
         .map(
             |(
                 (
-                    (
-                        (
-                            ((checked_module, active_item_tree), item_signatures),
-                            const_array_lengths,
-                        ),
-                        const_enum_values,
-                    ),
-                    visible_extensions,
+                    (((checked_module, active_item_tree), item_signatures), const_array_lengths),
+                    const_enum_values,
                 ),
-                function_bodies,
+                visible_extensions,
             )| {
                 BackendLowerModuleInput {
                     module_id: checked_module.id,
@@ -112,7 +99,6 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     const_enum_values,
                     program_const: &input.indexes.program_const,
                     layouts: &checked_module.layouts,
-                    function_bodies: &function_bodies.bodies,
                     roots: backend_function_roots(input.runtime, checked_module),
                     reachable_globals: checked_module.executable_reachable_globals.as_ref(),
                     reachable_structs: checked_module.executable_reachable_structs.as_deref(),
@@ -171,28 +157,20 @@ mod tests {
             module_id,
             def_id: DefId(1),
         };
-        let mut bodies = nia_function_ir::FunctionBodyStore::builder();
-        bodies.insert(
+        let lowered = vec![LoweredFunctionBodyHandle {
             def_id,
-            FunctionBody {
+            value: Arc::new(LoweredFunctionBodyValue::Body(FunctionBody {
                 span: Span::default(),
                 locals: Vec::new(),
                 scopes: Vec::new(),
                 blocks: Vec::new(),
                 entry: FunctionBlockId(0),
                 ty,
-            },
-        );
-        let lowered = vec![Arc::new(nia_function_lower::LoweredFunctionBodies {
-            bodies: bodies.finish(),
-            diagnostics: Vec::new(),
-        })];
+            })),
+        }];
 
         let indexes = build_backend_lowering_indexes(&[], &[], &[], &lowered);
-        let query_owned = lowered[0]
-            .bodies
-            .body(def_id)
-            .expect("query-owned function body");
+        let query_owned = lowered[0].value.body().expect("query-owned function body");
         let indexed = indexes
             .program_function_bodies
             .get(&def_id)

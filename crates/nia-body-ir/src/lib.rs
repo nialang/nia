@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_ids::{
@@ -19,7 +19,7 @@ use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, TraitId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyIr {
-    pub function_bodies: HashMap<GlobalDefId, TypedBody>,
+    pub function_bodies: HashMap<GlobalDefId, Arc<TypedBody>>,
     pub global_inits: HashMap<GlobalDefId, StaticInit>,
 }
 

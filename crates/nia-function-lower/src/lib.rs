@@ -15,14 +15,14 @@ use nia_ty::{PrimitiveTy, TyKind, TypeStore, TypeStoreAppend};
 use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAsmInput, FunctionAsmOption,
     FunctionAsmOutput, FunctionAtomic, FunctionBinding, FunctionBitIntrinsicOp, FunctionBlock,
-    FunctionBlockId, FunctionBody, FunctionBodyStore, FunctionBuiltinMethod,
-    FunctionBuiltinOperator, FunctionBuiltinOperatorOp, FunctionBuiltinValue, FunctionCallee,
-    FunctionDeferBody, FunctionErrorUnionTag, FunctionExpr, FunctionExprKind, FunctionFieldInit,
-    FunctionForHeader, FunctionInlineAsm, FunctionLocal, FunctionLocalKind,
-    FunctionMemoryIntrinsic, FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionOp,
-    FunctionOptionalTag, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionRange,
-    FunctionScope, FunctionScopeId, FunctionSliceRange, FunctionSwitchArm, FunctionTerminator,
-    FunctionTryKind, GeneratedLocalName, LocalName, validate_function_body,
+    FunctionBlockId, FunctionBody, FunctionBuiltinMethod, FunctionBuiltinOperator,
+    FunctionBuiltinOperatorOp, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody,
+    FunctionErrorUnionTag, FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader,
+    FunctionInlineAsm, FunctionLocal, FunctionLocalKind, FunctionMemoryIntrinsic,
+    FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionOp, FunctionOptionalTag,
+    FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionRange, FunctionScope,
+    FunctionScopeId, FunctionSliceRange, FunctionSwitchArm, FunctionTerminator, FunctionTryKind,
+    GeneratedLocalName, LocalName, validate_function_body,
 };
 
 mod expr;
@@ -85,46 +85,6 @@ pub fn lower_function_body(
     let body = lowerer.lower_body(body);
     validate_function_body(&body).map_err(FunctionLoweringDiagnostic::from)?;
     Ok(LoweredFunctionBody { body })
-}
-
-#[derive(Debug, PartialEq)]
-pub struct LoweredFunctionBodies {
-    pub bodies: FunctionBodyStore,
-    pub diagnostics: Vec<FunctionLoweringDiagnostic>,
-}
-
-pub fn lower_function_bodies<'a>(
-    module_id: ModuleId,
-    bodies: impl IntoIterator<Item = (&'a nia_ids::GlobalDefId, &'a TypedBody)>,
-    types: FunctionTypeContext<'_>,
-) -> Result<LoweredFunctionBodies, Vec<FunctionLoweringDiagnostic>> {
-    let mut lowerer = FunctionLowerer::new(module_id, types);
-    let mut bodies = bodies.into_iter().collect::<Vec<_>>();
-    bodies.sort_by_key(|(def_id, _)| **def_id);
-    let mut lowered_bodies = FunctionBodyStore::builder();
-    let mut diagnostics = Vec::new();
-    for (def_id, body) in bodies {
-        if let Err(error) = input::validate_function_lowering_input(body) {
-            diagnostics.push(error);
-            continue;
-        }
-        let lowered = lowerer.lower_body(body);
-        match validate_function_body(&lowered) {
-            Ok(()) => {
-                lowered_bodies.insert(*def_id, lowered);
-            }
-            Err(error) => diagnostics.push(FunctionLoweringDiagnostic::from(error)),
-        }
-    }
-    let lowered = LoweredFunctionBodies {
-        bodies: lowered_bodies.finish(),
-        diagnostics,
-    };
-    if lowered.diagnostics.is_empty() {
-        Ok(lowered)
-    } else {
-        Err(lowered.diagnostics)
-    }
 }
 
 struct FunctionLowerer<'a> {

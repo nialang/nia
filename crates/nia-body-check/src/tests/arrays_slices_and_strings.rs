@@ -188,7 +188,7 @@ fn main() usize {
 fn body_ir_contains_error_expr(ir: &nia_body_ir::BodyIr) -> bool {
     ir.function_bodies
         .values()
-        .any(typed_body_contains_error_expr)
+        .any(|body| typed_body_contains_error_expr(body))
 }
 
 fn typed_body_contains_error_expr(body: &nia_body_ir::TypedBody) -> bool {
