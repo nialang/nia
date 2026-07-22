@@ -7,6 +7,7 @@ pub(super) struct BackendLoweringIndexes<'a> {
     pub(super) program_type_normalizations:
         HashMap<ModuleId, &'a HashMap<InternedTyId, InternedTyId>>,
     pub(super) program_function_bodies: HashMap<GlobalDefId, &'a nia_function_ir::FunctionBody>,
+    pub(super) program_static_inits: HashMap<GlobalDefId, &'a nia_static_ir::StaticInit>,
     pub(super) program_const: HashMap<ModuleId, &'a nia_const_check::ConstArrayLengths>,
 }
 
@@ -15,6 +16,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
     checked_modules: &'a [Arc<CheckedModule>],
     const_array_lengths: &'a [nia_const_check::ConstArrayLengths],
     function_bodies: &'a [LoweredFunctionBodyHandle],
+    static_inits: &'a [StaticInitHandle],
 ) -> BackendLoweringIndexes<'a> {
     let program_extensions = visible_extension_modules
         .iter()
@@ -23,6 +25,15 @@ pub(super) fn build_backend_lowering_indexes<'a>(
     let program_function_bodies = function_bodies
         .iter()
         .filter_map(|lowered| lowered.value.body().map(|body| (lowered.def_id, body)))
+        .collect::<HashMap<_, _>>();
+    let program_static_inits = static_inits
+        .iter()
+        .filter_map(|init| {
+            init.value
+                .as_ref()
+                .as_deref()
+                .map(|value| (init.def_id, value))
+        })
         .collect::<HashMap<_, _>>();
     let program_const = checked_modules
         .iter()
@@ -43,6 +54,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
         program_extensions,
         program_type_normalizations,
         program_function_bodies,
+        program_static_inits,
         program_const,
     }
 }
@@ -93,7 +105,6 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     type_lowering: &checked_module.type_lowering,
                     signatures: item_signatures,
                     type_normalization: &checked_module.type_normalization,
-                    body_ir: &checked_module.body_ir,
                     semantic_facts: &checked_module.semantic_facts,
                     const_array_lengths,
                     const_enum_values,
@@ -104,6 +115,7 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     reachable_structs: checked_module.executable_reachable_structs.as_deref(),
                     reachable_unions: checked_module.executable_reachable_unions.as_deref(),
                     program_function_bodies: &input.indexes.program_function_bodies,
+                    program_static_inits: &input.indexes.program_static_inits,
                     program_extension_methods: input.extension_methods,
                     program_extensions: &input.indexes.program_extensions,
                     program_defs: input.program_defs,
@@ -146,7 +158,7 @@ mod tests {
     use nia_ty::{PrimitiveTy, TyKind, TypeStore};
 
     #[test]
-    fn program_function_body_index_borrows_query_owned_bodies() {
+    fn program_ir_indexes_borrow_query_owned_payloads() {
         let mut module_ids = ModuleIdAllocator::new();
         let module_id = module_ids.allocate();
         let type_store = TypeStore::new();
@@ -169,7 +181,13 @@ mod tests {
             })),
         }];
 
-        let indexes = build_backend_lowering_indexes(&[], &[], &[], &lowered);
+        let init = Arc::new(nia_static_ir::StaticInit::Bytes(vec![1, 2, 3]));
+        let static_inits = vec![StaticInitHandle {
+            def_id,
+            value: Arc::new(Some(Arc::clone(&init))),
+        }];
+
+        let indexes = build_backend_lowering_indexes(&[], &[], &[], &lowered, &static_inits);
         let query_owned = lowered[0].value.body().expect("query-owned function body");
         let indexed = indexes
             .program_function_bodies
@@ -178,5 +196,11 @@ mod tests {
             .expect("indexed function body");
 
         assert!(std::ptr::eq(indexed, query_owned));
+        let indexed_init = indexes
+            .program_static_inits
+            .get(&def_id)
+            .copied()
+            .expect("indexed static initializer");
+        assert!(std::ptr::eq(indexed_init, init.as_ref()));
     }
 }

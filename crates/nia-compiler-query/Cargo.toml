@@ -21,6 +21,7 @@ nia-executable-facts.workspace = true
 nia-executable-reachability.workspace = true
 nia-flow-check.workspace = true
 nia-function-ir.workspace = true
+nia-static-ir.workspace = true
 nia-function-lower.workspace = true
 nia-hash.workspace = true
 nia-ids.workspace = true

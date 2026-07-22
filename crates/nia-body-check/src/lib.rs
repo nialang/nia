@@ -1086,7 +1086,7 @@ struct BodyChecker<'a> {
     generic_instantiations: Vec<GenericInstantiation>,
     function_facts: HashMap<GlobalDefId, FunctionSemanticFactsBuilder>,
     function_bodies: HashMap<GlobalDefId, Arc<nia_body_ir::TypedBody>>,
-    global_inits: HashMap<GlobalDefId, nia_static_ir::StaticInit>,
+    global_inits: HashMap<GlobalDefId, Arc<nia_static_ir::StaticInit>>,
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
     const_types: HashMap<DefId, InternedTyId>,
@@ -2232,7 +2232,8 @@ impl<'a> BodyChecker<'a> {
         self.global_types.insert(def_id, global_ty);
         if global_ty != self.error() {
             let init = self.lower_global_static_init(value, global_ty);
-            self.global_inits.insert(self.global_def_id(def_id), init);
+            self.global_inits
+                .insert(self.global_def_id(def_id), Arc::new(init));
         }
     }
 

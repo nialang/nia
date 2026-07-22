@@ -27,7 +27,6 @@ use nia_backend_ir::{
     BackendTraitObjectVtable, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
     BackendUnion,
 };
-use nia_body_ir::BodyIr;
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::FunctionBody;
@@ -99,7 +98,6 @@ pub struct BackendLowerModuleInput<'a> {
     pub type_lowering: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub type_normalization: &'a TypeNormalization,
-    pub body_ir: &'a BodyIr,
     pub semantic_facts: &'a SemanticFacts,
     pub extensions: &'a VisibleExtensionMethods,
     pub const_array_lengths: &'a nia_const_check::ConstArrayLengths,
@@ -112,6 +110,8 @@ pub struct BackendLowerModuleInput<'a> {
     pub reachable_structs: Option<&'a std::collections::HashSet<GlobalDefId>>,
     pub reachable_unions: Option<&'a std::collections::HashSet<GlobalDefId>>,
     pub program_function_bodies: &'a std::collections::HashMap<GlobalDefId, &'a FunctionBody>,
+    pub program_static_inits:
+        &'a std::collections::HashMap<GlobalDefId, &'a nia_static_ir::StaticInit>,
     pub program_extension_methods: &'a ExtensionMethods,
     pub program_extensions: &'a std::collections::HashMap<ModuleId, &'a VisibleExtensionMethods>,
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
@@ -1070,7 +1070,7 @@ impl<'a> ModuleLowerer<'a> {
             &mut worklist,
             &mut trait_object_vtables,
         );
-        self.lower_missing_body_ir_static_globals(&mut globals, &mut worklist);
+        self.lower_missing_static_globals(&mut globals, &mut worklist);
         let mut function_instances = Vec::new();
         self.lower_reachable_instances_and_vtables(
             &mut functions,
@@ -1246,14 +1246,14 @@ impl<'a> ModuleLowerer<'a> {
             return;
         };
         if owner_has_effective_generics
-            && !self.input.body_ir.global_inits.contains_key(&global_def_id)
+            && !self.input.program_static_inits.contains_key(&global_def_id)
         {
             return;
         }
         self.lower_static_global_binding(span, binding, globals, worklist);
     }
 
-    fn lower_missing_body_ir_static_globals(
+    fn lower_missing_static_globals(
         &mut self,
         globals: &mut Vec<BackendGlobal>,
         worklist: &mut ReachabilityWorklist,
@@ -1264,8 +1264,7 @@ impl<'a> ModuleLowerer<'a> {
             .collect::<HashSet<_>>();
         let mut pending = self
             .input
-            .body_ir
-            .global_inits
+            .program_static_inits
             .keys()
             .copied()
             .collect::<Vec<_>>();
@@ -1274,7 +1273,7 @@ impl<'a> ModuleLowerer<'a> {
             if global_def_id.module_id != self.input.module_id || !seen.insert(global_def_id) {
                 continue;
             }
-            let Some(global) = self.lower_global_from_body_ir(global_def_id) else {
+            let Some(global) = self.lower_global_from_static_init(global_def_id) else {
                 continue;
             };
             if let Some(init) = &global.init {
@@ -1903,10 +1902,9 @@ impl<'a> ModuleLowerer<'a> {
             .map(|ty| self.instantiate_ty_with_id(ty, substitutions))?;
         let init = self
             .input
-            .body_ir
-            .global_inits
+            .program_static_inits
             .get(&def_id)
-            .cloned()
+            .map(|init| (*init).clone())
             .map(|init| self.instantiate_static_init(init, substitutions))
             .map(|init| self.optimize_static_init(def_id, init));
         Some(BackendGlobalInstance {
