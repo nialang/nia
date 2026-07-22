@@ -103,6 +103,29 @@ fn function_bodies_from_checked_modules(
     )
 }
 
+fn static_inits_from_checked_modules(
+    db: &QueryDb<CompilerContext>,
+    checked_modules: &[Arc<CheckedModule>],
+) -> Vec<StaticInitHandle> {
+    time_provider(
+        db.context().timings(),
+        "static_inits_from_checked_modules",
+        || {
+            let mut def_ids = checked_modules
+                .iter()
+                .flat_map(|module| module.body_ir.global_inits.keys().copied())
+                .collect::<Vec<_>>();
+            def_ids.sort_unstable();
+            let inits = db.get_many(def_ids.iter().copied().map(ExecutableStaticInitQuery));
+            def_ids
+                .into_iter()
+                .zip(inits)
+                .map(|(def_id, value)| StaticInitHandle { def_id, value })
+                .collect()
+        },
+    )
+}
+
 pub(in crate::query) fn provide_lowered_function_body(
     db: &QueryDb<CompilerContext>,
     def_id: GlobalDefId,
@@ -161,6 +184,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         visible_extensions,
         extension_methods,
         function_bodies,
+        static_inits,
     ) = time_provider(db.context().timings(), "backend_lowering.inputs", || {
         let timings = db.context().timings();
         let all_visible_extensions = time_provider(
@@ -223,6 +247,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 db.get(ExtensionMethodIndexQuery)
             });
         let function_bodies = function_bodies_from_checked_modules(db, checked_modules);
+        let static_inits = static_inits_from_checked_modules(db, checked_modules);
         (
             all_visible_extensions,
             active_item_trees,
@@ -232,6 +257,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             visible_extensions,
             extension_methods,
             function_bodies,
+            static_inits,
         )
     });
     let function_lowering_diagnostics =
@@ -251,6 +277,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             checked_modules,
             &const_array_lengths,
             &function_bodies,
+            &static_inits,
         )
     });
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));

@@ -1290,8 +1290,8 @@ layouts needed by runtime values.
 ### 11.2 `nia-backend-lower`
 
 Lowers checked modules into backend IR. It uses definitions, lowered types,
-signatures, layouts, `BodyFacts`, `BodyIr`, monomorphized instances, and public
-module information.
+signatures, layouts, semantic facts, per-item function/static IR,
+monomorphized instances, and public module information.
 
 It owns translation from semantic expressions into typed backend expressions,
 places, statements, static initializers, and inline assembly operands.
@@ -1350,6 +1350,24 @@ materialization, not a general backend escape hatch for reinterpreting AST.
 This separation is intentional. A future constant/data IR may refine
 `StaticInit`, but it should remain a data-initialization boundary rather than
 being folded into function IR.
+
+`GlobalDefId` is also the semantic identity of a static initializer; there is
+no separate `StaticInitId` or static-init store. `BodyIr.global_inits` shares
+immutable `Arc<StaticInit>` payloads with
+`ExecutableStaticInitQuery(GlobalDefId)`. The query is currently an item
+semantic-value boundary over the executable aggregate, so equal initializer
+values retain their semantic fingerprint even when aggregate invalidation
+causes the item query itself to execute again. Moving the producer out of that
+aggregate remains separate work.
+
+Backend input assembly keeps the query handles alive and builds one
+call-scoped `GlobalDefId -> &StaticInit` index. `nia-backend-lower` no longer
+receives `BodyIr` or owns another initializer map. A non-generic
+`BackendGlobal` makes its one required owned copy at materialization; a generic
+global must additionally produce an independent tree because type
+substitution rewrites the initializer. Size optimization consumes that owned
+tree and returns a changed flag with the simplified value, avoiding the former
+full-tree clone used only to compare before and after values.
 
 ## 12. LLVM Backend
 

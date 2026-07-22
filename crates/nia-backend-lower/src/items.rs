@@ -131,10 +131,9 @@ impl<'a> ModuleLowerer<'a> {
         let ty = self.instantiate_ty(ty, &SymbolMap::default());
         let init = self
             .input
-            .body_ir
-            .global_inits
+            .program_static_inits
             .get(&global_def_id)
-            .cloned()
+            .map(|init| (*init).clone())
             .map(|init| self.optimize_static_init(global_def_id, init));
         Some(BackendGlobal {
             def_id: global_def_id,
@@ -148,7 +147,7 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
-    pub(crate) fn lower_global_from_body_ir(
+    pub(crate) fn lower_global_from_static_init(
         &mut self,
         global_def_id: nia_ids::GlobalDefId,
     ) -> Option<BackendGlobal> {
@@ -165,10 +164,9 @@ impl<'a> ModuleLowerer<'a> {
         let ty = self.instantiate_ty(ty, &SymbolMap::default());
         let init = self
             .input
-            .body_ir
-            .global_inits
+            .program_static_inits
             .get(&global_def_id)
-            .cloned()
+            .map(|init| (*init).clone())
             .map(|init| self.optimize_static_init(global_def_id, init));
         Some(BackendGlobal {
             def_id: global_def_id,
@@ -192,8 +190,8 @@ impl<'a> ModuleLowerer<'a> {
         if !self.static_init_simplification_enabled() {
             return init;
         }
-        let simplified = simplify_static_init(init.clone());
-        if simplified != init {
+        let (simplified, changed) = simplify_static_init(init);
+        if changed {
             self.optimization_report.changed_passes.push(
                 crate::BackendOptimizationChange::Global {
                     module_id: self.input.module_id,
@@ -396,74 +394,103 @@ impl<'a> ModuleLowerer<'a> {
     }
 }
 
-fn simplify_static_init(init: StaticInit) -> StaticInit {
+fn simplify_static_init(init: StaticInit) -> (StaticInit, bool) {
     match init {
         StaticInit::Array(elems) => {
+            let mut changed = false;
             let elems = elems
                 .into_iter()
-                .map(simplify_static_init)
+                .map(|elem| {
+                    let (elem, elem_changed) = simplify_static_init(elem);
+                    changed |= elem_changed;
+                    elem
+                })
                 .collect::<Vec<_>>();
             if elems.iter().all(is_zero_static_init) {
-                StaticInit::Zero
+                (StaticInit::Zero, true)
             } else if let Some(first) = elems.first()
                 && elems.iter().all(|elem| elem == first)
             {
-                StaticInit::Repeat {
-                    value: Box::new(first.clone()),
-                    count: elems.len() as u64,
-                }
+                let count = elems.len() as u64;
+                let first = elems
+                    .into_iter()
+                    .next()
+                    .expect("uniform static initializer array must be non-empty");
+                (
+                    StaticInit::Repeat {
+                        value: Box::new(first),
+                        count,
+                    },
+                    true,
+                )
             } else {
-                StaticInit::Array(elems)
+                (StaticInit::Array(elems), changed)
             }
         }
         StaticInit::Repeat { value, count } => {
-            let value = simplify_static_init(*value);
+            let (value, changed) = simplify_static_init(*value);
             if count == 0 || is_zero_static_init(&value) {
-                StaticInit::Zero
+                (StaticInit::Zero, true)
             } else {
-                StaticInit::Repeat {
-                    value: Box::new(value),
-                    count,
-                }
+                (
+                    StaticInit::Repeat {
+                        value: Box::new(value),
+                        count,
+                    },
+                    changed,
+                )
             }
         }
         StaticInit::Struct(fields) => {
+            let mut changed = false;
             let fields = fields
                 .into_iter()
                 .map(|mut field| {
-                    field.value = simplify_static_init(field.value);
+                    let (value, field_changed) = simplify_static_init(field.value);
+                    field.value = value;
+                    changed |= field_changed;
                     field
                 })
                 .collect::<Vec<_>>();
             if fields.iter().all(|field| is_zero_static_init(&field.value)) {
-                StaticInit::Zero
+                (StaticInit::Zero, true)
             } else {
-                StaticInit::Struct(fields)
+                (StaticInit::Struct(fields), changed)
             }
         }
         StaticInit::StaticArrayPointer {
             array_ty,
             array_init,
-        } => StaticInit::StaticArrayPointer {
-            array_ty,
-            array_init: Box::new(simplify_static_init(*array_init)),
+        } => {
+            let (array_init, changed) = simplify_static_init(*array_init);
+            (
+                StaticInit::StaticArrayPointer {
+                    array_ty,
+                    array_init: Box::new(array_init),
+                },
+                changed,
+            )
+        }
+        StaticInit::Chars(scalars) if scalars.iter().all(|scalar| *scalar == 0) => {
+            (StaticInit::Zero, true)
+        }
+        StaticInit::Chars(scalars) => match repeated_static_init(scalars, StaticInit::Char) {
+            Ok(init) => (init, true),
+            Err(scalars) => (StaticInit::Chars(scalars), false),
         },
-        StaticInit::Chars(scalars) if scalars.iter().all(|scalar| *scalar == 0) => StaticInit::Zero,
-        StaticInit::Chars(scalars) => {
-            repeated_static_init(scalars, StaticInit::Char).unwrap_or_else(StaticInit::Chars)
-        }
-        StaticInit::Bytes(bytes) if bytes.iter().all(|byte| *byte == 0) => StaticInit::Zero,
-        StaticInit::Bytes(bytes) => {
-            repeated_static_init(bytes, StaticInit::Byte).unwrap_or_else(StaticInit::Bytes)
-        }
-        StaticInit::Float(text) if is_zero_float_static_init(&text) => StaticInit::Zero,
-        StaticInit::Int(value) if value.bits() == 0 => StaticInit::Zero,
+        StaticInit::Bytes(bytes) if bytes.iter().all(|byte| *byte == 0) => (StaticInit::Zero, true),
+        StaticInit::Bytes(bytes) => match repeated_static_init(bytes, StaticInit::Byte) {
+            Ok(init) => (init, true),
+            Err(bytes) => (StaticInit::Bytes(bytes), false),
+        },
+        StaticInit::Float(text) if is_zero_float_static_init(&text) => (StaticInit::Zero, true),
+        StaticInit::Int(value) if value.bits() == 0 => (StaticInit::Zero, true),
         StaticInit::Bool(false)
         | StaticInit::Char(0)
         | StaticInit::Byte(0)
-        | StaticInit::NullPtr
-        | StaticInit::Zero => StaticInit::Zero,
-        other => other,
+        | StaticInit::NullPtr => (StaticInit::Zero, true),
+        StaticInit::Zero => (StaticInit::Zero, false),
+        other => (other, false),
     }
 }
 
@@ -526,7 +553,7 @@ mod tests {
             count: 0,
         };
 
-        assert_eq!(simplify_static_init(init), StaticInit::Zero);
+        assert_eq!(simplify_static_init(init), (StaticInit::Zero, true));
     }
 
     #[test]

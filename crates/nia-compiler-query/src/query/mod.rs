@@ -71,6 +71,7 @@ mod program;
 mod program_signature_queries;
 mod providers;
 mod resolve;
+mod static_init_queries;
 mod types;
 
 use backend_lowering::*;
@@ -86,6 +87,7 @@ use program::*;
 use program_signature_queries::*;
 use providers::*;
 use resolve::*;
+use static_init_queries::*;
 use types::*;
 
 type ExtensionProviderModuleFactsValue = ExtensionProviderModuleFactsQueryValue;
@@ -149,6 +151,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ExecutableFunctionBodyQuery,
         ExecutableProviderDemandsQuery,
         ExecutableRootModulesQuery,
+        ExecutableStaticInitQuery,
         ExecutableValueRefEdgesQuery,
         ExecutableValueRefItemIndexQuery,
         ExecutableValueRefItemQuery,
@@ -1981,7 +1984,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 120);
+        assert_eq!(descriptors.len(), 121);
         assert!(
             !descriptors
                 .iter()
@@ -2039,6 +2042,7 @@ mod tests {
                 | "declaration_active_module_item_tree_input"
                 | "declaration_module_item_tree_input"
                 | "executable_function_body"
+                | "executable_static_init"
                 | "full_active_module_item_tree_input"
                 | "executable_fact_epoch"
                 | "full_module_item_tree_input"
@@ -6008,7 +6012,7 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
-    fn backend_lowering_uses_executable_checked_module_body_ir() {
+    fn backend_lowering_uses_executable_per_item_ir() {
         let fixture =
             LoadedProgramFixture::new("main.nia", "fn main() i32 { static value: i32 = 1; value }");
         let db = query_db(fixture.program());
@@ -6152,6 +6156,102 @@ extend i32 : ParseFrom[Input] {
         assert!(Arc::ptr_eq(&first_main, &second_main));
         assert_eq!(query_executions(&trace, "lowered_function_body"), 3);
         assert!(query_green_validations(&trace, "lowered_function_body") >= 1);
+    }
+
+    #[test]
+    fn global_edit_preserves_unrelated_static_init_semantic_value() {
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            r#"
+static first: [4]u8 = [1, 2, 3, 4];
+static second: [4]u8 = [5, 6, 7, 8];
+
+fn main() u8 {
+    first[0] + second[0]
+}
+"#,
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
+
+        let first_codegen = database.codegen_program();
+        assert!(
+            first_codegen.diagnostics.is_empty(),
+            "{:?}",
+            first_codegen.diagnostics
+        );
+        let checked = database.db.get(ExecutableCheckedModulesQuery);
+        let module = checked
+            .iter()
+            .find(|module| module.id == module_id)
+            .expect("entry module should be checked");
+        let global = |name| {
+            module
+                .defs
+                .defs
+                .iter()
+                .find_map(|(def_id, def)| {
+                    (def.kind == nia_defs::DefKind::Global && def.name == sym(name))
+                        .then_some(GlobalDefId { module_id, def_id })
+                })
+                .unwrap_or_else(|| panic!("missing global `{name}`"))
+        };
+        let first = global("first");
+        let second = global("second");
+        let aggregate_first = module
+            .body_ir
+            .global_inits
+            .get(&first)
+            .expect("first should have a static initializer");
+        let first_item = database.db.get(ExecutableStaticInitQuery(first));
+        let first_payload = first_item
+            .as_ref()
+            .as_ref()
+            .expect("first static initializer product");
+        assert!(Arc::ptr_eq(aggregate_first, first_payload));
+        let first_second = database.db.get(ExecutableStaticInitQuery(second));
+
+        fixture.update_module_source(
+            module_id,
+            r#"
+static first: [4]u8 = [9, 2, 3, 4];
+static second: [4]u8 = [5, 6, 7, 8];
+
+fn main() u8 {
+    first[0] + second[0]
+}
+"#,
+            SourceRevision(1),
+        );
+        database.update(CompileRequest::new(fixture.program()));
+        let second_codegen = database.codegen_program();
+        assert!(
+            second_codegen.diagnostics.is_empty(),
+            "{:?}",
+            second_codegen.diagnostics
+        );
+        let second_first = database.db.get(ExecutableStaticInitQuery(first));
+        let second_second = database.db.get(ExecutableStaticInitQuery(second));
+        let checked = database.db.get(ExecutableCheckedModulesQuery);
+        let module = checked
+            .iter()
+            .find(|module| module.id == module_id)
+            .expect("updated entry module should be checked");
+        let aggregate_second = module
+            .body_ir
+            .global_inits
+            .get(&second)
+            .expect("second should retain a static initializer");
+        let second_payload = second_second
+            .as_ref()
+            .as_ref()
+            .expect("updated second static initializer product");
+        let trace = database.query_trace();
+
+        assert!(!Arc::ptr_eq(&first_item, &second_first));
+        assert_eq!(first_second.as_ref(), second_second.as_ref());
+        assert!(Arc::ptr_eq(aggregate_second, second_payload));
+        assert_eq!(query_executions(&trace, "executable_static_init"), 4);
     }
 
     #[test]

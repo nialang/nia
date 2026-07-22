@@ -534,6 +534,12 @@ fn lower_source_with_body_check_mutation_and_optimization(
         .iter()
         .map(|(def_id, body)| (*def_id, body))
         .collect::<HashMap<_, _>>();
+    let program_static_inits = body_check
+        .ir
+        .global_inits
+        .iter()
+        .map(|(def_id, init)| (*def_id, init.as_ref()))
+        .collect::<HashMap<_, _>>();
 
     let input = BackendLowerModuleInput {
         module_id,
@@ -546,7 +552,6 @@ fn lower_source_with_body_check_mutation_and_optimization(
         type_lowering: &type_lowering,
         signatures: &signatures,
         type_normalization: &normalization,
-        body_ir: &body_check.ir,
         semantic_facts: &body_check.facts,
         extensions: &extensions,
         const_array_lengths: &const_array_lengths,
@@ -558,6 +563,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         reachable_structs: None,
         reachable_unions: None,
         program_function_bodies: &program_function_bodies,
+        program_static_inits: &program_static_inits,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
         program_defs: &no_program_defs,

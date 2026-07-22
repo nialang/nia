@@ -101,13 +101,13 @@ fn main() i32 {
             let unused = global_def_id_by_name(defs, "unused");
             Arc::make_mut(&mut body_check.ir).global_inits.insert(
                 values,
-                StaticInit::Repeat {
+                Arc::new(StaticInit::Repeat {
                     value: Box::new(StaticInit::AddrOfFunction {
                         function: unused,
                         args: Vec::new(),
                     }),
                     count: 0,
-                },
+                }),
             );
         },
         policy,
@@ -188,7 +188,7 @@ fn main() i32 {
             let i32_ty = interner.primitive(nia_ty::PrimitiveTy::I32);
             Arc::make_mut(&mut body_check.ir).global_inits.insert(
                 values,
-                StaticInit::Array(vec![
+                Arc::new(StaticInit::Array(vec![
                     StaticInit::AddrOfFunction {
                         function: kept,
                         args: Vec::new(),
@@ -197,7 +197,7 @@ fn main() i32 {
                         function: kept_id,
                         args: vec![i32_ty],
                     },
-                ]),
+                ])),
             );
         },
         policy,

@@ -20,7 +20,7 @@ use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, TraitId};
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyIr {
     pub function_bodies: HashMap<GlobalDefId, Arc<TypedBody>>,
-    pub global_inits: HashMap<GlobalDefId, StaticInit>,
+    pub global_inits: HashMap<GlobalDefId, Arc<StaticInit>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
