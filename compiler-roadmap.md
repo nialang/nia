@@ -12,7 +12,7 @@
 
 完成度按各阶段的 acceptance 和旧数据流是否真实删除估算，不按提交数量、代码行数或进展段落长度计算。百分比只表示当前决策尺度，避免把尚未建立的 CI、executor、持久增量或 work product 算成“已有基础所以接近完成”。
 
-**核心执行准则：Nia 不为旧实现保留兼容包袱。** 每个迁移域都以旧入口、旧身份、fallback、重复 truth source 和新旧双轨真实删除为完成条件；调用面大、旧产品仍被引用或迁移成本高都不是保留兼容层的理由。immutable revision snapshot 可以在并发读者或显式历史查询仍持有它时继续存活，但它必须与 current revision 隔离：validation 后旧 local handle 不得从当前 query graph 可达，引用释放后由所有权自然回收。任何临时 adapter 都只能位于单一、持续前移的迁移边界，并必须在对应阶段内删除，不能成为长期公开 API。
+**核心执行准则：Nia 不为旧实现保留兼容包袱。** 每个迁移域都以旧入口、旧身份、fallback、重复 truth source 和新旧双轨真实删除为完成条件；调用面大、旧产品仍被引用或迁移成本高都不是保留兼容层的理由。immutable revision snapshot 可以在 query graph 外的并发调用方或显式历史查询已经持有它时继续存活，但它必须与 current revision 隔离：validation 后旧 local handle 不得从当前 query graph 可达，引用释放后由所有权自然回收。query cache、slot table、dependency graph 和内部 history store 都不算历史读者；旧 revision entry 必须在 quiescence 后从这些 owner 中物理退休，不能以 green cache、调试追溯或兼容为由保留。任何临时 adapter 都只能位于单一、持续前移的迁移边界，并必须在对应阶段内删除，不能成为长期公开 API。
 
 | 阶段 | 当前估算 | 判断 |
 |---|---:|---|
