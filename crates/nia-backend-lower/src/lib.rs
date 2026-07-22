@@ -263,24 +263,10 @@ pub fn lower_backend_program_with_timings(
                 if refs.is_empty() {
                     continue;
                 }
-                let additional = {
-                    let lowerer = &mut lowerers[owner_index];
-                    lowerer.lower_additional_function_instances(
-                        refs,
-                        &lowered_modules[owner_index].functions,
-                        &lowered_modules[owner_index].function_instances,
-                    )
-                };
-                if !additional.is_empty() {
-                    append_function_instances(
-                        &mut lowerers[owner_index],
-                        &mut lowered_modules[owner_index],
-                        additional,
-                    );
-                    lowerers[owner_index].lower_additional_reachable_functions_from_instances(
-                        &mut lowered_modules[owner_index],
-                    );
-                }
+                lowerers[owner_index].lower_additional_function_instances_into_module(
+                    refs,
+                    &mut lowered_modules[owner_index],
+                );
                 pending_foreign_items.extend_from_lowerer(&mut lowerers[owner_index]);
                 diagnostics.extend(std::mem::take(&mut lowerers[owner_index].diagnostics));
                 optimization_report.changed_passes.extend(std::mem::take(
@@ -318,28 +304,6 @@ pub fn lower_backend_program_with_timings(
 
 fn time_backend_stage<T>(enabled: bool, name: &str, f: impl FnOnce() -> T) -> T {
     nia_timing::time_detail(enabled, name, f)
-}
-
-fn append_function_instances(
-    lowerer: &mut ModuleLowerer<'_>,
-    module: &mut BackendModule,
-    instances: Vec<BackendFunctionInstance>,
-) {
-    module.function_instances.extend(instances);
-    lowerer.extend_struct_instances_from_functions(
-        &mut module.struct_instances,
-        &mut module.union_instances,
-        &module.functions,
-        &module.function_instances,
-    );
-    let mut backend_layouts =
-        BackendLayouts::from_module_layouts(lowerer.input.module_id, lowerer.input.layouts);
-    lowerer.extend_backend_layouts_for_instances(
-        &mut backend_layouts,
-        &module.struct_instances,
-        &module.union_instances,
-    );
-    module.layouts = backend_layouts;
 }
 
 fn enabled_module_passes(optimization: &OptimizationPolicy) -> Vec<&'static str> {
@@ -582,6 +546,16 @@ struct ReachabilityWorklist {
     queued_instances: HashSet<FunctionInstanceKey>,
     pending_global_instances: Vec<GlobalInstanceRef>,
     queued_global_instances: HashSet<GlobalInstanceKey>,
+}
+
+struct FunctionInstanceMaterialization {
+    instances: Vec<BackendFunctionInstance>,
+    refs: FunctionRefs,
+}
+
+struct GlobalInstanceMaterialization {
+    instances: Vec<BackendGlobalInstance>,
+    refs: FunctionRefs,
 }
 
 #[derive(Default)]
@@ -1654,42 +1628,11 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn lower_additional_functions(&mut self, refs: Vec<GlobalDefId>, module: &mut BackendModule) {
-        let mut worklist = ReachabilityWorklist {
-            pending_functions: VecDeque::new(),
-            queued_functions: module
-                .functions
-                .iter()
-                .map(|function| function.def_id)
-                .collect::<HashSet<_>>(),
-            pending_instances: Vec::new(),
-            queued_instances: module
-                .function_instances
-                .iter()
-                .map(FunctionInstanceKey::from)
-                .collect::<HashSet<_>>(),
-            pending_global_instances: Vec::new(),
-            queued_global_instances: module
-                .global_instances
-                .iter()
-                .map(|instance| GlobalInstanceKey {
-                    def_id: instance.def_id,
-                    arg_module_id: instance.arg_module_id,
-                    args: instance.args.clone(),
-                    const_args: instance.const_args.clone(),
-                })
-                .collect::<HashSet<_>>(),
-        };
+        let mut worklist = self.reachability_worklist_for_module(module);
         for def_id in refs {
             worklist.enqueue_function(def_id);
         }
         let mut function_templates = Vec::new();
-        self.complete_reachable_backend_items(
-            &mut module.functions,
-            &mut function_templates,
-            &mut module.function_instances,
-            &mut module.global_instances,
-            &mut module.trait_object_vtables,
-        );
         self.lower_reachable_instances_and_vtables(
             &mut module.functions,
             &mut function_templates,
@@ -1714,16 +1657,54 @@ impl<'a> ModuleLowerer<'a> {
         module.layouts = backend_layouts;
     }
 
+    fn lower_additional_function_instances_into_module(
+        &mut self,
+        refs: Vec<FunctionInstanceRef>,
+        module: &mut BackendModule,
+    ) {
+        let materialized = self.lower_additional_function_instances(
+            refs,
+            &module.functions,
+            &module.function_instances,
+        );
+        if materialized.instances.is_empty() {
+            return;
+        }
+        module.function_instances.extend(materialized.instances);
+        self.lower_additional_reachable_items(materialized.refs, module);
+    }
+
     fn lower_additional_global_instances(
         &mut self,
         refs: Vec<GlobalInstanceRef>,
         module: &mut BackendModule,
     ) {
-        let additional = self.lower_global_instances_from_refs(refs, &module.global_instances);
-        if additional.is_empty() {
+        let materialized = self.lower_global_instances_from_refs(refs, &module.global_instances);
+        if materialized.instances.is_empty() {
             return;
         }
-        module.global_instances.extend(additional);
+        module.global_instances.extend(materialized.instances);
+        self.lower_additional_reachable_items(materialized.refs, module);
+    }
+
+    fn lower_additional_reachable_items(&mut self, refs: FunctionRefs, module: &mut BackendModule) {
+        let mut worklist = self.reachability_worklist_for_module(module);
+        worklist.enqueue_refs(refs);
+        let mut function_templates = Vec::new();
+        self.lower_reachable_instances_and_vtables(
+            &mut module.functions,
+            &mut function_templates,
+            &mut module.function_instances,
+            &mut module.global_instances,
+            &mut worklist,
+            &mut module.trait_object_vtables,
+        );
+        self.extend_struct_instances_from_functions(
+            &mut module.struct_instances,
+            &mut module.union_instances,
+            &module.functions,
+            &module.function_instances,
+        );
         let mut backend_layouts =
             BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
         self.extend_backend_layouts_for_instances(
@@ -1732,6 +1713,34 @@ impl<'a> ModuleLowerer<'a> {
             &module.union_instances,
         );
         module.layouts = backend_layouts;
+    }
+
+    fn reachability_worklist_for_module(&self, module: &BackendModule) -> ReachabilityWorklist {
+        ReachabilityWorklist {
+            pending_functions: VecDeque::new(),
+            queued_functions: module
+                .functions
+                .iter()
+                .map(|function| function.def_id)
+                .collect::<HashSet<_>>(),
+            pending_instances: Vec::new(),
+            queued_instances: module
+                .function_instances
+                .iter()
+                .map(FunctionInstanceKey::from)
+                .collect::<HashSet<_>>(),
+            pending_global_instances: Vec::new(),
+            queued_global_instances: module
+                .global_instances
+                .iter()
+                .map(|instance| GlobalInstanceKey {
+                    def_id: instance.def_id,
+                    arg_module_id: instance.arg_module_id,
+                    args: instance.args.clone(),
+                    const_args: instance.const_args.clone(),
+                })
+                .collect::<HashSet<_>>(),
+        }
     }
 
     fn lower_reachable_instances_and_vtables(
@@ -1757,35 +1766,17 @@ impl<'a> ModuleLowerer<'a> {
                     function_templates,
                     function_instances,
                 );
-                for instance in &additional {
-                    let mut refs = FunctionRefs::default();
-                    function_refs::collect_function_refs_from_optional_body(
-                        instance.arg_module_id,
-                        &instance.function_body,
-                        &mut refs,
-                    );
-                    worklist.enqueue_refs(refs);
-                }
-                changed |= !additional.is_empty();
-                function_instances.extend(additional);
+                worklist.enqueue_refs(additional.refs);
+                changed |= !additional.instances.is_empty();
+                function_instances.extend(additional.instances);
             }
             if !worklist.pending_global_instances.is_empty() {
                 let refs = std::mem::take(&mut worklist.pending_global_instances);
                 let additional =
                     self.lower_global_instances_from_refs(refs, global_instances.as_slice());
-                for instance in &additional {
-                    if let Some(init) = &instance.init {
-                        let mut refs = FunctionRefs::default();
-                        function_refs::collect_function_refs_from_static_init(
-                            instance.arg_module_id,
-                            init,
-                            &mut refs,
-                        );
-                        worklist.enqueue_refs(refs);
-                    }
-                }
-                changed |= !additional.is_empty();
-                global_instances.extend(additional);
+                worklist.enqueue_refs(additional.refs);
+                changed |= !additional.instances.is_empty();
+                global_instances.extend(additional.instances);
             }
             changed |= self.collect_new_trait_object_vtables(
                 trait_object_vtables,
@@ -1834,8 +1825,9 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         refs: Vec<GlobalInstanceRef>,
         existing: &[BackendGlobalInstance],
-    ) -> Vec<BackendGlobalInstance> {
+    ) -> GlobalInstanceMaterialization {
         let mut instances = Vec::new();
+        let mut materialized_refs = FunctionRefs::default();
         let mut seen = existing
             .iter()
             .map(|instance| BackendGlobalInstanceKey {
@@ -1876,9 +1868,19 @@ impl<'a> ModuleLowerer<'a> {
             ) else {
                 continue;
             };
+            if let Some(init) = &global.init {
+                function_refs::collect_function_refs_from_static_init(
+                    global.arg_module_id,
+                    init,
+                    &mut materialized_refs,
+                );
+            }
             instances.push(global);
         }
-        instances
+        GlobalInstanceMaterialization {
+            instances,
+            refs: materialized_refs,
+        }
     }
 
     fn lower_planned_global_instance(
@@ -2003,31 +2005,6 @@ impl<'a> ModuleLowerer<'a> {
             | nia_static_ir::StaticInit::NullPtr
             | nia_static_ir::StaticInit::AddrOfGlobal { .. } => init,
         }
-    }
-
-    fn lower_additional_reachable_functions_from_instances(&mut self, module: &mut BackendModule) {
-        let mut function_templates = Vec::new();
-        self.complete_reachable_backend_items(
-            &mut module.functions,
-            &mut function_templates,
-            &mut module.function_instances,
-            &mut module.global_instances,
-            &mut module.trait_object_vtables,
-        );
-        self.extend_struct_instances_from_functions(
-            &mut module.struct_instances,
-            &mut module.union_instances,
-            &module.functions,
-            &module.function_instances,
-        );
-        let mut backend_layouts =
-            BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
-        self.extend_backend_layouts_for_instances(
-            &mut backend_layouts,
-            &module.struct_instances,
-            &module.union_instances,
-        );
-        module.layouts = backend_layouts;
     }
 
     fn complete_reachable_backend_items(
