@@ -146,6 +146,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         DeclarationTypeLoweringQuery,
         DeclarationTypeResolutionQuery,
         EntryCheckedProgramQuery,
+        ExecutableCheckedModuleFactsQuery,
         ExecutableCheckedModulesQuery,
         ExecutableFactEpochQuery,
         ExecutableFunctionBodyQuery,
@@ -1984,7 +1985,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 121);
+        assert_eq!(descriptors.len(), 122);
         assert!(
             !descriptors
                 .iter()
@@ -2652,7 +2653,10 @@ pub fn expensive_or_invalid() i32 {
         );
 
         let dependencies = &database.query_trace().dependencies;
-        for product in ["executable_provider_demands", "executable_checked_modules"] {
+        for product in [
+            "executable_provider_demands",
+            "executable_checked_module_facts",
+        ] {
             for worklist in ["body_activation_worklist", "provider_fact_worklist"] {
                 assert!(dependencies.iter().any(|dependency| {
                     dependency.from.name == product && dependency.to.name == worklist
@@ -2662,6 +2666,10 @@ pub fn expensive_or_invalid() i32 {
                 dependency.from.name == product && dependency.to.name == "executable_fact_epoch"
             }));
         }
+        assert!(dependencies.iter().any(|dependency| {
+            dependency.from.name == "executable_checked_modules"
+                && dependency.to.name == "executable_checked_module_facts"
+        }));
         assert!(dependencies.iter().any(|dependency| {
             dependency.from.name == "provider_fact_revision"
                 && dependency.to.name == "provider_fact_worklist"
@@ -5180,16 +5188,21 @@ extend Used {
         let trace = db.query_trace();
 
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_modules"
+            dependency.from.name == "executable_checked_module_facts"
                 && dependency.to.name == "program_executable_reachability_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_modules"
+            dependency.from.name == "executable_checked_module_facts"
                 && dependency.to.name == "signature_item_signatures"
         }));
         assert!(!depends_on_body_signature_query(
             &trace,
-            "executable_checked_modules"
+            "executable_checked_module_facts"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "executable_checked_modules",
+            "executable_checked_module_facts"
         ));
     }
 
@@ -5263,21 +5276,26 @@ extend Used {
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_modules"
+            dependency.from.name == "executable_checked_module_facts"
                 && dependency.to.name == "extension_trait_impls_for_trait"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_modules"
+            dependency.from.name == "executable_checked_module_facts"
                 && dependency.to.name == "program_trait_solving_signatures"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_modules"
+            dependency.from.name == "executable_checked_module_facts"
                 && dependency.to.name == "extension_provider_module_facts"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "executable_checked_modules"
+            dependency.from.name == "executable_checked_module_facts"
                 && dependency.to.name == "extension_method_index"
         }));
+        assert!(trace_has_dependency(
+            &trace,
+            "executable_checked_modules",
+            "executable_checked_module_facts"
+        ));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "checked_program"
                 && dependency.to.name == "extension_provider_validation_facts"
@@ -6091,6 +6109,58 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
+    fn executable_function_body_produces_factless_empty_body() {
+        let fixture = LoadedProgramFixture::new("main.nia", "pub fn main() void {}");
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let facts = db.get(ExecutableCheckedModuleFactsQuery);
+        let module = facts.modules.first().expect("entry module facts");
+        let def_id = module
+            .defs
+            .defs
+            .iter()
+            .find_map(|(def_id, def)| {
+                (def.name == sym("main")).then_some(GlobalDefId {
+                    module_id: module.id,
+                    def_id,
+                })
+            })
+            .expect("main function definition");
+        assert!(facts.runtime_functions.contains(&def_id));
+        assert!(
+            !module.semantic_facts.function_facts.contains_key(&def_id),
+            "an empty body should not need a synthetic semantic-facts entry"
+        );
+
+        let body = db.get(ExecutableFunctionBodyQuery(def_id));
+        let body = body.as_ref().as_ref().expect("empty checked body product");
+        assert!(body.stmts.is_empty());
+        assert!(body.tail.is_none());
+
+        let checked = db.get(ExecutableCheckedModulesQuery);
+        let aggregate_body = checked
+            .iter()
+            .find(|module| module.id == def_id.module_id)
+            .and_then(|module| module.body_ir.function_bodies.get(&def_id))
+            .expect("aggregate empty checked body");
+        assert!(Arc::ptr_eq(body, aggregate_body));
+
+        let codegen = db.get(CodegenProgramQuery);
+        assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+        assert!(
+            codegen
+                .backend_lowering
+                .program
+                .modules
+                .iter()
+                .flat_map(|module| &module.functions)
+                .any(|function| function.def_id == def_id)
+        );
+    }
+
+    #[test]
     fn body_edit_keeps_unrelated_lowered_function_product_green() {
         let mut fixture = LoadedProgramFixture::new(
             "main.nia",
@@ -6122,6 +6192,18 @@ extend i32 : ParseFrom[Input] {
         };
         let helper = function("helper");
         let main = function("main");
+        let fact_modules = database.db.get(ExecutableCheckedModuleFactsQuery);
+        let fact_module = fact_modules
+            .modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .expect("entry module facts should exist");
+        assert!(
+            fact_module.body_ir.function_bodies.is_empty(),
+            "the executable facts aggregate must not produce checked bodies"
+        );
+        assert!(fact_modules.runtime_functions.contains(&helper));
+        assert!(fact_modules.runtime_functions.contains(&main));
         let checked_helper = module
             .body_ir
             .function_bodies
@@ -6154,6 +6236,7 @@ extend i32 : ParseFrom[Input] {
 
         assert!(!Arc::ptr_eq(&first_helper, &second_helper));
         assert!(Arc::ptr_eq(&first_main, &second_main));
+        assert_eq!(query_executions(&trace, "executable_function_body"), 4);
         assert_eq!(query_executions(&trace, "lowered_function_body"), 3);
         assert!(query_green_validations(&trace, "lowered_function_body") >= 1);
     }

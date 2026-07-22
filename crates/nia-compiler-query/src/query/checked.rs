@@ -38,6 +38,28 @@ impl QueryKey<CompilerContext> for CheckedModuleIdsQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ExecutableCheckedModuleFactsQuery;
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ExecutableCheckedModuleFacts {
+    pub(super) modules: Vec<Arc<CheckedModule>>,
+    pub(super) runtime_functions: Vec<GlobalDefId>,
+    pub(super) reachable_body_modules: HashSet<ModuleId>,
+}
+
+impl QueryKey<CompilerContext> for ExecutableCheckedModuleFactsQuery {
+    type Value = ExecutableCheckedModuleFacts;
+
+    fn name() -> &'static str {
+        "executable_checked_module_facts"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        provide_executable_checked_module_facts(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExecutableCheckedModulesQuery;
 
 impl QueryKey<CompilerContext> for ExecutableCheckedModulesQuery {
@@ -48,7 +70,7 @@ impl QueryKey<CompilerContext> for ExecutableCheckedModulesQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        provide_executable_checked_modules(db)
+        materialize_executable_checked_modules(db)
     }
 }
 

@@ -18,16 +18,49 @@ impl QueryKey<CompilerContext> for ExecutableFunctionBodyQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.get(ExecutableCheckedModulesQuery)
-            .iter()
-            .find(|module| module.id == self.0.module_id)
-            .and_then(|module| module.body_ir.function_bodies.get(&self.0))
-            .cloned()
+        provide_executable_function_body(db, self.0)
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
         old == new
     }
+}
+
+pub(super) fn materialize_executable_checked_modules(
+    db: &QueryDb<CompilerContext>,
+) -> Vec<Arc<CheckedModule>> {
+    let facts = db.get(ExecutableCheckedModuleFactsQuery);
+    let bodies = db.get_many(
+        facts
+            .runtime_functions
+            .iter()
+            .copied()
+            .map(ExecutableFunctionBodyQuery),
+    );
+    let mut bodies_by_module =
+        HashMap::<ModuleId, HashMap<GlobalDefId, Arc<nia_body_ir::TypedBody>>>::new();
+    for (def_id, body) in facts.runtime_functions.iter().copied().zip(bodies) {
+        if let Some(body) = body.as_ref() {
+            bodies_by_module
+                .entry(def_id.module_id)
+                .or_default()
+                .insert(def_id, Arc::clone(body));
+        }
+    }
+
+    facts
+        .modules
+        .iter()
+        .map(|module| {
+            let mut module = module.as_ref().clone();
+            let function_bodies = bodies_by_module.remove(&module.id).unwrap_or_default();
+            module.body_ir = Arc::new(nia_body_ir::BodyIr {
+                function_bodies,
+                global_inits: module.body_ir.global_inits.clone(),
+            });
+            Arc::new(module)
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq)]

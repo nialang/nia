@@ -1311,21 +1311,34 @@ mechanical replacement for every pointer-shaped relationship.
 
 `ExecutableFunctionBodyQuery(GlobalDefId)` publishes a semantic-value checked
 body product. `LoweredFunctionBodyQuery(GlobalDefId)` depends only on that
-item product and owns one `FunctionBody`. A body-only module update re-extracts
-the checked item products, but equality preserves the fingerprint of unchanged
-bodies, so their lowered query products validate green without executing.
+item product and owns one `FunctionBody`. The executable fixed point publishes
+`ExecutableCheckedModuleFactsQuery` without any function-body payloads; the
+checked-body item query lowers exactly one function from that function's frozen
+semantic facts, and `ExecutableCheckedModulesQuery` assembles its aggregate view
+from those item products. A body edit can still re-execute checked-body item
+queries because their semantic facts are currently aggregate inputs, but
+semantic equality preserves unchanged body fingerprints, so their lowered query
+products validate green without executing. This boundary is therefore
+per-item checked-body production, not yet fully per-item semantic analysis.
 Monomorphization and backend lowering share the same cache-owned handles.
 Backend input assembly builds a short-lived whole-program index from references
 to those query payloads; module-local lookup uses that same borrowed index and
 does not clone bodies into a second owned map.
+The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
+query identity. Nested source-shaped bodies remain structurally owned by their
+function because they have no independent cache, invalidation, release, or
+cross-structure reference boundary; no synonymous `TypedBodyId` is introduced.
+The aggregate checked-module view and the item query currently share an
+`Arc<TypedBody>` allocation. That `Arc` must be re-audited if the aggregate view
+is removed; sharing ownership is not itself a reason to invent a storage ID.
+
 Materialization copies a body only when creating the corresponding
 `BackendFunction` or `BackendFunctionInstance`. Generic-instance reference
 discovery scans the body already owned by the newly appended backend instance,
 rather than cloning a temporary discovery body. Checked-body production itself
-is still module/executable-aggregate shaped; the item query currently extracts
-a shared payload from that aggregate. Moving body checking to an item producer,
-then explicit borrow/extraction into per-item or per-CGU backend ownership, is
-the next boundary.
+is item-owned, while its frozen semantic-fact input is still
+module/executable-aggregate shaped. Itemizing that input boundary and moving
+backend materialization to per-item or per-CGU ownership are the next steps.
 
 ### 11.3 Static Initializer IR
 
