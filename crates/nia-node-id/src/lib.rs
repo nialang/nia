@@ -152,17 +152,36 @@ pub struct NodeId {
 pub struct NodeStore {
     id: NodeStoreId,
     core: Arc<Mutex<NodeStoreCore>>,
+    next_index: Arc<AtomicU32>,
 }
 
 #[derive(Debug, Default)]
 struct NodeStoreCore {
-    by_locator: HashMap<VersionedNodeKey, NodeIndex>,
-    locators: Vec<VersionedNodeKey>,
+    revisions: HashMap<SourceVersion, Arc<NodeRevision>>,
+    active_indices: HashMap<NodeIndex, SourceVersion>,
 }
 
-#[derive(Debug, Clone)]
-pub struct NodeStoreAppend {
+#[derive(Debug)]
+struct NodeRevision {
+    version: SourceVersion,
+    core: Mutex<NodeRevisionCore>,
+}
+
+#[derive(Debug, Default)]
+struct NodeRevisionCore {
+    by_locator: HashMap<Arc<VersionedNodeKey>, NodeIndex>,
+    locators: HashMap<NodeIndex, Arc<VersionedNodeKey>>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct NodeRevisionSet {
+    revisions: Vec<Arc<NodeRevision>>,
+}
+
+#[derive(Debug)]
+struct NodeStoreAppend {
     store: NodeStore,
+    revisions: NodeRevisionSet,
 }
 
 impl Default for NodeStore {
@@ -176,12 +195,14 @@ impl NodeStore {
         Self {
             id: NodeStoreId::fresh(),
             core: Arc::new(Mutex::new(NodeStoreCore::default())),
+            next_index: Arc::new(AtomicU32::new(0)),
         }
     }
 
-    pub fn append(&self) -> NodeStoreAppend {
+    fn append(&self) -> NodeStoreAppend {
         NodeStoreAppend {
             store: self.clone(),
+            revisions: NodeRevisionSet::default(),
         }
     }
 
@@ -193,21 +214,26 @@ impl NodeStore {
         if node_id.store_id != self.id {
             return None;
         }
-        self.core
-            .lock()
-            .expect("node store lock poisoned")
-            .locators
-            .get(node_id.index.0 as usize)
-            .cloned()
+        let revision = {
+            let core = self.core.lock().expect("node store lock poisoned");
+            core.active_indices
+                .get(&node_id.index)
+                .and_then(|version| core.revisions.get(version))
+                .cloned()
+        };
+        revision.and_then(|revision| revision.locator(node_id.index))
     }
 
     pub fn id_for_locator(&self, locator: &VersionedNodeKey) -> Option<NodeId> {
-        self.core
+        let revision = self
+            .core
             .lock()
             .expect("node store lock poisoned")
-            .by_locator
-            .get(locator)
-            .copied()
+            .revisions
+            .get(&locator.source_version())
+            .cloned();
+        revision
+            .and_then(|revision| revision.id_for_locator(locator))
             .map(|index| NodeId {
                 store_id: self.id,
                 index,
@@ -215,53 +241,201 @@ impl NodeStore {
     }
 
     pub fn len(&self) -> usize {
-        self.core
+        let revisions = self
+            .core
             .lock()
             .expect("node store lock poisoned")
-            .locators
-            .len()
+            .revisions
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        revisions.into_iter().map(|revision| revision.len()).sum()
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    pub fn active_revision_count(&self) -> usize {
+        self.core
+            .lock()
+            .expect("node store lock poisoned")
+            .revisions
+            .len()
+    }
+
+    pub fn retire_revision(&self, version: SourceVersion) -> usize {
+        let mut core = self.core.lock().expect("node store lock poisoned");
+        let Some(revision) = core.revisions.remove(&version) else {
+            return 0;
+        };
+        let indices = revision.indices();
+        for index in &indices {
+            core.active_indices.remove(index);
+        }
+        indices.len()
+    }
+
+    fn acquire_revision(&self, version: SourceVersion) -> Arc<NodeRevision> {
+        let mut core = self.core.lock().expect("node store lock poisoned");
+        Arc::clone(core.revisions.entry(version).or_insert_with(|| {
+            Arc::new(NodeRevision {
+                version,
+                core: Mutex::new(NodeRevisionCore::default()),
+            })
+        }))
+    }
+
+    fn intern(&self, revision: &Arc<NodeRevision>, locator: VersionedNodeKey) -> NodeId {
+        let index = revision.intern(&self.next_index, locator);
+        let mut core = self.core.lock().expect("node store lock poisoned");
+        if core
+            .revisions
+            .get(&revision.version)
+            .is_some_and(|active| Arc::ptr_eq(active, revision))
+        {
+            core.active_indices.insert(index, revision.version);
+        }
+        NodeId {
+            store_id: self.id,
+            index,
+        }
+    }
 }
 
 impl NodeStoreAppend {
-    pub fn intern(&self, locator: VersionedNodeKey) -> NodeId {
-        let mut core = self.store.core.lock().expect("node store lock poisoned");
-        if let Some(index) = core.by_locator.get(&locator).copied() {
-            return NodeId {
-                store_id: self.store.id,
-                index,
-            };
-        }
-        let index =
-            NodeIndex(u32::try_from(core.locators.len()).expect("node identity space exhausted"));
-        core.locators.push(locator.clone());
-        core.by_locator.insert(locator, index);
-        NodeId {
+    fn intern(&mut self, locator: VersionedNodeKey) -> NodeId {
+        let version = locator.source_version();
+        let revision = self.revisions.revision(version).unwrap_or_else(|| {
+            let revision = self.store.acquire_revision(version);
+            self.revisions.insert(Arc::clone(&revision));
+            revision
+        });
+        self.store.intern(&revision, locator)
+    }
+
+    fn id_for_locator(&self, locator: &VersionedNodeKey) -> Option<NodeId> {
+        self.revisions.id_for_locator(locator).map(|index| NodeId {
             store_id: self.store.id,
             index,
+        })
+    }
+}
+
+impl NodeRevision {
+    fn intern(&self, next_index: &AtomicU32, locator: VersionedNodeKey) -> NodeIndex {
+        assert_eq!(
+            locator.source_version(),
+            self.version,
+            "node locator revision must match its owner"
+        );
+        let mut core = self.core.lock().expect("node revision lock poisoned");
+        if let Some(index) = core.by_locator.get(&locator).copied() {
+            return index;
         }
+        let index = NodeIndex(
+            next_index
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |index| {
+                    index.checked_add(1)
+                })
+                .expect("node identity space exhausted"),
+        );
+        let locator = Arc::new(locator);
+        core.locators.insert(index, Arc::clone(&locator));
+        core.by_locator.insert(locator, index);
+        index
+    }
+
+    fn id_for_locator(&self, locator: &VersionedNodeKey) -> Option<NodeIndex> {
+        self.core
+            .lock()
+            .expect("node revision lock poisoned")
+            .by_locator
+            .get(locator)
+            .copied()
+    }
+
+    fn locator(&self, index: NodeIndex) -> Option<VersionedNodeKey> {
+        self.core
+            .lock()
+            .expect("node revision lock poisoned")
+            .locators
+            .get(&index)
+            .map(|locator| locator.as_ref().clone())
+    }
+
+    fn indices(&self) -> Vec<NodeIndex> {
+        self.core
+            .lock()
+            .expect("node revision lock poisoned")
+            .locators
+            .keys()
+            .copied()
+            .collect()
+    }
+
+    fn len(&self) -> usize {
+        self.core
+            .lock()
+            .expect("node revision lock poisoned")
+            .locators
+            .len()
+    }
+}
+
+impl NodeRevisionSet {
+    fn revision(&self, version: SourceVersion) -> Option<Arc<NodeRevision>> {
+        self.revisions
+            .iter()
+            .find(|revision| revision.version == version)
+            .cloned()
+    }
+
+    fn insert(&mut self, revision: Arc<NodeRevision>) {
+        if !self
+            .revisions
+            .iter()
+            .any(|existing| Arc::ptr_eq(existing, &revision))
+        {
+            self.revisions.push(revision);
+        }
+    }
+
+    fn extend(&mut self, revisions: Self) {
+        for revision in revisions.revisions {
+            self.insert(revision);
+        }
+    }
+
+    fn id_for_locator(&self, locator: &VersionedNodeKey) -> Option<NodeIndex> {
+        self.revisions
+            .iter()
+            .filter(|revision| revision.version == locator.source_version())
+            .find_map(|revision| revision.id_for_locator(locator))
+    }
+
+    fn locator(&self, index: NodeIndex) -> Option<VersionedNodeKey> {
+        self.revisions
+            .iter()
+            .find_map(|revision| revision.locator(index))
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct NodeMap<V> {
     store: NodeStore,
+    revisions: NodeRevisionSet,
     nodes: HashMap<NodeId, V>,
 }
 
 #[derive(Debug)]
 pub struct NodeMapBuilder<V> {
-    store: NodeStore,
     append: NodeStoreAppend,
     nodes: HashMap<NodeId, V>,
 }
 
 pub struct NodeMapIter<'a, V> {
-    store: &'a NodeStore,
+    revisions: &'a NodeRevisionSet,
     entries: hash_map::Iter<'a, NodeId, V>,
 }
 
@@ -278,13 +452,19 @@ impl<V: PartialEq> PartialEq for NodeMap<V> {
         }
         self.nodes.len() == other.nodes.len()
             && self.nodes.iter().all(|(node_id, value)| {
-                self.store.locator(*node_id).is_some_and(|locator| {
-                    other
-                        .store
-                        .id_for_locator(&locator)
-                        .and_then(|other_id| other.nodes.get(&other_id))
-                        == Some(value)
-                })
+                self.revisions
+                    .locator(node_id.index)
+                    .is_some_and(|locator| {
+                        other
+                            .revisions
+                            .id_for_locator(&locator)
+                            .map(|index| NodeId {
+                                store_id: other.store.id,
+                                index,
+                            })
+                            .and_then(|other_id| other.nodes.get(&other_id))
+                            == Some(value)
+                    })
             })
     }
 }
@@ -295,13 +475,13 @@ impl<V> NodeMap<V> {
     pub fn with_store(store: &NodeStore) -> Self {
         Self {
             store: store.clone(),
+            revisions: NodeRevisionSet::default(),
             nodes: HashMap::new(),
         }
     }
 
     pub fn builder(store: &NodeStore) -> NodeMapBuilder<V> {
         NodeMapBuilder {
-            store: store.clone(),
             append: store.append(),
             nodes: HashMap::new(),
         }
@@ -321,8 +501,12 @@ impl<V> NodeMap<V> {
     }
 
     pub fn node_id(&self, locator: &VersionedNodeKey) -> Option<NodeId> {
-        self.store
+        self.revisions
             .id_for_locator(locator)
+            .map(|index| NodeId {
+                store_id: self.store.id,
+                index,
+            })
             .filter(|node_id| self.nodes.contains_key(node_id))
     }
 
@@ -336,7 +520,7 @@ impl<V> NodeMap<V> {
 
     pub fn iter(&self) -> NodeMapIter<'_, V> {
         NodeMapIter {
-            store: &self.store,
+            revisions: &self.revisions,
             entries: self.nodes.iter(),
         }
     }
@@ -347,18 +531,20 @@ impl<V> NodeMap<V> {
 
     pub fn keys(&self) -> impl Iterator<Item = VersionedNodeKey> + '_ {
         self.nodes.keys().map(|node_id| {
-            self.store
-                .locator(*node_id)
+            self.revisions
+                .locator(node_id.index)
                 .expect("node map id belongs to its node store")
         })
     }
 
     pub fn into_entries(self) -> impl Iterator<Item = (VersionedNodeKey, V)> {
-        let Self { store, nodes } = self;
+        let Self {
+            revisions, nodes, ..
+        } = self;
         nodes.into_iter().map(move |(node_id, value)| {
             (
-                store
-                    .locator(node_id)
+                revisions
+                    .locator(node_id.index)
                     .expect("node map id belongs to its node store"),
                 value,
             )
@@ -366,10 +552,11 @@ impl<V> NodeMap<V> {
     }
 
     pub fn into_builder(self) -> NodeMapBuilder<V> {
-        let append = self.store.append();
         NodeMapBuilder {
-            store: self.store,
-            append,
+            append: NodeStoreAppend {
+                store: self.store,
+                revisions: self.revisions,
+            },
             nodes: self.nodes,
         }
     }
@@ -395,7 +582,7 @@ impl<V> NodeMapBuilder<V> {
     }
 
     pub fn remove(&mut self, locator: &VersionedNodeKey) -> Option<V> {
-        self.store
+        self.append
             .id_for_locator(locator)
             .and_then(|node_id| self.nodes.remove(&node_id))
     }
@@ -407,7 +594,8 @@ impl<V> NodeMapBuilder<V> {
     }
 
     pub fn extend_map(&mut self, nodes: NodeMap<V>) {
-        if self.store.id == nodes.store.id {
+        if self.append.store.id == nodes.store.id {
+            self.append.revisions.extend(nodes.revisions);
             self.nodes.extend(nodes.nodes);
         } else {
             self.extend(nodes.into_entries());
@@ -415,8 +603,10 @@ impl<V> NodeMapBuilder<V> {
     }
 
     pub fn finish(self) -> NodeMap<V> {
+        let NodeStoreAppend { store, revisions } = self.append;
         NodeMap {
-            store: self.store,
+            store,
+            revisions,
             nodes: self.nodes,
         }
     }
@@ -428,8 +618,8 @@ impl<'a, V> Iterator for NodeMapIter<'a, V> {
     fn next(&mut self) -> Option<Self::Item> {
         self.entries.next().map(|(node_id, value)| {
             (
-                self.store
-                    .locator(*node_id)
+                self.revisions
+                    .locator(node_id.index)
                     .expect("node map id belongs to its node store"),
                 value,
             )
@@ -455,12 +645,12 @@ impl<'a, V> IntoIterator for &'a NodeMap<V> {
 #[derive(Debug, Clone)]
 pub struct NodeOriginTable {
     store: NodeStore,
+    revisions: NodeRevisionSet,
     nodes: HashMap<(SyntaxKind, Span), NodeId>,
 }
 
 #[derive(Debug)]
 pub struct NodeOriginTableBuilder {
-    store: NodeStore,
     append: NodeStoreAppend,
     nodes: HashMap<(SyntaxKind, Span), NodeId>,
 }
@@ -479,7 +669,7 @@ impl PartialEq for NodeOriginTable {
         self.nodes.len() == other.nodes.len()
             && self.nodes.iter().all(|(origin, node_id)| {
                 other.nodes.get(origin).is_some_and(|other_id| {
-                    self.store.locator(*node_id) == other.store.locator(*other_id)
+                    self.revisions.locator(node_id.index) == other.revisions.locator(other_id.index)
                 })
             })
     }
@@ -491,13 +681,13 @@ impl NodeOriginTable {
     pub fn with_store(store: &NodeStore) -> Self {
         Self {
             store: store.clone(),
+            revisions: NodeRevisionSet::default(),
             nodes: HashMap::new(),
         }
     }
 
     pub fn builder(store: &NodeStore) -> NodeOriginTableBuilder {
         NodeOriginTableBuilder {
-            store: store.clone(),
             append: store.append(),
             nodes: HashMap::new(),
         }
@@ -509,7 +699,7 @@ impl NodeOriginTable {
 
     pub fn locator(&self, kind: SyntaxKind, span: Span) -> Option<VersionedNodeKey> {
         self.node_id(kind, span)
-            .and_then(|node_id| self.store.locator(node_id))
+            .and_then(|node_id| self.revisions.locator(node_id.index))
     }
 
     pub fn store_id(&self) -> NodeStoreId {
@@ -537,8 +727,10 @@ impl NodeOriginTableBuilder {
     }
 
     pub fn finish(self) -> NodeOriginTable {
+        let NodeStoreAppend { store, revisions } = self.append;
         NodeOriginTable {
-            store: self.store,
+            store,
+            revisions,
             nodes: self.nodes,
         }
     }
@@ -673,7 +865,7 @@ mod tests {
     fn node_store_interns_word_sized_session_handles() {
         assert_eq!(std::mem::size_of::<NodeId>(), 8);
         let store = NodeStore::new();
-        let append = store.append();
+        let mut append = store.append();
         let locator = VersionedNodeKey::span(
             SourceVersion {
                 id: SourceId(4),
@@ -694,7 +886,7 @@ mod tests {
     #[test]
     fn node_store_keeps_revisions_distinct_and_old_slots_stable() {
         let store = NodeStore::new();
-        let append = store.append();
+        let mut append = store.append();
         let first_locator = VersionedNodeKey::span(
             SourceVersion {
                 id: SourceId(1),
@@ -718,6 +910,56 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(store.locator(first), Some(first_locator));
         assert_eq!(store.locator(second), Some(second_locator));
+    }
+
+    #[test]
+    fn node_store_retires_revision_owner_without_invalidating_owned_maps() {
+        let store = NodeStore::new();
+        let first_version = SourceVersion {
+            id: SourceId(1),
+            revision: SourceRevision::INITIAL,
+        };
+        let second_version = SourceVersion {
+            id: SourceId(1),
+            revision: SourceRevision(1),
+        };
+        let first_locator =
+            VersionedNodeKey::span(first_version, SyntaxKind::Expr, Span::new(2, 5));
+        let second_locator =
+            VersionedNodeKey::span(second_version, SyntaxKind::Expr, Span::new(2, 5));
+        let mut first = NodeMap::builder(&store);
+        first.insert(first_locator.clone(), 11);
+        let first = first.finish();
+        let first_id = first.node_id(&first_locator).expect("first revision id");
+        let mut second = NodeMap::builder(&store);
+        second.insert(second_locator.clone(), 22);
+        let second = second.finish();
+        let second_id = second.node_id(&second_locator).expect("second revision id");
+
+        assert_eq!(store.active_revision_count(), 2);
+        assert_eq!(store.len(), 2);
+        assert_eq!(store.retire_revision(first_version), 1);
+        assert_eq!(store.active_revision_count(), 1);
+        assert_eq!(store.len(), 1);
+        assert_eq!(store.locator(first_id), None);
+        assert_eq!(store.id_for_locator(&first_locator), None);
+        assert_eq!(store.locator(second_id), Some(second_locator.clone()));
+        assert_eq!(first.get(&first_locator), Some(&11));
+        assert_eq!(
+            first.keys().collect::<Vec<_>>(),
+            vec![first_locator.clone()]
+        );
+        assert_eq!(second.get(&second_locator), Some(&22));
+
+        let mut replacement = NodeMap::builder(&store);
+        replacement.insert(first_locator.clone(), 33);
+        let replacement = replacement.finish();
+        let replacement_id = replacement
+            .node_id(&first_locator)
+            .expect("replacement revision id");
+        assert_ne!(replacement_id, first_id);
+        assert_eq!(store.locator(first_id), None);
+        assert_eq!(store.locator(replacement_id), Some(first_locator));
     }
 
     #[test]

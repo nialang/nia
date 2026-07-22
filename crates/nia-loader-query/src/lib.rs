@@ -11,8 +11,8 @@ mod tests;
 
 use nia_compiler_query::{LoadedProgram, LoaderFactProvider, ProviderDemand};
 use nia_imports::ModuleMap;
-use nia_query::{QueryDb, QuerySession};
-use nia_source::{SourceDatabase, SourceFile, SourcePath};
+use nia_query::{QueryDb, QueryRetirement, QuerySession};
+use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
 use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
 use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
@@ -128,24 +128,48 @@ impl LoaderDatabase {
 
     pub fn set_source(&self, path: impl Into<String>, text: impl Into<Arc<str>>) -> SourceFile {
         let path = SourcePath::new(path.into());
-        let previous_version = self
-            .sources
-            .source_for_path(&path)
-            .map(|file| file.version());
-        let file = self.sources.set_source(path.clone(), text);
-        self.reset_provider_facts();
-        self.db.invalidate(SourceTextQuery(file.id));
-        if let Some(previous_version) = previous_version {
-            queries::retire_source_revision_queries(&self.db, previous_version);
-        }
-        file
+        let source_id = self.sources.id_for_path(&path);
+        let previous_version = self.sources.source_for_id(source_id).map_or(
+            SourceVersion {
+                id: source_id,
+                revision: SourceRevision::INITIAL,
+            },
+            |file| file.version(),
+        );
+        let text = text.into();
+        self.db.retirement_transaction(|retirement| {
+            let file = self.sources.set_source(path, text);
+            self.reset_provider_facts(retirement);
+            retirement.invalidate(SourceTextQuery(file.id));
+            queries::retire_source_revision_queries(retirement, previous_version);
+            self.db
+                .context()
+                .node_store
+                .retire_revision(previous_version);
+            file
+        })
     }
 
     pub fn invalidate_source(&self, path: impl Into<String>) -> nia_query::QueryInvalidation {
         let path = SourcePath::new(path.into());
         let source_id = self.sources.id_for_path(&path);
-        self.reset_provider_facts();
-        self.db.invalidate(SourceTextQuery(source_id))
+        let previous_version = self.sources.source_for_id(source_id).map_or(
+            SourceVersion {
+                id: source_id,
+                revision: SourceRevision::INITIAL,
+            },
+            |file| file.version(),
+        );
+        self.db.retirement_transaction(|retirement| {
+            self.reset_provider_facts(retirement);
+            let invalidation = retirement.invalidate(SourceTextQuery(source_id));
+            queries::retire_source_revision_queries(retirement, previous_version);
+            self.db
+                .context()
+                .node_store
+                .retire_revision(previous_version);
+            invalidation
+        })
     }
 
     pub fn query_trace(&self) -> nia_query::QueryTrace {
@@ -185,11 +209,10 @@ impl LoaderDatabase {
         }
     }
 
-    fn reset_provider_facts(&self) {
+    fn reset_provider_facts(&self, retirement: &QueryRetirement<'_, LoaderContext>) {
         if let Some(previous_revision) = self.db.context().provider_facts.clear() {
-            self.db.invalidate(ProviderDemandsQuery);
-            self.db
-                .retire(&graph::ModuleGraphRevisionQuery(previous_revision));
+            retirement.invalidate(ProviderDemandsQuery);
+            retirement.retire(&graph::ModuleGraphRevisionQuery(previous_revision));
         }
     }
 

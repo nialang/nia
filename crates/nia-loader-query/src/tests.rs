@@ -174,7 +174,7 @@ fn source_status_tracks_missing_and_present_revisions() {
 }
 
 #[test]
-fn source_updates_retire_revision_keyed_query_slots_without_dropping_old_handles() {
+fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
     let first_file = sources.set_source(main.clone(), "fn main() i32 { 0 }");
@@ -182,6 +182,15 @@ fn source_updates_retire_revision_keyed_query_slots_without_dropping_old_handles
     assert_no_error_diagnostics(&database.load_program());
     let first_version = first_file.version();
     let old_parsed = database.db.get(parsed_module_query(&database.db, &main));
+    let old_item_span = old_parsed.item_tree.items[0].span;
+    let old_item_id = old_parsed
+        .origins
+        .node_id(nia_node_id::SyntaxKind::Item, old_item_span)
+        .expect("first revision item node id");
+    let old_item_locator = old_parsed
+        .origins
+        .locator(nia_node_id::SyntaxKind::Item, old_item_span)
+        .expect("first revision item locator");
     database
         .db
         .get(module_declarations_query(&database.db, &main));
@@ -190,6 +199,8 @@ fn source_updates_retire_revision_keyed_query_slots_without_dropping_old_handles
         .db
         .get(module_facade_facts_query(&database.db, &main));
     let initial_query_count = database.query_trace().queries.len();
+    let initial_node_count = database.db.context().node_store.len();
+    assert_eq!(database.db.context().node_store.active_revision_count(), 1);
 
     let mut latest_version = first_version;
     for revision in 1..=100 {
@@ -204,6 +215,8 @@ fn source_updates_retire_revision_keyed_query_slots_without_dropping_old_handles
         database
             .db
             .get(module_facade_facts_query(&database.db, &main));
+        assert_eq!(database.db.context().node_store.active_revision_count(), 1);
+        assert_eq!(database.db.context().node_store.len(), initial_node_count);
     }
 
     let trace = database.query_trace();
@@ -232,6 +245,13 @@ fn source_updates_retire_revision_keyed_query_slots_without_dropping_old_handles
     }
     assert_eq!(old_parsed.source_version, first_version);
     assert_eq!(old_parsed.item_tree.items.len(), 1);
+    assert_eq!(database.db.context().node_store.locator(old_item_id), None);
+    assert_eq!(
+        old_parsed
+            .origins
+            .locator(nia_node_id::SyntaxKind::Item, old_item_span),
+        Some(old_item_locator)
+    );
 }
 
 #[test]
@@ -1749,7 +1769,12 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
 
     let source_id = sources.id_for_path(&main);
     sources.set_source(main.clone(), "fn main() i32 { 1 }");
-    let invalidation = db.invalidate(SourceTextQuery(source_id));
+    let invalidation = db.retirement_transaction(|retirement| {
+        let invalidation = retirement.invalidate(SourceTextQuery(source_id));
+        crate::queries::retire_source_revision_queries(retirement, first_version);
+        db.context().node_store.retire_revision(first_version);
+        invalidation
+    });
     let invalidated = invalidation
         .invalidated
         .iter()
@@ -1792,8 +1817,11 @@ fn invalidates_source_dependents_after_in_memory_text_change() {
         second_module.origins.store_id(),
         db.context().node_store.id()
     );
+    assert_eq!(db.context().node_store.locator(first_node_id), None);
     assert_eq!(
-        db.context().node_store.locator(first_node_id),
+        first_module
+            .origins
+            .locator(nia_node_id::SyntaxKind::Item, first_item_span),
         Some(first_locator)
     );
 }

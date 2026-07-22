@@ -332,8 +332,19 @@ stable across compiler runs.
 ### 3.3 `nia-node-id`
 
 Defines source-versioned syntax node identity for semantic side tables and
-diagnostics. `NodeKey` combines source id, revision, syntax kind, and either a
-span or red/green child-path position.
+diagnostics. `VersionedNodeKey` combines source id, revision, syntax kind, and
+either a span or red/green child-path position. The session-local hot-path
+`NodeId` is an eight-byte owner/index handle allocated monotonically and never
+reused.
+
+The canonical `NodeStore` owns only active source-revision shards. A `NodeMap`
+or `NodeOriginTable` retains the immutable shard containing its own IDs, rather
+than cloning or retaining every session revision. Retiring a source revision
+removes its shard and all index lookups from the current store; an immutable old
+query value already held outside the query graph remains self-contained through
+its own shard reference. Re-interning the same structural locator after
+retirement receives a new monotonic index, so stale IDs cannot resolve to new
+nodes.
 
 AST nodes stay semantic-free. Semantic facts that need syntax identity are
 stored in side tables keyed by `NodeKey`, `DefId`, `LocalId`, or `TyId`.
@@ -657,8 +668,12 @@ retirement through their own `Arc`. Provider graph growth uses the previous
 immutable graph once to preserve existing module handles, then seals the owned
 current graph and retires that sole predecessor. The provider store retains only
 the canonical current demand set and at most one pending additive transition;
-there is no revision event history or live revision-query chain. Revision-owned
-`NodeStore` locators remain the next lifecycle boundary.
+there is no revision event history or live revision-query chain. Source
+replacement performs source mutation, provider reset, root invalidation,
+revision-keyed query retirement, and `NodeStore` shard retirement in one
+session-wide quiescent transaction. Current query/cache/node owners therefore
+retain no revision history; only immutable values already held externally may
+keep their own payload shards alive.
 
 ## 5. Definitions And Modules
 

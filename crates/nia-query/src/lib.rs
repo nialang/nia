@@ -206,6 +206,10 @@ pub struct QueryDb<C> {
     inner: Arc<QueryDbInner<C>>,
 }
 
+pub struct QueryRetirement<'a, C> {
+    db: &'a QueryDb<C>,
+}
+
 #[derive(Clone)]
 pub struct QuerySession {
     inner: Arc<QuerySessionInner>,
@@ -1899,6 +1903,13 @@ impl<C> QueryDb<C> {
         K: QueryKey<C>,
     {
         let _activity = self.inner.session.enter_activity();
+        self.invalidate_during_retirement(key)
+    }
+
+    fn invalidate_during_retirement<K>(&self, key: K) -> QueryInvalidation
+    where
+        K: QueryKey<C>,
+    {
         let Some(root) = self.cached_slot(&key).map(|slot| slot.node_id) else {
             return QueryInvalidation {
                 invalidated: vec![query_frame::<C, K>(&key)],
@@ -1945,10 +1956,25 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
+        let _retirement = self.inner.session.enter_retirement();
+        self.retire_during_retirement(key)
+    }
+
+    pub fn retirement_transaction<R>(
+        &self,
+        operation: impl FnOnce(&QueryRetirement<'_, C>) -> R,
+    ) -> R {
+        let _retirement = self.inner.session.enter_retirement();
+        operation(&QueryRetirement { db: self })
+    }
+
+    fn retire_during_retirement<K>(&self, key: &K) -> bool
+    where
+        K: QueryKey<C>,
+    {
         if let Some(registry) = &self.inner.registry {
             registry.assert_registered::<C, K>();
         }
-        let _retirement = self.inner.session.enter_retirement();
         let mut caches = self.inner.caches.lock().expect("query cache lock poisoned");
         let Some(cache) = caches.get_mut(&TypeId::of::<K>()) else {
             return false;
@@ -2260,6 +2286,22 @@ impl<C> QueryDb<C> {
 
     fn frame(&self, node_id: QueryNodeId) -> QueryFrame {
         self.inner.session.frame(node_id)
+    }
+}
+
+impl<C> QueryRetirement<'_, C> {
+    pub fn invalidate<K>(&self, key: K) -> QueryInvalidation
+    where
+        K: QueryKey<C>,
+    {
+        self.db.invalidate_during_retirement(key)
+    }
+
+    pub fn retire<K>(&self, key: &K) -> bool
+    where
+        K: QueryKey<C>,
+    {
+        self.db.retire_during_retirement(key)
     }
 }
 
@@ -3990,6 +4032,29 @@ mod tests {
                 .is_none()
         );
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn retirement_transaction_invalidates_and_retires_heterogeneous_keys_atomically() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+        let double = db.get(Double(3));
+        let owned = db.get(OwnedRevision(0));
+        let external_retirements = AtomicUsize::new(0);
+
+        db.retirement_transaction(|retirement| {
+            let invalidation = retirement.invalidate(Double(3));
+            assert_eq!(invalidation.invalidated.len(), 1);
+            assert!(retirement.retire(&Double(3)));
+            assert!(retirement.retire(&OwnedRevision(0)));
+            external_retirements.fetch_add(1, Ordering::SeqCst);
+        });
+
+        assert!(db.query_trace().queries.is_empty());
+        assert_eq!(*double, 6);
+        assert_eq!(&*owned, &[0]);
+        assert_eq!(external_retirements.load(Ordering::SeqCst), 1);
     }
 
     #[test]
