@@ -1324,6 +1324,20 @@ Monomorphization and backend lowering share the same cache-owned handles.
 Backend input assembly builds a short-lived whole-program index from references
 to those query payloads; module-local lookup uses that same borrowed index and
 does not clone bodies into a second owned map.
+
+`MonomorphizationQuery` and `BackendLoweringQuery` are production tracked
+queries, rather than test-only contracts or phases executed inside
+`CodegenProgramQuery`. The codegen program holds the exact cache-owned products;
+backend lowering records monomorphization as its own dependency. This provides
+one red-green owner for each aggregate stage and prevents repeated public or
+internal codegen requests from executing either stage again. It does not make
+backend lowering item-grained: the current backend query still assembles all
+module inputs, performs the cross-module function/global-instance fixed point,
+and publishes one `BackendProgram`. A deterministic global item plan must be
+separated from immutable per-module or per-CGU materialization before those
+products can become smaller query nodes; an incomplete module product must not
+be cached and then mutated from an external worklist.
+
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their
 function because they have no independent cache, invalidation, release, or

@@ -2,10 +2,8 @@
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg(test)]
 pub(super) struct MonomorphizationQuery;
 
-#[cfg(test)]
 impl QueryKey<CompilerContext> for MonomorphizationQuery {
     type Value = nia_monomorphize::Monomorphization;
 
@@ -19,10 +17,8 @@ impl QueryKey<CompilerContext> for MonomorphizationQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg(test)]
 pub(super) struct BackendLoweringQuery;
 
-#[cfg(test)]
 impl QueryKey<CompilerContext> for BackendLoweringQuery {
     type Value = nia_backend_lower::BackendLowering;
 

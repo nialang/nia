@@ -66,7 +66,6 @@ mod diagnostics;
 mod executable;
 mod extension_provider_queries;
 mod function_body_queries;
-#[cfg(test)]
 mod program;
 mod program_signature_queries;
 mod providers;
@@ -82,7 +81,6 @@ use diagnostics::*;
 use executable::*;
 use extension_provider_queries::*;
 use function_body_queries::*;
-#[cfg(test)]
 use program::*;
 use program_signature_queries::*;
 use providers::*;
@@ -125,6 +123,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ActiveModuleItemTreeInputQuery,
         ActiveModuleItemTreeQuery,
         BodyActivationWorklistQuery,
+        BackendLoweringQuery,
         BodyCheckQuery,
         CheckedModuleIdsQuery,
         CheckedModuleQuery,
@@ -201,6 +200,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ModulePublicSurfaceQuery,
         ModuleSourceVersionQuery,
         ModuleUsingScopeQuery,
+        MonomorphizationQuery,
         ParseOkModuleIdsQuery,
         ProgramAbiSignaturesQuery,
         ProgramLoadDiagnosticsQuery,
@@ -242,8 +242,6 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         VisibleExtensionsQuery,
         VisibleTraitImplsQuery,
     );
-    #[cfg(test)]
-    register!(BackendLoweringQuery, MonomorphizationQuery,);
     registry
 }
 
@@ -6072,6 +6070,51 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
+    fn codegen_tracks_and_reuses_backend_stage_products() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 1 }");
+        let db = query_db(fixture.program());
+
+        let first_codegen = db.get(CodegenProgramQuery);
+        assert!(
+            first_codegen.diagnostics.is_empty(),
+            "{:?}",
+            first_codegen.diagnostics
+        );
+        let monomorphization = db.get(MonomorphizationQuery);
+        let backend_lowering = db.get(BackendLoweringQuery);
+        let second_codegen = db.get(CodegenProgramQuery);
+        let trace = db.query_trace();
+
+        assert!(Arc::ptr_eq(&first_codegen, &second_codegen));
+        assert!(Arc::ptr_eq(
+            &first_codegen.monomorphization,
+            &monomorphization
+        ));
+        assert!(Arc::ptr_eq(
+            &first_codegen.backend_lowering,
+            &backend_lowering
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "codegen_program",
+            "monomorphization"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "codegen_program",
+            "backend_lowering"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_lowering",
+            "monomorphization"
+        ));
+        assert_eq!(query_executions(&trace, "codegen_program"), 1);
+        assert_eq!(query_executions(&trace, "monomorphization"), 1);
+        assert_eq!(query_executions(&trace, "backend_lowering"), 1);
+    }
+
+    #[test]
     fn codegen_reuses_per_function_lowering_between_mono_and_backend() {
         let fixture = LoadedProgramFixture::new(
             "main.nia",
@@ -6097,6 +6140,16 @@ extend i32 : ParseFrom[Input] {
             "backend lowering should reuse monomorphization's function products"
         );
         assert!(trace_has_dependency(
+            &trace,
+            "monomorphization",
+            "lowered_function_body"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_lowering",
+            "lowered_function_body"
+        ));
+        assert!(!trace_has_dependency(
             &trace,
             "codegen_program",
             "lowered_function_body"

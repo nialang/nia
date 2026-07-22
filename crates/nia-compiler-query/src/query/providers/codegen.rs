@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-#[cfg(test)]
 pub(super) fn provide_monomorphization(
     db: &QueryDb<CompilerContext>,
 ) -> nia_monomorphize::Monomorphization {
@@ -152,7 +151,6 @@ pub(in crate::query) fn provide_lowered_function_body(
     }
 }
 
-#[cfg(test)]
 pub(super) fn provide_backend_lowering(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
@@ -161,7 +159,6 @@ pub(super) fn provide_backend_lowering(
     })
 }
 
-#[cfg(test)]
 fn provide_backend_lowering_inner(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
