@@ -1986,6 +1986,82 @@ impl<C> QueryDb<C> {
         true
     }
 
+    /// Seals an owned current value, severs its sole predecessor edge, and retires that
+    /// predecessor. The current query must have copied everything it needs from the immutable
+    /// predecessor rather than retaining the predecessor value as part of its own payload.
+    pub fn seal_and_retire_predecessor<K>(&self, current: &K, predecessor: &K) -> bool
+    where
+        K: QueryKey<C>,
+    {
+        assert_eq!(
+            K::FINGERPRINT,
+            QueryFingerprintPolicy::None,
+            "query predecessor retirement requires an owned, non-validating query value"
+        );
+        if let Some(registry) = &self.inner.registry {
+            registry.assert_registered::<C, K>();
+        }
+        let _retirement = self.inner.session.enter_retirement();
+        let mut caches = self.inner.caches.lock().expect("query cache lock poisoned");
+        let Some(cache) = caches.get_mut(&TypeId::of::<K>()) else {
+            return false;
+        };
+        let cache = cache
+            .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
+            .expect("query cache type mismatch");
+        let mut cache = cache.lock().expect("query cache lock poisoned");
+        let Some(current_node) = cache.get(current).map(|slot| slot.node_id) else {
+            return false;
+        };
+        let Some(predecessor_node) = cache.get(predecessor).map(|slot| slot.node_id) else {
+            return false;
+        };
+        assert_ne!(
+            current_node, predecessor_node,
+            "query cannot retire itself as its predecessor"
+        );
+        assert!(
+            matches!(
+                &*cache
+                    .get(current)
+                    .expect("current query slot must remain cached")
+                    .state
+                    .lock()
+                    .expect("query cache lock poisoned"),
+                QueryState::Ready { .. }
+            ),
+            "current query must own a ready value before sealing its predecessor"
+        );
+        let mut dependencies = self
+            .inner
+            .session
+            .inner
+            .dependencies
+            .lock()
+            .expect("query dependency lock poisoned");
+        dependencies.assert_only_predecessor(predecessor_node, current_node);
+
+        let (_, predecessor_slot) = cache
+            .remove_entry(predecessor)
+            .expect("retired predecessor cache entry must remain present");
+        let record = self
+            .inner
+            .slots
+            .lock()
+            .expect("query cache slot lock poisoned")
+            .remove(self.inner.id, predecessor_node)
+            .expect("retired predecessor slot must remain registered");
+        assert!(
+            Arc::ptr_eq(
+                &record.slot,
+                &(predecessor_slot as Arc<dyn ErasedQuerySlot>)
+            ),
+            "retired predecessor cache and slot identity disagree"
+        );
+        dependencies.remove_node(predecessor_node);
+        true
+    }
+
     fn invalidate_cached_root(&self, root: QueryNodeId) -> QueryInvalidation {
         let invalidated = self.collect_invalidated_nodes(root);
         let mut cleared = Vec::new();
@@ -2295,6 +2371,22 @@ impl QueryDependencyGraph {
                 }
             }
         }
+    }
+
+    fn assert_only_predecessor(&self, predecessor: QueryNodeId, current: QueryNodeId) {
+        let dependents = self
+            .reverse
+            .get(&predecessor)
+            .expect("sealed predecessor must have a current dependent");
+        assert_eq!(
+            dependents.len(),
+            1,
+            "sealed predecessor must have exactly one dependent"
+        );
+        assert!(
+            dependents.contains(&current),
+            "sealed predecessor must only feed the current query"
+        );
     }
 }
 
@@ -2696,6 +2788,27 @@ mod tests {
         fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
             db.context().executions.fetch_add(1, Ordering::SeqCst);
             self.0 * 2
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct OwnedRevision(usize);
+
+    impl QueryKey<TestContext> for OwnedRevision {
+        type Value = Vec<usize>;
+
+        fn name() -> &'static str {
+            "owned_revision"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.context().executions.fetch_add(1, Ordering::SeqCst);
+            if self.0 == 0 {
+                return vec![0];
+            }
+            let mut value = db.get(Self(self.0 - 1)).as_ref().clone();
+            value.push(self.0);
+            value
         }
     }
 
@@ -3846,6 +3959,37 @@ mod tests {
         assert_ne!(old_node, latest_node);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
         assert_eq!(db.query_trace().dependencies.len(), 1);
+    }
+
+    #[test]
+    fn sealing_owned_query_value_retires_its_only_predecessor_without_invalidation() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+        let current = db.get(OwnedRevision(1));
+        let predecessor = db.get(OwnedRevision(0));
+        let predecessor_node = db
+            .cached_slot(&OwnedRevision(0))
+            .expect("cached predecessor slot")
+            .node_id;
+        assert_eq!(&*current, &[0, 1]);
+        assert_eq!(db.query_trace().dependencies.len(), 1);
+
+        assert!(db.seal_and_retire_predecessor(&OwnedRevision(1), &OwnedRevision(0)));
+
+        let trace = db.query_trace();
+        assert_eq!(trace.queries.len(), 1);
+        assert!(trace.dependencies.is_empty());
+        assert!(Arc::ptr_eq(&current, &db.get(OwnedRevision(1))));
+        assert_eq!(&*predecessor, &[0]);
+        assert!(
+            db.inner
+                .session
+                .database(db.inner.id)
+                .slot(predecessor_node)
+                .is_none()
+        );
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
     }
 
     #[test]

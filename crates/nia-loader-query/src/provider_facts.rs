@@ -2,7 +2,7 @@ use crate::LoaderContext;
 use nia_compiler_query::{ProviderDemand, ProviderFactRevision, ProviderFactSnapshot};
 use nia_query::{QueryDb, QueryFingerprintPolicy, QueryKey};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::{Arc, Mutex},
 };
 
@@ -34,18 +34,19 @@ impl ProviderFacts {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ProviderFactEvent {
-    Root,
+    Current {
+        demands: HashSet<ProviderDemand>,
+    },
     Added {
         previous: ProviderFactRevision,
         demands: HashSet<ProviderDemand>,
     },
-    Reset,
 }
 
 #[derive(Debug)]
 struct ProviderFactState {
     current: ProviderFacts,
-    events: HashMap<ProviderFactRevision, ProviderFactEvent>,
+    transition: Option<ProviderFactEvent>,
 }
 
 #[derive(Clone)]
@@ -63,7 +64,7 @@ impl Default for ProviderFactStore {
                     reset_revision: revision,
                     demands: HashSet::new(),
                 },
-                events: HashMap::from([(revision, ProviderFactEvent::Root)]),
+                transition: None,
             })),
         }
     }
@@ -97,41 +98,55 @@ impl ProviderFactStore {
             let revision = previous.next();
             state.current.revision = revision;
             state.current.demands.extend(added.iter().cloned());
-            state.events.insert(
-                revision,
-                ProviderFactEvent::Added {
-                    previous,
-                    demands: added.clone(),
-                },
-            );
+            state.transition = Some(ProviderFactEvent::Added {
+                previous,
+                demands: added.clone(),
+            });
         }
         added
     }
 
-    pub(crate) fn clear(&self) -> bool {
+    pub(crate) fn clear(&self) -> Option<ProviderFactRevision> {
         let mut state = self
             .state
             .lock()
             .expect("loader provider fact store lock poisoned");
-        let changed = !state.current.demands.is_empty();
-        if changed {
+        if state.current.demands.is_empty() {
+            None
+        } else {
             let previous = state.current.revision;
             let revision = previous.next();
             state.current.demands.clear();
             state.current.revision = revision;
             state.current.reset_revision = revision;
-            state.events.insert(revision, ProviderFactEvent::Reset);
+            state.transition = None;
+            Some(previous)
         }
-        changed
     }
 
     pub(crate) fn event(&self, revision: ProviderFactRevision) -> Option<ProviderFactEvent> {
-        self.state
+        let state = self
+            .state
             .lock()
-            .expect("loader provider fact store lock poisoned")
-            .events
-            .get(&revision)
-            .cloned()
+            .expect("loader provider fact store lock poisoned");
+        (state.current.revision == revision).then(|| {
+            state
+                .transition
+                .clone()
+                .unwrap_or_else(|| ProviderFactEvent::Current {
+                    demands: state.current.demands.clone(),
+                })
+        })
+    }
+
+    pub(crate) fn compact_transition(&self, revision: ProviderFactRevision) {
+        let mut state = self
+            .state
+            .lock()
+            .expect("loader provider fact store lock poisoned");
+        if state.current.revision == revision {
+            state.transition = None;
+        }
     }
 
     fn snapshot(&self) -> ProviderFacts {
@@ -140,6 +155,17 @@ impl ProviderFactStore {
             .expect("loader provider fact store lock poisoned")
             .current
             .clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn retained_transition_count(&self) -> usize {
+        usize::from(
+            self.state
+                .lock()
+                .expect("loader provider fact store lock poisoned")
+                .transition
+                .is_some(),
+        )
     }
 }
 
@@ -172,7 +198,7 @@ mod tests {
     use nia_symbol::SymbolId;
 
     #[test]
-    fn provider_fact_store_tracks_monotonic_delta_revisions() {
+    fn provider_fact_store_retains_only_the_current_transition() {
         assert_eq!(std::mem::size_of::<ProviderFactRevision>(), 16);
         let store = ProviderFactStore::default();
         let demand = ProviderDemand {
@@ -192,16 +218,29 @@ mod tests {
         assert_eq!(store.insert_new([demand.clone()]).len(), 1);
         let added = store.snapshot();
         assert!(added.revision() > initial.revision());
+        assert!(store.event(initial.revision()).is_none());
+        assert_eq!(store.retained_transition_count(), 1);
         assert!(store.insert_new([demand]).is_empty());
         assert_eq!(store.snapshot().revision(), added.revision());
 
-        assert!(store.clear());
+        store.compact_transition(added.revision());
+        assert_eq!(store.retained_transition_count(), 0);
+        assert_eq!(
+            store.event(added.revision()),
+            Some(ProviderFactEvent::Current {
+                demands: added.demands.clone()
+            })
+        );
+
+        assert_eq!(store.clear(), Some(added.revision()));
         let cleared = store.snapshot();
         assert!(cleared.revision() > added.revision());
         assert!(cleared.demands().next().is_none());
         assert_eq!(
             store.event(cleared.revision()),
-            Some(ProviderFactEvent::Reset)
+            Some(ProviderFactEvent::Current {
+                demands: HashSet::new()
+            })
         );
 
         let replacement = ProviderDemand {
@@ -215,6 +254,7 @@ mod tests {
             HashSet::from([replacement])
         );
         let replaced = store.snapshot();
+        assert!(store.event(cleared.revision()).is_none());
         assert_eq!(
             store.event(replaced.revision()),
             Some(ProviderFactEvent::Added {

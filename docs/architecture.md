@@ -653,8 +653,12 @@ dependency graph. Slot indices are monotonic and never reused, so a retired
 protocol to the old revision's parsed module, syntax tree, declarations,
 provider summary, and facade facts. Cache ownership is not a historical-reader
 capability; only immutable values already held by external readers may outlive
-retirement through their own `Arc`. Provider graph revision/event retention and
-revision-owned `NodeStore` locators remain the next lifecycle boundaries.
+retirement through their own `Arc`. Provider graph growth uses the previous
+immutable graph once to preserve existing module handles, then seals the owned
+current graph and retires that sole predecessor. The provider store retains only
+the canonical current demand set and at most one pending additive transition;
+there is no revision event history or live revision-query chain. Revision-owned
+`NodeStore` locators remain the next lifecycle boundary.
 
 ## 5. Definitions And Modules
 
