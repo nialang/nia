@@ -72,11 +72,7 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
                 diagnostics,
             };
         }
-        let monomorphization = Arc::new(time_provider(
-            db.context().timings(),
-            "monomorphization",
-            || monomorphization_for_checked_modules(db, &modules),
-        ));
+        let monomorphization = db.get(MonomorphizationQuery);
         diagnostics.extend(time_provider(
             db.context().timings(),
             "codegen_program.monomorphization_diagnostics",
@@ -93,11 +89,7 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
                 diagnostics,
             };
         }
-        let backend_lowering = Arc::new(time_provider(
-            db.context().timings(),
-            "backend_lowering",
-            || provide_backend_lowering_inner_for_modules(db, &monomorphization, &modules),
-        ));
+        let backend_lowering = db.get(BackendLoweringQuery);
         diagnostics.extend(time_provider(
             db.context().timings(),
             "codegen_program.backend_diagnostics",

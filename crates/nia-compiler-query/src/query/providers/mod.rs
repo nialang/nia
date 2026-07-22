@@ -328,10 +328,8 @@ pub(super) struct CompilerQueryProviders {
     pub(super) body_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_body_check::BodyCheck,
     pub(super) checked_module: fn(&QueryDb<CompilerContext>, ModuleId) -> CheckedModule,
     pub(super) checked_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
-    #[cfg(test)]
     pub(super) monomorphization:
         fn(&QueryDb<CompilerContext>) -> nia_monomorphize::Monomorphization,
-    #[cfg(test)]
     pub(super) backend_lowering:
         fn(&QueryDb<CompilerContext>) -> nia_backend_lower::BackendLowering,
 }
@@ -415,9 +413,7 @@ impl Default for CompilerQueryProviders {
             body_check: provide_body_check,
             checked_module: provide_checked_module,
             checked_module_ids: provide_checked_module_ids,
-            #[cfg(test)]
             monomorphization: provide_monomorphization,
-            #[cfg(test)]
             backend_lowering: provide_backend_lowering,
         }
     }
