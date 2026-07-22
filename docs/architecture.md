@@ -1361,10 +1361,28 @@ These source and frontend function-instance plans are not yet the complete
 backend item plan. Function-body and vtable-induced instances, generic global
 instances, vtables, instance-induced source references, layout completion,
 module optimization, and DCE still converge in the aggregate backend call.
-That closure must be made deterministic and separated from immutable per-module
-or per-CGU materialization before those products can become smaller query
-nodes; an incomplete module product must not be cached and then mutated from an
-external worklist.
+That closure now has deterministic iteration snapshots, but its planning must
+still be separated from immutable per-module or per-CGU materialization before
+those products can become smaller query nodes; an incomplete module product
+must not be cached and then mutated from an external worklist.
+
+The aggregate cross-module closure drains newly discovered source functions,
+function instances, and global instances into one iteration-local
+`ForeignBackendItemPlan`. Exact semantic keys are deduplicated before grouping
+by definition owner, source functions are ordered by `GlobalDefId`, and owner
+modules are consumed in module-plan order. References produced while consuming
+one snapshot enter the next snapshot instead of mutating the active batches.
+Duplicate module owners and references to an owner absent from the module plan
+are compiler errors; neither case is silently truncated or dropped.
+
+This call-scoped plan is a convergence boundary, not yet a query product.
+Concrete generic local-static global keys only appear when a function template
+is substituted into a concrete backend function instance; the pre-backend
+`FunctionBody` still contains the source local-static identity. Vtable-induced
+function instances have the same post-substitution dependency. A future global
+instance/vtable query plan must therefore consume a closed substitution result
+or move that pure planning logic earlier. Projecting an apparently empty plan
+from source Function IR would create a second, incomplete truth source.
 
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their
