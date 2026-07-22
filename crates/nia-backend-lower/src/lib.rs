@@ -107,7 +107,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub program_const:
         &'a std::collections::HashMap<ModuleId, &'a nia_const_check::ConstArrayLengths>,
     pub layouts: &'a Layouts,
-    pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
+    pub function_bodies: &'a nia_function_ir::FunctionBodyStore,
     pub roots: BackendFunctionRoots,
     pub reachable_globals: Option<&'a std::collections::HashSet<GlobalDefId>>,
     pub reachable_structs: Option<&'a std::collections::HashSet<GlobalDefId>>,
@@ -1391,7 +1391,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         if self.input.roots == BackendFunctionRoots::FunctionBodies {
             return function.is_extern
-                || (self.input.function_bodies.contains_key(&def_id)
+                || (self.input.function_bodies.contains_def(def_id)
                     && !self
                         .has_effective_generics(def_id, &generic_param_names(&function.generics)));
         }

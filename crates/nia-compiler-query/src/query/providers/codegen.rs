@@ -83,7 +83,7 @@ pub(super) fn materialize_checked_modules(
 fn function_bodies_from_checked_modules(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
-) -> Vec<Arc<LoweredFunctionBodies>> {
+) -> Vec<Arc<nia_function_lower::LoweredFunctionBodies>> {
     time_provider(
         db.context().timings(),
         "function_bodies_from_checked_modules",
@@ -100,26 +100,22 @@ fn function_bodies_from_checked_modules(
 pub(in crate::query) fn provide_lowered_function_bodies(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> LoweredFunctionBodies {
+) -> nia_function_lower::LoweredFunctionBodies {
     let set = db.get(ExecutableCheckedModulesQuery);
     let module = set
         .iter()
         .find(|module| module.id == module_id)
         .cloned()
         .unwrap_or_else(|| panic!("Nia ICE: missing executable checked module {module_id:?}"));
-    let lowered = nia_function_lower::lower_function_bodies(
+    nia_function_lower::lower_function_bodies(
         module.id,
         module.body_ir.function_bodies.iter(),
         nia_function_lower::FunctionTypeContext::for_module(&db.context().type_store, module.id),
     )
     .unwrap_or_else(|diagnostics| nia_function_lower::LoweredFunctionBodies {
-        bodies: HashMap::new(),
+        bodies: nia_function_ir::FunctionBodyStore::new(),
         diagnostics,
-    });
-    LoweredFunctionBodies {
-        bodies: lowered.bodies,
-        diagnostics: lowered.diagnostics,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -410,7 +406,7 @@ pub(super) fn monomorphization_diagnostics(
 
 fn function_lowering_diagnostics(
     checked_modules: &[Arc<CheckedModule>],
-    function_bodies: &[Arc<LoweredFunctionBodies>],
+    function_bodies: &[Arc<nia_function_lower::LoweredFunctionBodies>],
 ) -> Vec<ProgramDiagnostic> {
     checked_modules
         .iter()

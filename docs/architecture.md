@@ -1172,6 +1172,15 @@ Function IR is deliberately separate from static/global initialization. Static
 initializers describe compile-time data for storage; function IR describes
 runtime executable control and value flow.
 
+Lowered bodies are owned by an immutable `FunctionBodyStore`. The store maps
+`GlobalDefId` semantic identities to eight-byte `FunctionBodyId` storage
+handles and owns the corresponding `FunctionBody` payloads. A handle contains
+the store owner id and local index; lookup in a foreign store fails rather than
+interpreting the same index as another body. Store ids are allocation-local,
+not persistent identities. The store is owned by its query product rather than
+by a session-global append-only arena, so dropping a retired query product
+releases its payload and indexes without retaining revision history.
+
 ### 9.5 `nia-function-lower`
 
 Lowers `nia-body-ir::TypedBody` from `BodyIr` into
@@ -1300,16 +1309,22 @@ when they have real concurrent owners; a single-call read path uses a borrow,
 and a unique consumer receives owned data. ID handles are therefore not a
 mechanical replacement for every pointer-shaped relationship.
 
-The current module-level `LoweredFunctionBodies` query product owns lowered
-Function IR until the per-function store migration is complete. Backend input
-assembly builds its whole-program function index from references to those
-query-owned bodies; it does not clone every body into a second owned map.
+The current module-level `LoweredFunctionBodies` query product owns one
+immutable `FunctionBodyStore`; compiler-query no longer defines a duplicate
+lowered-body DTO or transfers payloads through an owned `HashMap`. Backend
+module inputs resolve local functions through the typed store. Backend input
+assembly builds its whole-program function index from references to store
+payloads; it does not clone every body into a second owned map.
 Materialization copies a body only when creating the corresponding
 `BackendFunction` or `BackendFunctionInstance`. Generic-instance reference
 discovery scans the body already owned by the newly appended backend instance,
-rather than cloning a temporary discovery body. The intended next boundary is
-a per-function typed store followed by explicit borrow/extraction into
-per-item or per-CGU backend ownership.
+rather than cloning a temporary discovery body. The next boundary is a
+per-function query/product that can preserve unrelated lowered bodies across a
+single body edit, followed by explicit borrow/extraction into per-item or
+per-CGU backend ownership. That migration must also re-audit whether any real
+cross-structure consumer still stores `FunctionBodyId`. If the per-function
+query key and borrowed product cover every use, the module store and its local
+handle are removed rather than retained as a speculative identity layer.
 
 ### 11.3 Static Initializer IR
 

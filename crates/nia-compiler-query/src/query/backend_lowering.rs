@@ -14,7 +14,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
     visible_extension_modules: &'a [(ModuleId, Arc<VisibleExtensionsValue>)],
     checked_modules: &'a [Arc<CheckedModule>],
     const_array_lengths: &'a [nia_const_check::ConstArrayLengths],
-    function_bodies: &'a [Arc<LoweredFunctionBodies>],
+    function_bodies: &'a [Arc<nia_function_lower::LoweredFunctionBodies>],
 ) -> BackendLoweringIndexes<'a> {
     let program_extensions = visible_extension_modules
         .iter()
@@ -22,7 +22,12 @@ pub(super) fn build_backend_lowering_indexes<'a>(
         .collect::<HashMap<_, _>>();
     let program_function_bodies = function_bodies
         .iter()
-        .flat_map(|lowered| lowered.bodies.iter().map(|(def_id, body)| (*def_id, body)))
+        .flat_map(|lowered| {
+            lowered
+                .bodies
+                .iter()
+                .map(|(def_id, _, body)| (def_id, body))
+        })
         .collect::<HashMap<_, _>>();
     let program_const = checked_modules
         .iter()
@@ -56,7 +61,7 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) const_array_lengths: &'a [nia_const_check::ConstArrayLengths],
     pub(super) const_enum_values: &'a [nia_const_check::ConstEnumValues],
     pub(super) visible_extensions: &'a [Arc<VisibleExtensionsValue>],
-    pub(super) function_bodies: &'a [Arc<LoweredFunctionBodies>],
+    pub(super) function_bodies: &'a [Arc<nia_function_lower::LoweredFunctionBodies>],
     pub(super) extension_methods: &'a nia_defs::ExtensionMethods,
     pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     pub(super) program_signatures: ProgramCodegenSignatures<'a>,
@@ -166,25 +171,27 @@ mod tests {
             module_id,
             def_id: DefId(1),
         };
-        let lowered = vec![Arc::new(LoweredFunctionBodies {
-            bodies: HashMap::from([(
-                def_id,
-                FunctionBody {
-                    span: Span::default(),
-                    locals: Vec::new(),
-                    scopes: Vec::new(),
-                    blocks: Vec::new(),
-                    entry: FunctionBlockId(0),
-                    ty,
-                },
-            )]),
+        let mut bodies = nia_function_ir::FunctionBodyStore::builder();
+        bodies.insert(
+            def_id,
+            FunctionBody {
+                span: Span::default(),
+                locals: Vec::new(),
+                scopes: Vec::new(),
+                blocks: Vec::new(),
+                entry: FunctionBlockId(0),
+                ty,
+            },
+        );
+        let lowered = vec![Arc::new(nia_function_lower::LoweredFunctionBodies {
+            bodies: bodies.finish(),
             diagnostics: Vec::new(),
         })];
 
         let indexes = build_backend_lowering_indexes(&[], &[], &[], &lowered);
         let query_owned = lowered[0]
             .bodies
-            .get(&def_id)
+            .body(def_id)
             .expect("query-owned function body");
         let indexed = indexes
             .program_function_bodies
