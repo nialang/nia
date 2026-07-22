@@ -112,7 +112,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub reachable_globals: Option<&'a std::collections::HashSet<GlobalDefId>>,
     pub reachable_structs: Option<&'a std::collections::HashSet<GlobalDefId>>,
     pub reachable_unions: Option<&'a std::collections::HashSet<GlobalDefId>>,
-    pub program_function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
+    pub program_function_bodies: &'a std::collections::HashMap<GlobalDefId, &'a FunctionBody>,
     pub program_extension_methods: &'a ExtensionMethods,
     pub program_extensions: &'a std::collections::HashMap<ModuleId, &'a VisibleExtensionMethods>,
     pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,

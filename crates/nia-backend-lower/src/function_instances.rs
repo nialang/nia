@@ -140,7 +140,7 @@ impl<'a> ModuleLowerer<'a> {
             };
             let symbol =
                 self.mangle_instance_symbol(instance.def_id, name, self_arg, &args, &const_args);
-            let Some(body) = self.lower_planned_function_instance(
+            if !self.lower_planned_function_instance(
                 &mut functions_by_def,
                 &mut seen,
                 &mut instances,
@@ -152,15 +152,15 @@ impl<'a> ModuleLowerer<'a> {
                     const_args,
                     symbol,
                 },
-            ) else {
+            ) {
                 continue;
-            };
+            }
+            let body = &instances
+                .last()
+                .expect("successful function instance lowering must append an instance")
+                .function_body;
             let mut refs = FunctionRefs::default();
-            collect_function_refs_from_optional_body(
-                instance.arg_module_id,
-                &Some(body),
-                &mut refs,
-            );
+            collect_function_refs_from_optional_body(instance.arg_module_id, body, &mut refs);
             for discovered in refs.instances {
                 let discovered_args = self.canonicalize_instance_args(&discovered.args);
                 let discovered_self_arg = self.canonicalize_instance_ref_self_arg(&discovered);
@@ -361,7 +361,7 @@ impl<'a> ModuleLowerer<'a> {
         seen: &mut HashSet<InstanceKey>,
         instances: &mut Vec<BackendFunctionInstance>,
         plan: PlannedFunctionInstance,
-    ) -> Option<nia_function_ir::FunctionBody> {
+    ) -> bool {
         let PlannedFunctionInstance {
             def_id,
             arg_module_id,
@@ -377,14 +377,16 @@ impl<'a> ModuleLowerer<'a> {
             args.clone(),
             const_args.clone(),
         )) {
-            return None;
+            return false;
         }
         if !functions_by_def.contains_key(&def_id)
             && let Some(function) = self.backend_function_template_for_program_def(def_id)
         {
             functions_by_def.insert(def_id, function);
         }
-        let base = functions_by_def.get(&def_id).cloned()?;
+        let Some(mut base) = functions_by_def.get(&def_id).cloned() else {
+            return false;
+        };
         let imported_args = args
             .iter()
             .map(|arg| self.normalize_instance_arg_type(*arg))
@@ -396,7 +398,7 @@ impl<'a> ModuleLowerer<'a> {
             &substitutions,
             &const_substitutions,
         );
-        let function_body = base.function_body.clone().map(|body| {
+        let function_body = base.function_body.take().map(|body| {
             self.instantiate_function_body(crate::instantiate::FunctionBodyInstantiation {
                 function: def_id,
                 module_id: arg_module_id,
@@ -408,7 +410,7 @@ impl<'a> ModuleLowerer<'a> {
                 const_substitutions: &const_substitutions,
             })
         });
-        let discovered_body = function_body.clone();
+        let has_body = function_body.is_some();
         instances.push(BackendFunctionInstance {
             def_id,
             name: base.name,
@@ -429,7 +431,7 @@ impl<'a> ModuleLowerer<'a> {
             function_body,
             span: base.span,
         });
-        discovered_body
+        has_body
     }
 
     pub(crate) fn backend_function_template_for_program_def(
@@ -471,7 +473,7 @@ impl<'a> ModuleLowerer<'a> {
             })
             .collect::<SymbolMap<_>>();
         let raw_function_body = include_body
-            .then(|| self.input.program_function_bodies.get(&def_id).cloned())
+            .then(|| self.input.program_function_bodies.get(&def_id).copied())
             .flatten();
         let param_locals = raw_function_body
             .as_ref()
@@ -483,7 +485,7 @@ impl<'a> ModuleLowerer<'a> {
                 module_id: self.input.module_id,
                 is_instance: true,
                 type_arg_count: 0,
-                body,
+                body: body.clone(),
                 self_arg: None,
                 substitutions: &identity_substitutions,
                 const_substitutions: &SymbolMap::default(),

@@ -6,7 +6,7 @@ pub(super) struct BackendLoweringIndexes<'a> {
     pub(super) program_extensions: HashMap<ModuleId, &'a nia_defs::VisibleExtensionMethods>,
     pub(super) program_type_normalizations:
         HashMap<ModuleId, &'a HashMap<InternedTyId, InternedTyId>>,
-    pub(super) program_function_bodies: HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
+    pub(super) program_function_bodies: HashMap<GlobalDefId, &'a nia_function_ir::FunctionBody>,
     pub(super) program_const: HashMap<ModuleId, &'a nia_const_check::ConstArrayLengths>,
 }
 
@@ -22,12 +22,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
         .collect::<HashMap<_, _>>();
     let program_function_bodies = function_bodies
         .iter()
-        .flat_map(|lowered| {
-            lowered
-                .bodies
-                .iter()
-                .map(|(def_id, body)| (*def_id, body.clone()))
-        })
+        .flat_map(|lowered| lowered.bodies.iter().map(|(def_id, body)| (*def_id, body)))
         .collect::<HashMap<_, _>>();
     let program_const = checked_modules
         .iter()
@@ -148,5 +143,55 @@ fn backend_function_roots(
         RuntimeModel::FreestandingExecutable => {
             nia_backend_lower::BackendFunctionRoots::EntryPoints
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_function_ir::{FunctionBlockId, FunctionBody};
+    use nia_ids::{DefId, ModuleIdAllocator};
+    use nia_span::Span;
+    use nia_ty::{PrimitiveTy, TyKind, TypeStore};
+
+    #[test]
+    fn program_function_body_index_borrows_query_owned_bodies() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let type_store = TypeStore::new();
+        let ty = type_store
+            .append_for_module(module_id)
+            .intern(TyKind::Primitive(PrimitiveTy::I32));
+        let def_id = GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let lowered = vec![Arc::new(LoweredFunctionBodies {
+            bodies: HashMap::from([(
+                def_id,
+                FunctionBody {
+                    span: Span::default(),
+                    locals: Vec::new(),
+                    scopes: Vec::new(),
+                    blocks: Vec::new(),
+                    entry: FunctionBlockId(0),
+                    ty,
+                },
+            )]),
+            diagnostics: Vec::new(),
+        })];
+
+        let indexes = build_backend_lowering_indexes(&[], &[], &[], &lowered);
+        let query_owned = lowered[0]
+            .bodies
+            .get(&def_id)
+            .expect("query-owned function body");
+        let indexed = indexes
+            .program_function_bodies
+            .get(&def_id)
+            .copied()
+            .expect("indexed function body");
+
+        assert!(std::ptr::eq(indexed, query_owned));
     }
 }

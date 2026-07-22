@@ -530,6 +530,10 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let program_const = HashMap::from([(module_id, &const_array_lengths)]);
     let const_enum_values = const_enum_values_from_check(&const_eval);
     let no_program_defs = |_| None;
+    let program_function_bodies = function_bodies
+        .iter()
+        .map(|(def_id, body)| (*def_id, body))
+        .collect::<HashMap<_, _>>();
 
     let input = BackendLowerModuleInput {
         module_id,
@@ -554,7 +558,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         reachable_globals: None,
         reachable_structs: None,
         reachable_unions: None,
-        program_function_bodies: &function_bodies,
+        program_function_bodies: &program_function_bodies,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
         program_defs: &no_program_defs,

@@ -231,7 +231,7 @@ impl<'a> ModuleLowerer<'a> {
         let effective_generics = self
             .effective_generics(global_def_id, &signature.generics)
             .to_vec();
-        let source_function_body = self.input.function_bodies.get(&global_def_id).cloned();
+        let source_function_body = self.input.function_bodies.get(&global_def_id);
         let identity_substitutions = effective_generics
             .iter()
             .map(|generic| {
@@ -243,20 +243,19 @@ impl<'a> ModuleLowerer<'a> {
                 )
             })
             .collect::<SymbolMap<_>>();
-        let function_body = source_function_body.clone().map(|body| {
+        let function_body = source_function_body.map(|body| {
             self.instantiate_function_body(crate::instantiate::FunctionBodyInstantiation {
                 function: global_def_id,
                 module_id: self.input.module_id,
                 is_instance: false,
                 type_arg_count: 0,
-                body,
+                body: body.clone(),
                 self_arg: None,
                 substitutions: &identity_substitutions,
                 const_substitutions: &SymbolMap::default(),
             })
         });
         let typed_param_tys = source_function_body
-            .as_ref()
             .map(|body| {
                 body.locals
                     .iter()
