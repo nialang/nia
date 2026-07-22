@@ -550,12 +550,25 @@ struct ReachabilityWorklist {
 
 struct FunctionInstanceMaterialization {
     instances: Vec<BackendFunctionInstance>,
-    refs: FunctionRefs,
+    discovery: BackendItemDiscovery,
 }
 
 struct GlobalInstanceMaterialization {
     instances: Vec<BackendGlobalInstance>,
+    discovery: BackendItemDiscovery,
+}
+
+#[derive(Default)]
+struct BackendItemDiscovery {
     refs: FunctionRefs,
+    trait_object_vtables: Vec<BackendTraitObjectVtable>,
+}
+
+impl BackendItemDiscovery {
+    fn extend(&mut self, other: Self) {
+        self.refs.extend(other.refs);
+        self.trait_object_vtables.extend(other.trait_object_vtables);
+    }
 }
 
 #[derive(Default)]
@@ -1075,13 +1088,6 @@ impl<'a> ModuleLowerer<'a> {
         self.devirtualize_direct_trait_calls(&mut functions, &mut function_instances);
         self.propagate_cross_function_constants(&mut functions, &mut function_instances);
         self.inline_leaf_functions(&mut functions, &mut function_instances);
-        self.complete_reachable_backend_items(
-            &mut functions,
-            &mut function_templates,
-            &mut function_instances,
-            &mut global_instances,
-            &mut trait_object_vtables,
-        );
         self.remove_unused_private_functions(
             &mut functions,
             &mut function_instances,
@@ -1611,19 +1617,20 @@ impl<'a> ModuleLowerer<'a> {
             };
             lowered.insert(def_id);
             if function.generics.is_empty() {
-                let mut refs = FunctionRefs::default();
-                function_refs::collect_function_refs_from_optional_body(
+                let discovery = self.discover_backend_items_from_optional_body(
                     self.input.module_id,
                     &function.function_body,
-                    &mut refs,
                 );
-                worklist.enqueue_refs(refs);
+                worklist.enqueue_refs(discovery.refs);
+                self.append_trait_object_vtable_delta(
+                    trait_object_vtables,
+                    discovery.trait_object_vtables,
+                    worklist,
+                );
                 functions.push(function);
                 changed = true;
             }
         }
-        changed |=
-            self.collect_new_trait_object_vtables(trait_object_vtables, functions, &[], worklist);
         changed
     }
 
@@ -1667,11 +1674,15 @@ impl<'a> ModuleLowerer<'a> {
             &module.functions,
             &module.function_instances,
         );
-        if materialized.instances.is_empty() {
+        let FunctionInstanceMaterialization {
+            instances,
+            discovery,
+        } = materialized;
+        if instances.is_empty() {
             return;
         }
-        module.function_instances.extend(materialized.instances);
-        self.lower_additional_reachable_items(materialized.refs, module);
+        module.function_instances.extend(instances);
+        self.lower_additional_reachable_items(discovery, module);
     }
 
     fn lower_additional_global_instances(
@@ -1680,16 +1691,29 @@ impl<'a> ModuleLowerer<'a> {
         module: &mut BackendModule,
     ) {
         let materialized = self.lower_global_instances_from_refs(refs, &module.global_instances);
-        if materialized.instances.is_empty() {
+        let GlobalInstanceMaterialization {
+            instances,
+            discovery,
+        } = materialized;
+        if instances.is_empty() {
             return;
         }
-        module.global_instances.extend(materialized.instances);
-        self.lower_additional_reachable_items(materialized.refs, module);
+        module.global_instances.extend(instances);
+        self.lower_additional_reachable_items(discovery, module);
     }
 
-    fn lower_additional_reachable_items(&mut self, refs: FunctionRefs, module: &mut BackendModule) {
+    fn lower_additional_reachable_items(
+        &mut self,
+        discovery: BackendItemDiscovery,
+        module: &mut BackendModule,
+    ) {
         let mut worklist = self.reachability_worklist_for_module(module);
-        worklist.enqueue_refs(refs);
+        worklist.enqueue_refs(discovery.refs);
+        self.append_trait_object_vtable_delta(
+            &mut module.trait_object_vtables,
+            discovery.trait_object_vtables,
+            &mut worklist,
+        );
         let mut function_templates = Vec::new();
         self.lower_reachable_instances_and_vtables(
             &mut module.functions,
@@ -1766,24 +1790,36 @@ impl<'a> ModuleLowerer<'a> {
                     function_templates,
                     function_instances,
                 );
-                worklist.enqueue_refs(additional.refs);
-                changed |= !additional.instances.is_empty();
-                function_instances.extend(additional.instances);
+                let FunctionInstanceMaterialization {
+                    instances,
+                    discovery,
+                } = additional;
+                worklist.enqueue_refs(discovery.refs);
+                changed |= self.append_trait_object_vtable_delta(
+                    trait_object_vtables,
+                    discovery.trait_object_vtables,
+                    worklist,
+                );
+                changed |= !instances.is_empty();
+                function_instances.extend(instances);
             }
             if !worklist.pending_global_instances.is_empty() {
                 let refs = std::mem::take(&mut worklist.pending_global_instances);
                 let additional =
                     self.lower_global_instances_from_refs(refs, global_instances.as_slice());
-                worklist.enqueue_refs(additional.refs);
-                changed |= !additional.instances.is_empty();
-                global_instances.extend(additional.instances);
+                let GlobalInstanceMaterialization {
+                    instances,
+                    discovery,
+                } = additional;
+                worklist.enqueue_refs(discovery.refs);
+                changed |= self.append_trait_object_vtable_delta(
+                    trait_object_vtables,
+                    discovery.trait_object_vtables,
+                    worklist,
+                );
+                changed |= !instances.is_empty();
+                global_instances.extend(instances);
             }
-            changed |= self.collect_new_trait_object_vtables(
-                trait_object_vtables,
-                functions,
-                function_instances,
-                worklist,
-            );
             if !changed
                 && worklist.pending_functions.is_empty()
                 && worklist.pending_instances.is_empty()
@@ -1827,7 +1863,7 @@ impl<'a> ModuleLowerer<'a> {
         existing: &[BackendGlobalInstance],
     ) -> GlobalInstanceMaterialization {
         let mut instances = Vec::new();
-        let mut materialized_refs = FunctionRefs::default();
+        let mut discovery = BackendItemDiscovery::default();
         let mut seen = existing
             .iter()
             .map(|instance| BackendGlobalInstanceKey {
@@ -1872,14 +1908,14 @@ impl<'a> ModuleLowerer<'a> {
                 function_refs::collect_function_refs_from_static_init(
                     global.arg_module_id,
                     init,
-                    &mut materialized_refs,
+                    &mut discovery.refs,
                 );
             }
             instances.push(global);
         }
         GlobalInstanceMaterialization {
             instances,
-            refs: materialized_refs,
+            discovery,
         }
     }
 
@@ -2007,122 +2043,30 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn complete_reachable_backend_items(
+    fn discover_backend_items_from_optional_body(
         &mut self,
-        functions: &mut Vec<BackendFunction>,
-        function_templates: &mut Vec<BackendFunction>,
-        function_instances: &mut Vec<BackendFunctionInstance>,
-        global_instances: &mut Vec<BackendGlobalInstance>,
-        trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
-    ) {
-        loop {
-            let mut refs = FunctionRefs::default();
-            for function in functions.iter() {
-                function_refs::collect_function_refs_from_optional_body(
-                    self.input.module_id,
-                    &function.function_body,
-                    &mut refs,
-                );
-            }
-            for instance in function_instances.iter() {
-                function_refs::collect_function_refs_from_optional_body(
-                    instance.arg_module_id,
-                    &instance.function_body,
-                    &mut refs,
-                );
-            }
-            for instance in global_instances.iter() {
-                if let Some(init) = &instance.init {
-                    function_refs::collect_function_refs_from_static_init(
-                        instance.arg_module_id,
-                        init,
-                        &mut refs,
-                    );
-                }
-            }
-            for vtable in trait_object_vtables.iter() {
-                for entry in &vtable.entries {
-                    match &entry.function {
-                        BackendTraitObjectVtableFunction::Function(function) => {
-                            refs.functions.insert(*function);
-                        }
-                        BackendTraitObjectVtableFunction::FunctionInstance {
-                            def_id,
-                            arg_module_id,
-                            self_arg,
-                            args,
-                            const_args,
-                        } => refs.instances.push(FunctionInstanceRef {
-                            def_id: *def_id,
-                            arg_module_id: *arg_module_id,
-                            self_arg: *self_arg,
-                            args: args.clone(),
-                            const_args: const_args.clone(),
-                            span: vtable.span,
-                        }),
-                    }
-                }
-            }
-
-            let mut worklist = ReachabilityWorklist {
-                pending_functions: VecDeque::new(),
-                queued_functions: functions
-                    .iter()
-                    .map(|function| function.def_id)
-                    .collect::<HashSet<_>>(),
-                pending_instances: Vec::new(),
-                queued_instances: function_instances
-                    .iter()
-                    .map(FunctionInstanceKey::from)
-                    .collect::<HashSet<_>>(),
-                pending_global_instances: Vec::new(),
-                queued_global_instances: global_instances
-                    .iter()
-                    .map(|instance| GlobalInstanceKey {
-                        def_id: instance.def_id,
-                        arg_module_id: instance.arg_module_id,
-                        args: instance.args.clone(),
-                        const_args: instance.const_args.clone(),
-                    })
-                    .collect::<HashSet<_>>(),
-            };
-            worklist.enqueue_refs(refs);
-            let before = (
-                functions.len(),
-                function_instances.len(),
-                global_instances.len(),
-                trait_object_vtables.len(),
-            );
-            self.lower_reachable_instances_and_vtables(
-                functions,
-                function_templates,
-                function_instances,
-                global_instances,
-                &mut worklist,
-                trait_object_vtables,
-            );
-            if before
-                == (
-                    functions.len(),
-                    function_instances.len(),
-                    global_instances.len(),
-                    trait_object_vtables.len(),
-                )
-            {
-                break;
-            }
+        module_id: ModuleId,
+        body: &Option<FunctionBody>,
+    ) -> BackendItemDiscovery {
+        let mut discovery = BackendItemDiscovery::default();
+        function_refs::collect_function_refs_from_optional_body(
+            module_id,
+            body,
+            &mut discovery.refs,
+        );
+        if let Some(body) = body {
+            discovery.trait_object_vtables =
+                self.collect_trait_object_vtables_from_concrete_body(body);
         }
+        discovery
     }
 
-    fn collect_new_trait_object_vtables(
-        &mut self,
+    fn append_trait_object_vtable_delta(
+        &self,
         trait_object_vtables: &mut Vec<BackendTraitObjectVtable>,
-        functions: &[BackendFunction],
-        function_instances: &[BackendFunctionInstance],
+        discovered: Vec<BackendTraitObjectVtable>,
         worklist: &mut ReachabilityWorklist,
     ) -> bool {
-        let mut discovered = Vec::new();
-        self.collect_trait_object_vtables(&mut discovered, functions, function_instances);
         let mut seen = trait_object_vtables
             .iter()
             .map(|vtable| vtable.key.clone())

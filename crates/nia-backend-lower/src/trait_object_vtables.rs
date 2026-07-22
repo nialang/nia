@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ModuleLowerer;
 use nia_backend_ir::{
-    BackendFunction, BackendFunctionInstance, BackendTraitObjectVtable,
-    BackendTraitObjectVtableEntry, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
+    BackendTraitObjectVtable, BackendTraitObjectVtableEntry, BackendTraitObjectVtableFunction,
+    BackendTraitObjectVtableKey,
 };
 use nia_function_ir::{
     FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind,
@@ -14,45 +14,14 @@ use nia_ids::{GlobalDefId, InternedTyId};
 use nia_ty::TyKind;
 
 impl<'a> ModuleLowerer<'a> {
-    pub(crate) fn collect_trait_object_vtables(
+    pub(crate) fn collect_trait_object_vtables_from_concrete_body(
         &mut self,
-        out: &mut Vec<BackendTraitObjectVtable>,
-        functions: &[BackendFunction],
-        function_instances: &[BackendFunctionInstance],
-    ) {
+        body: &FunctionBody,
+    ) -> Vec<BackendTraitObjectVtable> {
+        let mut out = Vec::new();
         let mut seen = HashSet::new();
-        self.collect_trait_object_vtables_from_functions_with_seen(out, functions, &mut seen);
-        self.collect_trait_object_vtables_from_function_instances_with_seen(
-            out,
-            function_instances,
-            &mut seen,
-        );
-    }
-
-    fn collect_trait_object_vtables_from_functions_with_seen(
-        &mut self,
-        out: &mut Vec<BackendTraitObjectVtable>,
-        functions: &[BackendFunction],
-        seen: &mut HashSet<BackendTraitObjectVtableKey>,
-    ) {
-        for function in functions {
-            if let Some(body) = &function.function_body {
-                self.collect_trait_object_vtables_from_body(body, out, seen);
-            }
-        }
-    }
-
-    fn collect_trait_object_vtables_from_function_instances_with_seen(
-        &mut self,
-        out: &mut Vec<BackendTraitObjectVtable>,
-        function_instances: &[BackendFunctionInstance],
-        seen: &mut HashSet<BackendTraitObjectVtableKey>,
-    ) {
-        for instance in function_instances {
-            if let Some(body) = &instance.function_body {
-                self.collect_trait_object_vtables_from_body(body, out, seen);
-            }
-        }
+        self.collect_trait_object_vtables_from_body(body, &mut out, &mut seen);
+        out
     }
 
     fn collect_trait_object_vtables_from_body(

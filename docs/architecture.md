@@ -1359,12 +1359,13 @@ public backend-lowering API consumes only these module-local DTO slices;
 
 These source and frontend function-instance plans are not yet the complete
 backend item plan. Function-body and vtable-induced instances, generic global
-instances, vtables, instance-induced source references, layout completion,
-module optimization, and DCE still converge in the aggregate backend call.
-That closure now has deterministic iteration snapshots, but its planning must
-still be separated from immutable per-module or per-CGU materialization before
-those products can become smaller query nodes; an incomplete module product
-must not be cached and then mutated from an external worklist.
+instances, vtables, and instance-induced source references now converge from
+closed call-scoped discovery deltas, while layout completion, module
+optimization, and DCE still execute in the aggregate backend call. The closed
+plan must still be separated from immutable per-module or per-CGU
+materialization before those products can become smaller query nodes; an
+incomplete module product must not be cached and then mutated from an external
+worklist.
 
 The aggregate cross-module closure drains newly discovered source functions,
 function instances, and global instances into one iteration-local
@@ -1385,21 +1386,26 @@ or move that pure planning logic earlier. Projecting an apparently empty plan
 from source Function IR would create a second, incomplete truth source.
 
 Function and global instance substitution now returns a closed materialization
-delta: the newly owned backend payload and every source-function,
-function-instance, and global-instance reference discovered from that concrete
-body or initializer. Nested instance expansion and the outer module closure
+delta: the newly owned backend payload, every source-function,
+function-instance, and global-instance reference, and every trait-object vtable
+discovered from that concrete body or initializer. Source functions use the
+same discovery shape. Nested instance expansion and the outer module closure
 consume the same delta. Additional cross-module items seed the next worklist
 from this result instead of rescanning all previously materialized functions
-and globals. This is particularly important for a generic local static: its
-concrete global-instance edge is emitted with the substituted function body and
-cannot be reconstructed from the source template.
+and globals. This is particularly important for a generic local static or a
+trait-object coercion inside a generic function: their concrete edges only
+exist after substitution and cannot be reconstructed from the source template.
 
 The delta is moved within one backend query call and has no independent
-identity or shared owner, so it is not stored behind an ID or `Arc`. Its shape
-is suitable for a future cache-owned substitution query, but the current
-vtable collector still scans the function and function-instance aggregate.
-Vtable requests and entries must join the closed result before this boundary
-can become the complete global backend item plan.
+identity or shared owner, so it is not stored behind an ID or `Arc`. Vtable
+discovery walks only the newly produced concrete body; new entries immediately
+enqueue their source/default-method instance references, and the module only
+deduplicates vtable semantic keys. The old function/function-instance aggregate
+collector and the post-optimization reachability rescan have been deleted.
+Devirtualization, cross-function constant propagation, and inlining may remove
+or copy already discovered edges but must not create a new semantic
+reachability edge. The resulting closure plan is complete for one backend call,
+but it is not yet an independently cache-owned query product.
 
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their

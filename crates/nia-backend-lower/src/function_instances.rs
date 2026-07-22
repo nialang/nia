@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::function_refs::{
-    FunctionInstanceKey, FunctionInstanceRef, FunctionRefs,
-    collect_function_refs_from_optional_body,
-};
-use crate::{FunctionInstanceMaterialization, ModuleLowerer};
+use crate::function_refs::{FunctionInstanceKey, FunctionInstanceRef};
+use crate::{BackendItemDiscovery, FunctionInstanceMaterialization, ModuleLowerer};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionAttribute, BackendFunctionInstance, BackendParam,
 };
@@ -70,7 +67,7 @@ impl<'a> ModuleLowerer<'a> {
         existing: &[BackendFunctionInstance],
     ) -> FunctionInstanceMaterialization {
         let mut instances = Vec::new();
-        let mut materialized_refs = FunctionRefs::default();
+        let mut materialized_discovery = BackendItemDiscovery::default();
         let mut seen = HashSet::<InstanceKey>::new();
         let mut queued = HashSet::<FunctionInstanceKey>::new();
         let mut functions_by_def = functions
@@ -157,9 +154,9 @@ impl<'a> ModuleLowerer<'a> {
                 .last()
                 .expect("successful function instance lowering must append an instance")
                 .function_body;
-            let mut refs = FunctionRefs::default();
-            collect_function_refs_from_optional_body(instance.arg_module_id, body, &mut refs);
-            for discovered in &refs.instances {
+            let discovery =
+                self.discover_backend_items_from_optional_body(instance.arg_module_id, body);
+            for discovered in &discovery.refs.instances {
                 let discovered_args = self.canonicalize_instance_args(&discovered.args);
                 let discovered_self_arg = self.canonicalize_instance_ref_self_arg(discovered);
                 let discovered_const_args = discovered.const_args.clone();
@@ -184,11 +181,11 @@ impl<'a> ModuleLowerer<'a> {
                     );
                 }
             }
-            materialized_refs.extend(refs);
+            materialized_discovery.extend(discovery);
         }
         FunctionInstanceMaterialization {
             instances,
-            refs: materialized_refs,
+            discovery: materialized_discovery,
         }
     }
 
