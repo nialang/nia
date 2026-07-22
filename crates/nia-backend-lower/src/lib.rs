@@ -61,6 +61,32 @@ pub struct BackendLowering {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct BackendItemPlan {
+    modules: Vec<BackendModule>,
+    optimization: OptimizationPolicy,
+    optimization_report: BackendOptimizationReport,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl BackendItemPlan {
+    pub fn modules(&self) -> &[BackendModule] {
+        &self.modules
+    }
+
+    pub fn optimization(&self) -> OptimizationPolicy {
+        self.optimization
+    }
+
+    pub fn optimization_report(&self) -> &BackendOptimizationReport {
+        &self.optimization_report
+    }
+
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendFunctionInstancePlan {
     pub def_id: GlobalDefId,
@@ -179,6 +205,29 @@ pub fn lower_backend_program_with_timings(
     optimization: OptimizationPolicy,
     timings: nia_timing::TimingMode,
 ) -> BackendLowering {
+    let plan = plan_backend_program_with_timings(modules, type_store, optimization, timings);
+    finalize_backend_item_plan_with_timings(modules, type_store, plan, timings)
+}
+
+pub fn plan_backend_program(
+    modules: &[BackendLowerModuleInput<'_>],
+    type_store: &nia_ty::TypeStore,
+    optimization: OptimizationPolicy,
+) -> BackendItemPlan {
+    plan_backend_program_with_timings(
+        modules,
+        type_store,
+        optimization,
+        nia_timing::TimingMode::Off,
+    )
+}
+
+pub fn plan_backend_program_with_timings(
+    modules: &[BackendLowerModuleInput<'_>],
+    type_store: &nia_ty::TypeStore,
+    optimization: OptimizationPolicy,
+    timings: nia_timing::TimingMode,
+) -> BackendItemPlan {
     let timing = timings.detail();
     let mut diagnostics = input::validate_backend_lowering_inputs(modules);
     let mut optimization_report = BackendOptimizationReport {
@@ -188,10 +237,8 @@ pub fn lower_backend_program_with_timings(
         changed_passes: Vec::new(),
     };
     if !diagnostics.is_empty() {
-        return BackendLowering {
-            program: BackendProgram {
-                modules: Vec::new(),
-            },
+        return BackendItemPlan {
+            modules: Vec::new(),
             optimization,
             optimization_report,
             diagnostics,
@@ -297,6 +344,70 @@ pub fn lower_backend_program_with_timings(
         lowered_modules.len(),
         "Nia ICE: backend lowerers must match materialized modules"
     );
+
+    BackendItemPlan {
+        modules: lowered_modules,
+        optimization,
+        optimization_report,
+        diagnostics,
+    }
+}
+
+pub fn finalize_backend_item_plan(
+    modules: &[BackendLowerModuleInput<'_>],
+    type_store: &nia_ty::TypeStore,
+    plan: BackendItemPlan,
+) -> BackendLowering {
+    finalize_backend_item_plan_with_timings(modules, type_store, plan, nia_timing::TimingMode::Off)
+}
+
+pub fn finalize_backend_item_plan_with_timings(
+    modules: &[BackendLowerModuleInput<'_>],
+    type_store: &nia_ty::TypeStore,
+    plan: BackendItemPlan,
+    timings: nia_timing::TimingMode,
+) -> BackendLowering {
+    let BackendItemPlan {
+        modules: mut lowered_modules,
+        optimization,
+        mut optimization_report,
+        mut diagnostics,
+    } = plan;
+    if !diagnostics.is_empty() {
+        return BackendLowering {
+            program: BackendProgram {
+                modules: lowered_modules,
+            },
+            optimization,
+            optimization_report,
+            diagnostics,
+        };
+    }
+    assert_eq!(
+        modules.len(),
+        lowered_modules.len(),
+        "Nia ICE: backend item plan must match finalization inputs"
+    );
+    for (input, module) in modules.iter().zip(&lowered_modules) {
+        assert_eq!(
+            input.module_id, module.id,
+            "Nia ICE: backend item plan owner order must match finalization inputs"
+        );
+    }
+
+    let timing = timings.detail();
+    let shared = time_backend_stage(timing, "backend_lower.final_shared_indexes", || {
+        BackendLowerShared::new(modules)
+    });
+    let mut lowerers = time_backend_stage(timing, "backend_lower.new_finalizers", || {
+        modules
+            .iter()
+            .map(|input| ModuleLowerer::new(input, type_store, optimization, &shared, timing))
+            .collect::<Vec<_>>()
+    });
+    for lowerer in &mut lowerers {
+        lowerer.index_aggregate_sources_for_finalization();
+    }
     time_backend_stage(timing, "backend_lower.final_modules", || {
         for (lowerer, module) in lowerers.iter_mut().zip(&mut lowered_modules) {
             lowerer.finish_module(module);
@@ -1390,6 +1501,27 @@ impl<'a> ModuleLowerer<'a> {
             },
         );
         Some(global_def_id)
+    }
+
+    fn index_aggregate_sources_for_finalization(&mut self) {
+        for item in &self.input.active_item_tree.items {
+            match &item.kind {
+                ItemTreeNodeKind::Struct(item_struct) => {
+                    self.index_aggregate_source(&item.node_key, item.span, item_struct);
+                }
+                ItemTreeNodeKind::Union(item_union) => {
+                    self.index_union_source(&item.node_key, item.span, item_union);
+                }
+                ItemTreeNodeKind::Trait(_)
+                | ItemTreeNodeKind::Extend(_)
+                | ItemTreeNodeKind::Enum(_)
+                | ItemTreeNodeKind::Function(_)
+                | ItemTreeNodeKind::Binding(_)
+                | ItemTreeNodeKind::Module(_)
+                | ItemTreeNodeKind::Using(_)
+                | ItemTreeNodeKind::TypeAlias(_) => {}
+            }
+        }
     }
 
     fn is_backend_function_root(
