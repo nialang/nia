@@ -6281,6 +6281,18 @@ fn main() u8 {
         };
         let first = global("first");
         let second = global("second");
+        let fact_modules = database.db.get(ExecutableCheckedModuleFactsQuery);
+        let fact_module = fact_modules
+            .modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .expect("entry module facts should exist");
+        assert!(
+            fact_module.body_ir.global_inits.is_empty(),
+            "the executable facts aggregate must not produce static initializer payloads"
+        );
+        assert!(fact_modules.runtime_globals.contains(&first));
+        assert!(fact_modules.runtime_globals.contains(&second));
         let aggregate_first = module
             .body_ir
             .global_inits
@@ -6335,6 +6347,141 @@ fn main() u8 {
         assert_eq!(first_second.as_ref(), second_second.as_ref());
         assert!(Arc::ptr_eq(aggregate_second, second_payload));
         assert_eq!(query_executions(&trace, "executable_static_init"), 4);
+    }
+
+    #[test]
+    fn static_init_ref_summary_drives_reachability_without_aggregate_payload() {
+        let fixture = LoadedProgramFixture::new(
+            "main.nia",
+            r#"
+struct Helper {}
+
+extend Helper {
+    fn value() i32 {
+        7
+    }
+}
+
+static callback: &fn() i32 = &Helper::value;
+
+fn main() i32 {
+    callback()
+}
+"#,
+        );
+        let db = query_db(fixture.program());
+
+        let codegen = db.get(CodegenProgramQuery);
+        assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+        let facts = db.get(ExecutableCheckedModuleFactsQuery);
+        let module = facts.modules.first().expect("entry module facts");
+        assert!(module.body_ir.global_inits.is_empty());
+        let def_id = |name| {
+            module
+                .defs
+                .defs
+                .iter()
+                .find_map(|(def_id, def)| {
+                    (def.name == sym(name)).then_some(GlobalDefId {
+                        module_id: module.id,
+                        def_id,
+                    })
+                })
+                .unwrap_or_else(|| panic!("missing definition `{name}`"))
+        };
+        let helper = def_id("value");
+        let callback = def_id("callback");
+
+        assert!(facts.runtime_functions.contains(&helper));
+        assert!(facts.runtime_globals.contains(&callback));
+        let init = db.get(ExecutableStaticInitQuery(callback));
+        assert!(
+            matches!(
+                init.as_ref().as_deref(),
+                Some(nia_static_ir::StaticInit::AddrOfFunction { function, .. })
+                    if *function == helper
+            ),
+            "{init:?}"
+        );
+        assert!(
+            codegen
+                .backend_lowering
+                .program
+                .modules
+                .iter()
+                .flat_map(|module| &module.functions)
+                .any(|function| function.def_id == helper),
+            "the static reference summary must keep helper reachable"
+        );
+    }
+
+    #[test]
+    fn local_static_item_uses_owner_function_facts_for_associated_function_reference() {
+        let fixture = LoadedProgramFixture::new(
+            "main.nia",
+            r#"
+struct Helper {}
+
+extend Helper {
+    fn value() i32 {
+        7
+    }
+}
+
+fn invoke() i32 {
+    static callback: &fn() i32 = &Helper::value;
+    callback()
+}
+
+fn main() i32 {
+    invoke()
+}
+"#,
+        );
+        let db = query_db(fixture.program());
+
+        let codegen = db.get(CodegenProgramQuery);
+        assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+        let facts = db.get(ExecutableCheckedModuleFactsQuery);
+        let module = facts.modules.first().expect("entry module facts");
+        assert!(module.body_ir.global_inits.is_empty());
+        let def_id = |name, kind| {
+            module
+                .defs
+                .defs
+                .iter()
+                .find_map(|(def_id, def)| {
+                    (def.name == sym(name) && def.kind == kind).then_some(GlobalDefId {
+                        module_id: module.id,
+                        def_id,
+                    })
+                })
+                .unwrap_or_else(|| panic!("missing {kind:?} definition `{name}`"))
+        };
+        let helper = def_id("value", nia_defs::DefKind::Method);
+        let callback = def_id("callback", nia_defs::DefKind::Global);
+
+        assert!(facts.runtime_functions.contains(&helper));
+        assert!(facts.runtime_globals.contains(&callback));
+        let init = db.get(ExecutableStaticInitQuery(callback));
+        assert!(
+            matches!(
+                init.as_ref().as_deref(),
+                Some(nia_static_ir::StaticInit::AddrOfFunction { function, .. })
+                    if *function == helper
+            ),
+            "{init:?}"
+        );
+        assert!(
+            codegen
+                .backend_lowering
+                .program
+                .modules
+                .iter()
+                .flat_map(|module| &module.functions)
+                .any(|function| function.def_id == helper),
+            "the local static reference summary must keep helper reachable"
+        );
     }
 
     #[test]

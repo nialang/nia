@@ -37,7 +37,8 @@ pub(in crate::query) use self::body_check_flow::{
 };
 use self::body_executable::*;
 pub(in crate::query) use self::body_executable::{
-    ExecutableValueRefEdges, provide_executable_function_body, provide_executable_value_ref_edges,
+    ExecutableValueRefEdges, provide_executable_function_body, provide_executable_static_init,
+    provide_executable_value_ref_edges,
 };
 use self::body_signature_lookup::*;
 pub(in crate::query) use self::codegen::provide_lowered_function_body;

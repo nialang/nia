@@ -1209,6 +1209,7 @@ impl<'a> BodyChecker<'a> {
             function_facts: HashMap::new(),
             function_bodies: HashMap::new(),
             global_inits: HashMap::new(),
+            static_init_refs: HashMap::new(),
             local_types: HashMap::new(),
             global_types: HashMap::new(),
             const_types: HashMap::new(),

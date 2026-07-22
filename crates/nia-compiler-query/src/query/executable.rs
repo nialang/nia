@@ -58,6 +58,7 @@ pub(super) struct ExecutableFactModuleState {
     pub(super) module_id: ModuleId,
     pub(super) defs: Arc<DefCollection>,
     pub(super) body_ir: nia_body_ir::BodyIr,
+    pub(super) static_init_refs: HashMap<GlobalDefId, nia_static_ir::StaticInitRefs>,
     pub(super) semantic_facts: nia_sema_ir::SemanticFacts,
     pub(super) provider_demands: HashSet<ProviderDemand>,
     pub(super) provider_demands_by_function: HashMap<GlobalDefId, HashSet<ProviderDemand>>,
@@ -223,6 +224,7 @@ impl ExecutableFactModuleState {
                 .collect::<Vec<_>>();
         for global in local_statics {
             self.body_ir.global_inits.remove(&global);
+            self.static_init_refs.remove(&global);
             self.checked_globals.remove(&global);
         }
         self.rebuild_provider_demands();
@@ -253,6 +255,7 @@ impl ExecutableFactModuleState {
         let nia_body_check::BodyCheck {
             ir,
             facts,
+            static_init_refs,
             provider_demands,
             provider_demands_by_function,
             checked_functions,
@@ -271,6 +274,7 @@ impl ExecutableFactModuleState {
             module_id,
             defs: db.get(FullModuleDefsQuery(module_id)),
             body_ir: Arc::unwrap_or_clone(ir),
+            static_init_refs,
             semantic_facts: Arc::unwrap_or_clone(facts),
             provider_demands: Arc::unwrap_or_clone(provider_demands),
             provider_demands_by_function,
@@ -314,6 +318,7 @@ impl ExecutableFactModuleState {
         let nia_body_check::BodyCheck {
             ir,
             facts,
+            static_init_refs,
             provider_demands,
             provider_demands_by_function,
             checked_functions,
@@ -328,11 +333,13 @@ impl ExecutableFactModuleState {
             type_store,
             &ir,
             &facts,
+            &static_init_refs,
         );
         self.body_ir
             .function_bodies
             .extend(ir.function_bodies.drain());
-        self.body_ir.global_inits.extend(ir.global_inits.drain());
+        debug_assert!(ir.global_inits.is_empty());
+        self.static_init_refs.extend(static_init_refs);
         self.semantic_facts.extend(facts);
         let owned_provider_demands = provider_demands_by_function
             .values()
@@ -422,6 +429,9 @@ fn executable_module_refs_for_fact_state(
     let input = state.reachable_input(type_store);
     let mut refs = nia_executable_facts::executable_module_refs_from_typed_ir(&input);
     refs.extend(nia_executable_facts::executable_module_refs_from_semantic_facts(&input));
+    refs.extend(executable_module_refs_from_static_init_refs(
+        &state.static_init_refs,
+    ));
     refs
 }
 
@@ -431,6 +441,7 @@ fn executable_module_refs_for_increment(
     type_store: &nia_ty::TypeStore,
     body_ir: &nia_body_ir::BodyIr,
     semantic_facts: &nia_sema_ir::SemanticFacts,
+    static_init_refs: &HashMap<GlobalDefId, nia_static_ir::StaticInitRefs>,
 ) -> ExecutableModuleRefs {
     let empty_refs = ExecutableModuleRefs::default();
     let input = ReachableModuleInput {
@@ -443,7 +454,31 @@ fn executable_module_refs_for_increment(
     };
     let mut refs = nia_executable_facts::executable_module_refs_from_typed_ir(&input);
     refs.extend(nia_executable_facts::executable_module_refs_from_semantic_facts(&input));
+    refs.extend(executable_module_refs_from_static_init_refs(
+        static_init_refs,
+    ));
     refs
+}
+
+fn executable_module_refs_from_static_init_refs(
+    refs_by_global: &HashMap<GlobalDefId, nia_static_ir::StaticInitRefs>,
+) -> ExecutableModuleRefs {
+    ExecutableModuleRefs {
+        functions: HashMap::new(),
+        globals: refs_by_global
+            .iter()
+            .map(|(def_id, refs)| {
+                (
+                    *def_id,
+                    nia_executable_facts::ExecutableItemRefs {
+                        functions: refs.functions.clone(),
+                        globals: refs.globals.clone(),
+                        ..nia_executable_facts::ExecutableItemRefs::default()
+                    },
+                )
+            })
+            .collect(),
+    }
 }
 
 pub(super) fn reachable_fact_module_inputs<'a>(

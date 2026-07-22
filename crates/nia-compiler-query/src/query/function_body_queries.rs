@@ -37,6 +37,13 @@ pub(super) fn materialize_executable_checked_modules(
             .copied()
             .map(ExecutableFunctionBodyQuery),
     );
+    let static_inits = db.get_many(
+        facts
+            .runtime_globals
+            .iter()
+            .copied()
+            .map(ExecutableStaticInitQuery),
+    );
     let mut bodies_by_module =
         HashMap::<ModuleId, HashMap<GlobalDefId, Arc<nia_body_ir::TypedBody>>>::new();
     for (def_id, body) in facts.runtime_functions.iter().copied().zip(bodies) {
@@ -45,6 +52,16 @@ pub(super) fn materialize_executable_checked_modules(
                 .entry(def_id.module_id)
                 .or_default()
                 .insert(def_id, Arc::clone(body));
+        }
+    }
+    let mut static_inits_by_module =
+        HashMap::<ModuleId, HashMap<GlobalDefId, Arc<nia_static_ir::StaticInit>>>::new();
+    for (def_id, init) in facts.runtime_globals.iter().copied().zip(static_inits) {
+        if let Some(init) = init.as_ref() {
+            static_inits_by_module
+                .entry(def_id.module_id)
+                .or_default()
+                .insert(def_id, Arc::clone(init));
         }
     }
 
@@ -56,7 +73,9 @@ pub(super) fn materialize_executable_checked_modules(
             let function_bodies = bodies_by_module.remove(&module.id).unwrap_or_default();
             module.body_ir = Arc::new(nia_body_ir::BodyIr {
                 function_bodies,
-                global_inits: module.body_ir.global_inits.clone(),
+                global_inits: static_inits_by_module
+                    .remove(&module.id)
+                    .unwrap_or_default(),
             });
             Arc::new(module)
         })
