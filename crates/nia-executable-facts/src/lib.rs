@@ -992,41 +992,9 @@ fn collect_typed_place_refs(
 }
 
 fn collect_static_init_refs(init: &StaticInit, refs: &mut ExecutableItemRefs) {
-    match init {
-        StaticInit::Array(elems) => {
-            for elem in elems {
-                collect_static_init_refs(elem, refs);
-            }
-        }
-        StaticInit::Repeat { value, count } => {
-            if *count != 0 {
-                collect_static_init_refs(value, refs);
-            }
-        }
-        StaticInit::Struct(fields) => {
-            for field in fields {
-                collect_static_init_refs(&field.value, refs);
-            }
-        }
-        StaticInit::AddrOfGlobal { global, .. } => {
-            refs.globals.insert(*global);
-        }
-        StaticInit::AddrOfFunction { function, .. } => {
-            refs.functions.insert(*function);
-        }
-        StaticInit::StaticArrayPointer { array_init, .. } => {
-            collect_static_init_refs(array_init, refs);
-        }
-        StaticInit::Zero
-        | StaticInit::Int(_)
-        | StaticInit::Float(_)
-        | StaticInit::Bool(_)
-        | StaticInit::Char(_)
-        | StaticInit::Byte(_)
-        | StaticInit::Chars(_)
-        | StaticInit::Bytes(_)
-        | StaticInit::NullPtr => {}
-    }
+    let init_refs = init.refs();
+    refs.functions.extend(init_refs.functions);
+    refs.globals.extend(init_refs.globals);
 }
 
 fn builtin_method_trait(
@@ -1071,6 +1039,18 @@ pub fn filter_semantic_facts_for_reachable_items(
             .filter(|instantiation| instantiation.source_def_id.is_none()),
     );
     reachable_facts.node_builtin_associated_values = facts.node_builtin_associated_values;
+    reachable_facts.node_expr_types = facts.node_expr_types;
+    reachable_facts.node_bracket_suffix_resolutions = facts.node_bracket_suffix_resolutions;
+    reachable_facts.node_pointer_array_to_slice_coercions =
+        facts.node_pointer_array_to_slice_coercions;
+    reachable_facts.node_trait_object_coercions = facts.node_trait_object_coercions;
+    reachable_facts.node_trait_object_upcasts = facts.node_trait_object_upcasts;
+    reachable_facts.node_builtin_values = facts.node_builtin_values;
+    reachable_facts.node_associated_const_projections = facts.node_associated_const_projections;
+    reachable_facts.node_array_repeat_counts = facts.node_array_repeat_counts;
+    reachable_facts.node_switch_pattern_values = facts.node_switch_pattern_values;
+    reachable_facts.node_resolved_calls = facts.node_resolved_calls;
+    reachable_facts.node_function_references = facts.node_function_references;
     reachable_facts.function_facts = facts
         .function_facts
         .into_iter()

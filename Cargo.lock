@@ -173,6 +173,7 @@ name = "nia-body-check"
 version = "0.4.3"
 dependencies = [
  "nia-ast",
+ "nia-ast-walk",
  "nia-body-ir",
  "nia-const-check",
  "nia-const-eval",

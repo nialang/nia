@@ -29,6 +29,7 @@ use nia_ast::{
     Attribute, AttributeKind, BindingStmt, Block, Expr, ExprKind, FunctionItem, Module, Stmt,
     StmtKind,
 };
+use nia_ast_walk::Visitor;
 use nia_body_ir::BodyIr;
 use nia_const_check::{
     ConstArrayLengths, ConstKey, ConstTypedFacts, ConstValue, ConstValues, TypedConstValue,
@@ -77,6 +78,7 @@ use crate::projection_obligations::TraitObligation;
 pub struct BodyCheck {
     pub ir: Arc<BodyIr>,
     pub facts: Arc<SemanticFacts>,
+    pub static_init_refs: HashMap<GlobalDefId, nia_static_ir::StaticInitRefs>,
     pub checked_functions: HashSet<GlobalDefId>,
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     pub provider_demands_by_function: HashMap<GlobalDefId, HashSet<ProviderDemand>>,
@@ -176,6 +178,7 @@ pub enum BodyCheckProduct {
     Full,
     FactsOnly,
     BodyOnly,
+    StaticInitOnly,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -354,6 +357,13 @@ impl<'a> ActiveBodyCheckFilter<'a> {
                 globals.contains(&def_id)
                     && already_checked_globals.is_none_or(|checked| !checked.contains(&def_id))
             }
+        }
+    }
+
+    fn selects_global(&self, def_id: GlobalDefId) -> bool {
+        match self {
+            Self::All => true,
+            Self::ReachableItems { globals, .. } => globals.contains(&def_id),
         }
     }
 
@@ -876,6 +886,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         function_facts: HashMap::new(),
         function_bodies: HashMap::new(),
         global_inits: HashMap::new(),
+        static_init_refs: HashMap::new(),
         local_types: HashMap::new(),
         global_types: HashMap::new(),
         const_types: HashMap::new(),
@@ -915,13 +926,18 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             checker.check_module(input.active_item_tree, timing, module_id);
         });
     }
-    if matches!(
-        checker.product,
-        BodyCheckProduct::Full | BodyCheckProduct::BodyOnly
-    ) {
-        time_body_stage(timing, "body_check.lower_checked", module_id, || {
-            checker.lower_checked_module(input.active_item_tree, timing, module_id);
-        });
+    match checker.product {
+        BodyCheckProduct::Full | BodyCheckProduct::BodyOnly => {
+            time_body_stage(timing, "body_check.lower_checked", module_id, || {
+                checker.lower_checked_module(input.active_item_tree, timing, module_id);
+            });
+        }
+        BodyCheckProduct::StaticInitOnly => {
+            time_body_stage(timing, "body_check.lower_static_inits", module_id, || {
+                checker.lower_checked_static_inits(input.active_item_tree);
+            });
+        }
+        BodyCheckProduct::FactsOnly => {}
     }
     checker.print_profile();
     time_body_stage(timing, "body_check.finish", module_id, || {
@@ -971,6 +987,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
                 global_inits: checker.global_inits,
             }),
             facts: Arc::new(facts),
+            static_init_refs: checker.static_init_refs,
             checked_functions: checker.checked_functions,
             provider_demands: Arc::new(checker.provider_demands.borrow().clone()),
             provider_demands_by_function: checker.provider_demands_by_function.borrow().clone(),
@@ -1091,6 +1108,7 @@ struct BodyChecker<'a> {
     function_facts: HashMap<GlobalDefId, FunctionSemanticFactsBuilder>,
     function_bodies: HashMap<GlobalDefId, Arc<nia_body_ir::TypedBody>>,
     global_inits: HashMap<GlobalDefId, Arc<nia_static_ir::StaticInit>>,
+    static_init_refs: HashMap<GlobalDefId, nia_static_ir::StaticInitRefs>,
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
     const_types: HashMap<DefId, InternedTyId>,
@@ -1115,6 +1133,19 @@ struct BodyChecker<'a> {
     checked_functions: HashSet<GlobalDefId>,
     pending_functions: VecDeque<GlobalDefId>,
     profile: nia_timing::TimingAccumulator,
+}
+
+struct CheckedStaticInitVisitor<'checker, 'context> {
+    checker: &'checker mut BodyChecker<'context>,
+}
+
+impl<'ast> Visitor<'ast> for CheckedStaticInitVisitor<'_, '_> {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        if let StmtKind::Static(binding) = &stmt.kind {
+            self.checker.lower_checked_static_init(stmt.span, binding);
+        }
+        nia_ast_walk::walk_stmt(self, stmt);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1791,6 +1822,44 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    fn lower_checked_static_inits(&mut self, active_item_tree: &ActiveModuleItemTree) {
+        for item in &active_item_tree.items {
+            if let ItemTreeNodeKind::Binding(binding) = &item.kind
+                && !binding.is_const()
+            {
+                self.lower_checked_static_init(item.span, binding);
+            }
+        }
+
+        let function_items = self.function_items_by_id(active_item_tree);
+        let mut visitor = CheckedStaticInitVisitor { checker: self };
+        for item in function_items.values() {
+            visitor.visit_function(item.function);
+        }
+    }
+
+    fn lower_checked_static_init(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
+        let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Global)
+        else {
+            return;
+        };
+        let global_def_id = self.global_def_id(def_id);
+        if !self.body_filter.selects_global(global_def_id) {
+            return;
+        }
+        let Some(value) = &binding.value else {
+            return;
+        };
+        let Some(global_ty) = self.global_types.get(&def_id).copied() else {
+            return;
+        };
+        if global_ty == self.error() {
+            return;
+        }
+        let init = self.lower_global_static_init(value, global_ty);
+        self.global_inits.insert(global_def_id, Arc::new(init));
+    }
+
     fn lower_checked_function_by_id<'ast>(
         &mut self,
         def_id: GlobalDefId,
@@ -2235,9 +2304,18 @@ impl<'a> BodyChecker<'a> {
         };
         self.global_types.insert(def_id, global_ty);
         if global_ty != self.error() {
-            let init = self.lower_global_static_init(value, global_ty);
-            self.global_inits
-                .insert(self.global_def_id(def_id), Arc::new(init));
+            let global_def_id = self.global_def_id(def_id);
+            match self.product {
+                BodyCheckProduct::FactsOnly => {
+                    let init = self.lower_global_static_init(value, global_ty);
+                    self.static_init_refs.insert(global_def_id, init.refs());
+                }
+                BodyCheckProduct::Full => {
+                    let init = self.lower_global_static_init(value, global_ty);
+                    self.global_inits.insert(global_def_id, Arc::new(init));
+                }
+                BodyCheckProduct::BodyOnly | BodyCheckProduct::StaticInitOnly => {}
+            }
         }
     }
 

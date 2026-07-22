@@ -1367,11 +1367,28 @@ being folded into function IR.
 `GlobalDefId` is also the semantic identity of a static initializer; there is
 no separate `StaticInitId` or static-init store. `BodyIr.global_inits` shares
 immutable `Arc<StaticInit>` payloads with
-`ExecutableStaticInitQuery(GlobalDefId)`. The query is currently an item
-semantic-value boundary over the executable aggregate, so equal initializer
-values retain their semantic fingerprint even when aggregate invalidation
-causes the item query itself to execute again. Moving the producer out of that
-aggregate remains separate work.
+`ExecutableStaticInitQuery(GlobalDefId)`. The executable facts fixed point does
+not retain complete initializer trees. It keeps sorted runtime-global keys and
+per-global `StaticInitRefs` summaries containing only referenced functions and
+globals; reachability consumes those summaries instead of recovering edges from
+an aggregate payload. Zero-count repeats deliberately contribute no references.
+
+The item query materializes exactly one initializer from frozen checked facts
+with `StaticInitOnly`; a local static temporarily promotes the node facts owned
+by its enclosing function into the item lowering view. The already-checked
+global is not type-checked again. `ExecutableCheckedModulesQuery` reconstructs
+its aggregate view from the item products, so there is no path that extracts an
+item payload from the facts aggregate. Facts-only checking
+still lowers a transient tree once to preserve the single static-data
+representability and diagnostic implementation, derives `StaticInitRefs`, and
+immediately releases the tree. Avoiding that transient allocation requires a
+shared lowering sink, not a second reference-discovery semantics.
+
+Semantic-value equality lets an unchanged initializer remain green even when
+its aggregate facts input causes the item query to execute again. The aggregate
+view and item query currently share one `Arc<StaticInit>` allocation; this `Arc`
+must be re-audited if the aggregate view is removed, rather than replaced
+mechanically with a storage ID.
 
 Backend input assembly keeps the query handles alive and builds one
 call-scoped `GlobalDefId -> &StaticInit` index. `nia-backend-lower` no longer

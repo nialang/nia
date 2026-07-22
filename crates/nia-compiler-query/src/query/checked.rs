@@ -44,6 +44,7 @@ pub(super) struct ExecutableCheckedModuleFactsQuery;
 pub(super) struct ExecutableCheckedModuleFacts {
     pub(super) modules: Vec<Arc<CheckedModule>>,
     pub(super) runtime_functions: Vec<GlobalDefId>,
+    pub(super) runtime_globals: Vec<GlobalDefId>,
     pub(super) reachable_body_modules: HashSet<ModuleId>,
 }
 

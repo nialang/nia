@@ -18,12 +18,7 @@ impl QueryKey<CompilerContext> for ExecutableStaticInitQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.get(ExecutableCheckedModuleFactsQuery)
-            .modules
-            .iter()
-            .find(|module| module.id == self.0.module_id)
-            .and_then(|module| module.body_ir.global_inits.get(&self.0))
-            .cloned()
+        provide_executable_static_init(db, self.0)
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {

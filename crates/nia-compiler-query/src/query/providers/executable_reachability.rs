@@ -875,11 +875,14 @@ fn executable_check_in_session(
     drop(executable_program_layouts);
     let mut runtime_functions = reachability.functions().iter().copied().collect::<Vec<_>>();
     runtime_functions.sort_unstable();
+    let mut runtime_globals = reachability.globals().iter().copied().collect::<Vec<_>>();
+    runtime_globals.sort_unstable();
     let reachable_body_modules = executable_reachable_body_modules(db, &reachability_by_module);
     (
         ExecutableCheckOutput::Modules(ExecutableCheckedModuleFacts {
             modules: codegen_modules.into_iter().map(Arc::new).collect(),
             runtime_functions,
+            runtime_globals,
             reachable_body_modules,
         }),
         ExecutableFactSession {
