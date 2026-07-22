@@ -106,9 +106,10 @@ pub struct BackendLowerModuleInput<'a> {
         &'a std::collections::HashMap<ModuleId, &'a nia_const_check::ConstArrayLengths>,
     pub layouts: &'a Layouts,
     pub roots: BackendFunctionRoots,
-    pub reachable_globals: Option<&'a std::collections::HashSet<GlobalDefId>>,
-    pub reachable_structs: Option<&'a std::collections::HashSet<GlobalDefId>>,
-    pub reachable_unions: Option<&'a std::collections::HashSet<GlobalDefId>>,
+    pub reachable_functions: Option<&'a [GlobalDefId]>,
+    pub reachable_globals: Option<&'a [GlobalDefId]>,
+    pub reachable_structs: Option<&'a [GlobalDefId]>,
+    pub reachable_unions: Option<&'a [GlobalDefId]>,
     pub program_function_bodies: &'a std::collections::HashMap<GlobalDefId, &'a FunctionBody>,
     pub program_static_inits:
         &'a std::collections::HashMap<GlobalDefId, &'a nia_static_ir::StaticInit>,
@@ -1393,17 +1394,25 @@ impl<'a> ModuleLowerer<'a> {
                     && !self
                         .has_effective_generics(def_id, &generic_param_names(&function.generics)));
         }
-        if function.is_const
-            || function.is_extern
-            || def.name == known::MAIN
-            || def.name == known::START_ENTRY
-        {
+        if function.is_const || function.is_extern {
             return true;
         }
         if self.input.roots == BackendFunctionRoots::EntryPoints {
-            return false;
+            return self
+                .input
+                .reachable_functions
+                .is_some_and(|functions| functions.binary_search(&def_id).is_ok());
         }
-        def.visibility != Visibility::Private
+        def.name == known::MAIN
+            || def.name == known::START_ENTRY
+            || def.visibility != Visibility::Private
+    }
+
+    fn foreign_source_function_is_preplanned(&self, def_id: GlobalDefId) -> bool {
+        matches!(
+            self.input.roots,
+            BackendFunctionRoots::EntryPoints | BackendFunctionRoots::FunctionBodies
+        ) && self.input.program_function_bodies.contains_key(&def_id)
     }
 
     fn is_backend_global_reachable(&self, def_id: GlobalDefId) -> bool {
@@ -1412,7 +1421,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         match self.input.reachable_globals {
             Some(globals) if self.input.roots == BackendFunctionRoots::EntryPoints => {
-                globals.contains(&def_id)
+                globals.binary_search(&def_id).is_ok()
             }
             _ => true,
         }
@@ -1426,7 +1435,7 @@ impl<'a> ModuleLowerer<'a> {
                     BackendFunctionRoots::EntryPoints | BackendFunctionRoots::NoFunctions
                 ) =>
             {
-                structs.contains(&def_id)
+                structs.binary_search(&def_id).is_ok()
             }
             _ => true,
         }
@@ -1440,7 +1449,7 @@ impl<'a> ModuleLowerer<'a> {
                     BackendFunctionRoots::EntryPoints | BackendFunctionRoots::NoFunctions
                 ) =>
             {
-                unions.contains(&def_id)
+                unions.binary_search(&def_id).is_ok()
             }
             _ => true,
         }
@@ -1586,7 +1595,9 @@ impl<'a> ModuleLowerer<'a> {
             .collect::<HashSet<_>>();
         while let Some(def_id) = worklist.pending_functions.pop_front() {
             if def_id.module_id != self.input.module_id {
-                self.foreign_function_refs.push(def_id);
+                if !self.foreign_source_function_is_preplanned(def_id) {
+                    self.foreign_function_refs.push(def_id);
+                }
                 continue;
             }
             if lowered.contains(&def_id) {

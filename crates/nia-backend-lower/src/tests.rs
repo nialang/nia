@@ -559,6 +559,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         program_const: &program_const,
         layouts: &layouts,
         roots: BackendFunctionRoots::Public,
+        reachable_functions: None,
         reachable_globals: None,
         reachable_structs: None,
         reachable_unions: None,

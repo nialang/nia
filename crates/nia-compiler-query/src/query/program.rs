@@ -1,6 +1,39 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct BackendModuleSourceItemPlan {
+    pub(super) functions: Vec<GlobalDefId>,
+    pub(super) globals: Vec<GlobalDefId>,
+    pub(super) structs: Vec<GlobalDefId>,
+    pub(super) unions: Vec<GlobalDefId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct BackendModuleSourceItemPlanQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for BackendModuleSourceItemPlanQuery {
+    type Value = BackendModuleSourceItemPlan;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "backend_module_source_item_plan"
+    }
+
+    fn description(&self) -> String {
+        format!("backend_module_source_item_plan({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        provide_backend_module_source_item_plan(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct MonomorphizationQuery;
 
