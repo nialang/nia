@@ -241,6 +241,7 @@ fn main() i32 {
         .iter()
         .map(|(def_id, init)| (*def_id, init.as_ref()))
         .collect::<HashMap<_, _>>();
+    let function_instance_plan = Vec::new();
 
     let input = BackendLowerModuleInput {
         module_id,
@@ -264,6 +265,7 @@ fn main() i32 {
         reachable_globals: None,
         reachable_structs: None,
         reachable_unions: None,
+        function_instance_plan: &function_instance_plan,
         program_function_bodies: &program_function_bodies,
         program_static_inits: &program_static_inits,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
@@ -282,10 +284,6 @@ fn main() i32 {
     let lowering = lower_backend_program(
         &[input],
         &type_store,
-        &Monomorphization {
-            instances: Vec::new(),
-            diagnostics: Vec::new(),
-        },
         nia_opt::OptimizationPolicy::default(),
     );
     assert!(

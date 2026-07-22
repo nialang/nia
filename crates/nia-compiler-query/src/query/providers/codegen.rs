@@ -51,6 +51,51 @@ pub(in crate::query) fn provide_backend_module_source_item_plan(
     }
 }
 
+pub(in crate::query) fn provide_backend_module_function_instance_plan(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> BackendModuleFunctionInstancePlan {
+    let facts = db.get(ExecutableCheckedModuleFactsQuery);
+    assert!(
+        facts.modules.iter().any(|module| module.id == module_id),
+        "Nia ICE: missing executable facts for module {module_id:?}"
+    );
+    let monomorphization = db.get(MonomorphizationQuery);
+    let mut instances = monomorphization
+        .instances
+        .iter()
+        .filter(|instance| instance.def_id.module_id == module_id)
+        .collect::<Vec<_>>();
+    instances.sort_by(|left, right| left.symbol.cmp(&right.symbol));
+    let mut seen = HashSet::new();
+    let instances = instances
+        .into_iter()
+        .map(|instance| {
+            let key = (
+                instance.def_id,
+                instance.arg_module_id,
+                instance.self_arg,
+                instance.args.clone(),
+                instance.const_args.clone(),
+            );
+            assert!(
+                seen.insert(key),
+                "Nia ICE: duplicate monomorphized function instance `{}`",
+                instance.symbol
+            );
+            nia_backend_lower::BackendFunctionInstancePlan {
+                def_id: instance.def_id,
+                arg_module_id: instance.arg_module_id,
+                self_arg: instance.self_arg,
+                args: instance.args.clone(),
+                const_args: instance.const_args.clone(),
+                span: instance.span,
+            }
+        })
+        .collect();
+    BackendModuleFunctionInstancePlan { instances }
+}
+
 pub(super) fn provide_monomorphization(
     db: &QueryDb<CompilerContext>,
 ) -> nia_monomorphize::Monomorphization {
@@ -213,13 +258,11 @@ fn provide_backend_lowering_inner(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
     let checked_modules = checked_modules_for_codegen(db);
-    let monomorphization = db.get(MonomorphizationQuery);
-    provide_backend_lowering_inner_for_modules(db, &monomorphization, &checked_modules)
+    provide_backend_lowering_inner_for_modules(db, &checked_modules)
 }
 
 pub(super) fn provide_backend_lowering_inner_for_modules(
     db: &QueryDb<CompilerContext>,
-    monomorphization: &nia_monomorphize::Monomorphization,
     checked_modules: &[Arc<CheckedModule>],
 ) -> nia_backend_lower::BackendLowering {
     let (
@@ -233,6 +276,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         function_bodies,
         static_inits,
         source_item_plans,
+        function_instance_plans,
     ) = time_provider(db.context().timings(), "backend_lowering.inputs", || {
         let timings = db.context().timings();
         let all_visible_extensions = time_provider(
@@ -301,6 +345,11 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 .iter()
                 .map(|module| BackendModuleSourceItemPlanQuery(module.id)),
         );
+        let function_instance_plans = db.get_many(
+            checked_modules
+                .iter()
+                .map(|module| BackendModuleFunctionInstancePlanQuery(module.id)),
+        );
         (
             all_visible_extensions,
             active_item_trees,
@@ -312,6 +361,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             function_bodies,
             static_inits,
             source_item_plans,
+            function_instance_plans,
         )
     });
     let function_lowering_diagnostics =
@@ -358,6 +408,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 visible_extensions: &visible_extensions,
                 extension_methods: &extension_methods.methods,
                 source_item_plans: &source_item_plans,
+                function_instance_plans: &function_instance_plans,
                 program_defs: &program_defs,
                 program_signatures,
                 indexes: &indexes,
@@ -371,7 +422,6 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             nia_backend_lower::lower_backend_program_with_timings(
                 &inputs,
                 &db.context().type_store,
-                monomorphization,
                 *db.get(CompilerOptimizationQuery),
                 db.context().timings(),
             )
