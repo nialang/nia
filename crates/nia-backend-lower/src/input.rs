@@ -14,7 +14,10 @@ pub(crate) fn validate_backend_lowering_inputs(
     let mut validated = HashSet::new();
     for input in modules {
         validate_function_bodies(
-            input.function_bodies.iter(),
+            input
+                .function_bodies
+                .iter()
+                .map(|(def_id, _, body)| (def_id, body)),
             &mut validated,
             &mut diagnostics,
         );
@@ -22,7 +25,7 @@ pub(crate) fn validate_backend_lowering_inputs(
             input
                 .program_function_bodies
                 .iter()
-                .map(|(def_id, body)| (def_id, *body)),
+                .map(|(def_id, body)| (*def_id, *body)),
             &mut validated,
             &mut diagnostics,
         );
@@ -35,12 +38,12 @@ pub(crate) fn unreachable_invalid_function_ir(node: &'static str) -> ! {
 }
 
 fn validate_function_bodies<'a>(
-    bodies: impl IntoIterator<Item = (&'a GlobalDefId, &'a nia_function_ir::FunctionBody)>,
+    bodies: impl IntoIterator<Item = (GlobalDefId, &'a nia_function_ir::FunctionBody)>,
     validated: &mut HashSet<GlobalDefId>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for (def_id, body) in bodies {
-        if !validated.insert(*def_id) {
+        if !validated.insert(def_id) {
             continue;
         }
         if let Err(error) = validate_function_body(body) {

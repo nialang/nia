@@ -144,17 +144,11 @@ pub(super) struct ProgramAbiSignaturesValue {
     pub(super) enums: HashMap<GlobalDefId, nia_item_signatures::EnumSignature>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct LoweredFunctionBodies {
-    pub(super) bodies: HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
-    pub(super) diagnostics: Vec<nia_function_lower::FunctionLoweringDiagnostic>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct LoweredFunctionBodiesQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for LoweredFunctionBodiesQuery {
-    type Value = LoweredFunctionBodies;
+    type Value = nia_function_lower::LoweredFunctionBodies;
 
     fn name() -> &'static str {
         "lowered_function_bodies"
