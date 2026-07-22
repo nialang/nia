@@ -1328,8 +1328,9 @@ does not clone bodies into a second owned map.
 `MonomorphizationQuery` and `BackendLoweringQuery` are production tracked
 queries, rather than test-only contracts or phases executed inside
 `CodegenProgramQuery`. The codegen program holds the exact cache-owned products;
-backend lowering records monomorphization as its own dependency. This provides
-one red-green owner for each aggregate stage and prevents repeated public or
+the backend aggregate depends on monomorphization through module-local instance
+plans rather than receiving the aggregate product directly. This provides one
+red-green owner for each aggregate stage and prevents repeated public or
 internal codegen requests from executing either stage again. It does not make
 backend lowering item-grained: the current backend query still assembles all
 module inputs, performs the cross-module function/global-instance fixed point,
@@ -1345,13 +1346,25 @@ cross-module reference to a source body already present in the query-owned body
 index does not re-enter the outer backend fixed point. Bare, public, and
 type-only root policies keep their existing behavior.
 
-This source plan is not yet the complete backend item plan. Generic function
-and global instances, vtables, instance-induced source references, layout
-completion, module optimization, and DCE still converge in the aggregate
-backend call. That closure must be made deterministic and separated from
-immutable per-module or per-CGU materialization before those products can
-become smaller query nodes; an incomplete module product must not be cached and
-then mutated from an external worklist.
+`BackendModuleFunctionInstancePlanQuery(ModuleId)` is the corresponding narrow
+boundary for frontend-discovered generic function instances. It validates the
+requested executable module, filters the monomorphization aggregate by the
+definition owner's `ModuleId`, orders instances by their deterministic mono
+symbol, and rejects duplicate semantic instance keys. The plan retains the
+argument module because type arguments are interpreted in that context. The
+public backend-lowering API consumes only these module-local DTO slices;
+`nia-backend-lower` no longer has a production dependency on
+`nia-monomorphize`, and `BackendLoweringQuery` no longer reads
+`MonomorphizationQuery` directly.
+
+These source and frontend function-instance plans are not yet the complete
+backend item plan. Function-body and vtable-induced instances, generic global
+instances, vtables, instance-induced source references, layout completion,
+module optimization, and DCE still converge in the aggregate backend call.
+That closure must be made deterministic and separated from immutable per-module
+or per-CGU materialization before those products can become smaller query
+nodes; an incomplete module product must not be cached and then mutated from an
+external worklist.
 
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their

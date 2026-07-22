@@ -43,7 +43,8 @@ pub(in crate::query) use self::body_executable::{
 use self::body_signature_lookup::*;
 use self::codegen::*;
 pub(in crate::query) use self::codegen::{
-    provide_backend_module_source_item_plan, provide_lowered_function_body,
+    provide_backend_module_function_instance_plan, provide_backend_module_source_item_plan,
+    provide_lowered_function_body,
 };
 use self::const_eval::*;
 pub(in crate::query) use self::executable_reachability::{

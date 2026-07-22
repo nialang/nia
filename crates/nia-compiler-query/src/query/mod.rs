@@ -123,6 +123,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ActiveModuleItemTreeInputQuery,
         ActiveModuleItemTreeQuery,
         BodyActivationWorklistQuery,
+        BackendModuleFunctionInstancePlanQuery,
         BackendModuleSourceItemPlanQuery,
         BackendLoweringQuery,
         BodyCheckQuery,
@@ -1984,7 +1985,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 123);
+        assert_eq!(descriptors.len(), 124);
         assert!(
             !descriptors
                 .iter()
@@ -2038,6 +2039,7 @@ mod tests {
                 | "semantic_module_ids"
                 | "using_scope_module" => nia_query::QueryFingerprintPolicy::StableValue,
                 "active_module_item_tree_input"
+                | "backend_module_function_instance_plan"
                 | "backend_module_source_item_plan"
                 | "body_activation_worklist"
                 | "declaration_active_module_item_tree_input"
@@ -6073,8 +6075,20 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn codegen_tracks_and_reuses_backend_stage_products() {
-        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 1 }");
-        let db = query_db(fixture.program());
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "module helper; using entry::helper; fn main() i32 { helper::id[i32](1) }",
+        );
+        let module_id = fixture.entry_id();
+        let helper_id = fixture.add_child(
+            module_id,
+            "helper",
+            "helper.nia",
+            "pub fn id[T](value: T) T { value }",
+        );
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
 
         let first_codegen = db.get(CodegenProgramQuery);
         assert!(
@@ -6083,6 +6097,10 @@ extend i32 : ParseFrom[Input] {
             first_codegen.diagnostics
         );
         let monomorphization = db.get(MonomorphizationQuery);
+        let entry_function_instance_plan =
+            db.get(BackendModuleFunctionInstancePlanQuery(module_id));
+        let helper_function_instance_plan =
+            db.get(BackendModuleFunctionInstancePlanQuery(helper_id));
         let backend_lowering = db.get(BackendLoweringQuery);
         let second_codegen = db.get(CodegenProgramQuery);
         let trace = db.query_trace();
@@ -6108,11 +6126,35 @@ extend i32 : ParseFrom[Input] {
         ));
         assert!(trace_has_dependency(
             &trace,
+            "backend_module_function_instance_plan",
+            "monomorphization"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_lowering",
+            "backend_module_function_instance_plan"
+        ));
+        assert!(!trace_has_dependency(
+            &trace,
             "backend_lowering",
             "monomorphization"
         ));
+        assert!(entry_function_instance_plan.instances.is_empty());
+        assert_eq!(helper_function_instance_plan.instances.len(), 1);
+        assert_eq!(
+            helper_function_instance_plan.instances[0].def_id.module_id,
+            helper_id
+        );
+        assert_eq!(
+            helper_function_instance_plan.instances[0].arg_module_id,
+            module_id
+        );
         assert_eq!(query_executions(&trace, "codegen_program"), 1);
         assert_eq!(query_executions(&trace, "monomorphization"), 1);
+        assert_eq!(
+            query_executions(&trace, "backend_module_function_instance_plan"),
+            2
+        );
         assert_eq!(query_executions(&trace, "backend_lowering"), 1);
     }
 

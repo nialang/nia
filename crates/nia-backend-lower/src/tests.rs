@@ -37,6 +37,23 @@ struct TestBackendLowering {
     type_store: nia_ty::TypeStore,
 }
 
+fn backend_function_instance_plan(
+    monomorphization: &nia_monomorphize::Monomorphization,
+) -> Vec<BackendFunctionInstancePlan> {
+    monomorphization
+        .instances
+        .iter()
+        .map(|instance| BackendFunctionInstancePlan {
+            def_id: instance.def_id,
+            arg_module_id: instance.arg_module_id,
+            self_arg: instance.self_arg,
+            args: instance.args.clone(),
+            const_args: instance.const_args.clone(),
+            span: instance.span,
+        })
+        .collect()
+}
+
 impl std::ops::Deref for TestBackendLowering {
     type Target = BackendLowering;
 
@@ -521,6 +538,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         "{:?}",
         monomorphization.diagnostics
     );
+    let function_instance_plan = backend_function_instance_plan(&monomorphization);
     let mut const_eval = const_eval;
     mutate_const(&mut const_eval, &type_lowering);
     let const_array_lengths = nia_const_check::ConstArrayLengths {
@@ -563,6 +581,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         reachable_globals: None,
         reachable_structs: None,
         reachable_unions: None,
+        function_instance_plan: &function_instance_plan,
         program_function_bodies: &program_function_bodies,
         program_static_inits: &program_static_inits,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
@@ -578,7 +597,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         trait_impls: &[],
         trait_impl_index: &trait_impl_index,
     };
-    let lowering = lower_backend_program(&[input], &type_store, &monomorphization, optimization);
+    let lowering = lower_backend_program(&[input], &type_store, optimization);
     TestBackendLowering {
         lowering,
         module_id,

@@ -70,6 +70,7 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) visible_extensions: &'a [Arc<VisibleExtensionsValue>],
     pub(super) extension_methods: &'a nia_defs::ExtensionMethods,
     pub(super) source_item_plans: &'a [Arc<BackendModuleSourceItemPlan>],
+    pub(super) function_instance_plans: &'a [Arc<BackendModuleFunctionInstancePlan>],
     pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     pub(super) program_signatures: ProgramCodegenSignatures<'a>,
     pub(super) indexes: &'a BackendLoweringIndexes<'a>,
@@ -78,68 +79,69 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
 pub(super) fn build_backend_lowering_module_inputs<'a>(
     input: BackendLoweringModuleInputsInput<'a>,
 ) -> Vec<BackendLowerModuleInput<'a>> {
-    input
-        .checked_modules
-        .iter()
-        .zip(input.active_item_trees.iter())
-        .zip(input.item_signatures.iter())
-        .zip(input.const_array_lengths.iter())
-        .zip(input.const_enum_values.iter())
-        .zip(input.visible_extensions.iter())
-        .zip(input.source_item_plans.iter())
-        .map(
-            |(
-                (
-                    (
-                        (
-                            ((checked_module, active_item_tree), item_signatures),
-                            const_array_lengths,
-                        ),
-                        const_enum_values,
-                    ),
-                    visible_extensions,
-                ),
-                source_item_plan,
-            )| {
-                BackendLowerModuleInput {
-                    module_id: checked_module.id,
-                    module_name: checked_module.path.as_str().to_string(),
-                    symbols: input.symbols,
-                    active_item_tree: active_item_tree.as_ref(),
-                    defs: &checked_module.defs,
-                    extensions: &visible_extensions.methods,
-                    values: &checked_module.value_resolution,
-                    locals: &checked_module.local_resolution,
-                    type_lowering: &checked_module.type_lowering,
-                    signatures: item_signatures,
-                    type_normalization: &checked_module.type_normalization,
-                    semantic_facts: &checked_module.semantic_facts,
-                    const_array_lengths,
-                    const_enum_values,
-                    program_const: &input.indexes.program_const,
-                    layouts: &checked_module.layouts,
-                    roots: backend_function_roots(input.runtime, checked_module),
-                    reachable_functions: Some(&source_item_plan.functions),
-                    reachable_globals: Some(&source_item_plan.globals),
-                    reachable_structs: Some(&source_item_plan.structs),
-                    reachable_unions: Some(&source_item_plan.unions),
-                    program_function_bodies: &input.indexes.program_function_bodies,
-                    program_static_inits: &input.indexes.program_static_inits,
-                    program_extension_methods: input.extension_methods,
-                    program_extensions: &input.indexes.program_extensions,
-                    program_defs: input.program_defs,
-                    program_type_normalizations: &input.indexes.program_type_normalizations,
-                    program_functions: input.program_signatures.functions,
-                    program_structs: input.program_signatures.structs,
-                    program_unions: input.program_signatures.unions,
-                    program_enums: input.program_signatures.enums,
-                    program_traits: input.program_signatures.traits,
-                    program_type_aliases: input.program_signatures.type_aliases,
-                    trait_impls: input.program_signatures.trait_impls,
-                    trait_impl_index: input.program_signatures.trait_impl_index,
-                }
-            },
-        )
+    let module_count = input.checked_modules.len();
+    for (name, actual) in [
+        ("active item trees", input.active_item_trees.len()),
+        ("item signatures", input.item_signatures.len()),
+        ("const array lengths", input.const_array_lengths.len()),
+        ("const enum values", input.const_enum_values.len()),
+        ("visible extensions", input.visible_extensions.len()),
+        ("source item plans", input.source_item_plans.len()),
+        (
+            "function instance plans",
+            input.function_instance_plans.len(),
+        ),
+    ] {
+        assert_eq!(
+            actual, module_count,
+            "Nia ICE: backend {name} must match checked module count"
+        );
+    }
+
+    (0..module_count)
+        .map(|index| {
+            let checked_module = &input.checked_modules[index];
+            let source_item_plan = &input.source_item_plans[index];
+            let function_instance_plan = &input.function_instance_plans[index];
+            BackendLowerModuleInput {
+                module_id: checked_module.id,
+                module_name: checked_module.path.as_str().to_string(),
+                symbols: input.symbols,
+                active_item_tree: input.active_item_trees[index].as_ref(),
+                defs: &checked_module.defs,
+                extensions: &input.visible_extensions[index].methods,
+                values: &checked_module.value_resolution,
+                locals: &checked_module.local_resolution,
+                type_lowering: &checked_module.type_lowering,
+                signatures: &input.item_signatures[index],
+                type_normalization: &checked_module.type_normalization,
+                semantic_facts: &checked_module.semantic_facts,
+                const_array_lengths: &input.const_array_lengths[index],
+                const_enum_values: &input.const_enum_values[index],
+                program_const: &input.indexes.program_const,
+                layouts: &checked_module.layouts,
+                roots: backend_function_roots(input.runtime, checked_module),
+                reachable_functions: Some(&source_item_plan.functions),
+                reachable_globals: Some(&source_item_plan.globals),
+                reachable_structs: Some(&source_item_plan.structs),
+                reachable_unions: Some(&source_item_plan.unions),
+                function_instance_plan: &function_instance_plan.instances,
+                program_function_bodies: &input.indexes.program_function_bodies,
+                program_static_inits: &input.indexes.program_static_inits,
+                program_extension_methods: input.extension_methods,
+                program_extensions: &input.indexes.program_extensions,
+                program_defs: input.program_defs,
+                program_type_normalizations: &input.indexes.program_type_normalizations,
+                program_functions: input.program_signatures.functions,
+                program_structs: input.program_signatures.structs,
+                program_unions: input.program_signatures.unions,
+                program_enums: input.program_signatures.enums,
+                program_traits: input.program_signatures.traits,
+                program_type_aliases: input.program_signatures.type_aliases,
+                trait_impls: input.program_signatures.trait_impls,
+                trait_impl_index: input.program_signatures.trait_impl_index,
+            }
+        })
         .collect()
 }
 

@@ -36,13 +36,10 @@ const MAX_BACKEND_FUNCTION_INSTANCES: usize = 4096;
 const MAX_BACKEND_INSTANCE_TYPE_DEPTH: usize = 256;
 
 impl<'a> ModuleLowerer<'a> {
-    pub(crate) fn initial_monomorphized_function_instance_refs(
-        &mut self,
-    ) -> Vec<FunctionInstanceRef> {
-        self.monomorphization
-            .instances
+    pub(crate) fn initial_planned_function_instance_refs(&mut self) -> Vec<FunctionInstanceRef> {
+        self.input
+            .function_instance_plan
             .iter()
-            .filter(|instance| instance.def_id.module_id == self.input.module_id)
             .map(|instance| {
                 let args = self.import_monomorphized_instance_args(&instance.args);
                 FunctionInstanceRef {

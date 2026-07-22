@@ -40,7 +40,6 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
 use nia_mangle::{mangle_instance_symbol_id, mangle_symbol_id};
-use nia_monomorphize::Monomorphization;
 use nia_node_id::VersionedNodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;
@@ -60,6 +59,16 @@ pub struct BackendLowering {
     pub optimization: OptimizationPolicy,
     pub optimization_report: BackendOptimizationReport,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendFunctionInstancePlan {
+    pub def_id: GlobalDefId,
+    pub arg_module_id: ModuleId,
+    pub self_arg: Option<InternedTyId>,
+    pub args: Vec<InternedTyId>,
+    pub const_args: Vec<nia_ty::ConstGenericArg>,
+    pub span: nia_span::Span,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -110,6 +119,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub reachable_globals: Option<&'a [GlobalDefId]>,
     pub reachable_structs: Option<&'a [GlobalDefId]>,
     pub reachable_unions: Option<&'a [GlobalDefId]>,
+    pub function_instance_plan: &'a [BackendFunctionInstancePlan],
     pub program_function_bodies: &'a std::collections::HashMap<GlobalDefId, &'a FunctionBody>,
     pub program_static_inits:
         &'a std::collections::HashMap<GlobalDefId, &'a nia_static_ir::StaticInit>,
@@ -153,13 +163,11 @@ pub enum BackendFunctionRoots {
 pub fn lower_backend_program(
     modules: &[BackendLowerModuleInput<'_>],
     type_store: &nia_ty::TypeStore,
-    monomorphization: &Monomorphization,
     optimization: OptimizationPolicy,
 ) -> BackendLowering {
     lower_backend_program_with_timings(
         modules,
         type_store,
-        monomorphization,
         optimization,
         nia_timing::TimingMode::Off,
     )
@@ -168,7 +176,6 @@ pub fn lower_backend_program(
 pub fn lower_backend_program_with_timings(
     modules: &[BackendLowerModuleInput<'_>],
     type_store: &nia_ty::TypeStore,
-    monomorphization: &Monomorphization,
     optimization: OptimizationPolicy,
     timings: nia_timing::TimingMode,
 ) -> BackendLowering {
@@ -196,16 +203,7 @@ pub fn lower_backend_program_with_timings(
     let mut lowerers = time_backend_stage(timing, "backend_lower.new_lowerers", || {
         modules
             .iter()
-            .map(|input| {
-                ModuleLowerer::new(
-                    input,
-                    type_store,
-                    monomorphization,
-                    optimization,
-                    &shared,
-                    timing,
-                )
-            })
+            .map(|input| ModuleLowerer::new(input, type_store, optimization, &shared, timing))
             .collect::<Vec<_>>()
     });
     let mut lowered_modules = Vec::new();
@@ -448,7 +446,6 @@ pub(crate) struct ModuleLowerer<'a> {
     pub(crate) input: &'a BackendLowerModuleInput<'a>,
     pub(crate) type_store: &'a nia_ty::TypeStore,
     shared: &'a BackendLowerShared,
-    pub(crate) monomorphization: &'a Monomorphization,
     pub(crate) optimization: OptimizationPolicy,
     pub(crate) type_context: type_context::BackendTypeContext<'a>,
     pub(crate) diagnostics: Vec<Diagnostic>,
@@ -859,7 +856,6 @@ impl<'a> ModuleLowerer<'a> {
     fn new(
         input: &'a BackendLowerModuleInput<'a>,
         type_store: &'a nia_ty::TypeStore,
-        monomorphization: &'a Monomorphization,
         optimization: OptimizationPolicy,
         shared: &'a BackendLowerShared,
         timing: bool,
@@ -896,7 +892,6 @@ impl<'a> ModuleLowerer<'a> {
             input,
             type_store,
             shared,
-            monomorphization,
             optimization,
             type_context,
             diagnostics: Vec::new(),
@@ -1065,7 +1060,7 @@ impl<'a> ModuleLowerer<'a> {
             }
         }
 
-        worklist.enqueue_instances(self.initial_monomorphized_function_instance_refs());
+        worklist.enqueue_instances(self.initial_planned_function_instance_refs());
         self.lower_reachable_function_closure(
             &mut functions,
             &mut worklist,
