@@ -337,7 +337,7 @@ fn main() i32 {
                 .body_ir
                 .function_bodies
                 .values()
-                .any(body_contains_dynamic_trait_callee)
+                .any(|body| body_contains_dynamic_trait_callee(body))
     }));
 }
 
@@ -381,7 +381,7 @@ fn main() i32 {
                 .body_ir
                 .function_bodies
                 .values()
-                .any(body_contains_dynamic_trait_callee)
+                .any(|body| body_contains_dynamic_trait_callee(body))
     }));
 }
 
@@ -535,7 +535,7 @@ extend i32 : Format {
                 .body_ir
                 .function_bodies
                 .values()
-                .any(body_contains_dynamic_trait_callee)
+                .any(|body| body_contains_dynamic_trait_callee(body))
     }));
 }
 
@@ -706,7 +706,7 @@ where W: Other
             .modules
             .iter()
             .flat_map(|module| module.body_ir.function_bodies.values())
-            .any(body_contains_dynamic_trait_callee)
+            .any(|body| body_contains_dynamic_trait_callee(body))
     );
 }
 
@@ -752,7 +752,7 @@ fn main() i32 {
             .body_ir
             .function_bodies
             .values()
-            .any(body_contains_dynamic_trait_callee)
+            .any(|body| body_contains_dynamic_trait_callee(body))
     }));
 }
 
@@ -834,7 +834,7 @@ fn main() i32 {
                 .body_ir
                 .function_bodies
                 .values()
-                .any(body_contains_dynamic_trait_callee)
+                .any(|body| body_contains_dynamic_trait_callee(body))
     }));
 }
 

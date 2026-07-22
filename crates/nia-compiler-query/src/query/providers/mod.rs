@@ -40,7 +40,7 @@ pub(in crate::query) use self::body_executable::{
     ExecutableValueRefEdges, provide_executable_value_ref_edges,
 };
 use self::body_signature_lookup::*;
-pub(in crate::query) use self::codegen::provide_lowered_function_bodies;
+pub(in crate::query) use self::codegen::provide_lowered_function_body;
 use self::codegen::*;
 use self::const_eval::*;
 pub(in crate::query) use self::executable_reachability::{

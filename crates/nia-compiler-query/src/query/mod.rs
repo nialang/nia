@@ -65,6 +65,7 @@ mod checks;
 mod diagnostics;
 mod executable;
 mod extension_provider_queries;
+mod function_body_queries;
 #[cfg(test)]
 mod program;
 mod program_signature_queries;
@@ -79,6 +80,7 @@ use checks::*;
 use diagnostics::*;
 use executable::*;
 use extension_provider_queries::*;
+use function_body_queries::*;
 #[cfg(test)]
 use program::*;
 use program_signature_queries::*;
@@ -144,6 +146,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         EntryCheckedProgramQuery,
         ExecutableCheckedModulesQuery,
         ExecutableFactEpochQuery,
+        ExecutableFunctionBodyQuery,
         ExecutableProviderDemandsQuery,
         ExecutableRootModulesQuery,
         ExecutableValueRefEdgesQuery,
@@ -176,7 +179,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         LayoutsQuery,
         LoadedModulesQuery,
         LocalResolutionQuery,
-        LoweredFunctionBodiesQuery,
+        LoweredFunctionBodyQuery,
         ModuleAbiSignatureFactsQuery,
         ModuleDefsQuery,
         ModuleGraphChildQuery,
@@ -1936,6 +1939,15 @@ mod tests {
             .sum()
     }
 
+    fn query_green_validations(trace: &QueryTrace, name: &'static str) -> usize {
+        trace
+            .queries
+            .iter()
+            .filter(|query| query.frame.name == name)
+            .map(|query| query.stats.green_validations)
+            .sum()
+    }
+
     fn is_body_signature_query(name: &str) -> bool {
         matches!(name, "program_body_function_signatures")
     }
@@ -1969,7 +1981,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 119);
+        assert_eq!(descriptors.len(), 120);
         assert!(
             !descriptors
                 .iter()
@@ -2026,9 +2038,11 @@ mod tests {
                 | "body_activation_worklist"
                 | "declaration_active_module_item_tree_input"
                 | "declaration_module_item_tree_input"
+                | "executable_function_body"
                 | "full_active_module_item_tree_input"
                 | "executable_fact_epoch"
                 | "full_module_item_tree_input"
+                | "lowered_function_body"
                 | "module_public_surface"
                 | "module_item_tree_input"
                 | "module_origins"
@@ -6036,7 +6050,7 @@ extend i32 : ParseFrom[Input] {
     }
 
     #[test]
-    fn codegen_reuses_lowered_function_bodies_between_mono_and_backend() {
+    fn codegen_reuses_per_function_lowering_between_mono_and_backend() {
         let fixture = LoadedProgramFixture::new(
             "main.nia",
             "fn helper() i32 { 1 } fn main() i32 { helper() }",
@@ -6047,20 +6061,97 @@ extend i32 : ParseFrom[Input] {
         let trace = db.query_trace();
 
         assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+        let body_count = codegen
+            .modules
+            .iter()
+            .map(|module| module.body_ir.function_bodies.len())
+            .sum::<usize>();
         assert_eq!(
-            query_executions(&trace, "lowered_function_bodies"),
-            codegen.modules.len(),
-            "function lowering should execute once per executable module"
+            query_executions(&trace, "lowered_function_body"),
+            body_count
         );
         assert!(
-            query_cache_hits(&trace, "lowered_function_bodies") >= codegen.modules.len(),
+            query_cache_hits(&trace, "lowered_function_body") >= body_count,
             "backend lowering should reuse monomorphization's function products"
         );
         assert!(trace_has_dependency(
             &trace,
             "codegen_program",
-            "lowered_function_bodies"
+            "lowered_function_body"
         ));
+        assert!(trace_has_dependency(
+            &trace,
+            "lowered_function_body",
+            "executable_function_body"
+        ));
+    }
+
+    #[test]
+    fn body_edit_keeps_unrelated_lowered_function_product_green() {
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "fn helper() i32 { 1 } fn main() i32 { helper() }",
+        );
+        let module_id = fixture.entry_id();
+        let database = fixture.database();
+
+        let first_codegen = database.codegen_program();
+        assert!(
+            first_codegen.diagnostics.is_empty(),
+            "{:?}",
+            first_codegen.diagnostics
+        );
+        let checked = database.db.get(ExecutableCheckedModulesQuery);
+        let module = checked
+            .iter()
+            .find(|module| module.id == module_id)
+            .expect("entry module should be checked");
+        let function = |name| {
+            module
+                .defs
+                .defs
+                .iter()
+                .find_map(|(def_id, def)| {
+                    (def.name == sym(name)).then_some(GlobalDefId { module_id, def_id })
+                })
+                .unwrap_or_else(|| panic!("missing function `{name}`"))
+        };
+        let helper = function("helper");
+        let main = function("main");
+        let checked_helper = module
+            .body_ir
+            .function_bodies
+            .get(&helper)
+            .expect("helper should have a checked body");
+        let checked_helper_product = database.db.get(ExecutableFunctionBodyQuery(helper));
+        let checked_helper_product = checked_helper_product
+            .as_ref()
+            .as_ref()
+            .expect("helper checked-body product");
+        assert!(Arc::ptr_eq(checked_helper, checked_helper_product));
+        let first_helper = database.db.get(LoweredFunctionBodyQuery(helper));
+        let first_main = database.db.get(LoweredFunctionBodyQuery(main));
+
+        fixture.update_module_source(
+            module_id,
+            "fn helper() i32 { 2 } fn main() i32 { helper() }",
+            SourceRevision(1),
+        );
+        database.update(CompileRequest::new(fixture.program()));
+        let second_codegen = database.codegen_program();
+        assert!(
+            second_codegen.diagnostics.is_empty(),
+            "{:?}",
+            second_codegen.diagnostics
+        );
+        let second_helper = database.db.get(LoweredFunctionBodyQuery(helper));
+        let second_main = database.db.get(LoweredFunctionBodyQuery(main));
+        let trace = database.query_trace();
+
+        assert!(!Arc::ptr_eq(&first_helper, &second_helper));
+        assert!(Arc::ptr_eq(&first_main, &second_main));
+        assert_eq!(query_executions(&trace, "lowered_function_body"), 3);
+        assert!(query_green_validations(&trace, "lowered_function_body") >= 1);
     }
 
     #[test]

@@ -227,18 +227,13 @@ fn main() i32 {
             )
         })
         .collect::<HashMap<_, _>>();
-    let mut function_body_store = nia_function_ir::FunctionBodyStore::builder();
-    for (def_id, body) in function_bodies {
-        function_body_store.insert(def_id, body);
-    }
-    let function_bodies = function_body_store.finish();
     let program_const = HashMap::from([(module_id, &const_array_lengths)]);
     let const_enum_values = const_enum_values_from_check(&const_eval);
     let no_program_defs = |_| None;
     let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::default();
     let program_function_bodies = function_bodies
         .iter()
-        .map(|(def_id, _, body)| (def_id, body))
+        .map(|(def_id, body)| (*def_id, body))
         .collect::<HashMap<_, _>>();
 
     let input = BackendLowerModuleInput {
@@ -259,7 +254,6 @@ fn main() i32 {
         const_enum_values: &const_enum_values,
         program_const: &program_const,
         layouts: &layouts,
-        function_bodies: &function_bodies,
         roots: BackendFunctionRoots::Public,
         reachable_globals: None,
         reachable_structs: None,

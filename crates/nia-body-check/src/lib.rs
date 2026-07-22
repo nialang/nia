@@ -1085,7 +1085,7 @@ struct BodyChecker<'a> {
     node_function_references: HashMap<VersionedNodeKey, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,
     function_facts: HashMap<GlobalDefId, FunctionSemanticFactsBuilder>,
-    function_bodies: HashMap<GlobalDefId, nia_body_ir::TypedBody>,
+    function_bodies: HashMap<GlobalDefId, Arc<nia_body_ir::TypedBody>>,
     global_inits: HashMap<GlobalDefId, nia_static_ir::StaticInit>,
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
@@ -1893,7 +1893,8 @@ impl<'a> BodyChecker<'a> {
         let lowered = self.profile_stage("body_check.profile.function.lower_body", |this| {
             this.lower_body(body)
         });
-        self.function_bodies.insert(global_def_id, lowered);
+        self.function_bodies
+            .insert(global_def_id, Arc::new(lowered));
         self.current_return = previous_return;
         self.current_def_id = previous_def_id;
         self.current_param_locals = previous_param_locals;

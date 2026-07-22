@@ -223,7 +223,12 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let global_def_id = self.global_def_id(def_id);
-        if !signature.is_extern && !self.input.function_bodies.contains_def(global_def_id) {
+        if !signature.is_extern
+            && !self
+                .input
+                .program_function_bodies
+                .contains_key(&global_def_id)
+        {
             return None;
         }
         let instantiation_snapshot = self.instantiation.take_snapshot();
@@ -231,7 +236,11 @@ impl<'a> ModuleLowerer<'a> {
         let effective_generics = self
             .effective_generics(global_def_id, &signature.generics)
             .to_vec();
-        let source_function_body = self.input.function_bodies.body(global_def_id);
+        let source_function_body = self
+            .input
+            .program_function_bodies
+            .get(&global_def_id)
+            .copied();
         let identity_substitutions = effective_generics
             .iter()
             .map(|generic| {

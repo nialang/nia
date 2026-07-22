@@ -83,39 +83,50 @@ pub(super) fn materialize_checked_modules(
 fn function_bodies_from_checked_modules(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
-) -> Vec<Arc<nia_function_lower::LoweredFunctionBodies>> {
+) -> Vec<LoweredFunctionBodyHandle> {
     time_provider(
         db.context().timings(),
         "function_bodies_from_checked_modules",
         || {
-            db.get_many(
-                checked_modules
-                    .iter()
-                    .map(|module| LoweredFunctionBodiesQuery(module.id)),
-            )
+            let mut def_ids = checked_modules
+                .iter()
+                .flat_map(|module| module.body_ir.function_bodies.keys().copied())
+                .collect::<Vec<_>>();
+            def_ids.sort_unstable();
+            let lowered = db.get_many(def_ids.iter().copied().map(LoweredFunctionBodyQuery));
+            def_ids
+                .into_iter()
+                .zip(lowered)
+                .map(|(def_id, value)| LoweredFunctionBodyHandle { def_id, value })
+                .collect()
         },
     )
 }
 
-pub(in crate::query) fn provide_lowered_function_bodies(
+pub(in crate::query) fn provide_lowered_function_body(
     db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-) -> nia_function_lower::LoweredFunctionBodies {
-    let set = db.get(ExecutableCheckedModulesQuery);
-    let module = set
-        .iter()
-        .find(|module| module.id == module_id)
-        .cloned()
-        .unwrap_or_else(|| panic!("Nia ICE: missing executable checked module {module_id:?}"));
-    nia_function_lower::lower_function_bodies(
-        module.id,
-        module.body_ir.function_bodies.iter(),
-        nia_function_lower::FunctionTypeContext::for_module(&db.context().type_store, module.id),
-    )
-    .unwrap_or_else(|diagnostics| nia_function_lower::LoweredFunctionBodies {
-        bodies: nia_function_ir::FunctionBodyStore::new(),
-        diagnostics,
-    })
+    def_id: GlobalDefId,
+) -> LoweredFunctionBodyValue {
+    let checked_body = db.get(ExecutableFunctionBodyQuery(def_id));
+    let Some(body) = checked_body.as_ref() else {
+        return LoweredFunctionBodyValue::Diagnostic(
+            nia_function_lower::FunctionLoweringDiagnostic {
+                span: Span::default(),
+                message: format!("missing executable checked function body for {def_id:?}"),
+            },
+        );
+    };
+    match nia_function_lower::lower_function_body(
+        def_id.module_id,
+        body,
+        nia_function_lower::FunctionTypeContext::for_module(
+            &db.context().type_store,
+            def_id.module_id,
+        ),
+    ) {
+        Ok(lowered) => LoweredFunctionBodyValue::Body(lowered.body),
+        Err(diagnostic) => LoweredFunctionBodyValue::Diagnostic(diagnostic),
+    }
 }
 
 #[cfg(test)]
@@ -264,7 +275,6 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 const_array_lengths: &const_array_lengths,
                 const_enum_values: &const_enum_values,
                 visible_extensions: &visible_extensions,
-                function_bodies: &function_bodies,
                 extension_methods: &extension_methods.methods,
                 program_defs: &program_defs,
                 program_signatures,
@@ -406,23 +416,27 @@ pub(super) fn monomorphization_diagnostics(
 
 fn function_lowering_diagnostics(
     checked_modules: &[Arc<CheckedModule>],
-    function_bodies: &[Arc<nia_function_lower::LoweredFunctionBodies>],
+    function_bodies: &[LoweredFunctionBodyHandle],
 ) -> Vec<ProgramDiagnostic> {
-    checked_modules
+    let paths = checked_modules
         .iter()
-        .zip(function_bodies.iter())
-        .flat_map(|(module, lowered)| {
-            lowered
-                .diagnostics
-                .iter()
-                .map(|diagnostic| ProgramDiagnostic {
-                    path: module.path.clone(),
-                    diagnostic: Diagnostic::internal_error_at(
-                        codes::INVALID_FUNCTION_IR,
-                        diagnostic.span,
-                        diagnostic.message.clone(),
-                    ),
-                })
+        .map(|module| (module.id, module.path.clone()))
+        .collect::<HashMap<_, _>>();
+    function_bodies
+        .iter()
+        .filter_map(|lowered| {
+            let diagnostic = lowered.value.diagnostic()?;
+            Some(ProgramDiagnostic {
+                path: paths
+                    .get(&lowered.def_id.module_id)
+                    .expect("lowered function module must have a checked module")
+                    .clone(),
+                diagnostic: Diagnostic::internal_error_at(
+                    codes::INVALID_FUNCTION_IR,
+                    diagnostic.span,
+                    diagnostic.message.clone(),
+                ),
+            })
         })
         .collect()
 }
