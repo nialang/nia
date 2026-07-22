@@ -8324,6 +8324,68 @@ extend Page : Allocator {
     }
 
     #[test]
+    fn executable_backend_lowering_closes_cross_module_generic_local_static_instances() {
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            r#"
+module slots;
+using entry::slots;
+
+fn main() i32 {
+    let mut left = slots::slot[i32]();
+    let mut right = slots::slot[u64]();
+    _ = left;
+    _ = right;
+    0
+}
+"#,
+        );
+        let entry_id = fixture.entry_id();
+        let slots_id = fixture.add_child(
+            entry_id,
+            "slots",
+            "slots.nia",
+            r#"
+pub fn slot[T]() &mut T {
+    static mut item: T;
+    &mut item
+}
+"#,
+        );
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let backend_lowering = db.get(BackendLoweringQuery);
+        assert!(
+            backend_lowering.diagnostics.is_empty(),
+            "backend lowering should not report diagnostics: {:?}",
+            backend_lowering.diagnostics
+        );
+        let slots_module = backend_lowering
+            .program
+            .modules
+            .iter()
+            .find(|module| module.id == slots_id)
+            .expect("generic function owner module should be backend-lowered");
+        let item_instances = slots_module
+            .global_instances
+            .iter()
+            .filter(|instance| instance.name == sym("item"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(item_instances.len(), 2);
+        assert!(item_instances.iter().any(|instance| matches!(
+            db.context().type_store.get(instance.ty),
+            Some(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))
+        )));
+        assert!(item_instances.iter().any(|instance| matches!(
+            db.context().type_store.get(instance.ty),
+            Some(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::U64))
+        )));
+    }
+
+    #[test]
     fn executable_checked_modules_keep_type_owner_modules_type_only() {
         let mut fixture = LoadedProgramFixture::new(
             "main.nia",

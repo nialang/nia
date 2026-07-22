@@ -1384,6 +1384,23 @@ instance/vtable query plan must therefore consume a closed substitution result
 or move that pure planning logic earlier. Projecting an apparently empty plan
 from source Function IR would create a second, incomplete truth source.
 
+Function and global instance substitution now returns a closed materialization
+delta: the newly owned backend payload and every source-function,
+function-instance, and global-instance reference discovered from that concrete
+body or initializer. Nested instance expansion and the outer module closure
+consume the same delta. Additional cross-module items seed the next worklist
+from this result instead of rescanning all previously materialized functions
+and globals. This is particularly important for a generic local static: its
+concrete global-instance edge is emitted with the substituted function body and
+cannot be reconstructed from the source template.
+
+The delta is moved within one backend query call and has no independent
+identity or shared owner, so it is not stored behind an ID or `Arc`. Its shape
+is suitable for a future cache-owned substitution query, but the current
+vtable collector still scans the function and function-instance aggregate.
+Vtable requests and entries must join the closed result before this boundary
+can become the complete global backend item plan.
+
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their
 function because they have no independent cache, invalidation, release, or

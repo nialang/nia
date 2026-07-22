@@ -77,6 +77,14 @@ pub(crate) struct FunctionRefs {
     pub(crate) global_instances: Vec<GlobalInstanceRef>,
 }
 
+impl FunctionRefs {
+    pub(crate) fn extend(&mut self, other: FunctionRefs) {
+        self.functions.extend(other.functions);
+        self.instances.extend(other.instances);
+        self.global_instances.extend(other.global_instances);
+    }
+}
+
 pub(crate) fn collect_function_refs_from_optional_body(
     module_id: ModuleId,
     body: &Option<FunctionBody>,
