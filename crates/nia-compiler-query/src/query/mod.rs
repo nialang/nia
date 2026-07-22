@@ -8324,6 +8324,135 @@ extend Page : Allocator {
     }
 
     #[test]
+    fn executable_backend_lowering_closes_vtables_from_generic_function_instances() {
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            r#"
+module dispatch;
+using entry::dispatch;
+
+fn main() i32 {
+    let mut page = dispatch::Page::init();
+    dispatch::call[dispatch::Page](&mut page)
+}
+"#,
+        );
+        let entry_id = fixture.entry_id();
+        let dispatch_id = fixture.add_child(
+            entry_id,
+            "dispatch",
+            "dispatch.nia",
+            r#"
+pub trait Allocator {
+    fn alloc(&mut self) i32;
+
+    fn remap(&mut self) i32 {
+        self.alloc()
+    }
+}
+
+pub struct Page {}
+
+extend Page {
+    pub fn init() Page {
+        {}
+    }
+}
+
+extend Page : Allocator {
+    fn alloc(&mut self) i32 {
+        _ = self;
+        7
+    }
+}
+
+pub fn call[T](value: &mut T) i32
+where T: Allocator
+{
+    let allocator: &mut Allocator = value;
+    allocator.remap()
+}
+"#,
+        );
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let backend_lowering = db.get(BackendLoweringQuery);
+        assert!(
+            backend_lowering.diagnostics.is_empty(),
+            "backend lowering should not report diagnostics: {:?}",
+            backend_lowering.diagnostics
+        );
+        let dispatch_module = backend_lowering
+            .program
+            .modules
+            .iter()
+            .find(|module| module.id == dispatch_id)
+            .expect("generic function owner module should be backend-lowered");
+        assert_eq!(
+            dispatch_module
+                .function_instances
+                .iter()
+                .filter(|instance| instance.name == sym("call"))
+                .count(),
+            1,
+            "the concrete generic function should be materialized once"
+        );
+        assert_eq!(
+            dispatch_module.trait_object_vtables.len(),
+            1,
+            "the substituted generic body should discover one trait-object vtable"
+        );
+        let vtable_instance_refs = dispatch_module
+            .trait_object_vtables
+            .iter()
+            .flat_map(|vtable| &vtable.entries)
+            .filter_map(|entry| match &entry.function {
+                nia_backend_ir::BackendTraitObjectVtableFunction::FunctionInstance {
+                    def_id,
+                    arg_module_id,
+                    self_arg,
+                    args,
+                    const_args,
+                } => Some(VtableFunctionInstanceRef {
+                    def_id: *def_id,
+                    arg_module_id: *arg_module_id,
+                    self_arg: *self_arg,
+                    args,
+                    const_args,
+                }),
+                nia_backend_ir::BackendTraitObjectVtableFunction::Function(_) => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            !vtable_instance_refs.is_empty(),
+            "the vtable should reference the default method instance"
+        );
+        for vtable_ref in vtable_instance_refs {
+            assert_eq!(
+                dispatch_module
+                    .function_instances
+                    .iter()
+                    .filter(|instance| backend_function_instance_matches_vtable_ref(
+                        &db.context().type_store,
+                        VtableFunctionInstanceRef {
+                            def_id: vtable_ref.def_id,
+                            arg_module_id: vtable_ref.arg_module_id,
+                            self_arg: vtable_ref.self_arg,
+                            args: vtable_ref.args,
+                            const_args: vtable_ref.const_args,
+                        },
+                        instance,
+                    ))
+                    .count(),
+                1,
+                "each vtable method instance should be materialized once"
+            );
+        }
+    }
+
+    #[test]
     fn executable_backend_lowering_closes_cross_module_generic_local_static_instances() {
         let mut fixture = LoadedProgramFixture::new(
             "main.nia",
