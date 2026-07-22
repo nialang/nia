@@ -254,17 +254,61 @@ pub(super) fn provide_backend_lowering(
     })
 }
 
+pub(in crate::query) fn provide_backend_item_plan(
+    db: &QueryDb<CompilerContext>,
+) -> nia_backend_lower::BackendItemPlan {
+    time_provider(db.context().timings(), "backend_item_plan", || {
+        let checked_modules = checked_modules_for_codegen(db);
+        match with_backend_lowering_inputs(db, &checked_modules, |inputs| {
+            nia_backend_lower::plan_backend_program_with_timings(
+                inputs,
+                &db.context().type_store,
+                *db.get(CompilerOptimizationQuery),
+                db.context().timings(),
+            )
+        }) {
+            Ok(plan) => plan,
+            Err(diagnostics) => nia_backend_lower::BackendItemPlan::from_diagnostics(
+                *db.get(CompilerOptimizationQuery),
+                diagnostics,
+            ),
+        }
+    })
+}
+
 fn provide_backend_lowering_inner(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
+    let plan = db.get_owned(BackendItemPlanQuery);
+    if !plan.diagnostics().is_empty() {
+        return nia_backend_lower::finalize_backend_item_plan_with_timings(
+            &[],
+            &db.context().type_store,
+            plan,
+            db.context().timings(),
+        );
+    }
     let checked_modules = checked_modules_for_codegen(db);
-    provide_backend_lowering_inner_for_modules(db, &checked_modules)
+    with_backend_lowering_inputs(db, &checked_modules, move |inputs| {
+        nia_backend_lower::finalize_backend_item_plan_with_timings(
+            inputs,
+            &db.context().type_store,
+            plan,
+            db.context().timings(),
+        )
+    })
+    .unwrap_or_else(|diagnostics| {
+        panic!(
+            "Nia ICE: backend finalization inputs failed after a valid item plan: {diagnostics:?}"
+        )
+    })
 }
 
-pub(super) fn provide_backend_lowering_inner_for_modules(
+fn with_backend_lowering_inputs<R>(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
-) -> nia_backend_lower::BackendLowering {
+    operation: impl FnOnce(&[BackendLowerModuleInput<'_>]) -> R,
+) -> Result<R, Vec<Diagnostic>> {
     let (
         all_visible_extensions,
         active_item_trees,
@@ -367,13 +411,10 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
     let function_lowering_diagnostics =
         function_lowering_diagnostics(checked_modules, &function_bodies);
     if !function_lowering_diagnostics.is_empty() {
-        return nia_backend_lower::BackendLowering {
-            diagnostics: function_lowering_diagnostics
-                .into_iter()
-                .map(|program_diagnostic| program_diagnostic.diagnostic)
-                .collect(),
-            ..empty_backend_lowering(*db.get(CompilerOptimizationQuery))
-        };
+        return Err(function_lowering_diagnostics
+            .into_iter()
+            .map(|program_diagnostic| program_diagnostic.diagnostic)
+            .collect());
     }
     let indexes = time_provider(db.context().timings(), "backend_lowering.indexes", || {
         build_backend_lowering_indexes(
@@ -415,30 +456,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             })
         },
     );
-    let plan = time_provider(
-        db.context().timings(),
-        "backend_lowering.plan_backend_program",
-        || {
-            nia_backend_lower::plan_backend_program_with_timings(
-                &inputs,
-                &db.context().type_store,
-                *db.get(CompilerOptimizationQuery),
-                db.context().timings(),
-            )
-        },
-    );
-    time_provider(
-        db.context().timings(),
-        "backend_lowering.finalize_backend_item_plan",
-        || {
-            nia_backend_lower::finalize_backend_item_plan_with_timings(
-                &inputs,
-                &db.context().type_store,
-                plan,
-                db.context().timings(),
-            )
-        },
-    )
+    Ok(operation(&inputs))
 }
 
 pub(super) fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
