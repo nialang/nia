@@ -2,12 +2,12 @@
 use super::*;
 use nia_symbol::known;
 
-pub(in crate::query) fn provide_executable_checked_modules(
+pub(in crate::query) fn provide_executable_checked_module_facts(
     db: &QueryDb<CompilerContext>,
-) -> Vec<Arc<CheckedModule>> {
+) -> ExecutableCheckedModuleFacts {
     time_provider(
         db.context().timings(),
-        "executable_checked_modules",
+        "executable_checked_module_facts",
         || match executable_check(db, ExecutableCheckProduct::Modules) {
             ExecutableCheckOutput::Modules(set) => set,
             ExecutableCheckOutput::ProviderDemands(_) => unreachable!(),
@@ -36,7 +36,7 @@ enum ExecutableCheckProduct {
 
 enum ExecutableCheckOutput {
     ProviderDemands(Vec<crate::ProviderDemand>),
-    Modules(Vec<Arc<CheckedModule>>),
+    Modules(ExecutableCheckedModuleFacts),
 }
 
 struct QueryExecutableExtensionLookup<'a> {
@@ -711,7 +711,7 @@ fn executable_check_in_session(
     let parse_ok_modules = parse_ok;
     let mut checked_modules_by_id = time_provider(
         db.context().timings(),
-        "executable_checked_modules.final.full_body_check",
+        "executable_checked_module_facts.finalize",
         || {
             final_executable_checked_modules(
                 db,
@@ -873,8 +873,15 @@ fn executable_check_in_session(
         Arc::make_mut(&mut module.provider_demands).extend(module_body_demands);
     }
     drop(executable_program_layouts);
+    let mut runtime_functions = reachability.functions().iter().copied().collect::<Vec<_>>();
+    runtime_functions.sort_unstable();
+    let reachable_body_modules = executable_reachable_body_modules(db, &reachability_by_module);
     (
-        ExecutableCheckOutput::Modules(codegen_modules.into_iter().map(Arc::new).collect()),
+        ExecutableCheckOutput::Modules(ExecutableCheckedModuleFacts {
+            modules: codegen_modules.into_iter().map(Arc::new).collect(),
+            runtime_functions,
+            reachable_body_modules,
+        }),
         ExecutableFactSession {
             epoch,
             modules: fact_by_id,
@@ -1101,7 +1108,7 @@ fn final_executable_checked_modules(
                         global_initializer_cache: Some(&caches.global_initializers),
                         const_module_cache: Some(const_module_cache),
                         program_function_signature_cache: Some(&caches.body_function_signatures),
-                        product: nia_body_check::BodyCheckProduct::Full,
+                        product: nia_body_check::BodyCheckProduct::FactsOnly,
                         prechecked,
                     },
                 )

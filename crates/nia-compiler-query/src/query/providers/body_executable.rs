@@ -1229,7 +1229,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         };
     let body_check = run_body_check(inputs, body_const, const_module, filter, prechecked);
     let stored_inputs = match (product, filter) {
-        (nia_body_check::BodyCheckProduct::FactsOnly, _) => filtered_inputs,
+        (
+            nia_body_check::BodyCheckProduct::FactsOnly
+            | nia_body_check::BodyCheckProduct::BodyOnly,
+            _,
+        ) => filtered_inputs,
         (
             nia_body_check::BodyCheckProduct::Full,
             nia_body_check::BodyCheckFilter::ReachableItems {
@@ -1271,6 +1275,76 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         inputs: stored_inputs,
         const_eval: filtered_const_inputs.map(BodyCheckConstInputs::into_check),
     }
+}
+
+pub(in crate::query) fn provide_executable_function_body(
+    db: &QueryDb<CompilerContext>,
+    def_id: GlobalDefId,
+) -> Option<Arc<nia_body_ir::TypedBody>> {
+    let facts = db.get(ExecutableCheckedModuleFactsQuery);
+    if facts.runtime_functions.binary_search(&def_id).is_err() {
+        return None;
+    }
+    let module = facts
+        .modules
+        .iter()
+        .find(|module| module.id == def_id.module_id)?;
+    let function_facts = module
+        .semantic_facts
+        .function_facts
+        .get(&def_id)
+        .cloned()
+        .map(|facts| HashMap::from([(def_id, facts)]))
+        .unwrap_or_default();
+    let semantic_facts = nia_sema_ir::SemanticFactsBuilder {
+        global_types: module.semantic_facts.global_types.clone(),
+        const_types: module.semantic_facts.const_types.clone(),
+        function_facts,
+        ..nia_sema_ir::SemanticFactsBuilder::default()
+    }
+    .finish(module.semantic_facts.node_store());
+    let functions = HashSet::from([def_id]);
+    let globals = HashSet::new();
+    let resolution_inputs = BodyCheckResolutionInputs {
+        active_item_tree: db.get(FullActiveModuleItemTreeQuery(def_id.module_id)),
+        values: Arc::clone(&module.value_resolution),
+        locals: Arc::clone(&module.local_resolution),
+        semantic_uses: Arc::clone(&module.semantic_uses),
+    };
+    let checked = body_check_with_filter_and_layouts_with_inputs(
+        db,
+        ExecutableBodyCheckInput {
+            module_id: def_id.module_id,
+            filter: nia_body_check::BodyCheckFilter::ReachableItems {
+                functions: &functions,
+                globals: &globals,
+                already_checked_functions: None,
+                already_checked_globals: None,
+            },
+            layouts: Some(Arc::clone(&module.layouts)),
+            program_layouts_override: None,
+            fact_mode: ExecutableFactMode::executable(ReachableBodyModules::new(
+                &facts.reachable_body_modules,
+            )),
+            resolution_inputs: Some(resolution_inputs),
+            seed: None,
+            global_initializer_cache: None,
+            const_module_cache: None,
+            program_function_signature_cache: None,
+            product: nia_body_check::BodyCheckProduct::BodyOnly,
+            prechecked: Some(nia_body_check::PrecheckedBodyCheck {
+                ir: nia_body_ir::BodyIr {
+                    function_bodies: HashMap::new(),
+                    global_inits: HashMap::new(),
+                },
+                facts: semantic_facts,
+                checked_functions: functions.clone(),
+                diagnostic_owners: Vec::new(),
+                diagnostics: Vec::new(),
+            }),
+        },
+    );
+    checked.body_check.ir.function_bodies.get(&def_id).cloned()
 }
 
 pub(super) fn executable_layouts_for_reachable_items(

@@ -175,6 +175,7 @@ impl ProviderRequest {
 pub enum BodyCheckProduct {
     Full,
     FactsOnly,
+    BodyOnly,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -914,7 +915,10 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             checker.check_module(input.active_item_tree, timing, module_id);
         });
     }
-    if checker.product == BodyCheckProduct::Full {
+    if matches!(
+        checker.product,
+        BodyCheckProduct::Full | BodyCheckProduct::BodyOnly
+    ) {
         time_body_stage(timing, "body_check.lower_checked", module_id, || {
             checker.lower_checked_module(input.active_item_tree, timing, module_id);
         });

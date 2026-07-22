@@ -18,7 +18,8 @@ impl QueryKey<CompilerContext> for ExecutableStaticInitQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.get(ExecutableCheckedModulesQuery)
+        db.get(ExecutableCheckedModuleFactsQuery)
+            .modules
             .iter()
             .find(|module| module.id == self.0.module_id)
             .and_then(|module| module.body_ir.global_inits.get(&self.0))

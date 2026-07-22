@@ -37,14 +37,14 @@ pub(in crate::query) use self::body_check_flow::{
 };
 use self::body_executable::*;
 pub(in crate::query) use self::body_executable::{
-    ExecutableValueRefEdges, provide_executable_value_ref_edges,
+    ExecutableValueRefEdges, provide_executable_function_body, provide_executable_value_ref_edges,
 };
 use self::body_signature_lookup::*;
 pub(in crate::query) use self::codegen::provide_lowered_function_body;
 use self::codegen::*;
 use self::const_eval::*;
 pub(in crate::query) use self::executable_reachability::{
-    provide_executable_checked_modules, provide_executable_provider_demands,
+    provide_executable_checked_module_facts, provide_executable_provider_demands,
 };
 use self::extension_providers::*;
 use self::frontend::*;
