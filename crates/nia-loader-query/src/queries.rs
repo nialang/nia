@@ -12,6 +12,7 @@ use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_provider_summary::ProviderSummary;
 use nia_query::{
     QueryDb, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy, QueryKey,
+    QueryRetirement,
 };
 use nia_source::{SourceFile, SourceId, SourcePath, SourceRevision, SourceVersion};
 use nia_target_config::prune_module_for_target_with_symbols;
@@ -616,12 +617,15 @@ pub(crate) fn module_facade_facts_query(
     ModuleFacadeFactsQuery(source_version(db, source_id))
 }
 
-pub(crate) fn retire_source_revision_queries(db: &QueryDb<LoaderContext>, version: SourceVersion) {
-    db.retire(&ParsedModuleQuery(version));
-    db.retire(&SyntaxModuleQuery(version));
-    db.retire(&ModuleDeclarationsQuery(version));
-    db.retire(&ProviderSummaryQuery(version));
-    db.retire(&ModuleFacadeFactsQuery(version));
+pub(crate) fn retire_source_revision_queries(
+    retirement: &QueryRetirement<'_, LoaderContext>,
+    version: SourceVersion,
+) {
+    retirement.retire(&ParsedModuleQuery(version));
+    retirement.retire(&SyntaxModuleQuery(version));
+    retirement.retire(&ModuleDeclarationsQuery(version));
+    retirement.retire(&ProviderSummaryQuery(version));
+    retirement.retire(&ModuleFacadeFactsQuery(version));
 }
 
 fn parsed_module_query_for_id(
