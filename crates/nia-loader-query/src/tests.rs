@@ -235,6 +235,68 @@ fn source_updates_retire_revision_keyed_query_slots_without_dropping_old_handles
 }
 
 #[test]
+fn provider_add_and_reset_keep_graph_revision_storage_bounded() {
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    sources.set_source(main.clone(), "fn main() i32 { 0 }");
+    let database = LoaderDatabase::new(LoadRequest::new(main.as_str()).with_sources(sources));
+    let initial_graph = database.db.get(crate::graph::ModuleGraphQuery);
+    let initial_entry = initial_graph.entry();
+
+    for revision in 1..=100 {
+        assert_eq!(
+            database.update_provider_demands([ProviderDemand {
+                source_path: main.clone(),
+                request: nia_compiler_query::ProviderRequest::Method {
+                    target_type_name: None,
+                    method_name: sym(&format!("missing_{revision}")),
+                },
+            }]),
+            ProviderGraphUpdate::Stable
+        );
+        assert_eq!(
+            database
+                .db
+                .context()
+                .provider_facts
+                .retained_transition_count(),
+            0
+        );
+        assert_eq!(
+            database
+                .query_trace()
+                .queries
+                .iter()
+                .filter(|query| query.frame.name == "module_graph_revision")
+                .count(),
+            1
+        );
+
+        database.set_source(main.as_str(), format!("fn main() i32 {{ {revision} }}"));
+        let graph = database.db.get(crate::graph::ModuleGraphQuery);
+        assert_eq!(graph.get(graph.entry()).map(|node| &node.path), Some(&main));
+        assert_eq!(
+            database
+                .query_trace()
+                .queries
+                .iter()
+                .filter(|query| query.frame.name == "module_graph_revision")
+                .count(),
+            1
+        );
+    }
+
+    assert_eq!(initial_graph.entry(), initial_entry);
+    assert_eq!(
+        initial_graph
+            .get(initial_graph.entry())
+            .map(|node| &node.path),
+        Some(&main)
+    );
+    assert_eq!(initial_graph.modules().count(), 1);
+}
+
+#[test]
 fn compiler_loader_roots_record_cross_database_dependencies() {
     let sources = SourceDatabase::new();
     sources.set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }");
@@ -1253,10 +1315,26 @@ fn provider_demand_update_keeps_unmatched_and_known_demands_graph_stable() {
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "module_graph" && dependency.to.name == "provider_demands"
     }));
-    assert!(trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "module_graph_revision"
-            && dependency.to.name == "module_graph_revision"
+    assert!(trace.dependencies.iter().all(|dependency| {
+        dependency.from.name != "module_graph_revision"
+            || dependency.to.name != "module_graph_revision"
     }));
+    assert_eq!(
+        trace
+            .queries
+            .iter()
+            .filter(|query| query.frame.name == "module_graph_revision")
+            .count(),
+        1
+    );
+    assert_eq!(
+        database
+            .db
+            .context()
+            .provider_facts
+            .retained_transition_count(),
+        0
+    );
     let graph_query = trace
         .queries
         .iter()
@@ -1600,19 +1678,17 @@ extend types::Widget {
     module_map.insert("dep", SourcePath::new(pkg_root.to_string_lossy()));
 
     let entry_path = SourcePath::new(main.to_string_lossy());
-    let db = registered_query_db(test_loader_context(
-        entry_path.clone(),
-        module_map,
-        SourceDatabase::new(),
-    ));
-    db.context().provider_facts.insert_new([ProviderDemand {
+    let database = LoaderDatabase::new(
+        LoadRequest::new(main.to_string_lossy().into_owned()).with_module_map(module_map),
+    );
+    database.update_provider_demands([ProviderDemand {
         source_path: entry_path,
         request: nia_compiler_query::ProviderRequest::Method {
             target_type_name: Some(sym("Widget")),
             method_name: sym("score"),
         },
     }]);
-    let program = db.get(LoadedProgramQuery);
+    let program = database.load_program();
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(
@@ -1622,7 +1698,7 @@ extend types::Widget {
             .as_ref(),
     );
 
-    let trace = db.query_trace();
+    let trace = database.query_trace();
     let query = trace
         .queries
         .iter()

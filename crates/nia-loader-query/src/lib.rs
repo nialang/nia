@@ -161,6 +161,7 @@ impl LoaderDatabase {
         if all_known {
             return nia_compiler_query::ProviderGraphUpdate::Stable;
         }
+        let previous_revision = self.db.get(ProviderDemandsQuery).revision();
         let previous_graph = self.db.get(graph::ModuleGraphQuery);
         let added = self.db.context().provider_facts.insert_new(demands);
         if added.is_empty() {
@@ -168,6 +169,11 @@ impl LoaderDatabase {
         }
         self.db.invalidate(ProviderDemandsQuery);
         let graph = self.db.get(graph::ModuleGraphQuery);
+        let current_revision = self.db.get(ProviderDemandsQuery).revision();
+        assert!(self.db.seal_and_retire_predecessor(
+            &graph::ModuleGraphRevisionQuery(current_revision),
+            &graph::ModuleGraphRevisionQuery(previous_revision),
+        ));
         if graph == previous_graph {
             nia_compiler_query::ProviderGraphUpdate::Stable
         } else {
@@ -180,8 +186,10 @@ impl LoaderDatabase {
     }
 
     fn reset_provider_facts(&self) {
-        if self.db.context().provider_facts.clear() {
+        if let Some(previous_revision) = self.db.context().provider_facts.clear() {
             self.db.invalidate(ProviderDemandsQuery);
+            self.db
+                .retire(&graph::ModuleGraphRevisionQuery(previous_revision));
         }
     }
 

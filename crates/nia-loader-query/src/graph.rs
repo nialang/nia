@@ -56,15 +56,15 @@ impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
             .unwrap_or_else(|| {
                 db.invalid_input(self, format!("unknown provider fact revision {:?}", self.0))
             });
-        match event {
-            ProviderFactEvent::Root | ProviderFactEvent::Reset => {
-                build_module_graph(db, None, &std::collections::HashSet::new())
-            }
+        let graph = match event {
+            ProviderFactEvent::Current { demands } => build_module_graph(db, None, &demands),
             ProviderFactEvent::Added { previous, demands } => {
                 let seed = db.get(ModuleGraphRevisionQuery(previous));
                 build_module_graph(db, Some(seed.as_ref().clone()), &demands)
             }
-        }
+        };
+        db.context().provider_facts.compact_transition(self.0);
+        graph
     }
 }
 
