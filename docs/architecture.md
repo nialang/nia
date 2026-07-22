@@ -1418,6 +1418,25 @@ prerequisite for a cache-owned global item plan: caching the previous mix of
 pre-closure optimized items and unoptimized late items would make the query
 product internally inconsistent.
 
+The closed result is now represented by a consuming `BackendItemPlan`. Planning
+owns the complete, unfinalized module item sets plus diagnostics and
+materialization-time optimization changes; it does not retain a `ModuleLowerer`
+or borrow its substitution and trait caches. Finalization validates the module
+owner sequence, rebuilds the read-only finalizer indexes from the original
+module inputs, and moves the planned modules into the final `BackendLowering`.
+The production compiler provider invokes these as separate timed stages. The
+plan intentionally does not implement `Clone`, and it is not wrapped in an ID,
+store, or `Arc`: there is one owner and finalization consumes it.
+
+`BackendItemPlan` is not yet a query product. The current query API publishes
+cache values through shared `Arc` handles, so caching this plan and cloning its
+deep module IR for finalization would create the exact simultaneous ownership
+the boundary is intended to remove. The next ownership step must either add a
+quiescent, dependency-safe consuming query operation or split the plan into
+smaller immutable products that finalization can consume without duplicating
+all backend bodies. A second aggregate wrapper or a clone fallback is not an
+acceptable substitute.
+
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their
 function because they have no independent cache, invalidation, release, or

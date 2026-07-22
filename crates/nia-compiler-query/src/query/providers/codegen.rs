@@ -415,14 +415,26 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             })
         },
     );
-    time_provider(
+    let plan = time_provider(
         db.context().timings(),
-        "backend_lowering.lower_backend_program",
+        "backend_lowering.plan_backend_program",
         || {
-            nia_backend_lower::lower_backend_program_with_timings(
+            nia_backend_lower::plan_backend_program_with_timings(
                 &inputs,
                 &db.context().type_store,
                 *db.get(CompilerOptimizationQuery),
+                db.context().timings(),
+            )
+        },
+    );
+    time_provider(
+        db.context().timings(),
+        "backend_lowering.finalize_backend_item_plan",
+        || {
+            nia_backend_lower::finalize_backend_item_plan_with_timings(
+                &inputs,
+                &db.context().type_store,
+                plan,
                 db.context().timings(),
             )
         },

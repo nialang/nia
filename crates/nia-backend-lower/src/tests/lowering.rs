@@ -281,11 +281,13 @@ fn main() i32 {
         trait_impls: &[],
         trait_impl_index: &trait_impl_index,
     };
-    let lowering = lower_backend_program(
-        &[input],
-        &type_store,
-        nia_opt::OptimizationPolicy::default(),
-    );
+    let optimization = nia_opt::OptimizationPolicy::default();
+    let inputs = [input];
+    let plan = plan_backend_program(&inputs, &type_store, optimization);
+    assert!(plan.diagnostics().is_empty(), "{:?}", plan.diagnostics());
+    assert_eq!(plan.modules().len(), 1);
+    assert_eq!(plan.optimization(), optimization);
+    let lowering = finalize_backend_item_plan(&inputs, &type_store, plan);
     assert!(
         lowering.diagnostics.is_empty(),
         "{:?}",
