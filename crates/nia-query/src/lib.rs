@@ -28,6 +28,7 @@ pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     type Value: Send + Sync + 'static;
 
     const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::None;
+    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::CacheOwnedArc;
 
     fn name() -> &'static str;
     fn description(&self) -> String {
@@ -123,6 +124,7 @@ impl QueryFingerprintBuilder {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueryStoragePolicy {
     CacheOwnedArc,
+    SingleConsumerOwned,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,6 +154,12 @@ impl QueryRegistry {
         C: 'static,
         K: QueryKey<C>,
     {
+        assert!(
+            K::STORAGE == QueryStoragePolicy::CacheOwnedArc
+                || K::FINGERPRINT == QueryFingerprintPolicy::None,
+            "single-consumer query `{}` cannot retain a value fingerprint",
+            K::name()
+        );
         let key_type_id = TypeId::of::<K>();
         assert!(
             !self.descriptors.contains_key(&key_type_id),
@@ -179,7 +187,7 @@ impl QueryRegistry {
                 value_type: std::any::type_name::<K::Value>(),
                 provider: QueryProviderPolicy::KeyExecute,
                 fingerprint: K::FINGERPRINT,
-                storage: QueryStoragePolicy::CacheOwnedArc,
+                storage: K::STORAGE,
             },
         );
     }
@@ -1045,6 +1053,7 @@ impl QuerySlotStats {
 
 enum QueryState<V> {
     Empty,
+    Consumed,
     Computing {
         invalidated: bool,
     },
@@ -1085,7 +1094,9 @@ where
     fn invalidate(&self) {
         let mut state = self.state.lock().expect("query cache lock poisoned");
         match &mut *state {
-            QueryState::Empty => {}
+            QueryState::Empty | QueryState::Consumed => {
+                *state = QueryState::Empty;
+            }
             QueryState::Computing { invalidated } | QueryState::Validating { invalidated } => {
                 *invalidated = true;
             }
@@ -1132,7 +1143,7 @@ where
                 *state = QueryState::Validating { invalidated: true };
                 QueryInvalidationDisposition::Cleared
             }
-            QueryState::Empty | QueryState::Ready { .. } => {
+            QueryState::Empty | QueryState::Consumed | QueryState::Ready { .. } => {
                 self.ready.notify_all();
                 QueryInvalidationDisposition::Cleared
             }
@@ -1144,6 +1155,7 @@ where
         match &*state {
             QueryState::Ready { fingerprint, .. } => *fingerprint,
             QueryState::Empty
+            | QueryState::Consumed
             | QueryState::Computing { .. }
             | QueryState::Validating { .. }
             | QueryState::PotentiallyOutdated { .. } => None,
@@ -1598,6 +1610,14 @@ impl<C> QueryDb<C> {
             .unwrap_or_else(|err| std::panic::panic_any(err))
     }
 
+    pub fn get_owned<K>(&self, key: K) -> K::Value
+    where
+        K: QueryKey<C>,
+    {
+        self.try_get_owned(key)
+            .unwrap_or_else(|err| std::panic::panic_any(err))
+    }
+
     pub fn invalid_input<K>(&self, key: &K, message: impl Into<String>) -> !
     where
         K: QueryKey<C>,
@@ -1615,10 +1635,118 @@ impl<C> QueryDb<C> {
         self.try_get_cached(key)
     }
 
+    pub fn try_get_owned<K>(&self, key: K) -> QueryResult<K::Value>
+    where
+        K: QueryKey<C>,
+    {
+        assert_eq!(
+            K::STORAGE,
+            QueryStoragePolicy::SingleConsumerOwned,
+            "query `{}` does not declare single-consumer owned storage",
+            K::name()
+        );
+        assert_eq!(
+            K::FINGERPRINT,
+            QueryFingerprintPolicy::None,
+            "single-consumer query `{}` cannot retain a value fingerprint",
+            K::name()
+        );
+        let _activity = self.inner.session.enter_activity();
+        let detail_timing = self.inner.timings.detail();
+        let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key));
+        let node_id = slot.node_id;
+        nia_timing::time_detail(detail_timing, "query.record_dependency", || {
+            record_dependency_on_current_stack(self.inner.session.inner.id, node_id)
+        });
+        loop {
+            let mut state = slot.state.lock().expect("query cache lock poisoned");
+            match &*state {
+                QueryState::Empty | QueryState::Consumed => {
+                    *state = QueryState::Computing { invalidated: false };
+                    drop(state);
+
+                    self.clear_dependencies_from(node_id);
+                    let entry = QueryStackEntry {
+                        session_id: self.inner.session.inner.id,
+                        node_id,
+                        dependencies: FastHashSet::default(),
+                        dependency_fingerprints: None,
+                    };
+                    let mut guard = self.enter_query(entry)?;
+                    nia_timing::time_detail(detail_timing, "query.record_execution", || {
+                        slot.stats.record_execution()
+                    });
+                    let value = match catch_unwind(AssertUnwindSafe(|| {
+                        nia_timing::time_detail(detail_timing, "query.provider", || {
+                            key.execute(self)
+                        })
+                    })) {
+                        Ok(value) => value,
+                        Err(payload) => {
+                            let mut state = slot.state.lock().expect("query cache lock poisoned");
+                            *state = QueryState::Empty;
+                            guard.discard();
+                            self.clear_dependencies_from(node_id);
+                            slot.ready.notify_all();
+                            drop(state);
+                            match payload.downcast::<QueryError>() {
+                                Ok(err) => return Err(*err),
+                                Err(payload) => resume_unwind(payload),
+                            }
+                        }
+                    };
+
+                    let mut state = slot.state.lock().expect("query cache lock poisoned");
+                    let was_invalidated =
+                        matches!(&*state, QueryState::Computing { invalidated: true });
+                    if was_invalidated {
+                        *state = QueryState::Empty;
+                        guard.discard();
+                        self.clear_dependencies_from(node_id);
+                    } else {
+                        let dependencies = guard.take_dependencies();
+                        self.replace_dependencies_from(node_id, dependencies.nodes);
+                        *state = QueryState::Consumed;
+                    }
+                    slot.ready.notify_all();
+                    record_dependency_fingerprint_on_current_stack(
+                        self.inner.session.inner.id,
+                        node_id,
+                        None,
+                    );
+                    return Ok(value);
+                }
+                QueryState::Computing { .. } | QueryState::Validating { .. } => {
+                    self.check_not_recursive_node(node_id)?;
+                    nia_timing::time_detail(detail_timing, "query.record_wait", || {
+                        slot.stats.record_wait()
+                    });
+                    drop(
+                        slot.ready
+                            .wait(state)
+                            .expect("query cache lock poisoned while waiting"),
+                    );
+                }
+                QueryState::Ready { .. } | QueryState::PotentiallyOutdated { .. } => {
+                    panic!(
+                        "Nia ICE: single-consumer query `{}` reached shared cache state",
+                        K::name()
+                    );
+                }
+            }
+        }
+    }
+
     fn try_get_cached<K>(&self, key: K) -> QueryResult<Arc<K::Value>>
     where
         K: QueryKey<C>,
     {
+        assert_eq!(
+            K::STORAGE,
+            QueryStoragePolicy::CacheOwnedArc,
+            "single-consumer query `{}` must be requested with get_owned",
+            K::name()
+        );
         let _activity = self.inner.session.enter_activity();
         let detail_timing = self.inner.timings.detail();
         let slot = nia_timing::time_detail(detail_timing, "query.slot_for", || self.slot_for(&key));
@@ -1717,6 +1845,12 @@ impl<C> QueryDb<C> {
                         slot.ready
                             .wait(state)
                             .expect("query cache lock poisoned while waiting"),
+                    );
+                }
+                QueryState::Consumed => {
+                    panic!(
+                        "Nia ICE: shared query `{}` reached single-consumer state",
+                        K::name()
                     );
                 }
                 QueryState::Empty => {
@@ -1938,7 +2072,9 @@ impl<C> QueryDb<C> {
         let is_green = {
             let state = slot.state.lock().expect("query cache lock poisoned");
             match &*state {
-                QueryState::Empty => return QueryInvalidation::default(),
+                QueryState::Empty | QueryState::Consumed => {
+                    return QueryInvalidation::default();
+                }
                 QueryState::Computing { .. }
                 | QueryState::Validating { .. }
                 | QueryState::PotentiallyOutdated { .. } => false,
@@ -2470,7 +2606,10 @@ where
         .as_any()
         .downcast_ref::<K>()
         .expect("query ensure identity key type mismatch");
-    db.try_get(key.clone()).map(drop)
+    match K::STORAGE {
+        QueryStoragePolicy::CacheOwnedArc => db.try_get(key.clone()).map(drop),
+        QueryStoragePolicy::SingleConsumerOwned => db.try_get_owned(key.clone()).map(drop),
+    }
 }
 
 fn query_frame_from_erased<C, K>(key: &dyn ErasedQueryKey) -> QueryFrame
@@ -3285,6 +3424,43 @@ mod tests {
         }
     }
 
+    struct OwnedNonCloneValue {
+        value: usize,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct OwnedNonCloneValueQuery(usize);
+
+    impl QueryKey<TestContext> for OwnedNonCloneValueQuery {
+        type Value = OwnedNonCloneValue;
+
+        const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+
+        fn name() -> &'static str {
+            "owned_non_clone_value"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.context().executions.fetch_add(1, Ordering::SeqCst);
+            OwnedNonCloneValue { value: self.0 }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct OwnedValueParent(usize);
+
+    impl QueryKey<TestContext> for OwnedValueParent {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "owned_value_parent"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.get_owned(OwnedNonCloneValueQuery(self.0)).value * 2
+        }
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     struct Recursive;
 
@@ -3338,6 +3514,66 @@ mod tests {
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(first.value, 42);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn single_consumer_query_moves_non_clone_value_and_tracks_parent_dependency() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        assert_eq!(*db.get(OwnedValueParent(21)), 42);
+        assert_eq!(*db.get(OwnedValueParent(21)), 42);
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
+        assert!(db.query_trace().dependencies.iter().any(|dependency| {
+            dependency.from.name == "owned_value_parent"
+                && dependency.to.name == "owned_non_clone_value"
+        }));
+
+        let invalidation = db.invalidate(OwnedNonCloneValueQuery(21));
+        assert!(
+            invalidation
+                .invalidated
+                .iter()
+                .any(|frame| frame.name == "owned_value_parent")
+        );
+        assert_eq!(*db.get(OwnedValueParent(21)), 42);
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn single_consumer_query_reproduces_after_its_payload_is_consumed() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        assert_eq!(db.get_owned(OwnedNonCloneValueQuery(3)).value, 3);
+        assert_eq!(db.get_owned(OwnedNonCloneValueQuery(3)).value, 3);
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn query_storage_policy_rejects_the_wrong_access_mode() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        assert!(catch_unwind(AssertUnwindSafe(|| db.get(OwnedNonCloneValueQuery(1)))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| db.get_owned(Double(1)))).is_err());
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn declarative_registry_records_single_consumer_storage() {
+        let mut registry = QueryRegistry::new();
+        registry.register::<TestContext, OwnedNonCloneValueQuery>();
+
+        let descriptors = registry.descriptors();
+        assert_eq!(descriptors.len(), 1);
+        assert_eq!(
+            descriptors[0].storage,
+            QueryStoragePolicy::SingleConsumerOwned
+        );
     }
 
     #[test]

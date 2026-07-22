@@ -635,6 +635,17 @@ timing boundaries rather than owning program analysis or backend input shape.
 The query frontend is batch-friendly. Persistent caches, cross-session reuse,
 LSP scheduling, cancellation, and priority handling are separate future layers.
 
+Query keys declare an explicit storage policy. The default
+`CacheOwnedArc` policy retains one immutable value in its slot and publishes
+shared handles. `SingleConsumerOwned` instead moves a non-`Clone` value directly
+from its provider to one consumer; after production the slot records only a
+payload-free `Consumed` state, execution statistics, and dependency edges. A
+later direct request produces a fresh value, while invalidating any dependency
+still reaches cached downstream consumers through the retained graph edges.
+Owned queries cannot declare fingerprints and must be requested through
+`get_owned`; ordinary `get` rejects them. This policy is for an actual unique
+consumer boundary, not a way to hide shared data without an `Arc`.
+
 `QuerySession` owns a lazily started persistent executor. `get_many` submits
 work to that executor, and nested batches reuse the permit already held by the
 current execution thread. Distinct sessions retain separate queues and query
@@ -1404,8 +1415,8 @@ deduplicates vtable semantic keys. The old function/function-instance aggregate
 collector and the post-optimization reachability rescan have been deleted.
 Devirtualization, cross-function constant propagation, and inlining may remove
 or copy already discovered edges but must not create a new semantic
-reachability edge. The resulting closure plan is complete for one backend call,
-but it is not yet an independently cache-owned query product.
+reachability edge. The resulting closure is complete before it is published as
+the consuming `BackendItemPlanQuery` product.
 
 Initial modules remain materialization-only while the cross-module closure is
 active. The backend drains every deterministic foreign-item snapshot before it
@@ -1414,9 +1425,9 @@ devirtualization, cross-function constant propagation, inlining, DCE, reachable
 aggregate/instance completion, and final layout construction all observe the
 same closed item set. Additional-item handling therefore does not optimize a
 partial module or repeatedly rebuild its instance layouts. This ordering is a
-prerequisite for a cache-owned global item plan: caching the previous mix of
-pre-closure optimized items and unoptimized late items would make the query
-product internally inconsistent.
+prerequisite for a consuming global item-plan query: publishing the previous
+mix of pre-closure optimized items and unoptimized late items would make the
+query product internally inconsistent.
 
 The closed result is now represented by a consuming `BackendItemPlan`. Planning
 owns the complete, unfinalized module item sets plus diagnostics and
@@ -1424,18 +1435,16 @@ materialization-time optimization changes; it does not retain a `ModuleLowerer`
 or borrow its substitution and trait caches. Finalization validates the module
 owner sequence, rebuilds the read-only finalizer indexes from the original
 module inputs, and moves the planned modules into the final `BackendLowering`.
-The production compiler provider invokes these as separate timed stages. The
-plan intentionally does not implement `Clone`, and it is not wrapped in an ID,
-store, or `Arc`: there is one owner and finalization consumes it.
-
-`BackendItemPlan` is not yet a query product. The current query API publishes
-cache values through shared `Arc` handles, so caching this plan and cloning its
-deep module IR for finalization would create the exact simultaneous ownership
-the boundary is intended to remove. The next ownership step must either add a
-quiescent, dependency-safe consuming query operation or split the plan into
-smaller immutable products that finalization can consume without duplicating
-all backend bodies. A second aggregate wrapper or a clone fallback is not an
-acceptable substitute.
+The production compiler exposes planning as `BackendItemPlanQuery` and
+finalization as its sole consumer inside `BackendLoweringQuery`. The plan uses
+`SingleConsumerOwned` storage: query execution moves it directly to
+finalization, while the payload-free consumed slot preserves dependency and
+execution metadata. `backend_item_plan` depends on the per-module source and
+function-instance plans, and `backend_lowering` depends on the consumed plan, so
+upstream invalidation still propagates through the complete boundary. The plan
+intentionally does not implement `Clone` and is not wrapped in an ID, store, or
+`Arc`; repeated backend/codegen requests reuse the finalized backend product
+rather than reproducing or duplicating the plan.
 
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their

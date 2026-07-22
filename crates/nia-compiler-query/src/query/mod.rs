@@ -42,7 +42,7 @@ use nia_public_surface::{
 };
 use nia_query::{
     QueryDb, QueryError, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy,
-    QueryFrame, QueryKey, QueryTrace,
+    QueryFrame, QueryKey, QueryStoragePolicy, QueryTrace,
 };
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;
@@ -123,6 +123,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ActiveModuleItemTreeInputQuery,
         ActiveModuleItemTreeQuery,
         BodyActivationWorklistQuery,
+        BackendItemPlanQuery,
         BackendModuleFunctionInstancePlanQuery,
         BackendModuleSourceItemPlanQuery,
         BackendLoweringQuery,
@@ -1985,7 +1986,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 124);
+        assert_eq!(descriptors.len(), 125);
         assert!(
             !descriptors
                 .iter()
@@ -2013,9 +2014,14 @@ mod tests {
                 .all(|pair| pair[0].name < pair[1].name)
         );
         assert!(descriptors.iter().all(|descriptor| {
+            let expected_storage = if descriptor.name == "backend_item_plan" {
+                nia_query::QueryStoragePolicy::SingleConsumerOwned
+            } else {
+                nia_query::QueryStoragePolicy::CacheOwnedArc
+            };
             descriptor.context_type == std::any::type_name::<CompilerContext>()
                 && descriptor.provider == nia_query::QueryProviderPolicy::KeyExecute
-                && descriptor.storage == nia_query::QueryStoragePolicy::CacheOwnedArc
+                && descriptor.storage == expected_storage
         }));
         for descriptor in descriptors {
             let expected = match descriptor.name {
@@ -6040,6 +6046,21 @@ extend i32 : ParseFrom[Input] {
         let _ = db.get(BackendLoweringQuery);
         let trace = db.query_trace();
 
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_lowering",
+            "backend_item_plan"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_item_plan",
+            "backend_module_source_item_plan"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_item_plan",
+            "backend_module_function_instance_plan"
+        ));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering"
                 && dependency.to.name == "executable_checked_modules"
@@ -6097,6 +6118,8 @@ extend i32 : ParseFrom[Input] {
             first_codegen.diagnostics
         );
         let monomorphization = db.get(MonomorphizationQuery);
+        let entry_source_item_plan = db.get(BackendModuleSourceItemPlanQuery(module_id));
+        let helper_source_item_plan = db.get(BackendModuleSourceItemPlanQuery(helper_id));
         let entry_function_instance_plan =
             db.get(BackendModuleFunctionInstancePlanQuery(module_id));
         let helper_function_instance_plan =
@@ -6126,6 +6149,21 @@ extend i32 : ParseFrom[Input] {
         ));
         assert!(trace_has_dependency(
             &trace,
+            "backend_lowering",
+            "backend_item_plan"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_item_plan",
+            "backend_module_source_item_plan"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_item_plan",
+            "backend_module_function_instance_plan"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
             "backend_module_function_instance_plan",
             "monomorphization"
         ));
@@ -6139,6 +6177,8 @@ extend i32 : ParseFrom[Input] {
             "backend_lowering",
             "monomorphization"
         ));
+        assert_eq!(entry_source_item_plan.functions.len(), 1);
+        assert_eq!(helper_source_item_plan.functions.len(), 1);
         assert!(entry_function_instance_plan.instances.is_empty());
         assert_eq!(helper_function_instance_plan.instances.len(), 1);
         assert_eq!(
@@ -6151,6 +6191,11 @@ extend i32 : ParseFrom[Input] {
         );
         assert_eq!(query_executions(&trace, "codegen_program"), 1);
         assert_eq!(query_executions(&trace, "monomorphization"), 1);
+        assert_eq!(query_executions(&trace, "backend_item_plan"), 1);
+        assert_eq!(
+            query_executions(&trace, "backend_module_source_item_plan"),
+            2
+        );
         assert_eq!(
             query_executions(&trace, "backend_module_function_instance_plan"),
             2

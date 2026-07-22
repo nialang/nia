@@ -80,6 +80,23 @@ impl QueryKey<CompilerContext> for MonomorphizationQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct BackendItemPlanQuery;
+
+impl QueryKey<CompilerContext> for BackendItemPlanQuery {
+    type Value = nia_backend_lower::BackendItemPlan;
+
+    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+
+    fn name() -> &'static str {
+        "backend_item_plan"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        provide_backend_item_plan(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct BackendLoweringQuery;
 
 impl QueryKey<CompilerContext> for BackendLoweringQuery {

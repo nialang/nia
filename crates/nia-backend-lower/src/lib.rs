@@ -70,6 +70,23 @@ pub struct BackendItemPlan {
 }
 
 impl BackendItemPlan {
+    pub fn from_diagnostics(
+        optimization: OptimizationPolicy,
+        diagnostics: Vec<Diagnostic>,
+    ) -> Self {
+        Self {
+            modules: Vec::new(),
+            optimization,
+            optimization_report: BackendOptimizationReport {
+                enabled_module_passes: enabled_module_passes(&optimization),
+                enabled_function_passes: opt::enabled_function_passes(&optimization),
+                enabled_global_passes: enabled_global_passes(&optimization),
+                changed_passes: Vec::new(),
+            },
+            diagnostics,
+        }
+    }
+
     pub fn modules(&self) -> &[BackendModule] {
         &self.modules
     }
@@ -237,12 +254,7 @@ pub fn plan_backend_program_with_timings(
         changed_passes: Vec::new(),
     };
     if !diagnostics.is_empty() {
-        return BackendItemPlan {
-            modules: Vec::new(),
-            optimization,
-            optimization_report,
-            diagnostics,
-        };
+        return BackendItemPlan::from_diagnostics(optimization, diagnostics);
     }
     let shared = time_backend_stage(timing, "backend_lower.shared_indexes", || {
         BackendLowerShared::new(modules)
