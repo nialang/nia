@@ -1,6 +1,56 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+pub(in crate::query) fn provide_backend_module_source_item_plan(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> BackendModuleSourceItemPlan {
+    let facts = db.get(ExecutableCheckedModuleFactsQuery);
+    let module = facts
+        .modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .unwrap_or_else(|| panic!("Nia ICE: missing executable facts for module {module_id:?}"));
+    let mut functions = facts
+        .runtime_functions
+        .iter()
+        .copied()
+        .filter(|def_id| def_id.module_id == module_id)
+        .collect::<Vec<_>>();
+    functions.sort_unstable();
+    functions.dedup();
+    let mut globals = facts
+        .runtime_globals
+        .iter()
+        .copied()
+        .filter(|def_id| def_id.module_id == module_id)
+        .collect::<Vec<_>>();
+    globals.sort_unstable();
+    globals.dedup();
+    let mut structs = module
+        .executable_reachable_structs
+        .iter()
+        .flat_map(|items| items.iter().copied())
+        .filter(|def_id| def_id.module_id == module_id)
+        .collect::<Vec<_>>();
+    structs.sort_unstable();
+    structs.dedup();
+    let mut unions = module
+        .executable_reachable_unions
+        .iter()
+        .flat_map(|items| items.iter().copied())
+        .filter(|def_id| def_id.module_id == module_id)
+        .collect::<Vec<_>>();
+    unions.sort_unstable();
+    unions.dedup();
+    BackendModuleSourceItemPlan {
+        functions,
+        globals,
+        structs,
+        unions,
+    }
+}
+
 pub(super) fn provide_monomorphization(
     db: &QueryDb<CompilerContext>,
 ) -> nia_monomorphize::Monomorphization {
@@ -182,6 +232,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
         extension_methods,
         function_bodies,
         static_inits,
+        source_item_plans,
     ) = time_provider(db.context().timings(), "backend_lowering.inputs", || {
         let timings = db.context().timings();
         let all_visible_extensions = time_provider(
@@ -245,6 +296,11 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             });
         let function_bodies = function_bodies_from_checked_modules(db, checked_modules);
         let static_inits = static_inits_from_checked_modules(db, checked_modules);
+        let source_item_plans = db.get_many(
+            checked_modules
+                .iter()
+                .map(|module| BackendModuleSourceItemPlanQuery(module.id)),
+        );
         (
             all_visible_extensions,
             active_item_trees,
@@ -255,6 +311,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
             extension_methods,
             function_bodies,
             static_inits,
+            source_item_plans,
         )
     });
     let function_lowering_diagnostics =
@@ -300,6 +357,7 @@ pub(super) fn provide_backend_lowering_inner_for_modules(
                 const_enum_values: &const_enum_values,
                 visible_extensions: &visible_extensions,
                 extension_methods: &extension_methods.methods,
+                source_item_plans: &source_item_plans,
                 program_defs: &program_defs,
                 program_signatures,
                 indexes: &indexes,

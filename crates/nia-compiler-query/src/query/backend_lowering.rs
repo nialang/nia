@@ -69,6 +69,7 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) const_enum_values: &'a [nia_const_check::ConstEnumValues],
     pub(super) visible_extensions: &'a [Arc<VisibleExtensionsValue>],
     pub(super) extension_methods: &'a nia_defs::ExtensionMethods,
+    pub(super) source_item_plans: &'a [Arc<BackendModuleSourceItemPlan>],
     pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
     pub(super) program_signatures: ProgramCodegenSignatures<'a>,
     pub(super) indexes: &'a BackendLoweringIndexes<'a>,
@@ -85,13 +86,20 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
         .zip(input.const_array_lengths.iter())
         .zip(input.const_enum_values.iter())
         .zip(input.visible_extensions.iter())
+        .zip(input.source_item_plans.iter())
         .map(
             |(
                 (
-                    (((checked_module, active_item_tree), item_signatures), const_array_lengths),
-                    const_enum_values,
+                    (
+                        (
+                            ((checked_module, active_item_tree), item_signatures),
+                            const_array_lengths,
+                        ),
+                        const_enum_values,
+                    ),
+                    visible_extensions,
                 ),
-                visible_extensions,
+                source_item_plan,
             )| {
                 BackendLowerModuleInput {
                     module_id: checked_module.id,
@@ -111,9 +119,10 @@ pub(super) fn build_backend_lowering_module_inputs<'a>(
                     program_const: &input.indexes.program_const,
                     layouts: &checked_module.layouts,
                     roots: backend_function_roots(input.runtime, checked_module),
-                    reachable_globals: checked_module.executable_reachable_globals.as_ref(),
-                    reachable_structs: checked_module.executable_reachable_structs.as_deref(),
-                    reachable_unions: checked_module.executable_reachable_unions.as_deref(),
+                    reachable_functions: Some(&source_item_plan.functions),
+                    reachable_globals: Some(&source_item_plan.globals),
+                    reachable_structs: Some(&source_item_plan.structs),
+                    reachable_unions: Some(&source_item_plan.unions),
                     program_function_bodies: &input.indexes.program_function_bodies,
                     program_static_inits: &input.indexes.program_static_inits,
                     program_extension_methods: input.extension_methods,

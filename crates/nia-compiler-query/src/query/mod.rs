@@ -123,6 +123,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ActiveModuleItemTreeInputQuery,
         ActiveModuleItemTreeQuery,
         BodyActivationWorklistQuery,
+        BackendModuleSourceItemPlanQuery,
         BackendLoweringQuery,
         BodyCheckQuery,
         CheckedModuleIdsQuery,
@@ -1983,7 +1984,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 122);
+        assert_eq!(descriptors.len(), 123);
         assert!(
             !descriptors
                 .iter()
@@ -2037,6 +2038,7 @@ mod tests {
                 | "semantic_module_ids"
                 | "using_scope_module" => nia_query::QueryFingerprintPolicy::StableValue,
                 "active_module_item_tree_input"
+                | "backend_module_source_item_plan"
                 | "body_activation_worklist"
                 | "declaration_active_module_item_tree_input"
                 | "declaration_module_item_tree_input"
@@ -6112,6 +6114,129 @@ extend i32 : ParseFrom[Input] {
         assert_eq!(query_executions(&trace, "codegen_program"), 1);
         assert_eq!(query_executions(&trace, "monomorphization"), 1);
         assert_eq!(query_executions(&trace, "backend_lowering"), 1);
+    }
+
+    #[test]
+    fn backend_materializes_frontend_planned_source_functions() {
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            r#"
+module child;
+
+fn helper() i32 {
+    7
+}
+
+fn unused() i32 {
+    9
+}
+
+fn main() i32 {
+    helper() + child::value()
+}
+"#,
+        );
+        let module_id = fixture.entry_id();
+        let child_id = fixture.add_child(
+            module_id,
+            "child",
+            "child.nia",
+            r#"
+pub struct Value {
+    number: i32,
+}
+
+pub fn value() i32 {
+    let value = Value { number: 5 };
+    value.number
+}
+"#,
+        );
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+        let db = query_db(loaded);
+
+        let facts = db.get(ExecutableCheckedModuleFactsQuery);
+        let module = facts
+            .modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .expect("entry module facts");
+        let function = |name| {
+            module
+                .defs
+                .defs
+                .iter()
+                .find_map(|(def_id, def)| {
+                    (def.kind == nia_defs::DefKind::Function && def.name == sym(name))
+                        .then_some(GlobalDefId { module_id, def_id })
+                })
+                .unwrap_or_else(|| panic!("missing function `{name}`"))
+        };
+        let helper = function("helper");
+        let unused = function("unused");
+        let main = function("main");
+
+        let plan = db.get(BackendModuleSourceItemPlanQuery(module_id));
+        for items in [&plan.functions, &plan.globals, &plan.structs, &plan.unions] {
+            assert!(items.windows(2).all(|pair| pair[0] < pair[1]), "{plan:?}");
+            assert!(
+                items.iter().all(|def_id| def_id.module_id == module_id),
+                "{plan:?}"
+            );
+        }
+        assert!(plan.functions.contains(&helper), "{plan:?}");
+        assert!(plan.functions.contains(&main), "{plan:?}");
+        assert!(!plan.functions.contains(&unused), "{plan:?}");
+        assert!(plan.structs.is_empty(), "{plan:?}");
+
+        let child_plan = db.get(BackendModuleSourceItemPlanQuery(child_id));
+        for items in [
+            &child_plan.functions,
+            &child_plan.globals,
+            &child_plan.structs,
+            &child_plan.unions,
+        ] {
+            assert!(
+                items.windows(2).all(|pair| pair[0] < pair[1]),
+                "{child_plan:?}"
+            );
+            assert!(
+                items.iter().all(|def_id| def_id.module_id == child_id),
+                "{child_plan:?}"
+            );
+        }
+        assert_eq!(child_plan.functions.len(), 1, "{child_plan:?}");
+        assert_eq!(child_plan.structs.len(), 1, "{child_plan:?}");
+
+        let backend = db.get(BackendLoweringQuery);
+        assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
+        let backend_module = backend
+            .program
+            .modules
+            .iter()
+            .find(|module| module.id == module_id)
+            .expect("entry backend module");
+        let functions = backend_module
+            .functions
+            .iter()
+            .map(|function| function.def_id)
+            .collect::<HashSet<_>>();
+        assert!(functions.contains(&helper), "{functions:?}");
+        assert!(functions.contains(&main), "{functions:?}");
+        assert!(!functions.contains(&unused), "{functions:?}");
+
+        let trace = db.query_trace();
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_lowering",
+            "backend_module_source_item_plan"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_module_source_item_plan",
+            "executable_checked_module_facts"
+        ));
     }
 
     #[test]

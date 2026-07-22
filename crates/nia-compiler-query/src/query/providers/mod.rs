@@ -41,8 +41,10 @@ pub(in crate::query) use self::body_executable::{
     provide_executable_value_ref_edges,
 };
 use self::body_signature_lookup::*;
-pub(in crate::query) use self::codegen::provide_lowered_function_body;
 use self::codegen::*;
+pub(in crate::query) use self::codegen::{
+    provide_backend_module_source_item_plan, provide_lowered_function_body,
+};
 use self::const_eval::*;
 pub(in crate::query) use self::executable_reachability::{
     provide_executable_checked_module_facts, provide_executable_provider_demands,

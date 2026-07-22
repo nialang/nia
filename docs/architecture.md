@@ -1333,10 +1333,25 @@ one red-green owner for each aggregate stage and prevents repeated public or
 internal codegen requests from executing either stage again. It does not make
 backend lowering item-grained: the current backend query still assembles all
 module inputs, performs the cross-module function/global-instance fixed point,
-and publishes one `BackendProgram`. A deterministic global item plan must be
-separated from immutable per-module or per-CGU materialization before those
-products can become smaller query nodes; an incomplete module product must not
-be cached and then mutated from an external worklist.
+and publishes one `BackendProgram`.
+
+`BackendModuleSourceItemPlanQuery(ModuleId)` now owns the deterministic
+frontend source-item projection for one module. It derives sorted, deduplicated
+module-local function, global, struct, and union keys from
+`ExecutableCheckedModuleFactsQuery`; executable backend lowering consumes those
+keys instead of reading reachable sets from a checked-module payload. Every
+planned source function is materialized by its owner module's first pass, so a
+cross-module reference to a source body already present in the query-owned body
+index does not re-enter the outer backend fixed point. Bare, public, and
+type-only root policies keep their existing behavior.
+
+This source plan is not yet the complete backend item plan. Generic function
+and global instances, vtables, instance-induced source references, layout
+completion, module optimization, and DCE still converge in the aggregate
+backend call. That closure must be made deterministic and separated from
+immutable per-module or per-CGU materialization before those products can
+become smaller query nodes; an incomplete module product must not be cached and
+then mutated from an external worklist.
 
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their
