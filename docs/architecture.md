@@ -1407,6 +1407,17 @@ or copy already discovered edges but must not create a new semantic
 reachability edge. The resulting closure plan is complete for one backend call,
 but it is not yet an independently cache-owned query product.
 
+Initial modules remain materialization-only while the cross-module closure is
+active. The backend drains every deterministic foreign-item snapshot before it
+finalizes any module. Each owner module is then finalized exactly once:
+devirtualization, cross-function constant propagation, inlining, DCE, reachable
+aggregate/instance completion, and final layout construction all observe the
+same closed item set. Additional-item handling therefore does not optimize a
+partial module or repeatedly rebuild its instance layouts. This ordering is a
+prerequisite for a cache-owned global item plan: caching the previous mix of
+pre-closure optimized items and unoptimized late items would make the query
+product internally inconsistent.
+
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their
 function because they have no independent cache, invalidation, release, or

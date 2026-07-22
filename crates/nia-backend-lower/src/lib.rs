@@ -210,7 +210,7 @@ pub fn lower_backend_program_with_timings(
     let mut pending_foreign_items = PendingForeignBackendItems::default();
     time_backend_stage(timing, "backend_lower.initial_modules", || {
         for lowerer in &mut lowerers {
-            let module = lowerer.lower_module();
+            let module = lowerer.lower_initial_module();
             if timing {
                 nia_timing::emit_query_note(
                     format!("backend_lower.module[{:?}]", module.id),
@@ -289,6 +289,21 @@ pub fn lower_backend_program_with_timings(
                     &mut lowerers[owner_index].optimization_report.changed_passes,
                 ));
             }
+        }
+    });
+
+    assert_eq!(
+        lowerers.len(),
+        lowered_modules.len(),
+        "Nia ICE: backend lowerers must match materialized modules"
+    );
+    time_backend_stage(timing, "backend_lower.final_modules", || {
+        for (lowerer, module) in lowerers.iter_mut().zip(&mut lowered_modules) {
+            lowerer.finish_module(module);
+            diagnostics.extend(std::mem::take(&mut lowerer.diagnostics));
+            optimization_report.changed_passes.extend(std::mem::take(
+                &mut lowerer.optimization_report.changed_passes,
+            ));
         }
     });
 
@@ -956,7 +971,7 @@ impl<'a> ModuleLowerer<'a> {
             .copied()
     }
 
-    fn lower_module(&mut self) -> BackendModule {
+    fn lower_initial_module(&mut self) -> BackendModule {
         let mut structs = Vec::new();
         let mut unions = Vec::new();
         let mut struct_instances = Vec::new();
@@ -1085,49 +1100,13 @@ impl<'a> ModuleLowerer<'a> {
             &mut worklist,
             &mut trait_object_vtables,
         );
-        self.devirtualize_direct_trait_calls(&mut functions, &mut function_instances);
-        self.propagate_cross_function_constants(&mut functions, &mut function_instances);
-        self.inline_leaf_functions(&mut functions, &mut function_instances);
-        self.remove_unused_private_functions(
-            &mut functions,
-            &mut function_instances,
-            &globals,
-            &trait_object_vtables,
-        );
-        self.extend_struct_instances_from_functions(
-            &mut struct_instances,
-            &mut union_instances,
-            &functions,
-            &function_instances,
-        );
-        self.complete_reachable_aggregates(
-            &mut structs,
-            &mut unions,
-            ReachableAggregateInputs {
-                globals: &globals,
-                functions: &functions,
-                function_instances: &function_instances,
-                struct_instances: &struct_instances,
-                union_instances: &union_instances,
-                trait_object_vtables: &trait_object_vtables,
-            },
-        );
-
-        let mut backend_layouts =
-            BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
-        self.extend_backend_layouts_for_instances(
-            &mut backend_layouts,
-            &struct_instances,
-            &union_instances,
-        );
-
         BackendModule {
             id: self.input.module_id,
             name: self.input.module_name.clone(),
             const_eval: nia_backend_ir::BackendConstFacts {
                 array_lengths: self.input.const_array_lengths.values.as_ref().clone(),
             },
-            layouts: backend_layouts,
+            layouts: BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts),
             structs,
             unions,
             struct_instances,
@@ -1153,6 +1132,48 @@ impl<'a> ModuleLowerer<'a> {
                 })
                 .collect(),
         }
+    }
+
+    fn finish_module(&mut self, module: &mut BackendModule) {
+        self.devirtualize_direct_trait_calls(&mut module.functions, &mut module.function_instances);
+        self.propagate_cross_function_constants(
+            &mut module.functions,
+            &mut module.function_instances,
+        );
+        self.inline_leaf_functions(&mut module.functions, &mut module.function_instances);
+        self.remove_unused_private_functions(
+            &mut module.functions,
+            &mut module.function_instances,
+            &module.globals,
+            &module.trait_object_vtables,
+        );
+        self.extend_struct_instances_from_functions(
+            &mut module.struct_instances,
+            &mut module.union_instances,
+            &module.functions,
+            &module.function_instances,
+        );
+        self.complete_reachable_aggregates(
+            &mut module.structs,
+            &mut module.unions,
+            ReachableAggregateInputs {
+                globals: &module.globals,
+                functions: &module.functions,
+                function_instances: &module.function_instances,
+                struct_instances: &module.struct_instances,
+                union_instances: &module.union_instances,
+                trait_object_vtables: &module.trait_object_vtables,
+            },
+        );
+
+        let mut layouts =
+            BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
+        self.extend_backend_layouts_for_instances(
+            &mut layouts,
+            &module.struct_instances,
+            &module.union_instances,
+        );
+        module.layouts = layouts;
     }
 
     fn lower_function_local_static_globals(
@@ -1648,20 +1669,6 @@ impl<'a> ModuleLowerer<'a> {
             &mut worklist,
             &mut module.trait_object_vtables,
         );
-        self.extend_struct_instances_from_functions(
-            &mut module.struct_instances,
-            &mut module.union_instances,
-            &module.functions,
-            &module.function_instances,
-        );
-        let mut backend_layouts =
-            BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
-        self.extend_backend_layouts_for_instances(
-            &mut backend_layouts,
-            &module.struct_instances,
-            &module.union_instances,
-        );
-        module.layouts = backend_layouts;
     }
 
     fn lower_additional_function_instances_into_module(
@@ -1723,20 +1730,6 @@ impl<'a> ModuleLowerer<'a> {
             &mut worklist,
             &mut module.trait_object_vtables,
         );
-        self.extend_struct_instances_from_functions(
-            &mut module.struct_instances,
-            &mut module.union_instances,
-            &module.functions,
-            &module.function_instances,
-        );
-        let mut backend_layouts =
-            BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
-        self.extend_backend_layouts_for_instances(
-            &mut backend_layouts,
-            &module.struct_instances,
-            &module.union_instances,
-        );
-        module.layouts = backend_layouts;
     }
 
     fn reachability_worklist_for_module(&self, module: &BackendModule) -> ReachabilityWorklist {

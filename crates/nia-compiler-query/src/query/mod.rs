@@ -8215,7 +8215,7 @@ fn main() i32 {
 "#,
         );
         let entry_id = fixture.entry_id();
-        fixture.add_child(
+        let module1_id = fixture.add_child(
             entry_id,
             "module1",
             "module1.nia",
@@ -8224,8 +8224,13 @@ pub trait Allocator {
     fn alloc(&mut self) i32;
 
     fn remap(&mut self) i32 {
-        self.alloc()
+        _ = self;
+        helper()
     }
+}
+
+fn helper() i32 {
+    7
 }
 "#,
         );
@@ -8255,9 +8260,12 @@ extend Page : Allocator {
         );
         let mut loaded = fixture.program();
         loaded.runtime = RuntimeModel::FreestandingExecutable;
-        let db = query_db(loaded);
+        let codegen = CompilerDatabase::new(
+            CompileRequest::new(loaded).with_optimization(NiaOptimizationLevel::O1),
+        )
+        .codegen_program();
 
-        let backend_lowering = db.get(BackendLoweringQuery);
+        let backend_lowering = &codegen.backend_lowering;
 
         assert!(
             backend_lowering.diagnostics.is_empty(),
@@ -8304,7 +8312,7 @@ extend Page : Allocator {
                 })
                 .filter(|(_, instance)| {
                     backend_function_instance_matches_vtable_ref(
-                        &db.context().type_store,
+                        &codegen.type_store,
                         VtableFunctionInstanceRef {
                             def_id,
                             arg_module_id,
@@ -8321,6 +8329,33 @@ extend Page : Allocator {
                 "expected one lowered vtable function instance for {def_id:?}"
             );
         }
+        let helper = backend_lowering
+            .program
+            .modules
+            .iter()
+            .find(|module| module.id == module1_id)
+            .expect("trait owner module should be backend-lowered")
+            .functions
+            .iter()
+            .find(|function| function.name == sym("helper"))
+            .expect("default method helper should be materialized");
+        assert!(
+            backend_lowering
+                .optimization_report
+                .changed_passes
+                .iter()
+                .any(|change| matches!(
+                    change,
+                    nia_backend_lower::BackendOptimizationChange::Function {
+                        module_id,
+                        function,
+                        pass: "inline-leaf-functions",
+                        is_instance: false,
+                        ..
+                    } if *module_id == module1_id && *function == helper.def_id
+                )),
+            "the vtable-induced default instance should be finalized after closure"
+        );
     }
 
     #[test]
