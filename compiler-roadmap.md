@@ -23,7 +23,7 @@
 | D 统一依赖图 | 100% | loader/provider update 已收敛为 current canonical demand snapshot、至多一个 pending additive transition 与 current revision graph query；compiler provider/reachability worklist直接读取 tracked facts并在 session transaction内收敛，Driver 只提交一次编译目标。loader/compiler typed DB 共享同一 `QuerySession`，aggregate snapshot、手写 diff/delta 回灌、Driver fixed point、reachability take/store 与 query 外 checked-module payload均已删除，随机 incremental/clean 差分守卫通过。 |
 | C/D 后 revision retirement | 100% | source update 已成为单一 quiescent retirement transaction；旧 `SourceVersion` query、provider graph lineage 与 `NodeStore` revision shard 均从 current owner 物理删除。source edit与provider add/reset各100轮后live slots、edges、transition、active node revisions与locator payload有界，monotonic ID不复用，外部旧`Arc`只持有自身immutable shard。 |
 | E executor / 资源模型 | 100% | session-owned persistent executor、统一 `get_many` fan-out、Cargo/GNU Make jobserver CPU 预算、LLVM memory backpressure 与 test/production API 同构均已完成；unit tests 不再获取全局 compiler permit，只有 integration harness 声明完整 session 权重。 |
-| F IR ownership / item 粒度 | 约 20% | interner 已从 body/backend 产品移除，部分 ownership 边界已明确；owned extraction、及时释放、per-item/per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
+| F IR ownership / item 粒度 | 约 25% | interner 已从 body/backend 产品移除；backend 全程序 function-body 索引已改为借用 query-owned body，并删除 materialization/instance discovery 前的重复深拷贝。per-item typed store、owned extraction、及时释放、per-CGU lowering 和 peak-live-bytes 验证尚未建立。 |
 | G CGU / 异步 codegen / work products | 约 5% | 已有多 object 输出和 reuse 指标占位，但没有正式 CGU partition、codegen queue、frontend/LLVM overlap、CGU fingerprint 或 object work-product cache。 |
 | H 持久 frontend incremental | 约 0–5% | 只有局部 artifact cache 和进程内 query 复用，不具备 stable module/def key、序列化 dep graph 与持久 frontend product。 |
 | I 错误、诊断与工程重组 | 约 10% | compiler API 与 unit-test helper 的隐藏 permit 已删除；panic-based query flow、diagnostic store、data-driven integration harness、外层 session weight替代方案和 crate/巨型文件重组仍未系统推进。 |
@@ -1308,6 +1308,8 @@ Acceptance：连续至少100轮body-only source edit后，旧`SourceVersion` que
 5. 让旧 IR 在消费后释放，测 peak live bytes。
 
 Acceptance：BackendProgram 不再包含所有 function body 深树和 interner；peak RSS 显著下降；单 body 变更不重新 lower 无关 module bodies。
+
+进展（2026-07-22）：F-1 删除backend lowering输入组装与instance discovery中的无语义`FunctionBody`副本。`LoweredFunctionBodiesQuery(ModuleId)`仍是本阶段待拆的module-owned query product，但`BackendLoweringIndexes::program_function_bodies`现只保存指向这些query-owned body的借用，不再在backend lowering开始前深拷贝全程序Function IR；公开`BackendLowerModuleInput`类型同步要求借用索引，测试fixture不能再传入第二份owned map。普通函数materialization直接从source body借用并只在写入`BackendFunction`时复制一次；generic template消费自身已复制的body，instance引用发现直接借用刚写入`BackendFunctionInstance`的body，不再为临时扫描额外clone。地址一致性回归证明program index与query product指向同一allocation。身份决策同步明确：`GlobalDefId`继续表示函数语义身份，后续`LoweredFunctionId`只表示owner-scoped storage位置；短期单调用消费者使用借用，不把所有“类似指针”的关系机械ID化。严格workspace/all-targets/all-features Clippy无warning；无环境变量、无线程参数的原样`cargo test --workspace`完整通过，backend-lower96、compiler-query136、Driver485与LLVM177项通过，CLI commands 50项595.22秒完成，全部emit-exe/std runtime/integration/doc tests通过。Phase F现约25%，整份roadmap仍约70%；下一切片建立per-function lowered product/store与typed handle，随后再定义唯一消费时的generation/extraction协议。
 
 ### 阶段 G（P1）：CGU、异步 codegen 与 work products
 

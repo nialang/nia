@@ -1291,6 +1291,26 @@ resolution, and coercions, and consumes typed runtime bodies for function
 lowering. Typed bodies are not exposed through backend IR as the function
 codegen boundary.
 
+Function identity and Function IR storage identity are separate concerns.
+`GlobalDefId` remains the semantic identity of a function. A future
+owner-scoped `LoweredFunctionId` may identify one stored lowered product and
+carry generation checks, but it must not become a second semantic function id
+or escape its owning session/store. Immutable shared snapshots use `Arc` only
+when they have real concurrent owners; a single-call read path uses a borrow,
+and a unique consumer receives owned data. ID handles are therefore not a
+mechanical replacement for every pointer-shaped relationship.
+
+The current module-level `LoweredFunctionBodies` query product owns lowered
+Function IR until the per-function store migration is complete. Backend input
+assembly builds its whole-program function index from references to those
+query-owned bodies; it does not clone every body into a second owned map.
+Materialization copies a body only when creating the corresponding
+`BackendFunction` or `BackendFunctionInstance`. Generic-instance reference
+discovery scans the body already owned by the newly appended backend instance,
+rather than cloning a temporary discovery body. The intended next boundary is
+a per-function typed store followed by explicit borrow/extraction into
+per-item or per-CGU backend ownership.
+
 ### 11.3 Static Initializer IR
 
 `nia-static-ir::StaticInit` is the static/global initialization IR. It is a data

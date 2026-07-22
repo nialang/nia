@@ -231,6 +231,10 @@ fn main() i32 {
     let const_enum_values = const_enum_values_from_check(&const_eval);
     let no_program_defs = |_| None;
     let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::default();
+    let program_function_bodies = function_bodies
+        .iter()
+        .map(|(def_id, body)| (*def_id, body))
+        .collect::<HashMap<_, _>>();
 
     let input = BackendLowerModuleInput {
         module_id,
@@ -255,7 +259,7 @@ fn main() i32 {
         reachable_globals: None,
         reachable_structs: None,
         reachable_unions: None,
-        program_function_bodies: &function_bodies,
+        program_function_bodies: &program_function_bodies,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
         program_defs: &no_program_defs,
