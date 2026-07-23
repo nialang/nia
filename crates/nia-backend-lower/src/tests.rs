@@ -93,6 +93,7 @@ fn module_finalizations_merge_in_program_order() {
     fn empty_module(id: ModuleId, name: &str) -> BackendModule {
         BackendModule {
             id,
+            source_identity: nia_source::SourceIdentity::new(name),
             name: name.to_string(),
             const_eval: nia_backend_ir::BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -850,6 +851,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
 
     let input = BackendLowerModuleInput {
         module_id,
+        source_identity: nia_source::SourceIdentity::new("main"),
         module_name: "main".to_string(),
         symbols: &symbols,
         active_item_tree: &active_item_tree,

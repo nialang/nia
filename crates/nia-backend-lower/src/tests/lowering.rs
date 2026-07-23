@@ -245,6 +245,7 @@ fn main() i32 {
 
     let input = BackendLowerModuleInput {
         module_id,
+        source_identity: nia_source::SourceIdentity::new("main"),
         module_name: "main".to_string(),
         symbols: &symbols,
         active_item_tree: &active_item_tree,

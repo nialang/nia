@@ -12,6 +12,7 @@ fn single_module_program(
     BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts,
@@ -41,6 +42,7 @@ fn emits_function_body_from_function_ir_when_available() {
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: Default::default(),
             layouts: BackendLayouts {
@@ -346,6 +348,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -470,6 +473,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
     let mut program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval,
             layouts: BackendLayouts {
@@ -543,6 +547,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -631,6 +636,7 @@ fn validates_backend_ir_error_type_before_llvm() {
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -707,6 +713,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -824,6 +831,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -986,6 +994,7 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1063,6 +1072,7 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1146,6 +1156,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1238,6 +1249,7 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1343,6 +1355,7 @@ fn validates_function_ir_missing_entry_before_llvm() {
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -1429,6 +1442,7 @@ fn validates_function_ir_missing_successor_before_llvm() {
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: module_id,
+            source_identity: nia_source::SourceIdentity::new("main"),
             name: "main".to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {

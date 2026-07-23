@@ -375,11 +375,8 @@ fn main() i32 {
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    assert!(
-        output.modules[0].ir.contains("[4 x %"),
-        "{:?}",
-        output.modules[0].ir
-    );
+    let ir = source_module_ir(&output, "main.nia");
+    assert!(ir.contains("[4 x %"), "{ir:?}");
 }
 
 #[test]

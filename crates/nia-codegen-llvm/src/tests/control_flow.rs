@@ -43,7 +43,7 @@ fn main(a: bool, b: bool) i32 {
 
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let ir = &output.modules[0].ir;
+    let ir = source_module_ir(&output, "main.nia");
     assert!(ir.contains("logic.rhs"));
     assert!(ir.contains("logic.end"));
     assert!(ir.contains("phi i1"));
@@ -116,7 +116,7 @@ fn main() i32 {
 
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let ir = &output.modules[0].ir;
+    let ir = source_module_ir(&output, "main.nia");
     assert!(ir.contains("extractvalue"));
     assert!(ir.contains("br i1"));
     assert!(ir.contains("ret i32"));

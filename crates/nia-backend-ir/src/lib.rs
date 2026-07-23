@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
 use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
+use nia_source::SourceIdentity;
 use nia_span::Span;
 use nia_static_ir::StaticInit;
 use nia_symbol::SymbolId;
@@ -26,13 +27,11 @@ impl BackendProgram {
                 partition.id, partition.module_index
             )
         });
+        assert_eq!(partition.id, CodegenUnitId::source_module(module.id));
         assert_eq!(
-            partition.id,
-            CodegenUnitId::SourceModule {
-                module_id: module.id,
-                ordinal: 0,
-            },
-            "Nia ICE: codegen partition owner does not match its backend module"
+            partition.key,
+            CodegenUnitKey::source_module(module.source_identity.clone()),
+            "Nia ICE: codegen partition stable key does not match its backend module"
         );
         module
     }
@@ -42,6 +41,33 @@ impl BackendProgram {
 pub enum CodegenUnitId {
     SourceModule { module_id: ModuleId, ordinal: u32 },
     CompilerBuiltins,
+}
+
+impl CodegenUnitId {
+    fn source_module(module_id: ModuleId) -> Self {
+        Self::SourceModule {
+            module_id,
+            ordinal: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CodegenUnitKey {
+    SourceModule {
+        source_identity: SourceIdentity,
+        ordinal: u32,
+    },
+    CompilerBuiltins,
+}
+
+impl CodegenUnitKey {
+    fn source_module(source_identity: SourceIdentity) -> Self {
+        Self::SourceModule {
+            source_identity,
+            ordinal: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,18 +82,16 @@ impl CodegenPartitionPlan {
             .enumerate()
             .filter(|(_, module)| module.has_codegen_definitions())
             .map(|(module_index, module)| CodegenPartition {
-                id: CodegenUnitId::SourceModule {
-                    module_id: module.id,
-                    ordinal: 0,
-                },
+                id: CodegenUnitId::source_module(module.id),
+                key: CodegenUnitKey::source_module(module.source_identity.clone()),
                 module_index,
             })
             .collect::<Vec<_>>();
-        partitions.sort_unstable_by_key(|partition| partition.id);
+        partitions.sort_unstable_by(|left, right| left.key.cmp(&right.key));
         for pair in partitions.windows(2) {
             assert_ne!(
-                pair[0].id, pair[1].id,
-                "Nia ICE: backend program contains duplicate codegen partition identity"
+                pair[0].key, pair[1].key,
+                "Nia ICE: backend program contains duplicate stable codegen partition key"
             );
         }
         Self { partitions }
@@ -87,15 +111,17 @@ impl CodegenPartitionPlan {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodegenPartition {
     pub id: CodegenUnitId,
+    pub key: CodegenUnitKey,
     module_index: usize,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct BackendModule {
     pub id: ModuleId,
+    pub source_identity: SourceIdentity,
     pub name: String,
     pub const_eval: BackendConstFacts,
     pub layouts: BackendLayouts,
@@ -439,6 +465,7 @@ mod tests {
     ) -> BackendModule {
         BackendModule {
             id: module_id,
+            source_identity: SourceIdentity::new(name),
             name: name.to_string(),
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
@@ -476,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn codegen_partitions_are_definition_filtered_and_owner_ordered() {
+    fn codegen_partitions_are_definition_filtered_and_stable_key_ordered() {
         let mut module_ids = ModuleIdAllocator::new();
         let first_id = module_ids.allocate();
         let declaration_id = module_ids.allocate();
@@ -519,6 +546,70 @@ mod tests {
         );
         assert_eq!(program.module_for_partition(&partitions[0]).name, "first");
         assert_eq!(program.module_for_partition(&partitions[1]).name, "second");
+        assert_eq!(
+            partitions
+                .iter()
+                .map(|partition| partition.key.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                CodegenUnitKey::SourceModule {
+                    source_identity: SourceIdentity::new("first"),
+                    ordinal: 0,
+                },
+                CodegenUnitKey::SourceModule {
+                    source_identity: SourceIdentity::new("second"),
+                    ordinal: 0,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn codegen_partition_order_does_not_depend_on_module_id_allocation() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let z_id = module_ids.allocate();
+        let a_id = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let z_ty = type_store
+            .append_for_module(z_id)
+            .primitive(PrimitiveTy::I32);
+        let a_ty = type_store
+            .append_for_module(a_id)
+            .primitive(PrimitiveTy::I32);
+        let program = BackendProgram {
+            modules: vec![
+                module_with_global(z_id, z_ty, "z", false),
+                module_with_global(a_id, a_ty, "a", false),
+            ],
+        };
+
+        let plan = program.codegen_partition_plan();
+
+        assert_eq!(program.module_for_partition(&plan.partitions()[0]).id, a_id);
+        assert_eq!(program.module_for_partition(&plan.partitions()[1]).id, z_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate stable codegen partition key")]
+    fn codegen_partition_plan_rejects_duplicate_stable_source_keys() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let first_id = module_ids.allocate();
+        let second_id = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let first_ty = type_store
+            .append_for_module(first_id)
+            .primitive(PrimitiveTy::I32);
+        let second_ty = type_store
+            .append_for_module(second_id)
+            .primitive(PrimitiveTy::I32);
+        let program = BackendProgram {
+            modules: vec![
+                module_with_global(first_id, first_ty, "same", false),
+                module_with_global(second_id, second_ty, "same", false),
+            ],
+        };
+
+        let _ = program.codegen_partition_plan();
     }
 
     #[test]

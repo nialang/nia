@@ -1651,18 +1651,21 @@ self-referential map shape and makes the readonly context `Send + Sync +
 'static`. One `Arc<ProgramIndex>` is built before validation and shared by all
 unit tasks; no task rebuilds the whole-program index.
 
-Finalized backend lowering also publishes one `CodegenPartitionPlan`. Its source
-units use the typed `CodegenUnitId::SourceModule { module_id, ordinal }`
-identity; the initial policy assigns ordinal zero to each backend module that
-owns a function body, global definition, concrete instance, or vtable. Units are
-ordered by identity rather than `BackendProgram.modules` position, while each
-plan entry keeps only a module index and never copies Backend IR. Declaration-only
+Finalized backend lowering also publishes one `CodegenPartitionPlan`. Each
+source unit has two non-synonymous identities: `CodegenUnitId::SourceModule {
+module_id, ordinal }` locates work only inside the current session, while
+`CodegenUnitKey::SourceModule { source_identity, ordinal }` is stable across
+module-handle reallocation and is the future work-product key. The initial
+policy assigns ordinal zero to each backend module that owns a function body,
+global definition, concrete instance, or vtable. Units are ordered by stable
+key rather than `ModuleId` or `BackendProgram.modules` position, while each plan
+entry keeps only a module index and never copies Backend IR. Declaration-only
 modules remain available to the whole-program `ProgramIndex`, but do not become
 codegen work units. The plan is validated against the program at the LLVM
 boundary, so a caller cannot pair a stale plan with mutated module membership.
 
 LLVM IR and object emission consume this explicit plan instead of deriving units
-from a second module loop. Both output forms carry the typed unit identity.
+from a second module loop. Both output forms carry the runtime ID and stable key.
 Required compiler builtins use the distinct
 `CodegenUnitId::CompilerBuiltins` synthetic identity and are appended only to a
 native object result that actually needs them; a source module name can no

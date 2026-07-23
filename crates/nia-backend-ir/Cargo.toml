@@ -12,6 +12,7 @@ nia-const-check.workspace = true
 nia-function-ir.workspace = true
 nia-ids.workspace = true
 nia-layout.workspace = true
+nia-source.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
 nia-symbol.workspace = true

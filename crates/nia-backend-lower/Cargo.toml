@@ -23,6 +23,7 @@ nia-mangle.workspace = true
 nia-node-id.workspace = true
 nia-opt.workspace = true
 nia-sema-ir.workspace = true
+nia-source.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
 nia-symbol.workspace = true

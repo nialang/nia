@@ -7,6 +7,7 @@ pub(super) use nia_backend_ir::{
     BackendFunctionInstance, BackendGlobal, BackendLayouts, BackendModule, BackendParam,
     BackendProgram, BackendStruct, BackendTraitObjectVtable, BackendTraitObjectVtableEntry,
     BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey, BackendUnion, CodegenUnitId,
+    CodegenUnitKey,
 };
 pub(super) use nia_body_ir::{
     LocalName, TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind,
@@ -51,6 +52,23 @@ pub(super) fn has_internal_diagnostic(
             && diagnostic.summary.contains(text)
             && diagnostic.primary_span().is_some()
     })
+}
+
+pub(super) fn source_module_ir<'a>(output: &'a LlvmCodegenOutput, file_name: &str) -> &'a str {
+    &output
+        .modules
+        .iter()
+        .find(|module| {
+            matches!(
+                &module.key,
+                CodegenUnitKey::SourceModule {
+                    source_identity,
+                    ..
+                } if source_identity.normalized_path().ends_with(file_name)
+            )
+        })
+        .unwrap_or_else(|| panic!("missing LLVM output for source module `{file_name}`"))
+        .ir
 }
 
 pub(super) fn codegen_program(entry_path: impl Into<String>) -> nia_compiler_query::CodegenProgram {

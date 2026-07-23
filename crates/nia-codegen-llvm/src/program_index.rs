@@ -800,6 +800,7 @@ mod tests {
         let program = BackendProgram {
             modules: vec![BackendModule {
                 id: module_id,
+                source_identity: nia_source::SourceIdentity::new("main"),
                 name: "main".to_string(),
                 const_eval: BackendConstFacts::default(),
                 layouts: BackendLayouts {
