@@ -313,6 +313,7 @@ pub trait BackendProgramFacts: Sync {
 #[derive(Clone)]
 pub struct BackendLowerModuleInput<'a> {
     pub module_id: ModuleId,
+    pub source_identity: nia_source::SourceIdentity,
     pub module_name: String,
     pub symbols: &'a (dyn SymbolText + Sync),
     pub active_item_tree: &'a ActiveModuleItemTree,
@@ -1384,6 +1385,7 @@ impl<'a> ModuleLowerer<'a> {
         );
         BackendModule {
             id: self.input.module_id,
+            source_identity: self.input.source_identity.clone(),
             name: self.input.module_name.clone(),
             const_eval: nia_backend_ir::BackendConstFacts {
                 array_lengths: self.input.const_array_lengths.values.as_ref().clone(),

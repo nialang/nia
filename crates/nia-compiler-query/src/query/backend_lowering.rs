@@ -138,6 +138,7 @@ impl BackendLoweringInputs {
         let function_instance_plan = &self.function_instance_plans[index];
         BackendLowerModuleInput {
             module_id: checked_module.id,
+            source_identity: checked_module.path.identity(),
             module_name: checked_module.path.as_str().to_string(),
             symbols: &self.symbols,
             active_item_tree: self.active_item_trees[index].as_ref(),

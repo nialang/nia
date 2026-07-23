@@ -12,7 +12,7 @@ use std::sync::Arc;
 use backend_validate::validate_backend_program;
 use module_codegen::ModuleCodegen;
 use nia_backend_ir::CodegenPartition;
-pub use nia_backend_ir::CodegenUnitId;
+pub use nia_backend_ir::{CodegenUnitId, CodegenUnitKey};
 use nia_backend_lower::BackendLowering;
 use nia_llvm::{Context, OptimizationLevel as LlvmOptimizationLevel, target::TargetMachine};
 use nia_opt::NiaOptimizationLevel;
@@ -192,6 +192,7 @@ fn emit_llvm_ir_partition(
     let ir = codegen.emit_ir()?;
     Ok(LlvmModuleOutput {
         unit: partition.id,
+        key: partition.key,
         name: module.name.clone(),
         ir,
     })
@@ -221,6 +222,7 @@ fn emit_native_object_partition(
     let bytes = codegen.emit_object(&target)?;
     Ok(LlvmObjectModuleOutput {
         unit: partition.id,
+        key: partition.key,
         name: module.name.clone(),
         bytes,
     })
@@ -239,6 +241,7 @@ fn emit_compiler_builtins_object(
     let bytes = compiler_builtins::emit_object(&target, symbols)?;
     Ok(LlvmObjectModuleOutput {
         unit: CodegenUnitId::CompilerBuiltins,
+        key: CodegenUnitKey::CompilerBuiltins,
         name: "nia.compiler_builtins".to_string(),
         bytes,
     })
