@@ -17,14 +17,18 @@ python3 tools/perf.py --repeat 3 --output target/nia-perf/before.json
 python3 tools/perf.py --no-build --workload traits --workload const_eval
 ```
 
-The suite currently fixes eight compiler paths: minimal check, strings and
+The suite currently fixes nine compiler paths: minimal check, strings and
 slices, ArrayList, trait-heavy code, const-eval-heavy code, multi-module backend
-lowering, bounded multi-unit object codegen, and full executable emission.
-Benchmark sources live in `benchmarks/` or reuse maintained examples; generated
-objects, executables, and reports remain under temporary or `target/`
-directories. The `codegen_buckets` workload is a single source with eight
-reachable definitions and is rejected unless it emits multiple LLVM units, so
-its CPU/RSS trend cannot silently become a single-unit or linker measurement.
+lowering, small and large bounded multi-unit object codegen, and full executable
+emission. Benchmark sources live in `benchmarks/`, reuse maintained examples,
+or are generated deterministically by the runner; generated sources, objects,
+executables, and reports remain under temporary or `target/` directories. The
+`codegen_buckets` workload is a single source with eight reachable definitions.
+`codegen_buckets_large` generates sixteen reachable 1 MiB static definitions
+with only one small function body, keeping frontend work out of the object
+codegen comparison. The workloads are rejected unless they compile at least two
+and four LLVM units respectively, so their CPU/RSS trends cannot silently become
+single-unit, cache-hit, or linker measurements.
 
 Each result contains process wall, user, and system time; maximum resident set
 size; CPU utilization; aggregated stage/query timings; query execution and
