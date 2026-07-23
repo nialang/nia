@@ -76,10 +76,14 @@ fn emit_llvm_ir_with_options_inner(
             diagnostics: validation_diagnostics,
         };
     }
-    let outcomes = session.run_tasks(partitions.into_iter().map(|partition| {
-        let index = Arc::clone(&index);
-        move || emit_llvm_ir_partition(partition, index, options)
-    }));
+    let worker_lanes = codegen_worker_lanes(session, partitions.len());
+    let outcomes = session.run_tasks_bounded(
+        partitions.into_iter().map(|partition| {
+            let index = Arc::clone(&index);
+            move || emit_llvm_ir_partition(partition, index, options)
+        }),
+        nia_query::llvm_memory_task_capacity(),
+    );
     let mut outputs = Vec::with_capacity(outcomes.len());
     let mut diagnostics = Vec::new();
     for outcome in outcomes {
@@ -90,6 +94,7 @@ fn emit_llvm_ir_with_options_inner(
     }
     if timings.enabled() {
         nia_timing::emit_counter("llvm.units", outputs.len() as u64);
+        nia_timing::emit_counter("llvm.worker_lanes", worker_lanes as u64);
     }
     LlvmCodegenOutput {
         modules: outputs,
@@ -153,18 +158,22 @@ fn emit_native_objects_inner(
     if builtin_symbols.any() {
         tasks.push(NativeCodegenTask::CompilerBuiltins(builtin_symbols));
     }
-    let outcomes = session.run_tasks(tasks.into_iter().map(|task| {
-        let index = Arc::clone(&index);
-        let cache = cache.clone();
-        move || match task {
-            NativeCodegenTask::Partition(partition) => {
-                emit_native_object_partition(partition, index, options, cache.as_deref())
+    let worker_lanes = codegen_worker_lanes(session, tasks.len());
+    let outcomes = session.run_tasks_bounded(
+        tasks.into_iter().map(|task| {
+            let index = Arc::clone(&index);
+            let cache = cache.clone();
+            move || match task {
+                NativeCodegenTask::Partition(partition) => {
+                    emit_native_object_partition(partition, index, options, cache.as_deref())
+                }
+                NativeCodegenTask::CompilerBuiltins(symbols) => {
+                    emit_compiler_builtins_object(symbols, options, cache.as_deref())
+                }
             }
-            NativeCodegenTask::CompilerBuiltins(symbols) => {
-                emit_compiler_builtins_object(symbols, options, cache.as_deref())
-            }
-        }
-    }));
+        }),
+        nia_query::llvm_memory_task_capacity(),
+    );
     let mut outputs = Vec::with_capacity(outcomes.len());
     let mut diagnostics = Vec::new();
     let mut reuse_counts = ObjectReuseCounts::default();
@@ -179,6 +188,7 @@ fn emit_native_objects_inner(
     }
     if timings.enabled() {
         nia_timing::emit_counter("llvm.units", outputs.len() as u64);
+        nia_timing::emit_counter("llvm.worker_lanes", worker_lanes as u64);
         reuse_counts.emit();
     }
     LlvmObjectOutput {
@@ -190,6 +200,12 @@ fn emit_native_objects_inner(
 enum NativeCodegenTask {
     Partition(CodegenPartition),
     CompilerBuiltins(compiler_builtins::CompilerBuiltinSymbols),
+}
+
+fn codegen_worker_lanes(session: &QuerySession, task_count: usize) -> usize {
+    task_count
+        .min(session.executor_parallelism())
+        .min(nia_query::llvm_memory_task_capacity())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

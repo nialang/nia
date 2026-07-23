@@ -44,6 +44,10 @@ pub fn acquire_llvm_memory_permit() -> ProcessMemoryPermit<'static> {
     llvm_memory_budget().acquire()
 }
 
+pub fn llvm_memory_task_capacity() -> usize {
+    llvm_memory_budget().capacity
+}
+
 pub fn effective_memory_limit_bytes() -> Option<usize> {
     [system_memory_bytes(), cgroup_memory_limit_bytes()]
         .into_iter()

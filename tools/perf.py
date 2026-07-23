@@ -265,6 +265,10 @@ def require_codegen_bucket_instrumentation(
     permits = (
         counters.get("llvm.memory_permits") if isinstance(counters, dict) else None
     )
+    worker_lanes = (
+        counters.get("llvm.worker_lanes") if isinstance(counters, dict) else None
+    )
+
     def valid_count(value: object) -> bool:
         return isinstance(value, int) and not isinstance(value, bool)
     if (
@@ -272,6 +276,9 @@ def require_codegen_bucket_instrumentation(
         or units < minimum_units
         or not valid_count(permits)
         or permits < minimum_units
+        or not valid_count(worker_lanes)
+        or worker_lanes < 1
+        or worker_lanes > units
     ):
         raise RuntimeError(
             "codegen bucket timing report did not compile the required LLVM units"
