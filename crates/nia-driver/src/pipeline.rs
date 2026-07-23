@@ -58,6 +58,54 @@ pub struct Driver {
     link_cache: Option<std::sync::Arc<crate::executable_cache::PersistentLinkResultCache>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinkResultReuse {
+    Hit,
+    Miss(LinkResultReuseMiss),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinkResultReuseMiss {
+    Disabled,
+    Uncacheable,
+    NotFound,
+    Corrupt,
+    ReadError,
+}
+
+fn emit_link_result_reuse(timings: TimingMode, reuse: LinkResultReuse) {
+    if !timings.enabled() {
+        return;
+    }
+    let hit = u64::from(reuse == LinkResultReuse::Hit);
+    nia_timing::emit_counter("link.result_reuse_hits", hit);
+    nia_timing::emit_counter("link.result_reuse_misses", 1 - hit);
+    for (name, reason) in [
+        (
+            "link.result_reuse_miss_disabled",
+            LinkResultReuseMiss::Disabled,
+        ),
+        (
+            "link.result_reuse_miss_uncacheable",
+            LinkResultReuseMiss::Uncacheable,
+        ),
+        (
+            "link.result_reuse_miss_not_found",
+            LinkResultReuseMiss::NotFound,
+        ),
+        (
+            "link.result_reuse_miss_corrupt",
+            LinkResultReuseMiss::Corrupt,
+        ),
+        (
+            "link.result_reuse_miss_read_error",
+            LinkResultReuseMiss::ReadError,
+        ),
+    ] {
+        nia_timing::emit_counter(name, u64::from(reuse == LinkResultReuse::Miss(reason)));
+    }
+}
+
 impl Default for Driver {
     fn default() -> Self {
         Self::new()
@@ -413,6 +461,7 @@ impl Driver {
         DriverOutput::catch_ice(|| {
             let mut request = request;
             request.link_options.target = LinkTarget::from_target_config(&self.config.target);
+            let timings = request.check.timings;
             let output = self.emit_native_objects(EmitObjectRequest {
                 check: request.check.with_runtime(Runtime::Freestanding),
             });
@@ -420,7 +469,12 @@ impl Driver {
                 Ok(objects) => objects,
                 Err(error) => return DriverOutput::from_error(error),
             };
-            self.link_executable_from_objects(&objects, request.output, request.link_options)
+            self.link_executable_from_objects(
+                &objects,
+                request.output,
+                request.link_options,
+                timings,
+            )
         })
     }
 
@@ -429,6 +483,7 @@ impl Driver {
         objects: &ObjectArtifact,
         output: PathBuf,
         mut link_options: LinkOptions,
+        timings: TimingMode,
     ) -> DriverOutput<ExecutableArtifact> {
         DriverOutput::catch_ice(|| {
             link_options.target = LinkTarget::from_target_config(&self.config.target);
@@ -436,9 +491,22 @@ impl Driver {
                 Ok(fingerprint) => fingerprint,
                 Err(error) => return DriverOutput::from_error(DriverError::LinkerConfig(error)),
             };
-            if let (Some(cache), Some(fingerprint)) = (&self.link_cache, link_fingerprint)
-                && cache.restore(fingerprint, &output).unwrap_or(false)
-            {
+            let reuse = match (&self.link_cache, link_fingerprint) {
+                (None, _) => LinkResultReuse::Miss(LinkResultReuseMiss::Disabled),
+                (Some(_), None) => LinkResultReuse::Miss(LinkResultReuseMiss::Uncacheable),
+                (Some(cache), Some(fingerprint)) => match cache.restore(fingerprint, &output) {
+                    Ok(crate::executable_cache::LinkResultCacheLookup::Hit) => LinkResultReuse::Hit,
+                    Ok(crate::executable_cache::LinkResultCacheLookup::NotFound) => {
+                        LinkResultReuse::Miss(LinkResultReuseMiss::NotFound)
+                    }
+                    Ok(crate::executable_cache::LinkResultCacheLookup::Corrupt) => {
+                        LinkResultReuse::Miss(LinkResultReuseMiss::Corrupt)
+                    }
+                    Err(_) => LinkResultReuse::Miss(LinkResultReuseMiss::ReadError),
+                },
+            };
+            emit_link_result_reuse(timings, reuse);
+            if reuse == LinkResultReuse::Hit {
                 return DriverOutput::success(ExecutableArtifact { path: output });
             }
             let temp = TempDir::new("nia_emit_exe");
@@ -489,7 +557,13 @@ impl Driver {
             {
                 Ok(status) if status.success() => {
                     if let (Some(cache), Some(fingerprint)) = (&self.link_cache, link_fingerprint) {
-                        let _ = cache.publish(fingerprint, &output);
+                        let publish_error = cache.publish(fingerprint, &output).is_err();
+                        if timings.enabled() {
+                            nia_timing::emit_counter(
+                                "link.result_cache_publish_errors",
+                                u64::from(publish_error),
+                            );
+                        }
                     }
                     DriverOutput::success(ExecutableArtifact { path: output })
                 }

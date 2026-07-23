@@ -18,6 +18,19 @@ pub(crate) struct PersistentLinkResultCache {
     root: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LinkResultCacheLookup {
+    Hit,
+    NotFound,
+    Corrupt,
+}
+
+enum LinkResultCacheEntryLookup {
+    Hit(Vec<u8>),
+    NotFound,
+    Corrupt,
+}
+
 impl PersistentLinkResultCache {
     pub(crate) fn new(root: PathBuf) -> Self {
         Self { root }
@@ -27,9 +40,11 @@ impl PersistentLinkResultCache {
         &self,
         fingerprint: LinkResultFingerprint,
         output: &Path,
-    ) -> io::Result<bool> {
-        let Some(bytes) = self.load(fingerprint)? else {
-            return Ok(false);
+    ) -> io::Result<LinkResultCacheLookup> {
+        let bytes = match self.load(fingerprint)? {
+            LinkResultCacheEntryLookup::Hit(bytes) => bytes,
+            LinkResultCacheEntryLookup::NotFound => return Ok(LinkResultCacheLookup::NotFound),
+            LinkResultCacheEntryLookup::Corrupt => return Ok(LinkResultCacheLookup::Corrupt),
         };
         let parent = output
             .parent()
@@ -52,7 +67,7 @@ impl PersistentLinkResultCache {
         if result.is_err() || staged.exists() {
             let _ = fs::remove_file(&staged);
         }
-        result.map(|()| true)
+        result.map(|()| LinkResultCacheLookup::Hit)
     }
 
     pub(crate) fn publish(
@@ -60,7 +75,7 @@ impl PersistentLinkResultCache {
         fingerprint: LinkResultFingerprint,
         output: &Path,
     ) -> io::Result<()> {
-        if self.load(fingerprint)?.is_some() {
+        if matches!(self.load(fingerprint)?, LinkResultCacheEntryLookup::Hit(_)) {
             return Ok(());
         }
         let bytes = fs::read(output)?;
@@ -91,18 +106,20 @@ impl PersistentLinkResultCache {
         result
     }
 
-    fn load(&self, fingerprint: LinkResultFingerprint) -> io::Result<Option<Vec<u8>>> {
+    fn load(&self, fingerprint: LinkResultFingerprint) -> io::Result<LinkResultCacheEntryLookup> {
         let path = self.path(fingerprint);
         let encoded = match fs::read(&path) {
             Ok(encoded) => encoded,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(LinkResultCacheEntryLookup::NotFound);
+            }
             Err(error) => return Err(error),
         };
         let Some(bytes) = decode_link_result(&encoded, fingerprint) else {
             remove_corrupt(&path);
-            return Ok(None);
+            return Ok(LinkResultCacheEntryLookup::Corrupt);
         };
-        Ok(Some(bytes))
+        Ok(LinkResultCacheEntryLookup::Hit(bytes))
     }
 
     fn path(&self, fingerprint: LinkResultFingerprint) -> PathBuf {
@@ -213,13 +230,18 @@ mod tests {
         fs::create_dir_all(&root).expect("create cache root");
         fs::write(&linked, b"linked executable").expect("write linked executable");
 
+        assert_eq!(
+            cache.restore(fingerprint, &restored).expect("cold miss"),
+            LinkResultCacheLookup::NotFound
+        );
         cache
             .publish(fingerprint, &linked)
             .expect("publish link result");
-        assert!(
+        assert_eq!(
             cache
                 .restore(fingerprint, &restored)
-                .expect("restore link result")
+                .expect("restore link result"),
+            LinkResultCacheLookup::Hit
         );
         assert_eq!(
             fs::read(restored).expect("read restored"),
@@ -240,16 +262,20 @@ mod tests {
         cache.publish(fingerprint, &linked).expect("publish first");
         fs::write(cache.path(fingerprint), b"corrupt").expect("corrupt cache");
 
-        assert!(!cache.restore(fingerprint, &restored).expect("corrupt miss"));
+        assert_eq!(
+            cache.restore(fingerprint, &restored).expect("corrupt miss"),
+            LinkResultCacheLookup::Corrupt
+        );
         assert!(!cache.path(fingerprint).exists());
         fs::write(&linked, b"second").expect("write second executable");
         cache
             .publish(fingerprint, &linked)
             .expect("republish link result");
-        assert!(
+        assert_eq!(
             cache
                 .restore(fingerprint, &restored)
-                .expect("restore second")
+                .expect("restore second"),
+            LinkResultCacheLookup::Hit
         );
         assert_eq!(fs::read(restored).expect("read second"), b"second");
         let _ = fs::remove_dir_all(root);
