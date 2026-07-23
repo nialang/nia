@@ -3,7 +3,7 @@ mod resources;
 
 pub use resources::{
     ProcessMemoryPermit, acquire_llvm_memory_permit, effective_available_memory_bytes,
-    effective_memory_limit_bytes,
+    effective_memory_limit_bytes, llvm_memory_task_capacity,
 };
 
 use std::{
@@ -1363,6 +1363,49 @@ impl QuerySession {
     {
         let _activity = self.enter_activity();
         self.run_tasks_inner(tasks)
+    }
+
+    pub fn run_tasks_bounded<T, O>(
+        &self,
+        tasks: impl IntoIterator<Item = T>,
+        max_parallelism: usize,
+    ) -> Vec<O>
+    where
+        T: FnOnce() -> O + Send + 'static,
+        O: Send + 'static,
+    {
+        assert!(
+            max_parallelism > 0,
+            "bounded task parallelism must be non-zero"
+        );
+        let tasks = tasks.into_iter().collect::<Vec<_>>();
+        let lane_count = tasks
+            .len()
+            .min(max_parallelism)
+            .min(self.executor_parallelism());
+        if tasks.len() <= lane_count {
+            return self.run_tasks(tasks);
+        }
+
+        let mut lanes = (0..lane_count)
+            .map(|_| Vec::new())
+            .collect::<Vec<Vec<(usize, T)>>>();
+        for (index, task) in tasks.into_iter().enumerate() {
+            lanes[index % lane_count].push((index, task));
+        }
+        let mut outcomes = self
+            .run_tasks(lanes.into_iter().map(|lane| {
+                move || {
+                    lane.into_iter()
+                        .map(|(index, task)| (index, task()))
+                        .collect::<Vec<_>>()
+                }
+            }))
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        outcomes.sort_unstable_by_key(|(index, _)| *index);
+        outcomes.into_iter().map(|(_, output)| output).collect()
     }
 
     fn run_tasks_inner<T, O>(&self, tasks: impl IntoIterator<Item = T>) -> Vec<O>
@@ -4142,6 +4185,39 @@ mod tests {
         });
 
         assert_eq!(session.run_tasks(tasks), vec![0, 1, 2, 3]);
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert_eq!(peak_active.load(Ordering::SeqCst), 2);
+        assert_eq!(session.inner.executor.peak_active(), 2);
+    }
+
+    #[test]
+    fn bounded_session_tasks_preserve_order_and_limit_worker_lanes() {
+        let session = QuerySession::with_parallelism(4);
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak_active = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(Barrier::new(2));
+        let tasks = (0..6).map(|value| {
+            let active = Arc::clone(&active);
+            let peak_active = Arc::clone(&peak_active);
+            let barrier = Arc::clone(&barrier);
+            move || {
+                let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak_active.fetch_max(current, Ordering::SeqCst);
+                barrier.wait();
+                active.fetch_sub(1, Ordering::SeqCst);
+                OwnedNonCloneValue { value }
+            }
+        });
+
+        let values = session.run_tasks_bounded(tasks, 2);
+
+        assert_eq!(
+            values
+                .into_iter()
+                .map(|value| value.value)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3, 4, 5]
+        );
         assert_eq!(active.load(Ordering::SeqCst), 0);
         assert_eq!(peak_active.load(Ordering::SeqCst), 2);
         assert_eq!(session.inner.executor.peak_active(), 2);

@@ -45,25 +45,66 @@ class PerfRunnerTests(unittest.TestCase):
 
     def test_accepts_multiple_codegen_bucket_units(self):
         require_codegen_bucket_instrumentation(
-            {"counters": {"llvm.units": 4, "llvm.memory_permits": 4}}, 4
+            {
+                "counters": {
+                    "llvm.units": 4,
+                    "llvm.worker_lanes": 2,
+                    "llvm.memory_permits": 4,
+                }
+            },
+            4,
         )
 
     def test_rejects_single_codegen_bucket_unit(self):
         with self.assertRaisesRegex(RuntimeError, "required LLVM units"):
             require_codegen_bucket_instrumentation(
-                {"counters": {"llvm.units": 1, "llvm.memory_permits": 1}}, 2
+                {
+                    "counters": {
+                        "llvm.units": 1,
+                        "llvm.worker_lanes": 1,
+                        "llvm.memory_permits": 1,
+                    }
+                },
+                2,
             )
 
     def test_rejects_malformed_codegen_bucket_counter(self):
         with self.assertRaisesRegex(RuntimeError, "required LLVM units"):
             require_codegen_bucket_instrumentation(
-                {"counters": {"llvm.units": True, "llvm.memory_permits": 4}}, 2
+                {
+                    "counters": {
+                        "llvm.units": True,
+                        "llvm.worker_lanes": 2,
+                        "llvm.memory_permits": 4,
+                    }
+                },
+                2,
             )
 
     def test_rejects_cached_codegen_bucket_sample(self):
         with self.assertRaisesRegex(RuntimeError, "required LLVM units"):
             require_codegen_bucket_instrumentation(
-                {"counters": {"llvm.units": 4, "llvm.memory_permits": 0}}, 4
+                {
+                    "counters": {
+                        "llvm.units": 4,
+                        "llvm.worker_lanes": 2,
+                        "llvm.memory_permits": 0,
+                    }
+                },
+                4,
+            )
+
+    def test_rejects_invalid_codegen_worker_lane_count(self):
+        with self.assertRaisesRegex(RuntimeError, "required LLVM units"):
+            require_codegen_bucket_instrumentation(
+                {
+                    "counters": {
+                        "llvm.units": 4,
+                        "llvm.worker_lanes": 5,
+                        "llvm.memory_permits": 4,
+                    }
+                },
+                4,
             )
 
     def test_large_codegen_source_is_stable_and_reachable(self):
