@@ -1,0 +1,12 @@
+fn helper0(value: i64) i64 { value + 1 }
+fn helper1(value: i64) i64 { value + 2 }
+fn helper2(value: i64) i64 { value + 3 }
+fn helper3(value: i64) i64 { value + 4 }
+fn helper4(value: i64) i64 { value + 5 }
+fn helper5(value: i64) i64 { value + 6 }
+fn helper6(value: i64) i64 { value + 7 }
+
+fn main() i64 {
+    helper0(0) + helper1(0) + helper2(0) + helper3(0)
+        + helper4(0) + helper5(0) + helper6(0)
+}

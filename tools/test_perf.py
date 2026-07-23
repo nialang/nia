@@ -2,6 +2,7 @@ import unittest
 
 from tools.perf import (
     require_allocation_instrumentation,
+    require_codegen_bucket_instrumentation,
     require_module_finalization_instrumentation,
 )
 
@@ -40,6 +41,17 @@ class PerfRunnerTests(unittest.TestCase):
     def test_rejects_missing_backend_finalization_live_window_counters(self):
         with self.assertRaisesRegex(RuntimeError, "finalization live-window counters"):
             require_module_finalization_instrumentation({"counters": {}})
+
+    def test_accepts_multiple_codegen_bucket_units(self):
+        require_codegen_bucket_instrumentation({"counters": {"llvm.units": 4}})
+
+    def test_rejects_single_codegen_bucket_unit(self):
+        with self.assertRaisesRegex(RuntimeError, "multiple LLVM units"):
+            require_codegen_bucket_instrumentation({"counters": {"llvm.units": 1}})
+
+    def test_rejects_malformed_codegen_bucket_counter(self):
+        with self.assertRaisesRegex(RuntimeError, "multiple LLVM units"):
+            require_codegen_bucket_instrumentation({"counters": {"llvm.units": True}})
 
 
 if __name__ == "__main__":
