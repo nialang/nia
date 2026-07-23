@@ -287,6 +287,8 @@ fn main() i32 {
     assert!(plan.diagnostics().is_empty(), "{:?}", plan.diagnostics());
     assert_eq!(plan.modules().len(), 1);
     assert_eq!(plan.optimization(), optimization);
+    let planned_functions = plan.modules()[0].module().functions.as_ptr();
+    let planned_globals = plan.modules()[0].module().globals.as_ptr();
     let lowering = finalize_backend_item_plan(&inputs, &type_store, plan);
     assert!(
         lowering.diagnostics.is_empty(),
@@ -296,6 +298,14 @@ fn main() i32 {
     assert_eq!(lowering.program.modules.len(), 1);
     assert_eq!(lowering.program.modules[0].globals.len(), 1);
     assert_eq!(lowering.program.modules[0].functions.len(), 2);
+    assert_eq!(
+        lowering.program.modules[0].functions.as_ptr(),
+        planned_functions
+    );
+    assert_eq!(
+        lowering.program.modules[0].globals.as_ptr(),
+        planned_globals
+    );
 }
 
 fn const_enum_values_from_check(

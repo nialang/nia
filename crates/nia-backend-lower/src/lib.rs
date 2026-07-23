@@ -53,7 +53,7 @@ use crate::function_refs::{
     FunctionInstanceKey, FunctionInstanceRef, FunctionRefs, GlobalInstanceKey, GlobalInstanceRef,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct BackendLowering {
     pub program: BackendProgram,
     pub optimization: OptimizationPolicy,
@@ -63,10 +63,21 @@ pub struct BackendLowering {
 
 #[derive(Debug, PartialEq)]
 pub struct BackendItemPlan {
-    modules: Vec<BackendModule>,
+    modules: Vec<BackendModuleItemPlan>,
     optimization: OptimizationPolicy,
     optimization_report: BackendOptimizationReport,
     diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct BackendModuleItemPlan {
+    module: BackendModule,
+}
+
+impl BackendModuleItemPlan {
+    pub fn module(&self) -> &BackendModule {
+        &self.module
+    }
 }
 
 impl BackendItemPlan {
@@ -87,7 +98,7 @@ impl BackendItemPlan {
         }
     }
 
-    pub fn modules(&self) -> &[BackendModule] {
+    pub fn modules(&self) -> &[BackendModuleItemPlan] {
         &self.modules
     }
 
@@ -358,7 +369,10 @@ pub fn plan_backend_program_with_timings(
     );
 
     BackendItemPlan {
-        modules: lowered_modules,
+        modules: lowered_modules
+            .into_iter()
+            .map(|module| BackendModuleItemPlan { module })
+            .collect(),
         optimization,
         optimization_report,
         diagnostics,
@@ -380,7 +394,7 @@ pub fn finalize_backend_item_plan_with_timings(
     timings: nia_timing::TimingMode,
 ) -> BackendLowering {
     let BackendItemPlan {
-        modules: mut lowered_modules,
+        modules: module_plans,
         optimization,
         mut optimization_report,
         mut diagnostics,
@@ -388,7 +402,10 @@ pub fn finalize_backend_item_plan_with_timings(
     if !diagnostics.is_empty() {
         return BackendLowering {
             program: BackendProgram {
-                modules: lowered_modules,
+                modules: module_plans
+                    .into_iter()
+                    .map(|module_plan| module_plan.module)
+                    .collect(),
             },
             optimization,
             optimization_report,
@@ -397,12 +414,12 @@ pub fn finalize_backend_item_plan_with_timings(
     }
     assert_eq!(
         modules.len(),
-        lowered_modules.len(),
+        module_plans.len(),
         "Nia ICE: backend item plan must match finalization inputs"
     );
-    for (input, module) in modules.iter().zip(&lowered_modules) {
+    for (input, module_plan) in modules.iter().zip(&module_plans) {
         assert_eq!(
-            input.module_id, module.id,
+            input.module_id, module_plan.module.id,
             "Nia ICE: backend item plan owner order must match finalization inputs"
         );
     }
@@ -420,14 +437,20 @@ pub fn finalize_backend_item_plan_with_timings(
     for lowerer in &mut lowerers {
         lowerer.index_aggregate_sources_for_finalization();
     }
-    time_backend_stage(timing, "backend_lower.final_modules", || {
-        for (lowerer, module) in lowerers.iter_mut().zip(&mut lowered_modules) {
-            lowerer.finish_module(module);
-            diagnostics.extend(std::mem::take(&mut lowerer.diagnostics));
-            optimization_report.changed_passes.extend(std::mem::take(
-                &mut lowerer.optimization_report.changed_passes,
-            ));
-        }
+    let lowered_modules = time_backend_stage(timing, "backend_lower.final_modules", || {
+        lowerers
+            .into_iter()
+            .zip(module_plans)
+            .map(|(mut lowerer, module_plan)| {
+                let mut module = module_plan.module;
+                lowerer.finish_module(&mut module);
+                diagnostics.extend(std::mem::take(&mut lowerer.diagnostics));
+                optimization_report.changed_passes.extend(std::mem::take(
+                    &mut lowerer.optimization_report.changed_passes,
+                ));
+                module
+            })
+            .collect::<Vec<_>>()
     });
 
     BackendLowering {

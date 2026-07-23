@@ -9,12 +9,12 @@ use nia_static_ir::StaticInit;
 use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, TraitId};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct BackendProgram {
     pub modules: Vec<BackendModule>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct BackendModule {
     pub id: ModuleId,
     pub name: String,

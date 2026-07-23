@@ -1446,6 +1446,16 @@ intentionally does not implement `Clone` and is not wrapped in an ID, store, or
 `Arc`; repeated backend/codegen requests reuse the finalized backend product
 rather than reproducing or duplicating the plan.
 
+The aggregate plan is physically partitioned into non-`Clone`
+`BackendModuleItemPlan` values only after cross-module closure has converged.
+Finalization validates their owner order, rebuilds the program-wide read-only
+indexes, and then consumes each module plan with `into_iter`. The resulting
+`BackendLowering`, `BackendProgram`, and `BackendModule` also do not implement
+`Clone`. Allocation-identity regression checks show that the function and
+global vectors are moved from the module plan into the finalized module without
+changing their backing allocations. This is the module ownership boundary; it
+does not yet make modules independently scheduled queries or CGU work products.
+
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their
 function because they have no independent cache, invalidation, release, or
