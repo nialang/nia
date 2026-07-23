@@ -1366,7 +1366,14 @@ keys instead of reading reachable sets from a checked-module payload. Every
 planned source function is materialized by its owner module's first pass, so a
 cross-module reference to a source body already present in the query-owned body
 index does not re-enter the outer backend fixed point. Bare, public, and
-type-only root policies keep their existing behavior.
+type-only root policies keep their function-root behavior. When a typed
+struct/union plan is present, every root policy, including bare
+`FunctionBodies`, filters initial source aggregates through that plan. The
+backend must not emit all aggregates in an activated body module: doing so can
+introduce nominal field owners and generic instances that are absent from the
+closed executable type/layout set. Aggregate completion may add dependencies
+of planned items, but missing-owner recovery is not a substitute for honoring
+the producer plan.
 
 `BackendModuleFunctionInstancePlanQuery(ModuleId)` is the corresponding narrow
 boundary for frontend-discovered generic function instances. It validates the

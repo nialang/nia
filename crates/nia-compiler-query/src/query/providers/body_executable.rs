@@ -2436,6 +2436,7 @@ pub(super) fn filter_checked_module_for_codegen(
 
 pub(super) fn executable_reachable_aggregate_roots(
     type_store: &nia_ty::TypeStore,
+    function_signature: &dyn Fn(GlobalDefId) -> Option<Arc<ProgramFunctionSignature>>,
     struct_signature: &dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
     union_signature: &dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
     modules: &[CheckedModule],
@@ -2443,13 +2444,32 @@ pub(super) fn executable_reachable_aggregate_roots(
     let mut structs = HashSet::new();
     let mut unions = HashSet::new();
     for module in modules {
-        let mut roots = LayoutRootCollector::with_program(
+        let mut roots = LayoutRootCollector::with_program_including_local_aggregates(
             type_store,
             module.id,
             struct_signature,
             union_signature,
         );
         collect_semantic_layout_roots(&module.semantic_facts, &mut roots);
+        for (def_id, def) in module.defs.defs.iter() {
+            if !matches!(def.kind, DefKind::Function | DefKind::Method) {
+                continue;
+            }
+            let def_id = GlobalDefId {
+                module_id: module.id,
+                def_id,
+            };
+            let Some(signature) = function_signature(def_id) else {
+                continue;
+            };
+            if !signature.signature.is_extern {
+                continue;
+            }
+            for param in &signature.signature.params {
+                roots.add(param.ty);
+            }
+            roots.add(signature.signature.return_type);
+        }
         let roots = roots.finish_global();
         structs.extend(roots.structs);
         unions.extend(roots.unions);

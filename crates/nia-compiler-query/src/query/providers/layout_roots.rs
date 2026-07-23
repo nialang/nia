@@ -57,6 +57,7 @@ pub(super) struct LayoutRootCollector<'a> {
     module_id: ModuleId,
     program_struct: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>>,
     program_union: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>>,
+    expand_local_aggregate_fields: bool,
     seen: HashSet<InternedTyId>,
     types: Vec<InternedTyId>,
     seen_structs: HashSet<nia_defs::DefId>,
@@ -77,6 +78,7 @@ impl<'a> LayoutRootCollector<'a> {
             module_id,
             program_struct: None,
             program_union: None,
+            expand_local_aggregate_fields: false,
             seen: HashSet::new(),
             types: Vec::new(),
             seen_structs: HashSet::new(),
@@ -99,6 +101,18 @@ impl<'a> LayoutRootCollector<'a> {
         let mut collector = Self::new(type_store, module_id);
         collector.program_struct = Some(program_struct);
         collector.program_union = Some(program_union);
+        collector
+    }
+
+    pub(super) fn with_program_including_local_aggregates(
+        type_store: &'a nia_ty::TypeStore,
+        module_id: ModuleId,
+        program_struct: &'a dyn Fn(GlobalDefId) -> Option<ProgramStructSignature>,
+        program_union: &'a dyn Fn(GlobalDefId) -> Option<ProgramUnionSignature>,
+    ) -> Self {
+        let mut collector =
+            Self::with_program(type_store, module_id, program_struct, program_union);
+        collector.expand_local_aggregate_fields = true;
         collector
     }
 
@@ -184,7 +198,7 @@ impl<'a> LayoutRootCollector<'a> {
     }
 
     fn add_nominal_fields(&mut self, def_id: GlobalDefId, args: &[InternedTyId]) {
-        if def_id.module_id == self.module_id {
+        if def_id.module_id == self.module_id && !self.expand_local_aggregate_fields {
             return;
         }
         if let Some(program_struct) = self.program_struct
