@@ -1638,6 +1638,15 @@ checkout, copied interners, owner-module discovery, or a lock per recursive
 type lookup. Module maps remain indexes for backend items and layout facts, not
 a second type-interpretation path.
 
+`ProgramIndex` itself has exactly two borrowed roots: the canonical
+`BackendProgram` and `TypeStore`. Every module, item, instance, vtable, and
+layout map stores compact module/item positions rather than references into the
+program. Accessors resolve those positions back to the canonical allocation;
+they do not clone Backend IR or establish a second item store. This removes the
+self-referential map shape and makes the readonly index `Send + Sync`, while its
+current lifetime still prevents submission to a `'static` executor task until
+the two roots move into an owned codegen task context.
+
 Finalized backend lowering also publishes one `CodegenPartitionPlan`. Its source
 units use the typed `CodegenUnitId::SourceModule { module_id, ordinal }`
 identity; the initial policy assigns ordinal zero to each backend module that

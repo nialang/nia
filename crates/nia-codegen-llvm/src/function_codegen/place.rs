@@ -515,8 +515,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionPlaceBase::Global(def_id) => self
                 .module
                 .program
-                .globals
-                .get(def_id)
+                .global(*def_id)
                 .map(|global| global.ty)
                 .unwrap_or(place.ty),
             FunctionPlaceBase::GlobalInstance {
@@ -527,9 +526,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             } => self
                 .module
                 .program
-                .global_instances
-                .get(&(*def_id, *arg_module_id))
-                .and_then(|instances| instances.get(&(args.clone(), const_args.clone())))
+                .global_instance(*def_id, *arg_module_id, args, const_args)
                 .map(|global| global.ty)
                 .unwrap_or(place.ty),
             FunctionPlaceBase::Deref(expr) => match self.module.ty_kind(expr.ty) {

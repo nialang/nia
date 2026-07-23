@@ -210,7 +210,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::TraitObject { .. }
                 | TyKind::Range { .. },
             ) => AbiParam::Direct(ty),
-            Some(TyKind::Nominal { def_id, .. }) if self.program.enums.contains_key(def_id) => {
+            Some(TyKind::Nominal { def_id, .. }) if self.program.has_enum(*def_id) => {
                 AbiParam::Direct(ty)
             }
             Some(TyKind::Array { .. } | TyKind::Nominal { .. }) => AbiParam::IndirectReadonly(ty),
@@ -252,7 +252,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 | TyKind::TraitObject { .. }
                 | TyKind::Range { .. },
             ) => AbiReturn::Direct(ty),
-            Some(TyKind::Nominal { def_id, .. }) if self.program.enums.contains_key(def_id) => {
+            Some(TyKind::Nominal { def_id, .. }) if self.program.has_enum(*def_id) => {
                 AbiReturn::Direct(ty)
             }
             Some(TyKind::Array { .. } | TyKind::Nominal { .. }) => AbiReturn::IndirectOut(ty),
@@ -367,7 +367,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 if let Some(union_ty) = self.unions.get(def_id).copied() {
                     return Ok(union_ty.into());
                 }
-                if let Some(item) = self.program.enums.get(def_id).copied() {
+                if let Some(item) = self.program.enum_item(*def_id) {
                     return self.llvm_basic_type_in(item.backing_type, item.span);
                 }
                 Err(self.error(span, "unknown nominal type during LLVM lowering"))
@@ -656,7 +656,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if let Some(instance) = self.struct_instance_item(def_id, args, const_args) {
             return Ok(&instance.fields);
         }
-        if let Some(item) = self.program.structs.get(&def_id) {
+        if let Some(item) = self.program.struct_item(def_id) {
             return Ok(&item.fields);
         }
         Err(self.error(span, "missing struct fields"))
@@ -672,7 +672,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if let Some(instance) = self.union_instance_item(def_id, args, const_args) {
             return Ok(&instance.fields);
         }
-        if let Some(item) = self.program.unions.get(&def_id) {
+        if let Some(item) = self.program.union_item(def_id) {
             return Ok(&item.fields);
         }
         Err(self.error(span, "missing union fields"))
@@ -719,8 +719,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(crate) fn is_union_def(&self, def_id: GlobalDefId) -> bool {
-        self.program.unions.contains_key(&def_id)
-            || self.program.union_instances_by_def.contains_key(&def_id)
+        self.program.has_union(def_id) || self.program.has_union_instances(def_id)
     }
 
     pub(super) fn union_storage_fields(
@@ -884,15 +883,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if let Some(item) = self.program.struct_instance(def_id, args, const_args) {
             return Some(item);
         }
-        self.program
-            .struct_instances_by_def
-            .get(&def_id)
-            .into_iter()
-            .flatten()
-            .find(|item| {
-                self.same_type_args(args, &item.args) && const_args == item.const_args.as_slice()
-            })
-            .copied()
+        self.program.struct_instances_for(def_id).find(|item| {
+            self.same_type_args(args, &item.args) && const_args == item.const_args.as_slice()
+        })
     }
 
     fn union_instance_type(
@@ -941,15 +934,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if let Some(item) = self.program.union_instance(def_id, args, const_args) {
             return Some(item);
         }
-        self.program
-            .union_instances_by_def
-            .get(&def_id)
-            .into_iter()
-            .flatten()
-            .find(|item| {
-                self.same_type_args(args, &item.args) && const_args == item.const_args.as_slice()
-            })
-            .copied()
+        self.program.union_instances_for(def_id).find(|item| {
+            self.same_type_args(args, &item.args) && const_args == item.const_args.as_slice()
+        })
     }
 
     pub(crate) fn function(&self, def_id: GlobalDefId) -> Option<FunctionValue<'ctx>> {
@@ -957,7 +944,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(crate) fn function_item(&self, def_id: GlobalDefId) -> Option<&'a BackendFunction> {
-        self.program.functions.get(&def_id).copied()
+        self.program.function(def_id)
     }
 
     pub(crate) fn function_instance_item(
@@ -982,19 +969,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         {
             return Some(item);
         }
-        let mut matches = self
-            .program
-            .function_instances_by_def
-            .get(&def_id)
-            .into_iter()
-            .flatten()
-            .filter(|item| {
-                item.arg_module_id == arg_module_id
-                    && self.same_optional_type(self_arg, item.self_arg)
-                    && self.same_type_args(args, &item.args)
-                    && const_args == item.const_args.as_slice()
-            });
-        let first = matches.next().copied()?;
+        let mut matches = self.program.function_instances_for(def_id).filter(|item| {
+            item.arg_module_id == arg_module_id
+                && self.same_optional_type(self_arg, item.self_arg)
+                && self.same_type_args(args, &item.args)
+                && const_args == item.const_args.as_slice()
+        });
+        let first = matches.next()?;
         if matches.next().is_some() {
             return None;
         }

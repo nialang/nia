@@ -70,10 +70,10 @@ impl BackendValidator<'_> {
         span: Span,
         message: &str,
     ) {
-        if !self.index.structs.contains_key(&def_id)
-            && !self.index.unions.contains_key(&def_id)
-            && !self.index.struct_instances_by_def.contains_key(&def_id)
-            && !self.index.union_instances_by_def.contains_key(&def_id)
+        if !self.index.has_struct(def_id)
+            && !self.index.has_union(def_id)
+            && !self.index.has_struct_instances(def_id)
+            && !self.index.has_union_instances(def_id)
         {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -89,7 +89,7 @@ impl BackendValidator<'_> {
         span: Span,
         message: &str,
     ) {
-        if !self.index.enum_variants.contains_key(&def_id) {
+        if !self.index.has_enum_variant(def_id) {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 span,
@@ -135,7 +135,7 @@ impl BackendValidator<'_> {
                 .last()
                 .and_then(|local_tys| local_tys.get(local_id).copied()),
             nia_function_ir::FunctionPlaceBase::Global(def_id) => {
-                self.index.globals.get(def_id).map(|item| item.ty)
+                self.index.global(*def_id).map(|item| item.ty)
             }
             nia_function_ir::FunctionPlaceBase::GlobalInstance {
                 def_id,
@@ -144,9 +144,7 @@ impl BackendValidator<'_> {
                 const_args,
             } => self
                 .index
-                .global_instances
-                .get(&(*def_id, *arg_module_id))
-                .and_then(|instances| instances.get(&(args.clone(), const_args.clone())))
+                .global_instance(*def_id, *arg_module_id, args, const_args)
                 .map(|item| item.ty),
             nia_function_ir::FunctionPlaceBase::Deref(expr) => match self.ty_kind(expr.ty) {
                 Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
@@ -189,10 +187,7 @@ impl BackendValidator<'_> {
         } else {
             let matched_args = self
                 .index
-                .struct_instances_by_def
-                .get(&def_id)
-                .into_iter()
-                .flatten()
+                .struct_instances_for(def_id)
                 .find(|item| {
                     self.same_type_args(&item.args, args)
                         && item.const_args.as_slice() == const_args
@@ -209,8 +204,7 @@ impl BackendValidator<'_> {
             }
         }
         self.index
-            .structs
-            .get(&def_id)
+            .struct_item(def_id)
             .map(|item| item.fields.as_slice())
     }
 
@@ -235,10 +229,7 @@ impl BackendValidator<'_> {
         } else {
             let matched_args = self
                 .index
-                .union_instances_by_def
-                .get(&def_id)
-                .into_iter()
-                .flatten()
+                .union_instances_for(def_id)
                 .find(|item| {
                     self.same_type_args(&item.args, args)
                         && item.const_args.as_slice() == const_args
@@ -255,8 +246,7 @@ impl BackendValidator<'_> {
             }
         }
         self.index
-            .unions
-            .get(&def_id)
+            .union_item(def_id)
             .map(|item| item.fields.as_slice())
     }
 }

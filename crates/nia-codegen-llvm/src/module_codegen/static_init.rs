@@ -92,7 +92,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let Some(global_value) = self.globals.get(&global).copied() else {
             return Err(self.error(span, "missing global for static address initializer"));
         };
-        let Some(global_ty) = self.program.globals.get(&global).map(|item| item.ty) else {
+        let Some(global_ty) = self.program.global(global).map(|item| item.ty) else {
             return Err(self.error(span, "missing global type for static address initializer"));
         };
         let mut ptr = global_value.as_pointer_value();

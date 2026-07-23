@@ -282,7 +282,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     | PrimitiveTy::Char
             ),
             Some(TyKind::Pointer { .. }) => true,
-            Some(TyKind::Nominal { def_id, .. }) => self.module.program.enums.contains_key(def_id),
+            Some(TyKind::Nominal { def_id, .. }) => self.module.program.has_enum(*def_id),
             _ => false,
         };
         if valid && layout.is_some_and(|layout| layout.size <= pointer_size) {

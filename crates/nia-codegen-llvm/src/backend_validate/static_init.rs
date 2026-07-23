@@ -51,7 +51,7 @@ impl BackendValidator<'_> {
             }
             StaticInit::Struct(fields) => self.validate_static_struct_init(ty, fields, span),
             StaticInit::AddrOfGlobal { global, path } => {
-                let Some(global_item) = self.index.globals.get(global) else {
+                let Some(global_item) = self.index.global(*global) else {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         span,

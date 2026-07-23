@@ -347,16 +347,16 @@ impl BackendValidator<'_> {
                         .or_else(|| self.index.union_layout(*def_id))
                         .map(|layout| layout.layout.clone())
                         .or_else(|| {
-                            let enum_item = self.index.enums.get(def_id).copied()?;
+                            let enum_item = self.index.enum_item(*def_id)?;
                             self.layout_of_with_active(enum_item.backing_type, active)
                         })
                         .or_else(|| {
-                            self.index.structs.get(def_id).and_then(|item| {
+                            self.index.struct_item(*def_id).and_then(|item| {
                                 self.zero_sized_aggregate_layout(&item.fields, active)
                             })
                         })
                         .or_else(|| {
-                            self.index.unions.get(def_id).and_then(|item| {
+                            self.index.union_item(*def_id).and_then(|item| {
                                 self.zero_sized_aggregate_layout(&item.fields, active)
                             })
                         })
@@ -394,10 +394,7 @@ impl BackendValidator<'_> {
                         })
                         .or_else(|| {
                             self.index
-                                .struct_instances_by_def
-                                .get(def_id)
-                                .into_iter()
-                                .flatten()
+                                .struct_instances_for(*def_id)
                                 .find(|item| {
                                     self.same_type_args(&item.args, args)
                                         && item.const_args.as_slice() == const_args.as_slice()
@@ -407,7 +404,7 @@ impl BackendValidator<'_> {
                                 })
                         })
                         .or_else(|| {
-                            self.index.structs.get(def_id).and_then(|item| {
+                            self.index.struct_item(*def_id).and_then(|item| {
                                 self.zero_sized_aggregate_layout(&item.fields, active)
                             })
                         })
@@ -420,10 +417,7 @@ impl BackendValidator<'_> {
                         })
                         .or_else(|| {
                             self.index
-                                .union_instances_by_def
-                                .get(def_id)
-                                .into_iter()
-                                .flatten()
+                                .union_instances_for(*def_id)
                                 .find(|item| {
                                     self.same_type_args(&item.args, args)
                                         && item.const_args.as_slice() == const_args.as_slice()
@@ -433,7 +427,7 @@ impl BackendValidator<'_> {
                                 })
                         })
                         .or_else(|| {
-                            self.index.unions.get(def_id).and_then(|item| {
+                            self.index.union_item(*def_id).and_then(|item| {
                                 self.zero_sized_aggregate_layout(&item.fields, active)
                             })
                         })
