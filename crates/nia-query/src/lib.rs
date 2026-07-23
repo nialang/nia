@@ -29,6 +29,7 @@ pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
 
     const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::None;
     const STORAGE: QueryStoragePolicy = QueryStoragePolicy::CacheOwnedArc;
+    const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::KeyExecute;
 
     fn name() -> &'static str;
     fn description(&self) -> String {
@@ -46,6 +47,7 @@ pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueryProviderPolicy {
     KeyExecute,
+    ExternallyPublished,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,6 +162,13 @@ impl QueryRegistry {
             "single-consumer query `{}` cannot retain a value fingerprint",
             K::name()
         );
+        assert!(
+            K::PROVIDER == QueryProviderPolicy::KeyExecute
+                || (K::STORAGE == QueryStoragePolicy::SingleConsumerOwned
+                    && K::FINGERPRINT == QueryFingerprintPolicy::None),
+            "externally published query `{}` must use single-consumer owned storage",
+            K::name()
+        );
         let key_type_id = TypeId::of::<K>();
         assert!(
             !self.descriptors.contains_key(&key_type_id),
@@ -185,7 +194,7 @@ impl QueryRegistry {
                 context_type: std::any::type_name::<C>(),
                 key_type: std::any::type_name::<K>(),
                 value_type: std::any::type_name::<K::Value>(),
-                provider: QueryProviderPolicy::KeyExecute,
+                provider: K::PROVIDER,
                 fingerprint: K::FINGERPRINT,
                 storage: K::STORAGE,
             },
@@ -1054,6 +1063,9 @@ impl QuerySlotStats {
 enum QueryState<V> {
     Empty,
     Consumed,
+    Published {
+        value: V,
+    },
     Computing {
         invalidated: bool,
     },
@@ -1094,7 +1106,7 @@ where
     fn invalidate(&self) {
         let mut state = self.state.lock().expect("query cache lock poisoned");
         match &mut *state {
-            QueryState::Empty | QueryState::Consumed => {
+            QueryState::Empty | QueryState::Consumed | QueryState::Published { .. } => {
                 *state = QueryState::Empty;
             }
             QueryState::Computing { invalidated } | QueryState::Validating { invalidated } => {
@@ -1143,7 +1155,10 @@ where
                 *state = QueryState::Validating { invalidated: true };
                 QueryInvalidationDisposition::Cleared
             }
-            QueryState::Empty | QueryState::Consumed | QueryState::Ready { .. } => {
+            QueryState::Empty
+            | QueryState::Consumed
+            | QueryState::Published { .. }
+            | QueryState::Ready { .. } => {
                 self.ready.notify_all();
                 QueryInvalidationDisposition::Cleared
             }
@@ -1156,6 +1171,7 @@ where
             QueryState::Ready { fingerprint, .. } => *fingerprint,
             QueryState::Empty
             | QueryState::Consumed
+            | QueryState::Published { .. }
             | QueryState::Computing { .. }
             | QueryState::Validating { .. }
             | QueryState::PotentiallyOutdated { .. } => None,
@@ -1661,7 +1677,27 @@ impl<C> QueryDb<C> {
         loop {
             let mut state = slot.state.lock().expect("query cache lock poisoned");
             match &*state {
+                QueryState::Published { .. } => {
+                    let QueryState::Published { value } =
+                        std::mem::replace(&mut *state, QueryState::Consumed)
+                    else {
+                        unreachable!("published query state changed while locked");
+                    };
+                    slot.ready.notify_all();
+                    record_dependency_fingerprint_on_current_stack(
+                        self.inner.session.inner.id,
+                        node_id,
+                        None,
+                    );
+                    return Ok(value);
+                }
                 QueryState::Empty | QueryState::Consumed => {
+                    if K::PROVIDER == QueryProviderPolicy::ExternallyPublished {
+                        return Err(QueryError::InvalidInput {
+                            query: query_frame::<C, K>(&key),
+                            message: "owned product has not been published by its producer".into(),
+                        });
+                    }
                     *state = QueryState::Computing { invalidated: false };
                     drop(state);
 
@@ -1737,6 +1773,52 @@ impl<C> QueryDb<C> {
         }
     }
 
+    /// Publishes an already-owned payload to one externally-published query slot.
+    ///
+    /// The published slot depends on `predecessor`, so invalidating the producer
+    /// drops an unconsumed payload and invalidates an already-consumed consumer.
+    pub fn publish_owned<K, P>(&self, key: K, value: K::Value, predecessor: &P)
+    where
+        K: QueryKey<C>,
+        P: QueryKey<C>,
+    {
+        assert_eq!(
+            K::STORAGE,
+            QueryStoragePolicy::SingleConsumerOwned,
+            "published query `{}` must use single-consumer owned storage",
+            K::name()
+        );
+        assert_eq!(
+            K::PROVIDER,
+            QueryProviderPolicy::ExternallyPublished,
+            "query `{}` does not declare an external producer",
+            K::name()
+        );
+        assert_eq!(
+            K::FINGERPRINT,
+            QueryFingerprintPolicy::None,
+            "published query `{}` cannot retain a value fingerprint",
+            K::name()
+        );
+        let _activity = self.inner.session.enter_activity();
+        let slot = self.slot_for(&key);
+        let predecessor_slot = self.slot_for(predecessor);
+        {
+            let mut state = slot.state.lock().expect("query cache lock poisoned");
+            assert!(
+                matches!(&*state, QueryState::Empty | QueryState::Consumed),
+                "published query `{}` already has a live payload or consumer",
+                K::name()
+            );
+            *state = QueryState::Published { value };
+            slot.ready.notify_all();
+        }
+        self.replace_dependencies_from(
+            slot.node_id,
+            FastHashSet::from_iter([predecessor_slot.node_id]),
+        );
+    }
+
     fn try_get_cached<K>(&self, key: K) -> QueryResult<Arc<K::Value>>
     where
         K: QueryKey<C>,
@@ -1758,6 +1840,12 @@ impl<C> QueryDb<C> {
         loop {
             let mut state = slot.state.lock().expect("query cache lock poisoned");
             match &*state {
+                QueryState::Published { .. } => {
+                    panic!(
+                        "Nia ICE: shared query `{}` reached published owned state",
+                        K::name()
+                    )
+                }
                 QueryState::Ready {
                     value, fingerprint, ..
                 } => {
@@ -2072,7 +2160,7 @@ impl<C> QueryDb<C> {
         let is_green = {
             let state = slot.state.lock().expect("query cache lock poisoned");
             match &*state {
-                QueryState::Empty | QueryState::Consumed => {
+                QueryState::Empty | QueryState::Consumed | QueryState::Published { .. } => {
                     return QueryInvalidation::default();
                 }
                 QueryState::Computing { .. }
@@ -3446,6 +3534,35 @@ mod tests {
         }
     }
 
+    struct PublishedOwnedValue {
+        value: usize,
+        drops: Arc<AtomicUsize>,
+    }
+
+    impl Drop for PublishedOwnedValue {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct PublishedOwnedValueQuery(usize);
+
+    impl QueryKey<TestContext> for PublishedOwnedValueQuery {
+        type Value = PublishedOwnedValue;
+
+        const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+        const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::ExternallyPublished;
+
+        fn name() -> &'static str {
+            "published_owned_value"
+        }
+
+        fn execute(&self, _db: &QueryDb<TestContext>) -> Self::Value {
+            unreachable!("externally published queries do not execute their key provider")
+        }
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     struct OwnedValueParent(usize);
 
@@ -3553,6 +3670,65 @@ mod tests {
     }
 
     #[test]
+    fn externally_published_owned_query_moves_once_and_tracks_its_predecessor() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+        let predecessor = OwnedNonCloneValueQuery(3);
+        assert_eq!(db.get_owned(predecessor).value, 3);
+        let drops = Arc::new(AtomicUsize::new(0));
+
+        db.publish_owned(
+            PublishedOwnedValueQuery(3),
+            PublishedOwnedValue {
+                value: 9,
+                drops: Arc::clone(&drops),
+            },
+            &predecessor,
+        );
+        let value = db.get_owned(PublishedOwnedValueQuery(3));
+        assert_eq!(value.value, 9);
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        drop(value);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+        assert!(db.try_get_owned(PublishedOwnedValueQuery(3)).is_err());
+        assert!(db.query_trace().dependencies.iter().any(|dependency| {
+            dependency.from.name == "published_owned_value"
+                && dependency.to.name == "owned_non_clone_value"
+        }));
+
+        let invalidation = db.invalidate(predecessor);
+        assert!(
+            invalidation
+                .invalidated
+                .iter()
+                .any(|frame| { frame.name == "published_owned_value" })
+        );
+    }
+
+    #[test]
+    fn invalidating_a_producer_drops_an_unconsumed_published_payload() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+        let predecessor = OwnedNonCloneValueQuery(5);
+        assert_eq!(db.get_owned(predecessor).value, 5);
+        let drops = Arc::new(AtomicUsize::new(0));
+        db.publish_owned(
+            PublishedOwnedValueQuery(5),
+            PublishedOwnedValue {
+                value: 25,
+                drops: Arc::clone(&drops),
+            },
+            &predecessor,
+        );
+
+        db.invalidate(predecessor);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+        assert!(db.try_get_owned(PublishedOwnedValueQuery(5)).is_err());
+    }
+
+    #[test]
     fn query_storage_policy_rejects_the_wrong_access_mode() {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
@@ -3570,6 +3746,22 @@ mod tests {
 
         let descriptors = registry.descriptors();
         assert_eq!(descriptors.len(), 1);
+        assert_eq!(
+            descriptors[0].storage,
+            QueryStoragePolicy::SingleConsumerOwned
+        );
+    }
+
+    #[test]
+    fn declarative_registry_records_an_external_owned_producer() {
+        let mut registry = QueryRegistry::new();
+        registry.register::<TestContext, PublishedOwnedValueQuery>();
+
+        let descriptors = registry.descriptors();
+        assert_eq!(
+            descriptors[0].provider,
+            QueryProviderPolicy::ExternallyPublished
+        );
         assert_eq!(
             descriptors[0].storage,
             QueryStoragePolicy::SingleConsumerOwned

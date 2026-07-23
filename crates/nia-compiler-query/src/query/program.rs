@@ -97,6 +97,28 @@ impl QueryKey<CompilerContext> for BackendItemPlanQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct BackendModuleItemPlanQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for BackendModuleItemPlanQuery {
+    type Value = nia_backend_lower::BackendModuleItemPlan;
+
+    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+    const PROVIDER: QueryProviderPolicy = QueryProviderPolicy::ExternallyPublished;
+
+    fn name() -> &'static str {
+        "backend_module_item_plan"
+    }
+
+    fn description(&self) -> String {
+        format!("backend_module_item_plan({:?})", self.0)
+    }
+
+    fn execute(&self, _db: &QueryDb<CompilerContext>) -> Self::Value {
+        unreachable!("backend module item plans are published by backend lowering")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct BackendLoweringQuery;
 
 impl QueryKey<CompilerContext> for BackendLoweringQuery {

@@ -638,13 +638,18 @@ LSP scheduling, cancellation, and priority handling are separate future layers.
 Query keys declare an explicit storage policy. The default
 `CacheOwnedArc` policy retains one immutable value in its slot and publishes
 shared handles. `SingleConsumerOwned` instead moves a non-`Clone` value directly
-from its provider to one consumer; after production the slot records only a
-payload-free `Consumed` state, execution statistics, and dependency edges. A
-later direct request produces a fresh value, while invalidating any dependency
-still reaches cached downstream consumers through the retained graph edges.
-Owned queries cannot declare fingerprints and must be requested through
-`get_owned`; ordinary `get` rejects them. This policy is for an actual unique
-consumer boundary, not a way to hide shared data without an `Arc`.
+from its provider to one consumer. An `ExternallyPublished` owned query may
+instead receive the same raw value from a tracked producer through
+`publish_owned`; its slot temporarily owns that value without an `Arc`, and
+records an explicit dependency on the producer. `get_owned` moves the payload
+out and leaves only a payload-free `Consumed` state, execution statistics, and
+dependency edges. Invalidating the producer drops an unconsumed published value
+or reaches its downstream consumer after consumption. A key-executed owned
+query can produce a fresh value on a later direct request; an externally
+published key rejects access until its producer republishes it. Owned queries
+cannot declare fingerprints and ordinary `get` rejects them. These policies are
+for actual unique-consumer boundaries, not a way to hide shared data without an
+`Arc`.
 
 `QuerySession` owns a lazily started persistent executor. `get_many` submits
 work to that executor, and nested batches reuse the permit already held by the
@@ -1455,6 +1460,19 @@ indexes, and then consumes each module plan with `into_iter`. The resulting
 global vectors are moved from the module plan into the finalized module without
 changing their backing allocations. This is the module ownership boundary; it
 does not yet make modules independently scheduled queries or CGU work products.
+
+The partition now crosses a formal per-module query boundary. The sole
+`BackendItemPlanQuery` consumer destructures the aggregate once and publishes
+each raw module payload directly to
+`BackendModuleItemPlanQuery(ModuleId)`. Finalization then consumes those slots
+by value; the module queries never execute the whole-program closure, retain an
+`Arc`, or use a side store. Their dependency edges point back to the aggregate
+plan, so invalidation drops an unconsumed module payload and causes a consumed
+slot to be republished on the next backend request. Query regressions assert
+that production leaves every module-plan slot payload-free. This establishes
+module-keyed ownership and future scheduling inputs, but finalization still
+runs inside the aggregate backend query and no measured peak-live-bytes or CGU
+partition is claimed yet.
 
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their

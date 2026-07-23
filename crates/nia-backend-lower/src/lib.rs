@@ -74,6 +74,13 @@ pub struct BackendModuleItemPlan {
     module: BackendModule,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct BackendItemPlanFinalization {
+    optimization: OptimizationPolicy,
+    optimization_report: BackendOptimizationReport,
+    diagnostics: Vec<Diagnostic>,
+}
+
 impl BackendModuleItemPlan {
     pub fn module(&self) -> &BackendModule {
         &self.module
@@ -100,6 +107,17 @@ impl BackendItemPlan {
 
     pub fn modules(&self) -> &[BackendModuleItemPlan] {
         &self.modules
+    }
+
+    pub fn into_module_plans(self) -> (BackendItemPlanFinalization, Vec<BackendModuleItemPlan>) {
+        (
+            BackendItemPlanFinalization {
+                optimization: self.optimization,
+                optimization_report: self.optimization_report,
+                diagnostics: self.diagnostics,
+            },
+            self.modules,
+        )
     }
 
     pub fn optimization(&self) -> OptimizationPolicy {
@@ -234,7 +252,14 @@ pub fn lower_backend_program_with_timings(
     timings: nia_timing::TimingMode,
 ) -> BackendLowering {
     let plan = plan_backend_program_with_timings(modules, type_store, optimization, timings);
-    finalize_backend_item_plan_with_timings(modules, type_store, plan, timings)
+    let (finalization, module_plans) = plan.into_module_plans();
+    finalize_backend_module_item_plans_with_timings(
+        modules,
+        type_store,
+        finalization,
+        module_plans,
+        timings,
+    )
 }
 
 pub fn plan_backend_program(
@@ -379,26 +404,33 @@ pub fn plan_backend_program_with_timings(
     }
 }
 
-pub fn finalize_backend_item_plan(
+pub fn finalize_backend_module_item_plans(
     modules: &[BackendLowerModuleInput<'_>],
     type_store: &nia_ty::TypeStore,
-    plan: BackendItemPlan,
+    finalization: BackendItemPlanFinalization,
+    module_plans: Vec<BackendModuleItemPlan>,
 ) -> BackendLowering {
-    finalize_backend_item_plan_with_timings(modules, type_store, plan, nia_timing::TimingMode::Off)
+    finalize_backend_module_item_plans_with_timings(
+        modules,
+        type_store,
+        finalization,
+        module_plans,
+        nia_timing::TimingMode::Off,
+    )
 }
 
-pub fn finalize_backend_item_plan_with_timings(
+pub fn finalize_backend_module_item_plans_with_timings(
     modules: &[BackendLowerModuleInput<'_>],
     type_store: &nia_ty::TypeStore,
-    plan: BackendItemPlan,
+    finalization: BackendItemPlanFinalization,
+    module_plans: Vec<BackendModuleItemPlan>,
     timings: nia_timing::TimingMode,
 ) -> BackendLowering {
-    let BackendItemPlan {
-        modules: module_plans,
+    let BackendItemPlanFinalization {
         optimization,
         mut optimization_report,
         mut diagnostics,
-    } = plan;
+    } = finalization;
     if !diagnostics.is_empty() {
         return BackendLowering {
             program: BackendProgram {
