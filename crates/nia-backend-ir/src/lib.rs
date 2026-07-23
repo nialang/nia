@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
@@ -139,6 +139,16 @@ pub struct CodegenPartitionPlan {
 
 impl CodegenPartitionPlan {
     fn from_modules(modules: &[BackendModule]) -> Self {
+        let mut vtable_definitions = HashSet::new();
+        for module in modules {
+            for vtable in &module.trait_object_vtables {
+                assert!(
+                    vtable_definitions.insert(vtable.key.clone()),
+                    "Nia ICE: backend program contains duplicate trait-object vtable definition {:?}",
+                    vtable.key
+                );
+            }
+        }
         let mut partitions = modules
             .iter()
             .enumerate()
@@ -836,6 +846,41 @@ mod tests {
                 module_with_global(first_id, first_ty, "same", false),
                 module_with_global(second_id, second_ty, "same", false),
             ],
+        };
+
+        let _ = program.codegen_partition_plan();
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate trait-object vtable definition")]
+    fn codegen_partition_plan_rejects_duplicate_vtable_definitions() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let first_id = module_ids.allocate();
+        let second_id = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let ty = type_store
+            .append_for_module(first_id)
+            .primitive(PrimitiveTy::I32);
+        let trait_id = TraitId::Source(GlobalDefId {
+            module_id: first_id,
+            def_id: DefId(1),
+        });
+        let vtable = BackendTraitObjectVtable {
+            key: BackendTraitObjectVtableKey {
+                self_ty: ty,
+                object_ty: ty,
+            },
+            trait_id,
+            trait_args: Vec::new(),
+            entries: Vec::new(),
+            span: Span::default(),
+        };
+        let mut first = module_with_global(first_id, ty, "first", false);
+        first.trait_object_vtables.push(vtable.clone());
+        let mut second = module_with_global(second_id, ty, "second", false);
+        second.trait_object_vtables.push(vtable);
+        let program = BackendProgram {
+            modules: vec![first, second],
         };
 
         let _ = program.codegen_partition_plan();
