@@ -61,6 +61,19 @@ pub enum CodegenUnitKey {
     CompilerBuiltins,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CodegenUnitFingerprint([u64; 2]);
+
+impl CodegenUnitFingerprint {
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(parts)
+    }
+
+    pub const fn parts(self) -> [u64; 2] {
+        self.0
+    }
+}
+
 impl CodegenUnitKey {
     fn source_module(source_identity: SourceIdentity) -> Self {
         Self::SourceModule {

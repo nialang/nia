@@ -27,7 +27,7 @@ pub mod module {
 }
 
 pub mod target {
-    pub use crate::llvm_api::TargetMachine;
+    pub use crate::llvm_api::{TargetMachine, TargetMachineIdentity};
 }
 
 pub mod types {

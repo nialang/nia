@@ -1672,6 +1672,35 @@ native object result that actually needs them; a source module name can no
 longer stand in for that role. Validation and cross-unit declaration/layout
 lookup intentionally remain whole-program and readonly.
 
+Every emitted unit also carries a `CodegenUnitFingerprint`, which is content
+identity rather than location identity. Its encoder is explicitly versioned
+and writes fixed-width values into the stable query fingerprint builder; it
+does not hash `Debug` text, standard-library randomized hash state, `ModuleId`,
+or raw `InternedTyId` slots. Module references are remapped to normalized
+`SourceIdentity`, definition references pair that identity with `DefId`, and
+types are encoded recursively from canonical `TyKind` together with their
+resolved layouts.
+
+A source-unit fingerprint contains the unit's complete definitions, including
+function bodies and static initializers, plus every program module's
+declaration, ABI, vtable, const, and layout surface. Other units' bodies and
+initializers are deliberately excluded. This conservative closure makes a
+cross-module ABI/layout change invalidate consumers without making an
+unrelated body edit invalidate every CGU. Optimization policy, artifact kind,
+compiler fingerprint schema, package version, and the LLVM wrapper codegen ABI
+are part of the domain. Native objects additionally include the exact LLVM
+target triple, CPU, and feature string used to construct their target machine.
+Compiler builtins use their own domain over the requested symbol set and the
+same policy/target inputs.
+
+Spans and display-only local names are excluded because they cannot affect the
+object product. Differential tests require stability across `ModuleId`, type
+store slot, and module input-order changes, while definition, initializer,
+cross-module ABI, optimization, and native target changes must alter the
+fingerprint. The fingerprint is computed before creating the LLVM context or
+module; hashing emitted IR or object bytes would be too late to support
+work-product reuse.
+
 After whole-program validation, each source partition crosses an independent
 LLVM emission boundary. That boundary creates and consumes its own LLVM
 `Context`, `ModuleCodegen`, and native `TargetMachine`, returning exactly one
@@ -1682,11 +1711,11 @@ its own process LLVM memory permit before allocating LLVM state, so CPU fan-out
 remains subject to both the session executor budget and heavy-memory
 backpressure. The outer aggregation layer owns no module-local LLVM state.
 
-This is the first deterministic partition policy, not the final CGU model.
+This remains the first partition granularity, not the final CGU model.
 `ModuleId` is currently a process-local owner identity, source ordinals are not
 yet split beyond zero, and validation remains a whole-program predecessor.
-Persistent CGU fingerprints, finer partitioning, frontend/LLVM overlap,
-work-product reuse, and incremental link inputs remain Phase G work.
+Finer partitioning, frontend/LLVM overlap, persistent work-product storage, and
+incremental link inputs remain Phase G work.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level and a reported codegen size policy. Size-oriented levels
