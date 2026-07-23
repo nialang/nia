@@ -1461,8 +1461,9 @@ indexes, and then consumes each module plan with `into_iter`. The resulting
 `BackendLowering`, `BackendProgram`, and `BackendModule` also do not implement
 `Clone`. Allocation-identity regression checks show that the function and
 global vectors are moved from the module plan into the finalized module without
-changing their backing allocations. This is the module ownership boundary; it
-does not yet make modules independently scheduled queries or CGU work products.
+changing their backing allocations. This is the module ownership boundary used
+by independently scheduled finalization queries; source modules are still not
+claimed to be final CGU work products.
 
 The partition now crosses a formal per-module query boundary. The sole
 `BackendItemPlanQuery` consumer destructures the aggregate once and publishes
@@ -1473,8 +1474,8 @@ by value; the module queries never execute the whole-program closure, retain an
 plan, so invalidation drops an unconsumed module payload and causes a consumed
 slot to be republished on the next backend request. Query regressions assert
 that production leaves every module-plan slot payload-free. This establishes
-module-keyed ownership and future scheduling inputs, but finalization still
-runs inside the aggregate backend query and no CGU partition is claimed yet.
+module-keyed ownership and independently scheduled finalization inputs, but no
+CGU partition is claimed yet.
 The instrumented compiler now records Rust global-allocator current and peak
 live bytes, including already-live instrumented allocations at the detail
 timing boundary. Backend fan-out emits snapshots before publication, after all
@@ -1491,11 +1492,22 @@ indexes, type store, optimization policy, and timing flag; both that context and
 module, diagnostics, and optimization changes. Results carry their original
 batch position, and the sole merge function restores program order before
 combining modules, diagnostics, or optimization changes, so task completion
-order cannot affect output. Production still invokes this boundary
-sequentially: the module inputs currently borrow callback-local query handles,
-while the persistent query executor accepts `'static` tasks. A later scheduling
-slice must give those tasks a real owned read-only environment; an `Arc` added
-only to bypass that lifetime would not satisfy the ownership contract.
+order cannot affect output.
+
+Production owns the complete read-only environment in
+`BackendLoweringInputsQuery`. It keeps the existing immutable query handles and
+derived program indexes alive without copying function bodies or static
+initializers, and implements the single object-safe `BackendProgramFacts`
+contract consumed by backend lowering. `BackendFinalizationTaskContextQuery`
+shares that owner and the canonical type-store handle across the real set of
+module tasks. Each `BackendModuleFinalizationQuery` then consumes one published
+module plan and produces one non-`Clone` finalization result through
+`SingleConsumerOwned` storage. `BackendLoweringQuery` dispatches those keys with
+`get_many_owned` on the session's persistent executor and merges the returned
+values in original module order. The `Arc` on the inputs/context side represents
+actual concurrent consumers; module plans and results remain exclusively owned.
+The source-module task split is an execution boundary, not a substitute for
+deterministic CGU partitioning or CGU work-product caching.
 
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their

@@ -123,7 +123,10 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ActiveModuleItemTreeInputQuery,
         ActiveModuleItemTreeQuery,
         BodyActivationWorklistQuery,
+        BackendFinalizationTaskContextQuery,
         BackendItemPlanQuery,
+        BackendLoweringInputsQuery,
+        BackendModuleFinalizationQuery,
         BackendModuleItemPlanQuery,
         BackendModuleFunctionInstancePlanQuery,
         BackendModuleSourceItemPlanQuery,
@@ -1987,7 +1990,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 126);
+        assert_eq!(descriptors.len(), 129);
         assert!(
             !descriptors
                 .iter()
@@ -2017,7 +2020,7 @@ mod tests {
         assert!(descriptors.iter().all(|descriptor| {
             let expected_storage = if matches!(
                 descriptor.name,
-                "backend_item_plan" | "backend_module_item_plan"
+                "backend_item_plan" | "backend_module_item_plan" | "backend_module_finalization"
             ) {
                 nia_query::QueryStoragePolicy::SingleConsumerOwned
             } else {
@@ -6062,37 +6065,52 @@ extend i32 : ParseFrom[Input] {
         ));
         assert!(trace_has_dependency(
             &trace,
+            "backend_item_plan",
+            "backend_lowering_inputs"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
             "backend_lowering",
+            "backend_module_finalization"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_module_finalization",
             "backend_module_item_plan"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "backend_module_item_plan",
-            "backend_item_plan"
+            "backend_module_finalization",
+            "backend_finalization_task_context"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "backend_item_plan",
+            "backend_finalization_task_context",
+            "backend_lowering_inputs"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_lowering_inputs",
             "backend_module_source_item_plan"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "backend_item_plan",
+            "backend_lowering_inputs",
             "backend_module_function_instance_plan"
         ));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "backend_lowering"
+            dependency.from.name == "backend_lowering_inputs"
                 && dependency.to.name == "executable_checked_modules"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "backend_lowering"
+            dependency.from.name == "backend_lowering_inputs"
                 && dependency.to.name == "full_active_module_item_tree"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "backend_lowering" && dependency.to.name == "checked_module_ids"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "backend_lowering"
+            dependency.from.name == "backend_lowering_inputs"
                 && dependency.to.name == "signature_item_tree"
         }));
         assert!(!trace.dependencies.iter().any(|dependency| {
@@ -6174,11 +6192,16 @@ extend i32 : ParseFrom[Input] {
         assert!(trace_has_dependency(
             &trace,
             "backend_item_plan",
+            "backend_lowering_inputs"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_lowering_inputs",
             "backend_module_source_item_plan"
         ));
         assert!(trace_has_dependency(
             &trace,
-            "backend_item_plan",
+            "backend_lowering_inputs",
             "backend_module_function_instance_plan"
         ));
         assert!(trace_has_dependency(
@@ -6189,7 +6212,7 @@ extend i32 : ParseFrom[Input] {
         assert!(trace_has_dependency(
             &trace,
             "backend_lowering",
-            "backend_module_function_instance_plan"
+            "backend_module_finalization"
         ));
         assert!(!trace_has_dependency(
             &trace,
@@ -6212,6 +6235,12 @@ extend i32 : ParseFrom[Input] {
         assert_eq!(query_executions(&trace, "monomorphization"), 1);
         assert_eq!(query_executions(&trace, "backend_item_plan"), 1);
         assert_eq!(query_executions(&trace, "backend_module_item_plan"), 0);
+        assert_eq!(query_executions(&trace, "backend_lowering_inputs"), 1);
+        assert_eq!(
+            query_executions(&trace, "backend_finalization_task_context"),
+            1
+        );
+        assert_eq!(query_executions(&trace, "backend_module_finalization"), 2);
         assert_eq!(
             query_executions(&trace, "backend_module_source_item_plan"),
             2
@@ -6225,17 +6254,36 @@ extend i32 : ParseFrom[Input] {
 
     #[test]
     fn backend_module_plan_slots_are_consumed_and_republished_after_invalidation() {
-        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "module helper; using entry::helper; fn main() i32 { helper::value() }",
+        );
         let module_id = fixture.entry_id();
+        let helper_id = fixture.add_child(
+            module_id,
+            "helper",
+            "helper.nia",
+            "pub fn value() i32 { 0 }",
+        );
         let db = query_db(fixture.program());
 
         let first = db.get(BackendLoweringQuery);
         assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-        assert!(
-            db.try_get_owned(BackendModuleItemPlanQuery(module_id))
-                .is_err(),
-            "finalization must leave no module-plan payload in its query slot"
+        assert_eq!(
+            first
+                .program
+                .modules
+                .iter()
+                .map(|module| module.id)
+                .collect::<Vec<_>>(),
+            vec![module_id, helper_id]
         );
+        for owner in [module_id, helper_id] {
+            assert!(
+                db.try_get_owned(BackendModuleItemPlanQuery(owner)).is_err(),
+                "finalization must leave no module-plan payload in its query slot"
+            );
+        }
 
         db.invalidate(BackendLoweringQuery);
         let second = db.get(BackendLoweringQuery);
@@ -6260,7 +6308,27 @@ extend i32 : ParseFrom[Input] {
         let trace = db.query_trace();
         assert_eq!(query_executions(&trace, "backend_item_plan"), 3);
         assert_eq!(query_executions(&trace, "backend_module_item_plan"), 0);
+        assert_eq!(query_executions(&trace, "backend_module_finalization"), 6);
+        assert_eq!(
+            query_executions(&trace, "backend_finalization_task_context"),
+            1
+        );
         assert_eq!(query_executions(&trace, "backend_lowering"), 3);
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_lowering",
+            "backend_module_finalization"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_module_finalization",
+            "backend_module_item_plan"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_module_finalization",
+            "backend_finalization_task_context"
+        ));
     }
 
     #[test]
@@ -6376,7 +6444,7 @@ pub fn value() i32 {
         let trace = db.query_trace();
         assert!(trace_has_dependency(
             &trace,
-            "backend_lowering",
+            "backend_lowering_inputs",
             "backend_module_source_item_plan"
         ));
         assert!(trace_has_dependency(
@@ -6418,7 +6486,7 @@ pub fn value() i32 {
         ));
         assert!(trace_has_dependency(
             &trace,
-            "backend_lowering",
+            "backend_lowering_inputs",
             "lowered_function_body"
         ));
         assert!(!trace_has_dependency(

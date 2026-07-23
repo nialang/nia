@@ -12,12 +12,18 @@ pub(crate) fn validate_backend_lowering_inputs(
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut validated = HashSet::new();
-    for input in modules {
+    if let Some(input) = modules.first() {
         validate_function_bodies(
             input
-                .program_function_bodies
+                .program
+                .function_body_ids()
                 .iter()
-                .map(|(def_id, body)| (*def_id, *body)),
+                .filter_map(|def_id| {
+                    input
+                        .program
+                        .function_body(*def_id)
+                        .map(|body| (*def_id, body))
+                }),
             &mut validated,
             &mut diagnostics,
         );

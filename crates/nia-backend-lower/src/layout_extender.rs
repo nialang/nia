@@ -53,16 +53,16 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 return input.const_array_lengths.values.get(&id).copied();
             }
             input
-                .program_const
-                .get(&id.module_id)
+                .program
+                .const_array_lengths(id.module_id)
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
         let program = ProgramLayoutContext {
             symbols: Some(self.input.symbols),
             layouts: None,
             array_lengths: Some(&array_lengths),
-            structs: Some(self.input.program_structs),
-            unions: Some(self.input.program_unions),
+            structs: Some(self.input.program.structs()),
+            unions: Some(self.input.program.unions()),
             ..Default::default()
         };
         let root_types = self.input.signatures.type_roots();

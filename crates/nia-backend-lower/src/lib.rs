@@ -18,7 +18,7 @@ mod trait_object_vtables;
 mod type_context;
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::ops::Deref;
 
 use nia_ast::{BindingItem, Block, Expr, StmtKind, Visibility, generic_param_names};
 use nia_backend_ir::{
@@ -81,8 +81,8 @@ pub struct BackendItemPlanFinalization {
     diagnostics: Vec<Diagnostic>,
 }
 
-pub struct BackendProgramFinalizationContext<'a> {
-    type_store: &'a nia_ty::TypeStore,
+pub struct BackendProgramFinalizationContext<S = std::sync::Arc<nia_ty::TypeStore>> {
+    type_store: S,
     optimization: OptimizationPolicy,
     shared: BackendLowerShared,
     timing: bool,
@@ -96,10 +96,13 @@ pub struct BackendModuleFinalization {
     diagnostics: Vec<Diagnostic>,
 }
 
-impl<'a> BackendProgramFinalizationContext<'a> {
+impl<S> BackendProgramFinalizationContext<S>
+where
+    S: Deref<Target = nia_ty::TypeStore>,
+{
     pub fn new(
         modules: &[BackendLowerModuleInput<'_>],
-        type_store: &'a nia_ty::TypeStore,
+        type_store: S,
         optimization: OptimizationPolicy,
         timings: nia_timing::TimingMode,
     ) -> Self {
@@ -127,7 +130,7 @@ impl<'a> BackendProgramFinalizationContext<'a> {
         );
         let mut lowerer = ModuleLowerer::new(
             input,
-            self.type_store,
+            &self.type_store,
             self.optimization,
             &self.shared,
             self.timing,
@@ -274,6 +277,35 @@ pub enum BackendOptimizationChange {
     },
 }
 
+pub trait BackendProgramFacts: Sync {
+    fn const_array_lengths(
+        &self,
+        module_id: ModuleId,
+    ) -> Option<&nia_const_check::ConstArrayLengths>;
+    fn function_body_ids(&self) -> &[GlobalDefId];
+    fn function_body(&self, def_id: GlobalDefId) -> Option<&FunctionBody>;
+    fn static_init_ids(&self) -> &[GlobalDefId];
+    fn static_init(&self, def_id: GlobalDefId) -> Option<&nia_static_ir::StaticInit>;
+    fn extension_methods(&self) -> &ExtensionMethods;
+    fn extensions(&self, module_id: ModuleId) -> Option<&VisibleExtensionMethods>;
+    fn defs(&self, module_id: ModuleId) -> Option<&DefCollection>;
+    fn normalized_type(&self, ty: InternedTyId) -> Option<InternedTyId>;
+    fn normalized_type_from_module(
+        &self,
+        module_id: ModuleId,
+        ty: InternedTyId,
+    ) -> Option<InternedTyId>;
+    fn functions(&self) -> &HashMap<GlobalDefId, ProgramFunctionSignature>;
+    fn structs(&self) -> &HashMap<GlobalDefId, ProgramStructSignature>;
+    fn unions(&self) -> &HashMap<GlobalDefId, ProgramUnionSignature>;
+    fn enums(&self) -> &HashMap<GlobalDefId, ProgramEnumSignature>;
+    fn traits(&self) -> &HashMap<GlobalDefId, ProgramTraitSignature>;
+    fn type_aliases(&self)
+    -> &HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>;
+    fn trait_impls(&self) -> &[ProgramTraitImplSignature];
+    fn trait_impl_index(&self) -> &ProgramTraitImplIndex;
+}
+
 #[derive(Clone)]
 pub struct BackendLowerModuleInput<'a> {
     pub module_id: ModuleId,
@@ -290,8 +322,6 @@ pub struct BackendLowerModuleInput<'a> {
     pub extensions: &'a VisibleExtensionMethods,
     pub const_array_lengths: &'a nia_const_check::ConstArrayLengths,
     pub const_enum_values: &'a nia_const_check::ConstEnumValues,
-    pub program_const:
-        &'a std::collections::HashMap<ModuleId, &'a nia_const_check::ConstArrayLengths>,
     pub layouts: &'a Layouts,
     pub roots: BackendFunctionRoots,
     pub reachable_functions: Option<&'a [GlobalDefId]>,
@@ -299,25 +329,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub reachable_structs: Option<&'a [GlobalDefId]>,
     pub reachable_unions: Option<&'a [GlobalDefId]>,
     pub function_instance_plan: &'a [BackendFunctionInstancePlan],
-    pub program_function_bodies: &'a std::collections::HashMap<GlobalDefId, &'a FunctionBody>,
-    pub program_static_inits:
-        &'a std::collections::HashMap<GlobalDefId, &'a nia_static_ir::StaticInit>,
-    pub program_extension_methods: &'a ExtensionMethods,
-    pub program_extensions: &'a std::collections::HashMap<ModuleId, &'a VisibleExtensionMethods>,
-    pub program_defs: &'a (dyn Fn(ModuleId) -> Option<Arc<DefCollection>> + Sync),
-    pub program_type_normalizations: &'a std::collections::HashMap<
-        ModuleId,
-        &'a std::collections::HashMap<InternedTyId, InternedTyId>,
-    >,
-    pub program_functions: &'a std::collections::HashMap<GlobalDefId, ProgramFunctionSignature>,
-    pub program_structs: &'a std::collections::HashMap<GlobalDefId, ProgramStructSignature>,
-    pub program_unions: &'a std::collections::HashMap<GlobalDefId, ProgramUnionSignature>,
-    pub program_enums: &'a std::collections::HashMap<GlobalDefId, ProgramEnumSignature>,
-    pub program_traits: &'a std::collections::HashMap<GlobalDefId, ProgramTraitSignature>,
-    pub program_type_aliases:
-        &'a std::collections::HashMap<GlobalDefId, nia_item_signatures::ProgramTypeAliasSignature>,
-    pub trait_impls: &'a [ProgramTraitImplSignature],
-    pub trait_impl_index: &'a ProgramTraitImplIndex,
+    pub program: &'a dyn BackendProgramFacts,
 }
 
 impl std::fmt::Debug for BackendLowerModuleInput<'_> {
@@ -325,7 +337,6 @@ impl std::fmt::Debug for BackendLowerModuleInput<'_> {
         f.debug_struct("BackendLowerModuleInput")
             .field("module_id", &self.module_id)
             .field("module_name", &self.module_name)
-            .field("program_defs", &true)
             .finish_non_exhaustive()
     }
 }
@@ -686,7 +697,7 @@ impl BackendLowerShared {
         let first = modules.first();
         Self {
             program_extension_generics_by_method: first
-                .map(|input| index_extension_generics_by_method(input.program_extension_methods))
+                .map(|input| index_extension_generics_by_method(input.program.extension_methods()))
                 .unwrap_or_default(),
             program_extension_method_sources_by_def: first
                 .map(index_program_extension_method_sources_by_def)
@@ -1115,7 +1126,9 @@ fn program_def(input: &BackendLowerModuleInput<'_>, def_id: GlobalDefId) -> Opti
     if def_id.module_id == input.module_id {
         return input.defs.defs.get(def_id.def_id).cloned();
     }
-    (input.program_defs)(def_id.module_id)?
+    input
+        .program
+        .defs(def_id.module_id)?
         .defs
         .get(def_id.def_id)
         .cloned()
@@ -1526,9 +1539,7 @@ impl<'a> ModuleLowerer<'a> {
         else {
             return;
         };
-        if owner_has_effective_generics
-            && !self.input.program_static_inits.contains_key(&global_def_id)
-        {
+        if owner_has_effective_generics && self.input.program.static_init(global_def_id).is_none() {
             return;
         }
         self.lower_static_global_binding(span, binding, globals, worklist);
@@ -1543,12 +1554,7 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .map(|global| global.def_id)
             .collect::<HashSet<_>>();
-        let mut pending = self
-            .input
-            .program_static_inits
-            .keys()
-            .copied()
-            .collect::<Vec<_>>();
+        let mut pending = self.input.program.static_init_ids().to_vec();
         pending.sort_by_key(|def_id| def_id.def_id);
         for global_def_id in pending {
             if global_def_id.module_id != self.input.module_id || !seen.insert(global_def_id) {
@@ -1691,7 +1697,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         if self.input.roots == BackendFunctionRoots::FunctionBodies {
             return function.is_extern
-                || (self.input.program_function_bodies.contains_key(&def_id)
+                || (self.input.program.function_body(def_id).is_some()
                     && !self
                         .has_effective_generics(def_id, &generic_param_names(&function.generics)));
         }
@@ -1713,7 +1719,7 @@ impl<'a> ModuleLowerer<'a> {
         matches!(
             self.input.roots,
             BackendFunctionRoots::EntryPoints | BackendFunctionRoots::FunctionBodies
-        ) && self.input.program_function_bodies.contains_key(&def_id)
+        ) && self.input.program.function_body(def_id).is_some()
     }
 
     fn is_backend_global_reachable(&self, def_id: GlobalDefId) -> bool {
@@ -2220,7 +2226,8 @@ impl<'a> ModuleLowerer<'a> {
                 .map(|signature| signature.generics.as_slice())?
         } else {
             self.input
-                .program_functions
+                .program
+                .functions()
                 .get(&owner_def_id)
                 .map(|signature| signature.signature.generics.as_slice())?
         };
@@ -2244,9 +2251,9 @@ impl<'a> ModuleLowerer<'a> {
             .map(|ty| self.instantiate_ty_with_id(ty, substitutions))?;
         let init = self
             .input
-            .program_static_inits
-            .get(&def_id)
-            .map(|init| (*init).clone())
+            .program
+            .static_init(def_id)
+            .cloned()
             .map(|init| self.instantiate_static_init(init, substitutions))
             .map(|init| self.optimize_static_init(def_id, init));
         Some(BackendGlobalInstance {
@@ -2383,7 +2390,8 @@ impl<'a> ModuleLowerer<'a> {
             return signature.params.first().and_then(|param| param.receiver);
         }
         self.input
-            .program_functions
+            .program
+            .functions()
             .get(&method_id)
             .and_then(|signature| signature.signature.params.first())
             .and_then(|param| param.receiver)
@@ -2581,7 +2589,7 @@ fn index_program_extension_method_sources_by_def(
     input: &BackendLowerModuleInput<'_>,
 ) -> HashMap<GlobalDefId, ExtensionMethodSource> {
     let mut sources = HashMap::new();
-    for method in input.program_extension_methods.all_methods() {
+    for method in input.program.extension_methods().all_methods() {
         sources.insert(
             method.def_id,
             ExtensionMethodSource {
@@ -2598,7 +2606,8 @@ fn index_local_trait_impls_by_method(
     input: &BackendLowerModuleInput<'_>,
 ) -> HashMap<GlobalDefId, usize> {
     let impls = input
-        .trait_impls
+        .program
+        .trait_impls()
         .iter()
         .enumerate()
         .map(|(program_index, impl_signature)| {
@@ -2624,7 +2633,8 @@ fn index_program_trait_impls_by_method(
     input: &BackendLowerModuleInput<'_>,
 ) -> HashMap<GlobalDefId, usize> {
     let impls = input
-        .trait_impls
+        .program
+        .trait_impls()
         .iter()
         .enumerate()
         .map(|(program_index, impl_signature)| {
@@ -2635,7 +2645,7 @@ fn index_program_trait_impls_by_method(
         })
         .collect::<HashMap<_, _>>();
     let mut impls_by_method = HashMap::new();
-    for method in input.program_extension_methods.all_methods() {
+    for method in input.program.extension_methods().all_methods() {
         let Some(program_index) = impls
             .get(&(method.def_id.module_id, method.impl_id))
             .copied()
@@ -2688,7 +2698,8 @@ fn index_program_extension_trait_method_candidates(
         return HashMap::new();
     };
     let impls = input
-        .trait_impls
+        .program
+        .trait_impls()
         .iter()
         .map(|impl_signature| {
             (
@@ -2699,7 +2710,7 @@ fn index_program_extension_trait_method_candidates(
         .collect::<HashMap<_, _>>();
     let mut candidates: HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> =
         HashMap::new();
-    for method in input.program_extension_methods.all_methods() {
+    for method in input.program.extension_methods().all_methods() {
         let Some(trait_id) = method.trait_id else {
             continue;
         };
@@ -2757,7 +2768,8 @@ fn index_program_trait_methods_with_defaults(
     input: &BackendLowerModuleInput<'_>,
 ) -> HashSet<GlobalDefId> {
     input
-        .program_traits
+        .program
+        .traits()
         .iter()
         .flat_map(|(trait_id, signature)| {
             signature
@@ -2802,7 +2814,7 @@ fn index_program_method_symbols_by_def(
     input: &BackendLowerModuleInput<'_>,
 ) -> HashMap<GlobalDefId, SymbolId> {
     let mut names = HashMap::new();
-    for (trait_id, signature) in input.program_traits {
+    for (trait_id, signature) in input.program.traits() {
         for method in &signature.signature.methods {
             names.insert(
                 GlobalDefId {
@@ -2813,7 +2825,7 @@ fn index_program_method_symbols_by_def(
             );
         }
     }
-    for method in input.program_extension_methods.all_methods() {
+    for method in input.program.extension_methods().all_methods() {
         names.insert(method.def_id, method.name);
     }
     names
