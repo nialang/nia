@@ -7,12 +7,13 @@ use std::{
 };
 
 use nia_codegen_llvm::{
-    CodegenUnitFingerprint, CodegenUnitKey, ObjectWorkProductCache, ObjectWorkProductLookup,
+    CodegenUnitFingerprint, CodegenUnitFingerprintComponents, CodegenUnitFingerprintSet,
+    CodegenUnitKey, ObjectWorkProductCache, ObjectWorkProductInvalidation, ObjectWorkProductLookup,
 };
 use nia_query::QueryFingerprintBuilder;
 
-const OBJECT_WORK_PRODUCT_MAGIC: &[u8; 8] = b"NIAOBJ01";
-const OBJECT_WORK_PRODUCT_SCHEMA: &str = "v1";
+const OBJECT_WORK_PRODUCT_MAGIC: &[u8; 8] = b"NIAOBJ02";
+const OBJECT_WORK_PRODUCT_SCHEMA: &str = "v2";
 static OBJECT_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -25,12 +26,20 @@ impl PersistentObjectWorkProductCache {
         Self { root }
     }
 
-    fn path(&self, fingerprint: CodegenUnitFingerprint) -> PathBuf {
-        let [first, second] = fingerprint.parts();
+    fn key_dir(&self, key: &CodegenUnitKey) -> PathBuf {
+        let mut builder = QueryFingerprintBuilder::new("nia.object-work-product-key.v2");
+        builder.write_bytes(&encode_unit_key(key));
+        let [first, second] = builder.finish().parts();
         self.root
             .join("artifacts")
             .join("objects")
             .join(OBJECT_WORK_PRODUCT_SCHEMA)
+            .join(format!("{first:016x}{second:016x}"))
+    }
+
+    fn path(&self, key: &CodegenUnitKey, fingerprint: CodegenUnitFingerprint) -> PathBuf {
+        let [first, second] = fingerprint.parts();
+        self.key_dir(key)
             .join(format!("{first:016x}{second:016x}.o"))
     }
 
@@ -47,36 +56,43 @@ impl ObjectWorkProductCache for PersistentObjectWorkProductCache {
     fn load(
         &self,
         key: &CodegenUnitKey,
-        fingerprint: CodegenUnitFingerprint,
+        fingerprints: CodegenUnitFingerprintSet,
     ) -> io::Result<ObjectWorkProductLookup> {
-        let path = self.path(fingerprint);
+        let path = self.path(key, fingerprints.fingerprint);
         let encoded = match fs::read(&path) {
             Ok(encoded) => encoded,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Ok(ObjectWorkProductLookup::NotFound);
+                return self.lookup_invalidation(key, fingerprints);
             }
             Err(error) => return Err(error),
         };
-        let Some(bytes) = decode_work_product(&encoded, key, fingerprint) else {
+        let Some(entry) = decode_work_product(&encoded) else {
             Self::remove_corrupt(&path);
             return Ok(ObjectWorkProductLookup::Corrupt);
         };
-        Ok(ObjectWorkProductLookup::Hit(bytes))
+        if entry.key != encode_unit_key(key)
+            || entry.fingerprints != fingerprints
+            || path != self.path(key, entry.fingerprints.fingerprint)
+        {
+            Self::remove_corrupt(&path);
+            return Ok(ObjectWorkProductLookup::Corrupt);
+        }
+        Ok(ObjectWorkProductLookup::Hit(entry.payload))
     }
 
     fn publish(
         &self,
         key: &CodegenUnitKey,
-        fingerprint: CodegenUnitFingerprint,
+        fingerprints: CodegenUnitFingerprintSet,
         bytes: &[u8],
     ) -> io::Result<()> {
         if matches!(
-            self.load(key, fingerprint)?,
+            self.load(key, fingerprints)?,
             ObjectWorkProductLookup::Hit(_)
         ) {
             return Ok(());
         }
-        let path = self.path(fingerprint);
+        let path = self.path(key, fingerprints.fingerprint);
         let parent = path
             .parent()
             .ok_or_else(|| io::Error::other("invalid object work-product path"))?;
@@ -86,7 +102,7 @@ impl ObjectWorkProductCache for PersistentObjectWorkProductCache {
             std::process::id(),
             OBJECT_CACHE_STAGE_ID.fetch_add(1, Ordering::Relaxed)
         ));
-        let encoded = encode_work_product(key, fingerprint, bytes);
+        let encoded = encode_work_product(key, fingerprints, bytes);
         let result = (|| {
             let mut file = OpenOptions::new()
                 .write(true)
@@ -108,53 +124,135 @@ impl ObjectWorkProductCache for PersistentObjectWorkProductCache {
     }
 }
 
+impl PersistentObjectWorkProductCache {
+    fn lookup_invalidation(
+        &self,
+        key: &CodegenUnitKey,
+        expected: CodegenUnitFingerprintSet,
+    ) -> io::Result<ObjectWorkProductLookup> {
+        let directory = self.key_dir(key);
+        let entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(ObjectWorkProductLookup::NotFound);
+            }
+            Err(error) => return Err(error),
+        };
+        let expected_key = encode_unit_key(key);
+        let mut nearest = None::<(u32, CodegenUnitFingerprint, ObjectWorkProductInvalidation)>;
+        let mut corrupt = false;
+        for entry in entries {
+            let path = entry?.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("o") {
+                continue;
+            }
+            let encoded = fs::read(&path)?;
+            let Some(entry) = decode_work_product(&encoded) else {
+                Self::remove_corrupt(&path);
+                corrupt = true;
+                continue;
+            };
+            if entry.key != expected_key || path != self.path(key, entry.fingerprints.fingerprint) {
+                Self::remove_corrupt(&path);
+                corrupt = true;
+                continue;
+            }
+            let reasons = ObjectWorkProductInvalidation::between(
+                entry.fingerprints.components,
+                expected.components,
+            );
+            let candidate = (reasons.count(), entry.fingerprints.fingerprint, reasons);
+            if nearest
+                .as_ref()
+                .is_none_or(|current| (candidate.0, candidate.1) < (current.0, current.1))
+            {
+                nearest = Some(candidate);
+            }
+        }
+        if let Some((_, _, reasons)) = nearest {
+            Ok(ObjectWorkProductLookup::Invalidated(reasons))
+        } else if corrupt {
+            Ok(ObjectWorkProductLookup::Corrupt)
+        } else {
+            Ok(ObjectWorkProductLookup::NotFound)
+        }
+    }
+}
+
 fn encode_work_product(
     key: &CodegenUnitKey,
-    fingerprint: CodegenUnitFingerprint,
+    fingerprints: CodegenUnitFingerprintSet,
     bytes: &[u8],
 ) -> Vec<u8> {
     let key = encode_unit_key(key);
     let checksum = payload_checksum(bytes);
-    let mut encoded = Vec::with_capacity(64 + key.len() + bytes.len());
+    let mut encoded = Vec::with_capacity(128 + key.len() + bytes.len());
     encoded.extend_from_slice(OBJECT_WORK_PRODUCT_MAGIC);
-    for part in fingerprint.parts() {
-        encoded.extend_from_slice(&part.to_le_bytes());
+    write_fingerprint(&mut encoded, fingerprints.fingerprint);
+    for component in [
+        fingerprints.components.policy,
+        fingerprints.components.definition,
+        fingerprints.components.declarations,
+        fingerprints.components.target,
+    ] {
+        write_fingerprint(&mut encoded, component);
     }
     encoded.extend_from_slice(&(key.len() as u64).to_le_bytes());
     encoded.extend_from_slice(&key);
     encoded.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
-    for part in checksum.parts() {
-        encoded.extend_from_slice(&part.to_le_bytes());
-    }
+    write_fingerprint(&mut encoded, checksum);
     encoded.extend_from_slice(bytes);
     encoded
 }
 
-fn decode_work_product(
-    encoded: &[u8],
-    expected_key: &CodegenUnitKey,
-    expected_fingerprint: CodegenUnitFingerprint,
-) -> Option<Vec<u8>> {
+struct DecodedWorkProduct {
+    key: Vec<u8>,
+    fingerprints: CodegenUnitFingerprintSet,
+    payload: Vec<u8>,
+}
+
+fn decode_work_product(encoded: &[u8]) -> Option<DecodedWorkProduct> {
     let mut cursor = Cursor::new(encoded);
     let mut magic = [0; 8];
     cursor.read_exact(&mut magic).ok()?;
     (magic == *OBJECT_WORK_PRODUCT_MAGIC).then_some(())?;
-    let fingerprint =
-        CodegenUnitFingerprint::from_parts([read_u64(&mut cursor)?, read_u64(&mut cursor)?]);
-    (fingerprint == expected_fingerprint).then_some(())?;
+    let fingerprint = read_fingerprint(&mut cursor)?;
+    let components = CodegenUnitFingerprintComponents {
+        policy: read_fingerprint(&mut cursor)?,
+        definition: read_fingerprint(&mut cursor)?,
+        declarations: read_fingerprint(&mut cursor)?,
+        target: read_fingerprint(&mut cursor)?,
+    };
+    let fingerprints = CodegenUnitFingerprintSet::new(components);
+    (fingerprints.fingerprint == fingerprint).then_some(())?;
     let key_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
     let key_start = usize::try_from(cursor.position()).ok()?;
     (key_len <= encoded.len().checked_sub(key_start)?).then_some(())?;
     let mut key = vec![0; key_len];
     cursor.read_exact(&mut key).ok()?;
-    (key == encode_unit_key(expected_key)).then_some(())?;
     let payload_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
-    let checksum =
-        CodegenUnitFingerprint::from_parts([read_u64(&mut cursor)?, read_u64(&mut cursor)?]);
+    let checksum = read_fingerprint(&mut cursor)?;
     let position = usize::try_from(cursor.position()).ok()?;
     (encoded.len().checked_sub(position)? == payload_len).then_some(())?;
     let payload = encoded[position..].to_vec();
-    (payload_checksum(&payload) == checksum).then_some(payload)
+    (payload_checksum(&payload) == checksum).then_some(DecodedWorkProduct {
+        key,
+        fingerprints,
+        payload,
+    })
+}
+
+fn write_fingerprint(encoded: &mut Vec<u8>, fingerprint: CodegenUnitFingerprint) {
+    for part in fingerprint.parts() {
+        encoded.extend_from_slice(&part.to_le_bytes());
+    }
+}
+
+fn read_fingerprint(cursor: &mut Cursor<&[u8]>) -> Option<CodegenUnitFingerprint> {
+    Some(CodegenUnitFingerprint::from_parts([
+        read_u64(cursor)?,
+        read_u64(cursor)?,
+    ]))
 }
 
 fn read_u64(cursor: &mut Cursor<&[u8]>) -> Option<u64> {
@@ -212,21 +310,34 @@ mod tests {
         }
     }
 
+    fn fingerprints(seed: u64) -> CodegenUnitFingerprintSet {
+        CodegenUnitFingerprintSet::new(CodegenUnitFingerprintComponents {
+            policy: CodegenUnitFingerprint::from_parts([seed, 1]),
+            definition: CodegenUnitFingerprint::from_parts([seed, 2]),
+            declarations: CodegenUnitFingerprint::from_parts([seed, 3]),
+            target: CodegenUnitFingerprint::from_parts([seed, 4]),
+        })
+    }
+
     #[test]
     fn persistent_object_work_product_round_trips() {
         let root = temp_root("round_trip");
         let cache = PersistentObjectWorkProductCache::new(root.clone());
-        let fingerprint = CodegenUnitFingerprint::from_parts([10, 20]);
+        let fingerprints = fingerprints(10);
+        let legacy = root.join("artifacts/objects/v1/legacy.o");
+        fs::create_dir_all(legacy.parent().expect("legacy parent"))
+            .expect("create legacy namespace");
+        fs::write(&legacy, b"legacy entry").expect("write legacy entry");
         assert_eq!(
-            cache.load(&key(), fingerprint).expect("cold load"),
+            cache.load(&key(), fingerprints).expect("cold load"),
             ObjectWorkProductLookup::NotFound
         );
         cache
-            .publish(&key(), fingerprint, b"object bytes")
+            .publish(&key(), fingerprints, b"object bytes")
             .expect("publish");
 
         assert_eq!(
-            cache.load(&key(), fingerprint).expect("load"),
+            cache.load(&key(), fingerprints).expect("load"),
             ObjectWorkProductLookup::Hit(b"object bytes".to_vec())
         );
         let _ = fs::remove_dir_all(root);
@@ -236,27 +347,57 @@ mod tests {
     fn corrupt_work_product_is_deleted_and_can_be_republished() {
         let root = temp_root("corrupt");
         let cache = PersistentObjectWorkProductCache::new(root.clone());
-        let fingerprint = CodegenUnitFingerprint::from_parts([30, 40]);
+        let fingerprints = fingerprints(30);
         cache
-            .publish(&key(), fingerprint, b"first")
+            .publish(&key(), fingerprints, b"first")
             .expect("publish");
-        let path = cache.path(fingerprint);
+        let path = cache.path(&key(), fingerprints.fingerprint);
         let mut encoded = fs::read(&path).expect("read cache");
         *encoded.last_mut().expect("payload byte") ^= 0xff;
         fs::write(&path, encoded).expect("corrupt cache");
 
         assert_eq!(
-            cache.load(&key(), fingerprint).expect("load"),
+            cache.load(&key(), fingerprints).expect("load"),
             ObjectWorkProductLookup::Corrupt
         );
         assert!(!path.exists(), "corrupt cache entry must be retired");
         cache
-            .publish(&key(), fingerprint, b"second")
+            .publish(&key(), fingerprints, b"second")
             .expect("republish");
         assert_eq!(
-            cache.load(&key(), fingerprint).expect("load"),
+            cache.load(&key(), fingerprints).expect("load"),
             ObjectWorkProductLookup::Hit(b"second".to_vec())
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn changed_components_report_invalidation_without_replacing_prior_entry() {
+        let root = temp_root("invalidation");
+        let cache = PersistentObjectWorkProductCache::new(root.clone());
+        let first = fingerprints(50);
+        cache
+            .publish(&key(), first, b"first")
+            .expect("publish first");
+        let changed = CodegenUnitFingerprintSet::new(CodegenUnitFingerprintComponents {
+            definition: CodegenUnitFingerprint::from_parts([99, 2]),
+            ..first.components
+        });
+
+        assert_eq!(
+            cache.load(&key(), changed).expect("load changed"),
+            ObjectWorkProductLookup::Invalidated(ObjectWorkProductInvalidation {
+                policy: false,
+                definition: true,
+                declarations: false,
+                target: false,
+            })
+        );
+        cache
+            .publish(&key(), changed, b"changed")
+            .expect("publish changed");
+        assert!(cache.path(&key(), first.fingerprint).is_file());
+        assert!(cache.path(&key(), changed.fingerprint).is_file());
         let _ = fs::remove_dir_all(root);
     }
 }

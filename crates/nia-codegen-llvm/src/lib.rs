@@ -27,7 +27,10 @@ pub use output::{
     LlvmCodegenOptions, LlvmCodegenOutput, LlvmModuleOutput, LlvmObjectOutput, NativeObject,
 };
 use program_index::ProgramIndex;
-pub use work_product::{ObjectWorkProductCache, ObjectWorkProductLookup};
+pub use work_product::{
+    CodegenUnitFingerprintComponents, CodegenUnitFingerprintSet, ObjectWorkProductCache,
+    ObjectWorkProductInvalidation, ObjectWorkProductLookup,
+};
 
 pub fn emit_llvm_ir(
     lowering: Arc<BackendLowering>,
@@ -199,6 +202,7 @@ enum ObjectReuse {
 enum ObjectReuseMiss {
     Disabled,
     NotFound,
+    Invalidated(ObjectWorkProductInvalidation),
     Corrupt,
     ReadError,
 }
@@ -208,6 +212,11 @@ struct ObjectReuseCounts {
     hits: u64,
     disabled: u64,
     not_found: u64,
+    invalidated: u64,
+    invalidated_policy: u64,
+    invalidated_definition: u64,
+    invalidated_declarations: u64,
+    invalidated_target: u64,
     corrupt: u64,
     read_error: u64,
 }
@@ -218,17 +227,36 @@ impl ObjectReuseCounts {
             ObjectReuse::Hit => self.hits += 1,
             ObjectReuse::Miss(ObjectReuseMiss::Disabled) => self.disabled += 1,
             ObjectReuse::Miss(ObjectReuseMiss::NotFound) => self.not_found += 1,
+            ObjectReuse::Miss(ObjectReuseMiss::Invalidated(reasons)) => {
+                self.invalidated += 1;
+                self.invalidated_policy += u64::from(reasons.policy);
+                self.invalidated_definition += u64::from(reasons.definition);
+                self.invalidated_declarations += u64::from(reasons.declarations);
+                self.invalidated_target += u64::from(reasons.target);
+            }
             ObjectReuse::Miss(ObjectReuseMiss::Corrupt) => self.corrupt += 1,
             ObjectReuse::Miss(ObjectReuseMiss::ReadError) => self.read_error += 1,
         }
     }
 
     fn emit(&self) {
-        let misses = self.disabled + self.not_found + self.corrupt + self.read_error;
+        let misses =
+            self.disabled + self.not_found + self.invalidated + self.corrupt + self.read_error;
         nia_timing::emit_counter("llvm.object_reuse_hits", self.hits);
         nia_timing::emit_counter("llvm.object_reuse_misses", misses);
         nia_timing::emit_counter("llvm.object_reuse_miss_disabled", self.disabled);
         nia_timing::emit_counter("llvm.object_reuse_miss_not_found", self.not_found);
+        nia_timing::emit_counter("llvm.object_reuse_miss_invalidated", self.invalidated);
+        nia_timing::emit_counter("llvm.object_invalidation_policy", self.invalidated_policy);
+        nia_timing::emit_counter(
+            "llvm.object_invalidation_definition",
+            self.invalidated_definition,
+        );
+        nia_timing::emit_counter(
+            "llvm.object_invalidation_declarations",
+            self.invalidated_declarations,
+        );
+        nia_timing::emit_counter("llvm.object_invalidation_target", self.invalidated_target);
         nia_timing::emit_counter("llvm.object_reuse_miss_corrupt", self.corrupt);
         nia_timing::emit_counter("llvm.object_reuse_miss_read_error", self.read_error);
     }
@@ -242,7 +270,7 @@ fn emit_llvm_ir_partition(
     let memory_permit = nia_query::acquire_llvm_memory_permit();
     record_memory_permit(options.timings, memory_permit.waited());
     let module = index.program().module_for_partition(&partition);
-    let fingerprint = fingerprint::source_unit_fingerprint(
+    let fingerprints = fingerprint::source_unit_fingerprint(
         &partition,
         &index,
         options,
@@ -258,7 +286,7 @@ fn emit_llvm_ir_partition(
     Ok(LlvmModuleOutput {
         unit: partition.id,
         key: partition.key,
-        fingerprint,
+        fingerprint: fingerprints.fingerprint,
         name: module.name.clone(),
         ir,
     })
@@ -276,19 +304,19 @@ fn emit_native_object_partition(
         TargetMachine::native_identity,
     )
     .map_err(|error| error.diagnostic())?;
-    let fingerprint = fingerprint::source_unit_fingerprint(
+    let fingerprints = fingerprint::source_unit_fingerprint(
         &partition,
         &index,
         options,
         fingerprint::ArtifactTarget::NativeObject(&target_identity),
     );
     let module = index.program().module_for_partition(&partition);
-    let lookup = load_object_work_product(cache, &partition.key, fingerprint);
+    let lookup = load_object_work_product(cache, &partition.key, fingerprints);
     if let ObjectReuseLookup::Hit(bytes) = lookup {
         return Ok((
             IncrementalLinkInput {
                 key: partition.key,
-                fingerprint,
+                fingerprint: fingerprints.fingerprint,
                 object: NativeObject {
                     unit: partition.id,
                     name: module.name.clone(),
@@ -320,11 +348,11 @@ fn emit_native_object_partition(
         .configure_module(&codegen.module)
         .map_err(|error| error.diagnostic())?;
     let bytes = codegen.emit_object(&target)?;
-    publish_object_work_product(cache, &partition.key, fingerprint, &bytes);
+    publish_object_work_product(cache, &partition.key, fingerprints, &bytes);
     Ok((
         IncrementalLinkInput {
             key: partition.key,
-            fingerprint,
+            fingerprint: fingerprints.fingerprint,
             object: NativeObject {
                 unit: partition.id,
                 name: module.name.clone(),
@@ -346,14 +374,14 @@ fn emit_compiler_builtins_object(
         TargetMachine::native_identity,
     )
     .map_err(|error| error.diagnostic())?;
-    let fingerprint =
+    let fingerprints =
         fingerprint::compiler_builtins_fingerprint(&symbols, options, &target_identity);
-    let lookup = load_object_work_product(cache, &CodegenUnitKey::CompilerBuiltins, fingerprint);
+    let lookup = load_object_work_product(cache, &CodegenUnitKey::CompilerBuiltins, fingerprints);
     if let ObjectReuseLookup::Hit(bytes) = lookup {
         return Ok((
             IncrementalLinkInput {
                 key: CodegenUnitKey::CompilerBuiltins,
-                fingerprint,
+                fingerprint: fingerprints.fingerprint,
                 object: NativeObject {
                     unit: CodegenUnitId::CompilerBuiltins,
                     name: "nia.compiler_builtins".to_string(),
@@ -379,13 +407,13 @@ fn emit_compiler_builtins_object(
     publish_object_work_product(
         cache,
         &CodegenUnitKey::CompilerBuiltins,
-        fingerprint,
+        fingerprints,
         &bytes,
     );
     Ok((
         IncrementalLinkInput {
             key: CodegenUnitKey::CompilerBuiltins,
-            fingerprint,
+            fingerprint: fingerprints.fingerprint,
             object: NativeObject {
                 unit: CodegenUnitId::CompilerBuiltins,
                 name: "nia.compiler_builtins".to_string(),
@@ -404,14 +432,17 @@ enum ObjectReuseLookup {
 fn load_object_work_product(
     cache: Option<&dyn ObjectWorkProductCache>,
     key: &CodegenUnitKey,
-    fingerprint: CodegenUnitFingerprint,
+    fingerprints: CodegenUnitFingerprintSet,
 ) -> ObjectReuseLookup {
     let Some(cache) = cache else {
         return ObjectReuseLookup::Miss(ObjectReuseMiss::Disabled);
     };
-    match cache.load(key, fingerprint) {
+    match cache.load(key, fingerprints) {
         Ok(ObjectWorkProductLookup::Hit(bytes)) => ObjectReuseLookup::Hit(bytes),
         Ok(ObjectWorkProductLookup::NotFound) => ObjectReuseLookup::Miss(ObjectReuseMiss::NotFound),
+        Ok(ObjectWorkProductLookup::Invalidated(reasons)) => {
+            ObjectReuseLookup::Miss(ObjectReuseMiss::Invalidated(reasons))
+        }
         Ok(ObjectWorkProductLookup::Corrupt) => ObjectReuseLookup::Miss(ObjectReuseMiss::Corrupt),
         Err(_) => ObjectReuseLookup::Miss(ObjectReuseMiss::ReadError),
     }
@@ -420,11 +451,11 @@ fn load_object_work_product(
 fn publish_object_work_product(
     cache: Option<&dyn ObjectWorkProductCache>,
     key: &CodegenUnitKey,
-    fingerprint: CodegenUnitFingerprint,
+    fingerprints: CodegenUnitFingerprintSet,
     bytes: &[u8],
 ) {
     if let Some(cache) = cache {
-        let _ = cache.publish(key, fingerprint, bytes);
+        let _ = cache.publish(key, fingerprints, bytes);
     }
 }
 

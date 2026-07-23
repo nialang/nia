@@ -18,7 +18,7 @@ impl crate::ObjectWorkProductCache for AlwaysHitObjectCache {
     fn load(
         &self,
         _key: &CodegenUnitKey,
-        _fingerprint: crate::CodegenUnitFingerprint,
+        _fingerprints: crate::CodegenUnitFingerprintSet,
     ) -> io::Result<crate::ObjectWorkProductLookup> {
         self.loads.fetch_add(1, Ordering::Relaxed);
         Ok(crate::ObjectWorkProductLookup::Hit(
@@ -29,7 +29,7 @@ impl crate::ObjectWorkProductCache for AlwaysHitObjectCache {
     fn publish(
         &self,
         _key: &CodegenUnitKey,
-        _fingerprint: crate::CodegenUnitFingerprint,
+        _fingerprints: crate::CodegenUnitFingerprintSet,
         _bytes: &[u8],
     ) -> io::Result<()> {
         self.publishes.fetch_add(1, Ordering::Relaxed);
