@@ -5,11 +5,6 @@ mod object_cache;
 mod pipeline;
 mod report;
 
-pub use executable_cache::{
-    ExecutableArtifactCacheEntry, ExecutableArtifactCacheInput, ExecutableArtifactCacheRequest,
-    ExecutableArtifactCacheSnapshot, executable_artifact_cache_entry,
-    publish_executable_artifact_cache, restore_executable_artifact_cache,
-};
 pub use inspect::{AstInspection, TokensInspection, ast_inspection, tokens_inspection};
 pub use nia_compiler_query::{
     BackendOptimizationChange, CheckedModule, CheckedProgram, CodegenProgram, LoadedModule,

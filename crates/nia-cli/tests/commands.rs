@@ -2186,6 +2186,84 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
 #[cfg(unix)]
 #[test]
+fn emit_exe_cache_reuses_typed_link_result_without_running_linker() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_dir("emit_exe_cache_reuses_typed_link_result_without_running_linker");
+    let main = root.join("main.nia");
+    let first = root.join("first");
+    let second = root.join("second");
+    let cache = root.join("cache");
+    let linker = root.join("linker.sh");
+    let invocation_log = root.join("linker-invocations");
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+    std::fs::write(
+        &linker,
+        format!(
+            "#!/bin/sh\nprintf x >> '{}'\nexec ld \"$@\"\n",
+            invocation_log.display()
+        ),
+    )
+    .expect("write linker wrapper");
+    let mut permissions = std::fs::metadata(&linker)
+        .expect("linker metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&linker, permissions).expect("make linker executable");
+
+    for output in [&first, &second] {
+        let result = Command::new(env!("CARGO_BIN_EXE_nia"))
+            .env("NIA_LINKER", &linker)
+            .arg("emit")
+            .arg("--exe")
+            .arg(&main)
+            .arg("--cache-dir")
+            .arg(&cache)
+            .arg("-o")
+            .arg(output)
+            .output_timeout("run nia emit --exe with typed link-result cache");
+        assert!(
+            result.status.success(),
+            "stderr:\n{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+
+    assert_eq!(
+        std::fs::read_to_string(invocation_log).expect("read linker invocations"),
+        "x"
+    );
+    assert_eq!(
+        std::fs::read(&first).expect("read first executable"),
+        std::fs::read(&second).expect("read restored executable")
+    );
+    assert_eq!(
+        std::fs::read_dir(cache.join("artifacts/links/v1"))
+            .expect("read link-result cache")
+            .count(),
+        1
+    );
+    let restored = Command::new(&second).output_timeout("run restored executable");
+    assert!(
+        restored.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&restored.stderr)
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn emit_exe_passes_structured_link_options_to_linker() {
     use std::os::unix::fs::PermissionsExt;
 

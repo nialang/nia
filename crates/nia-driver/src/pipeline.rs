@@ -36,14 +36,14 @@ pub struct CheckRequest {
 #[derive(Debug, Clone)]
 pub struct DriverConfig {
     pub target: TargetConfig,
-    pub object_cache_dir: Option<PathBuf>,
+    pub artifact_cache_dir: Option<PathBuf>,
 }
 
 impl Default for DriverConfig {
     fn default() -> Self {
         Self {
             target: TargetConfig::host(),
-            object_cache_dir: None,
+            artifact_cache_dir: None,
         }
     }
 }
@@ -55,6 +55,7 @@ pub struct Driver {
     loader: std::sync::Arc<Mutex<Option<SessionLoader>>>,
     compiler: std::sync::Arc<Mutex<Option<SessionCompiler>>>,
     object_cache: Option<std::sync::Arc<crate::object_cache::PersistentObjectWorkProductCache>>,
+    link_cache: Option<std::sync::Arc<crate::executable_cache::PersistentLinkResultCache>>,
 }
 
 impl Default for Driver {
@@ -69,8 +70,13 @@ impl Driver {
     }
 
     pub fn with_config(config: DriverConfig) -> Self {
-        let object_cache = config.object_cache_dir.as_ref().map(|path| {
+        let object_cache = config.artifact_cache_dir.as_ref().map(|path| {
             std::sync::Arc::new(crate::object_cache::PersistentObjectWorkProductCache::new(
+                path.clone(),
+            ))
+        });
+        let link_cache = config.artifact_cache_dir.as_ref().map(|path| {
+            std::sync::Arc::new(crate::executable_cache::PersistentLinkResultCache::new(
                 path.clone(),
             ))
         });
@@ -80,6 +86,7 @@ impl Driver {
             loader: std::sync::Arc::new(Mutex::new(None)),
             compiler: std::sync::Arc::new(Mutex::new(None)),
             object_cache,
+            link_cache,
         }
     }
 
@@ -425,6 +432,15 @@ impl Driver {
     ) -> DriverOutput<ExecutableArtifact> {
         DriverOutput::catch_ice(|| {
             link_options.target = LinkTarget::from_target_config(&self.config.target);
+            let link_fingerprint = match link_options.result_fingerprint(&objects.link_inputs) {
+                Ok(fingerprint) => fingerprint,
+                Err(error) => return DriverOutput::from_error(DriverError::LinkerConfig(error)),
+            };
+            if let (Some(cache), Some(fingerprint)) = (&self.link_cache, link_fingerprint)
+                && cache.restore(fingerprint, &output).unwrap_or(false)
+            {
+                return DriverOutput::success(ExecutableArtifact { path: output });
+            }
             let temp = TempDir::new("nia_emit_exe");
             if let Err(error) = fs::create_dir_all(temp.path()) {
                 return DriverOutput::from_error(DriverError::Io {
@@ -472,6 +488,9 @@ impl Driver {
                 .status()
             {
                 Ok(status) if status.success() => {
+                    if let (Some(cache), Some(fingerprint)) = (&self.link_cache, link_fingerprint) {
+                        let _ = cache.publish(fingerprint, &output);
+                    }
                     DriverOutput::success(ExecutableArtifact { path: output })
                 }
                 Ok(status) => DriverOutput::from_error(DriverError::LinkerStatus {

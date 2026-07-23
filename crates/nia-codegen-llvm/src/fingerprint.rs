@@ -184,8 +184,10 @@ impl<'a> Encoder<'a> {
             self.builder.write_u64(*value);
         }
 
-        self.len(module.structs.len());
-        for item in &module.structs {
+        let mut structs = module.structs.iter().collect::<Vec<_>>();
+        structs.sort_unstable_by_key(|item| item.def_id.def_id);
+        self.len(structs.len());
+        for item in structs {
             self.aggregate(
                 item.def_id,
                 item.name,
@@ -195,8 +197,10 @@ impl<'a> Encoder<'a> {
             );
             self.optional_struct_layout(self.index.struct_layout(item.def_id));
         }
-        self.len(module.unions.len());
-        for item in &module.unions {
+        let mut unions = module.unions.iter().collect::<Vec<_>>();
+        unions.sort_unstable_by_key(|item| item.def_id.def_id);
+        self.len(unions.len());
+        for item in unions {
             self.aggregate(
                 item.def_id,
                 item.name,
@@ -206,8 +210,10 @@ impl<'a> Encoder<'a> {
             );
             self.optional_struct_layout(self.index.union_layout(item.def_id));
         }
-        self.len(module.struct_instances.len());
-        for item in &module.struct_instances {
+        let mut struct_instances = module.struct_instances.iter().collect::<Vec<_>>();
+        struct_instances.sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
+        self.len(struct_instances.len());
+        for item in struct_instances {
             self.aggregate_instance(
                 item.def_id,
                 item.name,
@@ -223,8 +229,10 @@ impl<'a> Encoder<'a> {
                 &item.const_args,
             ));
         }
-        self.len(module.union_instances.len());
-        for item in &module.union_instances {
+        let mut union_instances = module.union_instances.iter().collect::<Vec<_>>();
+        union_instances.sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
+        self.len(union_instances.len());
+        for item in union_instances {
             self.aggregate_instance(
                 item.def_id,
                 item.name,
@@ -241,8 +249,10 @@ impl<'a> Encoder<'a> {
             ));
         }
 
-        self.len(module.enums.len());
-        for item in &module.enums {
+        let mut enums = module.enums.iter().collect::<Vec<_>>();
+        enums.sort_unstable_by_key(|item| item.def_id.def_id);
+        self.len(enums.len());
+        for item in enums {
             self.global_def(item.def_id);
             self.symbol(item.name);
             self.ty(item.backing_type);
@@ -254,8 +264,10 @@ impl<'a> Encoder<'a> {
             }
         }
 
-        self.len(module.globals.len());
-        for item in &module.globals {
+        let mut globals = module.globals.iter().collect::<Vec<_>>();
+        globals.sort_unstable_by_key(|item| item.def_id.def_id);
+        self.len(globals.len());
+        for item in globals {
             self.global_def(item.def_id);
             self.symbol(item.name);
             self.optional_str(item.link_name.as_deref());
@@ -264,8 +276,10 @@ impl<'a> Encoder<'a> {
             self.bool(item.is_extern);
             self.optional_static_init(definitions.then_some(item.init.as_ref()).flatten());
         }
-        self.len(module.global_instances.len());
-        for item in &module.global_instances {
+        let mut global_instances = module.global_instances.iter().collect::<Vec<_>>();
+        global_instances.sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
+        self.len(global_instances.len());
+        for item in global_instances {
             self.global_def(item.def_id);
             self.symbol(item.name);
             self.module_id(item.arg_module_id);
@@ -277,8 +291,10 @@ impl<'a> Encoder<'a> {
             self.optional_static_init(definitions.then_some(item.init.as_ref()).flatten());
         }
 
-        self.len(module.functions.len());
-        for item in &module.functions {
+        let mut functions = module.functions.iter().collect::<Vec<_>>();
+        functions.sort_unstable_by_key(|item| item.def_id.def_id);
+        self.len(functions.len());
+        for item in functions {
             self.function(
                 item.def_id,
                 item.name,
@@ -292,8 +308,10 @@ impl<'a> Encoder<'a> {
                 definitions.then_some(item.function_body.as_ref()).flatten(),
             );
         }
-        self.len(module.function_instances.len());
-        for item in &module.function_instances {
+        let mut function_instances = module.function_instances.iter().collect::<Vec<_>>();
+        function_instances.sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
+        self.len(function_instances.len());
+        for item in function_instances {
             self.global_def(item.def_id);
             self.symbol(item.name);
             self.module_id(item.arg_module_id);
@@ -311,8 +329,14 @@ impl<'a> Encoder<'a> {
             );
         }
 
-        self.len(module.trait_object_vtables.len());
-        for item in &module.trait_object_vtables {
+        let mut trait_object_vtables = module
+            .trait_object_vtables
+            .iter()
+            .map(|item| (self.trait_object_vtable_sort_key(item), item))
+            .collect::<Vec<_>>();
+        trait_object_vtables.sort_unstable_by_key(|(key, _)| *key);
+        self.len(trait_object_vtables.len());
+        for (_, item) in trait_object_vtables {
             self.ty(item.key.self_ty);
             self.ty(item.key.object_ty);
             self.trait_id(item.trait_id);
@@ -346,8 +370,14 @@ impl<'a> Encoder<'a> {
             }
         }
 
-        self.len(module.generic_instantiations.len());
-        for item in &module.generic_instantiations {
+        let mut generic_instantiations = module
+            .generic_instantiations
+            .iter()
+            .map(|item| (self.generic_instantiation_sort_key(item), item))
+            .collect::<Vec<_>>();
+        generic_instantiations.sort_unstable_by_key(|(key, _)| *key);
+        self.len(generic_instantiations.len());
+        for (_, item) in generic_instantiations {
             self.global_def(item.def_id);
             self.module_id(item.arg_module_id);
             self.optional_ty(item.self_arg);
@@ -355,6 +385,26 @@ impl<'a> Encoder<'a> {
             self.const_args(&item.const_args);
             self.optional_global_def(item.source_def_id);
         }
+    }
+
+    fn trait_object_vtable_sort_key(&self, item: &BackendTraitObjectVtable) -> [u64; 2] {
+        let mut encoder = Encoder::new("nia.llvm.vtable-sort-key.v1", self.index);
+        encoder.ty(item.key.self_ty);
+        encoder.ty(item.key.object_ty);
+        encoder.trait_id(item.trait_id);
+        encoder.types(&item.trait_args);
+        encoder.finish().parts()
+    }
+
+    fn generic_instantiation_sort_key(&self, item: &BackendGenericInstantiation) -> [u64; 2] {
+        let mut encoder = Encoder::new("nia.llvm.generic-instantiation-sort-key.v1", self.index);
+        encoder.global_def(item.def_id);
+        encoder.module_id(item.arg_module_id);
+        encoder.optional_ty(item.self_arg);
+        encoder.types(&item.args);
+        encoder.const_args(&item.const_args);
+        encoder.optional_global_def(item.source_def_id);
+        encoder.finish().parts()
     }
 
     fn aggregate(

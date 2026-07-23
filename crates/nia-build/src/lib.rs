@@ -11,7 +11,7 @@ use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, LinkExecutableRequest, TimingMode,
 };
 use nia_imports::ModuleMap;
-use nia_source::{SourceDatabase, SourcePath};
+use nia_source::SourcePath;
 use nia_timing::TimingOptions;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,10 +115,6 @@ pub enum BuildError {
         source: String,
         error: Box<DriverError>,
     },
-    BuildRunnerCache {
-        operation: &'static str,
-        error: String,
-    },
     RunRunner {
         path: PathBuf,
         error: io::Error,
@@ -186,9 +182,6 @@ impl fmt::Display for BuildError {
                     "failed to compile build runner `{path}`\n{}",
                     nia_driver::render_driver_error(error, Some(path), Some(source))
                 )
-            }
-            Self::BuildRunnerCache { operation, error } => {
-                write!(f, "failed to {operation} build runner cache: {error}")
             }
             Self::RunRunner { path, error } => {
                 write!(
@@ -358,15 +351,6 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
         error,
     })?;
     let runner = build_runner_source(plan)?;
-    let cache_request = build_runner_cache_request(plan, &runner);
-    let cache = nia_driver::executable_artifact_cache_entry(cache_request, &plan.cache_dir)
-        .map_err(|error| BuildError::BuildRunnerCache {
-            operation: "resolve",
-            error,
-        })?;
-    if nia_driver::restore_executable_artifact_cache(&cache, &plan.runner_executable) {
-        return Ok(plan.runner_executable.clone());
-    }
     if let Some(parent) = plan.runner_executable.parent() {
         fs::create_dir_all(parent).map_err(|error| BuildError::CreateRunnerDirectory {
             path: parent.to_path_buf(),
@@ -374,7 +358,7 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
         })?;
     }
     let driver = Driver::with_config(DriverConfig {
-        object_cache_dir: Some(plan.cache_dir.clone()),
+        artifact_cache_dir: Some(plan.cache_dir.clone()),
         ..DriverConfig::default()
     });
     driver.set_source(runner.path.clone(), runner.source.clone());
@@ -384,30 +368,12 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
             .with_timings(plan.timings),
         &plan.runner_executable,
     ));
-    let artifact = output.result.map_err(|error| BuildError::CompileRunner {
+    output.result.map_err(|error| BuildError::CompileRunner {
         path: runner.path,
         source: runner.source,
         error: Box::new(error),
     })?;
-    nia_driver::publish_executable_artifact_cache(&artifact.path, &cache).map_err(|error| {
-        BuildError::BuildRunnerCache {
-            operation: "publish",
-            error,
-        }
-    })?;
     Ok(plan.runner_executable.clone())
-}
-
-fn build_runner_cache_request(
-    plan: &BuildPlan,
-    runner: &BuildRunnerSource,
-) -> nia_driver::ExecutableArtifactCacheRequest {
-    let sources = SourceDatabase::new();
-    sources.set_source(SourcePath::new(runner.path.clone()), runner.source.clone());
-    nia_driver::ExecutableArtifactCacheRequest::new(runner.path.clone())
-        .with_module_map(build_runner_module_map(plan))
-        .with_sources(sources)
-        .with_target(nia_driver::DriverConfig::default().target)
 }
 
 fn build_runner_module_map(plan: &BuildPlan) -> ModuleMap {
@@ -787,104 +753,6 @@ mod tests {
     }
 
     #[test]
-    fn build_runner_cache_ignores_non_build_graph_package_sources() {
-        let root = temp_root("build_runner_cache_ignores_non_build_graph_package_sources");
-        std::fs::create_dir_all(root.join("src")).expect("create src");
-        std::fs::write(root.join("build.nia"), "using std::build;\n").expect("write build script");
-        std::fs::write(root.join("src/main.nia"), "fn main() void {}\n").expect("write app");
-        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
-        let runner = build_runner_source(&plan).expect("build runner source");
-        let before = build_runner_cache_entry(&plan, &runner);
-
-        std::fs::write(root.join("src/main.nia"), "fn main() i32 { 1 }\n").expect("edit app");
-        let after = build_runner_cache_entry(&plan, &runner);
-
-        assert_eq!(before.executable, after.executable);
-    }
-
-    #[test]
-    fn build_runner_cache_tracks_build_script_module_graph_sources() {
-        let root = temp_root("build_runner_cache_tracks_build_script_module_graph_sources");
-        std::fs::create_dir_all(root.join("build")).expect("create build module dir");
-        write_build_script_using_helper(&root);
-        std::fs::write(root.join("build/helper.nia"), "pub fn value() i32 { 1 }\n")
-            .expect("write helper");
-        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
-        let runner = build_runner_source(&plan).expect("build runner source");
-        let before = build_runner_cache_entry(&plan, &runner);
-
-        std::fs::write(root.join("build/helper.nia"), "pub fn value() i32 { 2 }\n")
-            .expect("edit helper");
-        let after = build_runner_cache_entry(&plan, &runner);
-
-        assert_ne!(before.executable, after.executable);
-    }
-
-    #[test]
-    fn build_runner_cache_tracks_nested_declared_build_modules() {
-        let root = temp_root("build_runner_cache_tracks_nested_declared_build_modules");
-        std::fs::create_dir_all(root.join("build").join("helper"))
-            .expect("create build module dir");
-        write_build_script_using_helper(&root);
-        std::fs::write(
-            root.join("build/helper.nia"),
-            "pub module nested;\nusing pkg::helper::nested;\npub fn value() i32 { nested::value() }\n",
-        )
-        .expect("write helper");
-        std::fs::write(
-            root.join("build/helper/nested.nia"),
-            "pub fn value() i32 { 1 }\n",
-        )
-        .expect("write nested helper");
-        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
-        let runner = build_runner_source(&plan).expect("build runner source");
-        let before = build_runner_cache_entry(&plan, &runner);
-
-        std::fs::write(
-            root.join("build/helper/nested.nia"),
-            "pub fn value() i32 { 2 }\n",
-        )
-        .expect("edit nested helper");
-        let after = build_runner_cache_entry(&plan, &runner);
-
-        assert_ne!(before.executable, after.executable);
-    }
-
-    #[test]
-    fn build_runner_cache_tracks_added_declared_build_graph_input() {
-        let root = temp_root("build_runner_cache_tracks_added_declared_build_graph_input");
-        std::fs::create_dir_all(root.join("build")).expect("create build module dir");
-        write_build_script_using_helper(&root);
-        std::fs::write(root.join("build/helper.nia"), "pub fn value() i32 { 1 }\n")
-            .expect("write helper");
-        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
-        let runner = build_runner_source(&plan).expect("build runner source");
-        let before = build_runner_cache_entry(&plan, &runner);
-
-        write_build_script_using_helper_and_extra(&root);
-        std::fs::write(root.join("build/extra.nia"), "pub fn value() i32 { 2 }\n")
-            .expect("write extra");
-        let after = build_runner_cache_entry(&plan, &runner);
-
-        assert_ne!(before.executable, after.executable);
-    }
-
-    #[test]
-    fn build_runner_cache_tracks_changed_generated_runner_source() {
-        let root = temp_root("build_runner_cache_tracks_changed_generated_runner_source");
-        std::fs::write(root.join("build.nia"), "using std::build;\n").expect("write build script");
-        let plan = resolve_build_plan(BuildRequest::new().with_root(&root)).expect("build plan");
-        let runner = build_runner_source(&plan).expect("build runner source");
-        let before = build_runner_cache_entry(&plan, &runner);
-        let mut changed_runner = runner.clone();
-        changed_runner.source.push('\n');
-
-        let after = build_runner_cache_entry(&plan, &changed_runner);
-
-        assert_ne!(before.executable, after.executable);
-    }
-
-    #[test]
     fn generated_runner_source_does_not_embed_package_paths() {
         let root = temp_root("generated_runner_source_does_not_embed_package_paths");
         let package_root = root.join("quote\"slash\\tab\t");
@@ -901,56 +769,6 @@ mod tests {
                 .contains(&package_root.to_string_lossy().to_string())
         );
         assert!(!runner.source.contains("quote\\\"slash"));
-    }
-
-    fn build_runner_cache_entry(
-        plan: &BuildPlan,
-        runner: &BuildRunnerSource,
-    ) -> nia_driver::ExecutableArtifactCacheEntry {
-        nia_driver::executable_artifact_cache_entry(
-            build_runner_cache_request(plan, runner),
-            &plan.cache_dir,
-        )
-        .expect("build runner cache entry")
-    }
-
-    fn write_build_script_using_helper(root: &Path) {
-        std::fs::write(
-            root.join("build.nia"),
-            r#"
-pub module helper;
-using pkg::helper;
-using std::build;
-
-pub fn build(b: &mut build::Build) build::Error!void {
-    _ = b;
-    _ = helper::value();
-    !{}
-}
-"#,
-        )
-        .expect("write build script");
-    }
-
-    fn write_build_script_using_helper_and_extra(root: &Path) {
-        std::fs::write(
-            root.join("build.nia"),
-            r#"
-pub module helper;
-pub module extra;
-using pkg::extra;
-using pkg::helper;
-using std::build;
-
-pub fn build(b: &mut build::Build) build::Error!void {
-    _ = b;
-    _ = helper::value();
-    _ = extra::value();
-    !{}
-}
-"#,
-        )
-        .expect("write build script");
     }
 
     fn temp_root(name: &str) -> PathBuf {
