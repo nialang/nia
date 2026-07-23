@@ -27,10 +27,13 @@ impl BackendProgram {
                 partition.id, partition.module_index
             )
         });
-        assert_eq!(partition.id, CodegenUnitId::source_module(module.id));
+        assert_eq!(
+            partition.id,
+            CodegenUnitId::source_module(module.id, partition.ordinal())
+        );
         assert_eq!(
             partition.key,
-            CodegenUnitKey::source_module(module.source_identity.clone()),
+            CodegenUnitKey::source_module(module.source_identity.clone(), partition.ordinal()),
             "Nia ICE: codegen partition stable key does not match its backend module"
         );
         module
@@ -44,11 +47,8 @@ pub enum CodegenUnitId {
 }
 
 impl CodegenUnitId {
-    fn source_module(module_id: ModuleId) -> Self {
-        Self::SourceModule {
-            module_id,
-            ordinal: 0,
-        }
+    fn source_module(module_id: ModuleId, ordinal: u32) -> Self {
+        Self::SourceModule { module_id, ordinal }
     }
 }
 
@@ -75,10 +75,10 @@ impl CodegenUnitFingerprint {
 }
 
 impl CodegenUnitKey {
-    fn source_module(source_identity: SourceIdentity) -> Self {
+    fn source_module(source_identity: SourceIdentity, ordinal: u32) -> Self {
         Self::SourceModule {
             source_identity,
-            ordinal: 0,
+            ordinal,
         }
     }
 }
@@ -139,11 +139,14 @@ impl CodegenPartitionPlan {
         let mut partitions = modules
             .iter()
             .enumerate()
-            .filter(|(_, module)| module.has_codegen_definitions())
-            .map(|(module_index, module)| CodegenPartition {
-                id: CodegenUnitId::source_module(module.id),
-                key: CodegenUnitKey::source_module(module.source_identity.clone()),
-                module_index,
+            .filter_map(|(module_index, module)| {
+                let definitions = CodegenPartitionDefinitions::from_module(module);
+                (!definitions.is_empty()).then(|| CodegenPartition {
+                    id: CodegenUnitId::source_module(module.id, 0),
+                    key: CodegenUnitKey::source_module(module.source_identity.clone(), 0),
+                    module_index,
+                    definitions,
+                })
             })
             .collect::<Vec<_>>();
         partitions.sort_unstable_by(|left, right| left.key.cmp(&right.key));
@@ -175,6 +178,89 @@ pub struct CodegenPartition {
     pub id: CodegenUnitId,
     pub key: CodegenUnitKey,
     module_index: usize,
+    definitions: CodegenPartitionDefinitions,
+}
+
+impl CodegenPartition {
+    fn ordinal(&self) -> u32 {
+        match (self.id, &self.key) {
+            (
+                CodegenUnitId::SourceModule { ordinal, .. },
+                CodegenUnitKey::SourceModule {
+                    ordinal: key_ordinal,
+                    ..
+                },
+            ) if ordinal == *key_ordinal => ordinal,
+            _ => panic!("Nia ICE: source codegen partition has inconsistent identities"),
+        }
+    }
+
+    pub fn global_definitions(&self) -> &[usize] {
+        &self.definitions.globals
+    }
+
+    pub fn global_instance_definitions(&self) -> &[usize] {
+        &self.definitions.global_instances
+    }
+
+    pub fn function_definitions(&self) -> &[usize] {
+        &self.definitions.functions
+    }
+
+    pub fn function_instance_definitions(&self) -> &[usize] {
+        &self.definitions.function_instances
+    }
+
+    pub fn vtable_definitions(&self) -> &[usize] {
+        &self.definitions.vtables
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CodegenPartitionDefinitions {
+    globals: Vec<usize>,
+    global_instances: Vec<usize>,
+    functions: Vec<usize>,
+    function_instances: Vec<usize>,
+    vtables: Vec<usize>,
+}
+
+impl CodegenPartitionDefinitions {
+    fn from_module(module: &BackendModule) -> Self {
+        Self {
+            globals: module
+                .globals
+                .iter()
+                .enumerate()
+                .filter_map(|(index, global)| (!global.is_extern).then_some(index))
+                .collect(),
+            global_instances: (0..module.global_instances.len()).collect(),
+            functions: module
+                .functions
+                .iter()
+                .enumerate()
+                .filter_map(|(index, function)| {
+                    (function.generics.is_empty() && function.function_body.is_some())
+                        .then_some(index)
+                })
+                .collect(),
+            function_instances: module
+                .function_instances
+                .iter()
+                .enumerate()
+                .filter_map(|(index, function)| function.function_body.as_ref().map(|_| index))
+                .collect(),
+            vtables: (0..module.trait_object_vtables.len()).collect(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.globals.is_empty()
+            && self.global_instances.is_empty()
+            && self.functions.is_empty()
+            && self.function_instances.is_empty()
+            && self.vtables.is_empty()
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -195,22 +281,6 @@ pub struct BackendModule {
     pub function_instances: Vec<BackendFunctionInstance>,
     pub trait_object_vtables: Vec<BackendTraitObjectVtable>,
     pub generic_instantiations: Vec<BackendGenericInstantiation>,
-}
-
-impl BackendModule {
-    fn has_codegen_definitions(&self) -> bool {
-        self.globals.iter().any(|global| !global.is_extern)
-            || !self.global_instances.is_empty()
-            || self
-                .functions
-                .iter()
-                .any(|function| function.function_body.is_some())
-            || self
-                .function_instances
-                .iter()
-                .any(|function| function.function_body.is_some())
-            || !self.trait_object_vtables.is_empty()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -605,6 +675,13 @@ mod tests {
         );
         assert_eq!(program.module_for_partition(&partitions[0]).name, "first");
         assert_eq!(program.module_for_partition(&partitions[1]).name, "second");
+        for partition in partitions {
+            assert_eq!(partition.global_definitions(), &[0]);
+            assert!(partition.global_instance_definitions().is_empty());
+            assert!(partition.function_definitions().is_empty());
+            assert!(partition.function_instance_definitions().is_empty());
+            assert!(partition.vtable_definitions().is_empty());
+        }
         assert_eq!(
             partitions
                 .iter()

@@ -1665,11 +1665,15 @@ module_id, ordinal }` locates work only inside the current session, while
 module-handle reallocation and is the persistent work-product key. The initial
 policy assigns ordinal zero to each backend module that owns a function body,
 global definition, concrete instance, or vtable. Units are ordered by stable
-key rather than `ModuleId` or `BackendProgram.modules` position, while each plan
-entry keeps only a module index and never copies Backend IR. Declaration-only
-modules remain available to the whole-program `ProgramIndex`, but do not become
-codegen work units. The plan is validated against the program at the LLVM
-boundary, so a caller cannot pair a stale plan with mutated module membership.
+key rather than `ModuleId` or `BackendProgram.modules` position. Each plan entry
+keeps one module index plus position-only definition membership for globals,
+global instances, functions, function instances, and vtables; it never copies
+Backend IR. This membership is the sole authority for LLVM initializers,
+function bodies, vtable definitions, and the unit definition fingerprint.
+Declaration-only modules remain available to the whole-program `ProgramIndex`,
+but do not become codegen work units. The plan is reconstructed and validated
+against the program at the LLVM boundary, so a caller cannot pair a stale plan
+with mutated definition membership.
 
 LLVM IR and object emission consume this explicit plan instead of deriving units
 from a second module loop. Both output forms carry the runtime ID and stable key.
