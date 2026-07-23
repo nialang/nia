@@ -33,6 +33,11 @@ METRICS = (
         "allocation",
         lambda result: result["counters"]["allocator.allocated_bytes"],
     ),
+    Metric(
+        "allocator.peak_live_bytes",
+        "allocation",
+        lambda result: result["counters"]["allocator.peak_live_bytes"],
+    ),
 )
 
 

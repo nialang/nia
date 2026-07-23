@@ -1176,6 +1176,11 @@ fn main() i32 {
             report.contains("\"allocator.allocated_bytes\":"),
             "{report}"
         );
+        assert!(report.contains("\"allocator.live_bytes\":"), "{report}");
+        assert!(
+            report.contains("\"allocator.peak_live_bytes\":"),
+            "{report}"
+        );
         assert!(report.contains("\"query.value_clone_bytes\":"), "{report}");
     } else {
         assert!(!report.contains("\"allocator."), "{report}");

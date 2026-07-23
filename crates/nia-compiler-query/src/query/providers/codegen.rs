@@ -280,6 +280,7 @@ fn provide_backend_lowering_inner(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
     let plan = db.get_owned(BackendItemPlanQuery);
+    emit_backend_module_plan_allocation("before_publish");
     let has_diagnostics = !plan.diagnostics().is_empty();
     let (finalization, module_plans) = plan.into_module_plans();
     let module_ids = module_plans
@@ -293,11 +294,13 @@ fn provide_backend_lowering_inner(
             &BackendItemPlanQuery,
         );
     }
+    emit_backend_module_plan_allocation("after_publish");
     let module_plans = module_ids
         .iter()
         .copied()
         .map(|module_id| db.get_owned(BackendModuleItemPlanQuery(module_id)))
         .collect::<Vec<_>>();
+    emit_backend_module_plan_allocation("after_consume");
     if has_diagnostics {
         return nia_backend_lower::finalize_backend_module_item_plans_with_timings(
             &[],
@@ -322,6 +325,20 @@ fn provide_backend_lowering_inner(
             "Nia ICE: backend finalization inputs failed after a valid item plan: {diagnostics:?}"
         )
     })
+}
+
+fn emit_backend_module_plan_allocation(stage: &str) {
+    let Some(snapshot) = nia_timing::allocation_live_snapshot() else {
+        return;
+    };
+    nia_timing::emit_counter(
+        format!("backend.module_plan.{stage}.live_bytes"),
+        snapshot.live_bytes,
+    );
+    nia_timing::emit_counter(
+        format!("backend.module_plan.{stage}.peak_live_bytes"),
+        snapshot.peak_live_bytes,
+    );
 }
 
 fn with_backend_lowering_inputs<R>(

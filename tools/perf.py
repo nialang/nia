@@ -192,7 +192,10 @@ def normalize_report_paths(value: Any) -> Any:
 
 def require_allocation_instrumentation(report: dict[str, Any]) -> None:
     counters = report.get("counters", {})
-    if not isinstance(counters, dict) or "allocator.allocated_bytes" not in counters:
+    if not isinstance(counters, dict) or not {
+        "allocator.allocated_bytes",
+        "allocator.peak_live_bytes",
+    }.issubset(counters):
         raise RuntimeError(
             "compiler timing report has no allocation counters; performance "
             "baselines require nia-cli built with `cargo build --release "
