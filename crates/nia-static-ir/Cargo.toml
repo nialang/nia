@@ -6,7 +6,9 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+nia-function-ir.workspace = true
 nia-ids.workspace = true
+nia-span.workspace = true
 nia-ty.workspace = true
 
 [lib]

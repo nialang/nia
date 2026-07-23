@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::function_refs::collect_function_refs_from_static_init;
 use crate::{BackendOptimizationChange, ModuleLowerer, backend_function_instance_key};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendGlobal, BackendTraitObjectVtable,
@@ -63,7 +62,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         for global in globals {
             if let Some(init) = &global.init {
-                collect_function_refs_from_static_init(self.input.module_id, init, &mut refs);
+                refs.extend(init.value_refs(self.input.module_id));
             }
         }
         for vtable in trait_object_vtables {

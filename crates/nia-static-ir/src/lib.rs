@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_function_ir::{FunctionBodyRefs, FunctionInstanceRef};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_span::Span;
 use nia_ty::IntConst;
 use std::collections::HashSet;
 
@@ -43,34 +45,43 @@ pub enum StaticInit {
 impl StaticInit {
     pub fn refs(&self) -> StaticInitRefs {
         let mut refs = StaticInitRefs::default();
-        self.collect_refs(&mut refs);
+        self.visit_refs(&mut refs);
         refs
     }
 
-    fn collect_refs(&self, refs: &mut StaticInitRefs) {
+    pub fn value_refs(&self, module_id: ModuleId) -> FunctionBodyRefs {
+        let mut refs = FunctionBodyRefs::default();
+        self.visit_refs(&mut FunctionBodyRefSink {
+            module_id,
+            refs: &mut refs,
+        });
+        refs
+    }
+
+    fn visit_refs(&self, sink: &mut impl StaticInitRefSink) {
         match self {
             Self::Array(elements) => {
                 for element in elements {
-                    element.collect_refs(refs);
+                    element.visit_refs(sink);
                 }
             }
             Self::Repeat { value, count } => {
                 if *count != 0 {
-                    value.collect_refs(refs);
+                    value.visit_refs(sink);
                 }
             }
             Self::Struct(fields) => {
                 for field in fields {
-                    field.value.collect_refs(refs);
+                    field.value.visit_refs(sink);
                 }
             }
             Self::AddrOfGlobal { global, .. } => {
-                refs.globals.insert(*global);
+                sink.global(*global);
             }
-            Self::AddrOfFunction { function, .. } => {
-                refs.functions.insert(*function);
+            Self::AddrOfFunction { function, args } => {
+                sink.function(*function, args);
             }
-            Self::StaticArrayPointer { array_init, .. } => array_init.collect_refs(refs),
+            Self::StaticArrayPointer { array_init, .. } => array_init.visit_refs(sink),
             Self::Zero
             | Self::Int(_)
             | Self::Float(_)
@@ -80,6 +91,48 @@ impl StaticInit {
             | Self::Chars(_)
             | Self::Bytes(_)
             | Self::NullPtr => {}
+        }
+    }
+}
+
+trait StaticInitRefSink {
+    fn global(&mut self, global: GlobalDefId);
+    fn function(&mut self, function: GlobalDefId, args: &[InternedTyId]);
+}
+
+impl StaticInitRefSink for StaticInitRefs {
+    fn global(&mut self, global: GlobalDefId) {
+        self.globals.insert(global);
+    }
+
+    fn function(&mut self, function: GlobalDefId, _args: &[InternedTyId]) {
+        self.functions.insert(function);
+    }
+}
+
+struct FunctionBodyRefSink<'a> {
+    module_id: ModuleId,
+    refs: &'a mut FunctionBodyRefs,
+}
+
+impl StaticInitRefSink for FunctionBodyRefSink<'_> {
+    fn global(&mut self, global: GlobalDefId) {
+        self.refs.globals.insert(global);
+    }
+
+    fn function(&mut self, function: GlobalDefId, args: &[InternedTyId]) {
+        self.refs.types.extend(args.iter().copied());
+        if args.is_empty() {
+            self.refs.functions.insert(function);
+        } else {
+            self.refs.function_instances.push(FunctionInstanceRef {
+                def_id: function,
+                arg_module_id: self.module_id,
+                self_arg: None,
+                args: args.to_vec(),
+                const_args: Vec::new(),
+                span: Span::default(),
+            });
         }
     }
 }
@@ -162,5 +215,41 @@ mod tests {
         let refs = init.refs();
         assert_eq!(refs.functions, HashSet::from([function]));
         assert_eq!(refs.globals, HashSet::from([global]));
+    }
+
+    #[test]
+    fn typed_refs_preserve_function_instance_identity() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let function = GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        };
+        let types = nia_ty::TypeStore::new();
+        let arg = types
+            .append_for_module(module_id)
+            .primitive(nia_ty::PrimitiveTy::Usize);
+        let init = StaticInit::Array(vec![
+            StaticInit::AddrOfFunction {
+                function,
+                args: vec![arg],
+            },
+            StaticInit::Repeat {
+                value: Box::new(StaticInit::AddrOfFunction {
+                    function,
+                    args: vec![arg],
+                }),
+                count: 0,
+            },
+        ]);
+
+        let refs = init.value_refs(module_id);
+
+        assert!(refs.functions.is_empty());
+        assert_eq!(refs.types, std::collections::BTreeSet::from([arg]));
+        assert_eq!(refs.function_instances.len(), 1);
+        assert_eq!(refs.function_instances[0].def_id, function);
+        assert_eq!(refs.function_instances[0].arg_module_id, module_id);
+        assert_eq!(refs.function_instances[0].args, vec![arg]);
     }
 }
