@@ -1368,6 +1368,8 @@ Acceptance：多核 workload CPU 利用率明显提升；小改动只重建受�
 
 进展（2026-07-23）：G-2b 删除`ProgramIndex`内部的self-referential borrowed-value maps。module、struct/union/enum、function/global、concrete instance、vtable及五类layout index现在只保存`module/item/layout position`，所有consumer通过accessor回到canonical `BackendProgram` allocation；exact key、equivalent type fallback与by-def iteration仍复用原语义，没有复制function body/static init/layout，也没有新增ID、store或`Arc`。validator、declaration、type/static-init/function codegen中直接读取index map的路径已全部迁移，map结构不再成为外部truth source。回归以指针相等锁定module/function-instance lookup返回原allocation，并以编译期guard锁定`ProgramIndex<'static>: Send + Sync`；LLVM 178项通过。此时index仍借用唯一program/type-store roots，所以尚不能进入要求`'static` closure的persistent executor；下一切片应让一个owned readonly task context持有既有`Arc<BackendLowering>`和`Arc<TypeStore>`并拥有position index，再开放统一executor的非query task batch，禁止重新引入per-task全程序index。Phase G约25%，整份roadmap约82%。
 
+进展（2026-07-23）：G-2c1 从`QuerySession`提取统一non-query `run_tasks` batch。任意`Send + 'static` closure及其non-Clone owned output现在可直接复用既有persistent queue、worker pool、jobserver/process CPU budget、nested progress、panic汇聚和submission-order归并，不注册伪query node或dependency edge。`get_many`与`get_many_owned`也已改为调用同一个内部batch核心，只在query wrapper中安装/归并parent dependency stack，不再各自内联executor提交协议。顺序与budget回归已加入，nia-query 68项通过。该原语只解除LLVM task提交阻点，尚未宣称LLVM已并行；下一切片必须建立唯一owned readonly codegen context并把per-partition outcome真实提交到此入口。
+
 ### 阶段 H（P1/P2）：持久 frontend incremental
 
 1. stable module/def key。
