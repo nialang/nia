@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::function_refs::{
-    FunctionInstanceKey, FunctionInstanceRef, FunctionRefs,
-    collect_function_refs_from_optional_body, collect_function_refs_from_static_init,
-};
-use crate::{BackendOptimizationChange, ModuleLowerer};
+use crate::function_refs::collect_function_refs_from_static_init;
+use crate::{BackendOptimizationChange, ModuleLowerer, backend_function_instance_key};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendGlobal, BackendTraitObjectVtable,
     BackendTraitObjectVtableFunction,
 };
 use nia_defs::DefKind;
+use nia_function_ir::{FunctionBodyRefs, FunctionInstanceKey, FunctionInstanceRef};
 use nia_ids::{GlobalDefId, Visibility};
 use nia_opt::OptimizationDepth;
 use nia_symbol::known;
@@ -42,29 +40,25 @@ impl<'a> ModuleLowerer<'a> {
         let removable_instances = function_instances
             .iter()
             .filter(|instance| self.is_removable_private_function_instance(instance))
-            .map(FunctionInstanceKey::from)
+            .map(backend_function_instance_key)
             .collect::<HashSet<_>>();
         if removable_functions.is_empty() && removable_instances.is_empty() {
             return;
         }
 
-        let mut refs = FunctionRefs::default();
+        let mut refs = FunctionBodyRefs::default();
         for function in functions.iter() {
-            if !removable_functions.contains(&function.def_id) {
-                collect_function_refs_from_optional_body(
-                    self.input.module_id,
-                    &function.function_body,
-                    &mut refs,
-                );
+            if !removable_functions.contains(&function.def_id)
+                && let Some(body) = &function.function_body
+            {
+                refs.extend(body.value_refs());
             }
         }
         for instance in function_instances.iter() {
-            if !removable_instances.contains(&FunctionInstanceKey::from(instance)) {
-                collect_function_refs_from_optional_body(
-                    instance.arg_module_id,
-                    &instance.function_body,
-                    &mut refs,
-                );
+            if !removable_instances.contains(&backend_function_instance_key(instance))
+                && let Some(body) = &instance.function_body
+            {
+                refs.extend(body.value_refs());
             }
         }
         for global in globals {
@@ -85,7 +79,7 @@ impl<'a> ModuleLowerer<'a> {
                         args,
                         const_args,
                     } => {
-                        refs.instances.push(FunctionInstanceRef {
+                        refs.function_instances.push(FunctionInstanceRef {
                             def_id: *def_id,
                             arg_module_id: *arg_module_id,
                             self_arg: *self_arg,
@@ -122,12 +116,12 @@ impl<'a> ModuleLowerer<'a> {
 
         let mut removed_instances = Vec::new();
         let live_instance_keys = refs
-            .instances
+            .function_instances
             .iter()
             .map(FunctionInstanceRef::key)
             .collect::<HashSet<_>>();
         function_instances.retain(|instance| {
-            let key = FunctionInstanceKey::from(instance);
+            let key = backend_function_instance_key(instance);
             let remove = removable_instances.contains(&key) && !live_instance_keys.contains(&key);
             if remove {
                 removed_instances.push((instance.def_id, instance.args.len()));
@@ -171,35 +165,10 @@ impl<'a> ModuleLowerer<'a> {
     }
 }
 
-impl From<&BackendFunctionInstance> for FunctionInstanceRef {
-    fn from(instance: &BackendFunctionInstance) -> Self {
-        Self {
-            def_id: instance.def_id,
-            arg_module_id: instance.arg_module_id,
-            self_arg: instance.self_arg,
-            args: instance.args.clone(),
-            const_args: instance.const_args.clone(),
-            span: instance.span,
-        }
-    }
-}
-
-impl From<&BackendFunctionInstance> for FunctionInstanceKey {
-    fn from(instance: &BackendFunctionInstance) -> Self {
-        Self {
-            def_id: instance.def_id,
-            arg_module_id: instance.arg_module_id,
-            self_arg: instance.self_arg,
-            args: instance.args.clone(),
-            const_args: instance.const_args.clone(),
-        }
-    }
-}
-
 fn collect_transitive_refs(
     functions: &[BackendFunction],
     instances: &[BackendFunctionInstance],
-    refs: &mut FunctionRefs,
+    refs: &mut FunctionBodyRefs,
 ) {
     let functions_by_id = functions
         .iter()
@@ -207,14 +176,18 @@ fn collect_transitive_refs(
         .collect::<HashMap<_, _>>();
     let instances_by_ref = instances
         .iter()
-        .map(|instance| (FunctionInstanceKey::from(instance), instance))
+        .map(|instance| (backend_function_instance_key(instance), instance))
         .collect::<HashMap<_, _>>();
     let mut visited_functions = HashSet::new();
     let mut visited_instances = HashSet::new();
     let mut pending_functions = refs.functions.iter().copied().collect::<VecDeque<_>>();
-    let mut pending_instances = refs.instances.iter().cloned().collect::<VecDeque<_>>();
+    let mut pending_instances = refs
+        .function_instances
+        .iter()
+        .cloned()
+        .collect::<VecDeque<_>>();
     let mut known_instances = refs
-        .instances
+        .function_instances
         .iter()
         .map(FunctionInstanceRef::key)
         .collect::<HashSet<_>>();
@@ -227,12 +200,11 @@ fn collect_transitive_refs(
             let Some(function) = functions_by_id.get(&function_id) else {
                 continue;
             };
-            let mut discovered = FunctionRefs::default();
-            collect_function_refs_from_optional_body(
-                function.def_id.module_id,
-                &function.function_body,
-                &mut discovered,
-            );
+            let discovered = function
+                .function_body
+                .as_ref()
+                .map(|body| body.value_refs())
+                .unwrap_or_default();
             enqueue_new_refs(
                 refs,
                 discovered,
@@ -250,12 +222,11 @@ fn collect_transitive_refs(
             let Some(instance) = instances_by_ref.get(&instance_key) else {
                 continue;
             };
-            let mut discovered = FunctionRefs::default();
-            collect_function_refs_from_optional_body(
-                instance.arg_module_id,
-                &instance.function_body,
-                &mut discovered,
-            );
+            let discovered = instance
+                .function_body
+                .as_ref()
+                .map(|body| body.value_refs())
+                .unwrap_or_default();
             enqueue_new_refs(
                 refs,
                 discovered,
@@ -268,8 +239,8 @@ fn collect_transitive_refs(
 }
 
 fn enqueue_new_refs(
-    refs: &mut FunctionRefs,
-    discovered: FunctionRefs,
+    refs: &mut FunctionBodyRefs,
+    discovered: FunctionBodyRefs,
     known_instances: &mut HashSet<FunctionInstanceKey>,
     pending_functions: &mut VecDeque<GlobalDefId>,
     pending_instances: &mut VecDeque<FunctionInstanceRef>,
@@ -279,9 +250,9 @@ fn enqueue_new_refs(
             pending_functions.push_back(function);
         }
     }
-    for instance in discovered.instances {
+    for instance in discovered.function_instances {
         if known_instances.insert(instance.key()) {
-            refs.instances.push(instance.clone());
+            refs.function_instances.push(instance.clone());
             pending_instances.push_back(instance);
         }
     }

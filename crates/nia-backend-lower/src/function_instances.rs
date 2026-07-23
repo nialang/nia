@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::function_refs::{FunctionInstanceKey, FunctionInstanceRef};
 use crate::{BackendItemDiscovery, FunctionInstanceMaterialization, ModuleLowerer};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionAttribute, BackendFunctionInstance, BackendParam,
 };
-use nia_function_ir::{FunctionBody, FunctionLocal, FunctionLocalKind};
+use nia_function_ir::{
+    FunctionBody, FunctionInstanceKey, FunctionInstanceRef, FunctionLocal, FunctionLocalKind,
+    GlobalInstanceRef,
+};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::FunctionAttribute;
 use nia_symbol::{SymbolId, SymbolMap};
@@ -154,9 +156,8 @@ impl<'a> ModuleLowerer<'a> {
                 .last()
                 .expect("successful function instance lowering must append an instance")
                 .function_body;
-            let discovery =
-                self.discover_backend_items_from_optional_body(instance.arg_module_id, body);
-            for discovered in &discovery.refs.instances {
+            let discovery = self.discover_backend_items_from_optional_body(body);
+            for discovered in &discovery.refs.function_instances {
                 let discovered_args = self.canonicalize_instance_args(&discovered.args);
                 let discovered_self_arg = self.canonicalize_instance_ref_self_arg(discovered);
                 let discovered_const_args = discovered.const_args.clone();
@@ -667,7 +668,7 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn canonicalize_global_instance_ref_args(
         &mut self,
-        instance: &crate::function_refs::GlobalInstanceRef,
+        instance: &GlobalInstanceRef,
     ) -> Vec<InternedTyId> {
         self.canonicalize_instance_args(&instance.args)
     }
