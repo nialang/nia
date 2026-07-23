@@ -324,7 +324,7 @@ struct QueryExecutionBudgetStackGuard {
     budget: usize,
 }
 
-type QueryBatchOutcome<O> = Result<(O, RecordedDependencies), Box<dyn Any + Send>>;
+type QueryBatchOutcome<O> = Result<O, Box<dyn Any + Send>>;
 
 struct QueryBatch<O> {
     state: Mutex<QueryBatchState<O>>,
@@ -914,33 +914,22 @@ impl<O> QueryBatch<O> {
             == 0
     }
 
-    fn finish(&self, records_fingerprints: bool) -> (Vec<O>, RecordedDependencies) {
+    fn finish(&self) -> Vec<O> {
         let outcomes = {
             let mut state = self.state.lock().expect("query batch state lock poisoned");
             assert_eq!(state.remaining, 0, "query batch finished before completion");
             std::mem::take(&mut state.outcomes)
         };
         let mut values = Vec::with_capacity(outcomes.len());
-        let mut dependencies = RecordedDependencies {
-            nodes: FastHashSet::default(),
-            fingerprints: records_fingerprints.then(DependencyFingerprints::default),
-        };
         for outcome in outcomes {
             let outcome = outcome.expect("completed query batch result must exist");
-            let (value, task_dependencies) = match outcome {
-                Ok(outcome) => outcome,
+            let value = match outcome {
+                Ok(value) => value,
                 Err(payload) => resume_unwind(payload),
             };
             values.push(value);
-            dependencies.nodes.extend(task_dependencies.nodes);
-            if let (Some(dependencies), Some(task_dependencies)) = (
-                dependencies.fingerprints.as_mut(),
-                task_dependencies.fingerprints,
-            ) {
-                dependencies.extend(task_dependencies);
-            }
         }
-        (values, dependencies)
+        values
     }
 }
 
@@ -1365,6 +1354,52 @@ impl QuerySession {
 
     pub fn executor_parallelism(&self) -> usize {
         self.inner.executor.shared.parallelism
+    }
+
+    pub fn run_tasks<T, O>(&self, tasks: impl IntoIterator<Item = T>) -> Vec<O>
+    where
+        T: FnOnce() -> O + Send + 'static,
+        O: Send + 'static,
+    {
+        let _activity = self.enter_activity();
+        self.run_tasks_inner(tasks)
+    }
+
+    fn run_tasks_inner<T, O>(&self, tasks: impl IntoIterator<Item = T>) -> Vec<O>
+    where
+        T: FnOnce() -> O + Send + 'static,
+        O: Send + 'static,
+    {
+        let tasks = tasks.into_iter().collect::<Vec<_>>();
+        if tasks.len() <= 1 {
+            return tasks.into_iter().map(|task| task()).collect();
+        }
+        let batch = Arc::new(QueryBatch::new(tasks.len()));
+        let batch_id = Arc::as_ptr(&batch) as usize;
+        let executor = &self.inner.executor;
+        let executor_shared = Arc::clone(&executor.shared);
+        let tasks = tasks
+            .into_iter()
+            .enumerate()
+            .map(|(index, task)| {
+                let batch = Arc::clone(&batch);
+                let executor_shared = Arc::clone(&executor_shared);
+                QueryTask {
+                    batch: batch_id,
+                    run: Box::new(move || {
+                        batch.complete(index, catch_unwind(AssertUnwindSafe(task)));
+                        executor_shared.notify_waiters();
+                    }),
+                }
+            })
+            .collect();
+        executor.submit_all(tasks);
+        while !batch.is_complete() {
+            if !executor.try_run_one(batch_id) {
+                executor.wait_for_batch_progress(&batch);
+            }
+        }
+        batch.finish()
     }
 
     fn enter_activity(&self) -> QueryActivityGuard<'_> {
@@ -2070,50 +2105,38 @@ impl<C> QueryDb<C> {
         O: Send + 'static,
     {
         let _activity = self.inner.session.enter_activity();
-        let keys = keys.into_iter().collect::<Vec<_>>();
-        if keys.is_empty() {
-            return Vec::new();
-        }
-        if keys.len() == 1 {
-            return keys.into_iter().map(|key| get(self, key)).collect();
-        }
         let parent_stack = current_query_stack();
         let records_fingerprints = parent_stack
             .last()
             .is_some_and(|entry| entry.dependency_fingerprints.is_some());
-        let batch = Arc::new(QueryBatch::new(keys.len()));
-        let batch_id = Arc::as_ptr(&batch) as usize;
-        let executor = &self.inner.session.inner.executor;
-        let executor_shared = Arc::clone(&executor.shared);
-        let tasks = keys
+        let tasks: Vec<_> = keys
             .into_iter()
-            .enumerate()
-            .map(|(index, key)| {
+            .map(|key| {
                 let db = self.clone();
                 let parent_stack = parent_stack.clone();
-                let batch = Arc::clone(&batch);
-                let executor_shared = Arc::clone(&executor_shared);
-                QueryTask {
-                    batch: batch_id,
-                    run: Box::new(move || {
-                        let outcome = catch_unwind(AssertUnwindSafe(|| {
-                            let _stack_guard = install_query_stack(parent_stack);
-                            let value = get(&db, key);
-                            (value, take_current_stack_dependencies())
-                        }));
-                        batch.complete(index, outcome);
-                        executor_shared.notify_waiters();
-                    }),
+                move || {
+                    let _stack_guard = install_query_stack(parent_stack);
+                    let value = get(&db, key);
+                    (value, take_current_stack_dependencies())
                 }
             })
             .collect();
-        executor.submit_all(tasks);
-        while !batch.is_complete() {
-            if !executor.try_run_one(batch_id) {
-                executor.wait_for_batch_progress(&batch);
+        let outcomes: Vec<(O, RecordedDependencies)> = self.inner.session.run_tasks_inner(tasks);
+        let mut values = Vec::with_capacity(outcomes.len());
+        let mut dependencies = RecordedDependencies {
+            nodes: FastHashSet::default(),
+            fingerprints: records_fingerprints.then(DependencyFingerprints::default),
+        };
+        for (value, task_dependencies) in outcomes {
+            values.push(value);
+            dependencies.nodes.extend(task_dependencies.nodes);
+            if let (Some(dependencies), Some(task_dependencies)) = (
+                dependencies.fingerprints.as_mut(),
+                task_dependencies.fingerprints,
+            ) {
+                dependencies.extend(task_dependencies);
             }
         }
-        let (values, dependencies) = batch.finish(records_fingerprints);
         merge_dependencies_into_current_stack(dependencies);
         values
     }
@@ -4081,6 +4104,46 @@ mod tests {
         assert_eq!(values, vec![0, 1, 2, 3]);
         assert_eq!(db.context().active.load(Ordering::SeqCst), 0);
         assert_eq!(db.context().peak_active.load(Ordering::SeqCst), 2);
+        assert_eq!(session.inner.executor.peak_active(), 2);
+    }
+
+    #[test]
+    fn session_tasks_move_non_clone_outputs_in_submission_order() {
+        let session = QuerySession::with_parallelism(2);
+
+        let values = session.run_tasks((0..4).map(|value| move || OwnedNonCloneValue { value }));
+
+        assert_eq!(
+            values
+                .into_iter()
+                .map(|value| value.value)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn session_tasks_use_the_shared_executor_budget() {
+        let session = QuerySession::with_parallelism(2);
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak_active = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(Barrier::new(2));
+        let tasks = (0..4).map(|value| {
+            let active = Arc::clone(&active);
+            let peak_active = Arc::clone(&peak_active);
+            let barrier = Arc::clone(&barrier);
+            move || {
+                let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak_active.fetch_max(current, Ordering::SeqCst);
+                barrier.wait();
+                active.fetch_sub(1, Ordering::SeqCst);
+                value
+            }
+        });
+
+        assert_eq!(session.run_tasks(tasks), vec![0, 1, 2, 3]);
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert_eq!(peak_active.load(Ordering::SeqCst), 2);
         assert_eq!(session.inner.executor.peak_active(), 2);
     }
 
