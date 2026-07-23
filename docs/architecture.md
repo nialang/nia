@@ -1728,6 +1728,22 @@ never visible as work products and concurrent identical publishers converge on
 the same immutable entry. Cache I/O failure can only lose reuse, never replace
 the compiler's current Backend IR or object result.
 
+Native object emission publishes one `IncrementalLinkInputs<NativeObject>`
+product rather than a module list. Each entry keeps its stable
+`CodegenUnitKey`, content `CodegenUnitFingerprint`, and object payload together;
+the collection constructor rejects duplicate or descending keys, so ordering is
+part of the typed contract instead of linker policy. The Driver may change only
+the payload representation while writing objects, producing
+`IncrementalLinkInputs<PathBuf>` with the same key and fingerprint. The linker
+accepts that typed collection directly and emits object arguments in its
+existing order. It has no plain path-list entry point, no key recovery from file
+names, and no secondary ordering truth source.
+
+This boundary makes the exact ordered CGU work-product set available to future
+link-result fingerprinting. It does not claim partial relinking or link-result
+caching; every executable link still invokes the configured linker over the
+complete typed input collection.
+
 After whole-program validation, each source partition crosses an independent
 LLVM emission boundary. That boundary creates and consumes its own LLVM
 `Context`, `ModuleCodegen`, and native `TargetMachine`, returning exactly one
@@ -1741,7 +1757,7 @@ backpressure. The outer aggregation layer owns no module-local LLVM state.
 This remains the first partition granularity, not the final CGU model.
 `ModuleId` is currently a process-local owner identity, source ordinals are not
 yet split beyond zero, and validation remains a whole-program predecessor.
-Finer partitioning, frontend/LLVM overlap, incremental link inputs, and richer
+Finer partitioning, frontend/LLVM overlap, link-result reuse, and richer
 reuse/invalidation reporting remain Phase G work.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen

@@ -307,7 +307,7 @@ impl Driver {
                 ));
             }
             DriverOutput::success(ObjectArtifact {
-                modules: output.modules,
+                link_inputs: output.link_inputs,
             })
         })
     }
@@ -346,20 +346,25 @@ impl Driver {
         DriverOutput::catch_ice(|| {
             let written = match output {
                 ObjectOutput::Single(path) => {
-                    if objects.modules.len() != 1 {
+                    if objects.link_inputs.len() != 1 {
                         return DriverOutput::from_error(DriverError::InvalidArtifactRequest(
                             "`-o` can only be used when the program has one codegen unit; use `--out-dir`"
                                 .to_string(),
                         ));
                     }
-                    if let Err(error) = write_output_file(&path, &objects.modules[0].bytes) {
+                    let input = &objects.link_inputs.as_slice()[0];
+                    if let Err(error) = write_output_file(&path, &input.object.bytes) {
                         return DriverOutput::from_error(DriverError::Io {
                             path,
                             operation: "write object file",
                             error,
                         });
                     }
-                    vec![path]
+                    vec![nia_codegen_llvm::IncrementalLinkInput {
+                        key: input.key.clone(),
+                        fingerprint: input.fingerprint,
+                        object: path,
+                    }]
                 }
                 ObjectOutput::Directory(dir) => {
                     if let Err(error) = fs::create_dir_all(&dir) {
@@ -370,21 +375,27 @@ impl Driver {
                         });
                     }
                     let mut paths = Vec::new();
-                    for (index, module) in objects.modules.iter().enumerate() {
-                        let path = dir.join(object_file_name(index, &module.name));
-                        if let Err(error) = write_output_file(&path, &module.bytes) {
+                    for (index, input) in objects.link_inputs.as_slice().iter().enumerate() {
+                        let path = dir.join(object_file_name(index, &input.object.name));
+                        if let Err(error) = write_output_file(&path, &input.object.bytes) {
                             return DriverOutput::from_error(DriverError::Io {
                                 path,
                                 operation: "write object file",
                                 error,
                             });
                         }
-                        paths.push(path);
+                        paths.push(nia_codegen_llvm::IncrementalLinkInput {
+                            key: input.key.clone(),
+                            fingerprint: input.fingerprint,
+                            object: path,
+                        });
                     }
                     paths
                 }
             };
-            DriverOutput::success(WrittenObjectArtifact { paths: written })
+            DriverOutput::success(WrittenObjectArtifact {
+                link_inputs: nia_codegen_llvm::IncrementalLinkInputs::new(written),
+            })
         })
     }
 
@@ -422,18 +433,25 @@ impl Driver {
                     error,
                 });
             }
-            let mut object_paths = Vec::new();
-            for (index, module) in objects.modules.iter().enumerate() {
-                let object_path = temp.path().join(object_file_name(index, &module.name));
-                if let Err(error) = write_output_file(&object_path, &module.bytes) {
+            let mut link_inputs = Vec::new();
+            for (index, input) in objects.link_inputs.as_slice().iter().enumerate() {
+                let object_path = temp
+                    .path()
+                    .join(object_file_name(index, &input.object.name));
+                if let Err(error) = write_output_file(&object_path, &input.object.bytes) {
                     return DriverOutput::from_error(DriverError::Io {
                         path: object_path,
                         operation: "write temporary object file",
                         error,
                     });
                 }
-                object_paths.push(object_path);
+                link_inputs.push(nia_codegen_llvm::IncrementalLinkInput {
+                    key: input.key.clone(),
+                    fingerprint: input.fingerprint,
+                    object: object_path,
+                });
             }
+            let link_inputs = nia_codegen_llvm::IncrementalLinkInputs::new(link_inputs);
             if let Some(parent) = output.parent()
                 && !parent.as_os_str().is_empty()
                 && let Err(error) = fs::create_dir_all(parent)
@@ -445,7 +463,7 @@ impl Driver {
                 });
             }
 
-            let invocation = match link_options.invocation(&object_paths, output.clone()) {
+            let invocation = match link_options.invocation(&link_inputs, output.clone()) {
                 Ok(invocation) => invocation,
                 Err(error) => return DriverOutput::from_error(DriverError::LinkerConfig(error)),
             };
@@ -707,12 +725,12 @@ pub struct LlvmIrArtifact {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectArtifact {
-    pub modules: Vec<nia_codegen_llvm::LlvmObjectModuleOutput>,
+    pub link_inputs: nia_codegen_llvm::IncrementalLinkInputs<nia_codegen_llvm::NativeObject>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WrittenObjectArtifact {
-    pub paths: Vec<PathBuf>,
+    pub link_inputs: nia_codegen_llvm::IncrementalLinkInputs<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

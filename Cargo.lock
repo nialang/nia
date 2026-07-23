@@ -645,6 +645,8 @@ dependencies = [
 name = "nia-linker"
 version = "0.4.3"
 dependencies = [
+ "nia-backend-ir",
+ "nia-source",
  "nia-target-config",
 ]
 
