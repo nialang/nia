@@ -11,7 +11,7 @@ use std::{cell::RefCell, collections::HashMap};
 use crate::function_codegen::{FunctionCodegen, FunctionCodegenInput};
 use crate::program_index::ProgramIndex;
 use crate::time_codegen_module_stage;
-use nia_backend_ir::{BackendFunction, BackendModule};
+use nia_backend_ir::{BackendFunction, BackendModule, CodegenPartition};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::TypeLayout;
@@ -86,6 +86,7 @@ struct FunctionSignature<P> {
 pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) context: &'ctx Context,
     pub(super) source: &'a BackendModule,
+    pub(super) partition: &'a CodegenPartition,
     pub(super) program: &'a ProgramIndex,
     pub(super) module: nia_llvm::module::Module<'ctx>,
     pub(super) structs: HashMap<GlobalDefId, StructType<'ctx>>,
@@ -119,12 +120,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn new(
         context: &'ctx Context,
         source: &'a BackendModule,
+        partition: &'a CodegenPartition,
         program: &'a ProgramIndex,
         options: crate::output::LlvmCodegenOptions,
     ) -> Result<Self, Diagnostic> {
         Ok(Self {
             context,
             source,
+            partition,
             program,
             module: context
                 .create_module(&source.name)
@@ -426,10 +429,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn emit_function_bodies(&mut self) -> Result<(), Diagnostic> {
-        for function in &self.source.functions {
-            if !function.generics.is_empty() {
-                continue;
-            }
+        for &index in self.partition.function_definitions() {
+            let function = &self.source.functions[index];
             let Some(function_body) = &function.function_body else {
                 if !function.is_extern {
                     return Err(self.error(
@@ -455,7 +456,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let mut codegen = FunctionCodegen::new(self, function, llvm_function);
             codegen.emit_function_body(function_body)?;
         }
-        for instance in &self.source.function_instances {
+        for &index in self.partition.function_instance_definitions() {
+            let instance = &self.source.function_instances[index];
             let Some(function_body) = &instance.function_body else {
                 if !instance.is_extern {
                     return Err(self.error(

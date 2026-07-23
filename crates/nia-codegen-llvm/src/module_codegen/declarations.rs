@@ -286,10 +286,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 value,
             );
         }
-        for global in self.program.globals() {
-            if global.def_id.module_id != self.source.id || global.is_extern {
-                continue;
-            }
+        for &index in self.partition.global_definitions() {
+            let global = &self.source.globals[index];
             let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let Some(value) = self.globals.get(&global.def_id).copied() else {
                 return Err(self.error(global.span, "missing global declaration"));
@@ -310,10 +308,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             value.set_initializer(&init);
         }
-        for global in self.program.global_instances() {
-            if global.def_id.module_id != self.source.id {
-                continue;
-            }
+        for &index in self.partition.global_instance_definitions() {
+            let global = &self.source.global_instances[index];
             let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let Some(value) = self
                 .global_instances
@@ -350,7 +346,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let ptr_ty = self.context.ptr_type(Default::default());
         let mut inserted_vtable = false;
         for module in self.program.modules() {
-            for vtable in &module.trait_object_vtables {
+            for (vtable_index, vtable) in module.trait_object_vtables.iter().enumerate() {
                 if self
                     .trait_object_vtables
                     .contains_key(&(vtable.key.self_ty, vtable.key.object_ty))
@@ -366,7 +362,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         &self.trait_object_vtable_symbol(vtable.key.self_ty, vtable.key.object_ty),
                     )
                     .map_err(Self::diagnostic_from_llvm_error)?;
-                if module.id != self.source.id {
+                if module.id != self.source.id
+                    || !self.partition.vtable_definitions().contains(&vtable_index)
+                {
                     global.set_linkage(Linkage::External);
                 } else {
                     let mut values = Vec::new();

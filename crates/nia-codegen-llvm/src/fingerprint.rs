@@ -40,8 +40,8 @@ pub(super) fn source_unit_fingerprint(
     policy.artifact_kind(target);
 
     let owner = index.program().module_for_partition(partition);
-    let mut definition = Encoder::new("nia.llvm.source-definition.v2", index);
-    definition.module(owner, true);
+    let mut definition = Encoder::new("nia.llvm.source-definition.v3", index);
+    definition.partition_definitions(partition, owner);
 
     let mut declaration = Encoder::new("nia.llvm.source-declarations.v2", index);
     let mut declarations = index.program().modules.iter().collect::<Vec<_>>();
@@ -52,7 +52,7 @@ pub(super) fn source_unit_fingerprint(
     });
     declaration.len(declarations.len());
     for module in declarations {
-        declaration.module(module, false);
+        declaration.module_declarations(module);
     }
 
     let mut target_component = Encoder::new("nia.llvm.source-target.v2", index);
@@ -198,11 +198,49 @@ impl<'a> Encoder<'a> {
         });
     }
 
-    fn module(&mut self, module: &BackendModule, definitions: bool) {
+    fn partition_definitions(&mut self, partition: &CodegenPartition, module: &BackendModule) {
+        self.len(partition.global_definitions().len());
+        for &index in partition.global_definitions() {
+            let item = &module.globals[index];
+            self.global(item, item.init.as_ref());
+        }
+        self.len(partition.global_instance_definitions().len());
+        for &index in partition.global_instance_definitions() {
+            let item = &module.global_instances[index];
+            self.global_instance(item, item.init.as_ref());
+        }
+        self.len(partition.function_definitions().len());
+        for &index in partition.function_definitions() {
+            let item = &module.functions[index];
+            self.function(
+                item.def_id,
+                item.name,
+                item.link_name.as_deref(),
+                &item.generics,
+                &item.params,
+                item.return_type,
+                item.is_extern,
+                item.is_variadic,
+                &item.attributes,
+                item.function_body.as_ref(),
+            );
+        }
+        self.len(partition.function_instance_definitions().len());
+        for &index in partition.function_instance_definitions() {
+            let item = &module.function_instances[index];
+            self.function_instance(item, item.function_body.as_ref());
+        }
+        self.len(partition.vtable_definitions().len());
+        for &index in partition.vtable_definitions() {
+            self.trait_object_vtable(&module.trait_object_vtables[index]);
+        }
+    }
+
+    fn module_declarations(&mut self, module: &BackendModule) {
         self.builder
             .write_str(module.source_identity.normalized_path());
         self.builder.write_str(&module.name);
-        self.bool(definitions);
+        self.bool(false);
         self.builder.write_u64(module.layouts.target.pointer_size);
         self.builder.write_u64(module.layouts.target.pointer_align);
 
@@ -298,27 +336,13 @@ impl<'a> Encoder<'a> {
         globals.sort_unstable_by_key(|item| item.def_id.def_id);
         self.len(globals.len());
         for item in globals {
-            self.global_def(item.def_id);
-            self.symbol(item.name);
-            self.optional_str(item.link_name.as_deref());
-            self.ty(item.ty);
-            self.bool(item.is_let);
-            self.bool(item.is_extern);
-            self.optional_static_init(definitions.then_some(item.init.as_ref()).flatten());
+            self.global(item, None);
         }
         let mut global_instances = module.global_instances.iter().collect::<Vec<_>>();
         global_instances.sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
         self.len(global_instances.len());
         for item in global_instances {
-            self.global_def(item.def_id);
-            self.symbol(item.name);
-            self.module_id(item.arg_module_id);
-            self.types(&item.args);
-            self.const_args(&item.const_args);
-            self.builder.write_str(&item.symbol);
-            self.ty(item.ty);
-            self.bool(item.is_let);
-            self.optional_static_init(definitions.then_some(item.init.as_ref()).flatten());
+            self.global_instance(item, None);
         }
 
         let mut functions = module.functions.iter().collect::<Vec<_>>();
@@ -335,28 +359,14 @@ impl<'a> Encoder<'a> {
                 item.is_extern,
                 item.is_variadic,
                 &item.attributes,
-                definitions.then_some(item.function_body.as_ref()).flatten(),
+                None,
             );
         }
         let mut function_instances = module.function_instances.iter().collect::<Vec<_>>();
         function_instances.sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
         self.len(function_instances.len());
         for item in function_instances {
-            self.global_def(item.def_id);
-            self.symbol(item.name);
-            self.module_id(item.arg_module_id);
-            self.optional_ty(item.self_arg);
-            self.types(&item.args);
-            self.const_args(&item.const_args);
-            self.builder.write_str(&item.symbol);
-            self.params(&item.params);
-            self.ty(item.return_type);
-            self.bool(item.is_extern);
-            self.bool(item.is_variadic);
-            self.function_attributes(&item.attributes);
-            self.optional_function_body(
-                definitions.then_some(item.function_body.as_ref()).flatten(),
-            );
+            self.function_instance(item, None);
         }
 
         let mut trait_object_vtables = module
@@ -367,37 +377,7 @@ impl<'a> Encoder<'a> {
         trait_object_vtables.sort_unstable_by_key(|(key, _)| *key);
         self.len(trait_object_vtables.len());
         for (_, item) in trait_object_vtables {
-            self.ty(item.key.self_ty);
-            self.ty(item.key.object_ty);
-            self.trait_id(item.trait_id);
-            self.types(&item.trait_args);
-            self.len(item.entries.len());
-            for entry in &item.entries {
-                self.trait_id(entry.trait_id);
-                self.global_def(entry.method_id);
-                self.symbol(entry.method_name);
-                self.usize(entry.slot);
-                match &entry.function {
-                    BackendTraitObjectVtableFunction::Function(def_id) => {
-                        self.tag(0);
-                        self.global_def(*def_id);
-                    }
-                    BackendTraitObjectVtableFunction::FunctionInstance {
-                        def_id,
-                        arg_module_id,
-                        self_arg,
-                        args,
-                        const_args,
-                    } => {
-                        self.tag(1);
-                        self.global_def(*def_id);
-                        self.module_id(*arg_module_id);
-                        self.optional_ty(*self_arg);
-                        self.types(args);
-                        self.const_args(const_args);
-                    }
-                }
-            }
+            self.trait_object_vtable(item);
         }
 
         let mut generic_instantiations = module
@@ -435,6 +415,78 @@ impl<'a> Encoder<'a> {
         encoder.const_args(&item.const_args);
         encoder.optional_global_def(item.source_def_id);
         encoder.finish().parts()
+    }
+
+    fn global(&mut self, item: &BackendGlobal, init: Option<&StaticInit>) {
+        self.global_def(item.def_id);
+        self.symbol(item.name);
+        self.optional_str(item.link_name.as_deref());
+        self.ty(item.ty);
+        self.bool(item.is_let);
+        self.bool(item.is_extern);
+        self.optional_static_init(init);
+    }
+
+    fn global_instance(&mut self, item: &BackendGlobalInstance, init: Option<&StaticInit>) {
+        self.global_def(item.def_id);
+        self.symbol(item.name);
+        self.module_id(item.arg_module_id);
+        self.types(&item.args);
+        self.const_args(&item.const_args);
+        self.builder.write_str(&item.symbol);
+        self.ty(item.ty);
+        self.bool(item.is_let);
+        self.optional_static_init(init);
+    }
+
+    fn function_instance(&mut self, item: &BackendFunctionInstance, body: Option<&FunctionBody>) {
+        self.global_def(item.def_id);
+        self.symbol(item.name);
+        self.module_id(item.arg_module_id);
+        self.optional_ty(item.self_arg);
+        self.types(&item.args);
+        self.const_args(&item.const_args);
+        self.builder.write_str(&item.symbol);
+        self.params(&item.params);
+        self.ty(item.return_type);
+        self.bool(item.is_extern);
+        self.bool(item.is_variadic);
+        self.function_attributes(&item.attributes);
+        self.optional_function_body(body);
+    }
+
+    fn trait_object_vtable(&mut self, item: &BackendTraitObjectVtable) {
+        self.ty(item.key.self_ty);
+        self.ty(item.key.object_ty);
+        self.trait_id(item.trait_id);
+        self.types(&item.trait_args);
+        self.len(item.entries.len());
+        for entry in &item.entries {
+            self.trait_id(entry.trait_id);
+            self.global_def(entry.method_id);
+            self.symbol(entry.method_name);
+            self.usize(entry.slot);
+            match &entry.function {
+                BackendTraitObjectVtableFunction::Function(def_id) => {
+                    self.tag(0);
+                    self.global_def(*def_id);
+                }
+                BackendTraitObjectVtableFunction::FunctionInstance {
+                    def_id,
+                    arg_module_id,
+                    self_arg,
+                    args,
+                    const_args,
+                } => {
+                    self.tag(1);
+                    self.global_def(*def_id);
+                    self.module_id(*arg_module_id);
+                    self.optional_ty(*self_arg);
+                    self.types(args);
+                    self.const_args(const_args);
+                }
+            }
+        }
     }
 
     fn aggregate(

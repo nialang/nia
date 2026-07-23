@@ -280,7 +280,7 @@ fn emit_llvm_ir_partition(
         time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
     let mut codegen =
         time_codegen_module_stage(options.timings, "new_module", &module.name, || {
-            ModuleCodegen::new(&context, module, &index, options)
+            ModuleCodegen::new(&context, module, &partition, &index, options)
         })?;
     let ir = codegen.emit_ir()?;
     Ok(LlvmModuleOutput {
@@ -342,7 +342,7 @@ fn emit_native_object_partition(
         time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
     let mut codegen =
         time_codegen_module_stage(options.timings, "new_module", &module.name, || {
-            ModuleCodegen::new(&context, module, &index, options)
+            ModuleCodegen::new(&context, module, &partition, &index, options)
         })?;
     target
         .configure_module(&codegen.module)
