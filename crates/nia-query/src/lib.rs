@@ -324,15 +324,15 @@ struct QueryExecutionBudgetStackGuard {
     budget: usize,
 }
 
-type QueryBatchOutcome<V> = Result<(Arc<V>, RecordedDependencies), Box<dyn Any + Send>>;
+type QueryBatchOutcome<O> = Result<(O, RecordedDependencies), Box<dyn Any + Send>>;
 
-struct QueryBatch<V> {
-    state: Mutex<QueryBatchState<V>>,
+struct QueryBatch<O> {
+    state: Mutex<QueryBatchState<O>>,
 }
 
-struct QueryBatchState<V> {
+struct QueryBatchState<O> {
     remaining: usize,
-    outcomes: Vec<Option<QueryBatchOutcome<V>>>,
+    outcomes: Vec<Option<QueryBatchOutcome<O>>>,
 }
 
 struct QueryDbInner<C> {
@@ -882,7 +882,7 @@ impl Drop for QueryExecutorStackGuard {
     }
 }
 
-impl<V> QueryBatch<V> {
+impl<O> QueryBatch<O> {
     fn new(work_items: usize) -> Self {
         Self {
             state: Mutex::new(QueryBatchState {
@@ -892,7 +892,7 @@ impl<V> QueryBatch<V> {
         }
     }
 
-    fn complete(&self, index: usize, outcome: QueryBatchOutcome<V>) {
+    fn complete(&self, index: usize, outcome: QueryBatchOutcome<O>) {
         let mut state = self.state.lock().expect("query batch state lock poisoned");
         let slot = state
             .outcomes
@@ -914,7 +914,7 @@ impl<V> QueryBatch<V> {
             == 0
     }
 
-    fn finish(&self, records_fingerprints: bool) -> (Vec<Arc<V>>, RecordedDependencies) {
+    fn finish(&self, records_fingerprints: bool) -> (Vec<O>, RecordedDependencies) {
         let outcomes = {
             let mut state = self.state.lock().expect("query batch state lock poisoned");
             assert_eq!(state.remaining, 0, "query batch finished before completion");
@@ -2048,13 +2048,34 @@ impl<C> QueryDb<C> {
         C: Send + Sync + 'static,
         K: QueryKey<C>,
     {
+        self.get_many_with(keys, Self::get::<K>)
+    }
+
+    pub fn get_many_owned<K>(&self, keys: impl IntoIterator<Item = K>) -> Vec<K::Value>
+    where
+        C: Send + Sync + 'static,
+        K: QueryKey<C>,
+    {
+        self.get_many_with(keys, Self::get_owned::<K>)
+    }
+
+    fn get_many_with<K, O>(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        get: fn(&Self, K) -> O,
+    ) -> Vec<O>
+    where
+        C: Send + Sync + 'static,
+        K: QueryKey<C>,
+        O: Send + 'static,
+    {
         let _activity = self.inner.session.enter_activity();
         let keys = keys.into_iter().collect::<Vec<_>>();
         if keys.is_empty() {
             return Vec::new();
         }
         if keys.len() == 1 {
-            return keys.into_iter().map(|key| self.get(key)).collect();
+            return keys.into_iter().map(|key| get(self, key)).collect();
         }
         let parent_stack = current_query_stack();
         let records_fingerprints = parent_stack
@@ -2077,7 +2098,7 @@ impl<C> QueryDb<C> {
                     run: Box::new(move || {
                         let outcome = catch_unwind(AssertUnwindSafe(|| {
                             let _stack_guard = install_query_stack(parent_stack);
-                            let value = db.get(key);
+                            let value = get(&db, key);
                             (value, take_current_stack_dependencies())
                         }));
                         batch.complete(index, outcome);
@@ -3101,6 +3122,27 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct OwnedExecutorProbe(usize);
+
+    impl QueryKey<ExecutorProbeContext> for OwnedExecutorProbe {
+        type Value = usize;
+
+        const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+
+        fn name() -> &'static str {
+            "owned_executor_probe"
+        }
+
+        fn execute(&self, db: &QueryDb<ExecutorProbeContext>) -> Self::Value {
+            let active = db.context().active.fetch_add(1, Ordering::SeqCst) + 1;
+            db.context().peak_active.fetch_max(active, Ordering::SeqCst);
+            db.context().barrier.wait();
+            db.context().active.fetch_sub(1, Ordering::SeqCst);
+            self.0
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     enum BatchIsolationQuery {
         Parent,
         OuterFiller,
@@ -3534,6 +3576,28 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct OwnedValueBatchParent;
+
+    impl QueryKey<TestContext> for OwnedValueBatchParent {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "owned_value_batch_parent"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.get_many_owned([
+                OwnedNonCloneValueQuery(2),
+                OwnedNonCloneValueQuery(5),
+                OwnedNonCloneValueQuery(3),
+            ])
+            .into_iter()
+            .map(|value| value.value)
+            .sum()
+        }
+    }
+
     struct PublishedOwnedValue {
         value: usize,
         drops: Arc<AtomicUsize>,
@@ -3953,6 +4017,71 @@ mod tests {
         assert!(Arc::ptr_eq(&values[0], &values[1]));
         assert_eq!(values[0].value, 42);
         assert_eq!(db.context().executions.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn get_many_owned_moves_non_clone_values_in_key_order() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        let values = db.get_many_owned([
+            OwnedNonCloneValueQuery(4),
+            OwnedNonCloneValueQuery(1),
+            OwnedNonCloneValueQuery(3),
+        ]);
+
+        assert_eq!(
+            values
+                .into_iter()
+                .map(|value| value.value)
+                .collect::<Vec<_>>(),
+            vec![4, 1, 3]
+        );
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn get_many_owned_records_dependencies_from_parent_query() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        assert_eq!(*db.get(OwnedValueBatchParent), 10);
+        let invalidation = db.invalidate(OwnedNonCloneValueQuery(5));
+
+        assert!(
+            invalidation
+                .invalidated
+                .iter()
+                .any(|frame| frame.name == "owned_value_batch_parent")
+        );
+    }
+
+    #[test]
+    fn get_many_owned_uses_the_session_executor_budget() {
+        let session = QuerySession::with_parallelism(2);
+        let db = QueryDb::new_with_timings_in_session(
+            ExecutorProbeContext {
+                active: AtomicUsize::new(0),
+                peak_active: AtomicUsize::new(0),
+                barrier: Arc::new(Barrier::new(2)),
+            },
+            nia_timing::TimingMode::Off,
+            session.clone(),
+        );
+
+        let values = db.get_many_owned([
+            OwnedExecutorProbe(0),
+            OwnedExecutorProbe(1),
+            OwnedExecutorProbe(2),
+            OwnedExecutorProbe(3),
+        ]);
+
+        assert_eq!(values, vec![0, 1, 2, 3]);
+        assert_eq!(db.context().active.load(Ordering::SeqCst), 0);
+        assert_eq!(db.context().peak_active.load(Ordering::SeqCst), 2);
+        assert_eq!(session.inner.executor.peak_active(), 2);
     }
 
     #[test]

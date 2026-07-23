@@ -652,9 +652,12 @@ for actual unique-consumer boundaries, not a way to hide shared data without an
 `Arc`.
 
 `QuerySession` owns a lazily started persistent executor. `get_many` submits
-work to that executor, and nested batches reuse the permit already held by the
-current execution thread. Distinct sessions retain separate queues and query
-graphs but share one process-wide CPU budget. That budget inherits the
+cache-owned queries and returns their `Arc` handles; `get_many_owned` submits
+`SingleConsumerOwned` queries and moves their non-`Clone` values back without an
+`Arc`. Both use the same batch implementation, preserve key order, merge the
+logical parent dependency stack, and let nested batches reuse the permit already
+held by the current execution thread. Distinct sessions retain separate queues
+and query graphs but share one process-wide CPU budget. That budget inherits the
 Cargo/GNU Make jobserver when one is available; otherwise it creates a local
 jobserver from the process-visible parallelism, including one implicit process
 token in either case. There is no environment-variable worker-count override.
