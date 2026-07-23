@@ -7,8 +7,24 @@ use std::{
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use nia_backend_ir::IncrementalLinkInputs;
+use nia_backend_ir::{CodegenUnitKey, IncrementalLinkInputs};
+use nia_query::QueryFingerprintBuilder;
 use nia_target_config::TargetConfig;
+
+const LINK_RESULT_FINGERPRINT_DOMAIN: &str = "nia.link-result.v1";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct LinkResultFingerprint([u64; 2]);
+
+impl LinkResultFingerprint {
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(parts)
+    }
+
+    pub const fn parts(self) -> [u64; 2] {
+        self.0
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkerFlavor {
@@ -170,6 +186,55 @@ impl Default for LinkOptions {
 }
 
 impl LinkOptions {
+    pub fn result_fingerprint<T>(
+        &self,
+        inputs: &IncrementalLinkInputs<T>,
+    ) -> Result<Option<LinkResultFingerprint>, LinkerConfigError> {
+        if self.sysroot.is_some() || !self.libraries.is_empty() || !self.raw_args.is_empty() {
+            return Ok(None);
+        }
+        let linker = self.linker.resolve()?;
+        let Some(linker_path) = resolved_linker_path(&linker.program) else {
+            return Ok(None);
+        };
+        let linker_bytes = match fs::read(&linker_path) {
+            Ok(bytes) => bytes,
+            Err(_) => return Ok(None),
+        };
+        let mut builder = QueryFingerprintBuilder::new(LINK_RESULT_FINGERPRINT_DOMAIN);
+        builder.write_str(env!("CARGO_PKG_VERSION"));
+        builder.write_u64(inputs.len() as u64);
+        for input in inputs.as_slice() {
+            write_codegen_unit_key(&mut builder, &input.key);
+            for part in input.fingerprint.parts() {
+                builder.write_u64(part);
+            }
+        }
+        builder.write_str(&self.target.arch);
+        builder.write_str(&self.target.os);
+        builder.write_str(&self.target.abi);
+        builder.write_str(&linker_path.to_string_lossy());
+        builder.write_bytes(&linker_bytes);
+        builder.write_u8(linker_flavor_tag(linker.flavor));
+        write_optional_string(&mut builder, self.entry.as_deref());
+        builder.write_u8(link_mode_tag(self.mode));
+        write_dynamic_linker(&mut builder, &self.dynamic_linker);
+        if self.mode == LinkMode::Dynamic && self.dynamic_linker == DynamicLinker::Auto {
+            write_optional_string(
+                &mut builder,
+                dynamic_linker_for_target(&self.target)?.as_deref(),
+            );
+        }
+        write_strings(
+            &mut builder,
+            &self.default_library_paths_for_linker(&linker),
+        );
+        write_strings(&mut builder, &self.library_paths);
+        write_strings(&mut builder, &self.rpaths);
+        let fingerprint = builder.finish();
+        Ok(Some(LinkResultFingerprint::from_parts(fingerprint.parts())))
+    }
+
     pub fn with_raw_args(mut self, args: Vec<String>) -> Self {
         self.raw_args = args;
         self
@@ -350,6 +415,73 @@ impl LinkOptions {
             return Vec::new();
         }
         native_linux_library_paths()
+    }
+}
+
+fn resolved_linker_path(program: &str) -> Option<PathBuf> {
+    let path = Path::new(program);
+    let resolved = if path.components().count() > 1 {
+        path.to_path_buf()
+    } else {
+        PathBuf::from(find_program_on_path(program)?)
+    };
+    resolved.canonicalize().ok()
+}
+
+fn write_codegen_unit_key(builder: &mut QueryFingerprintBuilder, key: &CodegenUnitKey) {
+    match key {
+        CodegenUnitKey::SourceModule {
+            source_identity,
+            ordinal,
+        } => {
+            builder.write_u8(0);
+            builder.write_str(source_identity.normalized_path());
+            builder.write_u64(u64::from(*ordinal));
+        }
+        CodegenUnitKey::CompilerBuiltins => builder.write_u8(1),
+    }
+}
+
+fn write_optional_string(builder: &mut QueryFingerprintBuilder, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            builder.write_u8(1);
+            builder.write_str(value);
+        }
+        None => builder.write_u8(0),
+    }
+}
+
+fn write_strings(builder: &mut QueryFingerprintBuilder, values: &[String]) {
+    builder.write_u64(values.len() as u64);
+    for value in values {
+        builder.write_str(value);
+    }
+}
+
+fn write_dynamic_linker(builder: &mut QueryFingerprintBuilder, linker: &DynamicLinker) {
+    match linker {
+        DynamicLinker::Auto => builder.write_u8(0),
+        DynamicLinker::None => builder.write_u8(1),
+        DynamicLinker::Path(path) => {
+            builder.write_u8(2);
+            builder.write_str(path);
+        }
+    }
+}
+
+const fn linker_flavor_tag(flavor: LinkerFlavor) -> u8 {
+    match flavor {
+        LinkerFlavor::Gnu => 0,
+        LinkerFlavor::Lld => 1,
+        LinkerFlavor::SelfHostedElf => 2,
+    }
+}
+
+const fn link_mode_tag(mode: LinkMode) -> u8 {
+    match mode {
+        LinkMode::Static => 0,
+        LinkMode::Dynamic => 1,
     }
 }
 
@@ -805,6 +937,110 @@ mod tests {
             fingerprint: CodegenUnitFingerprint::from_parts([1, 2]),
             object: PathBuf::from(path),
         }])
+    }
+
+    fn fingerprint_linker(name: &str, bytes: &[u8]) -> PathBuf {
+        let path = env::temp_dir().join(format!(
+            "nia-linker-fingerprint-{name}-{}",
+            std::process::id()
+        ));
+        fs::write(&path, bytes).expect("write fingerprint linker");
+        make_executable(&path);
+        path
+    }
+
+    fn fingerprint_options(linker: &Path) -> LinkOptions {
+        LinkOptions {
+            linker: ExecutableLinker::with_program(linker.to_string_lossy()),
+            ..LinkOptions::default()
+        }
+    }
+
+    #[test]
+    fn link_result_fingerprint_depends_on_typed_identity_not_object_representation() {
+        let linker = fingerprint_linker("representation", b"linker-v1");
+        let paths = link_inputs("main.o");
+        let bytes = IncrementalLinkInputs::new(vec![IncrementalLinkInput {
+            key: paths.as_slice()[0].key.clone(),
+            fingerprint: paths.as_slice()[0].fingerprint,
+            object: b"object bytes".to_vec(),
+        }]);
+        let options = fingerprint_options(&linker);
+
+        assert_eq!(
+            options
+                .result_fingerprint(&paths)
+                .expect("path fingerprint"),
+            options
+                .result_fingerprint(&bytes)
+                .expect("bytes fingerprint")
+        );
+    }
+
+    #[test]
+    fn link_result_fingerprint_tracks_inputs_options_and_linker_binary() {
+        let linker = fingerprint_linker("tracked-inputs", b"linker-v1");
+        let inputs = link_inputs("main.o");
+        let options = fingerprint_options(&linker);
+        let baseline = options
+            .result_fingerprint(&inputs)
+            .expect("baseline fingerprint")
+            .expect("cacheable link");
+        let changed_entry = LinkOptions {
+            entry: Some("custom_start".to_string()),
+            ..options.clone()
+        }
+        .result_fingerprint(&inputs)
+        .expect("changed entry fingerprint")
+        .expect("cacheable link");
+        let changed_inputs = IncrementalLinkInputs::new(vec![IncrementalLinkInput {
+            key: inputs.as_slice()[0].key.clone(),
+            fingerprint: CodegenUnitFingerprint::from_parts([9, 10]),
+            object: PathBuf::from("main.o"),
+        }]);
+        let changed_object = options
+            .result_fingerprint(&changed_inputs)
+            .expect("changed object fingerprint")
+            .expect("cacheable link");
+        fs::write(&linker, b"linker-v2").expect("change fingerprint linker");
+        let changed_linker = options
+            .result_fingerprint(&inputs)
+            .expect("changed linker fingerprint")
+            .expect("cacheable link");
+
+        assert_ne!(baseline, changed_entry);
+        assert_ne!(baseline, changed_object);
+        assert_ne!(baseline, changed_linker);
+    }
+
+    #[test]
+    fn link_result_fingerprint_rejects_untracked_external_inputs() {
+        let linker = fingerprint_linker("opaque-inputs", b"linker-v1");
+        let inputs = link_inputs("main.o");
+
+        assert_eq!(
+            fingerprint_options(&linker)
+                .add_library("c")
+                .result_fingerprint(&inputs)
+                .expect("library cacheability"),
+            None
+        );
+        assert_eq!(
+            fingerprint_options(&linker)
+                .with_raw_args(vec!["script.ld".to_string()])
+                .result_fingerprint(&inputs)
+                .expect("raw input cacheability"),
+            None
+        );
+        assert_eq!(
+            LinkOptions {
+                sysroot: Some("/sdk".to_string()),
+                ..fingerprint_options(&linker)
+            }
+            .result_fingerprint(&inputs)
+            .expect("sysroot cacheability"),
+            None
+        );
     }
 
     #[test]

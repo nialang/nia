@@ -1740,9 +1740,16 @@ existing order. It has no plain path-list entry point, no key recovery from file
 names, and no secondary ordering truth source.
 
 This boundary makes the exact ordered CGU work-product set available to future
-link-result fingerprinting. It does not claim partial relinking or link-result
-caching; every executable link still invokes the configured linker over the
-complete typed input collection.
+link-result fingerprinting. `nia-linker` now owns the versioned canonical
+`LinkResultFingerprint` contract over that ordered identity set, the complete
+structured link configuration, the resolved linker path, and the linker binary
+contents. The encoder uses fixed discriminants and length-delimited values; it
+does not hash `Debug` output or temporary object/output paths. Links with a
+sysroot, explicit native libraries, or raw linker arguments are not declared
+cacheable because those options may name external files whose contents are not
+yet tracked. This fingerprint alone does not claim partial relinking or
+link-result caching; until a cache owner consumes it, every executable link
+still invokes the configured linker over the complete typed input collection.
 
 After whole-program validation, each source partition crosses an independent
 LLVM emission boundary. That boundary creates and consumes its own LLVM
