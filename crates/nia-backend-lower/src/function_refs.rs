@@ -32,6 +32,7 @@ pub(crate) fn collect_function_refs_from_static_init(
             refs.globals.insert(*global);
         }
         StaticInit::AddrOfFunction { function, args } => {
+            refs.types.extend(args.iter().copied());
             if args.is_empty() {
                 refs.functions.insert(*function);
             } else {
