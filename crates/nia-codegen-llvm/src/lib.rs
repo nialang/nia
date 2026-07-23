@@ -7,6 +7,7 @@ mod literals;
 mod module_codegen;
 mod output;
 mod program_index;
+mod work_product;
 
 use std::sync::Arc;
 
@@ -24,6 +25,7 @@ pub use output::{
     LlvmObjectOutput,
 };
 use program_index::ProgramIndex;
+pub use work_product::ObjectWorkProductCache;
 
 pub fn emit_llvm_ir(
     lowering: Arc<BackendLowering>,
@@ -95,8 +97,11 @@ pub fn emit_native_objects(
     type_store: Arc<TypeStore>,
     session: &QuerySession,
     options: LlvmCodegenOptions,
+    cache: Option<Arc<dyn ObjectWorkProductCache>>,
 ) -> LlvmObjectOutput {
-    catch_llvm_object_ice(|| emit_native_objects_inner(lowering, type_store, session, options))
+    catch_llvm_object_ice(|| {
+        emit_native_objects_inner(lowering, type_store, session, options, cache)
+    })
 }
 
 fn record_memory_permit(timings: nia_timing::TimingMode, waited: bool) {
@@ -114,6 +119,7 @@ fn emit_native_objects_inner(
     type_store: Arc<TypeStore>,
     session: &QuerySession,
     options: LlvmCodegenOptions,
+    cache: Option<Arc<dyn ObjectWorkProductCache>>,
 ) -> LlvmObjectOutput {
     let timings = options.timings;
     lowering
@@ -144,26 +150,35 @@ fn emit_native_objects_inner(
     }
     let outcomes = session.run_tasks(tasks.into_iter().map(|task| {
         let index = Arc::clone(&index);
+        let cache = cache.clone();
         move || match task {
             NativeCodegenTask::Partition(partition) => {
-                emit_native_object_partition(partition, index, options)
+                emit_native_object_partition(partition, index, options, cache.as_deref())
             }
             NativeCodegenTask::CompilerBuiltins(symbols) => {
-                emit_compiler_builtins_object(symbols, options)
+                emit_compiler_builtins_object(symbols, options, cache.as_deref())
             }
         }
     }));
     let mut outputs = Vec::with_capacity(outcomes.len());
     let mut diagnostics = Vec::new();
+    let mut reuse_hits = 0;
     for outcome in outcomes {
         match outcome {
-            Ok(output) => outputs.push(output),
+            Ok((output, reused)) => {
+                reuse_hits += usize::from(reused);
+                outputs.push(output);
+            }
             Err(diagnostic) => diagnostics.push(diagnostic),
         }
     }
     if timings.enabled() {
         nia_timing::emit_counter("llvm.units", outputs.len() as u64);
-        nia_timing::emit_counter("llvm.object_reuse_hits", 0);
+        nia_timing::emit_counter("llvm.object_reuse_hits", reuse_hits as u64);
+        nia_timing::emit_counter(
+            "llvm.object_reuse_misses",
+            outputs.len().saturating_sub(reuse_hits) as u64,
+        );
     }
     LlvmObjectOutput {
         modules: outputs,
@@ -210,9 +225,8 @@ fn emit_native_object_partition(
     partition: CodegenPartition,
     index: Arc<ProgramIndex>,
     options: LlvmCodegenOptions,
-) -> Result<LlvmObjectModuleOutput, nia_diagnostic::Diagnostic> {
-    let memory_permit = nia_query::acquire_llvm_memory_permit();
-    record_memory_permit(options.timings, memory_permit.waited());
+    cache: Option<&dyn ObjectWorkProductCache>,
+) -> Result<(LlvmObjectModuleOutput, bool), nia_diagnostic::Diagnostic> {
     let target_identity = time_codegen_stage(
         options.timings,
         "llvm_codegen.native_target_identity",
@@ -225,6 +239,21 @@ fn emit_native_object_partition(
         options,
         fingerprint::ArtifactTarget::NativeObject(&target_identity),
     );
+    let module = index.program().module_for_partition(&partition);
+    if let Some(bytes) = load_object_work_product(cache, &partition.key, fingerprint) {
+        return Ok((
+            LlvmObjectModuleOutput {
+                unit: partition.id,
+                key: partition.key,
+                fingerprint,
+                name: module.name.clone(),
+                bytes,
+            },
+            true,
+        ));
+    }
+    let memory_permit = nia_query::acquire_llvm_memory_permit();
+    record_memory_permit(options.timings, memory_permit.waited());
     let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
         TargetMachine::for_identity(
             &target_identity,
@@ -232,7 +261,6 @@ fn emit_native_object_partition(
         )
     })
     .map_err(|error| error.diagnostic())?;
-    let module = index.program().module_for_partition(&partition);
     let context =
         time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
     let mut codegen =
@@ -243,21 +271,24 @@ fn emit_native_object_partition(
         .configure_module(&codegen.module)
         .map_err(|error| error.diagnostic())?;
     let bytes = codegen.emit_object(&target)?;
-    Ok(LlvmObjectModuleOutput {
-        unit: partition.id,
-        key: partition.key,
-        fingerprint,
-        name: module.name.clone(),
-        bytes,
-    })
+    publish_object_work_product(cache, &partition.key, fingerprint, &bytes);
+    Ok((
+        LlvmObjectModuleOutput {
+            unit: partition.id,
+            key: partition.key,
+            fingerprint,
+            name: module.name.clone(),
+            bytes,
+        },
+        false,
+    ))
 }
 
 fn emit_compiler_builtins_object(
     symbols: compiler_builtins::CompilerBuiltinSymbols,
     options: LlvmCodegenOptions,
-) -> Result<LlvmObjectModuleOutput, nia_diagnostic::Diagnostic> {
-    let memory_permit = nia_query::acquire_llvm_memory_permit();
-    record_memory_permit(options.timings, memory_permit.waited());
+    cache: Option<&dyn ObjectWorkProductCache>,
+) -> Result<(LlvmObjectModuleOutput, bool), nia_diagnostic::Diagnostic> {
     let target_identity = time_codegen_stage(
         options.timings,
         "llvm_codegen.native_target_identity",
@@ -266,6 +297,22 @@ fn emit_compiler_builtins_object(
     .map_err(|error| error.diagnostic())?;
     let fingerprint =
         fingerprint::compiler_builtins_fingerprint(&symbols, options, &target_identity);
+    if let Some(bytes) =
+        load_object_work_product(cache, &CodegenUnitKey::CompilerBuiltins, fingerprint)
+    {
+        return Ok((
+            LlvmObjectModuleOutput {
+                unit: CodegenUnitId::CompilerBuiltins,
+                key: CodegenUnitKey::CompilerBuiltins,
+                fingerprint,
+                name: "nia.compiler_builtins".to_string(),
+                bytes,
+            },
+            true,
+        ));
+    }
+    let memory_permit = nia_query::acquire_llvm_memory_permit();
+    record_memory_permit(options.timings, memory_permit.waited());
     let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
         TargetMachine::for_identity(
             &target_identity,
@@ -274,13 +321,41 @@ fn emit_compiler_builtins_object(
     })
     .map_err(|error| error.diagnostic())?;
     let bytes = compiler_builtins::emit_object(&target, symbols)?;
-    Ok(LlvmObjectModuleOutput {
-        unit: CodegenUnitId::CompilerBuiltins,
-        key: CodegenUnitKey::CompilerBuiltins,
+    publish_object_work_product(
+        cache,
+        &CodegenUnitKey::CompilerBuiltins,
         fingerprint,
-        name: "nia.compiler_builtins".to_string(),
-        bytes,
-    })
+        &bytes,
+    );
+    Ok((
+        LlvmObjectModuleOutput {
+            unit: CodegenUnitId::CompilerBuiltins,
+            key: CodegenUnitKey::CompilerBuiltins,
+            fingerprint,
+            name: "nia.compiler_builtins".to_string(),
+            bytes,
+        },
+        false,
+    ))
+}
+
+fn load_object_work_product(
+    cache: Option<&dyn ObjectWorkProductCache>,
+    key: &CodegenUnitKey,
+    fingerprint: CodegenUnitFingerprint,
+) -> Option<Vec<u8>> {
+    cache?.load(key, fingerprint).ok().flatten()
+}
+
+fn publish_object_work_product(
+    cache: Option<&dyn ObjectWorkProductCache>,
+    key: &CodegenUnitKey,
+    fingerprint: CodegenUnitFingerprint,
+    bytes: &[u8],
+) {
+    if let Some(cache) = cache {
+        let _ = cache.publish(key, fingerprint, bytes);
+    }
 }
 
 pub(crate) fn time_codegen_stage<T>(

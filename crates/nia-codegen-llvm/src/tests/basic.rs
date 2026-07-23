@@ -1,6 +1,40 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 
+use std::{
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
+
+struct AlwaysHitObjectCache {
+    loads: AtomicUsize,
+    publishes: AtomicUsize,
+}
+
+impl crate::ObjectWorkProductCache for AlwaysHitObjectCache {
+    fn load(
+        &self,
+        _key: &CodegenUnitKey,
+        _fingerprint: crate::CodegenUnitFingerprint,
+    ) -> io::Result<Option<Vec<u8>>> {
+        self.loads.fetch_add(1, Ordering::Relaxed);
+        Ok(Some(b"cached-object".to_vec()))
+    }
+
+    fn publish(
+        &self,
+        _key: &CodegenUnitKey,
+        _fingerprint: crate::CodegenUnitFingerprint,
+        _bytes: &[u8],
+    ) -> io::Result<()> {
+        self.publishes.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
 #[test]
 fn codegen_ice_boundary_converts_panic_to_diagnostic() {
     let output = catch_llvm_codegen_ice(|| panic!("Nia ICE (LLVM): invalid value kind"));
@@ -17,6 +51,33 @@ fn codegen_ice_boundary_converts_panic_to_diagnostic() {
             .iter()
             .any(|note| note.contains("compiler bug"))
     );
+}
+
+#[test]
+fn native_object_cache_hit_skips_emission_and_publish() {
+    let root = temp_dir("native_object_cache_hit_skips_emission_and_publish");
+    let main = root.join("main.nia");
+    std::fs::write(&main, "fn main() i32 { 1 }").expect("write source");
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let cache = Arc::new(AlwaysHitObjectCache {
+        loads: AtomicUsize::new(0),
+        publishes: AtomicUsize::new(0),
+    });
+
+    let output = crate::emit_native_objects(
+        Arc::clone(&codegen.backend_lowering),
+        Arc::clone(&codegen.type_store),
+        &nia_query::QuerySession::new(),
+        LlvmCodegenOptions::default(),
+        Some(cache.clone()),
+    );
+
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert_eq!(output.modules.len(), 1);
+    assert_eq!(output.modules[0].bytes, b"cached-object");
+    assert_eq!(cache.loads.load(Ordering::Relaxed), 1);
+    assert_eq!(cache.publishes.load(Ordering::Relaxed), 0);
 }
 
 #[test]

@@ -143,6 +143,7 @@ pub(super) fn emit_native_objects(
         Arc::clone(type_store),
         &nia_query::QuerySession::new(),
         options,
+        None,
     )
 }
 
