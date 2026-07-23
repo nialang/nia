@@ -2252,9 +2252,14 @@ pub fn main(init: process::Init) process::ExitCode!void {
         std::fs::read(&first).expect("read first executable"),
         std::fs::read(&second).expect("read restored executable")
     );
+    let link_key_directories = std::fs::read_dir(cache.join("artifacts/links/v2"))
+        .expect("read link-result cache")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("read link-result key directories");
+    assert_eq!(link_key_directories.len(), 1);
     assert_eq!(
-        std::fs::read_dir(cache.join("artifacts/links/v1"))
-            .expect("read link-result cache")
+        std::fs::read_dir(link_key_directories[0].path())
+            .expect("read link-result entries")
             .count(),
         1
     );
@@ -2349,6 +2354,26 @@ pub fn main(init: process::Init) process::ExitCode!void {
     );
     assert!(
         changed_timings.contains("timing summary counter llvm.object_invalidation_target: 0"),
+        "{changed_timings}"
+    );
+    assert!(
+        changed_timings.contains("timing summary counter link.result_reuse_miss_invalidated: 1"),
+        "{changed_timings}"
+    );
+    assert!(
+        changed_timings.contains("timing summary counter link.result_invalidation_inputs: 1"),
+        "{changed_timings}"
+    );
+    assert!(
+        changed_timings.contains("timing summary counter link.result_invalidation_target: 0"),
+        "{changed_timings}"
+    );
+    assert!(
+        changed_timings.contains("timing summary counter link.result_invalidation_linker: 0"),
+        "{changed_timings}"
+    );
+    assert!(
+        changed_timings.contains("timing summary counter link.result_invalidation_options: 0"),
         "{changed_timings}"
     );
     assert_eq!(
