@@ -50,14 +50,14 @@ impl<'a> ModuleLowerer<'a> {
             if !removable_functions.contains(&function.def_id)
                 && let Some(body) = &function.function_body
             {
-                refs.extend(body.value_refs());
+                refs.extend(body.value_refs(self.type_store));
             }
         }
         for instance in function_instances.iter() {
             if !removable_instances.contains(&backend_function_instance_key(instance))
                 && let Some(body) = &instance.function_body
             {
-                refs.extend(body.value_refs());
+                refs.extend(body.value_refs(self.type_store));
             }
         }
         for global in globals {
@@ -90,7 +90,7 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
         }
-        collect_transitive_refs(functions, function_instances, &mut refs);
+        collect_transitive_refs(functions, function_instances, self.type_store, &mut refs);
 
         let mut removed_functions = Vec::new();
         functions.retain(|function| {
@@ -167,6 +167,7 @@ impl<'a> ModuleLowerer<'a> {
 fn collect_transitive_refs(
     functions: &[BackendFunction],
     instances: &[BackendFunctionInstance],
+    types: &nia_ty::TypeStore,
     refs: &mut FunctionBodyRefs,
 ) {
     let functions_by_id = functions
@@ -202,7 +203,7 @@ fn collect_transitive_refs(
             let discovered = function
                 .function_body
                 .as_ref()
-                .map(|body| body.value_refs())
+                .map(|body| body.value_refs(types))
                 .unwrap_or_default();
             enqueue_new_refs(
                 refs,
@@ -224,7 +225,7 @@ fn collect_transitive_refs(
             let discovered = instance
                 .function_body
                 .as_ref()
-                .map(|body| body.value_refs())
+                .map(|body| body.value_refs(types))
                 .unwrap_or_default();
             enqueue_new_refs(
                 refs,

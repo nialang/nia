@@ -250,7 +250,7 @@ pub enum TyKind {
 }
 
 impl TyKind {
-    fn visit_referenced_types(&self, mut visit: impl FnMut(InternedTyId)) {
+    pub fn visit_referenced_types(&self, mut visit: impl FnMut(InternedTyId)) {
         fn visit_const_args(args: &[ConstGenericArg], visit: &mut impl FnMut(InternedTyId)) {
             for arg in args {
                 visit(arg.ty);

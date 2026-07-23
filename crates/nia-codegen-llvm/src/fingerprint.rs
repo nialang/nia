@@ -18,7 +18,8 @@ use nia_ty::{
 
 use crate::{
     CodegenUnitFingerprintComponents, CodegenUnitFingerprintSet, LlvmCodegenOptions,
-    compiler_builtins::CompilerBuiltinSymbols, program_index::ProgramIndex,
+    compiler_builtins::CompilerBuiltinSymbols,
+    declaration_membership::CodegenDeclarationMembership, program_index::ProgramIndex,
 };
 
 #[derive(Clone, Copy)]
@@ -29,6 +30,7 @@ pub(super) enum ArtifactTarget<'a> {
 
 pub(super) fn source_unit_fingerprint(
     partition: &CodegenPartition,
+    declarations: &CodegenDeclarationMembership,
     index: &ProgramIndex,
     options: LlvmCodegenOptions,
     target: ArtifactTarget<'_>,
@@ -43,17 +45,8 @@ pub(super) fn source_unit_fingerprint(
     let mut definition = Encoder::new("nia.llvm.source-definition.v3", index);
     definition.partition_definitions(partition, owner);
 
-    let mut declaration = Encoder::new("nia.llvm.source-declarations.v2", index);
-    let mut declarations = index.program().modules.iter().collect::<Vec<_>>();
-    declarations.sort_unstable_by(|left, right| {
-        left.source_identity
-            .normalized_path()
-            .cmp(right.source_identity.normalized_path())
-    });
-    declaration.len(declarations.len());
-    for module in declarations {
-        declaration.module_declarations(module);
-    }
+    let mut declaration = Encoder::new("nia.llvm.source-declarations.v3", index);
+    declaration.declaration_membership(declarations, owner.layouts.target);
 
     let mut target_component = Encoder::new("nia.llvm.source-target.v2", index);
     target_component.artifact_target(target);
@@ -236,26 +229,19 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    fn module_declarations(&mut self, module: &BackendModule) {
-        self.builder
-            .write_str(module.source_identity.normalized_path());
-        self.builder.write_str(&module.name);
-        self.bool(false);
-        self.builder.write_u64(module.layouts.target.pointer_size);
-        self.builder.write_u64(module.layouts.target.pointer_align);
+    fn declaration_membership(
+        &mut self,
+        declarations: &CodegenDeclarationMembership,
+        target: nia_layout::TargetDataLayout,
+    ) {
+        self.builder.write_u64(target.pointer_size);
+        self.builder.write_u64(target.pointer_align);
 
-        let mut array_lengths = module.const_eval.array_lengths.iter().collect::<Vec<_>>();
-        array_lengths.sort_unstable_by_key(|(id, _)| id.const_expr_id);
-        self.len(array_lengths.len());
-        for (id, value) in array_lengths {
-            self.global_const_expr(*id);
-            self.builder.write_u64(*value);
-        }
-
-        let mut structs = module.structs.iter().collect::<Vec<_>>();
-        structs.sort_unstable_by_key(|item| item.def_id.def_id);
-        self.len(structs.len());
-        for item in structs {
+        self.len(declarations.structs.len());
+        for &def_id in &declarations.structs {
+            let item = self.index.struct_item(def_id).unwrap_or_else(|| {
+                panic!("Nia ICE: declaration membership references missing struct {def_id:?}")
+            });
             self.aggregate(
                 item.def_id,
                 item.name,
@@ -265,23 +251,14 @@ impl<'a> Encoder<'a> {
             );
             self.optional_struct_layout(self.index.struct_layout(item.def_id));
         }
-        let mut unions = module.unions.iter().collect::<Vec<_>>();
-        unions.sort_unstable_by_key(|item| item.def_id.def_id);
-        self.len(unions.len());
-        for item in unions {
-            self.aggregate(
-                item.def_id,
-                item.name,
-                &item.generics,
-                &item.fields,
-                item.is_extern,
-            );
-            self.optional_struct_layout(self.index.union_layout(item.def_id));
-        }
-        let mut struct_instances = module.struct_instances.iter().collect::<Vec<_>>();
-        struct_instances.sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
-        self.len(struct_instances.len());
-        for item in struct_instances {
+        self.len(declarations.struct_instances.len());
+        for key in &declarations.struct_instances {
+            let item = self
+                .index
+                .struct_instance(key.def_id, &key.args, &key.const_args)
+                .unwrap_or_else(|| {
+                    panic!("Nia ICE: declaration membership references missing struct instance")
+                });
             self.aggregate_instance(
                 item.def_id,
                 item.name,
@@ -297,10 +274,28 @@ impl<'a> Encoder<'a> {
                 &item.const_args,
             ));
         }
-        let mut union_instances = module.union_instances.iter().collect::<Vec<_>>();
-        union_instances.sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
-        self.len(union_instances.len());
-        for item in union_instances {
+        self.len(declarations.unions.len());
+        for &def_id in &declarations.unions {
+            let item = self.index.union_item(def_id).unwrap_or_else(|| {
+                panic!("Nia ICE: declaration membership references missing union {def_id:?}")
+            });
+            self.aggregate(
+                item.def_id,
+                item.name,
+                &item.generics,
+                &item.fields,
+                item.is_extern,
+            );
+            self.optional_struct_layout(self.index.union_layout(item.def_id));
+        }
+        self.len(declarations.union_instances.len());
+        for key in &declarations.union_instances {
+            let item = self
+                .index
+                .union_instance(key.def_id, &key.args, &key.const_args)
+                .unwrap_or_else(|| {
+                    panic!("Nia ICE: declaration membership references missing union instance")
+                });
             self.aggregate_instance(
                 item.def_id,
                 item.name,
@@ -316,105 +311,103 @@ impl<'a> Encoder<'a> {
                 &item.const_args,
             ));
         }
-
-        let mut enums = module.enums.iter().collect::<Vec<_>>();
-        enums.sort_unstable_by_key(|item| item.def_id.def_id);
-        self.len(enums.len());
-        for item in enums {
-            self.global_def(item.def_id);
-            self.symbol(item.name);
-            self.ty(item.backing_type);
-            self.len(item.variants.len());
-            for variant in &item.variants {
-                self.global_def(variant.def_id);
-                self.symbol(variant.name);
-                self.optional_i128(variant.value);
-            }
+        self.len(declarations.globals.len());
+        for &def_id in &declarations.globals {
+            let item = self.index.global(def_id).unwrap_or_else(|| {
+                panic!("Nia ICE: declaration membership references missing global {def_id:?}")
+            });
+            self.global_declaration(item);
         }
-
-        let mut globals = module.globals.iter().collect::<Vec<_>>();
-        globals.sort_unstable_by_key(|item| item.def_id.def_id);
-        self.len(globals.len());
-        for item in globals {
-            self.global(item, None);
+        self.len(declarations.global_instances.len());
+        for key in &declarations.global_instances {
+            let item = self
+                .index
+                .global_instance(key.def_id, key.arg_module_id, &key.args, &key.const_args)
+                .unwrap_or_else(|| {
+                    panic!("Nia ICE: declaration membership references missing global instance")
+                });
+            self.global_instance_declaration(item);
         }
-        let mut global_instances = module.global_instances.iter().collect::<Vec<_>>();
-        global_instances.sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
-        self.len(global_instances.len());
-        for item in global_instances {
-            self.global_instance(item, None);
+        self.len(declarations.functions.len());
+        for &def_id in &declarations.functions {
+            let item = self.index.function(def_id).unwrap_or_else(|| {
+                panic!("Nia ICE: declaration membership references missing function {def_id:?}")
+            });
+            self.function_declaration(item);
         }
-
-        let mut functions = module.functions.iter().collect::<Vec<_>>();
-        functions.sort_unstable_by_key(|item| item.def_id.def_id);
-        self.len(functions.len());
-        for item in functions {
-            self.function(
-                item.def_id,
-                item.name,
-                item.link_name.as_deref(),
-                &item.generics,
-                &item.params,
-                item.return_type,
-                item.is_extern,
-                item.is_variadic,
-                &item.attributes,
-                None,
-            );
+        self.len(declarations.function_instances.len());
+        for key in &declarations.function_instances {
+            let item = self
+                .index
+                .function_instance(
+                    key.def_id,
+                    key.arg_module_id,
+                    key.self_arg,
+                    &key.args,
+                    &key.const_args,
+                )
+                .unwrap_or_else(|| {
+                    panic!("Nia ICE: declaration membership references missing function instance")
+                });
+            self.function_instance_declaration(item);
         }
-        let mut function_instances = module.function_instances.iter().collect::<Vec<_>>();
-        function_instances.sort_unstable_by(|left, right| left.symbol.cmp(&right.symbol));
-        self.len(function_instances.len());
-        for item in function_instances {
-            self.function_instance(item, None);
-        }
-
-        let mut trait_object_vtables = module
-            .trait_object_vtables
-            .iter()
-            .map(|item| (self.trait_object_vtable_sort_key(item), item))
-            .collect::<Vec<_>>();
-        trait_object_vtables.sort_unstable_by_key(|(key, _)| *key);
-        self.len(trait_object_vtables.len());
-        for (_, item) in trait_object_vtables {
-            self.trait_object_vtable(item);
-        }
-
-        let mut generic_instantiations = module
-            .generic_instantiations
-            .iter()
-            .map(|item| (self.generic_instantiation_sort_key(item), item))
-            .collect::<Vec<_>>();
-        generic_instantiations.sort_unstable_by_key(|(key, _)| *key);
-        self.len(generic_instantiations.len());
-        for (_, item) in generic_instantiations {
-            self.global_def(item.def_id);
-            self.module_id(item.arg_module_id);
-            self.optional_ty(item.self_arg);
-            self.types(&item.args);
-            self.const_args(&item.const_args);
-            self.optional_global_def(item.source_def_id);
+        self.len(declarations.vtables.len());
+        for key in &declarations.vtables {
+            let item = self.index.trait_object_vtable(key).unwrap_or_else(|| {
+                panic!("Nia ICE: declaration membership references missing vtable {key:?}")
+            });
+            self.trait_object_vtable_declaration(item);
         }
     }
 
-    fn trait_object_vtable_sort_key(&self, item: &BackendTraitObjectVtable) -> [u64; 2] {
-        let mut encoder = Encoder::new("nia.llvm.vtable-sort-key.v1", self.index);
-        encoder.ty(item.key.self_ty);
-        encoder.ty(item.key.object_ty);
-        encoder.trait_id(item.trait_id);
-        encoder.types(&item.trait_args);
-        encoder.finish().parts()
+    fn global_declaration(&mut self, item: &BackendGlobal) {
+        self.global_def(item.def_id);
+        self.symbol(item.name);
+        self.optional_str(item.link_name.as_deref());
+        self.ty(item.ty);
+        self.bool(item.is_let);
+        self.bool(item.is_extern);
     }
 
-    fn generic_instantiation_sort_key(&self, item: &BackendGenericInstantiation) -> [u64; 2] {
-        let mut encoder = Encoder::new("nia.llvm.generic-instantiation-sort-key.v1", self.index);
-        encoder.global_def(item.def_id);
-        encoder.module_id(item.arg_module_id);
-        encoder.optional_ty(item.self_arg);
-        encoder.types(&item.args);
-        encoder.const_args(&item.const_args);
-        encoder.optional_global_def(item.source_def_id);
-        encoder.finish().parts()
+    fn global_instance_declaration(&mut self, item: &BackendGlobalInstance) {
+        self.global_def(item.def_id);
+        self.builder.write_str(&item.symbol);
+        self.ty(item.ty);
+        self.bool(item.is_let);
+    }
+
+    fn function_declaration(&mut self, item: &BackendFunction) {
+        self.global_def(item.def_id);
+        self.symbol(item.name);
+        self.optional_str(item.link_name.as_deref());
+        self.declaration_params(&item.params);
+        self.ty(item.return_type);
+        self.bool(item.is_extern);
+        self.bool(item.is_variadic);
+        self.function_attributes(&item.attributes);
+    }
+
+    fn function_instance_declaration(&mut self, item: &BackendFunctionInstance) {
+        self.global_def(item.def_id);
+        self.builder.write_str(&item.symbol);
+        self.declaration_params(&item.params);
+        self.ty(item.return_type);
+        self.bool(item.is_extern);
+        self.bool(item.is_variadic);
+        self.function_attributes(&item.attributes);
+    }
+
+    fn declaration_params(&mut self, params: &[BackendParam]) {
+        self.len(params.len());
+        for param in params {
+            self.ty(param.passing_ty);
+        }
+    }
+
+    fn trait_object_vtable_declaration(&mut self, item: &BackendTraitObjectVtable) {
+        self.ty(item.key.self_ty);
+        self.ty(item.key.object_ty);
+        self.len(item.entries.len());
     }
 
     fn global(&mut self, item: &BackendGlobal, init: Option<&StaticInit>) {
@@ -1743,16 +1736,6 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    fn optional_i128(&mut self, value: Option<i128>) {
-        match value {
-            Some(value) => {
-                self.tag(1);
-                self.u128(value as u128);
-            }
-            None => self.tag(0),
-        }
-    }
-
     fn optional_ty(&mut self, ty: Option<InternedTyId>) {
         match ty {
             Some(ty) => {
@@ -2044,8 +2027,10 @@ mod tests {
         fixture: &Fixture,
         options: LlvmCodegenOptions,
     ) -> CodegenUnitFingerprintSet {
+        let declarations = CodegenDeclarationMembership::build(&fixture.partition, &fixture.index);
         source_unit_fingerprint(
             &fixture.partition,
+            &declarations,
             &fixture.index,
             options,
             ArtifactTarget::LlvmIr,
@@ -2201,7 +2186,7 @@ mod tests {
     }
 
     #[test]
-    fn source_unit_fingerprint_tracks_cross_module_abi_and_optimization() {
+    fn source_unit_fingerprint_ignores_unreferenced_cross_module_abi() {
         fn make(return_ty: PrimitiveTy) -> Fixture {
             let mut ids = ModuleIdAllocator::new();
             let main_id = ids.allocate();
@@ -2239,12 +2224,12 @@ mod tests {
         let changed_abi = make(PrimitiveTy::I64);
         let baseline_fingerprints = ir_fingerprints(&baseline, LlvmCodegenOptions::default());
         let changed_abi = ir_fingerprints(&changed_abi, LlvmCodegenOptions::default());
-        assert_ne!(baseline_fingerprints.fingerprint, changed_abi.fingerprint);
+        assert_eq!(baseline_fingerprints.fingerprint, changed_abi.fingerprint);
         assert_eq!(
             baseline_fingerprints.components.definition,
             changed_abi.components.definition
         );
-        assert_ne!(
+        assert_eq!(
             baseline_fingerprints.components.declarations,
             changed_abi.components.declarations
         );
@@ -2278,6 +2263,122 @@ mod tests {
     }
 
     #[test]
+    fn source_unit_fingerprint_tracks_referenced_cross_module_abi() {
+        fn make(return_ty: PrimitiveTy) -> Fixture {
+            let mut ids = ModuleIdAllocator::new();
+            let main_id = ids.allocate();
+            let foreign_id = ids.allocate();
+            let store = TypeStore::new();
+            let append = store.append_for_module(main_id);
+            let i32_ty = append.primitive(PrimitiveTy::I32);
+            let i64_ty = append.primitive(PrimitiveTy::I64);
+            let selected = match return_ty {
+                PrimitiveTy::I32 => i32_ty,
+                PrimitiveTy::I64 => i64_ty,
+                _ => unreachable!(),
+            };
+            let foreign_def = GlobalDefId {
+                module_id: foreign_id,
+                def_id: DefId(0),
+            };
+            let mut main = module_with_global(main_id, "main.nia", i32_ty, 1);
+            main.globals[0].init = Some(StaticInit::AddrOfFunction {
+                function: foreign_def,
+                args: Vec::new(),
+            });
+            fixture(
+                BackendProgram {
+                    modules: vec![
+                        main,
+                        declaration_module(
+                            foreign_id,
+                            "foreign.nia",
+                            vec![
+                                (i32_ty, TypeLayout { size: 4, align: 4 }),
+                                (i64_ty, TypeLayout { size: 8, align: 8 }),
+                            ],
+                            selected,
+                        ),
+                    ],
+                },
+                store,
+                "main.nia",
+            )
+        }
+
+        let baseline = ir_fingerprints(&make(PrimitiveTy::I32), LlvmCodegenOptions::default());
+        let changed = ir_fingerprints(&make(PrimitiveTy::I64), LlvmCodegenOptions::default());
+
+        assert_ne!(baseline.fingerprint, changed.fingerprint);
+        assert_eq!(
+            baseline.components.definition,
+            changed.components.definition
+        );
+        assert_ne!(
+            baseline.components.declarations,
+            changed.components.declarations
+        );
+        assert_eq!(baseline.components.policy, changed.components.policy);
+        assert_eq!(baseline.components.target, changed.components.target);
+    }
+
+    #[test]
+    fn source_unit_fingerprint_ignores_foreign_parameter_local_type() {
+        fn make(local_ty: PrimitiveTy) -> Fixture {
+            let mut ids = ModuleIdAllocator::new();
+            let main_id = ids.allocate();
+            let foreign_id = ids.allocate();
+            let store = TypeStore::new();
+            let append = store.append_for_module(main_id);
+            let i32_ty = append.primitive(PrimitiveTy::I32);
+            let i64_ty = append.primitive(PrimitiveTy::I64);
+            let selected = match local_ty {
+                PrimitiveTy::I32 => i32_ty,
+                PrimitiveTy::I64 => i64_ty,
+                _ => unreachable!(),
+            };
+            let foreign_def = GlobalDefId {
+                module_id: foreign_id,
+                def_id: DefId(0),
+            };
+            let mut main = module_with_global(main_id, "main.nia", i32_ty, 1);
+            main.globals[0].init = Some(StaticInit::AddrOfFunction {
+                function: foreign_def,
+                args: Vec::new(),
+            });
+            let mut foreign = declaration_module(
+                foreign_id,
+                "foreign.nia",
+                vec![
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (i64_ty, TypeLayout { size: 8, align: 8 }),
+                ],
+                i32_ty,
+            );
+            foreign.functions[0].params.push(BackendParam {
+                local_id: None,
+                name: None,
+                receiver: None,
+                passing_ty: i32_ty,
+                local_ty: selected,
+                span: Span::default(),
+            });
+            fixture(
+                BackendProgram {
+                    modules: vec![main, foreign],
+                },
+                store,
+                "main.nia",
+            )
+        }
+
+        assert_eq!(
+            ir_fingerprints(&make(PrimitiveTy::I32), LlvmCodegenOptions::default()),
+            ir_fingerprints(&make(PrimitiveTy::I64), LlvmCodegenOptions::default())
+        );
+    }
+
+    #[test]
     fn native_object_fingerprint_tracks_exact_target_identity() {
         let mut ids = ModuleIdAllocator::new();
         let module_id = ids.allocate();
@@ -2302,14 +2403,17 @@ mod tests {
             ..target.clone()
         };
 
+        let declarations = CodegenDeclarationMembership::build(&fixture.partition, &fixture.index);
         let baseline = source_unit_fingerprint(
             &fixture.partition,
+            &declarations,
             &fixture.index,
             LlvmCodegenOptions::default(),
             ArtifactTarget::NativeObject(&target),
         );
         let changed = source_unit_fingerprint(
             &fixture.partition,
+            &declarations,
             &fixture.index,
             LlvmCodegenOptions::default(),
             ArtifactTarget::NativeObject(&changed_target),

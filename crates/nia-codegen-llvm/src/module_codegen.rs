@@ -8,6 +8,7 @@ pub(crate) use types::{AbiParam, AbiReturn};
 
 use std::{cell::RefCell, collections::HashMap};
 
+use crate::declaration_membership::CodegenDeclarationMembership;
 use crate::function_codegen::{FunctionCodegen, FunctionCodegenInput};
 use crate::program_index::ProgramIndex;
 use crate::time_codegen_module_stage;
@@ -87,6 +88,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) context: &'ctx Context,
     pub(super) source: &'a BackendModule,
     pub(super) partition: &'a CodegenPartition,
+    pub(super) declarations: &'a CodegenDeclarationMembership,
     pub(super) program: &'a ProgramIndex,
     pub(super) module: nia_llvm::module::Module<'ctx>,
     pub(super) structs: HashMap<GlobalDefId, StructType<'ctx>>,
@@ -121,6 +123,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         context: &'ctx Context,
         source: &'a BackendModule,
         partition: &'a CodegenPartition,
+        declarations: &'a CodegenDeclarationMembership,
         program: &'a ProgramIndex,
         options: crate::output::LlvmCodegenOptions,
     ) -> Result<Self, Diagnostic> {
@@ -128,6 +131,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             context,
             source,
             partition,
+            declarations,
             program,
             module: context
                 .create_module(&source.name)

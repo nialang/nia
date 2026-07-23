@@ -2324,7 +2324,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> BackendItemDiscovery {
         let mut discovery = BackendItemDiscovery::default();
         if let Some(body) = body {
-            discovery.refs = body.value_refs();
+            discovery.refs = body.value_refs(self.type_store);
             discovery.trait_object_vtables =
                 self.collect_trait_object_vtables_from_concrete_body(body);
         }
