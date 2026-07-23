@@ -10,6 +10,9 @@ use nia_static_ir::StaticInit;
 use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, TraitId};
 
+const SOURCE_CODEGEN_BUCKETS: usize = 4;
+const SOURCE_CODEGEN_SPLIT_THRESHOLD: usize = 8;
+
 #[derive(Debug, PartialEq)]
 pub struct BackendProgram {
     pub modules: Vec<BackendModule>,
@@ -139,14 +142,15 @@ impl CodegenPartitionPlan {
         let mut partitions = modules
             .iter()
             .enumerate()
-            .filter_map(|(module_index, module)| {
-                let definitions = CodegenPartitionDefinitions::from_module(module);
-                (!definitions.is_empty()).then(|| CodegenPartition {
-                    id: CodegenUnitId::source_module(module.id, 0),
-                    key: CodegenUnitKey::source_module(module.source_identity.clone(), 0),
-                    module_index,
-                    definitions,
-                })
+            .flat_map(|(module_index, module)| {
+                CodegenPartitionDefinitions::for_module(module)
+                    .into_iter()
+                    .map(move |(ordinal, definitions)| CodegenPartition {
+                        id: CodegenUnitId::source_module(module.id, ordinal),
+                        key: CodegenUnitKey::source_module(module.source_identity.clone(), ordinal),
+                        module_index,
+                        definitions,
+                    })
             })
             .collect::<Vec<_>>();
         partitions.sort_unstable_by(|left, right| left.key.cmp(&right.key));
@@ -216,7 +220,7 @@ impl CodegenPartition {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct CodegenPartitionDefinitions {
     globals: Vec<usize>,
     global_instances: Vec<usize>,
@@ -261,6 +265,57 @@ impl CodegenPartitionDefinitions {
             && self.function_instances.is_empty()
             && self.vtables.is_empty()
     }
+
+    fn len(&self) -> usize {
+        self.globals.len()
+            + self.global_instances.len()
+            + self.functions.len()
+            + self.function_instances.len()
+            + self.vtables.len()
+    }
+
+    fn for_module(module: &BackendModule) -> Vec<(u32, Self)> {
+        let definitions = Self::from_module(module);
+        if definitions.is_empty() {
+            return Vec::new();
+        }
+        if definitions.len() < SOURCE_CODEGEN_SPLIT_THRESHOLD {
+            return vec![(0, definitions)];
+        }
+
+        let mut buckets = (0..SOURCE_CODEGEN_BUCKETS)
+            .map(|_| Self::default())
+            .collect::<Vec<_>>();
+        for index in definitions.globals {
+            let bucket = module.globals[index].def_id.def_id.0 as usize % SOURCE_CODEGEN_BUCKETS;
+            buckets[bucket].globals.push(index);
+        }
+        for index in definitions.global_instances {
+            let bucket = stable_symbol_bucket(&module.global_instances[index].symbol);
+            buckets[bucket].global_instances.push(index);
+        }
+        for index in definitions.functions {
+            let bucket = module.functions[index].def_id.def_id.0 as usize % SOURCE_CODEGEN_BUCKETS;
+            buckets[bucket].functions.push(index);
+        }
+        for index in definitions.function_instances {
+            let bucket = stable_symbol_bucket(&module.function_instances[index].symbol);
+            buckets[bucket].function_instances.push(index);
+        }
+        buckets[0].vtables = definitions.vtables;
+
+        buckets
+            .into_iter()
+            .enumerate()
+            .filter_map(|(ordinal, definitions)| {
+                (!definitions.is_empty()).then_some((ordinal as u32, definitions))
+            })
+            .collect()
+    }
+}
+
+fn stable_symbol_bucket(symbol: &str) -> usize {
+    nia_symbol::stable_hash(symbol) as usize % SOURCE_CODEGEN_BUCKETS
 }
 
 #[derive(Debug, PartialEq)]
@@ -723,6 +778,44 @@ mod tests {
 
         assert_eq!(program.module_for_partition(&plan.partitions()[0]).id, a_id);
         assert_eq!(program.module_for_partition(&plan.partitions()[1]).id, z_id);
+    }
+
+    #[test]
+    fn large_source_modules_use_stable_bounded_definition_buckets() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let ty = type_store
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::I32);
+        let mut module = module_with_global(module_id, ty, "main", false);
+        let template = module.globals[0].clone();
+        module.globals = (0..8)
+            .map(|index| BackendGlobal {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(index),
+                },
+                ..template.clone()
+            })
+            .collect();
+        let program = BackendProgram {
+            modules: vec![module],
+        };
+
+        let plan = program.codegen_partition_plan();
+
+        assert_eq!(plan.partitions().len(), SOURCE_CODEGEN_BUCKETS);
+        for (ordinal, partition) in plan.partitions().iter().enumerate() {
+            assert_eq!(
+                partition.id,
+                CodegenUnitId::SourceModule {
+                    module_id,
+                    ordinal: ordinal as u32,
+                }
+            );
+            assert_eq!(partition.global_definitions(), &[ordinal, ordinal + 4]);
+        }
     }
 
     #[test]
