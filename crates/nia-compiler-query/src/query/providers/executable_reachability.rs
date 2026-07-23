@@ -849,6 +849,7 @@ fn executable_check_in_session(
         || {
             executable_reachable_aggregate_roots(
                 &db.context().type_store,
+                &function_signature,
                 &struct_signature,
                 &union_signature,
                 &codegen_modules,

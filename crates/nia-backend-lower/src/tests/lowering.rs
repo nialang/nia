@@ -13,6 +13,14 @@ struct Point {
     y: i32,
 }
 
+struct Unused {
+    value: i64,
+}
+
+union UnusedPayload {
+    value: i64,
+}
+
 extend Point {
     fn make(x: i32, y: i32) Point {
         { x: x, y: y }
@@ -113,6 +121,11 @@ fn main() i32 {
         .types
         .get(&sym("Point"))
         .expect("Point def");
+    let reachable_structs = vec![GlobalDefId {
+        module_id,
+        def_id: point_id,
+    }];
+    let reachable_unions = Vec::new();
     let make_id = defs
         .defs
         .iter()
@@ -260,11 +273,11 @@ fn main() i32 {
         const_array_lengths: &const_array_lengths,
         const_enum_values: &const_enum_values,
         layouts: &layouts,
-        roots: BackendFunctionRoots::Public,
+        roots: BackendFunctionRoots::FunctionBodies,
         reachable_functions: None,
         reachable_globals: None,
-        reachable_structs: None,
-        reachable_unions: None,
+        reachable_structs: Some(&reachable_structs),
+        reachable_unions: Some(&reachable_unions),
         function_instance_plan: &function_instance_plan,
         program: &program,
     };
@@ -287,6 +300,12 @@ fn main() i32 {
     assert_eq!(lowering.program.modules.len(), 1);
     assert_eq!(lowering.program.modules[0].globals.len(), 1);
     assert_eq!(lowering.program.modules[0].functions.len(), 2);
+    assert_eq!(lowering.program.modules[0].structs.len(), 1);
+    assert_eq!(
+        lowering.program.modules[0].structs[0].def_id.def_id,
+        point_id
+    );
+    assert!(lowering.program.modules[0].unions.is_empty());
     assert_eq!(
         lowering.program.modules[0].functions.as_ptr(),
         planned_functions

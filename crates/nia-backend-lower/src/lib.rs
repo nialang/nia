@@ -1270,11 +1270,13 @@ impl<'a> ModuleLowerer<'a> {
         for item in &self.input.active_item_tree.items {
             match &item.kind {
                 ItemTreeNodeKind::Struct(item_struct) => {
-                    self.index_aggregate_source(&item.node_key, item.span, item_struct);
+                    let def_id =
+                        self.index_aggregate_source(&item.node_key, item.span, item_struct);
                     if !matches!(
                         self.input.roots,
                         BackendFunctionRoots::EntryPoints | BackendFunctionRoots::NoFunctions
-                    ) {
+                    ) && def_id.is_some_and(|def_id| self.is_backend_struct_reachable(def_id))
+                    {
                         if item_struct.generics.is_empty()
                             && let Some(item) =
                                 self.lower_struct(&item.node_key, item.span, item_struct)
@@ -1289,11 +1291,12 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
                 ItemTreeNodeKind::Union(item_union) => {
-                    self.index_union_source(&item.node_key, item.span, item_union);
+                    let def_id = self.index_union_source(&item.node_key, item.span, item_union);
                     if !matches!(
                         self.input.roots,
                         BackendFunctionRoots::EntryPoints | BackendFunctionRoots::NoFunctions
-                    ) {
+                    ) && def_id.is_some_and(|def_id| self.is_backend_union_reachable(def_id))
+                    {
                         if item_union.generics.is_empty()
                             && let Some(item) =
                                 self.lower_union(&item.node_key, item.span, item_union)
@@ -1745,28 +1748,14 @@ impl<'a> ModuleLowerer<'a> {
 
     fn is_backend_struct_reachable(&self, def_id: GlobalDefId) -> bool {
         match self.input.reachable_structs {
-            Some(structs)
-                if matches!(
-                    self.input.roots,
-                    BackendFunctionRoots::EntryPoints | BackendFunctionRoots::NoFunctions
-                ) =>
-            {
-                structs.binary_search(&def_id).is_ok()
-            }
+            Some(structs) => structs.binary_search(&def_id).is_ok(),
             _ => true,
         }
     }
 
     fn is_backend_union_reachable(&self, def_id: GlobalDefId) -> bool {
         match self.input.reachable_unions {
-            Some(unions)
-                if matches!(
-                    self.input.roots,
-                    BackendFunctionRoots::EntryPoints | BackendFunctionRoots::NoFunctions
-                ) =>
-            {
-                unions.binary_search(&def_id).is_ok()
-            }
+            Some(unions) => unions.binary_search(&def_id).is_ok(),
             _ => true,
         }
     }
