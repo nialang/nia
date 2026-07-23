@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod backend_validate;
 mod compiler_builtins;
+mod fingerprint;
 mod function_codegen;
 mod literals;
 mod module_codegen;
@@ -12,7 +13,7 @@ use std::sync::Arc;
 use backend_validate::validate_backend_program;
 use module_codegen::ModuleCodegen;
 use nia_backend_ir::CodegenPartition;
-pub use nia_backend_ir::{CodegenUnitId, CodegenUnitKey};
+pub use nia_backend_ir::{CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey};
 use nia_backend_lower::BackendLowering;
 use nia_llvm::{Context, OptimizationLevel as LlvmOptimizationLevel, target::TargetMachine};
 use nia_opt::NiaOptimizationLevel;
@@ -183,6 +184,12 @@ fn emit_llvm_ir_partition(
     let memory_permit = nia_query::acquire_llvm_memory_permit();
     record_memory_permit(options.timings, memory_permit.waited());
     let module = index.program().module_for_partition(&partition);
+    let fingerprint = fingerprint::source_unit_fingerprint(
+        &partition,
+        &index,
+        options,
+        fingerprint::ArtifactTarget::LlvmIr,
+    );
     let context =
         time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
     let mut codegen =
@@ -193,6 +200,7 @@ fn emit_llvm_ir_partition(
     Ok(LlvmModuleOutput {
         unit: partition.id,
         key: partition.key,
+        fingerprint,
         name: module.name.clone(),
         ir,
     })
@@ -205,8 +213,23 @@ fn emit_native_object_partition(
 ) -> Result<LlvmObjectModuleOutput, nia_diagnostic::Diagnostic> {
     let memory_permit = nia_query::acquire_llvm_memory_permit();
     record_memory_permit(options.timings, memory_permit.waited());
+    let target_identity = time_codegen_stage(
+        options.timings,
+        "llvm_codegen.native_target_identity",
+        TargetMachine::native_identity,
+    )
+    .map_err(|error| error.diagnostic())?;
+    let fingerprint = fingerprint::source_unit_fingerprint(
+        &partition,
+        &index,
+        options,
+        fingerprint::ArtifactTarget::NativeObject(&target_identity),
+    );
     let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
-        TargetMachine::native_with_opt_level(llvm_optimization_level(options.optimization.level))
+        TargetMachine::for_identity(
+            &target_identity,
+            llvm_optimization_level(options.optimization.level),
+        )
     })
     .map_err(|error| error.diagnostic())?;
     let module = index.program().module_for_partition(&partition);
@@ -223,6 +246,7 @@ fn emit_native_object_partition(
     Ok(LlvmObjectModuleOutput {
         unit: partition.id,
         key: partition.key,
+        fingerprint,
         name: module.name.clone(),
         bytes,
     })
@@ -234,14 +258,26 @@ fn emit_compiler_builtins_object(
 ) -> Result<LlvmObjectModuleOutput, nia_diagnostic::Diagnostic> {
     let memory_permit = nia_query::acquire_llvm_memory_permit();
     record_memory_permit(options.timings, memory_permit.waited());
+    let target_identity = time_codegen_stage(
+        options.timings,
+        "llvm_codegen.native_target_identity",
+        TargetMachine::native_identity,
+    )
+    .map_err(|error| error.diagnostic())?;
+    let fingerprint =
+        fingerprint::compiler_builtins_fingerprint(&symbols, options, &target_identity);
     let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
-        TargetMachine::native_with_opt_level(llvm_optimization_level(options.optimization.level))
+        TargetMachine::for_identity(
+            &target_identity,
+            llvm_optimization_level(options.optimization.level),
+        )
     })
     .map_err(|error| error.diagnostic())?;
     let bytes = compiler_builtins::emit_object(&target, symbols)?;
     Ok(LlvmObjectModuleOutput {
         unit: CodegenUnitId::CompilerBuiltins,
         key: CodegenUnitKey::CompilerBuiltins,
+        fingerprint,
         name: "nia.compiler_builtins".to_string(),
         bytes,
     })

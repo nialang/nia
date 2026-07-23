@@ -26,18 +26,42 @@ pub struct TargetMachine {
     raw: LLVMTargetMachineRef,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetMachineIdentity {
+    pub triple: String,
+    pub cpu: String,
+    pub features: String,
+}
+
 impl TargetMachine {
     pub fn native() -> LlvmResult<Self> {
         Self::native_with_opt_level(OptimizationLevel::Default)
     }
 
     pub fn native_with_opt_level(opt_level: OptimizationLevel) -> LlvmResult<Self> {
-        initialize_native_target()?;
+        let identity = Self::native_identity()?;
+        Self::for_identity(&identity, opt_level)
+    }
 
-        let triple = llvm_owned_string(unsafe { LLVMGetDefaultTargetTriple() })?;
-        let cpu = llvm_owned_string(unsafe { LLVMGetHostCPUName() })?;
-        let features = llvm_owned_string(unsafe { LLVMGetHostCPUFeatures() })?;
-        Self::for_triple(&triple, &cpu, &features, opt_level)
+    pub fn native_identity() -> LlvmResult<TargetMachineIdentity> {
+        initialize_native_target()?;
+        Ok(TargetMachineIdentity {
+            triple: llvm_owned_string(unsafe { LLVMGetDefaultTargetTriple() })?,
+            cpu: llvm_owned_string(unsafe { LLVMGetHostCPUName() })?,
+            features: llvm_owned_string(unsafe { LLVMGetHostCPUFeatures() })?,
+        })
+    }
+
+    pub fn for_identity(
+        identity: &TargetMachineIdentity,
+        opt_level: OptimizationLevel,
+    ) -> LlvmResult<Self> {
+        Self::for_triple(
+            &identity.triple,
+            &identity.cpu,
+            &identity.features,
+            opt_level,
+        )
     }
 
     pub fn for_triple(
