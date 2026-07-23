@@ -31,6 +31,13 @@ def workloads(output_dir: Path) -> dict[str, list[str]]:
             "--backend",
             str(ROOT / "examples" / "modules" / "main.nia"),
         ],
+        "codegen_buckets": [
+            "emit",
+            "--obj",
+            str(ROOT / "benchmarks" / "codegen_buckets.nia"),
+            "--out-dir",
+            str(output_dir / "codegen-buckets"),
+        ],
         "emit_exe": [
             "emit",
             "--exe",
@@ -222,6 +229,15 @@ def require_module_finalization_instrumentation(report: dict[str, Any]) -> None:
         )
 
 
+def require_codegen_bucket_instrumentation(report: dict[str, Any]) -> None:
+    counters = report.get("counters", {})
+    units = counters.get("llvm.units") if isinstance(counters, dict) else None
+    if not isinstance(units, int) or isinstance(units, bool) or units < 2:
+        raise RuntimeError(
+            "codegen_buckets timing report did not emit multiple LLVM units"
+        )
+
+
 def command_label(value: str) -> str:
     path = Path(value)
     if not path.is_absolute():
@@ -255,6 +271,8 @@ def run_workload(compiler: Path, name: str, args: list[str]) -> dict[str, Any]:
     require_allocation_instrumentation(report)
     if name == "module_backend":
         require_module_finalization_instrumentation(report)
+    if name == "codegen_buckets":
+        require_codegen_bucket_instrumentation(report)
     report["name"] = name
     try:
         compiler_label = str(compiler.relative_to(ROOT))
