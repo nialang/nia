@@ -47,6 +47,12 @@ pub struct GlobalInstanceKey {
     pub const_args: Vec<ConstGenericArg>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TraitObjectVtableRef {
+    pub self_ty: InternedTyId,
+    pub object_ty: InternedTyId,
+}
+
 impl GlobalInstanceRef {
     pub fn key(&self) -> GlobalInstanceKey {
         GlobalInstanceKey {
@@ -76,6 +82,8 @@ pub struct FunctionBodyRefs {
     pub globals: BTreeSet<GlobalDefId>,
     pub function_instances: Vec<FunctionInstanceRef>,
     pub global_instances: Vec<GlobalInstanceRef>,
+    pub types: BTreeSet<InternedTyId>,
+    pub trait_object_vtables: BTreeSet<TraitObjectVtableRef>,
 }
 
 impl FunctionBodyRefs {
@@ -84,6 +92,8 @@ impl FunctionBodyRefs {
         self.globals.extend(other.globals);
         self.function_instances.extend(other.function_instances);
         self.global_instances.extend(other.global_instances);
+        self.types.extend(other.types);
+        self.trait_object_vtables.extend(other.trait_object_vtables);
     }
 }
 
@@ -96,6 +106,8 @@ impl FunctionBody {
 }
 
 fn collect_function_refs_from_body(body: &FunctionBody, refs: &mut FunctionBodyRefs) {
+    refs.types.insert(body.ty);
+    refs.types.extend(body.locals.iter().map(|local| local.ty));
     for block in &body.blocks {
         collect_function_refs_from_block(block, refs);
     }
@@ -125,6 +137,7 @@ fn collect_function_refs_from_op(op: &FunctionOp, refs: &mut FunctionBodyRefs) {
             collect_function_refs_from_expr(value, refs);
         }
         FunctionOp::MemoryIntrinsic(memory) => {
+            refs.types.insert(memory.elem_ty);
             collect_function_refs_from_expr(&memory.dest, refs);
             match &memory.source {
                 FunctionMemoryIntrinsicSource::Slice(source)
@@ -166,6 +179,7 @@ fn collect_function_refs_from_terminator(
 }
 
 fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionBodyRefs) {
+    refs.types.insert(expr.ty);
     match &expr.kind {
         FunctionExprKind::Function(def_id) => {
             refs.functions.insert(*def_id);
@@ -177,6 +191,7 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionBodyR
             args,
             const_args,
         } => {
+            collect_function_instance_types(*self_arg, args, const_args, refs);
             refs.function_instances.push(FunctionInstanceRef {
                 def_id: *def_id,
                 arg_module_id: *arg_module_id,
@@ -196,6 +211,26 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionBodyR
         }
         FunctionExprKind::InlineAsm(asm) => collect_function_refs_from_inline_asm(asm, refs),
         FunctionExprKind::Atomic(atomic) => collect_function_refs_from_atomic(atomic, refs),
+        FunctionExprKind::TraitObjectUpcast {
+            expr: inner,
+            source_ty,
+            target_ty,
+        } => {
+            refs.types.extend([*source_ty, *target_ty]);
+            collect_function_refs_from_expr(inner, refs);
+        }
+        FunctionExprKind::TraitObjectCoercion {
+            expr: inner,
+            target_ty,
+            self_ty,
+        } => {
+            refs.types.extend([*self_ty, *target_ty]);
+            refs.trait_object_vtables.insert(TraitObjectVtableRef {
+                self_ty: *self_ty,
+                object_ty: *target_ty,
+            });
+            collect_function_refs_from_expr(inner, refs);
+        }
         FunctionExprKind::StaticArrayPointer { array, .. }
         | FunctionExprKind::RangeBound { range: array, .. }
         | FunctionExprKind::Unary { expr: array, .. }
@@ -211,9 +246,7 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionBodyR
         | FunctionExprKind::BitIntrinsic { value: array, .. }
         | FunctionExprKind::CharFromU32 { value: array }
         | FunctionExprKind::Discard(array)
-        | FunctionExprKind::Cast { expr: array, .. }
-        | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
-        | FunctionExprKind::TraitObjectCoercion { expr: array, .. } => {
+        | FunctionExprKind::Cast { expr: array, .. } => {
             collect_function_refs_from_expr(array, refs);
         }
         FunctionExprKind::ArrayLiteral { elems } => match elems {
@@ -298,29 +331,39 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionBodyR
             arg_module_id,
             args,
             const_args,
-        } => refs.global_instances.push(GlobalInstanceRef {
-            def_id: *def_id,
-            arg_module_id: *arg_module_id,
-            args: args.clone(),
-            const_args: const_args.clone(),
-            span: expr.span,
-        }),
+        } => {
+            collect_instance_types(args, const_args, refs);
+            refs.global_instances.push(GlobalInstanceRef {
+                def_id: *def_id,
+                arg_module_id: *arg_module_id,
+                args: args.clone(),
+                const_args: const_args.clone(),
+                span: expr.span,
+            });
+        }
     }
 }
 
 fn collect_function_refs_from_atomic(atomic: &FunctionAtomic, refs: &mut FunctionBodyRefs) {
     match atomic {
-        FunctionAtomic::Load { ptr, .. } => collect_function_refs_from_expr(ptr, refs),
-        FunctionAtomic::Store { ptr, value, .. } | FunctionAtomic::Rmw { ptr, value, .. } => {
+        FunctionAtomic::Load { ty, ptr, .. } => {
+            refs.types.insert(*ty);
+            collect_function_refs_from_expr(ptr, refs);
+        }
+        FunctionAtomic::Store { ty, ptr, value, .. }
+        | FunctionAtomic::Rmw { ty, ptr, value, .. } => {
+            refs.types.insert(*ty);
             collect_function_refs_from_expr(ptr, refs);
             collect_function_refs_from_expr(value, refs);
         }
         FunctionAtomic::Cmpxchg {
+            ty,
             ptr,
             expected,
             desired,
             ..
         } => {
+            refs.types.insert(*ty);
             collect_function_refs_from_expr(ptr, refs);
             collect_function_refs_from_expr(expected, refs);
             collect_function_refs_from_expr(desired, refs);
@@ -345,6 +388,7 @@ fn collect_function_refs_from_callee(
             args,
             const_args,
         } => {
+            collect_function_instance_types(*self_arg, args, const_args, refs);
             refs.function_instances.push(FunctionInstanceRef {
                 def_id: *def_id,
                 arg_module_id: *arg_module_id,
@@ -362,6 +406,7 @@ fn collect_function_refs_from_callee(
             receiver,
             ..
         } => {
+            collect_function_instance_types(*self_arg, args, &[], refs);
             if self_arg.is_none() && args.is_empty() {
                 refs.functions.insert(*def_id);
             } else {
@@ -376,14 +421,58 @@ fn collect_function_refs_from_callee(
             }
             collect_function_refs_from_expr(receiver, refs);
         }
-        FunctionCallee::TraitMethod { receiver, .. } => {
+        FunctionCallee::TraitMethod {
+            self_ty,
+            trait_args,
+            args,
+            receiver,
+            ..
+        } => {
+            refs.types.insert(*self_ty);
+            refs.types.extend(trait_args.iter().copied());
+            refs.types.extend(args.iter().copied());
             collect_function_refs_from_expr(receiver, refs);
         }
-        FunctionCallee::TraitAssociatedFunction { .. } => {}
-        FunctionCallee::DynamicTraitMethod { receiver, .. }
-        | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
-        | FunctionCallee::BuiltinMethod { receiver, .. }
-        | FunctionCallee::FunctionPointer(receiver) => {
+        FunctionCallee::TraitAssociatedFunction {
+            self_ty,
+            trait_args,
+            args,
+            ..
+        } => {
+            refs.types.insert(*self_ty);
+            refs.types.extend(trait_args.iter().copied());
+            refs.types.extend(args.iter().copied());
+        }
+        FunctionCallee::DynamicTraitMethod {
+            object_ty,
+            trait_args,
+            params,
+            return_type,
+            receiver,
+            ..
+        } => {
+            refs.types.extend([*object_ty, *return_type]);
+            refs.types.extend(trait_args.iter().copied());
+            refs.types.extend(params.iter().copied());
+            collect_function_refs_from_expr(receiver, refs);
+        }
+        FunctionCallee::BuiltinPlaceMethod {
+            self_ty,
+            trait_args,
+            receiver,
+            ..
+        } => {
+            refs.types.insert(*self_ty);
+            refs.types.extend(trait_args.iter().copied());
+            collect_function_refs_from_expr(receiver, refs);
+        }
+        FunctionCallee::BuiltinMethod {
+            self_ty, receiver, ..
+        } => {
+            refs.types.insert(*self_ty);
+            collect_function_refs_from_expr(receiver, refs);
+        }
+        FunctionCallee::FunctionPointer(receiver) => {
             collect_function_refs_from_expr(receiver, refs);
         }
         FunctionCallee::BuiltinOperator(_) => {}
@@ -391,6 +480,7 @@ fn collect_function_refs_from_callee(
 }
 
 fn collect_function_refs_from_place(place: &FunctionPlace, refs: &mut FunctionBodyRefs) {
+    refs.types.insert(place.ty);
     match &place.base {
         FunctionPlaceBase::Deref(expr) => collect_function_refs_from_expr(expr, refs),
         FunctionPlaceBase::Local(_) => {}
@@ -402,13 +492,16 @@ fn collect_function_refs_from_place(place: &FunctionPlace, refs: &mut FunctionBo
             arg_module_id,
             args,
             const_args,
-        } => refs.global_instances.push(GlobalInstanceRef {
-            def_id: *def_id,
-            arg_module_id: *arg_module_id,
-            args: args.clone(),
-            const_args: const_args.clone(),
-            span: place.span,
-        }),
+        } => {
+            collect_instance_types(args, const_args, refs);
+            refs.global_instances.push(GlobalInstanceRef {
+                def_id: *def_id,
+                arg_module_id: *arg_module_id,
+                args: args.clone(),
+                const_args: const_args.clone(),
+                span: place.span,
+            });
+        }
         FunctionPlaceBase::Error => unreachable_invalid_function_ir("FunctionPlaceBase::Error"),
     }
     for elem in &place.elems {
@@ -418,6 +511,25 @@ fn collect_function_refs_from_place(place: &FunctionPlace, refs: &mut FunctionBo
             FunctionPlaceElem::Error => unreachable_invalid_function_ir("FunctionPlaceElem::Error"),
         }
     }
+}
+
+fn collect_function_instance_types(
+    self_arg: Option<InternedTyId>,
+    args: &[InternedTyId],
+    const_args: &[ConstGenericArg],
+    refs: &mut FunctionBodyRefs,
+) {
+    refs.types.extend(self_arg);
+    collect_instance_types(args, const_args, refs);
+}
+
+fn collect_instance_types(
+    args: &[InternedTyId],
+    const_args: &[ConstGenericArg],
+    refs: &mut FunctionBodyRefs,
+) {
+    refs.types.extend(args.iter().copied());
+    refs.types.extend(const_args.iter().map(|arg| arg.ty));
 }
 
 fn collect_function_refs_from_inline_asm(asm: &FunctionInlineAsm, refs: &mut FunctionBodyRefs) {
@@ -469,6 +581,12 @@ mod tests {
         let ty = types
             .append_for_module(module_id)
             .primitive(PrimitiveTy::Usize);
+        let vtable_self_ty = types
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::I32);
+        let object_ty = types
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::Bool);
         let function = global(module_id, 1);
         let nested_function = global(module_id, 2);
         let function_instance = global(module_id, 3);
@@ -587,6 +705,17 @@ mod tests {
                     FunctionOp::Expr(instance_expr),
                     FunctionOp::Expr(call),
                     FunctionOp::Expr(asm),
+                    FunctionOp::Expr(expr(
+                        object_ty,
+                        FunctionExprKind::TraitObjectCoercion {
+                            expr: Box::new(expr(
+                                vtable_self_ty,
+                                FunctionExprKind::Global(global_value),
+                            )),
+                            target_ty: object_ty,
+                            self_ty: vtable_self_ty,
+                        },
+                    )),
                     FunctionOp::Defer(defer),
                 ],
                 terminator: FunctionTerminator::Tail {
@@ -602,6 +731,14 @@ mod tests {
 
         assert_eq!(refs.functions, BTreeSet::from([function, nested_function]));
         assert_eq!(refs.globals, BTreeSet::from([global_value, global_place]));
+        assert_eq!(refs.types, BTreeSet::from([ty, vtable_self_ty, object_ty]));
+        assert_eq!(
+            refs.trait_object_vtables,
+            BTreeSet::from([TraitObjectVtableRef {
+                self_ty: vtable_self_ty,
+                object_ty,
+            }])
+        );
         assert_eq!(
             refs.function_instances
                 .iter()
