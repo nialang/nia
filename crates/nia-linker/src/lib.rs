@@ -7,6 +7,7 @@ use std::{
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
+use nia_backend_ir::IncrementalLinkInputs;
 use nia_target_config::TargetConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -224,13 +225,13 @@ impl LinkOptions {
 
     pub fn invocation(
         &self,
-        objects: &[PathBuf],
+        inputs: &IncrementalLinkInputs<PathBuf>,
         output: PathBuf,
     ) -> Result<LinkerInvocation, LinkerConfigError> {
         let linker = self.linker.resolve()?;
         match self.linker.flavor {
             LinkerFlavor::Gnu | LinkerFlavor::Lld => {
-                self.gnu_like_invocation(&linker, objects, output)
+                self.gnu_like_invocation(&linker, inputs, output)
             }
             LinkerFlavor::SelfHostedElf => {
                 Err(LinkerConfigError::UnsupportedFlavor(self.linker.flavor))
@@ -241,7 +242,7 @@ impl LinkOptions {
     fn gnu_like_invocation(
         &self,
         linker: &ResolvedLinker,
-        objects: &[PathBuf],
+        inputs: &IncrementalLinkInputs<PathBuf>,
         output: PathBuf,
     ) -> Result<LinkerInvocation, LinkerConfigError> {
         let mut args = Vec::new();
@@ -253,9 +254,10 @@ impl LinkOptions {
             args.push(entry.clone());
         }
         args.extend(
-            objects
+            inputs
+                .as_slice()
                 .iter()
-                .map(|path| path.to_string_lossy().into_owned()),
+                .map(|input| input.object.to_string_lossy().into_owned()),
         );
         match self.mode {
             LinkMode::Static => {
@@ -788,9 +790,22 @@ fn read_u64(bytes: &[u8], offset: usize) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_backend_ir::{CodegenUnitFingerprint, CodegenUnitKey, IncrementalLinkInput};
+    use nia_source::SourceIdentity;
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn link_inputs(path: &str) -> IncrementalLinkInputs<PathBuf> {
+        IncrementalLinkInputs::new(vec![IncrementalLinkInput {
+            key: CodegenUnitKey::SourceModule {
+                source_identity: SourceIdentity::new("main.nia"),
+                ordinal: 0,
+            },
+            fingerprint: CodegenUnitFingerprint::from_parts([1, 2]),
+            object: PathBuf::from(path),
+        }])
+    }
 
     #[test]
     fn default_static_gnu_invocation_keeps_freestanding_shape() {
@@ -799,13 +814,52 @@ mod tests {
             ..LinkOptions::default()
         };
         let invocation = options
-            .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
+            .invocation(&link_inputs("main.o"), PathBuf::from("main"))
             .expect("link invocation");
         assert_eq!(invocation.program, "ld");
         assert_eq!(
             invocation.args,
             vec!["-e", "_start", "main.o", "-static", "-o", "main"]
         );
+    }
+
+    #[test]
+    fn invocation_preserves_typed_link_input_order() {
+        let inputs = IncrementalLinkInputs::new(vec![
+            IncrementalLinkInput {
+                key: CodegenUnitKey::SourceModule {
+                    source_identity: SourceIdentity::new("main.nia"),
+                    ordinal: 0,
+                },
+                fingerprint: CodegenUnitFingerprint::from_parts([3, 4]),
+                object: PathBuf::from("main.o"),
+            },
+            IncrementalLinkInput {
+                key: CodegenUnitKey::CompilerBuiltins,
+                fingerprint: CodegenUnitFingerprint::from_parts([5, 6]),
+                object: PathBuf::from("builtins.o"),
+            },
+        ]);
+        let options = LinkOptions {
+            linker: ExecutableLinker::with_program("ld"),
+            ..LinkOptions::default()
+        };
+
+        let invocation = options
+            .invocation(&inputs, PathBuf::from("main"))
+            .expect("link invocation");
+        let main_index = invocation
+            .args
+            .iter()
+            .position(|arg| arg == "main.o")
+            .expect("source object argument");
+        let builtins_index = invocation
+            .args
+            .iter()
+            .position(|arg| arg == "builtins.o")
+            .expect("compiler builtins object argument");
+
+        assert!(main_index < builtins_index);
     }
 
     #[test]
@@ -821,7 +875,7 @@ mod tests {
         .add_library("native_api")
         .with_raw_args(vec!["-z".to_string(), "now".to_string()]);
         let invocation = options
-            .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
+            .invocation(&link_inputs("main.o"), PathBuf::from("main"))
             .expect("link invocation");
         assert_eq!(
             invocation.args,
@@ -854,7 +908,7 @@ mod tests {
         .add_library_path("/lib")
         .add_library("native_api");
         let invocation = options
-            .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
+            .invocation(&link_inputs("main.o"), PathBuf::from("main"))
             .expect("link invocation");
         let static_index = invocation
             .args
@@ -885,7 +939,7 @@ mod tests {
         .add_dynamic_library(":libgcc_s.so.1")
         .add_dynamic_library("c");
         let invocation = options
-            .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
+            .invocation(&link_inputs("main.o"), PathBuf::from("main"))
             .expect("link invocation");
         let dynamic_linker =
             standard_dynamic_linker().unwrap_or_else(|| "/lib64/ld-linux-x86-64.so.2".to_string());
@@ -922,7 +976,7 @@ mod tests {
         .add_library_path("/lib")
         .add_library("m");
         let invocation = options
-            .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
+            .invocation(&link_inputs("main.o"), PathBuf::from("main"))
             .expect("link invocation");
         assert_eq!(invocation.program, "ld.lld");
         assert!(
@@ -955,7 +1009,7 @@ mod tests {
             ..LinkOptions::default()
         };
         let invocation = options
-            .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
+            .invocation(&link_inputs("main.o"), PathBuf::from("main"))
             .expect("link invocation");
         assert!(
             invocation
@@ -988,7 +1042,7 @@ mod tests {
             ..LinkOptions::default()
         };
         let invocation = options
-            .invocation(&[PathBuf::from("main.o")], PathBuf::from("main"))
+            .invocation(&link_inputs("main.o"), PathBuf::from("main"))
             .expect("link invocation");
         assert_eq!(invocation.program, linker.to_string_lossy());
 
@@ -1019,7 +1073,7 @@ mod tests {
             ..LinkOptions::default()
         };
         assert!(matches!(
-            options.invocation(&[PathBuf::from("main.o")], PathBuf::from("main")),
+            options.invocation(&link_inputs("main.o"), PathBuf::from("main")),
             Err(LinkerConfigError::LinkerNotFound {
                 flavor: LinkerFlavor::Lld,
                 ..
@@ -1045,7 +1099,7 @@ mod tests {
             ..LinkOptions::default()
         };
         assert!(matches!(
-            options.invocation(&[PathBuf::from("main.o")], PathBuf::from("main")),
+            options.invocation(&link_inputs("main.o"), PathBuf::from("main")),
             Err(LinkerConfigError::LinkerNotFound {
                 flavor: LinkerFlavor::Lld,
                 ..
@@ -1066,7 +1120,7 @@ mod tests {
             ..LinkOptions::default()
         };
         assert!(matches!(
-            options.invocation(&[PathBuf::from("main.o")], PathBuf::from("main")),
+            options.invocation(&link_inputs("main.o"), PathBuf::from("main")),
             Err(LinkerConfigError::UnsupportedFlavor(
                 LinkerFlavor::SelfHostedElf
             ))

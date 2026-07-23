@@ -14,15 +14,17 @@ use std::sync::Arc;
 use backend_validate::validate_backend_program;
 use module_codegen::ModuleCodegen;
 use nia_backend_ir::CodegenPartition;
-pub use nia_backend_ir::{CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey};
+pub use nia_backend_ir::{
+    CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInput,
+    IncrementalLinkInputs,
+};
 use nia_backend_lower::BackendLowering;
 use nia_llvm::{Context, OptimizationLevel as LlvmOptimizationLevel, target::TargetMachine};
 use nia_opt::NiaOptimizationLevel;
 use nia_query::QuerySession;
 use nia_ty::TypeStore;
 pub use output::{
-    LlvmCodegenOptions, LlvmCodegenOutput, LlvmModuleOutput, LlvmObjectModuleOutput,
-    LlvmObjectOutput,
+    LlvmCodegenOptions, LlvmCodegenOutput, LlvmModuleOutput, LlvmObjectOutput, NativeObject,
 };
 use program_index::ProgramIndex;
 pub use work_product::ObjectWorkProductCache;
@@ -136,7 +138,7 @@ fn emit_native_objects_inner(
     });
     if !validation_diagnostics.is_empty() {
         return LlvmObjectOutput {
-            modules: Vec::new(),
+            link_inputs: IncrementalLinkInputs::default(),
             diagnostics: validation_diagnostics,
         };
     }
@@ -181,7 +183,7 @@ fn emit_native_objects_inner(
         );
     }
     LlvmObjectOutput {
-        modules: outputs,
+        link_inputs: IncrementalLinkInputs::new(outputs),
         diagnostics,
     }
 }
@@ -226,7 +228,7 @@ fn emit_native_object_partition(
     index: Arc<ProgramIndex>,
     options: LlvmCodegenOptions,
     cache: Option<&dyn ObjectWorkProductCache>,
-) -> Result<(LlvmObjectModuleOutput, bool), nia_diagnostic::Diagnostic> {
+) -> Result<(IncrementalLinkInput<NativeObject>, bool), nia_diagnostic::Diagnostic> {
     let target_identity = time_codegen_stage(
         options.timings,
         "llvm_codegen.native_target_identity",
@@ -242,12 +244,14 @@ fn emit_native_object_partition(
     let module = index.program().module_for_partition(&partition);
     if let Some(bytes) = load_object_work_product(cache, &partition.key, fingerprint) {
         return Ok((
-            LlvmObjectModuleOutput {
-                unit: partition.id,
+            IncrementalLinkInput {
                 key: partition.key,
                 fingerprint,
-                name: module.name.clone(),
-                bytes,
+                object: NativeObject {
+                    unit: partition.id,
+                    name: module.name.clone(),
+                    bytes,
+                },
             },
             true,
         ));
@@ -273,12 +277,14 @@ fn emit_native_object_partition(
     let bytes = codegen.emit_object(&target)?;
     publish_object_work_product(cache, &partition.key, fingerprint, &bytes);
     Ok((
-        LlvmObjectModuleOutput {
-            unit: partition.id,
+        IncrementalLinkInput {
             key: partition.key,
             fingerprint,
-            name: module.name.clone(),
-            bytes,
+            object: NativeObject {
+                unit: partition.id,
+                name: module.name.clone(),
+                bytes,
+            },
         },
         false,
     ))
@@ -288,7 +294,7 @@ fn emit_compiler_builtins_object(
     symbols: compiler_builtins::CompilerBuiltinSymbols,
     options: LlvmCodegenOptions,
     cache: Option<&dyn ObjectWorkProductCache>,
-) -> Result<(LlvmObjectModuleOutput, bool), nia_diagnostic::Diagnostic> {
+) -> Result<(IncrementalLinkInput<NativeObject>, bool), nia_diagnostic::Diagnostic> {
     let target_identity = time_codegen_stage(
         options.timings,
         "llvm_codegen.native_target_identity",
@@ -301,12 +307,14 @@ fn emit_compiler_builtins_object(
         load_object_work_product(cache, &CodegenUnitKey::CompilerBuiltins, fingerprint)
     {
         return Ok((
-            LlvmObjectModuleOutput {
-                unit: CodegenUnitId::CompilerBuiltins,
+            IncrementalLinkInput {
                 key: CodegenUnitKey::CompilerBuiltins,
                 fingerprint,
-                name: "nia.compiler_builtins".to_string(),
-                bytes,
+                object: NativeObject {
+                    unit: CodegenUnitId::CompilerBuiltins,
+                    name: "nia.compiler_builtins".to_string(),
+                    bytes,
+                },
             },
             true,
         ));
@@ -328,12 +336,14 @@ fn emit_compiler_builtins_object(
         &bytes,
     );
     Ok((
-        LlvmObjectModuleOutput {
-            unit: CodegenUnitId::CompilerBuiltins,
+        IncrementalLinkInput {
             key: CodegenUnitKey::CompilerBuiltins,
             fingerprint,
-            name: "nia.compiler_builtins".to_string(),
-            bytes,
+            object: NativeObject {
+                unit: CodegenUnitId::CompilerBuiltins,
+                name: "nia.compiler_builtins".to_string(),
+                bytes,
+            },
         },
         false,
     ))
@@ -392,7 +402,7 @@ fn catch_llvm_object_ice(f: impl FnOnce() -> LlvmObjectOutput) -> LlvmObjectOutp
     match nia_ice::catch_ice(f) {
         Ok(output) => output,
         Err(ice) => LlvmObjectOutput {
-            modules: Vec::new(),
+            link_inputs: IncrementalLinkInputs::default(),
             diagnostics: vec![ice.diagnostic()],
         },
     }

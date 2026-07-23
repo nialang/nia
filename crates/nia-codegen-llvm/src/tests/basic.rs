@@ -74,8 +74,11 @@ fn native_object_cache_hit_skips_emission_and_publish() {
     );
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    assert_eq!(output.modules.len(), 1);
-    assert_eq!(output.modules[0].bytes, b"cached-object");
+    assert_eq!(output.link_inputs.len(), 1);
+    assert_eq!(
+        output.link_inputs.as_slice()[0].object.bytes,
+        b"cached-object"
+    );
     assert_eq!(cache.loads.load(Ordering::Relaxed), 1);
     assert_eq!(cache.publishes.load(Ordering::Relaxed), 0);
 }
@@ -390,13 +393,14 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     assert!(
         !output
-            .modules
+            .link_inputs
+            .as_slice()
             .iter()
-            .any(|module| module.name == "nia.compiler_builtins"),
+            .any(|input| input.object.name == "nia.compiler_builtins"),
         "compiler builtins should not be emitted for programs that do not need lowered libcalls"
     );
     assert_eq!(
-        output.modules.len(),
+        output.link_inputs.len(),
         1,
         "empty declaration-only backend modules should not produce native object files"
     );
@@ -422,31 +426,35 @@ fn divrem(value: u128, by: u128) u128 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     assert_eq!(
         output
-            .modules
+            .link_inputs
+            .as_slice()
             .iter()
-            .filter(|module| module.name == "nia.compiler_builtins")
+            .filter(|input| input.object.name == "nia.compiler_builtins")
             .count(),
         1,
         "u128 division should request exactly one compiler builtins object"
     );
     assert!(
         output
-            .modules
+            .link_inputs
+            .as_slice()
             .iter()
-            .any(|module| module.name == "nia.compiler_builtins"),
+            .any(|input| input.object.name == "nia.compiler_builtins"),
         "expected compiler builtins object in {:?}",
         output
-            .modules
+            .link_inputs
+            .as_slice()
             .iter()
-            .map(|module| &module.name)
+            .map(|input| &input.object.name)
             .collect::<Vec<_>>()
     );
     assert_eq!(
         output
-            .modules
+            .link_inputs
+            .as_slice()
             .iter()
-            .find(|module| module.name == "nia.compiler_builtins")
-            .map(|module| module.unit),
+            .find(|input| input.object.name == "nia.compiler_builtins")
+            .map(|input| input.object.unit),
         Some(CodegenUnitId::CompilerBuiltins)
     );
 }

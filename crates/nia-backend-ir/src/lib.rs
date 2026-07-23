@@ -84,6 +84,52 @@ impl CodegenUnitKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncrementalLinkInput<T> {
+    pub key: CodegenUnitKey,
+    pub fingerprint: CodegenUnitFingerprint,
+    pub object: T,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncrementalLinkInputs<T> {
+    inputs: Vec<IncrementalLinkInput<T>>,
+}
+
+impl<T> IncrementalLinkInputs<T> {
+    pub fn new(inputs: Vec<IncrementalLinkInput<T>>) -> Self {
+        for pair in inputs.windows(2) {
+            assert!(
+                pair[0].key < pair[1].key,
+                "Nia ICE: incremental link inputs must have unique stable keys in ascending order"
+            );
+        }
+        Self { inputs }
+    }
+
+    pub fn as_slice(&self) -> &[IncrementalLinkInput<T>] {
+        &self.inputs
+    }
+
+    pub fn len(&self) -> usize {
+        self.inputs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inputs.is_empty()
+    }
+
+    pub fn into_vec(self) -> Vec<IncrementalLinkInput<T>> {
+        self.inputs
+    }
+}
+
+impl<T> Default for IncrementalLinkInputs<T> {
+    fn default() -> Self {
+        Self { inputs: Vec::new() }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodegenPartitionPlan {
     partitions: Vec<CodegenPartition>,
 }
@@ -641,5 +687,63 @@ mod tests {
         program.modules[0].globals.clear();
 
         plan.validate_program(&program);
+    }
+
+    fn incremental_link_input(path: &str, key: CodegenUnitKey) -> IncrementalLinkInput<String> {
+        IncrementalLinkInput {
+            key,
+            fingerprint: CodegenUnitFingerprint::from_parts([1, 2]),
+            object: path.to_string(),
+        }
+    }
+
+    #[test]
+    fn incremental_link_inputs_accept_strict_stable_key_order() {
+        let inputs = IncrementalLinkInputs::new(vec![
+            incremental_link_input(
+                "main.o",
+                CodegenUnitKey::SourceModule {
+                    source_identity: SourceIdentity::new("main.nia"),
+                    ordinal: 0,
+                },
+            ),
+            incremental_link_input("builtins.o", CodegenUnitKey::CompilerBuiltins),
+        ]);
+
+        assert_eq!(inputs.len(), 2);
+        assert_eq!(inputs.as_slice()[0].object, "main.o");
+        assert_eq!(inputs.into_vec()[1].object, "builtins.o");
+    }
+
+    #[test]
+    fn empty_incremental_link_inputs_are_valid() {
+        let inputs = IncrementalLinkInputs::<String>::default();
+
+        assert!(inputs.is_empty());
+        assert!(inputs.as_slice().is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "unique stable keys in ascending order")]
+    fn incremental_link_inputs_reject_duplicate_keys() {
+        let _ = IncrementalLinkInputs::new(vec![
+            incremental_link_input("first.o", CodegenUnitKey::CompilerBuiltins),
+            incremental_link_input("second.o", CodegenUnitKey::CompilerBuiltins),
+        ]);
+    }
+
+    #[test]
+    #[should_panic(expected = "unique stable keys in ascending order")]
+    fn incremental_link_inputs_reject_descending_keys() {
+        let _ = IncrementalLinkInputs::new(vec![
+            incremental_link_input("builtins.o", CodegenUnitKey::CompilerBuiltins),
+            incremental_link_input(
+                "main.o",
+                CodegenUnitKey::SourceModule {
+                    source_identity: SourceIdentity::new("main.nia"),
+                    ordinal: 0,
+                },
+            ),
+        ]);
     }
 }

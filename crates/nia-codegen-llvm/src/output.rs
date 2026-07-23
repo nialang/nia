@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_backend_ir::{CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey};
+use nia_backend_ir::{
+    CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInputs,
+};
 use nia_diagnostic::Diagnostic;
 use nia_opt::OptimizationPolicy;
 
@@ -20,15 +22,13 @@ pub struct LlvmModuleOutput {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlvmObjectOutput {
-    pub modules: Vec<LlvmObjectModuleOutput>,
+    pub link_inputs: IncrementalLinkInputs<NativeObject>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct LlvmObjectModuleOutput {
+pub struct NativeObject {
     pub unit: CodegenUnitId,
-    pub key: CodegenUnitKey,
-    pub fingerprint: CodegenUnitFingerprint,
     pub name: String,
     pub bytes: Vec<u8>,
 }
