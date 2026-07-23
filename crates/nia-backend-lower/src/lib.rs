@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod function_instances;
-mod function_refs;
 mod input;
 mod instantiate;
 mod instantiation_context;
@@ -1586,11 +1585,7 @@ impl<'a> ModuleLowerer<'a> {
             };
             if let Some(init) = &global.init {
                 let mut refs = FunctionBodyRefs::default();
-                function_refs::collect_function_refs_from_static_init(
-                    self.input.module_id,
-                    init,
-                    &mut refs,
-                );
+                refs.extend(init.value_refs(self.input.module_id));
                 worklist.enqueue_refs(refs);
             }
             globals.push(global);
@@ -1616,11 +1611,7 @@ impl<'a> ModuleLowerer<'a> {
         if let Some(global) = self.lower_global(&binding.node_key, span, binding) {
             if let Some(init) = &global.init {
                 let mut refs = FunctionBodyRefs::default();
-                function_refs::collect_function_refs_from_static_init(
-                    self.input.module_id,
-                    init,
-                    &mut refs,
-                );
+                refs.extend(init.value_refs(self.input.module_id));
                 worklist.enqueue_refs(refs);
             }
             globals.push(global);
@@ -2192,11 +2183,7 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             };
             if let Some(init) = &global.init {
-                function_refs::collect_function_refs_from_static_init(
-                    global.arg_module_id,
-                    init,
-                    &mut discovery.refs,
-                );
+                discovery.refs.extend(init.value_refs(global.arg_module_id));
             }
             instances.push(global);
         }

@@ -1408,6 +1408,8 @@ Acceptance：多核 workload CPU 利用率明显提升；小改动只重建受�
 
 进展（2026-07-23）：G-6b 补齐exact declaration closure的非symbol依赖，且没有在codegen复制IR visitor。`FunctionBodyRefs`现在从同一次递归收集body/local/expression/place/memory/atomic/callee内的全部typed type handles，并以typed `TraitObjectVtableRef { self_ty, object_ty }`记录具体trait-object coercion所需vtable；function/global instance的self/type/const-arg types与static function-address type args也进入同一集合。upcast只记录其source/target type而不虚构新vtable symbol，dynamic dispatch只记录ABI与object metadata types，保持实际LLVM语义。嵌套call→atomic operand、asm output place、defer instance、ordinary/global instance及trait-object coercion由同一回归共同锁定，function-ir 7项、backend-lower 100项与严格Clippy通过。下一步membership builder只允许读取`FunctionBodyRefs`、`StaticInit` adapter结果和final backend item/type index，不再遍历Function IR；Phase G仍约97%。
 
+进展（2026-07-23）：G-6c 将static initializer也收敛到唯一typed value-ref traversal。`StaticInit::value_refs(ModuleId)`现在保留generic `AddrOfFunction`的concrete instance identity与type args，ordinary function/global继续进入同一`FunctionBodyRefs`；既有frontend轻量`StaticInitRefs`和新typed产品由一个私有sink visitor投影，zero-count repeat在两条语义上都不产生引用。backend closure、global-instance materialization和DCE全部直接调用IR-owned方法，`nia-backend-lower::function_refs`文件与module已物理删除；LLVM后续无需依赖backend-lower或复制static递归。static-ir 3项、backend-lower 100项与两crate严格Clippy通过。下一切片正式构造partition declaration membership；Phase G仍约97%。
+
 ### 阶段 H（P1/P2）：持久 frontend incremental
 
 1. stable module/def key。
