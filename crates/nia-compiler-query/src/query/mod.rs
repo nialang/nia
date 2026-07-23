@@ -8664,6 +8664,87 @@ where T: Allocator
     }
 
     #[test]
+    fn executable_backend_lowering_assigns_repeated_vtable_to_one_stable_owner() {
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            r#"
+module common;
+module left;
+module right;
+using entry::left;
+using entry::right;
+
+fn main() i32 {
+    left::read() + right::read()
+}
+"#,
+        );
+        let entry_id = fixture.entry_id();
+        fixture.add_child(
+            entry_id,
+            "common",
+            "common.nia",
+            r#"
+pub trait Value {
+    fn read(& self) i32;
+}
+
+pub struct Cell {}
+
+extend Cell : Value {
+    fn read(& self) i32 {
+        _ = self;
+        7
+    }
+}
+"#,
+        );
+        let left_id = fixture.add_child(
+            entry_id,
+            "left",
+            "left.nia",
+            r#"
+using entry::common;
+
+pub fn read() i32 {
+    let cell: common::Cell = {};
+    let value: &common::Value = &cell;
+    value.read()
+}
+"#,
+        );
+        let right_id = fixture.add_child(
+            entry_id,
+            "right",
+            "right.nia",
+            r#"
+using entry::common;
+
+pub fn read() i32 {
+    let cell: common::Cell = {};
+    let value: &common::Value = &cell;
+    value.read()
+}
+"#,
+        );
+        let mut loaded = fixture.program();
+        loaded.runtime = RuntimeModel::FreestandingExecutable;
+
+        let backend = query_db(loaded).get(BackendLoweringQuery);
+        assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
+        let owners = backend
+            .program
+            .modules
+            .iter()
+            .filter(|module| !module.trait_object_vtables.is_empty())
+            .map(|module| module.id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(owners, vec![left_id]);
+        assert_ne!(left_id, right_id);
+    }
+
+    #[test]
     fn executable_backend_lowering_closes_cross_module_generic_local_static_instances() {
         let mut fixture = LoadedProgramFixture::new(
             "main.nia",

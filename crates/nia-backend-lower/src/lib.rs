@@ -550,6 +550,7 @@ pub fn plan_backend_program_with_timings(
         lowered_modules.len(),
         "Nia ICE: backend lowerers must match materialized modules"
     );
+    assign_unique_vtable_owners(&mut lowered_modules);
 
     BackendItemPlan {
         modules: lowered_modules
@@ -559,6 +560,41 @@ pub fn plan_backend_program_with_timings(
         optimization,
         optimization_report,
         diagnostics,
+    }
+}
+
+fn assign_unique_vtable_owners(modules: &mut [BackendModule]) {
+    let mut owners = HashMap::<BackendTraitObjectVtableKey, (usize, usize)>::new();
+    for (module_index, module) in modules.iter().enumerate() {
+        for (vtable_index, vtable) in module.trait_object_vtables.iter().enumerate() {
+            let Some(&(owner_module_index, owner_vtable_index)) = owners.get(&vtable.key) else {
+                owners.insert(vtable.key.clone(), (module_index, vtable_index));
+                continue;
+            };
+            let owner_module = &modules[owner_module_index];
+            let owner = &owner_module.trait_object_vtables[owner_vtable_index];
+            assert!(
+                owner.trait_id == vtable.trait_id
+                    && owner.trait_args == vtable.trait_args
+                    && owner.entries == vtable.entries,
+                "Nia ICE: trait-object vtable {:?} has conflicting definitions in modules {:?} and {:?}",
+                vtable.key,
+                owner_module.id,
+                module.id
+            );
+            if module.source_identity.normalized_path()
+                < owner_module.source_identity.normalized_path()
+            {
+                owners.insert(vtable.key.clone(), (module_index, vtable_index));
+            }
+        }
+    }
+    for (module_index, module) in modules.iter_mut().enumerate() {
+        module.trait_object_vtables.retain(|vtable| {
+            owners
+                .get(&vtable.key)
+                .is_some_and(|(owner, _)| *owner == module_index)
+        });
     }
 }
 
