@@ -1509,6 +1509,16 @@ actual concurrent consumers; module plans and results remain exclusively owned.
 The source-module task split is an execution boundary, not a substitute for
 deterministic CGU partitioning or CGU work-product caching.
 
+The allocator instrumentation also provides a process-wide live window around
+that `get_many_owned` call. It records start, end, and peak live Rust heap bytes
+across the calling thread and all executor workers; overlapping windows are
+rejected rather than merged. The maintained multi-module backend workload
+requires these counters. Three instrumented release samples measured a median
+peak growth of 1,102,630 bytes (about 0.64% of the window start), while the
+whole-compilation allocator peak remained higher than the finalization-window
+peak. This validates the current source-module task shape, but it is not a
+budget exemption for later, finer CGU partitions.
+
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their
 function because they have no independent cache, invalidation, release, or

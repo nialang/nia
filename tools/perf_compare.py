@@ -40,6 +40,18 @@ METRICS = (
     ),
 )
 
+WORKLOAD_METRICS = {
+    "module_backend": (
+        Metric(
+            "backend.module_finalization.peak_growth_bytes",
+            "allocation",
+            lambda result: result["counters"][
+                "backend.module_finalization.peak_growth_bytes"
+            ],
+        ),
+    ),
+}
+
 
 def load_baseline(path: Path) -> dict[str, Any]:
     try:
@@ -141,7 +153,7 @@ def compare_baselines(
 
     if not errors:
         for workload in sorted(left):
-            for metric in METRICS:
+            for metric in (*METRICS, *WORKLOAD_METRICS.get(workload, ())):
                 baseline_value = median_metric(left[workload], metric)
                 candidate_value = median_metric(right[workload], metric)
                 change = change_percent(baseline_value, candidate_value)

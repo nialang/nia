@@ -17,11 +17,11 @@ python3 tools/perf.py --repeat 3 --output target/nia-perf/before.json
 python3 tools/perf.py --no-build --workload traits --workload const_eval
 ```
 
-The suite currently fixes six compiler paths: minimal check, strings and
-slices, ArrayList, trait-heavy code, const-eval-heavy code, and full executable
-emission. Benchmark sources live in `benchmarks/` or reuse maintained examples;
-generated executables and reports remain under temporary or `target/`
-directories.
+The suite currently fixes seven compiler paths: minimal check, strings and
+slices, ArrayList, trait-heavy code, const-eval-heavy code, multi-module backend
+lowering, and full executable emission. Benchmark sources live in `benchmarks/`
+or reuse maintained examples; generated executables and reports remain under
+temporary or `target/` directories.
 
 Each result contains process wall, user, and system time; maximum resident set
 size; CPU utilization; aggregated stage/query timings; query execution and
@@ -30,8 +30,11 @@ calls and requested bytes; provider-demand rounds; checked and reachable body
 counts; current and peak live Rust heap bytes; and LLVM unit/object-reuse
 counters when codegen runs. Backend codegen reports live/peak snapshots before
 module-plan publication, after publication, and after consuming the per-module
-query slots. The JSON schema is versioned so trend tooling does not need to
-parse the human timing report.
+query slots. The multi-module backend workload additionally requires a
+process-wide live-allocation window around the parallel finalization batch. It
+reports start, end, peak, and peak growth bytes across allocations performed by
+all query workers. The JSON schema is versioned so trend tooling does not need
+to parse the human timing report.
 
 Allocation counters require both the `perf-alloc` build feature and
 `--timings=detail`; the normal compiler binary uses the ordinary Rust allocator
@@ -96,8 +99,9 @@ The comparator first checks the operating system, architecture, CPU model,
 effective CPU limit, and effective memory limit. It refuses incompatible
 machines by default. The default relative guards are deliberately broad: 50%
 wall time, 30% RSS, 5% query executions, and 20% for both allocated and peak
-live Rust heap bytes. All thresholds are command-line options, and the result
-is itself machine-readable JSON.
+live Rust heap bytes. The allocation threshold also guards finalization-window
+peak growth for the `module_backend` workload. All thresholds are command-line
+options, and the result is itself machine-readable JSON.
 `--allow-machine-mismatch` exists for exploration, not for a release gate.
 
 The repository does not yet define a CI environment capable of building and
