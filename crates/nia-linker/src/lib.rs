@@ -11,7 +11,7 @@ use nia_backend_ir::{CodegenUnitKey, IncrementalLinkInputs};
 use nia_query::QueryFingerprintBuilder;
 use nia_target_config::TargetConfig;
 
-const LINK_RESULT_FINGERPRINT_DOMAIN: &str = "nia.link-result.v1";
+const LINK_RESULT_FINGERPRINT_DOMAIN: &str = "nia.link-result-components.v2";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LinkResultFingerprint([u64; 2]);
@@ -23,6 +23,84 @@ impl LinkResultFingerprint {
 
     pub const fn parts(self) -> [u64; 2] {
         self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct LinkResultCacheKey([u64; 2]);
+
+impl LinkResultCacheKey {
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(parts)
+    }
+
+    pub const fn parts(self) -> [u64; 2] {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkResultFingerprintComponents {
+    pub inputs: LinkResultFingerprint,
+    pub target: LinkResultFingerprint,
+    pub linker: LinkResultFingerprint,
+    pub options: LinkResultFingerprint,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkResultFingerprintSet {
+    pub cache_key: LinkResultCacheKey,
+    pub fingerprint: LinkResultFingerprint,
+    pub components: LinkResultFingerprintComponents,
+}
+
+impl LinkResultFingerprintSet {
+    pub fn new(cache_key: LinkResultCacheKey, components: LinkResultFingerprintComponents) -> Self {
+        let mut builder = QueryFingerprintBuilder::new(LINK_RESULT_FINGERPRINT_DOMAIN);
+        for component in [
+            components.inputs,
+            components.target,
+            components.linker,
+            components.options,
+        ] {
+            for part in component.parts() {
+                builder.write_u64(part);
+            }
+        }
+        Self {
+            cache_key,
+            fingerprint: LinkResultFingerprint::from_parts(builder.finish().parts()),
+            components,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkResultInvalidation {
+    pub inputs: bool,
+    pub target: bool,
+    pub linker: bool,
+    pub options: bool,
+}
+
+impl LinkResultInvalidation {
+    pub fn between(
+        cached: LinkResultFingerprintComponents,
+        expected: LinkResultFingerprintComponents,
+    ) -> Self {
+        Self {
+            inputs: cached.inputs != expected.inputs,
+            target: cached.target != expected.target,
+            linker: cached.linker != expected.linker,
+            options: cached.options != expected.options,
+        }
+    }
+
+    pub fn count(self) -> u32 {
+        u32::from(self.inputs)
+            + u32::from(self.target)
+            + u32::from(self.linker)
+            + u32::from(self.options)
     }
 }
 
@@ -189,7 +267,7 @@ impl LinkOptions {
     pub fn result_fingerprint<T>(
         &self,
         inputs: &IncrementalLinkInputs<T>,
-    ) -> Result<Option<LinkResultFingerprint>, LinkerConfigError> {
+    ) -> Result<Option<LinkResultFingerprintSet>, LinkerConfigError> {
         if self.sysroot.is_some() || !self.libraries.is_empty() || !self.raw_args.is_empty() {
             return Ok(None);
         }
@@ -201,38 +279,55 @@ impl LinkOptions {
             Ok(bytes) => bytes,
             Err(_) => return Ok(None),
         };
-        let mut builder = QueryFingerprintBuilder::new(LINK_RESULT_FINGERPRINT_DOMAIN);
-        builder.write_str(env!("CARGO_PKG_VERSION"));
-        builder.write_u64(inputs.len() as u64);
+        let mut cache_key = QueryFingerprintBuilder::new("nia.link-result-cache-key.v2");
+        cache_key.write_u64(inputs.len() as u64);
+        let mut input_component = QueryFingerprintBuilder::new("nia.link-result-inputs.v2");
+        input_component.write_u64(inputs.len() as u64);
         for input in inputs.as_slice() {
-            write_codegen_unit_key(&mut builder, &input.key);
+            write_codegen_unit_key(&mut cache_key, &input.key);
+            write_codegen_unit_key(&mut input_component, &input.key);
             for part in input.fingerprint.parts() {
-                builder.write_u64(part);
+                input_component.write_u64(part);
             }
         }
-        builder.write_str(&self.target.arch);
-        builder.write_str(&self.target.os);
-        builder.write_str(&self.target.abi);
-        builder.write_str(&linker_path.to_string_lossy());
-        builder.write_bytes(&linker_bytes);
-        builder.write_u8(linker_flavor_tag(linker.flavor));
-        write_optional_string(&mut builder, self.entry.as_deref());
-        builder.write_u8(link_mode_tag(self.mode));
-        write_dynamic_linker(&mut builder, &self.dynamic_linker);
+
+        let mut target_component = QueryFingerprintBuilder::new("nia.link-result-target.v2");
+        target_component.write_str(&self.target.arch);
+        target_component.write_str(&self.target.os);
+        target_component.write_str(&self.target.abi);
         if self.mode == LinkMode::Dynamic && self.dynamic_linker == DynamicLinker::Auto {
             write_optional_string(
-                &mut builder,
+                &mut target_component,
                 dynamic_linker_for_target(&self.target)?.as_deref(),
             );
         }
         write_strings(
-            &mut builder,
+            &mut target_component,
             &self.default_library_paths_for_linker(&linker),
         );
-        write_strings(&mut builder, &self.library_paths);
-        write_strings(&mut builder, &self.rpaths);
-        let fingerprint = builder.finish();
-        Ok(Some(LinkResultFingerprint::from_parts(fingerprint.parts())))
+
+        let mut linker_component = QueryFingerprintBuilder::new("nia.link-result-linker.v2");
+        linker_component.write_str(&linker_path.to_string_lossy());
+        linker_component.write_bytes(&linker_bytes);
+        linker_component.write_u8(linker_flavor_tag(linker.flavor));
+
+        let mut option_component = QueryFingerprintBuilder::new("nia.link-result-options.v2");
+        option_component.write_str(env!("CARGO_PKG_VERSION"));
+        write_optional_string(&mut option_component, self.entry.as_deref());
+        option_component.write_u8(link_mode_tag(self.mode));
+        write_dynamic_linker(&mut option_component, &self.dynamic_linker);
+        write_strings(&mut option_component, &self.library_paths);
+        write_strings(&mut option_component, &self.rpaths);
+
+        Ok(Some(LinkResultFingerprintSet::new(
+            LinkResultCacheKey::from_parts(cache_key.finish().parts()),
+            LinkResultFingerprintComponents {
+                inputs: finish_link_fingerprint(input_component),
+                target: finish_link_fingerprint(target_component),
+                linker: finish_link_fingerprint(linker_component),
+                options: finish_link_fingerprint(option_component),
+            },
+        )))
     }
 
     pub fn with_raw_args(mut self, args: Vec<String>) -> Self {
@@ -426,6 +521,10 @@ fn resolved_linker_path(program: &str) -> Option<PathBuf> {
         PathBuf::from(find_program_on_path(program)?)
     };
     resolved.canonicalize().ok()
+}
+
+fn finish_link_fingerprint(builder: QueryFingerprintBuilder) -> LinkResultFingerprint {
+    LinkResultFingerprint::from_parts(builder.finish().parts())
 }
 
 fn write_codegen_unit_key(builder: &mut QueryFingerprintBuilder, key: &CodegenUnitKey) {
@@ -1002,15 +1101,62 @@ mod tests {
             .result_fingerprint(&changed_inputs)
             .expect("changed object fingerprint")
             .expect("cacheable link");
+        let changed_target = LinkOptions {
+            target: LinkTarget {
+                arch: "aarch64".to_string(),
+                ..options.target.clone()
+            },
+            ..options.clone()
+        }
+        .result_fingerprint(&inputs)
+        .expect("changed target fingerprint")
+        .expect("cacheable link");
         fs::write(&linker, b"linker-v2").expect("change fingerprint linker");
         let changed_linker = options
             .result_fingerprint(&inputs)
             .expect("changed linker fingerprint")
             .expect("cacheable link");
 
-        assert_ne!(baseline, changed_entry);
-        assert_ne!(baseline, changed_object);
-        assert_ne!(baseline, changed_linker);
+        assert_eq!(baseline.cache_key, changed_entry.cache_key);
+        assert_eq!(baseline.cache_key, changed_object.cache_key);
+        assert_eq!(baseline.cache_key, changed_target.cache_key);
+        assert_eq!(baseline.cache_key, changed_linker.cache_key);
+        assert_eq!(
+            LinkResultInvalidation::between(baseline.components, changed_entry.components),
+            LinkResultInvalidation {
+                inputs: false,
+                target: false,
+                linker: false,
+                options: true,
+            }
+        );
+        assert_eq!(
+            LinkResultInvalidation::between(baseline.components, changed_object.components),
+            LinkResultInvalidation {
+                inputs: true,
+                target: false,
+                linker: false,
+                options: false,
+            }
+        );
+        assert_eq!(
+            LinkResultInvalidation::between(baseline.components, changed_target.components),
+            LinkResultInvalidation {
+                inputs: false,
+                target: true,
+                linker: false,
+                options: false,
+            }
+        );
+        assert_eq!(
+            LinkResultInvalidation::between(baseline.components, changed_linker.components),
+            LinkResultInvalidation {
+                inputs: false,
+                target: false,
+                linker: true,
+                options: false,
+            }
+        );
     }
 
     #[test]

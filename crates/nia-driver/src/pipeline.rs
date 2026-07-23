@@ -69,6 +69,7 @@ enum LinkResultReuseMiss {
     Disabled,
     Uncacheable,
     NotFound,
+    Invalidated(nia_linker::LinkResultInvalidation),
     Corrupt,
     ReadError,
 }
@@ -104,6 +105,30 @@ fn emit_link_result_reuse(timings: TimingMode, reuse: LinkResultReuse) {
     ] {
         nia_timing::emit_counter(name, u64::from(reuse == LinkResultReuse::Miss(reason)));
     }
+    let invalidation = match reuse {
+        LinkResultReuse::Miss(LinkResultReuseMiss::Invalidated(reasons)) => Some(reasons),
+        _ => None,
+    };
+    nia_timing::emit_counter(
+        "link.result_reuse_miss_invalidated",
+        u64::from(invalidation.is_some()),
+    );
+    nia_timing::emit_counter(
+        "link.result_invalidation_inputs",
+        u64::from(invalidation.is_some_and(|reasons| reasons.inputs)),
+    );
+    nia_timing::emit_counter(
+        "link.result_invalidation_target",
+        u64::from(invalidation.is_some_and(|reasons| reasons.target)),
+    );
+    nia_timing::emit_counter(
+        "link.result_invalidation_linker",
+        u64::from(invalidation.is_some_and(|reasons| reasons.linker)),
+    );
+    nia_timing::emit_counter(
+        "link.result_invalidation_options",
+        u64::from(invalidation.is_some_and(|reasons| reasons.options)),
+    );
 }
 
 impl Default for Driver {
@@ -498,6 +523,9 @@ impl Driver {
                     Ok(crate::executable_cache::LinkResultCacheLookup::Hit) => LinkResultReuse::Hit,
                     Ok(crate::executable_cache::LinkResultCacheLookup::NotFound) => {
                         LinkResultReuse::Miss(LinkResultReuseMiss::NotFound)
+                    }
+                    Ok(crate::executable_cache::LinkResultCacheLookup::Invalidated(reasons)) => {
+                        LinkResultReuse::Miss(LinkResultReuseMiss::Invalidated(reasons))
                     }
                     Ok(crate::executable_cache::LinkResultCacheLookup::Corrupt) => {
                         LinkResultReuse::Miss(LinkResultReuseMiss::Corrupt)

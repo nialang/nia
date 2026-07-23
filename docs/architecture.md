@@ -1752,24 +1752,28 @@ names, and no secondary ordering truth source.
 
 This boundary makes the exact ordered CGU work-product set available to
 link-result fingerprinting. `nia-linker` owns the versioned canonical
-`LinkResultFingerprint` contract over that ordered identity set, the complete
-structured link configuration, the resolved linker path, and the linker binary
-contents. The encoder uses fixed discriminants and length-delimited values; it
-does not hash `Debug` output or temporary object/output paths. Links with a
-sysroot, explicit native libraries, or raw linker arguments are not declared
-cacheable because those options may name external files whose contents are not
-yet tracked.
+`LinkResultFingerprintSet`. Its four independent component domains cover the
+ordered CGU keys and fingerprints, target-derived facts, the resolved linker
+path/binary/flavor, and structured link options respectively. A fixed v2
+aggregate domain combines those component fingerprints; exact aggregate
+equality is the only reuse condition. The encoder uses fixed discriminants and
+length-delimited values and does not hash `Debug` output or temporary
+object/output paths. Links with a sysroot, explicit native libraries, or raw
+linker arguments are not declared cacheable because those options may name
+external files whose contents are not yet tracked.
 
 The Driver owns the sole persistent link-result cache. It computes the
 fingerprint and attempts restoration before writing temporary object files or
 invoking the linker. A miss invokes the linker over the complete typed input
 collection and publishes only a successful executable. Entries live under
-`artifacts/links/v1`; their binary envelope records a magic/schema, the full
-link fingerprint, payload length, and a domain-separated payload checksum.
-Publication uses a unique same-directory staged file and atomic rename, while a
-corrupt entry is physically deleted and treated as a miss. Restored files are
-made executable. Cache I/O errors only lose reuse and never become an alternate
-link truth source.
+`artifacts/links/v2/<stable-input-key>/<full-fingerprint>.link`; their binary
+envelope records a magic/schema, stable cache key, aggregate and component
+fingerprints, payload length, and a domain-separated payload checksum. The
+cache recomputes the aggregate and verifies the content-addressed path before
+accepting an entry. Publication uses a unique same-directory staged file and
+atomic rename, while a corrupt entry is physically deleted and treated as a
+miss. Restored files are made executable. The v1 namespace is not read. Cache
+I/O errors only lose reuse and never become an alternate link truth source.
 
 The former source-graph/request-manifest executable cache and its public API
 have been deleted. CLI executable emission and the build runner use the same
@@ -1784,9 +1788,13 @@ corrupt entry, or a cache read error; link-result publication errors are also
 counted. These reasons describe facts observed during the current lookup. They
 do not consult a persistent "latest fingerprint" manifest, so observability
 metadata cannot become a second cache truth source. Object misses additionally
-report the four versioned CGU component differences described above. Link-result
-component decomposition is still required before link misses can report which
-input group changed.
+report the four versioned CGU component differences described above. A
+link-result miss scans only validated immutable entries under the same stable
+input key and reports differences across its `inputs`, `target`, `linker`, and
+`options` components. The candidate with the fewest differing components is
+selected, with aggregate fingerprint as a deterministic tie-break. This scan
+does not participate in hit correctness, replace prior content-addressed
+versions, or create a mutable latest-entry index.
 
 After whole-program validation, each source partition crosses an independent
 LLVM emission boundary. That boundary creates and consumes its own LLVM
@@ -1801,8 +1809,8 @@ backpressure. The outer aggregation layer owns no module-local LLVM state.
 This remains the first partition granularity, not the final CGU model.
 `ModuleId` is currently a process-local owner identity, source ordinals are not
 yet split beyond zero, and validation remains a whole-program predecessor.
-Finer partitioning, frontend/LLVM overlap, link-result reuse, and richer
-reuse/invalidation reporting remain Phase G work.
+Finer partitioning and frontend/LLVM overlap remain Phase G work. Current
+link-result reuse is still whole-result reuse rather than partial relinking.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level and a reported codegen size policy. Size-oriented levels
