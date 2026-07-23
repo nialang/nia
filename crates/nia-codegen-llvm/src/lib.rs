@@ -69,24 +69,8 @@ fn emit_llvm_ir_with_options_inner(
     let mut outputs = Vec::new();
     let mut diagnostics = Vec::new();
     for partition in partitions.partitions() {
-        let module = program.module_for_partition(partition);
-        let context = time_codegen_module_stage(timings, "context", &module.name, Context::create);
-        let mut codegen =
-            match time_codegen_module_stage(timings, "new_module", &module.name, || {
-                ModuleCodegen::new(&context, module, &index, options)
-            }) {
-                Ok(codegen) => codegen,
-                Err(diagnostic) => {
-                    diagnostics.push(diagnostic);
-                    continue;
-                }
-            };
-        match codegen.emit_ir() {
-            Ok(ir) => outputs.push(LlvmModuleOutput {
-                unit: partition.id,
-                name: module.name.clone(),
-                ir,
-            }),
+        match emit_llvm_ir_partition(program, partition, &index, options) {
+            Ok(output) => outputs.push(output),
             Err(diagnostic) => diagnostics.push(diagnostic),
         }
     }
@@ -155,28 +139,8 @@ fn emit_native_objects_inner(
     let mut diagnostics = Vec::new();
     let builtin_symbols = compiler_builtins::required_symbols(program, &index);
     for partition in partitions.partitions() {
-        let module = program.module_for_partition(partition);
-        let context = time_codegen_module_stage(timings, "context", &module.name, Context::create);
-        let mut codegen =
-            match time_codegen_module_stage(timings, "new_module", &module.name, || {
-                ModuleCodegen::new(&context, module, &index, options)
-            }) {
-                Ok(codegen) => codegen,
-                Err(diagnostic) => {
-                    diagnostics.push(diagnostic);
-                    continue;
-                }
-            };
-        if let Err(error) = target.configure_module(&codegen.module) {
-            diagnostics.push(error.diagnostic());
-            continue;
-        }
-        match codegen.emit_object(&target) {
-            Ok(bytes) => outputs.push(LlvmObjectModuleOutput {
-                unit: partition.id,
-                name: module.name.clone(),
-                bytes,
-            }),
+        match emit_native_object_partition(program, partition, &index, &target, options) {
+            Ok(output) => outputs.push(output),
             Err(diagnostic) => diagnostics.push(diagnostic),
         }
     }
@@ -198,6 +162,52 @@ fn emit_native_objects_inner(
         modules: outputs,
         diagnostics,
     }
+}
+
+fn emit_llvm_ir_partition(
+    program: &BackendProgram,
+    partition: &nia_backend_ir::CodegenPartition,
+    index: &ProgramIndex<'_>,
+    options: LlvmCodegenOptions,
+) -> Result<LlvmModuleOutput, nia_diagnostic::Diagnostic> {
+    let module = program.module_for_partition(partition);
+    let context =
+        time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
+    let mut codegen =
+        time_codegen_module_stage(options.timings, "new_module", &module.name, || {
+            ModuleCodegen::new(&context, module, index, options)
+        })?;
+    let ir = codegen.emit_ir()?;
+    Ok(LlvmModuleOutput {
+        unit: partition.id,
+        name: module.name.clone(),
+        ir,
+    })
+}
+
+fn emit_native_object_partition(
+    program: &BackendProgram,
+    partition: &nia_backend_ir::CodegenPartition,
+    index: &ProgramIndex<'_>,
+    target: &TargetMachine,
+    options: LlvmCodegenOptions,
+) -> Result<LlvmObjectModuleOutput, nia_diagnostic::Diagnostic> {
+    let module = program.module_for_partition(partition);
+    let context =
+        time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
+    let mut codegen =
+        time_codegen_module_stage(options.timings, "new_module", &module.name, || {
+            ModuleCodegen::new(&context, module, index, options)
+        })?;
+    target
+        .configure_module(&codegen.module)
+        .map_err(|error| error.diagnostic())?;
+    let bytes = codegen.emit_object(target)?;
+    Ok(LlvmObjectModuleOutput {
+        unit: partition.id,
+        name: module.name.clone(),
+        bytes,
+    })
 }
 
 pub(crate) fn time_codegen_stage<T>(

@@ -1656,6 +1656,14 @@ native object result that actually needs them; a source module name can no
 longer stand in for that role. Validation and cross-unit declaration/layout
 lookup intentionally remain whole-program and readonly.
 
+After whole-program validation, each source partition crosses an independent
+LLVM emission boundary. That boundary creates and consumes its own LLVM
+`Context` and `ModuleCodegen`, returning exactly one typed IR/object result or
+one diagnostic. The outer aggregation layer only walks the partition plan and
+collects those outcomes in plan order; it does not own module-local LLVM state.
+This task-shaped result boundary is deliberately separate from scheduling so
+the future executor can change completion order without changing output order.
+
 This is the first deterministic partition policy, not the final CGU model.
 `ModuleId` is currently a process-local owner identity, source ordinals are not
 yet split beyond zero, and LLVM still consumes units sequentially. Persistent
