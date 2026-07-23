@@ -1479,6 +1479,21 @@ module slots are published, and after all are consumed. These counters expose
 whether scheduling changes create a transient heap spike; process RSS remains
 the authority for LLVM/native allocations that the Rust allocator cannot see.
 
+Module finalization now has an explicit task-shaped ownership boundary.
+`BackendProgramFinalizationContext` contains only the program-wide read-only
+indexes, type store, optimization policy, and timing flag; both that context and
+`BackendLowerModuleInput` are compile-time checked as `Send + Sync`. Each
+`finalize_module` call consumes one `BackendModuleItemPlan` and returns a
+`Send`-checked `BackendModuleFinalization` that exclusively owns its finalized
+module, diagnostics, and optimization changes. Results carry their original
+batch position, and the sole merge function restores program order before
+combining modules, diagnostics, or optimization changes, so task completion
+order cannot affect output. Production still invokes this boundary
+sequentially: the module inputs currently borrow callback-local query handles,
+while the persistent query executor accepts `'static` tasks. A later scheduling
+slice must give those tasks a real owned read-only environment; an `Arc` added
+only to bypass that lifetime would not satisfy the ownership contract.
+
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their
 function because they have no independent cache, invalidation, release, or

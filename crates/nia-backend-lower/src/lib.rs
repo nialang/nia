@@ -81,9 +81,116 @@ pub struct BackendItemPlanFinalization {
     diagnostics: Vec<Diagnostic>,
 }
 
+pub struct BackendProgramFinalizationContext<'a> {
+    type_store: &'a nia_ty::TypeStore,
+    optimization: OptimizationPolicy,
+    shared: BackendLowerShared,
+    timing: bool,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct BackendModuleFinalization {
+    position: usize,
+    module: BackendModule,
+    optimization_report: BackendOptimizationReport,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl<'a> BackendProgramFinalizationContext<'a> {
+    pub fn new(
+        modules: &[BackendLowerModuleInput<'_>],
+        type_store: &'a nia_ty::TypeStore,
+        optimization: OptimizationPolicy,
+        timings: nia_timing::TimingMode,
+    ) -> Self {
+        let timing = timings.detail();
+        let shared = time_backend_stage(timing, "backend_lower.final_shared_indexes", || {
+            BackendLowerShared::new(modules)
+        });
+        Self {
+            type_store,
+            optimization,
+            shared,
+            timing,
+        }
+    }
+
+    pub fn finalize_module(
+        &self,
+        position: usize,
+        input: &BackendLowerModuleInput<'_>,
+        module_plan: BackendModuleItemPlan,
+    ) -> BackendModuleFinalization {
+        assert_eq!(
+            input.module_id, module_plan.module.id,
+            "Nia ICE: backend module plan owner must match finalization input"
+        );
+        let mut lowerer = ModuleLowerer::new(
+            input,
+            self.type_store,
+            self.optimization,
+            &self.shared,
+            self.timing,
+        );
+        lowerer.index_aggregate_sources_for_finalization();
+        let mut module = module_plan.module;
+        lowerer.finish_module(&mut module);
+        BackendModuleFinalization {
+            position,
+            module,
+            optimization_report: lowerer.optimization_report,
+            diagnostics: lowerer.diagnostics,
+        }
+    }
+}
+
 impl BackendModuleItemPlan {
     pub fn module(&self) -> &BackendModule {
         &self.module
+    }
+}
+
+pub fn finish_backend_module_finalizations(
+    finalization: BackendItemPlanFinalization,
+    module_order: &[ModuleId],
+    mut module_finalizations: Vec<BackendModuleFinalization>,
+) -> BackendLowering {
+    let BackendItemPlanFinalization {
+        optimization,
+        mut optimization_report,
+        mut diagnostics,
+    } = finalization;
+    assert_eq!(
+        module_order.len(),
+        module_finalizations.len(),
+        "Nia ICE: backend module finalizations must match module order"
+    );
+    module_finalizations.sort_unstable_by_key(|module_finalization| module_finalization.position);
+    let modules = module_finalizations
+        .into_iter()
+        .zip(module_order)
+        .enumerate()
+        .map(|(position, (module_finalization, module_id))| {
+            assert_eq!(
+                module_finalization.position, position,
+                "Nia ICE: backend module finalization position must be unique and contiguous"
+            );
+            assert_eq!(
+                module_finalization.module.id, *module_id,
+                "Nia ICE: backend module finalization owner must match module order"
+            );
+            diagnostics.extend(module_finalization.diagnostics);
+            optimization_report
+                .changed_passes
+                .extend(module_finalization.optimization_report.changed_passes);
+            module_finalization.module
+        })
+        .collect();
+    BackendLowering {
+        program: BackendProgram { modules },
+        optimization,
+        optimization_report,
+        diagnostics,
     }
 }
 
@@ -171,7 +278,7 @@ pub enum BackendOptimizationChange {
 pub struct BackendLowerModuleInput<'a> {
     pub module_id: ModuleId,
     pub module_name: String,
-    pub symbols: &'a dyn SymbolText,
+    pub symbols: &'a (dyn SymbolText + Sync),
     pub active_item_tree: &'a ActiveModuleItemTree,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
@@ -197,7 +304,7 @@ pub struct BackendLowerModuleInput<'a> {
         &'a std::collections::HashMap<GlobalDefId, &'a nia_static_ir::StaticInit>,
     pub program_extension_methods: &'a ExtensionMethods,
     pub program_extensions: &'a std::collections::HashMap<ModuleId, &'a VisibleExtensionMethods>,
-    pub program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
+    pub program_defs: &'a (dyn Fn(ModuleId) -> Option<Arc<DefCollection>> + Sync),
     pub program_type_normalizations: &'a std::collections::HashMap<
         ModuleId,
         &'a std::collections::HashMap<InternedTyId, InternedTyId>,
@@ -426,12 +533,8 @@ pub fn finalize_backend_module_item_plans_with_timings(
     module_plans: Vec<BackendModuleItemPlan>,
     timings: nia_timing::TimingMode,
 ) -> BackendLowering {
-    let BackendItemPlanFinalization {
-        optimization,
-        mut optimization_report,
-        mut diagnostics,
-    } = finalization;
-    if !diagnostics.is_empty() {
+    let optimization = finalization.optimization;
+    if !finalization.diagnostics.is_empty() {
         return BackendLowering {
             program: BackendProgram {
                 modules: module_plans
@@ -440,8 +543,8 @@ pub fn finalize_backend_module_item_plans_with_timings(
                     .collect(),
             },
             optimization,
-            optimization_report,
-            diagnostics,
+            optimization_report: finalization.optimization_report,
+            diagnostics: finalization.diagnostics,
         };
     }
     assert_eq!(
@@ -456,43 +559,24 @@ pub fn finalize_backend_module_item_plans_with_timings(
         );
     }
 
-    let timing = timings.detail();
-    let shared = time_backend_stage(timing, "backend_lower.final_shared_indexes", || {
-        BackendLowerShared::new(modules)
-    });
-    let mut lowerers = time_backend_stage(timing, "backend_lower.new_finalizers", || {
-        modules
-            .iter()
-            .map(|input| ModuleLowerer::new(input, type_store, optimization, &shared, timing))
-            .collect::<Vec<_>>()
-    });
-    for lowerer in &mut lowerers {
-        lowerer.index_aggregate_sources_for_finalization();
-    }
-    let lowered_modules = time_backend_stage(timing, "backend_lower.final_modules", || {
-        lowerers
-            .into_iter()
-            .zip(module_plans)
-            .map(|(mut lowerer, module_plan)| {
-                let mut module = module_plan.module;
-                lowerer.finish_module(&mut module);
-                diagnostics.extend(std::mem::take(&mut lowerer.diagnostics));
-                optimization_report.changed_passes.extend(std::mem::take(
-                    &mut lowerer.optimization_report.changed_passes,
-                ));
-                module
-            })
-            .collect::<Vec<_>>()
-    });
-
-    BackendLowering {
-        program: BackendProgram {
-            modules: lowered_modules,
-        },
-        optimization,
-        optimization_report,
-        diagnostics,
-    }
+    let finalization_context =
+        BackendProgramFinalizationContext::new(modules, type_store, optimization, timings);
+    let module_finalizations =
+        time_backend_stage(timings.detail(), "backend_lower.final_modules", || {
+            modules
+                .iter()
+                .zip(module_plans)
+                .enumerate()
+                .map(|(position, (input, module_plan))| {
+                    finalization_context.finalize_module(position, input, module_plan)
+                })
+                .collect::<Vec<_>>()
+        });
+    let module_order = modules
+        .iter()
+        .map(|input| input.module_id)
+        .collect::<Vec<_>>();
+    finish_backend_module_finalizations(finalization, &module_order, module_finalizations)
 }
 
 fn time_backend_stage<T>(enabled: bool, name: &str, f: impl FnOnce() -> T) -> T {
