@@ -24,6 +24,8 @@ static REALLOCATION_CALLS: AtomicU64 = AtomicU64::new(0);
 static ALLOCATED_BYTES: AtomicU64 = AtomicU64::new(0);
 static DEALLOCATED_BYTES: AtomicU64 = AtomicU64::new(0);
 static QUERY_VALUE_CLONE_BYTES: AtomicU64 = AtomicU64::new(0);
+static LIVE_BYTES: AtomicU64 = AtomicU64::new(0);
+static PEAK_LIVE_BYTES: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
     static THREAD_ALLOCATED_BYTES: Cell<u64> = const { Cell::new(0) };
@@ -88,7 +90,15 @@ struct AllocationMeasurement {
     reallocation_calls: u64,
     allocated_bytes: u64,
     deallocated_bytes: u64,
+    live_bytes: u64,
+    peak_live_bytes: u64,
     query_value_clone_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AllocationLiveSnapshot {
+    pub live_bytes: u64,
+    pub peak_live_bytes: u64,
 }
 
 /// Registers that this process installed [`CountingAllocator`] globally.
@@ -110,23 +120,40 @@ fn start_allocation_tracking() -> bool {
     ALLOCATED_BYTES.store(0, Ordering::Relaxed);
     DEALLOCATED_BYTES.store(0, Ordering::Relaxed);
     QUERY_VALUE_CLONE_BYTES.store(0, Ordering::Relaxed);
+    PEAK_LIVE_BYTES.store(LIVE_BYTES.load(Ordering::Relaxed), Ordering::Relaxed);
     ALLOCATION_TRACKING_ENABLED.store(true, Ordering::Release);
     true
 }
 
 fn finish_allocation_tracking() -> AllocationMeasurement {
     ALLOCATION_TRACKING_ENABLED.store(false, Ordering::Release);
+    let live_bytes = LIVE_BYTES.load(Ordering::Relaxed);
     AllocationMeasurement {
         allocation_calls: ALLOCATION_CALLS.load(Ordering::Relaxed),
         deallocation_calls: DEALLOCATION_CALLS.load(Ordering::Relaxed),
         reallocation_calls: REALLOCATION_CALLS.load(Ordering::Relaxed),
         allocated_bytes: ALLOCATED_BYTES.load(Ordering::Relaxed),
         deallocated_bytes: DEALLOCATED_BYTES.load(Ordering::Relaxed),
+        live_bytes,
+        peak_live_bytes: PEAK_LIVE_BYTES.load(Ordering::Relaxed).max(live_bytes),
         query_value_clone_bytes: QUERY_VALUE_CLONE_BYTES.load(Ordering::Relaxed),
     }
 }
 
+pub fn allocation_live_snapshot() -> Option<AllocationLiveSnapshot> {
+    (ALLOCATION_INSTRUMENTATION_AVAILABLE.load(Ordering::Acquire)
+        && ALLOCATION_TRACKING_ENABLED.load(Ordering::Acquire))
+    .then(|| {
+        let live_bytes = LIVE_BYTES.load(Ordering::Relaxed);
+        AllocationLiveSnapshot {
+            live_bytes,
+            peak_live_bytes: PEAK_LIVE_BYTES.load(Ordering::Relaxed).max(live_bytes),
+        }
+    })
+}
+
 fn record_allocation(size: usize) {
+    increase_live_bytes(size as u64);
     if !ALLOCATION_TRACKING_ENABLED.load(Ordering::Relaxed) {
         return;
     }
@@ -136,6 +163,7 @@ fn record_allocation(size: usize) {
 }
 
 fn record_deallocation(size: usize) {
+    decrease_live_bytes(size as u64);
     if !ALLOCATION_TRACKING_ENABLED.load(Ordering::Relaxed) {
         return;
     }
@@ -144,6 +172,11 @@ fn record_deallocation(size: usize) {
 }
 
 fn record_reallocation(old_size: usize, new_size: usize) {
+    if new_size >= old_size {
+        increase_live_bytes((new_size - old_size) as u64);
+    } else {
+        decrease_live_bytes((old_size - new_size) as u64);
+    }
     if !ALLOCATION_TRACKING_ENABLED.load(Ordering::Relaxed) {
         return;
     }
@@ -151,6 +184,21 @@ fn record_reallocation(old_size: usize, new_size: usize) {
     ALLOCATED_BYTES.fetch_add(new_size as u64, Ordering::Relaxed);
     DEALLOCATED_BYTES.fetch_add(old_size as u64, Ordering::Relaxed);
     record_thread_allocated_bytes(new_size);
+}
+
+fn increase_live_bytes(size: u64) {
+    let live = LIVE_BYTES
+        .fetch_add(size, Ordering::Relaxed)
+        .saturating_add(size);
+    if ALLOCATION_TRACKING_ENABLED.load(Ordering::Relaxed) {
+        PEAK_LIVE_BYTES.fetch_max(live, Ordering::Relaxed);
+    }
+}
+
+fn decrease_live_bytes(size: u64) {
+    let _ = LIVE_BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |live| {
+        Some(live.saturating_sub(size))
+    });
 }
 
 fn record_thread_allocated_bytes(size: usize) {
@@ -1024,6 +1072,14 @@ impl TimingReport {
                 value: measurement.deallocated_bytes,
             },
             TimingCounter {
+                name: "allocator.live_bytes".to_string(),
+                value: measurement.live_bytes,
+            },
+            TimingCounter {
+                name: "allocator.peak_live_bytes".to_string(),
+                value: measurement.peak_live_bytes,
+            },
+            TimingCounter {
                 name: "allocator.realloc_calls".to_string(),
                 value: measurement.reallocation_calls,
             },
@@ -1194,15 +1250,24 @@ mod tests {
     fn allocation_tracking_records_only_the_active_interval() {
         let _lock = collector_test_lock();
         register_allocation_instrumentation();
+        let baseline = LIVE_BYTES.load(Ordering::Relaxed);
         record_allocation(100);
         assert!(start_allocation_tracking());
         record_allocation(16);
         record_allocation(32);
         track_query_value_clone(true, || record_allocation(24));
         record_reallocation(32, 64);
+        assert_eq!(
+            allocation_live_snapshot(),
+            Some(AllocationLiveSnapshot {
+                live_bytes: baseline + 204,
+                peak_live_bytes: baseline + 204,
+            })
+        );
         record_deallocation(16);
         let measurement = finish_allocation_tracking();
         record_allocation(200);
+        record_deallocation(388);
 
         assert_eq!(
             measurement,
@@ -1212,6 +1277,8 @@ mod tests {
                 reallocation_calls: 1,
                 allocated_bytes: 136,
                 deallocated_bytes: 48,
+                live_bytes: baseline + 188,
+                peak_live_bytes: baseline + 204,
                 query_value_clone_bytes: 24,
             }
         );

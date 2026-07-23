@@ -10,6 +10,7 @@ def result(name, wall, rss, queries, allocations):
         "counters": {
             "query.executions": queries,
             "allocator.allocated_bytes": allocations,
+            "allocator.peak_live_bytes": allocations // 2,
         },
     }
 

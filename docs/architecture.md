@@ -1471,8 +1471,13 @@ plan, so invalidation drops an unconsumed module payload and causes a consumed
 slot to be republished on the next backend request. Query regressions assert
 that production leaves every module-plan slot payload-free. This establishes
 module-keyed ownership and future scheduling inputs, but finalization still
-runs inside the aggregate backend query and no measured peak-live-bytes or CGU
-partition is claimed yet.
+runs inside the aggregate backend query and no CGU partition is claimed yet.
+The instrumented compiler now records Rust global-allocator current and peak
+live bytes, including already-live instrumented allocations at the detail
+timing boundary. Backend fan-out emits snapshots before publication, after all
+module slots are published, and after all are consumed. These counters expose
+whether scheduling changes create a transient heap spike; process RSS remains
+the authority for LLVM/native allocations that the Rust allocator cannot see.
 
 The root checked and lowered bodies reuse `GlobalDefId` as their semantic and
 query identity. Nested source-shaped bodies remain structurally owned by their
