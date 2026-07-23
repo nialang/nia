@@ -817,8 +817,9 @@ fn run_check(
         Err(code) => return code,
     }
     if opt_report {
+        let driver = nia_driver::Driver::new();
         let output = time_summary_stage(timings, "codegen", || {
-            codegen_with_driver(path, module_map, optimization, timings, runtime)
+            codegen_with_driver(&driver, path, module_map, optimization, timings, runtime)
         });
         let codegen = match codegen_program_from_output(output, path, source) {
             Ok(program) => program,
@@ -866,13 +867,14 @@ fn checked_program_from_output(
 }
 
 fn codegen_with_driver(
+    driver: &nia_driver::Driver,
     path: &str,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     runtime: Runtime,
 ) -> nia_driver::DriverOutput<nia_driver::CodegenProgram> {
-    nia_driver::Driver::new().codegen(
+    driver.codegen(
         nia_driver::CheckRequest::new(path)
             .with_module_map(module_map)
             .with_optimization(optimization)
@@ -1035,8 +1037,9 @@ fn run_emit_backend(
     opt_report: bool,
     runtime: Runtime,
 ) -> ExitCode {
+    let driver = nia_driver::Driver::new();
     let output = time_summary_stage(timings, "codegen", || {
-        codegen_with_driver(path, module_map, optimization, timings, runtime)
+        codegen_with_driver(&driver, path, module_map, optimization, timings, runtime)
     });
     let program = match codegen_program_from_output(output, path, source) {
         Ok(program) => program,
@@ -1058,8 +1061,9 @@ fn run_emit_llvm(
     opt_report: bool,
     runtime: Runtime,
 ) -> ExitCode {
+    let driver = nia_driver::Driver::new();
     let output = time_summary_stage(timings, "codegen", || {
-        codegen_with_driver(path, module_map, optimization, timings, runtime)
+        codegen_with_driver(&driver, path, module_map, optimization, timings, runtime)
     });
     let program = match codegen_program_from_output(output, path, source) {
         Ok(program) => program,
@@ -1069,7 +1073,7 @@ fn run_emit_llvm(
         print_optimization_report_to_stderr(&program);
     }
     let output = time_summary_stage(timings, "emit_llvm_ir", || {
-        nia_driver::Driver::new().emit_llvm_ir_from_codegen_with_timings(&program, timings)
+        driver.emit_llvm_ir_from_codegen_with_timings(&program, timings)
     });
     match output.result {
         Ok(artifact) => {
@@ -1104,8 +1108,16 @@ fn run_emit_obj(
             return ExitCode::FAILURE;
         }
     };
+    let driver = nia_driver::Driver::new();
     let output = time_summary_stage(timings, "codegen", || {
-        codegen_with_driver(path, module_map, optimization, timings, options.runtime)
+        codegen_with_driver(
+            &driver,
+            path,
+            module_map,
+            optimization,
+            timings,
+            options.runtime,
+        )
     });
     let program = match codegen_program_from_output(output, path, source) {
         Ok(program) => program,
@@ -1115,7 +1127,7 @@ fn run_emit_obj(
         print_optimization_report_to_stderr(&program);
     }
     let output = time_summary_stage(timings, "emit_native_objects", || {
-        nia_driver::Driver::new().emit_native_objects_from_codegen_with_timings(&program, timings)
+        driver.emit_native_objects_from_codegen_with_timings(&program, timings)
     });
     let objects = match output.result {
         Ok(objects) => objects,
@@ -1185,8 +1197,10 @@ fn run_emit_exe(
     } else {
         None
     };
+    let driver = nia_driver::Driver::new();
     let output = time_summary_stage(timings, "codegen_exe", || {
         codegen_with_driver(
+            &driver,
             path,
             module_map,
             optimization,
@@ -1202,7 +1216,7 @@ fn run_emit_exe(
         print_optimization_report_to_stderr(&program);
     }
     let output = time_summary_stage(timings, "emit_native_objects", || {
-        nia_driver::Driver::new().emit_native_objects_from_codegen_with_timings(&program, timings)
+        driver.emit_native_objects_from_codegen_with_timings(&program, timings)
     });
     let objects = match output.result {
         Ok(objects) => objects,

@@ -64,7 +64,7 @@ fn main() usize {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("[4 x i8]"), "{ir}");
@@ -100,7 +100,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("asm sideeffect"));
@@ -129,7 +129,7 @@ extern fn write_reg(reg: ^mut u32, value: u32) void {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("load volatile i32"), "{ir}");
@@ -157,7 +157,7 @@ fn statement() void {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("call void @llvm.trap()"), "{ir}");
@@ -182,7 +182,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("call void @llvm.trap()"), "{ir}");
@@ -213,7 +213,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert_contains_mangled_symbol(ir, '%', 0, "Bits");
@@ -242,7 +242,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("ret i32 42"), "{ir}");
@@ -278,7 +278,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("[4 x i8] c\"paw\\00\""), "{ir}");
@@ -313,7 +313,7 @@ pub const width: usize = 4;
 
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     assert!(output.modules[0].ir.contains("[4 x i32]"));
 }
@@ -373,7 +373,7 @@ fn main() i32 {
 
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     assert!(
         output.modules[0].ir.contains("[4 x %"),
@@ -418,7 +418,7 @@ pub struct Boxed[T] {
 
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     assert!(output.modules[0].ir.contains("[3 x i8]"));
 }
@@ -443,7 +443,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     assert!(output.modules[0].ir.contains("[16 x i8]"));
 }

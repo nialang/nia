@@ -106,7 +106,7 @@ fn emits_function_body_from_function_ir_when_available() {
     };
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
@@ -135,7 +135,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("if.then") || ir.contains("fir.bb"), "{ir}");
@@ -170,7 +170,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("switch i32"), "{ir}");
@@ -202,7 +202,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("fir.bb"), "{ir}");
@@ -239,7 +239,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("store i32 10"));
@@ -277,7 +277,7 @@ fn main() i32 {
     let codegen = codegen_program(main.to_string_lossy().into_owned());
     assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
 
-    let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert_contains_mangled_symbol(ir, '@', 0, "print_i32");
@@ -437,7 +437,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
     };
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
     assert!(
         has_internal_diagnostic(
             &output.diagnostics,
@@ -511,7 +511,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
     program.modules[0].const_eval.array_lengths.clear();
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -606,7 +606,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
     };
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -679,7 +679,7 @@ fn validates_backend_ir_error_type_before_llvm() {
     };
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -781,7 +781,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
     };
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -955,7 +955,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
     };
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     assert!(output.modules[0].ir.contains("@make_marker()"));
@@ -1032,7 +1032,7 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
     };
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1106,7 +1106,7 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
     };
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1211,7 +1211,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
     };
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1320,7 +1320,7 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
     };
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1395,7 +1395,7 @@ fn validates_function_ir_missing_entry_before_llvm() {
     };
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1490,7 +1490,7 @@ fn validates_function_ir_missing_successor_before_llvm() {
     };
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1554,7 +1554,7 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
     );
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1629,7 +1629,7 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
     );
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1762,7 +1762,7 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
     );
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1849,7 +1849,7 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
     );
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -1951,7 +1951,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
     );
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(
@@ -2043,7 +2043,7 @@ fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
     );
 
     drop(interner);
-    let output = emit_llvm_ir(&program, &type_store);
+    let output = emit_owned_llvm_ir(program, type_store);
 
     assert!(output.modules.is_empty());
     assert!(

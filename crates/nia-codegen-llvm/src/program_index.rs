@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use nia_backend_ir::{
     BackendEnum, BackendEnumVariant, BackendFunctionInstance, BackendProgram,
     BackendStructInstanceKey, BackendTraitObjectVtable,
 };
+use nia_backend_lower::BackendLowering;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{StructLayout, TypeLayout};
 use nia_ty::{ConstGenericArg, TraitId, TyKind, TypeStore};
@@ -40,9 +41,9 @@ struct EnumVariantPosition {
     variant: usize,
 }
 
-pub(super) struct ProgramIndex<'a> {
-    program: &'a BackendProgram,
-    type_store: &'a TypeStore,
+pub(super) struct ProgramIndex {
+    lowering: Arc<BackendLowering>,
+    type_store: Arc<TypeStore>,
     modules: HashMap<ModuleId, usize>,
     structs: HashMap<GlobalDefId, ItemPosition>,
     unions: HashMap<GlobalDefId, ItemPosition>,
@@ -80,10 +81,10 @@ pub(super) struct EnumVariantInfo<'a> {
     pub(super) index: usize,
 }
 
-impl<'a> ProgramIndex<'a> {
-    pub(super) fn new(program: &'a BackendProgram, type_store: &'a TypeStore) -> Self {
+impl ProgramIndex {
+    pub(super) fn new(lowering: Arc<BackendLowering>, type_store: Arc<TypeStore>) -> Self {
         let mut index = Self {
-            program,
+            lowering,
             type_store,
             modules: HashMap::new(),
             structs: HashMap::new(),
@@ -110,7 +111,7 @@ impl<'a> ProgramIndex<'a> {
             struct_instances_by_def: HashMap::new(),
             union_instances_by_def: HashMap::new(),
         };
-        for (module_index, module) in program.modules.iter().enumerate() {
+        for (module_index, module) in index.lowering.program.modules.iter().enumerate() {
             index.modules.insert(module.id, module_index);
             for (layout_index, (ty, _)) in module.layouts.types.iter().enumerate() {
                 index.type_layouts.insert(
@@ -317,41 +318,51 @@ impl<'a> ProgramIndex<'a> {
         index
     }
 
-    pub(super) fn modules(&self) -> impl Iterator<Item = &'a nia_backend_ir::BackendModule> {
+    pub(super) fn program(&self) -> &BackendProgram {
+        &self.lowering.program
+    }
+
+    pub(super) fn modules(&self) -> impl Iterator<Item = &nia_backend_ir::BackendModule> {
         self.modules
             .values()
-            .map(|module| &self.program.modules[*module])
+            .map(|module| &self.lowering.program.modules[*module])
     }
 
-    pub(super) fn module(&self, module_id: ModuleId) -> Option<&'a nia_backend_ir::BackendModule> {
+    pub(super) fn module(&self, module_id: ModuleId) -> Option<&nia_backend_ir::BackendModule> {
         self.modules
             .get(&module_id)
-            .map(|module| &self.program.modules[*module])
+            .map(|module| &self.lowering.program.modules[*module])
     }
 
-    pub(super) fn type_store(&self) -> &'a TypeStore {
-        self.type_store
+    pub(super) fn type_store(&self) -> &TypeStore {
+        &self.type_store
     }
 
-    pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&'a TyKind> {
+    pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.type_store.get(ty)
     }
 
-    pub(super) fn type_layout(&self, ty: InternedTyId) -> Option<&'a TypeLayout> {
-        self.type_layouts
-            .get(&ty)
-            .map(|position| &self.program.modules[position.module].layouts.types[position.layout].1)
-    }
-
-    pub(super) fn struct_layout(&self, def_id: GlobalDefId) -> Option<&'a StructLayout> {
-        self.struct_layouts.get(&def_id).map(|position| {
-            &self.program.modules[position.module].layouts.structs[position.layout].1
+    pub(super) fn type_layout(&self, ty: InternedTyId) -> Option<&TypeLayout> {
+        self.type_layouts.get(&ty).map(|position| {
+            &self.lowering.program.modules[position.module].layouts.types[position.layout].1
         })
     }
 
-    pub(super) fn union_layout(&self, def_id: GlobalDefId) -> Option<&'a StructLayout> {
+    pub(super) fn struct_layout(&self, def_id: GlobalDefId) -> Option<&StructLayout> {
+        self.struct_layouts.get(&def_id).map(|position| {
+            &self.lowering.program.modules[position.module]
+                .layouts
+                .structs[position.layout]
+                .1
+        })
+    }
+
+    pub(super) fn union_layout(&self, def_id: GlobalDefId) -> Option<&StructLayout> {
         self.union_layouts.get(&def_id).map(|position| {
-            &self.program.modules[position.module].layouts.unions[position.layout].1
+            &self.lowering.program.modules[position.module]
+                .layouts
+                .unions[position.layout]
+                .1
         })
     }
 
@@ -360,12 +371,12 @@ impl<'a> ProgramIndex<'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
-    ) -> Option<&'a StructLayout> {
+    ) -> Option<&StructLayout> {
         self.struct_instance_layouts
             .get(&def_id)
             .and_then(|layouts| layouts.get(&(args.to_vec(), const_args.to_vec())))
             .map(|position| {
-                &self.program.modules[position.module]
+                &self.lowering.program.modules[position.module]
                     .layouts
                     .struct_instances[position.layout]
                     .1
@@ -377,12 +388,12 @@ impl<'a> ProgramIndex<'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
-    ) -> Option<&'a StructLayout> {
+    ) -> Option<&StructLayout> {
         self.union_instance_layouts
             .get(&def_id)
             .and_then(|layouts| layouts.get(&(args.to_vec(), const_args.to_vec())))
             .map(|position| {
-                &self.program.modules[position.module]
+                &self.lowering.program.modules[position.module]
                     .layouts
                     .union_instances[position.layout]
                     .1
@@ -394,11 +405,13 @@ impl<'a> ProgramIndex<'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
-    ) -> Option<&'a nia_backend_ir::BackendStructInstance> {
+    ) -> Option<&nia_backend_ir::BackendStructInstance> {
         self.struct_instances
             .get(&def_id)
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| &self.program.modules[position.module].struct_instances[position.item])
+            .map(|position| {
+                &self.lowering.program.modules[position.module].struct_instances[position.item]
+            })
     }
 
     pub(super) fn union_instance(
@@ -406,11 +419,13 @@ impl<'a> ProgramIndex<'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
-    ) -> Option<&'a nia_backend_ir::BackendUnionInstance> {
+    ) -> Option<&nia_backend_ir::BackendUnionInstance> {
         self.union_instances
             .get(&def_id)
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| &self.program.modules[position.module].union_instances[position.item])
+            .map(|position| {
+                &self.lowering.program.modules[position.module].union_instances[position.item]
+            })
     }
 
     pub(super) fn function_instance(
@@ -420,47 +435,44 @@ impl<'a> ProgramIndex<'a> {
         self_arg: Option<InternedTyId>,
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
-    ) -> Option<&'a BackendFunctionInstance> {
+    ) -> Option<&BackendFunctionInstance> {
         self.function_instances
             .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(&(self_arg, args.to_vec(), const_args.to_vec())))
             .map(|position| {
-                &self.program.modules[position.module].function_instances[position.item]
+                &self.lowering.program.modules[position.module].function_instances[position.item]
             })
     }
 
-    pub(super) fn structs(&self) -> impl Iterator<Item = &'a nia_backend_ir::BackendStruct> {
+    pub(super) fn structs(&self) -> impl Iterator<Item = &nia_backend_ir::BackendStruct> {
         self.structs
             .values()
-            .map(|position| &self.program.modules[position.module].structs[position.item])
+            .map(|position| &self.lowering.program.modules[position.module].structs[position.item])
     }
 
     pub(super) fn struct_item(
         &self,
         def_id: GlobalDefId,
-    ) -> Option<&'a nia_backend_ir::BackendStruct> {
+    ) -> Option<&nia_backend_ir::BackendStruct> {
         self.structs
             .get(&def_id)
-            .map(|position| &self.program.modules[position.module].structs[position.item])
+            .map(|position| &self.lowering.program.modules[position.module].structs[position.item])
     }
 
     pub(super) fn has_struct(&self, def_id: GlobalDefId) -> bool {
         self.structs.contains_key(&def_id)
     }
 
-    pub(super) fn unions(&self) -> impl Iterator<Item = &'a nia_backend_ir::BackendUnion> {
+    pub(super) fn unions(&self) -> impl Iterator<Item = &nia_backend_ir::BackendUnion> {
         self.unions
             .values()
-            .map(|position| &self.program.modules[position.module].unions[position.item])
+            .map(|position| &self.lowering.program.modules[position.module].unions[position.item])
     }
 
-    pub(super) fn union_item(
-        &self,
-        def_id: GlobalDefId,
-    ) -> Option<&'a nia_backend_ir::BackendUnion> {
+    pub(super) fn union_item(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendUnion> {
         self.unions
             .get(&def_id)
-            .map(|position| &self.program.modules[position.module].unions[position.item])
+            .map(|position| &self.lowering.program.modules[position.module].unions[position.item])
     }
 
     pub(super) fn has_union(&self, def_id: GlobalDefId) -> bool {
@@ -469,20 +481,24 @@ impl<'a> ProgramIndex<'a> {
 
     pub(super) fn struct_instances(
         &self,
-    ) -> impl Iterator<Item = &'a nia_backend_ir::BackendStructInstance> {
+    ) -> impl Iterator<Item = &nia_backend_ir::BackendStructInstance> {
         self.struct_instances_by_def
             .values()
             .flatten()
-            .map(|position| &self.program.modules[position.module].struct_instances[position.item])
+            .map(|position| {
+                &self.lowering.program.modules[position.module].struct_instances[position.item]
+            })
     }
 
     pub(super) fn union_instances(
         &self,
-    ) -> impl Iterator<Item = &'a nia_backend_ir::BackendUnionInstance> {
+    ) -> impl Iterator<Item = &nia_backend_ir::BackendUnionInstance> {
         self.union_instances_by_def
             .values()
             .flatten()
-            .map(|position| &self.program.modules[position.module].union_instances[position.item])
+            .map(|position| {
+                &self.lowering.program.modules[position.module].union_instances[position.item]
+            })
     }
 
     pub(super) fn has_struct_instances(&self, def_id: GlobalDefId) -> bool {
@@ -492,12 +508,14 @@ impl<'a> ProgramIndex<'a> {
     pub(super) fn struct_instances_for(
         &self,
         def_id: GlobalDefId,
-    ) -> impl Iterator<Item = &'a nia_backend_ir::BackendStructInstance> {
+    ) -> impl Iterator<Item = &nia_backend_ir::BackendStructInstance> {
         self.struct_instances_by_def
             .get(&def_id)
             .into_iter()
             .flatten()
-            .map(|position| &self.program.modules[position.module].struct_instances[position.item])
+            .map(|position| {
+                &self.lowering.program.modules[position.module].struct_instances[position.item]
+            })
     }
 
     pub(super) fn has_union_instances(&self, def_id: GlobalDefId) -> bool {
@@ -507,27 +525,29 @@ impl<'a> ProgramIndex<'a> {
     pub(super) fn union_instances_for(
         &self,
         def_id: GlobalDefId,
-    ) -> impl Iterator<Item = &'a nia_backend_ir::BackendUnionInstance> {
+    ) -> impl Iterator<Item = &nia_backend_ir::BackendUnionInstance> {
         self.union_instances_by_def
             .get(&def_id)
             .into_iter()
             .flatten()
-            .map(|position| &self.program.modules[position.module].union_instances[position.item])
+            .map(|position| {
+                &self.lowering.program.modules[position.module].union_instances[position.item]
+            })
     }
 
     pub(super) fn has_enum(&self, def_id: GlobalDefId) -> bool {
         self.enums.contains_key(&def_id)
     }
 
-    pub(super) fn enum_item(&self, def_id: GlobalDefId) -> Option<&'a BackendEnum> {
+    pub(super) fn enum_item(&self, def_id: GlobalDefId) -> Option<&BackendEnum> {
         self.enums
             .get(&def_id)
-            .map(|position| &self.program.modules[position.module].enums[position.item])
+            .map(|position| &self.lowering.program.modules[position.module].enums[position.item])
     }
 
-    pub(super) fn enum_variant_info(&self, def_id: GlobalDefId) -> Option<EnumVariantInfo<'a>> {
+    pub(super) fn enum_variant_info(&self, def_id: GlobalDefId) -> Option<EnumVariantInfo<'_>> {
         self.enum_variants.get(&def_id).map(|position| {
-            let owner = &self.program.modules[position.module].enums[position.owner];
+            let owner = &self.lowering.program.modules[position.module].enums[position.owner];
             EnumVariantInfo {
                 owner,
                 variant: &owner.variants[position.variant],
@@ -540,16 +560,16 @@ impl<'a> ProgramIndex<'a> {
         self.enum_variants.contains_key(&def_id)
     }
 
-    pub(super) fn globals(&self) -> impl Iterator<Item = &'a nia_backend_ir::BackendGlobal> {
+    pub(super) fn globals(&self) -> impl Iterator<Item = &nia_backend_ir::BackendGlobal> {
         self.globals
             .values()
-            .map(|position| &self.program.modules[position.module].globals[position.item])
+            .map(|position| &self.lowering.program.modules[position.module].globals[position.item])
     }
 
-    pub(super) fn global(&self, def_id: GlobalDefId) -> Option<&'a nia_backend_ir::BackendGlobal> {
+    pub(super) fn global(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendGlobal> {
         self.globals
             .get(&def_id)
-            .map(|position| &self.program.modules[position.module].globals[position.item])
+            .map(|position| &self.lowering.program.modules[position.module].globals[position.item])
     }
 
     pub(super) fn has_global(&self, def_id: GlobalDefId) -> bool {
@@ -558,11 +578,13 @@ impl<'a> ProgramIndex<'a> {
 
     pub(super) fn global_instances(
         &self,
-    ) -> impl Iterator<Item = &'a nia_backend_ir::BackendGlobalInstance> {
+    ) -> impl Iterator<Item = &nia_backend_ir::BackendGlobalInstance> {
         self.global_instances_by_def
             .values()
             .flatten()
-            .map(|position| &self.program.modules[position.module].global_instances[position.item])
+            .map(|position| {
+                &self.lowering.program.modules[position.module].global_instances[position.item]
+            })
     }
 
     pub(super) fn global_instance(
@@ -571,51 +593,50 @@ impl<'a> ProgramIndex<'a> {
         arg_module_id: ModuleId,
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
-    ) -> Option<&'a nia_backend_ir::BackendGlobalInstance> {
+    ) -> Option<&nia_backend_ir::BackendGlobalInstance> {
         self.global_instances
             .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| &self.program.modules[position.module].global_instances[position.item])
+            .map(|position| {
+                &self.lowering.program.modules[position.module].global_instances[position.item]
+            })
     }
 
-    pub(super) fn functions(&self) -> impl Iterator<Item = &'a nia_backend_ir::BackendFunction> {
-        self.functions
-            .values()
-            .map(|position| &self.program.modules[position.module].functions[position.item])
+    pub(super) fn functions(&self) -> impl Iterator<Item = &nia_backend_ir::BackendFunction> {
+        self.functions.values().map(|position| {
+            &self.lowering.program.modules[position.module].functions[position.item]
+        })
     }
 
-    pub(super) fn function(
-        &self,
-        def_id: GlobalDefId,
-    ) -> Option<&'a nia_backend_ir::BackendFunction> {
-        self.functions
-            .get(&def_id)
-            .map(|position| &self.program.modules[position.module].functions[position.item])
+    pub(super) fn function(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendFunction> {
+        self.functions.get(&def_id).map(|position| {
+            &self.lowering.program.modules[position.module].functions[position.item]
+        })
     }
 
     pub(super) fn has_function(&self, def_id: GlobalDefId) -> bool {
         self.functions.contains_key(&def_id)
     }
 
-    pub(super) fn function_instances(&self) -> impl Iterator<Item = &'a BackendFunctionInstance> {
+    pub(super) fn function_instances(&self) -> impl Iterator<Item = &BackendFunctionInstance> {
         self.function_instances_by_def
             .values()
             .flatten()
             .map(|position| {
-                &self.program.modules[position.module].function_instances[position.item]
+                &self.lowering.program.modules[position.module].function_instances[position.item]
             })
     }
 
     pub(super) fn function_instances_for(
         &self,
         def_id: GlobalDefId,
-    ) -> impl Iterator<Item = &'a BackendFunctionInstance> {
+    ) -> impl Iterator<Item = &BackendFunctionInstance> {
         self.function_instances_by_def
             .get(&def_id)
             .into_iter()
             .flatten()
             .map(|position| {
-                &self.program.modules[position.module].function_instances[position.item]
+                &self.lowering.program.modules[position.module].function_instances[position.item]
             })
     }
 
@@ -628,13 +649,13 @@ impl<'a> ProgramIndex<'a> {
     pub(super) fn struct_instance_layouts(
         &self,
         def_id: GlobalDefId,
-    ) -> impl Iterator<Item = BackendLayoutInstance<'a>> {
+    ) -> impl Iterator<Item = BackendLayoutInstance<'_>> {
         self.struct_instance_layouts_by_def
             .get(&def_id)
             .into_iter()
             .flatten()
             .map(|position| {
-                let (key, layout) = &self.program.modules[position.module]
+                let (key, layout) = &self.lowering.program.modules[position.module]
                     .layouts
                     .struct_instances[position.layout];
                 BackendLayoutInstance { key, layout }
@@ -644,13 +665,13 @@ impl<'a> ProgramIndex<'a> {
     pub(super) fn union_instance_layouts(
         &self,
         def_id: GlobalDefId,
-    ) -> impl Iterator<Item = BackendLayoutInstance<'a>> {
+    ) -> impl Iterator<Item = BackendLayoutInstance<'_>> {
         self.union_instance_layouts_by_def
             .get(&def_id)
             .into_iter()
             .flatten()
             .map(|position| {
-                let (key, layout) = &self.program.modules[position.module]
+                let (key, layout) = &self.lowering.program.modules[position.module]
                     .layouts
                     .union_instances[position.layout];
                 BackendLayoutInstance { key, layout }
@@ -660,26 +681,26 @@ impl<'a> ProgramIndex<'a> {
     pub(super) fn trait_object_vtables_for_object_ty(
         &self,
         object_ty: InternedTyId,
-    ) -> impl Iterator<Item = &'a BackendTraitObjectVtable> {
+    ) -> impl Iterator<Item = &BackendTraitObjectVtable> {
         self.trait_object_vtables_by_object_ty
             .get(&object_ty)
             .into_iter()
             .flatten()
             .map(|position| {
-                &self.program.modules[position.module].trait_object_vtables[position.item]
+                &self.lowering.program.modules[position.module].trait_object_vtables[position.item]
             })
     }
 
     pub(super) fn trait_object_vtables_for_trait(
         &self,
         trait_id: TraitId,
-    ) -> impl Iterator<Item = &'a BackendTraitObjectVtable> {
+    ) -> impl Iterator<Item = &BackendTraitObjectVtable> {
         self.trait_object_vtables_by_trait
             .get(&trait_id)
             .into_iter()
             .flatten()
             .map(|position| {
-                &self.program.modules[position.module].trait_object_vtables[position.item]
+                &self.lowering.program.modules[position.module].trait_object_vtables[position.item]
             })
     }
 }
@@ -700,6 +721,17 @@ mod tests {
 
     fn sym(text: &str) -> SymbolId {
         SymbolId::from_stable_hash(stable_hash(text))
+    }
+
+    fn lowering(program: BackendProgram) -> Arc<BackendLowering> {
+        let codegen_partitions = program.codegen_partition_plan();
+        Arc::new(BackendLowering {
+            program,
+            codegen_partitions,
+            optimization: nia_opt::OptimizationPolicy::default(),
+            optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
+            diagnostics: Vec::new(),
+        })
     }
 
     #[test]
@@ -823,11 +855,12 @@ mod tests {
             }],
         };
 
-        let index = ProgramIndex::new(&program, &type_store);
+        let lowering = lowering(program);
+        let index = ProgramIndex::new(Arc::clone(&lowering), Arc::new(type_store));
 
         assert!(std::ptr::eq(
             index.module(module_id).expect("indexed module"),
-            &program.modules[0]
+            &lowering.program.modules[0]
         ));
         assert_eq!(
             index.type_layout(i32_ty),
@@ -842,7 +875,7 @@ mod tests {
             index
                 .function_instance(function_def, module_id, None, &[i32_ty], &[])
                 .expect("indexed function instance"),
-            &program.modules[0].function_instances[0]
+            &lowering.program.modules[0].function_instances[0]
         ));
         let variant_info = index
             .enum_variant_info(second_variant)
@@ -870,7 +903,7 @@ mod tests {
     fn position_index_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<ProgramIndex<'static>>();
+        assert_send_sync::<ProgramIndex>();
     }
 
     #[test]
@@ -889,7 +922,7 @@ mod tests {
         let program = BackendProgram {
             modules: Vec::new(),
         };
-        let index = ProgramIndex::new(&program, &type_store);
+        let index = ProgramIndex::new(lowering(program), Arc::new(type_store));
 
         assert!(matches!(
             index.ty_kind(ty),

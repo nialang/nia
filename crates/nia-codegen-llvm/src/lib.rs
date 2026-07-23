@@ -7,12 +7,16 @@ mod module_codegen;
 mod output;
 mod program_index;
 
+use std::sync::Arc;
+
 use backend_validate::validate_backend_program;
 use module_codegen::ModuleCodegen;
+use nia_backend_ir::CodegenPartition;
 pub use nia_backend_ir::CodegenUnitId;
-use nia_backend_ir::{BackendProgram, CodegenPartitionPlan};
+use nia_backend_lower::BackendLowering;
 use nia_llvm::{Context, OptimizationLevel as LlvmOptimizationLevel, target::TargetMachine};
 use nia_opt::NiaOptimizationLevel;
+use nia_query::QuerySession;
 use nia_ty::TypeStore;
 pub use output::{
     LlvmCodegenOptions, LlvmCodegenOutput, LlvmModuleOutput, LlvmObjectModuleOutput,
@@ -21,44 +25,42 @@ pub use output::{
 use program_index::ProgramIndex;
 
 pub fn emit_llvm_ir(
-    program: &BackendProgram,
-    partitions: &CodegenPartitionPlan,
-    type_store: &TypeStore,
+    lowering: Arc<BackendLowering>,
+    type_store: Arc<TypeStore>,
+    session: &QuerySession,
 ) -> LlvmCodegenOutput {
-    emit_llvm_ir_with_options(
-        program,
-        partitions,
-        type_store,
-        LlvmCodegenOptions::default(),
-    )
+    emit_llvm_ir_with_options(lowering, type_store, session, LlvmCodegenOptions::default())
 }
 
 pub fn emit_llvm_ir_with_options(
-    program: &BackendProgram,
-    partitions: &CodegenPartitionPlan,
-    type_store: &TypeStore,
+    lowering: Arc<BackendLowering>,
+    type_store: Arc<TypeStore>,
+    session: &QuerySession,
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
-    let memory_permit = nia_query::acquire_llvm_memory_permit();
-    record_memory_permit(options.timings, memory_permit.waited());
     catch_llvm_codegen_ice(|| {
-        emit_llvm_ir_with_options_inner(program, partitions, type_store, options)
+        emit_llvm_ir_with_options_inner(lowering, type_store, session, options)
     })
 }
 
 fn emit_llvm_ir_with_options_inner(
-    program: &BackendProgram,
-    partitions: &CodegenPartitionPlan,
-    type_store: &TypeStore,
+    lowering: Arc<BackendLowering>,
+    type_store: Arc<TypeStore>,
+    session: &QuerySession,
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
-    partitions.validate_program(program);
     let timings = options.timings;
-    let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
-        ProgramIndex::new(program, type_store)
-    });
+    lowering
+        .codegen_partitions
+        .validate_program(&lowering.program);
+    let partitions = lowering.codegen_partitions.partitions().to_vec();
+    let index = Arc::new(time_codegen_stage(
+        timings,
+        "llvm_codegen.program_index",
+        || ProgramIndex::new(lowering, type_store),
+    ));
     let validation_diagnostics = time_codegen_stage(timings, "llvm_codegen.validate", || {
-        validate_backend_program(program, &index)
+        validate_backend_program(index.program(), &index)
     });
     if !validation_diagnostics.is_empty() {
         return LlvmCodegenOutput {
@@ -66,10 +68,14 @@ fn emit_llvm_ir_with_options_inner(
             diagnostics: validation_diagnostics,
         };
     }
-    let mut outputs = Vec::new();
+    let outcomes = session.run_tasks(partitions.into_iter().map(|partition| {
+        let index = Arc::clone(&index);
+        move || emit_llvm_ir_partition(partition, index, options)
+    }));
+    let mut outputs = Vec::with_capacity(outcomes.len());
     let mut diagnostics = Vec::new();
-    for partition in partitions.partitions() {
-        match emit_llvm_ir_partition(program, partition, &index, options) {
+    for outcome in outcomes {
+        match outcome {
             Ok(output) => outputs.push(output),
             Err(diagnostic) => diagnostics.push(diagnostic),
         }
@@ -84,14 +90,12 @@ fn emit_llvm_ir_with_options_inner(
 }
 
 pub fn emit_native_objects(
-    program: &BackendProgram,
-    partitions: &CodegenPartitionPlan,
-    type_store: &TypeStore,
+    lowering: Arc<BackendLowering>,
+    type_store: Arc<TypeStore>,
+    session: &QuerySession,
     options: LlvmCodegenOptions,
 ) -> LlvmObjectOutput {
-    let memory_permit = nia_query::acquire_llvm_memory_permit();
-    record_memory_permit(options.timings, memory_permit.waited());
-    catch_llvm_object_ice(|| emit_native_objects_inner(program, partitions, type_store, options))
+    catch_llvm_object_ice(|| emit_native_objects_inner(lowering, type_store, session, options))
 }
 
 fn record_memory_permit(timings: nia_timing::TimingMode, waited: bool) {
@@ -105,29 +109,23 @@ fn record_memory_permit(timings: nia_timing::TimingMode, waited: bool) {
 }
 
 fn emit_native_objects_inner(
-    program: &BackendProgram,
-    partitions: &CodegenPartitionPlan,
-    type_store: &TypeStore,
+    lowering: Arc<BackendLowering>,
+    type_store: Arc<TypeStore>,
+    session: &QuerySession,
     options: LlvmCodegenOptions,
 ) -> LlvmObjectOutput {
-    partitions.validate_program(program);
     let timings = options.timings;
-    let target = match time_codegen_stage(timings, "llvm_codegen.native_target", || {
-        TargetMachine::native_with_opt_level(llvm_optimization_level(options.optimization.level))
-    }) {
-        Ok(target) => target,
-        Err(error) => {
-            return LlvmObjectOutput {
-                modules: Vec::new(),
-                diagnostics: vec![error.diagnostic()],
-            };
-        }
-    };
-    let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
-        ProgramIndex::new(program, type_store)
-    });
+    lowering
+        .codegen_partitions
+        .validate_program(&lowering.program);
+    let partitions = lowering.codegen_partitions.partitions().to_vec();
+    let index = Arc::new(time_codegen_stage(
+        timings,
+        "llvm_codegen.program_index",
+        || ProgramIndex::new(lowering, type_store),
+    ));
     let validation_diagnostics = time_codegen_stage(timings, "llvm_codegen.validate", || {
-        validate_backend_program(program, &index)
+        validate_backend_program(index.program(), &index)
     });
     if !validation_diagnostics.is_empty() {
         return LlvmObjectOutput {
@@ -135,22 +133,30 @@ fn emit_native_objects_inner(
             diagnostics: validation_diagnostics,
         };
     }
-    let mut outputs = Vec::new();
-    let mut diagnostics = Vec::new();
-    let builtin_symbols = compiler_builtins::required_symbols(program, &index);
-    for partition in partitions.partitions() {
-        match emit_native_object_partition(program, partition, &index, &target, options) {
-            Ok(output) => outputs.push(output),
-            Err(diagnostic) => diagnostics.push(diagnostic),
-        }
-    }
+    let builtin_symbols = compiler_builtins::required_symbols(index.program(), &index);
+    let mut tasks = partitions
+        .into_iter()
+        .map(NativeCodegenTask::Partition)
+        .collect::<Vec<_>>();
     if builtin_symbols.any() {
-        match compiler_builtins::emit_object(&target, builtin_symbols) {
-            Ok(bytes) => outputs.push(LlvmObjectModuleOutput {
-                unit: CodegenUnitId::CompilerBuiltins,
-                name: "nia.compiler_builtins".to_string(),
-                bytes,
-            }),
+        tasks.push(NativeCodegenTask::CompilerBuiltins(builtin_symbols));
+    }
+    let outcomes = session.run_tasks(tasks.into_iter().map(|task| {
+        let index = Arc::clone(&index);
+        move || match task {
+            NativeCodegenTask::Partition(partition) => {
+                emit_native_object_partition(partition, index, options)
+            }
+            NativeCodegenTask::CompilerBuiltins(symbols) => {
+                emit_compiler_builtins_object(symbols, options)
+            }
+        }
+    }));
+    let mut outputs = Vec::with_capacity(outcomes.len());
+    let mut diagnostics = Vec::new();
+    for outcome in outcomes {
+        match outcome {
+            Ok(output) => outputs.push(output),
             Err(diagnostic) => diagnostics.push(diagnostic),
         }
     }
@@ -164,18 +170,24 @@ fn emit_native_objects_inner(
     }
 }
 
+enum NativeCodegenTask {
+    Partition(CodegenPartition),
+    CompilerBuiltins(compiler_builtins::CompilerBuiltinSymbols),
+}
+
 fn emit_llvm_ir_partition(
-    program: &BackendProgram,
-    partition: &nia_backend_ir::CodegenPartition,
-    index: &ProgramIndex<'_>,
+    partition: CodegenPartition,
+    index: Arc<ProgramIndex>,
     options: LlvmCodegenOptions,
 ) -> Result<LlvmModuleOutput, nia_diagnostic::Diagnostic> {
-    let module = program.module_for_partition(partition);
+    let memory_permit = nia_query::acquire_llvm_memory_permit();
+    record_memory_permit(options.timings, memory_permit.waited());
+    let module = index.program().module_for_partition(&partition);
     let context =
         time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
     let mut codegen =
         time_codegen_module_stage(options.timings, "new_module", &module.name, || {
-            ModuleCodegen::new(&context, module, index, options)
+            ModuleCodegen::new(&context, module, &index, options)
         })?;
     let ir = codegen.emit_ir()?;
     Ok(LlvmModuleOutput {
@@ -186,26 +198,48 @@ fn emit_llvm_ir_partition(
 }
 
 fn emit_native_object_partition(
-    program: &BackendProgram,
-    partition: &nia_backend_ir::CodegenPartition,
-    index: &ProgramIndex<'_>,
-    target: &TargetMachine,
+    partition: CodegenPartition,
+    index: Arc<ProgramIndex>,
     options: LlvmCodegenOptions,
 ) -> Result<LlvmObjectModuleOutput, nia_diagnostic::Diagnostic> {
-    let module = program.module_for_partition(partition);
+    let memory_permit = nia_query::acquire_llvm_memory_permit();
+    record_memory_permit(options.timings, memory_permit.waited());
+    let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
+        TargetMachine::native_with_opt_level(llvm_optimization_level(options.optimization.level))
+    })
+    .map_err(|error| error.diagnostic())?;
+    let module = index.program().module_for_partition(&partition);
     let context =
         time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
     let mut codegen =
         time_codegen_module_stage(options.timings, "new_module", &module.name, || {
-            ModuleCodegen::new(&context, module, index, options)
+            ModuleCodegen::new(&context, module, &index, options)
         })?;
     target
         .configure_module(&codegen.module)
         .map_err(|error| error.diagnostic())?;
-    let bytes = codegen.emit_object(target)?;
+    let bytes = codegen.emit_object(&target)?;
     Ok(LlvmObjectModuleOutput {
         unit: partition.id,
         name: module.name.clone(),
+        bytes,
+    })
+}
+
+fn emit_compiler_builtins_object(
+    symbols: compiler_builtins::CompilerBuiltinSymbols,
+    options: LlvmCodegenOptions,
+) -> Result<LlvmObjectModuleOutput, nia_diagnostic::Diagnostic> {
+    let memory_permit = nia_query::acquire_llvm_memory_permit();
+    record_memory_permit(options.timings, memory_permit.waited());
+    let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
+        TargetMachine::native_with_opt_level(llvm_optimization_level(options.optimization.level))
+    })
+    .map_err(|error| error.diagnostic())?;
+    let bytes = compiler_builtins::emit_object(&target, symbols)?;
+    Ok(LlvmObjectModuleOutput {
+        unit: CodegenUnitId::CompilerBuiltins,
+        name: "nia.compiler_builtins".to_string(),
         bytes,
     })
 }

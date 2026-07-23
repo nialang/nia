@@ -253,6 +253,7 @@ version = "0.4.3"
 dependencies = [
  "nia-ast",
  "nia-backend-ir",
+ "nia-backend-lower",
  "nia-body-ir",
  "nia-compiler-query",
  "nia-const-check",
@@ -433,6 +434,7 @@ dependencies = [
  "nia-loader-query",
  "nia-opt",
  "nia-parser",
+ "nia-query",
  "nia-source",
  "nia-span",
  "nia-static-ir",

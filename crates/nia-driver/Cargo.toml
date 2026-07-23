@@ -16,6 +16,7 @@ nia-linker.workspace = true
 nia-opt.workspace = true
 nia-loader-query.workspace = true
 nia-parser.workspace = true
+nia-query.workspace = true
 nia-source.workspace = true
 nia-symbol.workspace = true
 nia-target-config.workspace = true
