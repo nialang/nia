@@ -60,7 +60,7 @@ pub(super) fn build_backend_lowering_indexes<'a>(
 }
 
 pub(super) struct BackendLoweringModuleInputsInput<'a> {
-    pub(super) symbols: &'a dyn nia_symbol::SymbolText,
+    pub(super) symbols: &'a (dyn nia_symbol::SymbolText + Sync),
     pub(super) checked_modules: &'a [Arc<CheckedModule>],
     pub(super) runtime: RuntimeModel,
     pub(super) active_item_trees: &'a [Arc<ActiveModuleItemTree>],
@@ -71,7 +71,7 @@ pub(super) struct BackendLoweringModuleInputsInput<'a> {
     pub(super) extension_methods: &'a nia_defs::ExtensionMethods,
     pub(super) source_item_plans: &'a [Arc<BackendModuleSourceItemPlan>],
     pub(super) function_instance_plans: &'a [Arc<BackendModuleFunctionInstancePlan>],
-    pub(super) program_defs: &'a dyn Fn(ModuleId) -> Option<Arc<DefCollection>>,
+    pub(super) program_defs: &'a (dyn Fn(ModuleId) -> Option<Arc<DefCollection>> + Sync),
     pub(super) program_signatures: ProgramCodegenSignatures<'a>,
     pub(super) indexes: &'a BackendLoweringIndexes<'a>,
 }

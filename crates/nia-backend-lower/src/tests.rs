@@ -77,6 +77,119 @@ fn sym(text: &str) -> SymbolId {
 }
 
 #[test]
+fn module_finalization_task_contract_is_send_and_sync() {
+    fn assert_send<T: Send>() {}
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    assert_send::<BackendModuleFinalization>();
+    assert_send_sync::<BackendProgramFinalizationContext<'static>>();
+    assert_send_sync::<BackendLowerModuleInput<'static>>();
+}
+
+#[test]
+fn module_finalizations_merge_in_program_order() {
+    fn empty_module(id: ModuleId, name: &str) -> BackendModule {
+        BackendModule {
+            id,
+            name: name.to_string(),
+            const_eval: nia_backend_ir::BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: Vec::new(),
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            unions: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }
+    }
+
+    fn change(module_id: ModuleId) -> BackendOptimizationChange {
+        BackendOptimizationChange::Global {
+            module_id,
+            global: GlobalDefId {
+                module_id,
+                def_id: DefId(0),
+            },
+            pass: "test-pass",
+        }
+    }
+
+    let mut module_ids = ModuleIdAllocator::new();
+    let first = module_ids.allocate();
+    let second = module_ids.allocate();
+    let finalization = BackendItemPlanFinalization {
+        optimization: OptimizationPolicy::default(),
+        optimization_report: BackendOptimizationReport::default(),
+        diagnostics: Vec::new(),
+    };
+    let completed_in_reverse_order = vec![
+        BackendModuleFinalization {
+            position: 1,
+            module: empty_module(second, "second"),
+            optimization_report: BackendOptimizationReport {
+                changed_passes: vec![change(second)],
+                ..BackendOptimizationReport::default()
+            },
+            diagnostics: vec![
+                Diagnostic::internal_error(nia_diagnostic::codes::ICE, "second diagnostic")
+                    .finish(),
+            ],
+        },
+        BackendModuleFinalization {
+            position: 0,
+            module: empty_module(first, "first"),
+            optimization_report: BackendOptimizationReport {
+                changed_passes: vec![change(first)],
+                ..BackendOptimizationReport::default()
+            },
+            diagnostics: vec![
+                Diagnostic::internal_error(nia_diagnostic::codes::ICE, "first diagnostic").finish(),
+            ],
+        },
+    ];
+
+    let lowering = finish_backend_module_finalizations(
+        finalization,
+        &[first, second],
+        completed_in_reverse_order,
+    );
+
+    assert_eq!(
+        lowering
+            .program
+            .modules
+            .iter()
+            .map(|module| module.id)
+            .collect::<Vec<_>>(),
+        vec![first, second]
+    );
+    assert_eq!(
+        lowering.optimization_report.changed_passes,
+        vec![change(first), change(second)]
+    );
+    assert_eq!(
+        lowering
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.summary.as_str())
+            .collect::<Vec<_>>(),
+        vec!["first diagnostic", "second diagnostic"]
+    );
+}
+
+#[test]
 fn foreign_backend_item_plan_groups_and_orders_source_functions_by_owner() {
     let mut module_ids = ModuleIdAllocator::new();
     let entry = module_ids.allocate();
