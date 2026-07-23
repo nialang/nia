@@ -137,7 +137,7 @@ fn module_finalizations_merge_in_program_order() {
         optimization_report: BackendOptimizationReport::default(),
         diagnostics: Vec::new(),
     };
-    let completed_in_reverse_order = vec![
+    let completed_in_reverse_order = [
         BackendModuleFinalization {
             position: 1,
             module: empty_module(second, "second"),
@@ -163,11 +163,12 @@ fn module_finalizations_merge_in_program_order() {
         },
     ];
 
-    let lowering = finish_backend_module_finalizations(
-        finalization,
-        &[first, second],
-        completed_in_reverse_order,
-    );
+    let mut collector = BackendModuleFinalizationCollector::new(finalization, &[first, second]);
+    for module_finalization in completed_in_reverse_order {
+        let position = module_finalization.position;
+        collector.push(position, module_finalization);
+    }
+    let lowering = collector.finish();
 
     assert_eq!(
         lowering
