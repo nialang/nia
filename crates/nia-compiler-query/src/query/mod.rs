@@ -599,6 +599,10 @@ fn codegen_program_from_query_error(
     optimization: OptimizationPolicy,
     err: QueryError,
 ) -> CodegenProgram {
+    let backend_program = nia_backend_ir::BackendProgram {
+        modules: Vec::new(),
+    };
+    let codegen_partitions = backend_program.codegen_partition_plan();
     CodegenProgram {
         type_store,
         graph,
@@ -609,9 +613,8 @@ fn codegen_program_from_query_error(
             diagnostics: Vec::new(),
         }),
         backend_lowering: Arc::new(nia_backend_lower::BackendLowering {
-            program: nia_backend_ir::BackendProgram {
-                modules: Vec::new(),
-            },
+            program: backend_program,
+            codegen_partitions,
             optimization,
             optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
             diagnostics: Vec::new(),

@@ -22,8 +22,12 @@ fn codegen_program_smoke_matrix_emits_llvm_ir() {
         );
         assert_eq!(
             output.modules.len(),
-            codegen.backend_lowering.program.modules.len(),
-            "{} should emit one LLVM module per backend module",
+            codegen
+                .backend_lowering
+                .codegen_partitions
+                .partitions()
+                .len(),
+            "{} should emit one LLVM module per source codegen partition",
             case.name
         );
         assert!(
@@ -104,7 +108,11 @@ fn main() i32 {
         );
         assert_eq!(
             output.modules.len(),
-            codegen.backend_lowering.program.modules.len(),
+            codegen
+                .backend_lowering
+                .codegen_partitions
+                .partitions()
+                .len(),
             "{level:?}"
         );
         let joined_ir = output

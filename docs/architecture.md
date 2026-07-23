@@ -1638,6 +1638,30 @@ checkout, copied interners, owner-module discovery, or a lock per recursive
 type lookup. Module maps remain indexes for backend items and layout facts, not
 a second type-interpretation path.
 
+Finalized backend lowering also publishes one `CodegenPartitionPlan`. Its source
+units use the typed `CodegenUnitId::SourceModule { module_id, ordinal }`
+identity; the initial policy assigns ordinal zero to each backend module that
+owns a function body, global definition, concrete instance, or vtable. Units are
+ordered by identity rather than `BackendProgram.modules` position, while each
+plan entry keeps only a module index and never copies Backend IR. Declaration-only
+modules remain available to the whole-program `ProgramIndex`, but do not become
+codegen work units. The plan is validated against the program at the LLVM
+boundary, so a caller cannot pair a stale plan with mutated module membership.
+
+LLVM IR and object emission consume this explicit plan instead of deriving units
+from a second module loop. Both output forms carry the typed unit identity.
+Required compiler builtins use the distinct
+`CodegenUnitId::CompilerBuiltins` synthetic identity and are appended only to a
+native object result that actually needs them; a source module name can no
+longer stand in for that role. Validation and cross-unit declaration/layout
+lookup intentionally remain whole-program and readonly.
+
+This is the first deterministic partition policy, not the final CGU model.
+`ModuleId` is currently a process-local owner identity, source ordinals are not
+yet split beyond zero, and LLVM still consumes units sequentially. Persistent
+CGU fingerprints, finer partitioning, the codegen task queue, work-product
+reuse, and incremental link inputs remain Phase G work.
+
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level and a reported codegen size policy. Size-oriented levels
 (`-Os` and `-Oz`) also remain visible in the Nia policy so monomorphization,

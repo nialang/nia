@@ -6,7 +6,7 @@ pub(super) use nia_backend_ir::{
     BackendConstFacts, BackendEnum, BackendEnumVariant, BackendField, BackendFunction,
     BackendFunctionInstance, BackendGlobal, BackendLayouts, BackendModule, BackendParam,
     BackendProgram, BackendStruct, BackendTraitObjectVtable, BackendTraitObjectVtableEntry,
-    BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey, BackendUnion,
+    BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey, BackendUnion, CodegenUnitId,
 };
 pub(super) use nia_body_ir::{
     LocalName, TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind,
@@ -94,7 +94,7 @@ pub(super) fn emit_llvm_ir(
     program: &BackendProgram,
     type_store: &nia_ty::TypeStore,
 ) -> LlvmCodegenOutput {
-    crate::emit_llvm_ir(program, type_store)
+    crate::emit_llvm_ir(program, &program.codegen_partition_plan(), type_store)
 }
 
 pub(super) fn emit_llvm_ir_with_options(
@@ -102,7 +102,12 @@ pub(super) fn emit_llvm_ir_with_options(
     type_store: &nia_ty::TypeStore,
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
-    crate::emit_llvm_ir_with_options(program, type_store, options)
+    crate::emit_llvm_ir_with_options(
+        program,
+        &program.codegen_partition_plan(),
+        type_store,
+        options,
+    )
 }
 
 pub(super) fn emit_native_objects(
@@ -110,7 +115,12 @@ pub(super) fn emit_native_objects(
     type_store: &nia_ty::TypeStore,
     options: LlvmCodegenOptions,
 ) -> LlvmObjectOutput {
-    crate::emit_native_objects(program, type_store, options)
+    crate::emit_native_objects(
+        program,
+        &program.codegen_partition_plan(),
+        type_store,
+        options,
+    )
 }
 
 pub(super) struct EmitSmokeCase {

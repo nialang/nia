@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_backend_ir::CodegenUnitId;
 use nia_diagnostic::Diagnostic;
 use nia_opt::OptimizationPolicy;
 
@@ -10,6 +11,7 @@ pub struct LlvmCodegenOutput {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlvmModuleOutput {
+    pub unit: CodegenUnitId,
     pub name: String,
     pub ir: String,
 }
@@ -22,6 +24,7 @@ pub struct LlvmObjectOutput {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlvmObjectModuleOutput {
+    pub unit: CodegenUnitId,
     pub name: String,
     pub bytes: Vec<u8>,
 }

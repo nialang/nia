@@ -56,6 +56,7 @@ use crate::function_refs::{
 #[derive(Debug, PartialEq)]
 pub struct BackendLowering {
     pub program: BackendProgram,
+    pub codegen_partitions: nia_backend_ir::CodegenPartitionPlan,
     pub optimization: OptimizationPolicy,
     pub optimization_report: BackendOptimizationReport,
     pub diagnostics: Vec<Diagnostic>,
@@ -189,8 +190,11 @@ pub fn finish_backend_module_finalizations(
             module_finalization.module
         })
         .collect();
+    let program = BackendProgram { modules };
+    let codegen_partitions = program.codegen_partition_plan();
     BackendLowering {
-        program: BackendProgram { modules },
+        program,
+        codegen_partitions,
         optimization,
         optimization_report,
         diagnostics,
@@ -546,13 +550,16 @@ pub fn finalize_backend_module_item_plans_with_timings(
 ) -> BackendLowering {
     let optimization = finalization.optimization;
     if !finalization.diagnostics.is_empty() {
+        let program = BackendProgram {
+            modules: module_plans
+                .into_iter()
+                .map(|module_plan| module_plan.module)
+                .collect(),
+        };
+        let codegen_partitions = program.codegen_partition_plan();
         return BackendLowering {
-            program: BackendProgram {
-                modules: module_plans
-                    .into_iter()
-                    .map(|module_plan| module_plan.module)
-                    .collect(),
-            },
+            program,
+            codegen_partitions,
             optimization,
             optimization_report: finalization.optimization_report,
             diagnostics: finalization.diagnostics,
