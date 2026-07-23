@@ -239,10 +239,11 @@ impl Driver {
         timings: TimingMode,
     ) -> DriverOutput<LlvmIrArtifact> {
         DriverOutput::catch_ice(|| {
+            let session = self.codegen_query_session();
             let output = nia_codegen_llvm::emit_llvm_ir_with_options(
-                &program.backend_lowering.program,
-                &program.backend_lowering.codegen_partitions,
-                &program.type_store,
+                std::sync::Arc::clone(&program.backend_lowering),
+                std::sync::Arc::clone(&program.type_store),
+                &session,
                 codegen_options(program.optimization, timings),
             );
             if !output.diagnostics.is_empty() {
@@ -280,10 +281,11 @@ impl Driver {
         timings: TimingMode,
     ) -> DriverOutput<ObjectArtifact> {
         DriverOutput::catch_ice(|| {
+            let session = self.codegen_query_session();
             let output = nia_codegen_llvm::emit_native_objects(
-                &program.backend_lowering.program,
-                &program.backend_lowering.codegen_partitions,
-                &program.type_store,
+                std::sync::Arc::clone(&program.backend_lowering),
+                std::sync::Arc::clone(&program.type_store),
+                &session,
                 codegen_options(program.optimization, timings),
             );
             if !output.diagnostics.is_empty() {
@@ -295,6 +297,16 @@ impl Driver {
                 modules: output.modules,
             })
         })
+    }
+
+    fn codegen_query_session(&self) -> nia_query::QuerySession {
+        self.compiler
+            .lock()
+            .expect("driver compiler lock poisoned")
+            .as_ref()
+            .expect("Nia ICE: LLVM emission requires the Driver that produced the codegen program")
+            .database
+            .query_session()
     }
 
     pub fn write_native_objects(

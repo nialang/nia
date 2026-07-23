@@ -20,7 +20,7 @@ use crate::program_index::ProgramIndex;
 
 pub(crate) fn required_symbols(
     program: &BackendProgram,
-    index: &ProgramIndex<'_>,
+    index: &ProgramIndex,
 ) -> CompilerBuiltinSymbols {
     let mut collector = CompilerBuiltinCollector::default();
     collector.collect_program(program, index);
@@ -45,7 +45,7 @@ struct CompilerBuiltinCollector {
 }
 
 impl CompilerBuiltinCollector {
-    fn collect_program(&mut self, program: &BackendProgram, index: &ProgramIndex<'_>) {
+    fn collect_program(&mut self, program: &BackendProgram, index: &ProgramIndex) {
         for module in &program.modules {
             for function in &module.functions {
                 if let Some(body) = &function.function_body {
@@ -60,7 +60,7 @@ impl CompilerBuiltinCollector {
         }
     }
 
-    fn collect_body(&mut self, index: &ProgramIndex<'_>, body: &FunctionBody) {
+    fn collect_body(&mut self, index: &ProgramIndex, body: &FunctionBody) {
         for block in &body.blocks {
             for op in &block.ops {
                 self.collect_op(index, op);
@@ -69,7 +69,7 @@ impl CompilerBuiltinCollector {
         }
     }
 
-    fn collect_defer_body(&mut self, index: &ProgramIndex<'_>, body: &FunctionDeferBody) {
+    fn collect_defer_body(&mut self, index: &ProgramIndex, body: &FunctionDeferBody) {
         for block in &body.blocks {
             for op in &block.ops {
                 self.collect_op(index, op);
@@ -78,7 +78,7 @@ impl CompilerBuiltinCollector {
         }
     }
 
-    fn collect_op(&mut self, index: &ProgramIndex<'_>, op: &FunctionOp) {
+    fn collect_op(&mut self, index: &ProgramIndex, op: &FunctionOp) {
         match op {
             FunctionOp::Binding(binding) => {
                 if let Some(value) = &binding.value {
@@ -101,7 +101,7 @@ impl CompilerBuiltinCollector {
         }
     }
 
-    fn collect_terminator(&mut self, index: &ProgramIndex<'_>, terminator: &FunctionTerminator) {
+    fn collect_terminator(&mut self, index: &ProgramIndex, terminator: &FunctionTerminator) {
         match terminator {
             FunctionTerminator::If { cond, .. } => self.collect_expr(index, cond),
             FunctionTerminator::Switch { target, arms, .. } => {
@@ -126,7 +126,7 @@ impl CompilerBuiltinCollector {
         }
     }
 
-    fn collect_expr(&mut self, index: &ProgramIndex<'_>, expr: &FunctionExpr) {
+    fn collect_expr(&mut self, index: &ProgramIndex, expr: &FunctionExpr) {
         match &expr.kind {
             FunctionExprKind::Binary { lhs, op, rhs } => {
                 self.collect_binary(index, lhs, *op);
@@ -245,7 +245,7 @@ impl CompilerBuiltinCollector {
         }
     }
 
-    fn collect_binary(&mut self, index: &ProgramIndex<'_>, lhs: &FunctionExpr, op: BinaryOp) {
+    fn collect_binary(&mut self, index: &ProgramIndex, lhs: &FunctionExpr, op: BinaryOp) {
         if !matches!(op, BinaryOp::Div | BinaryOp::Rem) {
             return;
         }
@@ -256,7 +256,7 @@ impl CompilerBuiltinCollector {
         }
     }
 
-    fn collect_assign(&mut self, index: &ProgramIndex<'_>, place: &FunctionPlace, op: AssignOp) {
+    fn collect_assign(&mut self, index: &ProgramIndex, place: &FunctionPlace, op: AssignOp) {
         if !matches!(op, AssignOp::Div | AssignOp::Rem) {
             return;
         }
@@ -267,11 +267,7 @@ impl CompilerBuiltinCollector {
         }
     }
 
-    fn collect_atomic(
-        &mut self,
-        index: &ProgramIndex<'_>,
-        atomic: &nia_function_ir::FunctionAtomic,
-    ) {
+    fn collect_atomic(&mut self, index: &ProgramIndex, atomic: &nia_function_ir::FunctionAtomic) {
         match atomic {
             nia_function_ir::FunctionAtomic::Load { ptr, .. } => self.collect_expr(index, ptr),
             nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
@@ -295,7 +291,7 @@ impl CompilerBuiltinCollector {
 
     fn collect_callee(
         &mut self,
-        index: &ProgramIndex<'_>,
+        index: &ProgramIndex,
         callee: &FunctionCallee,
         args: &[FunctionExpr],
     ) {
@@ -319,7 +315,7 @@ impl CompilerBuiltinCollector {
         }
     }
 
-    fn collect_place(&mut self, index: &ProgramIndex<'_>, place: &FunctionPlace) {
+    fn collect_place(&mut self, index: &ProgramIndex, place: &FunctionPlace) {
         match &place.base {
             FunctionPlaceBase::Deref(expr) => self.collect_expr(index, expr),
             FunctionPlaceBase::Local(_)
@@ -335,7 +331,7 @@ impl CompilerBuiltinCollector {
         }
     }
 
-    fn collect_slice_range(&mut self, index: &ProgramIndex<'_>, range: &FunctionSliceRange) {
+    fn collect_slice_range(&mut self, index: &ProgramIndex, range: &FunctionSliceRange) {
         if let Some(start) = &range.start {
             self.collect_expr(index, start);
         }

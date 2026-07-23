@@ -47,7 +47,7 @@ pub(super) fn backend_symbol_debug_name(name: SymbolId) -> String {
 
 pub(super) fn validate_backend_program(
     program: &BackendProgram,
-    index: &ProgramIndex<'_>,
+    index: &ProgramIndex,
 ) -> Vec<Diagnostic> {
     let mut validator = BackendValidator {
         index,
@@ -69,7 +69,7 @@ pub(super) fn validate_backend_program(
 }
 
 pub(super) struct BackendValidator<'a> {
-    index: &'a ProgramIndex<'a>,
+    index: &'a ProgramIndex,
     diagnostics: Vec<Diagnostic>,
     seen_types: HashSet<InternedTyId>,
     layout_cache: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,

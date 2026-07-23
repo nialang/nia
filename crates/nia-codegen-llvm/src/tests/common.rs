@@ -27,6 +27,7 @@ pub(super) use nia_span::Span;
 pub(super) use nia_static_ir::{StaticFieldInit, StaticInit};
 pub(super) use nia_symbol::{SymbolId, known, stable_hash};
 pub(super) use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyKind};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -91,35 +92,56 @@ fn codegen_program_request(
 }
 
 pub(super) fn emit_llvm_ir(
-    program: &BackendProgram,
-    type_store: &nia_ty::TypeStore,
+    lowering: &Arc<nia_backend_lower::BackendLowering>,
+    type_store: &Arc<nia_ty::TypeStore>,
 ) -> LlvmCodegenOutput {
-    crate::emit_llvm_ir(program, &program.codegen_partition_plan(), type_store)
+    crate::emit_llvm_ir(
+        Arc::clone(lowering),
+        Arc::clone(type_store),
+        &nia_query::QuerySession::new(),
+    )
 }
 
 pub(super) fn emit_llvm_ir_with_options(
-    program: &BackendProgram,
-    type_store: &nia_ty::TypeStore,
+    lowering: &Arc<nia_backend_lower::BackendLowering>,
+    type_store: &Arc<nia_ty::TypeStore>,
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
     crate::emit_llvm_ir_with_options(
-        program,
-        &program.codegen_partition_plan(),
-        type_store,
+        Arc::clone(lowering),
+        Arc::clone(type_store),
+        &nia_query::QuerySession::new(),
         options,
     )
 }
 
 pub(super) fn emit_native_objects(
-    program: &BackendProgram,
-    type_store: &nia_ty::TypeStore,
+    lowering: &Arc<nia_backend_lower::BackendLowering>,
+    type_store: &Arc<nia_ty::TypeStore>,
     options: LlvmCodegenOptions,
 ) -> LlvmObjectOutput {
     crate::emit_native_objects(
-        program,
-        &program.codegen_partition_plan(),
-        type_store,
+        Arc::clone(lowering),
+        Arc::clone(type_store),
+        &nia_query::QuerySession::new(),
         options,
+    )
+}
+
+pub(super) fn emit_owned_llvm_ir(
+    program: BackendProgram,
+    type_store: nia_ty::TypeStore,
+) -> LlvmCodegenOutput {
+    let codegen_partitions = program.codegen_partition_plan();
+    emit_llvm_ir(
+        &Arc::new(nia_backend_lower::BackendLowering {
+            program,
+            codegen_partitions,
+            optimization: nia_opt::OptimizationPolicy::default(),
+            optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
+            diagnostics: Vec::new(),
+        }),
+        &Arc::new(type_store),
     )
 }
 

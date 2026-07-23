@@ -86,7 +86,7 @@ struct FunctionSignature<P> {
 pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) context: &'ctx Context,
     pub(super) source: &'a BackendModule,
-    pub(super) program: &'a ProgramIndex<'a>,
+    pub(super) program: &'a ProgramIndex,
     pub(super) module: nia_llvm::module::Module<'ctx>,
     pub(super) structs: HashMap<GlobalDefId, StructType<'ctx>>,
     pub(super) unions: HashMap<GlobalDefId, StructType<'ctx>>,
@@ -119,7 +119,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn new(
         context: &'ctx Context,
         source: &'a BackendModule,
-        program: &'a ProgramIndex<'a>,
+        program: &'a ProgramIndex,
         options: crate::output::LlvmCodegenOptions,
     ) -> Result<Self, Diagnostic> {
         Ok(Self {

@@ -664,11 +664,11 @@ process-wide CPU budget. That budget inherits the
 Cargo/GNU Make jobserver when one is available; otherwise it creates a local
 jobserver from the process-visible parallelism, including one implicit process
 token in either case. There is no environment-variable worker-count override.
-LLVM IR and object emission additionally acquire one process-wide heavy-memory
-permit at their only public entry boundary. Capacity is the minimum of visible
-CPU parallelism and half of the effective system/cgroup memory budget charged
-at 1.5 GiB per task, capped at four; an unknown memory limit is conservative
-and permits one task. While another LLVM task is active, low currently
+Each LLVM unit task additionally acquires one process-wide heavy-memory permit
+before constructing its LLVM context or target machine. Capacity is the minimum
+of visible CPU parallelism and half of the effective system/cgroup memory budget
+charged at 1.5 GiB per task, capped at four; an unknown memory limit is
+conservative and permits one task. While another LLVM task is active, low currently
 available memory applies backpressure until that task releases its RAII permit;
 one task can always proceed. Nested LLVM work on the same thread reuses its
 permit. Production scheduling and the outer test-session pool read effective
@@ -1634,21 +1634,22 @@ layout. Its structural type equality fallback uses the same pair-cache shape as
 module codegen, keeping generic instance validation from repeatedly comparing
 type arguments whose const expressions normalize to the same value.
 
-LLVM entry points receive the compilation `TypeStore` alongside Backend IR.
-The whole-program index borrows that store directly, so validation and emission
+LLVM entry points receive the compiler-owned `Arc<BackendLowering>` and
+`Arc<TypeStore>` together with the producing compiler's `QuerySession`.
+The whole-program index owns those two shared roots, so validation and emission
 resolve every handle through the canonical immutable kind arena without module
 checkout, copied interners, owner-module discovery, or a lock per recursive
 type lookup. Module maps remain indexes for backend items and layout facts, not
 a second type-interpretation path.
 
-`ProgramIndex` itself has exactly two borrowed roots: the canonical
-`BackendProgram` and `TypeStore`. Every module, item, instance, vtable, and
-layout map stores compact module/item positions rather than references into the
-program. Accessors resolve those positions back to the canonical allocation;
-they do not clone Backend IR or establish a second item store. This removes the
-self-referential map shape and makes the readonly index `Send + Sync`, while its
-current lifetime still prevents submission to a `'static` executor task until
-the two roots move into an owned codegen task context.
+`ProgramIndex` has exactly those two owned shared roots. Every module, item,
+instance, vtable, and layout map stores compact module/item positions rather
+than references into the program. Accessors resolve those positions back to the
+canonical allocation; they do not clone Backend IR or establish a second item
+store. This removes the
+self-referential map shape and makes the readonly context `Send + Sync +
+'static`. One `Arc<ProgramIndex>` is built before validation and shared by all
+unit tasks; no task rebuilds the whole-program index.
 
 Finalized backend lowering also publishes one `CodegenPartitionPlan`. Its source
 units use the typed `CodegenUnitId::SourceModule { module_id, ordinal }`
@@ -1670,17 +1671,19 @@ lookup intentionally remain whole-program and readonly.
 
 After whole-program validation, each source partition crosses an independent
 LLVM emission boundary. That boundary creates and consumes its own LLVM
-`Context` and `ModuleCodegen`, returning exactly one typed IR/object result or
-one diagnostic. The outer aggregation layer only walks the partition plan and
-collects those outcomes in plan order; it does not own module-local LLVM state.
-This task-shaped result boundary is deliberately separate from scheduling so
-the future executor can change completion order without changing output order.
+`Context`, `ModuleCodegen`, and native `TargetMachine`, returning exactly one
+typed IR/object result or one diagnostic. Source partitions and the optional
+compiler-builtins object are submitted through `QuerySession::run_tasks`; task
+completion order is hidden by submission-order result slots. Each task acquires
+its own process LLVM memory permit before allocating LLVM state, so CPU fan-out
+remains subject to both the session executor budget and heavy-memory
+backpressure. The outer aggregation layer owns no module-local LLVM state.
 
 This is the first deterministic partition policy, not the final CGU model.
 `ModuleId` is currently a process-local owner identity, source ordinals are not
-yet split beyond zero, and LLVM still consumes units sequentially. Persistent
-CGU fingerprints, finer partitioning, the codegen task queue, work-product
-reuse, and incremental link inputs remain Phase G work.
+yet split beyond zero, and validation remains a whole-program predecessor.
+Persistent CGU fingerprints, finer partitioning, frontend/LLVM overlap,
+work-product reuse, and incremental link inputs remain Phase G work.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level and a reported codegen size policy. Size-oriented levels
