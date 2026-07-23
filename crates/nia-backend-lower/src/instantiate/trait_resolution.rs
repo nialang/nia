@@ -17,7 +17,7 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let current_impl_index = self.trait_impl_index_for_method(current)?;
-        let impl_signature = self.input.trait_impls.get(current_impl_index)?;
+        let impl_signature = self.input.program.trait_impls().get(current_impl_index)?;
         if impl_signature.trait_id != key.trait_id {
             return None;
         }
@@ -87,17 +87,23 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let mut matches = Vec::new();
-        for method in self.input.program_extension_methods.all_methods() {
+        for method in self.input.program.extension_methods().all_methods() {
             if method.trait_id != Some(key.trait_id)
                 || method.name != key.method_name
                 || method.trait_args.len() != key.trait_arg_count
             {
                 continue;
             }
-            let Some(impl_signature) = self.input.trait_impls.iter().find(|impl_signature| {
-                impl_signature.module_id == method.def_id.module_id
-                    && impl_signature.impl_id == method.impl_id
-            }) else {
+            let Some(impl_signature) =
+                self.input
+                    .program
+                    .trait_impls()
+                    .iter()
+                    .find(|impl_signature| {
+                        impl_signature.module_id == method.def_id.module_id
+                            && impl_signature.impl_id == method.impl_id
+                    })
+            else {
                 continue;
             };
             let candidate = ExtensionTraitMethodCandidate {
@@ -128,12 +134,12 @@ impl<'a> ModuleLowerer<'a> {
         trait_args: &[InternedTyId],
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
+        let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.input.type_normalization,
-            trait_impls: self.input.trait_impls,
-            trait_impl_index: Some(self.input.trait_impl_index),
+            trait_impls: self.input.program.trait_impls(),
+            trait_impl_index: Some(self.input.program.trait_impl_index()),
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
@@ -150,8 +156,8 @@ impl<'a> ModuleLowerer<'a> {
         }) else {
             return None;
         };
-        let impl_signature = self.input.trait_impls.get(user_impl.impl_index)?;
-        for method in self.input.program_extension_methods.all_methods() {
+        let impl_signature = self.input.program.trait_impls().get(user_impl.impl_index)?;
+        for method in self.input.program.extension_methods().all_methods() {
             if method.def_id.module_id != impl_signature.module_id
                 || method.impl_id != impl_signature.impl_id
                 || method.trait_id != Some(key.trait_id)
@@ -227,12 +233,12 @@ impl<'a> ModuleLowerer<'a> {
         let assumptions = self.current_trait_assumptions();
         let associated_type_assumptions =
             self.current_associated_type_assumptions_without_active_projections();
-        let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
+        let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.input.type_normalization,
-            trait_impls: self.input.trait_impls,
-            trait_impl_index: Some(self.input.trait_impl_index),
+            trait_impls: self.input.program.trait_impls(),
+            trait_impl_index: Some(self.input.program.trait_impl_index()),
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
@@ -326,7 +332,8 @@ impl<'a> ModuleLowerer<'a> {
             (trait_def_id, trait_signature.generics.clone())
         } else {
             self.input
-                .program_traits
+                .program
+                .traits()
                 .iter()
                 .find_map(|(trait_id, signature)| {
                     signature
@@ -375,7 +382,7 @@ impl<'a> ModuleLowerer<'a> {
             sources.push((signature.where_predicates.clone(), current.module_id));
             return sources;
         }
-        if let Some(signature) = self.input.program_functions.get(&current) {
+        if let Some(signature) = self.input.program.functions().get(&current) {
             sources.push((
                 signature.signature.where_predicates.clone(),
                 current.module_id,
@@ -424,7 +431,8 @@ impl<'a> ModuleLowerer<'a> {
                 })?
         } else {
             self.input
-                .program_structs
+                .program
+                .structs()
                 .get(&def_id)
                 .map(|signature| {
                     (
@@ -434,7 +442,7 @@ impl<'a> ModuleLowerer<'a> {
                     )
                 })
                 .or_else(|| {
-                    self.input.program_unions.get(&def_id).map(|signature| {
+                    self.input.program.unions().get(&def_id).map(|signature| {
                         (
                             signature.signature.generics.clone(),
                             signature.signature.where_predicates.clone(),
@@ -466,7 +474,8 @@ impl<'a> ModuleLowerer<'a> {
         }
         let program_index = self.trait_impl_index_for_method(current)?;
         self.input
-            .trait_impls
+            .program
+            .trait_impls()
             .get(program_index)
             .map(|signature| (signature.where_predicates.clone(), signature.module_id))
     }
@@ -481,7 +490,7 @@ impl<'a> ModuleLowerer<'a> {
                 def_id,
                 args,
                 const_args,
-            }) if self.input.program_traits.contains_key(def_id) => {
+            }) if self.input.program.traits().contains_key(def_id) => {
                 Some((TraitId::Source(*def_id), args.clone(), const_args.clone()))
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
@@ -657,12 +666,12 @@ impl<'a> ModuleLowerer<'a> {
         trait_id: BuiltinTrait,
         trait_args: &[InternedTyId],
     ) -> bool {
-        let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
+        let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.input.type_normalization,
-            trait_impls: self.input.trait_impls,
-            trait_impl_index: Some(self.input.trait_impl_index),
+            trait_impls: self.input.program.trait_impls(),
+            trait_impl_index: Some(self.input.program.trait_impl_index()),
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
@@ -699,12 +708,12 @@ impl<'a> ModuleLowerer<'a> {
         {
             return resolution.clone();
         }
-        let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
+        let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.input.type_normalization,
-            trait_impls: self.input.trait_impls,
-            trait_impl_index: Some(self.input.trait_impl_index),
+            trait_impls: self.input.program.trait_impls(),
+            trait_impl_index: Some(self.input.program.trait_impl_index()),
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,

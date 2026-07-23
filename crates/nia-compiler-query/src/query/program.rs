@@ -80,6 +80,36 @@ impl QueryKey<CompilerContext> for MonomorphizationQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct BackendLoweringInputsQuery;
+
+impl QueryKey<CompilerContext> for BackendLoweringInputsQuery {
+    type Value = Result<BackendLoweringInputs, Vec<Diagnostic>>;
+
+    fn name() -> &'static str {
+        "backend_lowering_inputs"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        provide_backend_lowering_inputs(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct BackendFinalizationTaskContextQuery;
+
+impl QueryKey<CompilerContext> for BackendFinalizationTaskContextQuery {
+    type Value = BackendFinalizationTaskContext;
+
+    fn name() -> &'static str {
+        "backend_finalization_task_context"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        provide_backend_finalization_task_context(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct BackendItemPlanQuery;
 
 impl QueryKey<CompilerContext> for BackendItemPlanQuery {
@@ -115,6 +145,33 @@ impl QueryKey<CompilerContext> for BackendModuleItemPlanQuery {
 
     fn execute(&self, _db: &QueryDb<CompilerContext>) -> Self::Value {
         unreachable!("backend module item plans are published by backend lowering")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct BackendModuleFinalizationQuery {
+    pub(super) module_id: ModuleId,
+    pub(super) position: usize,
+}
+
+impl QueryKey<CompilerContext> for BackendModuleFinalizationQuery {
+    type Value = nia_backend_lower::BackendModuleFinalization;
+
+    const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+
+    fn name() -> &'static str {
+        "backend_module_finalization"
+    }
+
+    fn description(&self) -> String {
+        format!(
+            "backend_module_finalization({:?}, {})",
+            self.module_id, self.position
+        )
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        provide_backend_module_finalization(db, *self)
     }
 }
 

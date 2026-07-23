@@ -63,17 +63,7 @@ impl<'a> ModuleLowerer<'a> {
         if let Some(normalized) = self.input.type_normalization.normalized.get(&ty) {
             return Some(*normalized);
         }
-        self.input
-            .program_type_normalizations
-            .iter()
-            .filter_map(|(module_id, normalized_types)| {
-                normalized_types
-                    .get(&ty)
-                    .copied()
-                    .map(|normalized| (*module_id, normalized))
-            })
-            .min_by_key(|(module_id, _)| *module_id)
-            .map(|(_, normalized)| normalized)
+        self.input.program.normalized_type(ty)
     }
 
     pub(crate) fn normalized_type_from_module(
@@ -91,10 +81,8 @@ impl<'a> ModuleLowerer<'a> {
             return self.input.type_normalization.normalize(ty);
         }
         self.input
-            .program_type_normalizations
-            .get(&module_id)
-            .and_then(|normalized_types| normalized_types.get(&ty))
-            .copied()
+            .program
+            .normalized_type_from_module(module_id, ty)
             .unwrap_or(ty)
     }
 
@@ -106,7 +94,7 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: TypeSubstitutionId,
         active_projections: &mut HashSet<ProjectionInstantiationKey>,
     ) -> Option<InternedTyId> {
-        let alias = self.input.program_type_aliases.get(&def_id)?.clone();
+        let alias = self.input.program.type_aliases().get(&def_id)?.clone();
         if alias.signature.generics.len() != args.len() + const_args.len() {
             return Some(self.type_context.append.intern(TyKind::Error));
         }
@@ -258,7 +246,8 @@ impl<'a> ModuleLowerer<'a> {
         own_generics: &[SymbolId],
     ) -> Option<Vec<SymbolId>> {
         self.input
-            .program_traits
+            .program
+            .traits()
             .iter()
             .find_map(|(trait_id, signature)| {
                 signature
@@ -394,7 +383,7 @@ impl<'a> ModuleLowerer<'a> {
             !is_instance || type_arg_count == 0,
         );
         if instantiation_module_id != self.input.module_id
-            && let Some(extensions) = self.input.program_extensions.get(&instantiation_module_id)
+            && let Some(extensions) = self.input.program.extensions(instantiation_module_id)
         {
             self.instantiation.extension_trait_method_candidates = Some((
                 instantiation_module_id,
@@ -614,12 +603,12 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> bool {
         let assumptions = self.current_trait_assumptions();
-        let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
+        let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.input.type_normalization,
-            trait_impls: self.input.trait_impls,
-            trait_impl_index: Some(self.input.trait_impl_index),
+            trait_impls: self.input.program.trait_impls(),
+            trait_impl_index: Some(self.input.program.trait_impl_index()),
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
@@ -644,12 +633,12 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> bool {
         let assumptions = self.current_trait_assumptions();
-        let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
+        let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.input.type_normalization,
-            trait_impls: self.input.trait_impls,
-            trait_impl_index: Some(self.input.trait_impl_index),
+            trait_impls: self.input.program.trait_impls(),
+            trait_impl_index: Some(self.input.program.trait_impl_index()),
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
@@ -1185,7 +1174,8 @@ impl<'a> ModuleLowerer<'a> {
             local_generic_names.as_slice()
         } else {
             self.input
-                .program_functions
+                .program
+                .functions()
                 .get(&def_id)
                 .map(|signature| signature.signature.generics.as_slice())
                 .unwrap_or(&[])
@@ -1266,12 +1256,12 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<InternedTyId> {
         let associated_type_assumptions =
             self.current_associated_type_assumptions(substitutions, active_projections);
-        let program_is_enum = |def_id| self.input.program_enums.contains_key(&def_id);
+        let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.input.type_normalization,
-            trait_impls: self.input.trait_impls,
-            trait_impl_index: Some(self.input.trait_impl_index),
+            trait_impls: self.input.program.trait_impls(),
+            trait_impl_index: Some(self.input.program.trait_impl_index()),
             layouts: Some(self.input.layouts),
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
@@ -1310,7 +1300,7 @@ impl<'a> ModuleLowerer<'a> {
         let Some(impl_index) = self.trait_impl_index_for_method(current) else {
             return Vec::new();
         };
-        let Some(impl_signature) = self.input.trait_impls.get(impl_index) else {
+        let Some(impl_signature) = self.input.program.trait_impls().get(impl_index) else {
             return Vec::new();
         };
         let target_ty =

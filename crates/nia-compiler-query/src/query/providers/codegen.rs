@@ -258,22 +258,43 @@ pub(in crate::query) fn provide_backend_item_plan(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendItemPlan {
     time_provider(db.context().timings(), "backend_item_plan", || {
-        let checked_modules = checked_modules_for_codegen(db);
-        match with_backend_lowering_inputs(db, &checked_modules, |inputs| {
-            nia_backend_lower::plan_backend_program_with_timings(
-                inputs,
-                &db.context().type_store,
-                *db.get(CompilerOptimizationQuery),
-                db.context().timings(),
-            )
-        }) {
-            Ok(plan) => plan,
+        let inputs = db.get(BackendLoweringInputsQuery);
+        match inputs.as_ref() {
+            Ok(inputs) => {
+                let module_inputs = inputs.module_inputs();
+                nia_backend_lower::plan_backend_program_with_timings(
+                    &module_inputs,
+                    &db.context().type_store,
+                    *db.get(CompilerOptimizationQuery),
+                    db.context().timings(),
+                )
+            }
             Err(diagnostics) => nia_backend_lower::BackendItemPlan::from_diagnostics(
                 *db.get(CompilerOptimizationQuery),
-                diagnostics,
+                diagnostics.clone(),
             ),
         }
     })
+}
+
+pub(in crate::query) fn provide_backend_finalization_task_context(
+    db: &QueryDb<CompilerContext>,
+) -> BackendFinalizationTaskContext {
+    BackendFinalizationTaskContext::new(
+        db.get(BackendLoweringInputsQuery),
+        Arc::clone(&db.context().type_store),
+        *db.get(CompilerOptimizationQuery),
+        db.context().timings(),
+    )
+}
+
+pub(in crate::query) fn provide_backend_module_finalization(
+    db: &QueryDb<CompilerContext>,
+    key: BackendModuleFinalizationQuery,
+) -> nia_backend_lower::BackendModuleFinalization {
+    let context = db.get(BackendFinalizationTaskContextQuery);
+    let module_plan = db.get_owned(BackendModuleItemPlanQuery(key.module_id));
+    context.finalize_module(key.position, key.module_id, module_plan)
 }
 
 fn provide_backend_lowering_inner(
@@ -295,13 +316,13 @@ fn provide_backend_lowering_inner(
         );
     }
     emit_backend_module_plan_allocation("after_publish");
-    let module_plans = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| db.get_owned(BackendModuleItemPlanQuery(module_id)))
-        .collect::<Vec<_>>();
-    emit_backend_module_plan_allocation("after_consume");
     if has_diagnostics {
+        let module_plans = module_ids
+            .iter()
+            .copied()
+            .map(|module_id| db.get_owned(BackendModuleItemPlanQuery(module_id)))
+            .collect::<Vec<_>>();
+        emit_backend_module_plan_allocation("after_consume");
         return nia_backend_lower::finalize_backend_module_item_plans_with_timings(
             &[],
             &db.context().type_store,
@@ -310,21 +331,18 @@ fn provide_backend_lowering_inner(
             db.context().timings(),
         );
     }
-    let checked_modules = checked_modules_for_codegen(db);
-    with_backend_lowering_inputs(db, &checked_modules, move |inputs| {
-        nia_backend_lower::finalize_backend_module_item_plans_with_timings(
-            inputs,
-            &db.context().type_store,
-            finalization,
-            module_plans,
-            db.context().timings(),
-        )
-    })
-    .unwrap_or_else(|diagnostics| {
-        panic!(
-            "Nia ICE: backend finalization inputs failed after a valid item plan: {diagnostics:?}"
-        )
-    })
+    let module_finalizations = db.get_many_owned(module_ids.iter().copied().enumerate().map(
+        |(position, module_id)| BackendModuleFinalizationQuery {
+            module_id,
+            position,
+        },
+    ));
+    emit_backend_module_plan_allocation("after_consume");
+    nia_backend_lower::finish_backend_module_finalizations(
+        finalization,
+        &module_ids,
+        module_finalizations,
+    )
 }
 
 fn emit_backend_module_plan_allocation(stage: &str) {
@@ -341,13 +359,11 @@ fn emit_backend_module_plan_allocation(stage: &str) {
     );
 }
 
-fn with_backend_lowering_inputs<R>(
+pub(in crate::query) fn provide_backend_lowering_inputs(
     db: &QueryDb<CompilerContext>,
-    checked_modules: &[Arc<CheckedModule>],
-    operation: impl FnOnce(&[BackendLowerModuleInput<'_>]) -> R,
-) -> Result<R, Vec<Diagnostic>> {
+) -> Result<BackendLoweringInputs, Vec<Diagnostic>> {
+    let checked_modules = checked_modules_for_codegen(db);
     let (
-        all_visible_extensions,
         active_item_trees,
         item_signatures,
         const_array_lengths,
@@ -358,18 +374,9 @@ fn with_backend_lowering_inputs<R>(
         static_inits,
         source_item_plans,
         function_instance_plans,
+        program_defs,
     ) = time_provider(db.context().timings(), "backend_lowering.inputs", || {
         let timings = db.context().timings();
-        let all_visible_extensions = time_provider(
-            timings,
-            "backend_lowering.inputs.all_visible_extensions",
-            || {
-                checked_modules
-                    .iter()
-                    .map(|module| (module.id, db.get(VisibleExtensionsQuery(module.id))))
-                    .collect::<Vec<_>>()
-            },
-        );
         let active_item_trees =
             time_provider(timings, "backend_lowering.inputs.active_item_trees", || {
                 checked_modules
@@ -419,8 +426,8 @@ fn with_backend_lowering_inputs<R>(
             time_provider(timings, "backend_lowering.inputs.extension_methods", || {
                 db.get(ExtensionMethodIndexQuery)
             });
-        let function_bodies = function_bodies_from_checked_modules(db, checked_modules);
-        let static_inits = static_inits_from_checked_modules(db, checked_modules);
+        let function_bodies = function_bodies_from_checked_modules(db, &checked_modules);
+        let static_inits = static_inits_from_checked_modules(db, &checked_modules);
         let source_item_plans = db.get_many(
             checked_modules
                 .iter()
@@ -431,8 +438,12 @@ fn with_backend_lowering_inputs<R>(
                 .iter()
                 .map(|module| BackendModuleFunctionInstancePlanQuery(module.id)),
         );
+        let program_defs = db.get_many(
+            checked_modules
+                .iter()
+                .map(|module| FullModuleDefsQuery(module.id)),
+        );
         (
-            all_visible_extensions,
             active_item_trees,
             item_signatures,
             const_array_lengths,
@@ -443,57 +454,47 @@ fn with_backend_lowering_inputs<R>(
             static_inits,
             source_item_plans,
             function_instance_plans,
+            program_defs,
         )
     });
     let function_lowering_diagnostics =
-        function_lowering_diagnostics(checked_modules, &function_bodies);
+        function_lowering_diagnostics(&checked_modules, &function_bodies);
     if !function_lowering_diagnostics.is_empty() {
         return Err(function_lowering_diagnostics
             .into_iter()
             .map(|program_diagnostic| program_diagnostic.diagnostic)
             .collect());
     }
-    let indexes = time_provider(db.context().timings(), "backend_lowering.indexes", || {
-        build_backend_lowering_indexes(
-            &all_visible_extensions,
-            checked_modules,
-            &const_array_lengths,
-            &function_bodies,
-            &static_inits,
-        )
-    });
-    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
-    let executable_program_signatures = executable_program_non_function_signatures(db);
-    let executable_program_functions = executable_program_functions_for_modules(
+    let non_function_signatures = executable_program_non_function_signatures(db);
+    let functions = executable_program_functions_for_modules(
         db,
         checked_modules.iter().map(|module| module.id),
     );
-    let program_signatures =
-        executable_program_signatures.codegen_maps_with_functions(&executable_program_functions);
-    let symbols = db.context().symbols();
     let inputs = time_provider(
         db.context().timings(),
         "backend_lowering.module_inputs",
         || {
-            build_backend_lowering_module_inputs(BackendLoweringModuleInputsInput {
-                symbols: &symbols,
+            BackendLoweringInputs::new(BackendLoweringInputsParts {
+                symbols: db.context().symbols(),
                 checked_modules,
                 runtime: *db.get(CompilerRuntimeQuery),
-                active_item_trees: &active_item_trees,
-                item_signatures: &item_signatures,
-                const_array_lengths: &const_array_lengths,
-                const_enum_values: &const_enum_values,
-                visible_extensions: &visible_extensions,
-                extension_methods: &extension_methods.methods,
-                source_item_plans: &source_item_plans,
-                function_instance_plans: &function_instance_plans,
-                program_defs: &program_defs,
-                program_signatures,
-                indexes: &indexes,
+                active_item_trees,
+                item_signatures,
+                const_array_lengths,
+                const_enum_values,
+                visible_extensions,
+                extension_methods,
+                function_bodies,
+                static_inits,
+                source_item_plans,
+                function_instance_plans,
+                program_defs,
+                non_function_signatures,
+                functions,
             })
         },
     );
-    Ok(operation(&inputs))
+    Ok(inputs)
 }
 
 pub(super) fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {

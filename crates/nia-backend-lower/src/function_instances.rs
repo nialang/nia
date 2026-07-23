@@ -445,7 +445,7 @@ impl<'a> ModuleLowerer<'a> {
         def_id: GlobalDefId,
         include_body: bool,
     ) -> Option<BackendFunction> {
-        let signature = self.input.program_functions.get(&def_id)?;
+        let signature = self.input.program.functions().get(&def_id)?;
         if signature.signature.is_const {
             return None;
         }
@@ -454,7 +454,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         if include_body
             && !signature.signature.is_extern
-            && !self.input.program_function_bodies.contains_key(&def_id)
+            && self.input.program.function_body(def_id).is_none()
         {
             return None;
         }
@@ -472,7 +472,7 @@ impl<'a> ModuleLowerer<'a> {
             })
             .collect::<SymbolMap<_>>();
         let raw_function_body = include_body
-            .then(|| self.input.program_function_bodies.get(&def_id).copied())
+            .then(|| self.input.program.function_body(def_id))
             .flatten();
         let param_locals = raw_function_body
             .as_ref()

@@ -776,7 +776,7 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn struct_field_tys(&mut self, def_id: GlobalDefId) -> Vec<InternedTyId> {
         if def_id.module_id != self.input.module_id {
-            let Some(program_signature) = self.input.program_structs.get(&def_id) else {
+            let Some(program_signature) = self.input.program.structs().get(&def_id) else {
                 return Vec::new();
             };
             return program_signature
@@ -801,7 +801,7 @@ impl<'a> ModuleLowerer<'a> {
         if self.instance_args_contain_generic_param(&args) {
             return None;
         }
-        let program_signature = self.input.program_structs.get(&def_id)?.clone();
+        let program_signature = self.input.program.structs().get(&def_id)?.clone();
         let signature = program_signature.signature;
         if signature.generics.is_empty()
             || signature.generics.len() != args.len() + const_args.len()
@@ -1401,7 +1401,7 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn union_field_tys(&mut self, def_id: GlobalDefId) -> Vec<InternedTyId> {
         if def_id.module_id != self.input.module_id {
-            let Some(program_signature) = self.input.program_unions.get(&def_id) else {
+            let Some(program_signature) = self.input.program.unions().get(&def_id) else {
                 return Vec::new();
             };
             return program_signature
@@ -1426,7 +1426,7 @@ impl<'a> ModuleLowerer<'a> {
         if self.instance_args_contain_generic_param(&args) {
             return None;
         }
-        let program_signature = self.input.program_unions.get(&def_id)?.clone();
+        let program_signature = self.input.program.unions().get(&def_id)?.clone();
         let signature = program_signature.signature;
         if signature.generics.is_empty()
             || signature.generics.len() != args.len() + const_args.len()

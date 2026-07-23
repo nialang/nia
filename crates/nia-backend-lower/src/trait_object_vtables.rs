@@ -416,7 +416,7 @@ impl<'a> ModuleLowerer<'a> {
             visiting.pop();
             return;
         };
-        let Some(program_trait) = self.input.program_traits.get(&source_trait_id) else {
+        let Some(program_trait) = self.input.program.traits().get(&source_trait_id) else {
             visiting.pop();
             return;
         };

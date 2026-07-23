@@ -229,8 +229,6 @@ fn main() i32 {
         .collect::<HashMap<_, _>>();
     let program_const = HashMap::from([(module_id, &const_array_lengths)]);
     let const_enum_values = const_enum_values_from_check(&const_eval);
-    let no_program_defs = |_| None;
-    let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::default();
     let program_function_bodies = function_bodies
         .iter()
         .map(|(def_id, body)| (*def_id, body))
@@ -241,6 +239,8 @@ fn main() i32 {
         .iter()
         .map(|(def_id, init)| (*def_id, init.as_ref()))
         .collect::<HashMap<_, _>>();
+    let program =
+        TestBackendProgramFacts::new(program_const, program_function_bodies, program_static_inits);
     let function_instance_plan = Vec::new();
 
     let input = BackendLowerModuleInput {
@@ -258,7 +258,6 @@ fn main() i32 {
         extensions: &extensions,
         const_array_lengths: &const_array_lengths,
         const_enum_values: &const_enum_values,
-        program_const: &program_const,
         layouts: &layouts,
         roots: BackendFunctionRoots::Public,
         reachable_functions: None,
@@ -266,20 +265,7 @@ fn main() i32 {
         reachable_structs: None,
         reachable_unions: None,
         function_instance_plan: &function_instance_plan,
-        program_function_bodies: &program_function_bodies,
-        program_static_inits: &program_static_inits,
-        program_extension_methods: &nia_defs::ExtensionMethods::default(),
-        program_extensions: &HashMap::new(),
-        program_defs: &no_program_defs,
-        program_type_normalizations: &HashMap::new(),
-        program_functions: &HashMap::new(),
-        program_structs: &HashMap::new(),
-        program_unions: &HashMap::new(),
-        program_enums: &HashMap::new(),
-        program_traits: &HashMap::new(),
-        program_type_aliases: &HashMap::new(),
-        trait_impls: &[],
-        trait_impl_index: &trait_impl_index,
+        program: &program,
     };
     let optimization = nia_opt::OptimizationPolicy::default();
     let inputs = [input];

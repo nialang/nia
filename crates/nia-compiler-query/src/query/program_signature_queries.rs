@@ -125,41 +125,11 @@ pub(super) struct ProgramExecutableNonFunctionSignatures {
     pub(super) trait_method_index: nia_program_signatures::ProgramTraitMethodIndex,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ProgramCodegenSignatures<'a> {
-    pub(super) functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
-    pub(super) structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
-    pub(super) unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
-    pub(super) enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
-    pub(super) traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
-    pub(super) type_aliases: &'a HashMap<GlobalDefId, ProgramTypeAliasSignature>,
-    pub(super) trait_impls: &'a [nia_item_signatures::ProgramTraitImplSignature],
-    pub(super) trait_impl_index: &'a nia_item_signatures::ProgramTraitImplIndex,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramAbiSignaturesValue {
     pub(super) structs: HashMap<GlobalDefId, StructSignature>,
     pub(super) unions: HashMap<GlobalDefId, UnionSignature>,
     pub(super) enums: HashMap<GlobalDefId, nia_item_signatures::EnumSignature>,
-}
-
-impl ProgramExecutableNonFunctionSignatures {
-    pub(super) fn codegen_maps_with_functions<'a>(
-        &'a self,
-        functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
-    ) -> ProgramCodegenSignatures<'a> {
-        ProgramCodegenSignatures {
-            functions,
-            structs: &self.structs,
-            unions: &self.unions,
-            enums: &self.enums,
-            traits: &self.traits,
-            type_aliases: &self.type_aliases,
-            trait_impls: &self.trait_impls,
-            trait_impl_index: &self.trait_impl_index,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -131,9 +131,9 @@ impl<'a> ModuleLowerer<'a> {
         let ty = self.instantiate_ty(ty, &SymbolMap::default());
         let init = self
             .input
-            .program_static_inits
-            .get(&global_def_id)
-            .map(|init| (*init).clone())
+            .program
+            .static_init(global_def_id)
+            .cloned()
             .map(|init| self.optimize_static_init(global_def_id, init));
         Some(BackendGlobal {
             def_id: global_def_id,
@@ -164,9 +164,9 @@ impl<'a> ModuleLowerer<'a> {
         let ty = self.instantiate_ty(ty, &SymbolMap::default());
         let init = self
             .input
-            .program_static_inits
-            .get(&global_def_id)
-            .map(|init| (*init).clone())
+            .program
+            .static_init(global_def_id)
+            .cloned()
             .map(|init| self.optimize_static_init(global_def_id, init));
         Some(BackendGlobal {
             def_id: global_def_id,
@@ -221,12 +221,7 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let global_def_id = self.global_def_id(def_id);
-        if !signature.is_extern
-            && !self
-                .input
-                .program_function_bodies
-                .contains_key(&global_def_id)
-        {
+        if !signature.is_extern && self.input.program.function_body(global_def_id).is_none() {
             return None;
         }
         let instantiation_snapshot = self.instantiation.take_snapshot();
@@ -234,11 +229,7 @@ impl<'a> ModuleLowerer<'a> {
         let effective_generics = self
             .effective_generics(global_def_id, &signature.generics)
             .to_vec();
-        let source_function_body = self
-            .input
-            .program_function_bodies
-            .get(&global_def_id)
-            .copied();
+        let source_function_body = self.input.program.function_body(global_def_id);
         let identity_substitutions = effective_generics
             .iter()
             .map(|generic| {
