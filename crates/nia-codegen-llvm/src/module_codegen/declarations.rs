@@ -42,7 +42,7 @@ impl<'a> AdapterFunction<'a> {
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn declare_structs(&mut self) -> Result<(), Diagnostic> {
-        for item in self.program.structs.values() {
+        for item in self.program.structs() {
             let name = self.struct_symbol_name(item.def_id, item.name);
             let ty = self
                 .context
@@ -50,7 +50,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.structs.insert(item.def_id, ty);
         }
-        for item in self.program.struct_instances_by_def.values().flatten() {
+        for item in self.program.struct_instances() {
             let ty = self
                 .context
                 .opaque_struct_type(&item.symbol)
@@ -65,7 +65,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .push((item.args.clone(), item.const_args.clone(), ty));
             self.struct_instance_type_lookups.borrow_mut().clear();
         }
-        for item in self.program.unions.values() {
+        for item in self.program.unions() {
             let name = self.struct_symbol_name(item.def_id, item.name);
             let ty = self
                 .context
@@ -73,7 +73,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.unions.insert(item.def_id, ty);
         }
-        for item in self.program.union_instances_by_def.values().flatten() {
+        for item in self.program.union_instances() {
             let ty = self
                 .context
                 .opaque_struct_type(&item.symbol)
@@ -92,7 +92,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(super) fn define_struct_bodies(&mut self) -> Result<(), Diagnostic> {
-        for item in self.program.structs.values() {
+        for item in self.program.structs() {
             let Some(struct_ty) = self.structs.get(&item.def_id).copied() else {
                 return Err(self.error(
                     item.span,
@@ -108,7 +108,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             struct_ty.set_body(&fields, false);
         }
-        for item in self.program.struct_instances_by_def.values().flatten() {
+        for item in self.program.struct_instances() {
             let Some(struct_ty) = self
                 .struct_instances
                 .get(&item.def_id)
@@ -125,7 +125,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             struct_ty.set_body(&fields, false);
         }
-        for item in self.program.unions.values() {
+        for item in self.program.unions() {
             let Some(union_ty) = self.unions.get(&item.def_id).copied() else {
                 return Err(self.error(
                     item.span,
@@ -140,7 +140,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 false,
             );
         }
-        for item in self.program.union_instances_by_def.values().flatten() {
+        for item in self.program.union_instances() {
             let Some(union_ty) = self
                 .union_instances
                 .get(&item.def_id)
@@ -158,7 +158,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(super) fn declare_functions(&mut self) -> Result<(), Diagnostic> {
-        for function in self.program.functions.values() {
+        for function in self.program.functions() {
             if !function.generics.is_empty() {
                 continue;
             }
@@ -178,7 +178,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.apply_function_attributes(value, &function.attributes);
             self.functions.insert(function.def_id, value);
         }
-        for instance in self.program.function_instances_by_def.values().flatten() {
+        for instance in self.program.function_instances() {
             let ty = self.function_signature_type_in(FunctionSignature {
                 param_tys: instance
                     .params
@@ -249,7 +249,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(super) fn declare_globals(&mut self) -> Result<(), Diagnostic> {
-        for global in self.program.globals.values() {
+        for global in self.program.globals() {
             let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let value = self
                 .module
@@ -264,7 +264,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             self.globals.insert(global.def_id, value);
         }
-        for global in self.program.global_instances_by_def.values().flatten() {
+        for global in self.program.global_instances() {
             let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let value = self
                 .module
@@ -286,7 +286,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 value,
             );
         }
-        for global in self.program.globals.values() {
+        for global in self.program.globals() {
             if global.def_id.module_id != self.source.id || global.is_extern {
                 continue;
             }
@@ -310,7 +310,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             value.set_initializer(&init);
         }
-        for global in self.program.global_instances_by_def.values().flatten() {
+        for global in self.program.global_instances() {
             if global.def_id.module_id != self.source.id {
                 continue;
             }
@@ -349,7 +349,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn declare_trait_object_vtables(&mut self) -> Result<(), Diagnostic> {
         let ptr_ty = self.context.ptr_type(Default::default());
         let mut inserted_vtable = false;
-        for module in self.program.modules.values() {
+        for module in self.program.modules() {
             for vtable in &module.trait_object_vtables {
                 if self
                     .trait_object_vtables

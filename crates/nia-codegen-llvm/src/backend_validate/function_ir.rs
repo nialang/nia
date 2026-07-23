@@ -125,7 +125,7 @@ impl BackendValidator<'_> {
         self.current_subject = None;
         match &expr.kind {
             FunctionExprKind::Global(def_id) => {
-                if !self.index.globals.contains_key(def_id) {
+                if !self.index.has_global(*def_id) {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         expr.span,
@@ -139,13 +139,10 @@ impl BackendValidator<'_> {
                 args,
                 const_args,
             } => {
-                if !self
+                if self
                     .index
-                    .global_instances
-                    .get(&(*def_id, *arg_module_id))
-                    .is_some_and(|instances| {
-                        instances.contains_key(&(args.clone(), const_args.clone()))
-                    })
+                    .global_instance(*def_id, *arg_module_id, args, const_args)
+                    .is_none()
                 {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
@@ -514,7 +511,7 @@ impl BackendValidator<'_> {
                 }
             }
             FunctionPlaceBase::Global(def_id) => {
-                if !self.index.globals.contains_key(def_id) {
+                if !self.index.has_global(*def_id) {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,
                         place.span,
@@ -528,13 +525,10 @@ impl BackendValidator<'_> {
                 args,
                 const_args,
             } => {
-                if !self
+                if self
                     .index
-                    .global_instances
-                    .get(&(*def_id, *arg_module_id))
-                    .is_some_and(|instances| {
-                        instances.contains_key(&(args.clone(), const_args.clone()))
-                    })
+                    .global_instance(*def_id, *arg_module_id, args, const_args)
+                    .is_none()
                 {
                     self.diagnostics.push(Diagnostic::internal_error_at(
                         nia_diagnostic::codes::INVALID_BACKEND_IR,

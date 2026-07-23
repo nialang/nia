@@ -323,7 +323,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .or_else(|| self.program.union_layout(*def_id))
                 .map(|layout| layout.layout.clone())
                 .or_else(|| {
-                    let enum_item = self.program.enums.get(def_id).copied()?;
+                    let enum_item = self.program.enum_item(*def_id)?;
                     self.layout_of(enum_item.backing_type)
                 }),
             Some(TyKind::Nominal {
@@ -557,25 +557,21 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             ty,
             |def_id| {
                 self.program
-                    .structs
-                    .get(&def_id)
+                    .struct_item(def_id)
                     .map(|item| mangle_symbol_id(item.name))
                     .or_else(|| {
                         self.program
-                            .unions
-                            .get(&def_id)
+                            .union_item(def_id)
                             .map(|item| mangle_symbol_id(item.name))
                     })
                     .or_else(|| {
                         self.program
-                            .enums
-                            .get(&def_id)
+                            .enum_item(def_id)
                             .map(|item| mangle_symbol_id(item.name))
                     })
                     .or_else(|| {
                         self.program
-                            .functions
-                            .get(&def_id)
+                            .function(def_id)
                             .map(|item| mangle_symbol_id(item.name))
                     })
                     .unwrap_or_else(|| format!("def{}", def_id.def_id.0))

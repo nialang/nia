@@ -222,7 +222,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         expr: &FunctionExpr,
         def_id: GlobalDefId,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let Some(variant_info) = self.module.program.enum_variant_infos.get(&def_id) else {
+        let Some(variant_info) = self.module.program.enum_variant_info(def_id) else {
             return Err(self.error(expr.span, "missing enum variant"));
         };
         let enum_item = variant_info.owner;

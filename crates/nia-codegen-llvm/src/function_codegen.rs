@@ -301,7 +301,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     if self.is_zero_sized(expr.ty) {
                         return Err(self.error(expr.span, "zero-sized global has no runtime value"));
                     }
-                    let Some(global_info) = self.module.program.globals.get(def_id).copied() else {
+                    let Some(global_info) = self.module.program.global(*def_id) else {
                         return Err(self.error(expr.span, "missing global metadata"));
                     };
                     let ty = self.module.llvm_basic_type_in(global_info.ty, expr.span)?;
@@ -325,14 +325,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         return Err(self
                             .error(expr.span, "zero-sized global instance has no runtime value"));
                     }
-                    let Some(global_info) = self
-                        .module
-                        .program
-                        .global_instances
-                        .get(&(*def_id, *arg_module_id))
-                        .and_then(|instances| instances.get(&(args.clone(), const_args.clone())))
-                        .copied()
-                    else {
+                    let Some(global_info) = self.module.program.global_instance(
+                        *def_id,
+                        *arg_module_id,
+                        args,
+                        const_args,
+                    ) else {
                         return Err(self.error(expr.span, "missing global instance metadata"));
                     };
                     let ty = self.module.llvm_basic_type_in(global_info.ty, expr.span)?;
@@ -1086,13 +1084,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn is_enum(&self, ty: InternedTyId) -> bool {
         matches!(
             self.module.ty_kind(ty),
-            Some(TyKind::Nominal { def_id, .. }) if self.module.program.enums.contains_key(def_id)
+            Some(TyKind::Nominal { def_id, .. }) if self.module.program.has_enum(*def_id)
         )
     }
 
     fn integer_bits(&self, ty: InternedTyId, span: Span) -> Result<u32, Diagnostic> {
         if let Some(TyKind::Nominal { def_id, .. }) = self.module.ty_kind(ty)
-            && let Some(item) = self.module.program.enums.get(def_id).copied()
+            && let Some(item) = self.module.program.enum_item(*def_id)
         {
             return self.integer_bits(item.backing_type, span);
         }

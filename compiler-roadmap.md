@@ -1366,6 +1366,8 @@ Acceptance：多核 workload CPU 利用率明显提升；小改动只重建受�
 
 进展（2026-07-23）：G-2a 将LLVM module-local工作拆成独立per-unit emission result边界。IR与native object两条路径都在whole-program validation之后，把一个正式`CodegenPartition`、readonly `ProgramIndex`和options交给单unit函数；该函数独占创建并消费LLVM `Context`/`ModuleCodegen`，只返回一个携带typed unit identity的output或一个diagnostic。外层不再内联持有unit-local LLVM状态，只按partition plan顺序聚合outcome，因此未来task完成顺序可以变化而公开输出顺序无需变化。LLVM 177项回归通过。该边界当前仍由串行loop调用，不是task queue；直接并行仍被借用型`ProgramIndex<'a>`阻挡，不能用per-task重建全程序index、深拷贝Backend IR或无真实consumer语义的`Arc`绕过。Phase G约20%，整份roadmap仍约81%；下一切片先把`ProgramIndex`的borrowed-value maps改为owner+position lookup，使唯一readonly task context可安全拥有既有`Arc<BackendLowering>`/`Arc<TypeStore>`，再把这些unit outcome提交到统一session executor。
 
+进展（2026-07-23）：G-2b 删除`ProgramIndex`内部的self-referential borrowed-value maps。module、struct/union/enum、function/global、concrete instance、vtable及五类layout index现在只保存`module/item/layout position`，所有consumer通过accessor回到canonical `BackendProgram` allocation；exact key、equivalent type fallback与by-def iteration仍复用原语义，没有复制function body/static init/layout，也没有新增ID、store或`Arc`。validator、declaration、type/static-init/function codegen中直接读取index map的路径已全部迁移，map结构不再成为外部truth source。回归以指针相等锁定module/function-instance lookup返回原allocation，并以编译期guard锁定`ProgramIndex<'static>: Send + Sync`；LLVM 178项通过。此时index仍借用唯一program/type-store roots，所以尚不能进入要求`'static` closure的persistent executor；下一切片应让一个owned readonly task context持有既有`Arc<BackendLowering>`和`Arc<TypeStore>`并拥有position index，再开放统一executor的非query task batch，禁止重新引入per-task全程序index。Phase G约25%，整份roadmap约82%。
+
 ### 阶段 H（P1/P2）：持久 frontend incremental
 
 1. stable module/def key。
