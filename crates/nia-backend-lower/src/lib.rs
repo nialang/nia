@@ -29,7 +29,10 @@ use nia_backend_ir::{
 };
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
-use nia_function_ir::FunctionBody;
+use nia_function_ir::{
+    FunctionBody, FunctionBodyRefs, FunctionInstanceKey, FunctionInstanceRef, GlobalInstanceKey,
+    GlobalInstanceRef,
+};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_item_signatures::{
     ItemSignatures, ProgramEnumSignature, ProgramFunctionSignature, ProgramStructSignature,
@@ -48,10 +51,6 @@ use nia_ty::TyKind;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
-
-use crate::function_refs::{
-    FunctionInstanceKey, FunctionInstanceRef, FunctionRefs, GlobalInstanceKey, GlobalInstanceRef,
-};
 
 #[derive(Debug, PartialEq)]
 pub struct BackendLowering {
@@ -649,8 +648,8 @@ pub(crate) struct ModuleLowerer<'a> {
     trait_context: trait_context::BackendTraitContext,
     instantiation: instantiation_context::BackendInstantiationContext,
     foreign_function_refs: Vec<GlobalDefId>,
-    foreign_function_instance_refs: Vec<function_refs::FunctionInstanceRef>,
-    foreign_global_instance_refs: Vec<function_refs::GlobalInstanceRef>,
+    foreign_function_instance_refs: Vec<FunctionInstanceRef>,
+    foreign_global_instance_refs: Vec<GlobalInstanceRef>,
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     effective_generics: HashMap<GlobalDefId, Vec<SymbolId>>,
@@ -854,9 +853,19 @@ struct GlobalInstanceMaterialization {
     discovery: BackendItemDiscovery,
 }
 
+fn backend_function_instance_key(instance: &BackendFunctionInstance) -> FunctionInstanceKey {
+    FunctionInstanceKey {
+        def_id: instance.def_id,
+        arg_module_id: instance.arg_module_id,
+        self_arg: instance.self_arg,
+        args: instance.args.clone(),
+        const_args: instance.const_args.clone(),
+    }
+}
+
 #[derive(Default)]
 struct BackendItemDiscovery {
-    refs: FunctionRefs,
+    refs: FunctionBodyRefs,
     trait_object_vtables: Vec<BackendTraitObjectVtable>,
 }
 
@@ -1081,11 +1090,11 @@ impl ReachabilityWorklist {
         }
     }
 
-    fn enqueue_refs(&mut self, refs: FunctionRefs) {
+    fn enqueue_refs(&mut self, refs: FunctionBodyRefs) {
         for function in refs.functions {
             self.enqueue_function(function);
         }
-        self.enqueue_instances(refs.instances);
+        self.enqueue_instances(refs.function_instances);
         self.enqueue_global_instances(refs.global_instances);
     }
 
@@ -1576,7 +1585,7 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             };
             if let Some(init) = &global.init {
-                let mut refs = FunctionRefs::default();
+                let mut refs = FunctionBodyRefs::default();
                 function_refs::collect_function_refs_from_static_init(
                     self.input.module_id,
                     init,
@@ -1606,7 +1615,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         if let Some(global) = self.lower_global(&binding.node_key, span, binding) {
             if let Some(init) = &global.init {
-                let mut refs = FunctionRefs::default();
+                let mut refs = FunctionBodyRefs::default();
                 function_refs::collect_function_refs_from_static_init(
                     self.input.module_id,
                     init,
@@ -1925,10 +1934,8 @@ impl<'a> ModuleLowerer<'a> {
             };
             lowered.insert(def_id);
             if function.generics.is_empty() {
-                let discovery = self.discover_backend_items_from_optional_body(
-                    self.input.module_id,
-                    &function.function_body,
-                );
+                let discovery =
+                    self.discover_backend_items_from_optional_body(&function.function_body);
                 worklist.enqueue_refs(discovery.refs);
                 self.append_trait_object_vtable_delta(
                     trait_object_vtables,
@@ -2031,7 +2038,7 @@ impl<'a> ModuleLowerer<'a> {
             queued_instances: module
                 .function_instances
                 .iter()
-                .map(FunctionInstanceKey::from)
+                .map(backend_function_instance_key)
                 .collect::<HashSet<_>>(),
             pending_global_instances: Vec::new(),
             queued_global_instances: module
@@ -2326,16 +2333,11 @@ impl<'a> ModuleLowerer<'a> {
 
     fn discover_backend_items_from_optional_body(
         &mut self,
-        module_id: ModuleId,
         body: &Option<FunctionBody>,
     ) -> BackendItemDiscovery {
         let mut discovery = BackendItemDiscovery::default();
-        function_refs::collect_function_refs_from_optional_body(
-            module_id,
-            body,
-            &mut discovery.refs,
-        );
         if let Some(body) = body {
+            discovery.refs = body.value_refs();
             discovery.trait_object_vtables =
                 self.collect_trait_object_vtables_from_concrete_body(body);
         }

@@ -1,0 +1,663 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use std::collections::BTreeSet;
+
+use crate::{
+    FunctionArrayElements, FunctionAtomic, FunctionBlock, FunctionBody, FunctionCallee,
+    FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm,
+    FunctionMemoryIntrinsicSource, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
+    FunctionTerminator,
+};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_span::Span;
+use nia_ty::ConstGenericArg;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionInstanceRef {
+    pub def_id: GlobalDefId,
+    pub arg_module_id: ModuleId,
+    pub self_arg: Option<InternedTyId>,
+    pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FunctionInstanceKey {
+    pub def_id: GlobalDefId,
+    pub arg_module_id: ModuleId,
+    pub self_arg: Option<InternedTyId>,
+    pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlobalInstanceRef {
+    pub def_id: GlobalDefId,
+    pub arg_module_id: ModuleId,
+    pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GlobalInstanceKey {
+    pub def_id: GlobalDefId,
+    pub arg_module_id: ModuleId,
+    pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
+}
+
+impl GlobalInstanceRef {
+    pub fn key(&self) -> GlobalInstanceKey {
+        GlobalInstanceKey {
+            def_id: self.def_id,
+            arg_module_id: self.arg_module_id,
+            args: self.args.clone(),
+            const_args: self.const_args.clone(),
+        }
+    }
+}
+
+impl FunctionInstanceRef {
+    pub fn key(&self) -> FunctionInstanceKey {
+        FunctionInstanceKey {
+            def_id: self.def_id,
+            arg_module_id: self.arg_module_id,
+            self_arg: self.self_arg,
+            args: self.args.clone(),
+            const_args: self.const_args.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct FunctionBodyRefs {
+    pub functions: BTreeSet<GlobalDefId>,
+    pub globals: BTreeSet<GlobalDefId>,
+    pub function_instances: Vec<FunctionInstanceRef>,
+    pub global_instances: Vec<GlobalInstanceRef>,
+}
+
+impl FunctionBodyRefs {
+    pub fn extend(&mut self, other: Self) {
+        self.functions.extend(other.functions);
+        self.globals.extend(other.globals);
+        self.function_instances.extend(other.function_instances);
+        self.global_instances.extend(other.global_instances);
+    }
+}
+
+impl FunctionBody {
+    pub fn value_refs(&self) -> FunctionBodyRefs {
+        let mut refs = FunctionBodyRefs::default();
+        collect_function_refs_from_body(self, &mut refs);
+        refs
+    }
+}
+
+fn collect_function_refs_from_body(body: &FunctionBody, refs: &mut FunctionBodyRefs) {
+    for block in &body.blocks {
+        collect_function_refs_from_block(block, refs);
+    }
+}
+
+fn collect_function_refs_from_defer_body(body: &FunctionDeferBody, refs: &mut FunctionBodyRefs) {
+    for block in &body.blocks {
+        collect_function_refs_from_block(block, refs);
+    }
+}
+
+fn collect_function_refs_from_block(block: &FunctionBlock, refs: &mut FunctionBodyRefs) {
+    for op in &block.ops {
+        collect_function_refs_from_op(op, refs);
+    }
+    collect_function_refs_from_terminator(&block.terminator, refs);
+}
+
+fn collect_function_refs_from_op(op: &FunctionOp, refs: &mut FunctionBodyRefs) {
+    match op {
+        FunctionOp::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                collect_function_refs_from_expr(value, refs);
+            }
+        }
+        FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
+            collect_function_refs_from_expr(value, refs);
+        }
+        FunctionOp::MemoryIntrinsic(memory) => {
+            collect_function_refs_from_expr(&memory.dest, refs);
+            match &memory.source {
+                FunctionMemoryIntrinsicSource::Slice(source)
+                | FunctionMemoryIntrinsicSource::Byte(source) => {
+                    collect_function_refs_from_expr(source, refs);
+                }
+            }
+        }
+        FunctionOp::Defer(body) => collect_function_refs_from_defer_body(body, refs),
+    }
+}
+
+fn collect_function_refs_from_terminator(
+    terminator: &FunctionTerminator,
+    refs: &mut FunctionBodyRefs,
+) {
+    match terminator {
+        FunctionTerminator::If { cond, .. } => collect_function_refs_from_expr(cond, refs),
+        FunctionTerminator::Switch { target, arms, .. } => {
+            collect_function_refs_from_expr(target, refs);
+            for arm in arms {
+                collect_function_refs_from_expr(&arm.pattern, refs);
+            }
+        }
+        FunctionTerminator::Try { value, .. } => collect_function_refs_from_expr(value, refs),
+        FunctionTerminator::Loop { header, .. } => match header {
+            FunctionForHeader::Condition(expr) => collect_function_refs_from_expr(expr, refs),
+            FunctionForHeader::Infinite => {}
+        },
+        FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
+            if let Some(value) = value {
+                collect_function_refs_from_expr(value, refs);
+            }
+        }
+        FunctionTerminator::Error { .. }
+        | FunctionTerminator::Branch { .. }
+        | FunctionTerminator::Next { .. } => {}
+    }
+}
+
+fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionBodyRefs) {
+    match &expr.kind {
+        FunctionExprKind::Function(def_id) => {
+            refs.functions.insert(*def_id);
+        }
+        FunctionExprKind::FunctionInstance {
+            def_id,
+            arg_module_id,
+            self_arg,
+            args,
+            const_args,
+        } => {
+            refs.function_instances.push(FunctionInstanceRef {
+                def_id: *def_id,
+                arg_module_id: *arg_module_id,
+                self_arg: *self_arg,
+                args: args.clone(),
+                const_args: const_args.clone(),
+                span: expr.span,
+            });
+        }
+        FunctionExprKind::Range(range) => {
+            if let Some(start) = &range.start {
+                collect_function_refs_from_expr(start, refs);
+            }
+            if let Some(end) = &range.end {
+                collect_function_refs_from_expr(end, refs);
+            }
+        }
+        FunctionExprKind::InlineAsm(asm) => collect_function_refs_from_inline_asm(asm, refs),
+        FunctionExprKind::Atomic(atomic) => collect_function_refs_from_atomic(atomic, refs),
+        FunctionExprKind::StaticArrayPointer { array, .. }
+        | FunctionExprKind::RangeBound { range: array, .. }
+        | FunctionExprKind::Unary { expr: array, .. }
+        | FunctionExprKind::OptionalSome { expr: array }
+        | FunctionExprKind::ErrorOk { expr: array }
+        | FunctionExprKind::ErrorErr { expr: array }
+        | FunctionExprKind::TaggedUnionTag { expr: array }
+        | FunctionExprKind::TaggedUnionPayload { expr: array }
+        | FunctionExprKind::Try { expr: array }
+        | FunctionExprKind::LoadUnaligned { ptr: array, .. }
+        | FunctionExprKind::Splat { value: array }
+        | FunctionExprKind::Bitmask { vector: array }
+        | FunctionExprKind::BitIntrinsic { value: array, .. }
+        | FunctionExprKind::CharFromU32 { value: array }
+        | FunctionExprKind::Discard(array)
+        | FunctionExprKind::Cast { expr: array, .. }
+        | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
+        | FunctionExprKind::TraitObjectCoercion { expr: array, .. } => {
+            collect_function_refs_from_expr(array, refs);
+        }
+        FunctionExprKind::ArrayLiteral { elems } => match elems {
+            FunctionArrayElements::List(elems) => {
+                for elem in elems {
+                    collect_function_refs_from_expr(elem, refs);
+                }
+            }
+            FunctionArrayElements::Repeat { value, .. } => {
+                collect_function_refs_from_expr(value, refs)
+            }
+        },
+        FunctionExprKind::StructLiteral { fields, .. } => {
+            for field in fields {
+                collect_function_refs_from_expr(&field.value, refs);
+            }
+        }
+        FunctionExprKind::UnionLiteral { field, .. } => {
+            collect_function_refs_from_expr(&field.value, refs);
+        }
+        FunctionExprKind::AddrOf(place) => collect_function_refs_from_place(place, refs),
+        FunctionExprKind::Binary { lhs, rhs, .. } => {
+            collect_function_refs_from_expr(lhs, refs);
+            collect_function_refs_from_expr(rhs, refs);
+        }
+        FunctionExprKind::ExtractElement { vector, index } => {
+            collect_function_refs_from_expr(vector, refs);
+            collect_function_refs_from_expr(index, refs);
+        }
+        FunctionExprKind::InsertElement {
+            vector,
+            index,
+            value,
+        } => {
+            collect_function_refs_from_expr(vector, refs);
+            collect_function_refs_from_expr(index, refs);
+            collect_function_refs_from_expr(value, refs);
+        }
+        FunctionExprKind::Assign { place, rhs, .. } => {
+            collect_function_refs_from_place(place, refs);
+            collect_function_refs_from_expr(rhs, refs);
+        }
+        FunctionExprKind::Call { callee, args } => {
+            collect_function_refs_from_callee(expr.span, callee, refs);
+            for arg in args {
+                collect_function_refs_from_expr(arg, refs);
+            }
+        }
+        FunctionExprKind::Field { lhs, .. } => collect_function_refs_from_expr(lhs, refs),
+        FunctionExprKind::Index { lhs, index } => {
+            collect_function_refs_from_expr(lhs, refs);
+            collect_function_refs_from_expr(index, refs);
+        }
+        FunctionExprKind::Slice { lhs, range, .. } => {
+            collect_function_refs_from_expr(lhs, refs);
+            if let Some(start) = &range.start {
+                collect_function_refs_from_expr(start, refs);
+            }
+            if let Some(end) = &range.end {
+                collect_function_refs_from_expr(end, refs);
+            }
+        }
+        FunctionExprKind::Error => unreachable_invalid_function_ir("FunctionExprKind::Error"),
+        FunctionExprKind::Integer(_)
+        | FunctionExprKind::Float(_)
+        | FunctionExprKind::String(_)
+        | FunctionExprKind::ByteString(_)
+        | FunctionExprKind::Char(_)
+        | FunctionExprKind::ByteChar(_)
+        | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
+        | FunctionExprKind::ConstGeneric(_)
+        | FunctionExprKind::Local(_)
+        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::BuiltinValue(_)
+        | FunctionExprKind::Trap => {}
+        FunctionExprKind::Global(def_id) => {
+            refs.globals.insert(*def_id);
+        }
+        FunctionExprKind::GlobalInstance {
+            def_id,
+            arg_module_id,
+            args,
+            const_args,
+        } => refs.global_instances.push(GlobalInstanceRef {
+            def_id: *def_id,
+            arg_module_id: *arg_module_id,
+            args: args.clone(),
+            const_args: const_args.clone(),
+            span: expr.span,
+        }),
+    }
+}
+
+fn collect_function_refs_from_atomic(atomic: &FunctionAtomic, refs: &mut FunctionBodyRefs) {
+    match atomic {
+        FunctionAtomic::Load { ptr, .. } => collect_function_refs_from_expr(ptr, refs),
+        FunctionAtomic::Store { ptr, value, .. } | FunctionAtomic::Rmw { ptr, value, .. } => {
+            collect_function_refs_from_expr(ptr, refs);
+            collect_function_refs_from_expr(value, refs);
+        }
+        FunctionAtomic::Cmpxchg {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            collect_function_refs_from_expr(ptr, refs);
+            collect_function_refs_from_expr(expected, refs);
+            collect_function_refs_from_expr(desired, refs);
+        }
+        FunctionAtomic::Fence { .. } => {}
+    }
+}
+
+fn collect_function_refs_from_callee(
+    span: Span,
+    callee: &FunctionCallee,
+    refs: &mut FunctionBodyRefs,
+) {
+    match callee {
+        FunctionCallee::Function(def_id) => {
+            refs.functions.insert(*def_id);
+        }
+        FunctionCallee::FunctionInstance {
+            def_id,
+            arg_module_id,
+            self_arg,
+            args,
+            const_args,
+        } => {
+            refs.function_instances.push(FunctionInstanceRef {
+                def_id: *def_id,
+                arg_module_id: *arg_module_id,
+                self_arg: *self_arg,
+                args: args.clone(),
+                const_args: const_args.clone(),
+                span,
+            });
+        }
+        FunctionCallee::Method {
+            def_id,
+            arg_module_id,
+            self_arg,
+            args,
+            receiver,
+            ..
+        } => {
+            if self_arg.is_none() && args.is_empty() {
+                refs.functions.insert(*def_id);
+            } else {
+                refs.function_instances.push(FunctionInstanceRef {
+                    def_id: *def_id,
+                    arg_module_id: *arg_module_id,
+                    self_arg: *self_arg,
+                    args: args.clone(),
+                    const_args: Vec::new(),
+                    span,
+                });
+            }
+            collect_function_refs_from_expr(receiver, refs);
+        }
+        FunctionCallee::TraitMethod { receiver, .. } => {
+            collect_function_refs_from_expr(receiver, refs);
+        }
+        FunctionCallee::TraitAssociatedFunction { .. } => {}
+        FunctionCallee::DynamicTraitMethod { receiver, .. }
+        | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::BuiltinMethod { receiver, .. }
+        | FunctionCallee::FunctionPointer(receiver) => {
+            collect_function_refs_from_expr(receiver, refs);
+        }
+        FunctionCallee::BuiltinOperator(_) => {}
+    }
+}
+
+fn collect_function_refs_from_place(place: &FunctionPlace, refs: &mut FunctionBodyRefs) {
+    match &place.base {
+        FunctionPlaceBase::Deref(expr) => collect_function_refs_from_expr(expr, refs),
+        FunctionPlaceBase::Local(_) => {}
+        FunctionPlaceBase::Global(def_id) => {
+            refs.globals.insert(*def_id);
+        }
+        FunctionPlaceBase::GlobalInstance {
+            def_id,
+            arg_module_id,
+            args,
+            const_args,
+        } => refs.global_instances.push(GlobalInstanceRef {
+            def_id: *def_id,
+            arg_module_id: *arg_module_id,
+            args: args.clone(),
+            const_args: const_args.clone(),
+            span: place.span,
+        }),
+        FunctionPlaceBase::Error => unreachable_invalid_function_ir("FunctionPlaceBase::Error"),
+    }
+    for elem in &place.elems {
+        match elem {
+            FunctionPlaceElem::Index(expr) => collect_function_refs_from_expr(expr, refs),
+            FunctionPlaceElem::Field(_) => {}
+            FunctionPlaceElem::Error => unreachable_invalid_function_ir("FunctionPlaceElem::Error"),
+        }
+    }
+}
+
+fn collect_function_refs_from_inline_asm(asm: &FunctionInlineAsm, refs: &mut FunctionBodyRefs) {
+    for input in &asm.inputs {
+        collect_function_refs_from_expr(&input.value, refs);
+    }
+    for output in &asm.outputs {
+        collect_function_refs_from_place(&output.place, refs);
+    }
+}
+
+fn unreachable_invalid_function_ir(node: &'static str) -> ! {
+    panic!("Nia ICE: invalid function IR reached value reference traversal: {node}");
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeSet, HashSet};
+
+    use super::*;
+    use crate::{
+        AtomicOrder, FunctionAsmInput, FunctionAsmOutput, FunctionBlockId, FunctionScope,
+        FunctionScopeId,
+    };
+    use nia_ids::{DefId, ModuleIdAllocator};
+    use nia_ty::{PrimitiveTy, TypeStore};
+
+    fn expr(ty: InternedTyId, kind: FunctionExprKind) -> FunctionExpr {
+        FunctionExpr {
+            span: Span::default(),
+            ty,
+            kind,
+        }
+    }
+
+    fn global(module_id: ModuleId, def_id: u64) -> GlobalDefId {
+        GlobalDefId {
+            module_id,
+            def_id: DefId(def_id),
+        }
+    }
+
+    #[test]
+    fn traverses_nested_typed_value_references() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let arg_module_id = module_ids.allocate();
+        let types = TypeStore::new();
+        let ty = types
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::Usize);
+        let function = global(module_id, 1);
+        let nested_function = global(module_id, 2);
+        let function_instance = global(module_id, 3);
+        let defer_function_instance = global(module_id, 4);
+        let global_value = global(module_id, 5);
+        let global_place = global(module_id, 6);
+        let global_instance = global(module_id, 7);
+
+        let instance_expr = expr(
+            ty,
+            FunctionExprKind::FunctionInstance {
+                def_id: function_instance,
+                arg_module_id,
+                self_arg: Some(ty),
+                args: vec![ty],
+                const_args: Vec::new(),
+            },
+        );
+        let call = expr(
+            ty,
+            FunctionExprKind::Call {
+                callee: FunctionCallee::Function(function),
+                args: vec![expr(
+                    ty,
+                    FunctionExprKind::Atomic(FunctionAtomic::Load {
+                        ty,
+                        ptr: Box::new(expr(ty, FunctionExprKind::Global(global_value))),
+                        order: AtomicOrder::Acquire,
+                    }),
+                )],
+            },
+        );
+        let asm = expr(
+            ty,
+            FunctionExprKind::InlineAsm(FunctionInlineAsm {
+                code: String::new(),
+                inputs: vec![FunctionAsmInput {
+                    constraint: "r".to_string(),
+                    value: expr(ty, FunctionExprKind::Global(global_value)),
+                    span: Span::default(),
+                }],
+                outputs: vec![FunctionAsmOutput {
+                    constraint: "=r".to_string(),
+                    place: FunctionPlace {
+                        span: Span::default(),
+                        ty,
+                        base: FunctionPlaceBase::Global(global_place),
+                        elems: vec![FunctionPlaceElem::Index(Box::new(expr(
+                            ty,
+                            FunctionExprKind::Function(nested_function),
+                        )))],
+                    },
+                    span: Span::default(),
+                }],
+                clobbers: Vec::new(),
+                options: Vec::new(),
+            }),
+        );
+        let defer = FunctionDeferBody {
+            span: Span::default(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span: Span::default(),
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span: Span::default(),
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return {
+                    value: Some(expr(
+                        ty,
+                        FunctionExprKind::Call {
+                            callee: FunctionCallee::FunctionInstance {
+                                def_id: defer_function_instance,
+                                arg_module_id,
+                                self_arg: None,
+                                args: vec![ty],
+                                const_args: Vec::new(),
+                            },
+                            args: vec![expr(
+                                ty,
+                                FunctionExprKind::AddrOf(FunctionPlace {
+                                    span: Span::default(),
+                                    ty,
+                                    base: FunctionPlaceBase::GlobalInstance {
+                                        def_id: global_instance,
+                                        arg_module_id,
+                                        args: vec![ty],
+                                        const_args: Vec::new(),
+                                    },
+                                    elems: Vec::new(),
+                                }),
+                            )],
+                        },
+                    )),
+                    span: Span::default(),
+                },
+            }],
+            entry: FunctionBlockId(0),
+        };
+        let body = FunctionBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span: Span::default(),
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span: Span::default(),
+                ops: vec![
+                    FunctionOp::Expr(instance_expr),
+                    FunctionOp::Expr(call),
+                    FunctionOp::Expr(asm),
+                    FunctionOp::Defer(defer),
+                ],
+                terminator: FunctionTerminator::Tail {
+                    value: None,
+                    span: Span::default(),
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty,
+        };
+
+        let refs = body.value_refs();
+
+        assert_eq!(refs.functions, BTreeSet::from([function, nested_function]));
+        assert_eq!(refs.globals, BTreeSet::from([global_value, global_place]));
+        assert_eq!(
+            refs.function_instances
+                .iter()
+                .map(FunctionInstanceRef::key)
+                .collect::<HashSet<_>>(),
+            HashSet::from([
+                FunctionInstanceKey {
+                    def_id: function_instance,
+                    arg_module_id,
+                    self_arg: Some(ty),
+                    args: vec![ty],
+                    const_args: Vec::new(),
+                },
+                FunctionInstanceKey {
+                    def_id: defer_function_instance,
+                    arg_module_id,
+                    self_arg: None,
+                    args: vec![ty],
+                    const_args: Vec::new(),
+                },
+            ])
+        );
+        assert_eq!(
+            refs.global_instances
+                .iter()
+                .map(GlobalInstanceRef::key)
+                .collect::<HashSet<_>>(),
+            HashSet::from([GlobalInstanceKey {
+                def_id: global_instance,
+                arg_module_id,
+                args: vec![ty],
+                const_args: Vec::new(),
+            }])
+        );
+    }
+
+    #[test]
+    fn instance_keys_ignore_reference_spans() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let def_id = global(module_id, 1);
+        let types = TypeStore::new();
+        let ty = types
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::Usize);
+        let mut reference = FunctionInstanceRef {
+            def_id,
+            arg_module_id: module_id,
+            self_arg: None,
+            args: vec![ty],
+            const_args: Vec::new(),
+            span: Span::new(1, 2),
+        };
+        let key = reference.key();
+        reference.span = Span::new(3, 4);
+
+        assert_eq!(reference.key(), key);
+    }
+}
