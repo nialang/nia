@@ -1701,6 +1701,26 @@ fingerprint. The fingerprint is computed before creating the LLVM context or
 module; hashing emitted IR or object bytes would be too late to support
 work-product reuse.
 
+Native object reuse crosses one explicit `ObjectWorkProductCache` boundary.
+The LLVM crate owns the lookup timing but no filesystem policy; the Driver owns
+the sole persistent implementation and enables it from the CLI/build cache
+directory. Each unit task computes its target-specific fingerprint and performs
+the lookup before acquiring an LLVM memory permit or creating a target machine,
+context, or module. A hit reconstructs the normal typed object result with its
+current session ID and stable key. A miss follows the only codegen path and
+publishes the resulting bytes after successful emission.
+
+Persistent entries live under `artifacts/objects/v1` and are named by the full
+128-bit content fingerprint. The binary envelope records a magic/schema,
+fingerprint, canonical unit key, payload length, and a domain-separated payload
+checksum. Reads validate the complete envelope and reject trailing or truncated
+data. A corrupt entry is physically deleted and becomes a cache miss; it is not
+interpreted through an older schema. Publication writes and syncs a unique
+same-directory temporary file before atomic rename, so interrupted writers are
+never visible as work products and concurrent identical publishers converge on
+the same immutable entry. Cache I/O failure can only lose reuse, never replace
+the compiler's current Backend IR or object result.
+
 After whole-program validation, each source partition crosses an independent
 LLVM emission boundary. That boundary creates and consumes its own LLVM
 `Context`, `ModuleCodegen`, and native `TargetMachine`, returning exactly one
@@ -1714,8 +1734,8 @@ backpressure. The outer aggregation layer owns no module-local LLVM state.
 This remains the first partition granularity, not the final CGU model.
 `ModuleId` is currently a process-local owner identity, source ordinals are not
 yet split beyond zero, and validation remains a whole-program predecessor.
-Finer partitioning, frontend/LLVM overlap, persistent work-product storage, and
-incremental link inputs remain Phase G work.
+Finer partitioning, frontend/LLVM overlap, incremental link inputs, and richer
+reuse/invalidation reporting remain Phase G work.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level and a reported codegen size policy. Size-oriented levels

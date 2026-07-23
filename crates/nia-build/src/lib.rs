@@ -7,7 +7,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use nia_driver::{CheckRequest, Driver, DriverError, LinkExecutableRequest, TimingMode};
+use nia_driver::{
+    CheckRequest, Driver, DriverConfig, DriverError, LinkExecutableRequest, TimingMode,
+};
 use nia_imports::ModuleMap;
 use nia_source::{SourceDatabase, SourcePath};
 use nia_timing::TimingOptions;
@@ -371,7 +373,10 @@ fn compile_build_runner(plan: &BuildPlan) -> Result<PathBuf, BuildError> {
             error,
         })?;
     }
-    let driver = Driver::new();
+    let driver = Driver::with_config(DriverConfig {
+        object_cache_dir: Some(plan.cache_dir.clone()),
+        ..DriverConfig::default()
+    });
     driver.set_source(runner.path.clone(), runner.source.clone());
     let output = driver.link_executable(LinkExecutableRequest::new(
         CheckRequest::new(runner.path.clone())

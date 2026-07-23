@@ -1108,7 +1108,10 @@ fn run_emit_obj(
             return ExitCode::FAILURE;
         }
     };
-    let driver = nia_driver::Driver::new();
+    let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
+        object_cache_dir: options.cache_dir.clone(),
+        ..nia_driver::DriverConfig::default()
+    });
     let output = time_summary_stage(timings, "codegen", || {
         codegen_with_driver(
             &driver,
@@ -1197,7 +1200,10 @@ fn run_emit_exe(
     } else {
         None
     };
-    let driver = nia_driver::Driver::new();
+    let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
+        object_cache_dir: options.cache_dir.clone(),
+        ..nia_driver::DriverConfig::default()
+    });
     let output = time_summary_stage(timings, "codegen_exe", || {
         codegen_with_driver(
             &driver,
@@ -1260,6 +1266,7 @@ fn run_emit_exe(
 struct EmitObjOptions {
     output: EmitObjOutput,
     runtime: Runtime,
+    cache_dir: Option<PathBuf>,
 }
 
 enum EmitObjOutput {
@@ -1280,11 +1287,16 @@ fn parse_emit_obj_options(source: &str, args: Vec<String>) -> Result<EmitObjOpti
     let mut output = None::<PathBuf>;
     let mut out_dir = None::<PathBuf>;
     let mut runtime = Runtime::Bare;
+    let mut cache_dir = None;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         if let Some(value) = arg.strip_prefix("--runtime=") {
             runtime = parse_runtime(value)
                 .map_err(|message| format!("{message} for `nia emit --obj`"))?;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--cache-dir=") {
+            cache_dir = Some(PathBuf::from(value));
             continue;
         }
         match arg.as_str() {
@@ -1307,6 +1319,12 @@ fn parse_emit_obj_options(source: &str, args: Vec<String>) -> Result<EmitObjOpti
                 runtime = parse_runtime(&value)
                     .map_err(|message| format!("{message} for `nia emit --obj`"))?;
             }
+            "--cache-dir" => {
+                let Some(path) = iter.next() else {
+                    return Err("missing path after `--cache-dir`".to_string());
+                };
+                cache_dir = Some(PathBuf::from(path));
+            }
             _ => return Err(format!("unknown `nia emit --obj` option `{arg}`")),
         }
     }
@@ -1316,7 +1334,11 @@ fn parse_emit_obj_options(source: &str, args: Vec<String>) -> Result<EmitObjOpti
         (None, Some(path)) => Ok(EmitObjOutput::Directory(path)),
         (None, None) => Ok(EmitObjOutput::Single(default_output_path(source, "o"))),
     }?;
-    Ok(EmitObjOptions { output, runtime })
+    Ok(EmitObjOptions {
+        output,
+        runtime,
+        cache_dir,
+    })
 }
 
 struct EmitExeOptions {

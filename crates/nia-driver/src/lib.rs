@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod executable_cache;
 mod inspect;
+mod object_cache;
 mod pipeline;
 mod report;
 

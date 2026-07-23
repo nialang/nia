@@ -36,12 +36,14 @@ pub struct CheckRequest {
 #[derive(Debug, Clone)]
 pub struct DriverConfig {
     pub target: TargetConfig,
+    pub object_cache_dir: Option<PathBuf>,
 }
 
 impl Default for DriverConfig {
     fn default() -> Self {
         Self {
             target: TargetConfig::host(),
+            object_cache_dir: None,
         }
     }
 }
@@ -52,6 +54,7 @@ pub struct Driver {
     sources: SourceDatabase,
     loader: std::sync::Arc<Mutex<Option<SessionLoader>>>,
     compiler: std::sync::Arc<Mutex<Option<SessionCompiler>>>,
+    object_cache: Option<std::sync::Arc<crate::object_cache::PersistentObjectWorkProductCache>>,
 }
 
 impl Default for Driver {
@@ -66,11 +69,17 @@ impl Driver {
     }
 
     pub fn with_config(config: DriverConfig) -> Self {
+        let object_cache = config.object_cache_dir.as_ref().map(|path| {
+            std::sync::Arc::new(crate::object_cache::PersistentObjectWorkProductCache::new(
+                path.clone(),
+            ))
+        });
         Self {
             config,
             sources: SourceDatabase::new(),
             loader: std::sync::Arc::new(Mutex::new(None)),
             compiler: std::sync::Arc::new(Mutex::new(None)),
+            object_cache,
         }
     }
 
@@ -282,11 +291,15 @@ impl Driver {
     ) -> DriverOutput<ObjectArtifact> {
         DriverOutput::catch_ice(|| {
             let session = self.codegen_query_session();
+            let cache = self.object_cache.as_ref().map(|cache| {
+                cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::ObjectWorkProductCache>
+            });
             let output = nia_codegen_llvm::emit_native_objects(
                 std::sync::Arc::clone(&program.backend_lowering),
                 std::sync::Arc::clone(&program.type_store),
                 &session,
                 codegen_options(program.optimization, timings),
+                cache,
             );
             if !output.diagnostics.is_empty() {
                 return DriverOutput::from_error(DriverError::CodegenDiagnostics(
