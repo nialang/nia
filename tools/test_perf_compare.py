@@ -4,7 +4,7 @@ from tools.perf_compare import compare_baselines
 
 
 def result(name, wall, rss, queries, allocations):
-    return {
+    value = {
         "name": name,
         "process": {"wall_seconds": wall, "max_rss_bytes": rss},
         "counters": {
@@ -13,6 +13,11 @@ def result(name, wall, rss, queries, allocations):
             "allocator.peak_live_bytes": allocations // 2,
         },
     }
+    if name == "module_backend":
+        value["counters"]["backend.module_finalization.peak_growth_bytes"] = (
+            allocations // 10
+        )
+    return value
 
 
 def baseline(results, cpu=8, memory=16_000_000_000):
@@ -74,6 +79,20 @@ class CompareBaselinesTests(unittest.TestCase):
             item for item in report["comparisons"] if item["metric"] == "wall_seconds"
         )
         self.assertFalse(wall["passed"])
+
+    def test_guards_module_finalization_peak_growth(self):
+        before = baseline([result("module_backend", 10.0, 100, 1000, 1000)])
+        after = baseline([result("module_backend", 10.0, 100, 1000, 1300)])
+
+        report = compare_baselines(before, after, self.thresholds, False)
+
+        finalization_peak = next(
+            item
+            for item in report["comparisons"]
+            if item["metric"]
+            == "backend.module_finalization.peak_growth_bytes"
+        )
+        self.assertFalse(finalization_peak["passed"])
 
     def test_rejects_incompatible_machine_by_default(self):
         before = baseline([result("check", 10.0, 100, 1000, 1000)], cpu=8)

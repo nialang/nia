@@ -26,6 +26,9 @@ static DEALLOCATED_BYTES: AtomicU64 = AtomicU64::new(0);
 static QUERY_VALUE_CLONE_BYTES: AtomicU64 = AtomicU64::new(0);
 static LIVE_BYTES: AtomicU64 = AtomicU64::new(0);
 static PEAK_LIVE_BYTES: AtomicU64 = AtomicU64::new(0);
+static LIVE_WINDOW_LOCK: Mutex<()> = Mutex::new(());
+static LIVE_WINDOW_ACTIVE: AtomicBool = AtomicBool::new(false);
+static LIVE_WINDOW_PEAK_BYTES: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
     static THREAD_ALLOCATED_BYTES: Cell<u64> = const { Cell::new(0) };
@@ -101,6 +104,70 @@ pub struct AllocationLiveSnapshot {
     pub peak_live_bytes: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AllocationLiveWindowMeasurement {
+    pub start_live_bytes: u64,
+    pub end_live_bytes: u64,
+    pub peak_live_bytes: u64,
+}
+
+struct AllocationLiveWindow {
+    start_live_bytes: u64,
+    active: bool,
+}
+
+impl AllocationLiveWindow {
+    fn start() -> Option<Self> {
+        if !ALLOCATION_INSTRUMENTATION_AVAILABLE.load(Ordering::Acquire)
+            || !ALLOCATION_TRACKING_ENABLED.load(Ordering::Acquire)
+        {
+            return None;
+        }
+        let _lock = LIVE_WINDOW_LOCK
+            .lock()
+            .expect("allocation live window lock poisoned");
+        if LIVE_WINDOW_ACTIVE.load(Ordering::Acquire) {
+            return None;
+        }
+        let start_live_bytes = LIVE_BYTES.load(Ordering::Relaxed);
+        LIVE_WINDOW_PEAK_BYTES.store(start_live_bytes, Ordering::Relaxed);
+        LIVE_WINDOW_ACTIVE.store(true, Ordering::Release);
+        Some(Self {
+            start_live_bytes,
+            active: true,
+        })
+    }
+
+    fn finish(mut self) -> AllocationLiveWindowMeasurement {
+        let measurement = self.stop();
+        self.active = false;
+        measurement
+    }
+
+    fn stop(&self) -> AllocationLiveWindowMeasurement {
+        let _lock = LIVE_WINDOW_LOCK
+            .lock()
+            .expect("allocation live window lock poisoned");
+        LIVE_WINDOW_ACTIVE.store(false, Ordering::Release);
+        let end_live_bytes = LIVE_BYTES.load(Ordering::Relaxed);
+        AllocationLiveWindowMeasurement {
+            start_live_bytes: self.start_live_bytes,
+            end_live_bytes,
+            peak_live_bytes: LIVE_WINDOW_PEAK_BYTES
+                .load(Ordering::Relaxed)
+                .max(end_live_bytes),
+        }
+    }
+}
+
+impl Drop for AllocationLiveWindow {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = self.stop();
+        }
+    }
+}
+
 /// Registers that this process installed [`CountingAllocator`] globally.
 ///
 /// A binary must call this once during startup. Detail timing omits allocation
@@ -152,6 +219,20 @@ pub fn allocation_live_snapshot() -> Option<AllocationLiveSnapshot> {
     })
 }
 
+/// Measures process-wide live Rust heap growth while `measure` runs.
+///
+/// Allocations from worker threads are included. At most one live window may
+/// be active in the process; an overlapping request still runs `measure` but
+/// returns no measurement instead of merging unrelated intervals.
+pub fn measure_allocation_live_window<T>(
+    measure: impl FnOnce() -> T,
+) -> (T, Option<AllocationLiveWindowMeasurement>) {
+    let window = AllocationLiveWindow::start();
+    let value = measure();
+    let measurement = window.map(AllocationLiveWindow::finish);
+    (value, measurement)
+}
+
 fn record_allocation(size: usize) {
     increase_live_bytes(size as u64);
     if !ALLOCATION_TRACKING_ENABLED.load(Ordering::Relaxed) {
@@ -192,6 +273,9 @@ fn increase_live_bytes(size: u64) {
         .saturating_add(size);
     if ALLOCATION_TRACKING_ENABLED.load(Ordering::Relaxed) {
         PEAK_LIVE_BYTES.fetch_max(live, Ordering::Relaxed);
+    }
+    if LIVE_WINDOW_ACTIVE.load(Ordering::Relaxed) {
+        LIVE_WINDOW_PEAK_BYTES.fetch_max(live, Ordering::Relaxed);
     }
 }
 
@@ -1282,6 +1366,32 @@ mod tests {
                 query_value_clone_bytes: 24,
             }
         );
+    }
+
+    #[test]
+    fn allocation_live_window_tracks_worker_visible_peak_without_overlapping() {
+        let _lock = collector_test_lock();
+        register_allocation_instrumentation();
+        let baseline = LIVE_BYTES.load(Ordering::Relaxed);
+        assert!(start_allocation_tracking());
+
+        let ((), measurement) = measure_allocation_live_window(|| {
+            record_allocation(64);
+            let ((), nested) = measure_allocation_live_window(|| record_allocation(32));
+            assert_eq!(nested, None);
+            record_deallocation(24);
+        });
+
+        assert_eq!(
+            measurement,
+            Some(AllocationLiveWindowMeasurement {
+                start_live_bytes: baseline,
+                end_live_bytes: baseline + 72,
+                peak_live_bytes: baseline + 96,
+            })
+        );
+        let _ = finish_allocation_tracking();
+        record_deallocation(72);
     }
 
     #[test]

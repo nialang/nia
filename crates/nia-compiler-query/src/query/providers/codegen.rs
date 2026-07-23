@@ -331,12 +331,18 @@ fn provide_backend_lowering_inner(
             db.context().timings(),
         );
     }
-    let module_finalizations = db.get_many_owned(module_ids.iter().copied().enumerate().map(
-        |(position, module_id)| BackendModuleFinalizationQuery {
-            module_id,
-            position,
-        },
-    ));
+    let (module_finalizations, finalization_allocation) =
+        nia_timing::measure_allocation_live_window(|| {
+            db.get_many_owned(module_ids.iter().copied().enumerate().map(
+                |(position, module_id)| BackendModuleFinalizationQuery {
+                    module_id,
+                    position,
+                },
+            ))
+        });
+    if let Some(measurement) = finalization_allocation {
+        emit_backend_module_finalization_allocation(measurement);
+    }
     emit_backend_module_plan_allocation("after_consume");
     nia_backend_lower::finish_backend_module_finalizations(
         finalization,
@@ -356,6 +362,29 @@ fn emit_backend_module_plan_allocation(stage: &str) {
     nia_timing::emit_counter(
         format!("backend.module_plan.{stage}.peak_live_bytes"),
         snapshot.peak_live_bytes,
+    );
+}
+
+fn emit_backend_module_finalization_allocation(
+    measurement: nia_timing::AllocationLiveWindowMeasurement,
+) {
+    nia_timing::emit_counter(
+        "backend.module_finalization.start_live_bytes",
+        measurement.start_live_bytes,
+    );
+    nia_timing::emit_counter(
+        "backend.module_finalization.end_live_bytes",
+        measurement.end_live_bytes,
+    );
+    nia_timing::emit_counter(
+        "backend.module_finalization.peak_live_bytes",
+        measurement.peak_live_bytes,
+    );
+    nia_timing::emit_counter(
+        "backend.module_finalization.peak_growth_bytes",
+        measurement
+            .peak_live_bytes
+            .saturating_sub(measurement.start_live_bytes),
     );
 }
 

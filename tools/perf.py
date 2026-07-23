@@ -26,6 +26,11 @@ def workloads(output_dir: Path) -> dict[str, list[str]]:
         "array_list": ["check", str(ROOT / "examples" / "04_array_list.nia")],
         "traits": ["check", str(ROOT / "examples" / "05_traits_generics.nia")],
         "const_eval": ["check", str(ROOT / "benchmarks" / "const_heavy.nia")],
+        "module_backend": [
+            "emit",
+            "--backend",
+            str(ROOT / "examples" / "modules" / "main.nia"),
+        ],
         "emit_exe": [
             "emit",
             "--exe",
@@ -203,6 +208,20 @@ def require_allocation_instrumentation(report: dict[str, Any]) -> None:
         )
 
 
+def require_module_finalization_instrumentation(report: dict[str, Any]) -> None:
+    counters = report.get("counters", {})
+    required = {
+        "backend.module_finalization.start_live_bytes",
+        "backend.module_finalization.end_live_bytes",
+        "backend.module_finalization.peak_live_bytes",
+        "backend.module_finalization.peak_growth_bytes",
+    }
+    if not isinstance(counters, dict) or not required.issubset(counters):
+        raise RuntimeError(
+            "module_backend timing report has no backend finalization live-window counters"
+        )
+
+
 def command_label(value: str) -> str:
     path = Path(value)
     if not path.is_absolute():
@@ -234,6 +253,8 @@ def run_workload(compiler: Path, name: str, args: list[str]) -> dict[str, Any]:
         raise RuntimeError(f"workload {name!r} failed with status {result.returncode}")
     report = normalize_report_paths(timing_json(result.stderr))
     require_allocation_instrumentation(report)
+    if name == "module_backend":
+        require_module_finalization_instrumentation(report)
     report["name"] = name
     try:
         compiler_label = str(compiler.relative_to(ROOT))
