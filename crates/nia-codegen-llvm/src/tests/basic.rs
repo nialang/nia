@@ -380,6 +380,14 @@ fn divrem(value: u128, by: u128) u128 {
             .map(|module| &module.name)
             .collect::<Vec<_>>()
     );
+    assert_eq!(
+        output
+            .modules
+            .iter()
+            .find(|module| module.name == "nia.compiler_builtins")
+            .map(|module| module.unit),
+        Some(CodegenUnitId::CompilerBuiltins)
+    );
 }
 
 #[test]

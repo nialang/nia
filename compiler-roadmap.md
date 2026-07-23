@@ -1362,6 +1362,8 @@ Acceptance：BackendProgram 不再包含所有 function body 深树和 interner�
 
 Acceptance：多核 workload CPU 利用率明显提升；小改动只重建受影响 CGU；并行不会显著抬高 RSS。
 
+进展（2026-07-23）：G-1 建立首个正式deterministic codegen partition product。`BackendLowering`在finalized module集合形成后唯一发布`CodegenPartitionPlan`；source unit使用`CodegenUnitId::SourceModule { module_id, ordinal }`，首版policy令每个拥有function/global/concrete instance/vtable定义的backend module对应ordinal 0，按typed identity排序而不是继承`BackendProgram.modules`输入顺序。plan entry只保存module index，不复制Backend IR；declaration-only module继续进入whole-program `ProgramIndex`提供跨unit声明/layout lookup，但不再伪装成IR/object work unit。LLVM IR与object入口现在必须显式接收并验证正式plan，旧直接遍历全部module及LLVM本地`module_has_object_definitions` truth source已物理删除；两类输出都携带typed unit identity。compiler builtins明确使用独立`CompilerBuiltins` synthetic identity，只在native lowering确有需求时加入。乱序/空定义过滤、plan-program mismatch拒绝、跨模块输出顺序及builtins role回归已锁定；审计还纠正了旧object过滤把带body的`extern fn`误判为纯声明的问题，ABI/linkage标志不再覆盖body存在这一真实definition事实。Backend IR 2项、backend-lower 100项、compiler-query 146项与LLVM 177项通过，workspace all-target/all-feature check、严格Clippy、fmt与diff check通过。当前`ModuleId`仍是进程内identity、source ordinal尚未细分且LLVM仍串行，全程序readonly index也仍先构建；因此本切片不宣称已有持久CGU key/fingerprint、细粒度partition、codegen task queue、work product cache或incremental link input。Phase F仍按99%计，Phase G约15%，整份roadmap约81%；下一切片应把source partition提升为独立可调度LLVM task输入，并拆分每unit emission result，同时保持whole-program declaration/layout facts只读共享，随后再建立CGU fingerprint与object work product。
+
 ### 阶段 H（P1/P2）：持久 frontend incremental
 
 1. stable module/def key。

@@ -432,10 +432,12 @@ fn empty_monomorphization() -> nia_monomorphize::Monomorphization {
 }
 
 fn empty_backend_lowering(optimization: OptimizationPolicy) -> nia_backend_lower::BackendLowering {
+    let program = nia_backend_ir::BackendProgram {
+        modules: Vec::new(),
+    };
     nia_backend_lower::BackendLowering {
-        program: nia_backend_ir::BackendProgram {
-            modules: Vec::new(),
-        },
+        codegen_partitions: program.codegen_partition_plan(),
+        program,
         optimization,
         optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
         diagnostics: Vec::new(),

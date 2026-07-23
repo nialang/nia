@@ -117,6 +117,20 @@ pub fn add(a: i32, b: i32) i32 {
 
     let output = emit_llvm_ir(&codegen.backend_lowering.program, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert_eq!(
+        output
+            .modules
+            .iter()
+            .map(|module| module.unit)
+            .collect::<Vec<_>>(),
+        codegen
+            .backend_lowering
+            .codegen_partitions
+            .partitions()
+            .iter()
+            .map(|partition| partition.id)
+            .collect::<Vec<_>>()
+    );
     let main_ir = output
         .modules
         .iter()

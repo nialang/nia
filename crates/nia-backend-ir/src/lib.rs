@@ -14,6 +14,85 @@ pub struct BackendProgram {
     pub modules: Vec<BackendModule>,
 }
 
+impl BackendProgram {
+    pub fn codegen_partition_plan(&self) -> CodegenPartitionPlan {
+        CodegenPartitionPlan::from_modules(&self.modules)
+    }
+
+    pub fn module_for_partition(&self, partition: &CodegenPartition) -> &BackendModule {
+        let module = self.modules.get(partition.module_index).unwrap_or_else(|| {
+            panic!(
+                "Nia ICE: codegen partition {:?} references missing backend module index {}",
+                partition.id, partition.module_index
+            )
+        });
+        assert_eq!(
+            partition.id,
+            CodegenUnitId::SourceModule {
+                module_id: module.id,
+                ordinal: 0,
+            },
+            "Nia ICE: codegen partition owner does not match its backend module"
+        );
+        module
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CodegenUnitId {
+    SourceModule { module_id: ModuleId, ordinal: u32 },
+    CompilerBuiltins,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodegenPartitionPlan {
+    partitions: Vec<CodegenPartition>,
+}
+
+impl CodegenPartitionPlan {
+    fn from_modules(modules: &[BackendModule]) -> Self {
+        let mut partitions = modules
+            .iter()
+            .enumerate()
+            .filter(|(_, module)| module.has_codegen_definitions())
+            .map(|(module_index, module)| CodegenPartition {
+                id: CodegenUnitId::SourceModule {
+                    module_id: module.id,
+                    ordinal: 0,
+                },
+                module_index,
+            })
+            .collect::<Vec<_>>();
+        partitions.sort_unstable_by_key(|partition| partition.id);
+        for pair in partitions.windows(2) {
+            assert_ne!(
+                pair[0].id, pair[1].id,
+                "Nia ICE: backend program contains duplicate codegen partition identity"
+            );
+        }
+        Self { partitions }
+    }
+
+    pub fn partitions(&self) -> &[CodegenPartition] {
+        &self.partitions
+    }
+
+    pub fn validate_program(&self, program: &BackendProgram) {
+        let modules = &program.modules;
+        let expected = Self::from_modules(modules);
+        assert_eq!(
+            self, &expected,
+            "Nia ICE: codegen partition plan does not match the backend program"
+        );
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CodegenPartition {
+    pub id: CodegenUnitId,
+    module_index: usize,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct BackendModule {
     pub id: ModuleId,
@@ -31,6 +110,22 @@ pub struct BackendModule {
     pub function_instances: Vec<BackendFunctionInstance>,
     pub trait_object_vtables: Vec<BackendTraitObjectVtable>,
     pub generic_instantiations: Vec<BackendGenericInstantiation>,
+}
+
+impl BackendModule {
+    fn has_codegen_definitions(&self) -> bool {
+        self.globals.iter().any(|global| !global.is_extern)
+            || !self.global_instances.is_empty()
+            || self
+                .functions
+                .iter()
+                .any(|function| function.function_body.is_some())
+            || self
+                .function_instances
+                .iter()
+                .any(|function| function.function_body.is_some())
+            || !self.trait_object_vtables.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -325,4 +420,122 @@ pub struct BackendParam {
     pub passing_ty: InternedTyId,
     pub local_ty: InternedTyId,
     pub span: Span,
+}
+
+#[cfg(test)]
+mod tests {
+    use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
+    use nia_layout::TargetDataLayout;
+    use nia_symbol::SymbolId;
+    use nia_ty::PrimitiveTy;
+
+    use super::*;
+
+    fn module_with_global(
+        module_id: ModuleId,
+        ty: InternedTyId,
+        name: &str,
+        is_extern: bool,
+    ) -> BackendModule {
+        BackendModule {
+            id: module_id,
+            name: name.to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: TargetDataLayout::LP64,
+                types: Vec::new(),
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            unions: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: vec![BackendGlobal {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(0),
+                },
+                name: SymbolId::EMPTY,
+                link_name: None,
+                ty,
+                is_let: false,
+                is_extern,
+                init: None,
+                span: Span::default(),
+            }],
+            global_instances: Vec::new(),
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn codegen_partitions_are_definition_filtered_and_owner_ordered() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let first_id = module_ids.allocate();
+        let declaration_id = module_ids.allocate();
+        let second_id = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let first_ty = type_store
+            .append_for_module(first_id)
+            .primitive(PrimitiveTy::I32);
+        let declaration_ty = type_store
+            .append_for_module(declaration_id)
+            .primitive(PrimitiveTy::I32);
+        let second_ty = type_store
+            .append_for_module(second_id)
+            .primitive(PrimitiveTy::I32);
+        let program = BackendProgram {
+            modules: vec![
+                module_with_global(second_id, second_ty, "second", false),
+                module_with_global(declaration_id, declaration_ty, "declaration", true),
+                module_with_global(first_id, first_ty, "first", false),
+            ],
+        };
+
+        let plan = program.codegen_partition_plan();
+        let partitions = plan.partitions();
+        assert_eq!(
+            partitions
+                .iter()
+                .map(|partition| partition.id)
+                .collect::<Vec<_>>(),
+            vec![
+                CodegenUnitId::SourceModule {
+                    module_id: first_id,
+                    ordinal: 0,
+                },
+                CodegenUnitId::SourceModule {
+                    module_id: second_id,
+                    ordinal: 0,
+                },
+            ]
+        );
+        assert_eq!(program.module_for_partition(&partitions[0]).name, "first");
+        assert_eq!(program.module_for_partition(&partitions[1]).name, "second");
+    }
+
+    #[test]
+    #[should_panic(expected = "codegen partition plan does not match")]
+    fn codegen_partition_plan_rejects_definition_membership_mutation() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let ty = type_store
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::I32);
+        let mut program = BackendProgram {
+            modules: vec![module_with_global(module_id, ty, "main", false)],
+        };
+        let plan = program.codegen_partition_plan();
+        program.modules[0].globals.clear();
+
+        plan.validate_program(&program);
+    }
 }
