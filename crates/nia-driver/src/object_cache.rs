@@ -6,7 +6,9 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use nia_codegen_llvm::{CodegenUnitFingerprint, CodegenUnitKey, ObjectWorkProductCache};
+use nia_codegen_llvm::{
+    CodegenUnitFingerprint, CodegenUnitKey, ObjectWorkProductCache, ObjectWorkProductLookup,
+};
 use nia_query::QueryFingerprintBuilder;
 
 const OBJECT_WORK_PRODUCT_MAGIC: &[u8; 8] = b"NIAOBJ01";
@@ -46,18 +48,20 @@ impl ObjectWorkProductCache for PersistentObjectWorkProductCache {
         &self,
         key: &CodegenUnitKey,
         fingerprint: CodegenUnitFingerprint,
-    ) -> io::Result<Option<Vec<u8>>> {
+    ) -> io::Result<ObjectWorkProductLookup> {
         let path = self.path(fingerprint);
         let encoded = match fs::read(&path) {
             Ok(encoded) => encoded,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(ObjectWorkProductLookup::NotFound);
+            }
             Err(error) => return Err(error),
         };
         let Some(bytes) = decode_work_product(&encoded, key, fingerprint) else {
             Self::remove_corrupt(&path);
-            return Ok(None);
+            return Ok(ObjectWorkProductLookup::Corrupt);
         };
-        Ok(Some(bytes))
+        Ok(ObjectWorkProductLookup::Hit(bytes))
     }
 
     fn publish(
@@ -66,7 +70,10 @@ impl ObjectWorkProductCache for PersistentObjectWorkProductCache {
         fingerprint: CodegenUnitFingerprint,
         bytes: &[u8],
     ) -> io::Result<()> {
-        if self.load(key, fingerprint)?.is_some() {
+        if matches!(
+            self.load(key, fingerprint)?,
+            ObjectWorkProductLookup::Hit(_)
+        ) {
             return Ok(());
         }
         let path = self.path(fingerprint);
@@ -210,13 +217,17 @@ mod tests {
         let root = temp_root("round_trip");
         let cache = PersistentObjectWorkProductCache::new(root.clone());
         let fingerprint = CodegenUnitFingerprint::from_parts([10, 20]);
+        assert_eq!(
+            cache.load(&key(), fingerprint).expect("cold load"),
+            ObjectWorkProductLookup::NotFound
+        );
         cache
             .publish(&key(), fingerprint, b"object bytes")
             .expect("publish");
 
         assert_eq!(
             cache.load(&key(), fingerprint).expect("load"),
-            Some(b"object bytes".to_vec())
+            ObjectWorkProductLookup::Hit(b"object bytes".to_vec())
         );
         let _ = fs::remove_dir_all(root);
     }
@@ -234,14 +245,17 @@ mod tests {
         *encoded.last_mut().expect("payload byte") ^= 0xff;
         fs::write(&path, encoded).expect("corrupt cache");
 
-        assert_eq!(cache.load(&key(), fingerprint).expect("load"), None);
+        assert_eq!(
+            cache.load(&key(), fingerprint).expect("load"),
+            ObjectWorkProductLookup::Corrupt
+        );
         assert!(!path.exists(), "corrupt cache entry must be retired");
         cache
             .publish(&key(), fingerprint, b"second")
             .expect("republish");
         assert_eq!(
             cache.load(&key(), fingerprint).expect("load"),
-            Some(b"second".to_vec())
+            ObjectWorkProductLookup::Hit(b"second".to_vec())
         );
         let _ = fs::remove_dir_all(root);
     }

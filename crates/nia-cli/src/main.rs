@@ -1211,6 +1211,7 @@ fn run_emit_exe(
             &objects,
             options.output.clone(),
             options.link_options.clone(),
+            timings,
         )
     });
     match output.result {

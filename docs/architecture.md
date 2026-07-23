@@ -1766,6 +1766,16 @@ configured Driver for object and link-result reuse, with no compatibility
 reader or fallback fingerprint. This is complete link-result reuse: a miss
 still performs one full link, and no partial relinking is claimed.
 
+Work-product lookup outcomes are typed rather than collapsed into `Option`.
+Timing reports count object and link-result hits and misses, and separate misses
+caused by a disabled cache, an uncacheable link input, an absent entry, a
+corrupt entry, or a cache read error; link-result publication errors are also
+counted. These reasons describe facts observed during the current lookup. They
+do not consult a persistent "latest fingerprint" manifest or guess which input
+component changed, so observability metadata cannot become a second cache truth
+source. Component-level fingerprint differences require a separately versioned
+fingerprint decomposition before they can be reported accurately.
+
 After whole-program validation, each source partition crosses an independent
 LLVM emission boundary. That boundary creates and consumes its own LLVM
 `Context`, `ModuleCodegen`, and native `TargetMachine`, returning exactly one

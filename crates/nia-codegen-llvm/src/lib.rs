@@ -27,7 +27,7 @@ pub use output::{
     LlvmCodegenOptions, LlvmCodegenOutput, LlvmModuleOutput, LlvmObjectOutput, NativeObject,
 };
 use program_index::ProgramIndex;
-pub use work_product::ObjectWorkProductCache;
+pub use work_product::{ObjectWorkProductCache, ObjectWorkProductLookup};
 
 pub fn emit_llvm_ir(
     lowering: Arc<BackendLowering>,
@@ -164,11 +164,11 @@ fn emit_native_objects_inner(
     }));
     let mut outputs = Vec::with_capacity(outcomes.len());
     let mut diagnostics = Vec::new();
-    let mut reuse_hits = 0;
+    let mut reuse_counts = ObjectReuseCounts::default();
     for outcome in outcomes {
         match outcome {
-            Ok((output, reused)) => {
-                reuse_hits += usize::from(reused);
+            Ok((output, reuse)) => {
+                reuse_counts.record(reuse);
                 outputs.push(output);
             }
             Err(diagnostic) => diagnostics.push(diagnostic),
@@ -176,11 +176,7 @@ fn emit_native_objects_inner(
     }
     if timings.enabled() {
         nia_timing::emit_counter("llvm.units", outputs.len() as u64);
-        nia_timing::emit_counter("llvm.object_reuse_hits", reuse_hits as u64);
-        nia_timing::emit_counter(
-            "llvm.object_reuse_misses",
-            outputs.len().saturating_sub(reuse_hits) as u64,
-        );
+        reuse_counts.emit();
     }
     LlvmObjectOutput {
         link_inputs: IncrementalLinkInputs::new(outputs),
@@ -191,6 +187,51 @@ fn emit_native_objects_inner(
 enum NativeCodegenTask {
     Partition(CodegenPartition),
     CompilerBuiltins(compiler_builtins::CompilerBuiltinSymbols),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ObjectReuse {
+    Hit,
+    Miss(ObjectReuseMiss),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ObjectReuseMiss {
+    Disabled,
+    NotFound,
+    Corrupt,
+    ReadError,
+}
+
+#[derive(Debug, Default)]
+struct ObjectReuseCounts {
+    hits: u64,
+    disabled: u64,
+    not_found: u64,
+    corrupt: u64,
+    read_error: u64,
+}
+
+impl ObjectReuseCounts {
+    fn record(&mut self, reuse: ObjectReuse) {
+        match reuse {
+            ObjectReuse::Hit => self.hits += 1,
+            ObjectReuse::Miss(ObjectReuseMiss::Disabled) => self.disabled += 1,
+            ObjectReuse::Miss(ObjectReuseMiss::NotFound) => self.not_found += 1,
+            ObjectReuse::Miss(ObjectReuseMiss::Corrupt) => self.corrupt += 1,
+            ObjectReuse::Miss(ObjectReuseMiss::ReadError) => self.read_error += 1,
+        }
+    }
+
+    fn emit(&self) {
+        let misses = self.disabled + self.not_found + self.corrupt + self.read_error;
+        nia_timing::emit_counter("llvm.object_reuse_hits", self.hits);
+        nia_timing::emit_counter("llvm.object_reuse_misses", misses);
+        nia_timing::emit_counter("llvm.object_reuse_miss_disabled", self.disabled);
+        nia_timing::emit_counter("llvm.object_reuse_miss_not_found", self.not_found);
+        nia_timing::emit_counter("llvm.object_reuse_miss_corrupt", self.corrupt);
+        nia_timing::emit_counter("llvm.object_reuse_miss_read_error", self.read_error);
+    }
 }
 
 fn emit_llvm_ir_partition(
@@ -228,7 +269,7 @@ fn emit_native_object_partition(
     index: Arc<ProgramIndex>,
     options: LlvmCodegenOptions,
     cache: Option<&dyn ObjectWorkProductCache>,
-) -> Result<(IncrementalLinkInput<NativeObject>, bool), nia_diagnostic::Diagnostic> {
+) -> Result<(IncrementalLinkInput<NativeObject>, ObjectReuse), nia_diagnostic::Diagnostic> {
     let target_identity = time_codegen_stage(
         options.timings,
         "llvm_codegen.native_target_identity",
@@ -242,7 +283,8 @@ fn emit_native_object_partition(
         fingerprint::ArtifactTarget::NativeObject(&target_identity),
     );
     let module = index.program().module_for_partition(&partition);
-    if let Some(bytes) = load_object_work_product(cache, &partition.key, fingerprint) {
+    let lookup = load_object_work_product(cache, &partition.key, fingerprint);
+    if let ObjectReuseLookup::Hit(bytes) = lookup {
         return Ok((
             IncrementalLinkInput {
                 key: partition.key,
@@ -253,9 +295,12 @@ fn emit_native_object_partition(
                     bytes,
                 },
             },
-            true,
+            ObjectReuse::Hit,
         ));
     }
+    let ObjectReuseLookup::Miss(miss) = lookup else {
+        unreachable!("object cache hit returned before codegen")
+    };
     let memory_permit = nia_query::acquire_llvm_memory_permit();
     record_memory_permit(options.timings, memory_permit.waited());
     let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
@@ -286,7 +331,7 @@ fn emit_native_object_partition(
                 bytes,
             },
         },
-        false,
+        ObjectReuse::Miss(miss),
     ))
 }
 
@@ -294,7 +339,7 @@ fn emit_compiler_builtins_object(
     symbols: compiler_builtins::CompilerBuiltinSymbols,
     options: LlvmCodegenOptions,
     cache: Option<&dyn ObjectWorkProductCache>,
-) -> Result<(IncrementalLinkInput<NativeObject>, bool), nia_diagnostic::Diagnostic> {
+) -> Result<(IncrementalLinkInput<NativeObject>, ObjectReuse), nia_diagnostic::Diagnostic> {
     let target_identity = time_codegen_stage(
         options.timings,
         "llvm_codegen.native_target_identity",
@@ -303,9 +348,8 @@ fn emit_compiler_builtins_object(
     .map_err(|error| error.diagnostic())?;
     let fingerprint =
         fingerprint::compiler_builtins_fingerprint(&symbols, options, &target_identity);
-    if let Some(bytes) =
-        load_object_work_product(cache, &CodegenUnitKey::CompilerBuiltins, fingerprint)
-    {
+    let lookup = load_object_work_product(cache, &CodegenUnitKey::CompilerBuiltins, fingerprint);
+    if let ObjectReuseLookup::Hit(bytes) = lookup {
         return Ok((
             IncrementalLinkInput {
                 key: CodegenUnitKey::CompilerBuiltins,
@@ -316,9 +360,12 @@ fn emit_compiler_builtins_object(
                     bytes,
                 },
             },
-            true,
+            ObjectReuse::Hit,
         ));
     }
+    let ObjectReuseLookup::Miss(miss) = lookup else {
+        unreachable!("object cache hit returned before codegen")
+    };
     let memory_permit = nia_query::acquire_llvm_memory_permit();
     record_memory_permit(options.timings, memory_permit.waited());
     let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
@@ -345,16 +392,29 @@ fn emit_compiler_builtins_object(
                 bytes,
             },
         },
-        false,
+        ObjectReuse::Miss(miss),
     ))
+}
+
+enum ObjectReuseLookup {
+    Hit(Vec<u8>),
+    Miss(ObjectReuseMiss),
 }
 
 fn load_object_work_product(
     cache: Option<&dyn ObjectWorkProductCache>,
     key: &CodegenUnitKey,
     fingerprint: CodegenUnitFingerprint,
-) -> Option<Vec<u8>> {
-    cache?.load(key, fingerprint).ok().flatten()
+) -> ObjectReuseLookup {
+    let Some(cache) = cache else {
+        return ObjectReuseLookup::Miss(ObjectReuseMiss::Disabled);
+    };
+    match cache.load(key, fingerprint) {
+        Ok(ObjectWorkProductLookup::Hit(bytes)) => ObjectReuseLookup::Hit(bytes),
+        Ok(ObjectWorkProductLookup::NotFound) => ObjectReuseLookup::Miss(ObjectReuseMiss::NotFound),
+        Ok(ObjectWorkProductLookup::Corrupt) => ObjectReuseLookup::Miss(ObjectReuseMiss::Corrupt),
+        Err(_) => ObjectReuseLookup::Miss(ObjectReuseMiss::ReadError),
+    }
 }
 
 fn publish_object_work_product(

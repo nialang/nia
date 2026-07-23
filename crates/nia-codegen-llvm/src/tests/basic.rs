@@ -19,9 +19,11 @@ impl crate::ObjectWorkProductCache for AlwaysHitObjectCache {
         &self,
         _key: &CodegenUnitKey,
         _fingerprint: crate::CodegenUnitFingerprint,
-    ) -> io::Result<Option<Vec<u8>>> {
+    ) -> io::Result<crate::ObjectWorkProductLookup> {
         self.loads.fetch_add(1, Ordering::Relaxed);
-        Ok(Some(b"cached-object".to_vec()))
+        Ok(crate::ObjectWorkProductLookup::Hit(
+            b"cached-object".to_vec(),
+        ))
     }
 
     fn publish(

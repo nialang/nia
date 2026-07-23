@@ -2222,8 +2222,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     permissions.set_mode(0o755);
     std::fs::set_permissions(&linker, permissions).expect("make linker executable");
 
+    let mut timing_reports = Vec::new();
     for output in [&first, &second] {
         let result = Command::new(env!("CARGO_BIN_EXE_nia"))
+            .arg("--timings")
             .env("NIA_LINKER", &linker)
             .arg("emit")
             .arg("--exe")
@@ -2238,6 +2240,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
             "stderr:\n{}",
             String::from_utf8_lossy(&result.stderr)
         );
+        timing_reports.push(String::from_utf8(result.stderr).expect("timing report is UTF-8"));
     }
 
     assert_eq!(
@@ -2259,6 +2262,41 @@ pub fn main(init: process::Init) process::ExitCode!void {
         restored.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&restored.stderr)
+    );
+    assert!(
+        timing_reports[0].contains("timing summary counter link.result_reuse_hits: 0"),
+        "{}",
+        timing_reports[0]
+    );
+    assert!(
+        timing_reports[0].contains("timing summary counter link.result_reuse_misses: 1"),
+        "{}",
+        timing_reports[0]
+    );
+    assert!(
+        timing_reports[0].contains("timing summary counter link.result_reuse_miss_not_found: 1"),
+        "{}",
+        timing_reports[0]
+    );
+    assert!(
+        timing_reports[1].contains("timing summary counter link.result_reuse_hits: 1"),
+        "{}",
+        timing_reports[1]
+    );
+    assert!(
+        timing_reports[1].contains("timing summary counter link.result_reuse_misses: 0"),
+        "{}",
+        timing_reports[1]
+    );
+    assert!(
+        timing_reports[0].contains("timing summary counter llvm.object_reuse_miss_not_found:"),
+        "{}",
+        timing_reports[0]
+    );
+    assert!(
+        timing_reports[1].contains("timing summary counter llvm.object_reuse_miss_not_found: 0"),
+        "{}",
+        timing_reports[1]
     );
 }
 

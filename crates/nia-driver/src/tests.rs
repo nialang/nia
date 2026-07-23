@@ -104,11 +104,21 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
     let second_output = root.join("second");
 
     driver
-        .link_executable_from_objects(&first_objects, first_output.clone(), options.clone())
+        .link_executable_from_objects(
+            &first_objects,
+            first_output.clone(),
+            options.clone(),
+            crate::TimingMode::Off,
+        )
         .result
         .expect("first link");
     driver
-        .link_executable_from_objects(&first_objects, second_output.clone(), options.clone())
+        .link_executable_from_objects(
+            &first_objects,
+            second_output.clone(),
+            options.clone(),
+            crate::TimingMode::Off,
+        )
         .result
         .expect("cached link");
 
@@ -123,7 +133,12 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
 
     let changed_objects = object(CodegenUnitFingerprint::from_parts([3, 4]));
     driver
-        .link_executable_from_objects(&changed_objects, root.join("changed"), options)
+        .link_executable_from_objects(
+            &changed_objects,
+            root.join("changed"),
+            options,
+            crate::TimingMode::Off,
+        )
         .result
         .expect("changed link");
     assert_eq!(
