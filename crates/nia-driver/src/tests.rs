@@ -51,3 +51,83 @@ fn writing_native_object_preserves_incremental_link_identity() {
     assert_eq!(input.fingerprint, fingerprint);
     assert_eq!(input.object, path);
 }
+
+#[test]
+#[cfg(unix)]
+fn link_result_cache_skips_linker_until_typed_input_changes() {
+    use std::os::unix::fs::PermissionsExt;
+
+    use nia_backend_ir::{
+        CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInput,
+        IncrementalLinkInputs,
+    };
+    use nia_codegen_llvm::NativeObject;
+    use nia_linker::{ExecutableLinker, LinkOptions};
+
+    let root = common::temp_dir("link_result_cache_skips_linker_until_typed_input_changes");
+    let linker = root.join("linker.sh");
+    let invocation_log = root.join("linker-invocations");
+    std::fs::write(
+        &linker,
+        format!(
+            "#!/bin/sh\nprintf x >> '{}'\nfor output in \"$@\"; do :; done\nprintf linked-executable > \"$output\"\nchmod +x \"$output\"\n",
+            invocation_log.display()
+        ),
+    )
+    .expect("write mock linker");
+    let mut permissions = std::fs::metadata(&linker)
+        .expect("mock linker metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&linker, permissions).expect("make mock linker executable");
+    let driver = crate::Driver::with_config(crate::DriverConfig {
+        artifact_cache_dir: Some(root.join("cache")),
+        ..crate::DriverConfig::default()
+    });
+    let options = LinkOptions {
+        linker: ExecutableLinker::with_program(linker.to_string_lossy()),
+        ..LinkOptions::default()
+    };
+    let object = |fingerprint| crate::ObjectArtifact {
+        link_inputs: IncrementalLinkInputs::new(vec![IncrementalLinkInput {
+            key: CodegenUnitKey::CompilerBuiltins,
+            fingerprint,
+            object: NativeObject {
+                unit: CodegenUnitId::CompilerBuiltins,
+                name: "nia.compiler_builtins".to_string(),
+                bytes: b"object".to_vec(),
+            },
+        }]),
+    };
+    let first_objects = object(CodegenUnitFingerprint::from_parts([1, 2]));
+    let first_output = root.join("first");
+    let second_output = root.join("second");
+
+    driver
+        .link_executable_from_objects(&first_objects, first_output.clone(), options.clone())
+        .result
+        .expect("first link");
+    driver
+        .link_executable_from_objects(&first_objects, second_output.clone(), options.clone())
+        .result
+        .expect("cached link");
+
+    assert_eq!(
+        std::fs::read_to_string(&invocation_log).expect("read linker invocations"),
+        "x"
+    );
+    assert_eq!(
+        std::fs::read(&second_output).expect("read restored executable"),
+        b"linked-executable"
+    );
+
+    let changed_objects = object(CodegenUnitFingerprint::from_parts([3, 4]));
+    driver
+        .link_executable_from_objects(&changed_objects, root.join("changed"), options)
+        .result
+        .expect("changed link");
+    assert_eq!(
+        std::fs::read_to_string(invocation_log).expect("read changed invocations"),
+        "xx"
+    );
+}

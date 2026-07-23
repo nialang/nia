@@ -1109,7 +1109,7 @@ fn run_emit_obj(
         }
     };
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
-        object_cache_dir: options.cache_dir.clone(),
+        artifact_cache_dir: options.cache_dir.clone(),
         ..nia_driver::DriverConfig::default()
     });
     let output = time_summary_stage(timings, "codegen", || {
@@ -1172,36 +1172,8 @@ fn run_emit_exe(
             return ExitCode::FAILURE;
         }
     };
-    let cache_entry = if let Some(cache_dir) = &options.cache_dir {
-        let entry = time_summary_stage(timings, "emit_exe_cache_fingerprint", || {
-            nia_driver::executable_artifact_cache_entry(
-                nia_driver::ExecutableArtifactCacheRequest::new(path)
-                    .with_module_map(module_map.clone())
-                    .with_optimization(optimization)
-                    .with_runtime(Runtime::Freestanding)
-                    .with_target(nia_driver::DriverConfig::default().target)
-                    .with_link_options(options.link_options.clone()),
-                cache_dir,
-            )
-        });
-        let entry = match entry {
-            Ok(cache) => cache,
-            Err(error) => {
-                eprintln!("{error}");
-                return ExitCode::FAILURE;
-            }
-        };
-        if time_summary_stage(timings, "emit_exe_cache_restore", || {
-            nia_driver::restore_executable_artifact_cache(&entry, &options.output)
-        }) {
-            return ExitCode::SUCCESS;
-        }
-        Some(entry)
-    } else {
-        None
-    };
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
-        object_cache_dir: options.cache_dir.clone(),
+        artifact_cache_dir: options.cache_dir.clone(),
         ..nia_driver::DriverConfig::default()
     });
     let output = time_summary_stage(timings, "codegen_exe", || {
@@ -1235,24 +1207,14 @@ fn run_emit_exe(
         }
     };
     let output = time_summary_stage(timings, "link_executable", || {
-        nia_driver::Driver::new().link_executable_from_objects(
+        driver.link_executable_from_objects(
             &objects,
             options.output.clone(),
             options.link_options.clone(),
         )
     });
     match output.result {
-        Ok(artifact) => {
-            if let Some(cache) = cache_entry
-                && let Err(error) = time_summary_stage(timings, "emit_exe_cache_publish", || {
-                    nia_driver::publish_executable_artifact_cache(&artifact.path, &cache)
-                })
-            {
-                eprintln!("{error}");
-                return ExitCode::FAILURE;
-            }
-            ExitCode::SUCCESS
-        }
+        Ok(_) => ExitCode::SUCCESS,
         Err(error) => {
             eprint!(
                 "{}",

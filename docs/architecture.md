@@ -1662,7 +1662,7 @@ Finalized backend lowering also publishes one `CodegenPartitionPlan`. Each
 source unit has two non-synonymous identities: `CodegenUnitId::SourceModule {
 module_id, ordinal }` locates work only inside the current session, while
 `CodegenUnitKey::SourceModule { source_identity, ordinal }` is stable across
-module-handle reallocation and is the future work-product key. The initial
+module-handle reallocation and is the persistent work-product key. The initial
 policy assigns ordinal zero to each backend module that owns a function body,
 global definition, concrete instance, or vtable. Units are ordered by stable
 key rather than `ModuleId` or `BackendProgram.modules` position, while each plan
@@ -1739,17 +1739,32 @@ accepts that typed collection directly and emits object arguments in its
 existing order. It has no plain path-list entry point, no key recovery from file
 names, and no secondary ordering truth source.
 
-This boundary makes the exact ordered CGU work-product set available to future
-link-result fingerprinting. `nia-linker` now owns the versioned canonical
+This boundary makes the exact ordered CGU work-product set available to
+link-result fingerprinting. `nia-linker` owns the versioned canonical
 `LinkResultFingerprint` contract over that ordered identity set, the complete
 structured link configuration, the resolved linker path, and the linker binary
 contents. The encoder uses fixed discriminants and length-delimited values; it
 does not hash `Debug` output or temporary object/output paths. Links with a
 sysroot, explicit native libraries, or raw linker arguments are not declared
 cacheable because those options may name external files whose contents are not
-yet tracked. This fingerprint alone does not claim partial relinking or
-link-result caching; until a cache owner consumes it, every executable link
-still invokes the configured linker over the complete typed input collection.
+yet tracked.
+
+The Driver owns the sole persistent link-result cache. It computes the
+fingerprint and attempts restoration before writing temporary object files or
+invoking the linker. A miss invokes the linker over the complete typed input
+collection and publishes only a successful executable. Entries live under
+`artifacts/links/v1`; their binary envelope records a magic/schema, the full
+link fingerprint, payload length, and a domain-separated payload checksum.
+Publication uses a unique same-directory staged file and atomic rename, while a
+corrupt entry is physically deleted and treated as a miss. Restored files are
+made executable. Cache I/O errors only lose reuse and never become an alternate
+link truth source.
+
+The former source-graph/request-manifest executable cache and its public API
+have been deleted. CLI executable emission and the build runner use the same
+configured Driver for object and link-result reuse, with no compatibility
+reader or fallback fingerprint. This is complete link-result reuse: a miss
+still performs one full link, and no partial relinking is claimed.
 
 After whole-program validation, each source partition crosses an independent
 LLVM emission boundary. That boundary creates and consumes its own LLVM
