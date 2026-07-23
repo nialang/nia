@@ -331,24 +331,26 @@ fn provide_backend_lowering_inner(
             db.context().timings(),
         );
     }
-    let (module_finalizations, finalization_allocation) =
-        nia_timing::measure_allocation_live_window(|| {
-            db.get_many_owned(module_ids.iter().copied().enumerate().map(
-                |(position, module_id)| BackendModuleFinalizationQuery {
+    let mut collector =
+        nia_backend_lower::BackendModuleFinalizationCollector::new(finalization, &module_ids);
+    let ((), finalization_allocation) = nia_timing::measure_allocation_live_window(|| {
+        db.for_each_many_owned(
+            module_ids
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(position, module_id)| BackendModuleFinalizationQuery {
                     module_id,
                     position,
-                },
-            ))
-        });
+                }),
+            |position, module_finalization| collector.push(position, module_finalization),
+        )
+    });
     if let Some(measurement) = finalization_allocation {
         emit_backend_module_finalization_allocation(measurement);
     }
     emit_backend_module_plan_allocation("after_consume");
-    nia_backend_lower::finish_backend_module_finalizations(
-        finalization,
-        &module_ids,
-        module_finalizations,
-    )
+    collector.finish()
 }
 
 fn emit_backend_module_plan_allocation(stage: &str) {

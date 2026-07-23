@@ -333,6 +333,7 @@ struct QueryBatch<O> {
 struct QueryBatchState<O> {
     remaining: usize,
     outcomes: Vec<Option<QueryBatchOutcome<O>>>,
+    completed: VecDeque<usize>,
 }
 
 struct QueryDbInner<C> {
@@ -888,6 +889,7 @@ impl<O> QueryBatch<O> {
             state: Mutex::new(QueryBatchState {
                 remaining: work_items,
                 outcomes: (0..work_items).map(|_| None).collect(),
+                completed: VecDeque::with_capacity(work_items),
             }),
         }
     }
@@ -900,6 +902,7 @@ impl<O> QueryBatch<O> {
             .expect("query batch result index out of bounds");
         assert!(slot.is_none(), "query batch result completed twice");
         *slot = Some(outcome);
+        state.completed.push_back(index);
         state.remaining = state
             .remaining
             .checked_sub(1)
@@ -912,6 +915,21 @@ impl<O> QueryBatch<O> {
             .expect("query batch state lock poisoned")
             .remaining
             == 0
+    }
+
+    fn take_completed(&self) -> (Vec<(usize, QueryBatchOutcome<O>)>, bool) {
+        let mut state = self.state.lock().expect("query batch state lock poisoned");
+        let completed = std::mem::take(&mut state.completed);
+        let outcomes = completed
+            .into_iter()
+            .map(|index| {
+                let outcome = state.outcomes[index]
+                    .take()
+                    .expect("completed query batch result must exist");
+                (index, outcome)
+            })
+            .collect();
+        (outcomes, state.remaining == 0)
     }
 
     fn finish(&self) -> Vec<O> {
@@ -1443,6 +1461,73 @@ impl QuerySession {
             }
         }
         batch.finish()
+    }
+
+    fn run_tasks_inner_with_completion<T, O>(
+        &self,
+        tasks: impl IntoIterator<Item = T>,
+        mut on_complete: impl FnMut(usize, O),
+    ) where
+        T: FnOnce() -> O + Send + 'static,
+        O: Send + 'static,
+    {
+        let tasks = tasks.into_iter().collect::<Vec<_>>();
+        if tasks.len() <= 1 {
+            for (index, task) in tasks.into_iter().enumerate() {
+                on_complete(index, task());
+            }
+            return;
+        }
+        let batch = Arc::new(QueryBatch::new(tasks.len()));
+        let batch_id = Arc::as_ptr(&batch) as usize;
+        let executor = &self.inner.executor;
+        let executor_shared = Arc::clone(&executor.shared);
+        let tasks = tasks
+            .into_iter()
+            .enumerate()
+            .map(|(index, task)| {
+                let batch = Arc::clone(&batch);
+                let executor_shared = Arc::clone(&executor_shared);
+                QueryTask {
+                    batch: batch_id,
+                    run: Box::new(move || {
+                        batch.complete(index, catch_unwind(AssertUnwindSafe(task)));
+                        executor_shared.notify_waiters();
+                    }),
+                }
+            })
+            .collect();
+        executor.submit_all(tasks);
+        let mut panic = None;
+        loop {
+            let (completed, is_complete) = batch.take_completed();
+            for (index, outcome) in completed {
+                match outcome {
+                    Ok(value) if panic.is_none() => {
+                        if let Err(payload) =
+                            catch_unwind(AssertUnwindSafe(|| on_complete(index, value)))
+                        {
+                            panic = Some(payload);
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(payload) => {
+                        if panic.is_none() {
+                            panic = Some(payload);
+                        }
+                    }
+                }
+            }
+            if is_complete {
+                break;
+            }
+            if !executor.try_run_one(batch_id) {
+                executor.wait_for_batch_progress(&batch);
+            }
+        }
+        if let Some(payload) = panic {
+            resume_unwind(payload);
+        }
     }
 
     fn enter_activity(&self) -> QueryActivityGuard<'_> {
@@ -2135,6 +2220,61 @@ impl<C> QueryDb<C> {
         K: QueryKey<C>,
     {
         self.get_many_with(keys, Self::get_owned::<K>)
+    }
+
+    pub fn for_each_many_owned<K>(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        on_complete: impl FnMut(usize, K::Value),
+    ) where
+        C: Send + Sync + 'static,
+        K: QueryKey<C>,
+    {
+        self.for_each_many_with(keys, Self::get_owned::<K>, on_complete)
+    }
+
+    fn for_each_many_with<K, O>(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        get: fn(&Self, K) -> O,
+        mut on_complete: impl FnMut(usize, O),
+    ) where
+        C: Send + Sync + 'static,
+        K: QueryKey<C>,
+        O: Send + 'static,
+    {
+        let _activity = self.inner.session.enter_activity();
+        let parent_stack = current_query_stack();
+        let records_fingerprints = parent_stack
+            .last()
+            .is_some_and(|entry| entry.dependency_fingerprints.is_some());
+        let tasks = keys.into_iter().map(|key| {
+            let db = self.clone();
+            let parent_stack = parent_stack.clone();
+            move || {
+                let _stack_guard = install_query_stack(parent_stack);
+                let value = get(&db, key);
+                (value, take_current_stack_dependencies())
+            }
+        });
+        let mut dependencies = RecordedDependencies {
+            nodes: FastHashSet::default(),
+            fingerprints: records_fingerprints.then(DependencyFingerprints::default),
+        };
+        self.inner.session.run_tasks_inner_with_completion(
+            tasks,
+            |position, (value, task_dependencies)| {
+                dependencies.nodes.extend(task_dependencies.nodes);
+                if let (Some(dependencies), Some(task_dependencies)) = (
+                    dependencies.fingerprints.as_mut(),
+                    task_dependencies.fingerprints,
+                ) {
+                    dependencies.extend(task_dependencies);
+                }
+                on_complete(position, value);
+            },
+        );
+        merge_dependencies_into_current_stack(dependencies);
     }
 
     fn get_many_with<K, O>(
@@ -3043,6 +3183,10 @@ mod tests {
         barrier: Arc<Barrier>,
     }
 
+    struct CompletionOrderContext {
+        phase: AtomicUsize,
+    }
+
     struct BatchIsolationContext {
         session: Mutex<Option<QuerySession>>,
         child_started: Mutex<bool>,
@@ -3204,6 +3348,26 @@ mod tests {
             db.context().peak_active.fetch_max(active, Ordering::SeqCst);
             db.context().barrier.wait();
             db.context().active.fetch_sub(1, Ordering::SeqCst);
+            self.0
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct CompletionOrderProbe(usize);
+
+    impl QueryKey<CompletionOrderContext> for CompletionOrderProbe {
+        type Value = usize;
+
+        const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+
+        fn name() -> &'static str {
+            "completion_order_probe"
+        }
+
+        fn execute(&self, db: &QueryDb<CompletionOrderContext>) -> Self::Value {
+            while db.context().phase.load(Ordering::SeqCst) != self.0 {
+                std::thread::yield_now();
+            }
             self.0
         }
     }
@@ -3664,6 +3828,30 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct OwnedValueCompletionParent;
+
+    impl QueryKey<TestContext> for OwnedValueCompletionParent {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "owned_value_completion_parent"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            let mut sum = 0;
+            db.for_each_many_owned(
+                [
+                    OwnedNonCloneValueQuery(2),
+                    OwnedNonCloneValueQuery(5),
+                    OwnedNonCloneValueQuery(3),
+                ],
+                |_position, value| sum += value.value,
+            );
+            sum
+        }
+    }
+
     struct PublishedOwnedValue {
         value: usize,
         drops: Arc<AtomicUsize>,
@@ -4108,6 +4296,33 @@ mod tests {
     }
 
     #[test]
+    fn for_each_many_owned_moves_values_in_completion_order() {
+        let session = QuerySession::with_parallelism(3);
+        let db = QueryDb::new_with_timings_in_session(
+            CompletionOrderContext {
+                phase: AtomicUsize::new(0),
+            },
+            nia_timing::TimingMode::Off,
+            session,
+        );
+        let mut completed = Vec::new();
+
+        db.for_each_many_owned(
+            [
+                CompletionOrderProbe(2),
+                CompletionOrderProbe(1),
+                CompletionOrderProbe(0),
+            ],
+            |position, value| {
+                completed.push((position, value));
+                db.context().phase.store(value + 1, Ordering::SeqCst);
+            },
+        );
+
+        assert_eq!(completed, vec![(2, 0), (1, 1), (0, 2)]);
+    }
+
+    #[test]
     fn get_many_owned_records_dependencies_from_parent_query() {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
@@ -4121,6 +4336,23 @@ mod tests {
                 .invalidated
                 .iter()
                 .any(|frame| frame.name == "owned_value_batch_parent")
+        );
+    }
+
+    #[test]
+    fn for_each_many_owned_records_dependencies_from_parent_query() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        assert_eq!(*db.get(OwnedValueCompletionParent), 10);
+        let invalidation = db.invalidate(OwnedNonCloneValueQuery(5));
+
+        assert!(
+            invalidation
+                .invalidated
+                .iter()
+                .any(|frame| frame.name == "owned_value_completion_parent")
         );
     }
 

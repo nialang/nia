@@ -95,6 +95,14 @@ pub struct BackendModuleFinalization {
     diagnostics: Vec<Diagnostic>,
 }
 
+pub struct BackendModuleFinalizationCollector {
+    finalization: BackendItemPlanFinalization,
+    module_order: Vec<ModuleId>,
+    modules: Vec<Option<BackendModule>>,
+    optimization_reports: Vec<Option<BackendOptimizationReport>>,
+    diagnostics: Vec<Option<Vec<Diagnostic>>>,
+}
+
 impl<S> BackendProgramFinalizationContext<S>
 where
     S: Deref<Target = nia_ty::TypeStore>,
@@ -152,50 +160,79 @@ impl BackendModuleItemPlan {
     }
 }
 
-pub fn finish_backend_module_finalizations(
-    finalization: BackendItemPlanFinalization,
-    module_order: &[ModuleId],
-    mut module_finalizations: Vec<BackendModuleFinalization>,
-) -> BackendLowering {
-    let BackendItemPlanFinalization {
-        optimization,
-        mut optimization_report,
-        mut diagnostics,
-    } = finalization;
-    assert_eq!(
-        module_order.len(),
-        module_finalizations.len(),
-        "Nia ICE: backend module finalizations must match module order"
-    );
-    module_finalizations.sort_unstable_by_key(|module_finalization| module_finalization.position);
-    let modules = module_finalizations
-        .into_iter()
-        .zip(module_order)
-        .enumerate()
-        .map(|(position, (module_finalization, module_id))| {
-            assert_eq!(
-                module_finalization.position, position,
-                "Nia ICE: backend module finalization position must be unique and contiguous"
-            );
-            assert_eq!(
-                module_finalization.module.id, *module_id,
-                "Nia ICE: backend module finalization owner must match module order"
-            );
-            diagnostics.extend(module_finalization.diagnostics);
+impl BackendModuleFinalizationCollector {
+    pub fn new(finalization: BackendItemPlanFinalization, module_order: &[ModuleId]) -> Self {
+        let module_count = module_order.len();
+        Self {
+            finalization,
+            module_order: module_order.to_vec(),
+            modules: (0..module_count).map(|_| None).collect(),
+            optimization_reports: (0..module_count).map(|_| None).collect(),
+            diagnostics: (0..module_count).map(|_| None).collect(),
+        }
+    }
+
+    pub fn push(&mut self, position: usize, module_finalization: BackendModuleFinalization) {
+        assert_eq!(
+            module_finalization.position, position,
+            "Nia ICE: backend module finalization completion position must match its task"
+        );
+        let expected_module = self.module_order.get(position).unwrap_or_else(|| {
+            panic!("Nia ICE: backend module finalization position is out of bounds")
+        });
+        assert_eq!(
+            module_finalization.module.id, *expected_module,
+            "Nia ICE: backend module finalization owner must match module order"
+        );
+        assert!(
+            self.modules[position].is_none(),
+            "Nia ICE: backend module finalization was collected twice"
+        );
+        self.modules[position] = Some(module_finalization.module);
+        self.optimization_reports[position] = Some(module_finalization.optimization_report);
+        self.diagnostics[position] = Some(module_finalization.diagnostics);
+    }
+
+    pub fn finish(self) -> BackendLowering {
+        let BackendItemPlanFinalization {
+            optimization,
+            mut optimization_report,
+            mut diagnostics,
+        } = self.finalization;
+        let mut modules = Vec::with_capacity(self.module_order.len());
+        for (position, ((module, report), module_diagnostics)) in self
+            .modules
+            .into_iter()
+            .zip(self.optimization_reports)
+            .zip(self.diagnostics)
+            .enumerate()
+        {
+            let module = module.unwrap_or_else(|| {
+                panic!("Nia ICE: backend module finalization {position} was not collected")
+            });
+            let report = report.unwrap_or_else(|| {
+                panic!("Nia ICE: backend module finalization report {position} was not collected")
+            });
+            let module_diagnostics = module_diagnostics.unwrap_or_else(|| {
+                panic!(
+                    "Nia ICE: backend module finalization diagnostics {position} were not collected"
+                )
+            });
             optimization_report
                 .changed_passes
-                .extend(module_finalization.optimization_report.changed_passes);
-            module_finalization.module
-        })
-        .collect();
-    let program = BackendProgram { modules };
-    let codegen_partitions = program.codegen_partition_plan();
-    BackendLowering {
-        program,
-        codegen_partitions,
-        optimization,
-        optimization_report,
-        diagnostics,
+                .extend(report.changed_passes);
+            diagnostics.extend(module_diagnostics);
+            modules.push(module);
+        }
+        let program = BackendProgram { modules };
+        let codegen_partitions = program.codegen_partition_plan();
+        BackendLowering {
+            program,
+            codegen_partitions,
+            optimization,
+            optimization_report,
+            diagnostics,
+        }
     }
 }
 
@@ -593,7 +630,12 @@ pub fn finalize_backend_module_item_plans_with_timings(
         .iter()
         .map(|input| input.module_id)
         .collect::<Vec<_>>();
-    finish_backend_module_finalizations(finalization, &module_order, module_finalizations)
+    let mut collector = BackendModuleFinalizationCollector::new(finalization, &module_order);
+    for module_finalization in module_finalizations {
+        let position = module_finalization.position;
+        collector.push(position, module_finalization);
+    }
+    collector.finish()
 }
 
 fn time_backend_stage<T>(enabled: bool, name: &str, f: impl FnOnce() -> T) -> T {
