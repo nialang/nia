@@ -2202,8 +2202,21 @@ fn emit_exe_cache_reuses_typed_link_result_without_running_linker() {
         r#"
 using std::process;
 
+fn helper0() u8 { 0 }
+fn helper1() u8 { 1 }
+fn helper2() u8 { 2 }
+fn helper3() u8 { 3 }
+fn helper4() u8 { 4 }
+fn helper5() u8 { 5 }
+fn helper6() u8 { 6 }
+
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
+    let total = helper0() + helper1() + helper2() + helper3()
+        + helper4() + helper5() + helper6();
+    _ = total;
+    let changed: u8 = 0;
+    _ = changed;
     !{}
 }
 "#,
@@ -2310,8 +2323,19 @@ pub fn main(init: process::Init) process::ExitCode!void {
         r#"
 using std::process;
 
+fn helper0() u8 { 0 }
+fn helper1() u8 { 1 }
+fn helper2() u8 { 2 }
+fn helper3() u8 { 3 }
+fn helper4() u8 { 4 }
+fn helper5() u8 { 5 }
+fn helper6() u8 { 6 }
+
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
+    let total = helper0() + helper1() + helper2() + helper3()
+        + helper4() + helper5() + helper6();
+    _ = total;
     let changed: u8 = 1;
     _ = changed;
     !{}
@@ -2339,6 +2363,10 @@ pub fn main(init: process::Init) process::ExitCode!void {
     assert!(
         changed_timings.contains("timing summary counter llvm.object_reuse_miss_invalidated: 1"),
         "{changed_timings}"
+    );
+    assert!(
+        !changed_timings.contains("timing summary counter llvm.object_reuse_hits: 0"),
+        "unchanged source buckets must remain reusable: {changed_timings}"
     );
     assert!(
         changed_timings.contains("timing summary counter llvm.object_invalidation_definition: 1"),

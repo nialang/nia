@@ -1662,18 +1662,21 @@ Finalized backend lowering also publishes one `CodegenPartitionPlan`. Each
 source unit has two non-synonymous identities: `CodegenUnitId::SourceModule {
 module_id, ordinal }` locates work only inside the current session, while
 `CodegenUnitKey::SourceModule { source_identity, ordinal }` is stable across
-module-handle reallocation and is the persistent work-product key. The initial
-policy assigns ordinal zero to each backend module that owns a function body,
-global definition, concrete instance, or vtable. Units are ordered by stable
-key rather than `ModuleId` or `BackendProgram.modules` position. Each plan entry
-keeps one module index plus position-only definition membership for globals,
-global instances, functions, function instances, and vtables; it never copies
-Backend IR. This membership is the sole authority for LLVM initializers,
-function bodies, vtable definitions, and the unit definition fingerprint.
-Declaration-only modules remain available to the whole-program `ProgramIndex`,
-but do not become codegen work units. The plan is reconstructed and validated
-against the program at the LLVM boundary, so a caller cannot pair a stale plan
-with mutated definition membership.
+module-handle reallocation and is the persistent work-product key. Source
+modules below eight definitions remain one ordinal-zero unit. Larger modules
+use at most four fixed buckets: ordinary globals/functions use their stable
+source-local `DefId`, concrete instances use their stable mangled symbol, and
+vtables remain in bucket zero rather than hashing session-local type handles.
+Only non-empty buckets become units; once the split threshold is active, adding
+an item does not shift all later ordinals. Units are ordered by stable key rather than `ModuleId` or
+`BackendProgram.modules` position. Each plan entry keeps one module index plus
+position-only definition membership for globals, global instances, functions,
+function instances, and vtables; it never copies Backend IR. This membership is
+the sole authority for LLVM initializers, function bodies, vtable definitions,
+and the unit definition fingerprint. Declaration-only modules remain available
+to the whole-program `ProgramIndex`, but do not become codegen work units. The
+plan is reconstructed and validated against the program at the LLVM boundary,
+so a caller cannot pair a stale plan with mutated definition membership.
 
 LLVM IR and object emission consume this explicit plan instead of deriving units
 from a second module loop. Both output forms carry the runtime ID and stable key.
@@ -1810,11 +1813,12 @@ its own process LLVM memory permit before allocating LLVM state, so CPU fan-out
 remains subject to both the session executor budget and heavy-memory
 backpressure. The outer aggregation layer owns no module-local LLVM state.
 
-This remains the first partition granularity, not the final CGU model.
-`ModuleId` is currently a process-local owner identity, source ordinals are not
-yet split beyond zero, and validation remains a whole-program predecessor.
-Finer partitioning and frontend/LLVM overlap remain Phase G work. Current
-link-result reuse is still whole-result reuse rather than partial relinking.
+This remains a bounded source partition policy, not a profile-guided final CGU
+model. `ModuleId` is still a process-local owner identity, vtables intentionally
+remain together, and validation remains a whole-program predecessor.
+Frontend/LLVM overlap and quantitative CPU/RSS acceptance remain Phase G work.
+Current link-result reuse is still whole-result reuse rather than partial
+relinking.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level and a reported codegen size policy. Size-oriented levels
