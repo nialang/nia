@@ -42,7 +42,7 @@ use nia_public_surface::{
 };
 use nia_query::{
     QueryDb, QueryError, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy,
-    QueryFrame, QueryKey, QueryStoragePolicy, QueryTrace,
+    QueryFrame, QueryKey, QueryProviderPolicy, QueryStoragePolicy, QueryTrace,
 };
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;
@@ -124,6 +124,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ActiveModuleItemTreeQuery,
         BodyActivationWorklistQuery,
         BackendItemPlanQuery,
+        BackendModuleItemPlanQuery,
         BackendModuleFunctionInstancePlanQuery,
         BackendModuleSourceItemPlanQuery,
         BackendLoweringQuery,
@@ -1986,7 +1987,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 125);
+        assert_eq!(descriptors.len(), 126);
         assert!(
             !descriptors
                 .iter()
@@ -2014,13 +2015,21 @@ mod tests {
                 .all(|pair| pair[0].name < pair[1].name)
         );
         assert!(descriptors.iter().all(|descriptor| {
-            let expected_storage = if descriptor.name == "backend_item_plan" {
+            let expected_storage = if matches!(
+                descriptor.name,
+                "backend_item_plan" | "backend_module_item_plan"
+            ) {
                 nia_query::QueryStoragePolicy::SingleConsumerOwned
             } else {
                 nia_query::QueryStoragePolicy::CacheOwnedArc
             };
+            let expected_provider = if descriptor.name == "backend_module_item_plan" {
+                nia_query::QueryProviderPolicy::ExternallyPublished
+            } else {
+                nia_query::QueryProviderPolicy::KeyExecute
+            };
             descriptor.context_type == std::any::type_name::<CompilerContext>()
-                && descriptor.provider == nia_query::QueryProviderPolicy::KeyExecute
+                && descriptor.provider == expected_provider
                 && descriptor.storage == expected_storage
         }));
         for descriptor in descriptors {
@@ -6053,6 +6062,16 @@ extend i32 : ParseFrom[Input] {
         ));
         assert!(trace_has_dependency(
             &trace,
+            "backend_lowering",
+            "backend_module_item_plan"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "backend_module_item_plan",
+            "backend_item_plan"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
             "backend_item_plan",
             "backend_module_source_item_plan"
         ));
@@ -6192,6 +6211,7 @@ extend i32 : ParseFrom[Input] {
         assert_eq!(query_executions(&trace, "codegen_program"), 1);
         assert_eq!(query_executions(&trace, "monomorphization"), 1);
         assert_eq!(query_executions(&trace, "backend_item_plan"), 1);
+        assert_eq!(query_executions(&trace, "backend_module_item_plan"), 0);
         assert_eq!(
             query_executions(&trace, "backend_module_source_item_plan"),
             2
@@ -6201,6 +6221,46 @@ extend i32 : ParseFrom[Input] {
             2
         );
         assert_eq!(query_executions(&trace, "backend_lowering"), 1);
+    }
+
+    #[test]
+    fn backend_module_plan_slots_are_consumed_and_republished_after_invalidation() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
+        let module_id = fixture.entry_id();
+        let db = query_db(fixture.program());
+
+        let first = db.get(BackendLoweringQuery);
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        assert!(
+            db.try_get_owned(BackendModuleItemPlanQuery(module_id))
+                .is_err(),
+            "finalization must leave no module-plan payload in its query slot"
+        );
+
+        db.invalidate(BackendLoweringQuery);
+        let second = db.get(BackendLoweringQuery);
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+
+        let invalidation = db.invalidate(BackendItemPlanQuery);
+        assert!(
+            invalidation
+                .invalidated
+                .iter()
+                .any(|frame| { frame.name == "backend_module_item_plan" })
+        );
+        assert!(
+            invalidation
+                .invalidated
+                .iter()
+                .any(|frame| { frame.name == "backend_lowering" })
+        );
+
+        let third = db.get(BackendLoweringQuery);
+        assert!(third.diagnostics.is_empty(), "{:?}", third.diagnostics);
+        let trace = db.query_trace();
+        assert_eq!(query_executions(&trace, "backend_item_plan"), 3);
+        assert_eq!(query_executions(&trace, "backend_module_item_plan"), 0);
+        assert_eq!(query_executions(&trace, "backend_lowering"), 3);
     }
 
     #[test]

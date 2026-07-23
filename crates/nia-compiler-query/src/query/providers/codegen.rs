@@ -280,20 +280,40 @@ fn provide_backend_lowering_inner(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
     let plan = db.get_owned(BackendItemPlanQuery);
-    if !plan.diagnostics().is_empty() {
-        return nia_backend_lower::finalize_backend_item_plan_with_timings(
+    let has_diagnostics = !plan.diagnostics().is_empty();
+    let (finalization, module_plans) = plan.into_module_plans();
+    let module_ids = module_plans
+        .iter()
+        .map(|module_plan| module_plan.module().id)
+        .collect::<Vec<_>>();
+    for (module_id, module_plan) in module_ids.iter().copied().zip(module_plans) {
+        db.publish_owned(
+            BackendModuleItemPlanQuery(module_id),
+            module_plan,
+            &BackendItemPlanQuery,
+        );
+    }
+    let module_plans = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.get_owned(BackendModuleItemPlanQuery(module_id)))
+        .collect::<Vec<_>>();
+    if has_diagnostics {
+        return nia_backend_lower::finalize_backend_module_item_plans_with_timings(
             &[],
             &db.context().type_store,
-            plan,
+            finalization,
+            module_plans,
             db.context().timings(),
         );
     }
     let checked_modules = checked_modules_for_codegen(db);
     with_backend_lowering_inputs(db, &checked_modules, move |inputs| {
-        nia_backend_lower::finalize_backend_item_plan_with_timings(
+        nia_backend_lower::finalize_backend_module_item_plans_with_timings(
             inputs,
             &db.context().type_store,
-            plan,
+            finalization,
+            module_plans,
             db.context().timings(),
         )
     })

@@ -289,7 +289,9 @@ fn main() i32 {
     assert_eq!(plan.optimization(), optimization);
     let planned_functions = plan.modules()[0].module().functions.as_ptr();
     let planned_globals = plan.modules()[0].module().globals.as_ptr();
-    let lowering = finalize_backend_item_plan(&inputs, &type_store, plan);
+    let (finalization, module_plans) = plan.into_module_plans();
+    let lowering =
+        finalize_backend_module_item_plans(&inputs, &type_store, finalization, module_plans);
     assert!(
         lowering.diagnostics.is_empty(),
         "{:?}",
