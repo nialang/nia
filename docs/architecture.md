@@ -1717,16 +1717,27 @@ context, or module. A hit reconstructs the normal typed object result with its
 current session ID and stable key. A miss follows the only codegen path and
 publishes the resulting bytes after successful emission.
 
-Persistent entries live under `artifacts/objects/v1` and are named by the full
-128-bit content fingerprint. The binary envelope records a magic/schema,
-fingerprint, canonical unit key, payload length, and a domain-separated payload
-checksum. Reads validate the complete envelope and reject trailing or truncated
-data. A corrupt entry is physically deleted and becomes a cache miss; it is not
-interpreted through an older schema. Publication writes and syncs a unique
+Persistent entries live under
+`artifacts/objects/v2/<stable-key-digest>/<full-fingerprint>.o`. The full
+fingerprint is a versioned aggregate of four independently versioned components:
+compiler/codegen policy, unit definitions, whole-program declarations/ABI, and
+native target identity. The binary envelope records the aggregate, all four
+components, canonical unit key, payload length, and a domain-separated payload
+checksum. Reads recompute the aggregate from the stored components, validate the
+key and content-addressed path, and reject trailing or truncated data. The old
+v1 namespace is not read.
+
+An exact aggregate match is the only cache hit. On an exact miss, the Driver may
+inspect validated entries in the same stable-key directory and compare against
+the cached version with the fewest changed components, using the aggregate as a
+deterministic tie-breaker. This reports policy, definition, declaration, and
+target invalidation independently without a mutable latest-entry index. Prior
+content-addressed versions remain immutable. A corrupt entry is physically
+deleted and becomes a cache miss. Publication writes and syncs a unique
 same-directory temporary file before atomic rename, so interrupted writers are
 never visible as work products and concurrent identical publishers converge on
-the same immutable entry. Cache I/O failure can only lose reuse, never replace
-the compiler's current Backend IR or object result.
+the same entry. Cache I/O failure can only lose reuse, never replace the
+compiler's current Backend IR or object result.
 
 Native object emission publishes one `IncrementalLinkInputs<NativeObject>`
 product rather than a module list. Each entry keeps its stable
@@ -1771,10 +1782,11 @@ Timing reports count object and link-result hits and misses, and separate misses
 caused by a disabled cache, an uncacheable link input, an absent entry, a
 corrupt entry, or a cache read error; link-result publication errors are also
 counted. These reasons describe facts observed during the current lookup. They
-do not consult a persistent "latest fingerprint" manifest or guess which input
-component changed, so observability metadata cannot become a second cache truth
-source. Component-level fingerprint differences require a separately versioned
-fingerprint decomposition before they can be reported accurately.
+do not consult a persistent "latest fingerprint" manifest, so observability
+metadata cannot become a second cache truth source. Object misses additionally
+report the four versioned CGU component differences described above. Link-result
+component decomposition is still required before link misses can report which
+input group changed.
 
 After whole-program validation, each source partition crosses an independent
 LLVM emission boundary. That boundary creates and consumes its own LLVM

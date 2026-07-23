@@ -2193,6 +2193,7 @@ fn emit_exe_cache_reuses_typed_link_result_without_running_linker() {
     let main = root.join("main.nia");
     let first = root.join("first");
     let second = root.join("second");
+    let changed = root.join("changed");
     let cache = root.join("cache");
     let linker = root.join("linker.sh");
     let invocation_log = root.join("linker-invocations");
@@ -2244,7 +2245,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
 
     assert_eq!(
-        std::fs::read_to_string(invocation_log).expect("read linker invocations"),
+        std::fs::read_to_string(&invocation_log).expect("read linker invocations"),
         "x"
     );
     assert_eq!(
@@ -2297,6 +2298,62 @@ pub fn main(init: process::Init) process::ExitCode!void {
         timing_reports[1].contains("timing summary counter llvm.object_reuse_miss_not_found: 0"),
         "{}",
         timing_reports[1]
+    );
+
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    let changed: u8 = 1;
+    _ = changed;
+    !{}
+}
+"#,
+    )
+    .expect("change test source body");
+    let changed_result = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("--timings")
+        .env("NIA_LINKER", &linker)
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("--cache-dir")
+        .arg(&cache)
+        .arg("-o")
+        .arg(&changed)
+        .output_timeout("run nia emit --exe after definition change");
+    assert!(
+        changed_result.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&changed_result.stderr)
+    );
+    let changed_timings = String::from_utf8(changed_result.stderr).expect("timings are UTF-8");
+    assert!(
+        changed_timings.contains("timing summary counter llvm.object_reuse_miss_invalidated: 1"),
+        "{changed_timings}"
+    );
+    assert!(
+        changed_timings.contains("timing summary counter llvm.object_invalidation_definition: 1"),
+        "{changed_timings}"
+    );
+    assert!(
+        changed_timings.contains("timing summary counter llvm.object_invalidation_policy: 0"),
+        "{changed_timings}"
+    );
+    assert!(
+        changed_timings.contains("timing summary counter llvm.object_invalidation_declarations: 0"),
+        "{changed_timings}"
+    );
+    assert!(
+        changed_timings.contains("timing summary counter llvm.object_invalidation_target: 0"),
+        "{changed_timings}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&invocation_log).expect("read changed linker invocations"),
+        "xx"
     );
 }
 

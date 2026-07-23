@@ -17,12 +17,11 @@ use nia_ty::{
 };
 
 use crate::{
-    LlvmCodegenOptions, compiler_builtins::CompilerBuiltinSymbols, program_index::ProgramIndex,
+    CodegenUnitFingerprintComponents, CodegenUnitFingerprintSet, LlvmCodegenOptions,
+    compiler_builtins::CompilerBuiltinSymbols, program_index::ProgramIndex,
 };
 
-const SOURCE_UNIT_DOMAIN: &str = "nia.llvm.codegen-unit-input.v1";
-const BUILTINS_DOMAIN: &str = "nia.llvm.compiler-builtins-input.v1";
-
+#[derive(Clone, Copy)]
 pub(super) enum ArtifactTarget<'a> {
     LlvmIr,
     NativeObject(&'a TargetMachineIdentity),
@@ -33,41 +32,65 @@ pub(super) fn source_unit_fingerprint(
     index: &ProgramIndex,
     options: LlvmCodegenOptions,
     target: ArtifactTarget<'_>,
-) -> CodegenUnitFingerprint {
-    let mut encoder = Encoder::new(SOURCE_UNIT_DOMAIN, index);
-    encoder.compiler_contract();
-    encoder.codegen_unit_key(&partition.key);
-    encoder.optimization(options.optimization);
-    encoder.artifact_target(target);
+) -> CodegenUnitFingerprintSet {
+    let mut policy = Encoder::new("nia.llvm.source-policy.v2", index);
+    policy.compiler_contract();
+    policy.codegen_unit_key(&partition.key);
+    policy.optimization(options.optimization);
+    policy.artifact_kind(target);
 
     let owner = index.program().module_for_partition(partition);
-    encoder.module(owner, true);
+    let mut definition = Encoder::new("nia.llvm.source-definition.v2", index);
+    definition.module(owner, true);
 
+    let mut declaration = Encoder::new("nia.llvm.source-declarations.v2", index);
     let mut declarations = index.program().modules.iter().collect::<Vec<_>>();
     declarations.sort_unstable_by(|left, right| {
         left.source_identity
             .normalized_path()
             .cmp(right.source_identity.normalized_path())
     });
-    encoder.len(declarations.len());
+    declaration.len(declarations.len());
     for module in declarations {
-        encoder.module(module, false);
+        declaration.module(module, false);
     }
-    encoder.finish()
+
+    let mut target_component = Encoder::new("nia.llvm.source-target.v2", index);
+    target_component.artifact_target(target);
+    CodegenUnitFingerprintSet::new(CodegenUnitFingerprintComponents {
+        policy: policy.finish(),
+        definition: definition.finish(),
+        declarations: declaration.finish(),
+        target: target_component.finish(),
+    })
 }
 
 pub(super) fn compiler_builtins_fingerprint(
     symbols: &CompilerBuiltinSymbols,
     options: LlvmCodegenOptions,
     target: &TargetMachineIdentity,
-) -> CodegenUnitFingerprint {
-    let mut builder = QueryFingerprintBuilder::new(BUILTINS_DOMAIN);
-    builder.write_str(env!("CARGO_PKG_VERSION"));
-    builder.write_u64(llvm_sys_version());
-    write_optimization(&mut builder, options.optimization);
-    write_target_identity(&mut builder, target);
-    builder.write_u8(u8::from(symbols.u128_div_rem));
-    builder.write_u8(u8::from(symbols.i128_div_rem));
+) -> CodegenUnitFingerprintSet {
+    let mut policy = QueryFingerprintBuilder::new("nia.llvm.builtins-policy.v2");
+    policy.write_str(env!("CARGO_PKG_VERSION"));
+    policy.write_u64(llvm_sys_version());
+    write_optimization(&mut policy, options.optimization);
+
+    let mut definition = QueryFingerprintBuilder::new("nia.llvm.builtins-definition.v2");
+    definition.write_u8(u8::from(symbols.u128_div_rem));
+    definition.write_u8(u8::from(symbols.i128_div_rem));
+
+    let declarations = QueryFingerprintBuilder::new("nia.llvm.builtins-declarations.v2");
+    let mut target_component = QueryFingerprintBuilder::new("nia.llvm.builtins-target.v2");
+    write_target_identity(&mut target_component, target);
+    CodegenUnitFingerprintSet::new(CodegenUnitFingerprintComponents {
+        policy: finish_builder(policy),
+        definition: finish_builder(definition),
+        declarations: finish_builder(declarations),
+        target: finish_builder(target_component),
+    })
+}
+
+fn finish_builder(builder: QueryFingerprintBuilder) -> CodegenUnitFingerprint {
     CodegenUnitFingerprint::from_parts(builder.finish().parts())
 }
 
@@ -166,6 +189,13 @@ impl<'a> Encoder<'a> {
                 write_target_identity(&mut self.builder, identity);
             }
         }
+    }
+
+    fn artifact_kind(&mut self, target: ArtifactTarget<'_>) {
+        self.tag(match target {
+            ArtifactTarget::LlvmIr => 0,
+            ArtifactTarget::NativeObject(_) => 1,
+        });
     }
 
     fn module(&mut self, module: &BackendModule, definitions: bool) {
@@ -1958,13 +1988,20 @@ mod tests {
         }
     }
 
-    fn ir_fingerprint(fixture: &Fixture, options: LlvmCodegenOptions) -> CodegenUnitFingerprint {
+    fn ir_fingerprints(
+        fixture: &Fixture,
+        options: LlvmCodegenOptions,
+    ) -> CodegenUnitFingerprintSet {
         source_unit_fingerprint(
             &fixture.partition,
             &fixture.index,
             options,
             ArtifactTarget::LlvmIr,
         )
+    }
+
+    fn ir_fingerprint(fixture: &Fixture, options: LlvmCodegenOptions) -> CodegenUnitFingerprint {
+        ir_fingerprints(fixture, options).fingerprint
     }
 
     #[test]
@@ -2092,15 +2129,23 @@ mod tests {
             "main.nia",
         );
 
-        let baseline = ir_fingerprint(&baseline, LlvmCodegenOptions::default());
+        let baseline = ir_fingerprints(&baseline, LlvmCodegenOptions::default());
         assert_eq!(
             baseline,
-            ir_fingerprint(&span_only, LlvmCodegenOptions::default())
+            ir_fingerprints(&span_only, LlvmCodegenOptions::default())
         );
+        let changed = ir_fingerprints(&changed, LlvmCodegenOptions::default());
+        assert_ne!(baseline.fingerprint, changed.fingerprint);
         assert_ne!(
-            baseline,
-            ir_fingerprint(&changed, LlvmCodegenOptions::default())
+            baseline.components.definition,
+            changed.components.definition
         );
+        assert_eq!(baseline.components.policy, changed.components.policy);
+        assert_eq!(
+            baseline.components.declarations,
+            changed.components.declarations
+        );
+        assert_eq!(baseline.components.target, changed.components.target);
     }
 
     #[test]
@@ -2140,20 +2185,43 @@ mod tests {
 
         let baseline = make(PrimitiveTy::I32);
         let changed_abi = make(PrimitiveTy::I64);
-        let baseline_fingerprint = ir_fingerprint(&baseline, LlvmCodegenOptions::default());
-        assert_ne!(
-            baseline_fingerprint,
-            ir_fingerprint(&changed_abi, LlvmCodegenOptions::default())
+        let baseline_fingerprints = ir_fingerprints(&baseline, LlvmCodegenOptions::default());
+        let changed_abi = ir_fingerprints(&changed_abi, LlvmCodegenOptions::default());
+        assert_ne!(baseline_fingerprints.fingerprint, changed_abi.fingerprint);
+        assert_eq!(
+            baseline_fingerprints.components.definition,
+            changed_abi.components.definition
         );
         assert_ne!(
-            baseline_fingerprint,
-            ir_fingerprint(
-                &baseline,
-                LlvmCodegenOptions {
-                    optimization: NiaOptimizationLevel::O2.policy(),
-                    ..LlvmCodegenOptions::default()
-                }
-            )
+            baseline_fingerprints.components.declarations,
+            changed_abi.components.declarations
+        );
+        let changed_optimization = ir_fingerprints(
+            &baseline,
+            LlvmCodegenOptions {
+                optimization: NiaOptimizationLevel::O2.policy(),
+                ..LlvmCodegenOptions::default()
+            },
+        );
+        assert_ne!(
+            baseline_fingerprints.fingerprint,
+            changed_optimization.fingerprint
+        );
+        assert_ne!(
+            baseline_fingerprints.components.policy,
+            changed_optimization.components.policy
+        );
+        assert_eq!(
+            baseline_fingerprints.components.definition,
+            changed_optimization.components.definition
+        );
+        assert_eq!(
+            baseline_fingerprints.components.declarations,
+            changed_optimization.components.declarations
+        );
+        assert_eq!(
+            baseline_fingerprints.components.target,
+            changed_optimization.components.target
         );
     }
 
@@ -2182,19 +2250,28 @@ mod tests {
             ..target.clone()
         };
 
-        assert_ne!(
-            source_unit_fingerprint(
-                &fixture.partition,
-                &fixture.index,
-                LlvmCodegenOptions::default(),
-                ArtifactTarget::NativeObject(&target),
-            ),
-            source_unit_fingerprint(
-                &fixture.partition,
-                &fixture.index,
-                LlvmCodegenOptions::default(),
-                ArtifactTarget::NativeObject(&changed_target),
-            )
+        let baseline = source_unit_fingerprint(
+            &fixture.partition,
+            &fixture.index,
+            LlvmCodegenOptions::default(),
+            ArtifactTarget::NativeObject(&target),
+        );
+        let changed = source_unit_fingerprint(
+            &fixture.partition,
+            &fixture.index,
+            LlvmCodegenOptions::default(),
+            ArtifactTarget::NativeObject(&changed_target),
+        );
+        assert_ne!(baseline.fingerprint, changed.fingerprint);
+        assert_ne!(baseline.components.target, changed.components.target);
+        assert_eq!(baseline.components.policy, changed.components.policy);
+        assert_eq!(
+            baseline.components.definition,
+            changed.components.definition
+        );
+        assert_eq!(
+            baseline.components.declarations,
+            changed.components.declarations
         );
     }
 }
