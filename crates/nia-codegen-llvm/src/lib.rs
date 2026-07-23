@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod backend_validate;
 mod compiler_builtins;
+mod declaration_membership;
 mod fingerprint;
 mod function_codegen;
 mod literals;
@@ -12,6 +13,7 @@ mod work_product;
 use std::sync::Arc;
 
 use backend_validate::validate_backend_program;
+use declaration_membership::CodegenDeclarationMembership;
 use module_codegen::ModuleCodegen;
 use nia_backend_ir::CodegenPartition;
 pub use nia_backend_ir::{
@@ -286,8 +288,10 @@ fn emit_llvm_ir_partition(
     let memory_permit = nia_query::acquire_llvm_memory_permit();
     record_memory_permit(options.timings, memory_permit.waited());
     let module = index.program().module_for_partition(&partition);
+    let declarations = CodegenDeclarationMembership::build(&partition, &index);
     let fingerprints = fingerprint::source_unit_fingerprint(
         &partition,
+        &declarations,
         &index,
         options,
         fingerprint::ArtifactTarget::LlvmIr,
@@ -296,7 +300,7 @@ fn emit_llvm_ir_partition(
         time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
     let mut codegen =
         time_codegen_module_stage(options.timings, "new_module", &module.name, || {
-            ModuleCodegen::new(&context, module, &partition, &index, options)
+            ModuleCodegen::new(&context, module, &partition, &declarations, &index, options)
         })?;
     let ir = codegen.emit_ir()?;
     Ok(LlvmModuleOutput {
@@ -320,8 +324,10 @@ fn emit_native_object_partition(
         TargetMachine::native_identity,
     )
     .map_err(|error| error.diagnostic())?;
+    let declarations = CodegenDeclarationMembership::build(&partition, &index);
     let fingerprints = fingerprint::source_unit_fingerprint(
         &partition,
+        &declarations,
         &index,
         options,
         fingerprint::ArtifactTarget::NativeObject(&target_identity),
@@ -358,7 +364,7 @@ fn emit_native_object_partition(
         time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
     let mut codegen =
         time_codegen_module_stage(options.timings, "new_module", &module.name, || {
-            ModuleCodegen::new(&context, module, &partition, &index, options)
+            ModuleCodegen::new(&context, module, &partition, &declarations, &index, options)
         })?;
     target
         .configure_module(&codegen.module)

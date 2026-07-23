@@ -42,7 +42,10 @@ impl<'a> AdapterFunction<'a> {
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn declare_structs(&mut self) -> Result<(), Diagnostic> {
-        for item in self.program.structs() {
+        for &def_id in &self.declarations.structs {
+            let item = self.program.struct_item(def_id).unwrap_or_else(|| {
+                panic!("Nia ICE: declaration membership references missing struct {def_id:?}")
+            });
             let name = self.struct_symbol_name(item.def_id, item.name);
             let ty = self
                 .context
@@ -50,7 +53,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.structs.insert(item.def_id, ty);
         }
-        for item in self.program.struct_instances() {
+        for key in &self.declarations.struct_instances {
+            let item = self
+                .program
+                .struct_instance(key.def_id, &key.args, &key.const_args)
+                .unwrap_or_else(|| panic!("Nia ICE: missing struct instance declaration member"));
             let ty = self
                 .context
                 .opaque_struct_type(&item.symbol)
@@ -65,7 +72,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .push((item.args.clone(), item.const_args.clone(), ty));
             self.struct_instance_type_lookups.borrow_mut().clear();
         }
-        for item in self.program.unions() {
+        for &def_id in &self.declarations.unions {
+            let item = self.program.union_item(def_id).unwrap_or_else(|| {
+                panic!("Nia ICE: declaration membership references missing union {def_id:?}")
+            });
             let name = self.struct_symbol_name(item.def_id, item.name);
             let ty = self
                 .context
@@ -73,7 +83,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.unions.insert(item.def_id, ty);
         }
-        for item in self.program.union_instances() {
+        for key in &self.declarations.union_instances {
+            let item = self
+                .program
+                .union_instance(key.def_id, &key.args, &key.const_args)
+                .unwrap_or_else(|| panic!("Nia ICE: missing union instance declaration member"));
             let ty = self
                 .context
                 .opaque_struct_type(&item.symbol)
@@ -92,7 +106,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(super) fn define_struct_bodies(&mut self) -> Result<(), Diagnostic> {
-        for item in self.program.structs() {
+        for &def_id in &self.declarations.structs {
+            let item = self.program.struct_item(def_id).unwrap_or_else(|| {
+                panic!("Nia ICE: declaration membership references missing struct {def_id:?}")
+            });
             let Some(struct_ty) = self.structs.get(&item.def_id).copied() else {
                 return Err(self.error(
                     item.span,
@@ -108,7 +125,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             struct_ty.set_body(&fields, false);
         }
-        for item in self.program.struct_instances() {
+        for key in &self.declarations.struct_instances {
+            let item = self
+                .program
+                .struct_instance(key.def_id, &key.args, &key.const_args)
+                .unwrap_or_else(|| panic!("Nia ICE: missing struct instance declaration member"));
             let Some(struct_ty) = self
                 .struct_instances
                 .get(&item.def_id)
@@ -125,7 +146,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             struct_ty.set_body(&fields, false);
         }
-        for item in self.program.unions() {
+        for &def_id in &self.declarations.unions {
+            let item = self.program.union_item(def_id).unwrap_or_else(|| {
+                panic!("Nia ICE: declaration membership references missing union {def_id:?}")
+            });
             let Some(union_ty) = self.unions.get(&item.def_id).copied() else {
                 return Err(self.error(
                     item.span,
@@ -140,7 +164,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 false,
             );
         }
-        for item in self.program.union_instances() {
+        for key in &self.declarations.union_instances {
+            let item = self
+                .program
+                .union_instance(key.def_id, &key.args, &key.const_args)
+                .unwrap_or_else(|| panic!("Nia ICE: missing union instance declaration member"));
             let Some(union_ty) = self
                 .union_instances
                 .get(&item.def_id)
@@ -158,15 +186,22 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(super) fn declare_functions(&mut self) -> Result<(), Diagnostic> {
-        for function in self.program.functions() {
+        for &def_id in &self.declarations.functions {
+            let function = self.program.function(def_id).unwrap_or_else(|| {
+                panic!("Nia ICE: declaration membership references missing function {def_id:?}")
+            });
             if !function.generics.is_empty() {
                 continue;
             }
             let ty = self.function_type_in(function)?;
-            let is_local = function.def_id.module_id == self.source.id;
+            let is_definition = self
+                .partition
+                .function_definitions()
+                .iter()
+                .any(|&index| self.source.functions[index].def_id == function.def_id);
             let linkage = if function.is_extern {
                 Some(Linkage::External)
-            } else if is_local {
+            } else if is_definition {
                 None
             } else {
                 Some(Linkage::External)
@@ -178,7 +213,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.apply_function_attributes(value, &function.attributes);
             self.functions.insert(function.def_id, value);
         }
-        for instance in self.program.function_instances() {
+        for key in &self.declarations.function_instances {
+            let instance = self
+                .program
+                .function_instance(
+                    key.def_id,
+                    key.arg_module_id,
+                    key.self_arg,
+                    &key.args,
+                    &key.const_args,
+                )
+                .unwrap_or_else(|| panic!("Nia ICE: missing function instance declaration member"));
             let ty = self.function_signature_type_in(FunctionSignature {
                 param_tys: instance
                     .params
@@ -189,12 +234,24 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 is_variadic: instance.is_variadic,
                 span: instance.span,
             })?;
+            let is_definition =
+                self.partition
+                    .function_instance_definitions()
+                    .iter()
+                    .any(|&index| {
+                        let definition = &self.source.function_instances[index];
+                        definition.def_id == instance.def_id
+                            && definition.arg_module_id == instance.arg_module_id
+                            && definition.self_arg == instance.self_arg
+                            && definition.args == instance.args
+                            && definition.const_args == instance.const_args
+                    });
             let value = self
                 .module
                 .add_function(
                     &instance.symbol,
                     ty,
-                    if instance.is_extern {
+                    if instance.is_extern || !is_definition {
                         Some(Linkage::External)
                     } else {
                         None
@@ -249,14 +306,21 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(super) fn declare_globals(&mut self) -> Result<(), Diagnostic> {
-        for global in self.program.globals() {
+        for &def_id in &self.declarations.globals {
+            let global = self.program.global(def_id).unwrap_or_else(|| {
+                panic!("Nia ICE: declaration membership references missing global {def_id:?}")
+            });
             let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let value = self
                 .module
                 .add_global(ty, None, &self.global_symbol_name(global))
                 .map_err(Self::diagnostic_from_llvm_error)?;
-            let is_local = global.def_id.module_id == self.source.id;
-            if global.is_extern || !is_local {
+            let is_definition = self
+                .partition
+                .global_definitions()
+                .iter()
+                .any(|&index| self.source.globals[index].def_id == global.def_id);
+            if global.is_extern || !is_definition {
                 value.set_linkage(Linkage::External);
             }
             if global.is_let {
@@ -264,13 +328,28 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             self.globals.insert(global.def_id, value);
         }
-        for global in self.program.global_instances() {
+        for key in &self.declarations.global_instances {
+            let global = self
+                .program
+                .global_instance(key.def_id, key.arg_module_id, &key.args, &key.const_args)
+                .unwrap_or_else(|| panic!("Nia ICE: missing global instance declaration member"));
             let ty = self.llvm_basic_type_in(global.ty, global.span)?;
             let value = self
                 .module
                 .add_global(ty, None, &global.symbol)
                 .map_err(Self::diagnostic_from_llvm_error)?;
-            if global.def_id.module_id != self.source.id {
+            let is_definition = self
+                .partition
+                .global_instance_definitions()
+                .iter()
+                .any(|&index| {
+                    let definition = &self.source.global_instances[index];
+                    definition.def_id == global.def_id
+                        && definition.arg_module_id == global.arg_module_id
+                        && definition.args == global.args
+                        && definition.const_args == global.const_args
+                });
+            if !is_definition {
                 value.set_linkage(Linkage::External);
             }
             if global.is_let {
@@ -345,47 +424,47 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn declare_trait_object_vtables(&mut self) -> Result<(), Diagnostic> {
         let ptr_ty = self.context.ptr_type(Default::default());
         let mut inserted_vtable = false;
-        for module in self.program.modules() {
-            for (vtable_index, vtable) in module.trait_object_vtables.iter().enumerate() {
-                if self
-                    .trait_object_vtables
-                    .contains_key(&(vtable.key.self_ty, vtable.key.object_ty))
-                {
-                    continue;
-                }
-                let array_ty = ptr_ty.array_type(vtable.entries.len() as u32);
-                let global = self
-                    .module
-                    .add_global(
-                        array_ty.into(),
-                        None,
-                        &self.trait_object_vtable_symbol(vtable.key.self_ty, vtable.key.object_ty),
-                    )
-                    .map_err(Self::diagnostic_from_llvm_error)?;
-                if module.id != self.source.id
-                    || !self.partition.vtable_definitions().contains(&vtable_index)
-                {
-                    global.set_linkage(Linkage::External);
-                } else {
-                    let mut values = Vec::new();
-                    for entry in &vtable.entries {
-                        let value = self
-                            .trait_object_vtable_entry_function(
-                                vtable.key.self_ty,
-                                entry,
-                                vtable.span,
-                            )?
-                            .as_global_value()
-                            .as_pointer_value();
-                        values.push(value);
-                    }
-                    global.set_initializer(&ptr_ty.const_array(&values));
-                    global.set_constant(true);
-                }
-                self.trait_object_vtables
-                    .insert((vtable.key.self_ty, vtable.key.object_ty), global);
-                inserted_vtable = true;
+        for key in &self.declarations.vtables {
+            let vtable = self.program.trait_object_vtable(key).unwrap_or_else(|| {
+                panic!("Nia ICE: declaration membership references missing vtable {key:?}")
+            });
+            if self
+                .trait_object_vtables
+                .contains_key(&(vtable.key.self_ty, vtable.key.object_ty))
+            {
+                continue;
             }
+            let array_ty = ptr_ty.array_type(vtable.entries.len() as u32);
+            let global = self
+                .module
+                .add_global(
+                    array_ty.into(),
+                    None,
+                    &self.trait_object_vtable_symbol(vtable.key.self_ty, vtable.key.object_ty),
+                )
+                .map_err(Self::diagnostic_from_llvm_error)?;
+            let is_definition = self
+                .partition
+                .vtable_definitions()
+                .iter()
+                .any(|&index| self.source.trait_object_vtables[index].key == vtable.key);
+            if is_definition {
+                let mut values = Vec::new();
+                for entry in &vtable.entries {
+                    let value = self
+                        .trait_object_vtable_entry_function(vtable.key.self_ty, entry, vtable.span)?
+                        .as_global_value()
+                        .as_pointer_value();
+                    values.push(value);
+                }
+                global.set_initializer(&ptr_ty.const_array(&values));
+                global.set_constant(true);
+            } else {
+                global.set_linkage(Linkage::External);
+            }
+            self.trait_object_vtables
+                .insert((vtable.key.self_ty, vtable.key.object_ty), global);
+            inserted_vtable = true;
         }
         if inserted_vtable {
             self.trait_object_vtable_lookups.borrow_mut().clear();

@@ -59,6 +59,7 @@ pub(super) struct ProgramIndex {
     function_instances_by_def: HashMap<GlobalDefId, Vec<ItemPosition>>,
     trait_object_vtables_by_object_ty: HashMap<InternedTyId, Vec<ItemPosition>>,
     trait_object_vtables_by_trait: HashMap<TraitId, Vec<ItemPosition>>,
+    trait_object_vtables: HashMap<nia_backend_ir::BackendTraitObjectVtableKey, ItemPosition>,
     type_layouts: HashMap<InternedTyId, LayoutPosition>,
     struct_layouts: HashMap<GlobalDefId, LayoutPosition>,
     union_layouts: HashMap<GlobalDefId, LayoutPosition>,
@@ -101,6 +102,7 @@ impl ProgramIndex {
             function_instances_by_def: HashMap::new(),
             trait_object_vtables_by_object_ty: HashMap::new(),
             trait_object_vtables_by_trait: HashMap::new(),
+            trait_object_vtables: HashMap::new(),
             type_layouts: HashMap::new(),
             struct_layouts: HashMap::new(),
             union_layouts: HashMap::new(),
@@ -300,6 +302,9 @@ impl ProgramIndex {
                     item: item_index,
                 };
                 index
+                    .trait_object_vtables
+                    .insert(vtable.key.clone(), position);
+                index
                     .trait_object_vtables_by_object_ty
                     .entry(vtable.key.object_ty)
                     .or_default()
@@ -320,12 +325,6 @@ impl ProgramIndex {
 
     pub(super) fn program(&self) -> &BackendProgram {
         &self.lowering.program
-    }
-
-    pub(super) fn modules(&self) -> impl Iterator<Item = &nia_backend_ir::BackendModule> {
-        self.modules
-            .values()
-            .map(|module| &self.lowering.program.modules[*module])
     }
 
     pub(super) fn module(&self, module_id: ModuleId) -> Option<&nia_backend_ir::BackendModule> {
@@ -444,12 +443,6 @@ impl ProgramIndex {
             })
     }
 
-    pub(super) fn structs(&self) -> impl Iterator<Item = &nia_backend_ir::BackendStruct> {
-        self.structs
-            .values()
-            .map(|position| &self.lowering.program.modules[position.module].structs[position.item])
-    }
-
     pub(super) fn struct_item(
         &self,
         def_id: GlobalDefId,
@@ -463,12 +456,6 @@ impl ProgramIndex {
         self.structs.contains_key(&def_id)
     }
 
-    pub(super) fn unions(&self) -> impl Iterator<Item = &nia_backend_ir::BackendUnion> {
-        self.unions
-            .values()
-            .map(|position| &self.lowering.program.modules[position.module].unions[position.item])
-    }
-
     pub(super) fn union_item(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendUnion> {
         self.unions
             .get(&def_id)
@@ -477,28 +464,6 @@ impl ProgramIndex {
 
     pub(super) fn has_union(&self, def_id: GlobalDefId) -> bool {
         self.unions.contains_key(&def_id)
-    }
-
-    pub(super) fn struct_instances(
-        &self,
-    ) -> impl Iterator<Item = &nia_backend_ir::BackendStructInstance> {
-        self.struct_instances_by_def
-            .values()
-            .flatten()
-            .map(|position| {
-                &self.lowering.program.modules[position.module].struct_instances[position.item]
-            })
-    }
-
-    pub(super) fn union_instances(
-        &self,
-    ) -> impl Iterator<Item = &nia_backend_ir::BackendUnionInstance> {
-        self.union_instances_by_def
-            .values()
-            .flatten()
-            .map(|position| {
-                &self.lowering.program.modules[position.module].union_instances[position.item]
-            })
     }
 
     pub(super) fn has_struct_instances(&self, def_id: GlobalDefId) -> bool {
@@ -560,12 +525,6 @@ impl ProgramIndex {
         self.enum_variants.contains_key(&def_id)
     }
 
-    pub(super) fn globals(&self) -> impl Iterator<Item = &nia_backend_ir::BackendGlobal> {
-        self.globals
-            .values()
-            .map(|position| &self.lowering.program.modules[position.module].globals[position.item])
-    }
-
     pub(super) fn global(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendGlobal> {
         self.globals
             .get(&def_id)
@@ -574,17 +533,6 @@ impl ProgramIndex {
 
     pub(super) fn has_global(&self, def_id: GlobalDefId) -> bool {
         self.globals.contains_key(&def_id)
-    }
-
-    pub(super) fn global_instances(
-        &self,
-    ) -> impl Iterator<Item = &nia_backend_ir::BackendGlobalInstance> {
-        self.global_instances_by_def
-            .values()
-            .flatten()
-            .map(|position| {
-                &self.lowering.program.modules[position.module].global_instances[position.item]
-            })
     }
 
     pub(super) fn global_instance(
@@ -602,12 +550,6 @@ impl ProgramIndex {
             })
     }
 
-    pub(super) fn functions(&self) -> impl Iterator<Item = &nia_backend_ir::BackendFunction> {
-        self.functions.values().map(|position| {
-            &self.lowering.program.modules[position.module].functions[position.item]
-        })
-    }
-
     pub(super) fn function(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendFunction> {
         self.functions.get(&def_id).map(|position| {
             &self.lowering.program.modules[position.module].functions[position.item]
@@ -616,15 +558,6 @@ impl ProgramIndex {
 
     pub(super) fn has_function(&self, def_id: GlobalDefId) -> bool {
         self.functions.contains_key(&def_id)
-    }
-
-    pub(super) fn function_instances(&self) -> impl Iterator<Item = &BackendFunctionInstance> {
-        self.function_instances_by_def
-            .values()
-            .flatten()
-            .map(|position| {
-                &self.lowering.program.modules[position.module].function_instances[position.item]
-            })
     }
 
     pub(super) fn function_instances_for(
@@ -689,6 +622,15 @@ impl ProgramIndex {
             .map(|position| {
                 &self.lowering.program.modules[position.module].trait_object_vtables[position.item]
             })
+    }
+
+    pub(super) fn trait_object_vtable(
+        &self,
+        key: &nia_backend_ir::BackendTraitObjectVtableKey,
+    ) -> Option<&BackendTraitObjectVtable> {
+        self.trait_object_vtables.get(key).map(|position| {
+            &self.lowering.program.modules[position.module].trait_object_vtables[position.item]
+        })
     }
 
     pub(super) fn trait_object_vtables_for_trait(

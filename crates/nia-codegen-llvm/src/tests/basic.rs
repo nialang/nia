@@ -86,7 +86,7 @@ fn native_object_cache_hit_skips_emission_and_publish() {
 }
 
 #[test]
-fn emits_declarations_for_codegen_program() {
+fn emits_only_referenced_declarations_for_codegen_program() {
     let root = temp_dir("emits_declarations_for_codegen_program");
     let main = root.join("main.nia");
     std::fs::write(
@@ -103,6 +103,7 @@ extern struct Point {
 extern fn use_point(p: Point) i32;
 
 fn main() i32 {
+    _ = puts(&hello[0]);
     let mut x = 40;
     let mut y = 2;
     x + y
@@ -118,9 +119,9 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("declare i32 @puts"));
-    assert!(ir.contains("declare i32 @use_point"));
+    assert!(!ir.contains("@use_point"), "{ir}");
     assert!(ir.contains("@nia__m0__d"));
-    assert!(ir.contains("%nia__m0__d"));
+    assert!(!ir.contains("%nia__m0__d"), "{ir}");
     assert!(ir.contains("define i32 @"));
     assert!(ir.contains("alloca i32"));
     assert!(ir.contains("store i32 40"));

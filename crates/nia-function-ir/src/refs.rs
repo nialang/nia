@@ -9,7 +9,7 @@ use crate::{
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
-use nia_ty::ConstGenericArg;
+use nia_ty::{ConstGenericArg, TyKind};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionInstanceRef {
@@ -98,78 +98,99 @@ impl FunctionBodyRefs {
 }
 
 impl FunctionBody {
-    pub fn value_refs(&self) -> FunctionBodyRefs {
+    pub fn value_refs(&self, types: &nia_ty::TypeStore) -> FunctionBodyRefs {
         let mut refs = FunctionBodyRefs::default();
-        collect_function_refs_from_body(self, &mut refs);
+        collect_function_refs_from_body(self, types, &mut refs);
         refs
     }
 }
 
-fn collect_function_refs_from_body(body: &FunctionBody, refs: &mut FunctionBodyRefs) {
+fn collect_function_refs_from_body(
+    body: &FunctionBody,
+    types: &nia_ty::TypeStore,
+    refs: &mut FunctionBodyRefs,
+) {
     refs.types.insert(body.ty);
     refs.types.extend(body.locals.iter().map(|local| local.ty));
     for block in &body.blocks {
-        collect_function_refs_from_block(block, refs);
+        collect_function_refs_from_block(block, types, refs);
     }
 }
 
-fn collect_function_refs_from_defer_body(body: &FunctionDeferBody, refs: &mut FunctionBodyRefs) {
+fn collect_function_refs_from_defer_body(
+    body: &FunctionDeferBody,
+    types: &nia_ty::TypeStore,
+    refs: &mut FunctionBodyRefs,
+) {
     for block in &body.blocks {
-        collect_function_refs_from_block(block, refs);
+        collect_function_refs_from_block(block, types, refs);
     }
 }
 
-fn collect_function_refs_from_block(block: &FunctionBlock, refs: &mut FunctionBodyRefs) {
+fn collect_function_refs_from_block(
+    block: &FunctionBlock,
+    types: &nia_ty::TypeStore,
+    refs: &mut FunctionBodyRefs,
+) {
     for op in &block.ops {
-        collect_function_refs_from_op(op, refs);
+        collect_function_refs_from_op(op, types, refs);
     }
-    collect_function_refs_from_terminator(&block.terminator, refs);
+    collect_function_refs_from_terminator(&block.terminator, types, refs);
 }
 
-fn collect_function_refs_from_op(op: &FunctionOp, refs: &mut FunctionBodyRefs) {
+fn collect_function_refs_from_op(
+    op: &FunctionOp,
+    types: &nia_ty::TypeStore,
+    refs: &mut FunctionBodyRefs,
+) {
     match op {
         FunctionOp::Binding(binding) => {
             if let Some(value) = &binding.value {
-                collect_function_refs_from_expr(value, refs);
+                collect_function_refs_from_expr(value, types, refs);
             }
         }
         FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
-            collect_function_refs_from_expr(value, refs);
+            collect_function_refs_from_expr(value, types, refs);
         }
         FunctionOp::MemoryIntrinsic(memory) => {
             refs.types.insert(memory.elem_ty);
-            collect_function_refs_from_expr(&memory.dest, refs);
+            collect_function_refs_from_expr(&memory.dest, types, refs);
             match &memory.source {
                 FunctionMemoryIntrinsicSource::Slice(source)
                 | FunctionMemoryIntrinsicSource::Byte(source) => {
-                    collect_function_refs_from_expr(source, refs);
+                    collect_function_refs_from_expr(source, types, refs);
                 }
             }
         }
-        FunctionOp::Defer(body) => collect_function_refs_from_defer_body(body, refs),
+        FunctionOp::Defer(body) => collect_function_refs_from_defer_body(body, types, refs),
     }
 }
 
 fn collect_function_refs_from_terminator(
     terminator: &FunctionTerminator,
+    types: &nia_ty::TypeStore,
     refs: &mut FunctionBodyRefs,
 ) {
     match terminator {
-        FunctionTerminator::If { cond, .. } => collect_function_refs_from_expr(cond, refs),
+        FunctionTerminator::If { cond, .. } => collect_function_refs_from_expr(cond, types, refs),
         FunctionTerminator::Switch { target, arms, .. } => {
-            collect_function_refs_from_expr(target, refs);
+            collect_function_refs_from_expr(target, types, refs);
             for arm in arms {
-                collect_function_refs_from_expr(&arm.pattern, refs);
+                collect_function_refs_from_expr(&arm.pattern, types, refs);
             }
         }
-        FunctionTerminator::Try { value, .. } => collect_function_refs_from_expr(value, refs),
+        FunctionTerminator::Try { value, .. } => {
+            collect_function_refs_from_expr(value, types, refs)
+        }
         FunctionTerminator::Loop { header, .. } => match header {
-            FunctionForHeader::Condition(expr) => collect_function_refs_from_expr(expr, refs),
+            FunctionForHeader::Condition(expr) => {
+                collect_function_refs_from_expr(expr, types, refs)
+            }
             FunctionForHeader::Infinite => {}
         },
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
             if let Some(value) = value {
-                collect_function_refs_from_expr(value, refs);
+                collect_function_refs_from_expr(value, types, refs);
             }
         }
         FunctionTerminator::Error { .. }
@@ -178,7 +199,11 @@ fn collect_function_refs_from_terminator(
     }
 }
 
-fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionBodyRefs) {
+fn collect_function_refs_from_expr(
+    expr: &FunctionExpr,
+    types: &nia_ty::TypeStore,
+    refs: &mut FunctionBodyRefs,
+) {
     refs.types.insert(expr.ty);
     match &expr.kind {
         FunctionExprKind::Function(def_id) => {
@@ -203,21 +228,21 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionBodyR
         }
         FunctionExprKind::Range(range) => {
             if let Some(start) = &range.start {
-                collect_function_refs_from_expr(start, refs);
+                collect_function_refs_from_expr(start, types, refs);
             }
             if let Some(end) = &range.end {
-                collect_function_refs_from_expr(end, refs);
+                collect_function_refs_from_expr(end, types, refs);
             }
         }
-        FunctionExprKind::InlineAsm(asm) => collect_function_refs_from_inline_asm(asm, refs),
-        FunctionExprKind::Atomic(atomic) => collect_function_refs_from_atomic(atomic, refs),
+        FunctionExprKind::InlineAsm(asm) => collect_function_refs_from_inline_asm(asm, types, refs),
+        FunctionExprKind::Atomic(atomic) => collect_function_refs_from_atomic(atomic, types, refs),
         FunctionExprKind::TraitObjectUpcast {
             expr: inner,
             source_ty,
             target_ty,
         } => {
             refs.types.extend([*source_ty, *target_ty]);
-            collect_function_refs_from_expr(inner, refs);
+            collect_function_refs_from_expr(inner, types, refs);
         }
         FunctionExprKind::TraitObjectCoercion {
             expr: inner,
@@ -229,7 +254,7 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionBodyR
                 self_ty: *self_ty,
                 object_ty: *target_ty,
             });
-            collect_function_refs_from_expr(inner, refs);
+            collect_function_refs_from_expr(inner, types, refs);
         }
         FunctionExprKind::StaticArrayPointer { array, .. }
         | FunctionExprKind::RangeBound { range: array, .. }
@@ -247,66 +272,66 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionBodyR
         | FunctionExprKind::CharFromU32 { value: array }
         | FunctionExprKind::Discard(array)
         | FunctionExprKind::Cast { expr: array, .. } => {
-            collect_function_refs_from_expr(array, refs);
+            collect_function_refs_from_expr(array, types, refs);
         }
         FunctionExprKind::ArrayLiteral { elems } => match elems {
             FunctionArrayElements::List(elems) => {
                 for elem in elems {
-                    collect_function_refs_from_expr(elem, refs);
+                    collect_function_refs_from_expr(elem, types, refs);
                 }
             }
             FunctionArrayElements::Repeat { value, .. } => {
-                collect_function_refs_from_expr(value, refs)
+                collect_function_refs_from_expr(value, types, refs)
             }
         },
         FunctionExprKind::StructLiteral { fields, .. } => {
             for field in fields {
-                collect_function_refs_from_expr(&field.value, refs);
+                collect_function_refs_from_expr(&field.value, types, refs);
             }
         }
         FunctionExprKind::UnionLiteral { field, .. } => {
-            collect_function_refs_from_expr(&field.value, refs);
+            collect_function_refs_from_expr(&field.value, types, refs);
         }
-        FunctionExprKind::AddrOf(place) => collect_function_refs_from_place(place, refs),
+        FunctionExprKind::AddrOf(place) => collect_function_refs_from_place(place, types, refs),
         FunctionExprKind::Binary { lhs, rhs, .. } => {
-            collect_function_refs_from_expr(lhs, refs);
-            collect_function_refs_from_expr(rhs, refs);
+            collect_function_refs_from_expr(lhs, types, refs);
+            collect_function_refs_from_expr(rhs, types, refs);
         }
         FunctionExprKind::ExtractElement { vector, index } => {
-            collect_function_refs_from_expr(vector, refs);
-            collect_function_refs_from_expr(index, refs);
+            collect_function_refs_from_expr(vector, types, refs);
+            collect_function_refs_from_expr(index, types, refs);
         }
         FunctionExprKind::InsertElement {
             vector,
             index,
             value,
         } => {
-            collect_function_refs_from_expr(vector, refs);
-            collect_function_refs_from_expr(index, refs);
-            collect_function_refs_from_expr(value, refs);
+            collect_function_refs_from_expr(vector, types, refs);
+            collect_function_refs_from_expr(index, types, refs);
+            collect_function_refs_from_expr(value, types, refs);
         }
         FunctionExprKind::Assign { place, rhs, .. } => {
-            collect_function_refs_from_place(place, refs);
-            collect_function_refs_from_expr(rhs, refs);
+            collect_function_refs_from_place(place, types, refs);
+            collect_function_refs_from_expr(rhs, types, refs);
         }
         FunctionExprKind::Call { callee, args } => {
-            collect_function_refs_from_callee(expr.span, callee, refs);
+            collect_function_refs_from_callee(expr.span, callee, types, refs);
             for arg in args {
-                collect_function_refs_from_expr(arg, refs);
+                collect_function_refs_from_expr(arg, types, refs);
             }
         }
-        FunctionExprKind::Field { lhs, .. } => collect_function_refs_from_expr(lhs, refs),
+        FunctionExprKind::Field { lhs, .. } => collect_function_refs_from_expr(lhs, types, refs),
         FunctionExprKind::Index { lhs, index } => {
-            collect_function_refs_from_expr(lhs, refs);
-            collect_function_refs_from_expr(index, refs);
+            collect_function_refs_from_expr(lhs, types, refs);
+            collect_function_refs_from_expr(index, types, refs);
         }
         FunctionExprKind::Slice { lhs, range, .. } => {
-            collect_function_refs_from_expr(lhs, refs);
+            collect_function_refs_from_expr(lhs, types, refs);
             if let Some(start) = &range.start {
-                collect_function_refs_from_expr(start, refs);
+                collect_function_refs_from_expr(start, types, refs);
             }
             if let Some(end) = &range.end {
-                collect_function_refs_from_expr(end, refs);
+                collect_function_refs_from_expr(end, types, refs);
             }
         }
         FunctionExprKind::Error => unreachable_invalid_function_ir("FunctionExprKind::Error"),
@@ -344,17 +369,21 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionBodyR
     }
 }
 
-fn collect_function_refs_from_atomic(atomic: &FunctionAtomic, refs: &mut FunctionBodyRefs) {
+fn collect_function_refs_from_atomic(
+    atomic: &FunctionAtomic,
+    types: &nia_ty::TypeStore,
+    refs: &mut FunctionBodyRefs,
+) {
     match atomic {
         FunctionAtomic::Load { ty, ptr, .. } => {
             refs.types.insert(*ty);
-            collect_function_refs_from_expr(ptr, refs);
+            collect_function_refs_from_expr(ptr, types, refs);
         }
         FunctionAtomic::Store { ty, ptr, value, .. }
         | FunctionAtomic::Rmw { ty, ptr, value, .. } => {
             refs.types.insert(*ty);
-            collect_function_refs_from_expr(ptr, refs);
-            collect_function_refs_from_expr(value, refs);
+            collect_function_refs_from_expr(ptr, types, refs);
+            collect_function_refs_from_expr(value, types, refs);
         }
         FunctionAtomic::Cmpxchg {
             ty,
@@ -364,9 +393,9 @@ fn collect_function_refs_from_atomic(atomic: &FunctionAtomic, refs: &mut Functio
             ..
         } => {
             refs.types.insert(*ty);
-            collect_function_refs_from_expr(ptr, refs);
-            collect_function_refs_from_expr(expected, refs);
-            collect_function_refs_from_expr(desired, refs);
+            collect_function_refs_from_expr(ptr, types, refs);
+            collect_function_refs_from_expr(expected, types, refs);
+            collect_function_refs_from_expr(desired, types, refs);
         }
         FunctionAtomic::Fence { .. } => {}
     }
@@ -375,6 +404,7 @@ fn collect_function_refs_from_atomic(atomic: &FunctionAtomic, refs: &mut Functio
 fn collect_function_refs_from_callee(
     span: Span,
     callee: &FunctionCallee,
+    types: &nia_ty::TypeStore,
     refs: &mut FunctionBodyRefs,
 ) {
     match callee {
@@ -419,7 +449,7 @@ fn collect_function_refs_from_callee(
                     span,
                 });
             }
-            collect_function_refs_from_expr(receiver, refs);
+            collect_function_refs_from_expr(receiver, types, refs);
         }
         FunctionCallee::TraitMethod {
             self_ty,
@@ -431,7 +461,7 @@ fn collect_function_refs_from_callee(
             refs.types.insert(*self_ty);
             refs.types.extend(trait_args.iter().copied());
             refs.types.extend(args.iter().copied());
-            collect_function_refs_from_expr(receiver, refs);
+            collect_function_refs_from_expr(receiver, types, refs);
         }
         FunctionCallee::TraitAssociatedFunction {
             self_ty,
@@ -454,7 +484,7 @@ fn collect_function_refs_from_callee(
             refs.types.extend([*object_ty, *return_type]);
             refs.types.extend(trait_args.iter().copied());
             refs.types.extend(params.iter().copied());
-            collect_function_refs_from_expr(receiver, refs);
+            collect_function_refs_from_expr(receiver, types, refs);
         }
         FunctionCallee::BuiltinPlaceMethod {
             self_ty,
@@ -464,25 +494,40 @@ fn collect_function_refs_from_callee(
         } => {
             refs.types.insert(*self_ty);
             refs.types.extend(trait_args.iter().copied());
-            collect_function_refs_from_expr(receiver, refs);
+            collect_function_refs_from_expr(receiver, types, refs);
         }
         FunctionCallee::BuiltinMethod {
-            self_ty, receiver, ..
+            method,
+            self_ty,
+            receiver,
         } => {
             refs.types.insert(*self_ty);
-            collect_function_refs_from_expr(receiver, refs);
+            let receiver_is_unevaluated = matches!(
+                (method, types.get(*self_ty)),
+                (
+                    crate::FunctionBuiltinMethod::Len,
+                    Some(TyKind::Array { .. })
+                )
+            );
+            if !receiver_is_unevaluated {
+                collect_function_refs_from_expr(receiver, types, refs);
+            }
         }
         FunctionCallee::FunctionPointer(receiver) => {
-            collect_function_refs_from_expr(receiver, refs);
+            collect_function_refs_from_expr(receiver, types, refs);
         }
         FunctionCallee::BuiltinOperator(_) => {}
     }
 }
 
-fn collect_function_refs_from_place(place: &FunctionPlace, refs: &mut FunctionBodyRefs) {
+fn collect_function_refs_from_place(
+    place: &FunctionPlace,
+    types: &nia_ty::TypeStore,
+    refs: &mut FunctionBodyRefs,
+) {
     refs.types.insert(place.ty);
     match &place.base {
-        FunctionPlaceBase::Deref(expr) => collect_function_refs_from_expr(expr, refs),
+        FunctionPlaceBase::Deref(expr) => collect_function_refs_from_expr(expr, types, refs),
         FunctionPlaceBase::Local(_) => {}
         FunctionPlaceBase::Global(def_id) => {
             refs.globals.insert(*def_id);
@@ -506,7 +551,7 @@ fn collect_function_refs_from_place(place: &FunctionPlace, refs: &mut FunctionBo
     }
     for elem in &place.elems {
         match elem {
-            FunctionPlaceElem::Index(expr) => collect_function_refs_from_expr(expr, refs),
+            FunctionPlaceElem::Index(expr) => collect_function_refs_from_expr(expr, types, refs),
             FunctionPlaceElem::Field(_) => {}
             FunctionPlaceElem::Error => unreachable_invalid_function_ir("FunctionPlaceElem::Error"),
         }
@@ -532,12 +577,16 @@ fn collect_instance_types(
     refs.types.extend(const_args.iter().map(|arg| arg.ty));
 }
 
-fn collect_function_refs_from_inline_asm(asm: &FunctionInlineAsm, refs: &mut FunctionBodyRefs) {
+fn collect_function_refs_from_inline_asm(
+    asm: &FunctionInlineAsm,
+    types: &nia_ty::TypeStore,
+    refs: &mut FunctionBodyRefs,
+) {
     for input in &asm.inputs {
-        collect_function_refs_from_expr(&input.value, refs);
+        collect_function_refs_from_expr(&input.value, types, refs);
     }
     for output in &asm.outputs {
-        collect_function_refs_from_place(&output.place, refs);
+        collect_function_refs_from_place(&output.place, types, refs);
     }
 }
 
@@ -727,7 +776,7 @@ mod tests {
             ty,
         };
 
-        let refs = body.value_refs();
+        let refs = body.value_refs(&types);
 
         assert_eq!(refs.functions, BTreeSet::from([function, nested_function]));
         assert_eq!(refs.globals, BTreeSet::from([global_value, global_place]));
@@ -773,6 +822,65 @@ mod tests {
                 const_args: Vec::new(),
             }])
         );
+    }
+
+    #[test]
+    fn array_len_does_not_retain_unevaluated_receiver_value() {
+        let module_id = ModuleIdAllocator::new().allocate();
+        let types = TypeStore::new();
+        let append = types.append_for_module(module_id);
+        let elem_ty = append.primitive(PrimitiveTy::U8);
+        let usize_ty = append.primitive(PrimitiveTy::Usize);
+        let array_ty = append.intern(TyKind::Array {
+            len: nia_ty::ArrayLenTy::ConstValue(4),
+            elem: elem_ty,
+        });
+        let slice_ty = append.intern(TyKind::Slice {
+            is_readonly: true,
+            elem: elem_ty,
+        });
+        let array_global = global(module_id, 1);
+        let slice_global = global(module_id, 2);
+        let len_call = |self_ty, global| {
+            expr(
+                usize_ty,
+                FunctionExprKind::Call {
+                    callee: FunctionCallee::BuiltinMethod {
+                        method: crate::FunctionBuiltinMethod::Len,
+                        self_ty,
+                        receiver: Box::new(expr(self_ty, FunctionExprKind::Global(global))),
+                    },
+                    args: Vec::new(),
+                },
+            )
+        };
+        let body = FunctionBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span: Span::default(),
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span: Span::default(),
+                ops: vec![FunctionOp::Expr(len_call(array_ty, array_global))],
+                terminator: FunctionTerminator::Return {
+                    value: Some(len_call(slice_ty, slice_global)),
+                    span: Span::default(),
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: usize_ty,
+        };
+
+        let refs = body.value_refs(&types);
+
+        assert_eq!(refs.globals, BTreeSet::from([slice_global]));
+        assert!(refs.types.contains(&array_ty));
+        assert!(refs.types.contains(&slice_ty));
     }
 
     #[test]
