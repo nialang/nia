@@ -118,6 +118,32 @@ impl FrontendSignatureTypeLoweringCacheKey {
         self.0.parts()
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FrontendSignatureItemSignaturesCacheKey(QueryFingerprint);
+
+impl FrontendSignatureItemSignaturesCacheKey {
+    pub fn new(
+        namespace: FrontendCacheNamespace,
+        module: &StableModuleKey,
+        set: SignatureItemSet,
+        program_sources: FrontendProgramSourceFingerprint,
+    ) -> Self {
+        let mut builder =
+            QueryFingerprintBuilder::new("nia.frontend.cache-key.signature-item-signatures.v1");
+        write_frontend_cache_key(&mut builder, namespace, module, program_sources.parts());
+        builder.write_u8(signature_item_set_tag(set));
+        Self(builder.finish())
+    }
+
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(QueryFingerprint::from_parts(parts))
+    }
+
+    pub const fn parts(self) -> [u64; 2] {
+        self.0.parts()
+    }
+}
 frontend_cache_key!(
     FrontendSyntaxCacheKey,
     SyntaxFingerprint,
@@ -533,6 +559,12 @@ extend Value {
             SignatureItemSet::Functions,
             program,
         );
+        let signatures_key = FrontendSignatureItemSignaturesCacheKey::new(
+            namespace,
+            &module,
+            SignatureItemSet::Functions,
+            program,
+        );
 
         assert_eq!(program, reordered);
         assert_ne!(program, changed);
@@ -572,6 +604,8 @@ extend Value {
             FrontendSignatureTypeLoweringCacheKey::from_parts(lowering_key.parts())
         );
         assert_ne!(key.parts(), lowering_key.parts());
+        assert_ne!(key.parts(), signatures_key.parts());
+        assert_ne!(lowering_key.parts(), signatures_key.parts());
         assert_eq!(std::mem::size_of::<FrontendProgramSourceFingerprint>(), 16);
         assert_eq!(
             std::mem::size_of::<FrontendSignatureTypeResolutionCacheKey>(),
@@ -579,6 +613,10 @@ extend Value {
         );
         assert_eq!(
             std::mem::size_of::<FrontendSignatureTypeLoweringCacheKey>(),
+            16
+        );
+        assert_eq!(
+            std::mem::size_of::<FrontendSignatureItemSignaturesCacheKey>(),
             16
         );
     }

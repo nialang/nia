@@ -6,8 +6,12 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use nia_ids::{BuiltinTrait, DefId, GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{
+    BuiltinConstValue, BuiltinFunction, BuiltinTrait, DefId, GlobalDefId, InternedTyId, ModuleId,
+    ReceiverKind, TraitImplId, Visibility,
+};
 use nia_imports::StableModuleKey;
+use nia_item_signatures::{self as item_signatures, ItemSignatures};
 use nia_item_tree::SignatureItemSet;
 use nia_node_id::{NodeChildPath, NodeMap, NodePosition, NodeSite, SyntaxKind, VersionedNodeKey};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
@@ -22,11 +26,13 @@ use nia_type_resolve::{TypeNameResolution, TypeResolution};
 
 use crate::{
     FrontendCacheNamespace, FrontendProgramSourceFingerprint,
-    FrontendSignatureTypeLoweringCacheKey, FrontendSignatureTypeResolutionCacheKey,
+    FrontendSignatureItemSignaturesCacheKey, FrontendSignatureTypeLoweringCacheKey,
+    FrontendSignatureTypeResolutionCacheKey,
 };
 
 const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR001";
 const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL001";
+const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI001";
 const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
@@ -58,6 +64,16 @@ pub(crate) struct SignatureTypeLoweringIdentity<'a> {
     pub(crate) source_len: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SignatureItemSignaturesIdentity<'a> {
+    pub(crate) key: FrontendSignatureItemSignaturesCacheKey,
+    pub(crate) namespace: FrontendCacheNamespace,
+    pub(crate) module: &'a StableModuleKey,
+    pub(crate) set: SignatureItemSet,
+    pub(crate) program_sources: FrontendProgramSourceFingerprint,
+    pub(crate) source_len: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SignatureTypeResolutionLookup {
     Hit(Box<TypeResolution>),
@@ -68,6 +84,13 @@ pub(crate) enum SignatureTypeResolutionLookup {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SignatureTypeLoweringLookup {
     Hit(Box<TypeLowering>),
+    NotFound,
+    Corrupt,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum SignatureItemSignaturesLookup {
+    Hit(Box<ItemSignatures>),
     NotFound,
     Corrupt,
 }
@@ -230,6 +253,79 @@ impl PersistentSignatureCache {
         remove_corrupt(&self.type_lowering_path(key));
     }
 
+    pub(crate) fn load_item_signatures(
+        &self,
+        identity: SignatureItemSignaturesIdentity<'_>,
+        modules: &HashMap<String, ModuleId>,
+        symbols: &SymbolTable,
+        type_store: &TypeStore,
+    ) -> io::Result<SignatureItemSignaturesLookup> {
+        let path = self.item_signatures_path(identity.key);
+        let encoded = match fs::read(&path) {
+            Ok(encoded) if encoded.len() <= MAX_ENTRY_BYTES => encoded,
+            Ok(_) => {
+                remove_corrupt(&path);
+                return Ok(SignatureItemSignaturesLookup::Corrupt);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(SignatureItemSignaturesLookup::NotFound);
+            }
+            Err(error) => return Err(error),
+        };
+        let Some(payload) = decode_item_signatures_entry(&encoded, identity) else {
+            remove_corrupt(&path);
+            return Ok(SignatureItemSignaturesLookup::Corrupt);
+        };
+        let Some(module_id) = modules
+            .get(identity.module.source_identity().normalized_path())
+            .copied()
+        else {
+            remove_corrupt(&path);
+            return Ok(SignatureItemSignaturesLookup::Corrupt);
+        };
+        let Some(signatures) = decode_item_signatures(
+            payload,
+            identity.source_len,
+            modules,
+            symbols,
+            type_store,
+            module_id,
+        ) else {
+            remove_corrupt(&path);
+            return Ok(SignatureItemSignaturesLookup::Corrupt);
+        };
+        Ok(SignatureItemSignaturesLookup::Hit(Box::new(signatures)))
+    }
+
+    pub(crate) fn publish_item_signatures(
+        &self,
+        identity: SignatureItemSignaturesIdentity<'_>,
+        signatures: &ItemSignatures,
+        module_paths: &HashMap<ModuleId, String>,
+        symbols: &SymbolTable,
+        type_store: &TypeStore,
+        replace: bool,
+    ) -> io::Result<()> {
+        if !signatures.diagnostics.is_empty() {
+            return Ok(());
+        }
+        let path = self.item_signatures_path(identity.key);
+        if !replace && path.is_file() {
+            return Ok(());
+        }
+        let payload = encode_item_signatures(signatures, module_paths, symbols, type_store)?;
+        let encoded = encode_item_signatures_entry(identity, &payload);
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
+        fs::create_dir_all(parent)?;
+        atomic_publish(&path, &encoded)
+    }
+
+    pub(crate) fn remove_item_signatures(&self, key: FrontendSignatureItemSignaturesCacheKey) {
+        remove_corrupt(&self.item_signatures_path(key));
+    }
+
     pub(crate) fn type_resolution_path(
         &self,
         key: FrontendSignatureTypeResolutionCacheKey,
@@ -251,6 +347,19 @@ impl PersistentSignatureCache {
             .join("v3")
             .join("signature-type-lowerings")
             .join(format!("{first:016x}{second:016x}.stl"))
+    }
+
+    pub(crate) fn item_signatures_path(
+        &self,
+        key: FrontendSignatureItemSignaturesCacheKey,
+    ) -> PathBuf {
+        let [first, second] = key.parts();
+        self.root
+            .join("artifacts")
+            .join("frontend")
+            .join("v3")
+            .join("signature-item-signatures")
+            .join(format!("{first:016x}{second:016x}.sis"))
     }
 }
 
@@ -348,6 +457,64 @@ fn decode_type_lowering_entry<'a>(
     let mut magic = [0_u8; 8];
     cursor.read_exact(&mut magic).ok()?;
     if &magic != TYPE_LOWERING_MAGIC
+        || read_parts(&mut cursor)? != identity.key.parts()
+        || read_parts(&mut cursor)? != identity.namespace.parts()
+        || read_parts(&mut cursor)? != identity.program_sources.parts()
+        || read_string(&mut cursor, encoded.len())?
+            != identity.module.source_identity().normalized_path()
+        || read_u8(&mut cursor)? != signature_set_tag(identity.set)
+        || usize::try_from(read_u64(&mut cursor)?).ok()? != identity.source_len
+    {
+        return None;
+    }
+    let payload_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
+    if payload_len > MAX_ENTRY_BYTES {
+        return None;
+    }
+    let start = usize::try_from(cursor.position()).ok()?;
+    let end = start.checked_add(payload_len)?;
+    (end == checksum_offset).then(|| &encoded[start..end])
+}
+
+fn encode_item_signatures_entry(
+    identity: SignatureItemSignaturesIdentity<'_>,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(ITEM_SIGNATURES_MAGIC);
+    write_parts(&mut encoded, identity.key.parts());
+    write_parts(&mut encoded, identity.namespace.parts());
+    write_parts(&mut encoded, identity.program_sources.parts());
+    write_string(
+        &mut encoded,
+        identity.module.source_identity().normalized_path(),
+    );
+    encoded.push(signature_set_tag(identity.set));
+    write_u64(&mut encoded, identity.source_len as u64);
+    write_u64(&mut encoded, payload.len() as u64);
+    encoded.extend_from_slice(payload);
+    let checksum = item_signatures_checksum(&encoded);
+    write_parts(&mut encoded, checksum.parts());
+    encoded
+}
+
+fn decode_item_signatures_entry<'a>(
+    encoded: &'a [u8],
+    identity: SignatureItemSignaturesIdentity<'_>,
+) -> Option<&'a [u8]> {
+    if encoded.len() < ITEM_SIGNATURES_MAGIC.len() + 16 {
+        return None;
+    }
+    let checksum_offset = encoded.len().checked_sub(16)?;
+    let expected_checksum = item_signatures_checksum(&encoded[..checksum_offset]);
+    let mut checksum_cursor = Cursor::new(&encoded[checksum_offset..]);
+    if read_parts(&mut checksum_cursor)? != expected_checksum.parts() {
+        return None;
+    }
+    let mut cursor = Cursor::new(&encoded[..checksum_offset]);
+    let mut magic = [0_u8; 8];
+    cursor.read_exact(&mut magic).ok()?;
+    if &magic != ITEM_SIGNATURES_MAGIC
         || read_parts(&mut cursor)? != identity.key.parts()
         || read_parts(&mut cursor)? != identity.namespace.parts()
         || read_parts(&mut cursor)? != identity.program_sources.parts()
@@ -487,6 +654,950 @@ fn decode_type_resolution(
     })
 }
 
+fn encode_item_signatures(
+    signatures: &ItemSignatures,
+    module_paths: &HashMap<ModuleId, String>,
+    symbols: &SymbolTable,
+    type_store: &TypeStore,
+) -> io::Result<Vec<u8>> {
+    if !signatures.diagnostics.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "cannot cache item signature diagnostics",
+        ));
+    }
+    let mut graph = TypeGraphEncoder {
+        type_store,
+        module_paths,
+        symbols,
+        indexes: HashMap::new(),
+        visiting: HashSet::new(),
+        nodes: Vec::new(),
+    };
+    let mut body = Vec::new();
+    write_def_map(&mut body, &signatures.functions, |encoded, signature| {
+        write_function_signature(encoded, signature, &mut graph)
+    })?;
+    write_def_map(&mut body, &signatures.structs, |encoded, signature| {
+        write_struct_signature(encoded, signature, &mut graph)
+    })?;
+    write_def_map(&mut body, &signatures.unions, |encoded, signature| {
+        write_union_signature(encoded, signature, &mut graph)
+    })?;
+    write_def_map(&mut body, &signatures.traits, |encoded, signature| {
+        write_trait_signature(encoded, signature, &mut graph)
+    })?;
+    write_u64(&mut body, signatures.trait_impls.len() as u64);
+    for signature in &signatures.trait_impls {
+        write_trait_impl_signature(&mut body, signature, &mut graph)?;
+    }
+    write_def_map(&mut body, &signatures.enums, |encoded, signature| {
+        write_enum_signature(encoded, signature, &mut graph)
+    })?;
+    write_def_map(&mut body, &signatures.type_aliases, |encoded, signature| {
+        write_type_alias_signature(encoded, signature, &mut graph)
+    })?;
+    write_def_map(&mut body, &signatures.globals, |encoded, signature| {
+        write_global_signature(encoded, signature, &mut graph)
+    })?;
+    write_def_map(&mut body, &signatures.consts, |encoded, signature| {
+        write_const_signature(encoded, signature, &mut graph)
+    })?;
+
+    let mut encoded = Vec::new();
+    write_type_graph(&mut encoded, graph.nodes);
+    encoded.extend_from_slice(&body);
+    Ok(encoded)
+}
+
+fn decode_item_signatures(
+    encoded: &[u8],
+    source_len: usize,
+    modules: &HashMap<String, ModuleId>,
+    symbols: &SymbolTable,
+    type_store: &TypeStore,
+    module_id: ModuleId,
+) -> Option<ItemSignatures> {
+    let mut cursor = Cursor::new(encoded);
+    let types = read_type_graph(
+        &mut cursor,
+        encoded.len(),
+        modules,
+        symbols,
+        type_store,
+        module_id,
+    )?;
+    let functions = read_def_map(&mut cursor, |cursor| {
+        read_function_signature(cursor, &types, symbols, source_len)
+    })?;
+    let structs = read_def_map(&mut cursor, |cursor| {
+        read_struct_signature(cursor, &types, symbols, source_len)
+    })?;
+    let unions = read_def_map(&mut cursor, |cursor| {
+        read_union_signature(cursor, &types, symbols, source_len)
+    })?;
+    let traits = read_def_map(&mut cursor, |cursor| {
+        read_trait_signature(cursor, &types, symbols, source_len)
+    })?;
+    let trait_impl_len = read_len(&mut cursor, MAX_SEQUENCE_LEN)?;
+    let mut trait_impls = Vec::with_capacity(trait_impl_len);
+    let mut trait_impl_ids = HashSet::new();
+    for _ in 0..trait_impl_len {
+        let signature = read_trait_impl_signature(&mut cursor, &types, symbols, source_len)?;
+        if !trait_impl_ids.insert(signature.impl_id) {
+            return None;
+        }
+        trait_impls.push(signature);
+    }
+    let enums = read_def_map(&mut cursor, |cursor| {
+        read_enum_signature(cursor, &types, symbols, source_len)
+    })?;
+    let type_aliases = read_def_map(&mut cursor, |cursor| {
+        read_type_alias_signature(cursor, &types, symbols, source_len)
+    })?;
+    let globals = read_def_map(&mut cursor, |cursor| {
+        read_global_signature(cursor, &types, source_len)
+    })?;
+    let consts = read_def_map(&mut cursor, |cursor| {
+        read_const_signature(cursor, &types, source_len)
+    })?;
+    if cursor.position() as usize != encoded.len() {
+        return None;
+    }
+    Some(ItemSignatures {
+        functions,
+        structs,
+        unions,
+        traits,
+        trait_impls,
+        enums,
+        type_aliases,
+        globals,
+        consts,
+        diagnostics: Vec::new(),
+    })
+}
+
+fn write_def_map<T>(
+    encoded: &mut Vec<u8>,
+    values: &HashMap<DefId, T>,
+    mut write_value: impl FnMut(&mut Vec<u8>, &T) -> io::Result<()>,
+) -> io::Result<()> {
+    let mut values = values.iter().collect::<Vec<_>>();
+    values.sort_unstable_by_key(|(def_id, _)| def_id.0);
+    write_u64(encoded, values.len() as u64);
+    for (def_id, value) in values {
+        write_u64(encoded, def_id.0);
+        write_value(encoded, value)?;
+    }
+    Ok(())
+}
+
+fn read_def_map<T>(
+    cursor: &mut Cursor<&[u8]>,
+    mut read_value: impl FnMut(&mut Cursor<&[u8]>) -> Option<T>,
+) -> Option<HashMap<DefId, T>> {
+    let len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut values = HashMap::with_capacity(len);
+    let mut previous = None;
+    for _ in 0..len {
+        let def_id = DefId(read_u64(cursor)?);
+        if previous.is_some_and(|previous| previous >= def_id) {
+            return None;
+        }
+        previous = Some(def_id);
+        if values.insert(def_id, read_value(cursor)?).is_some() {
+            return None;
+        }
+    }
+    Some(values)
+}
+
+fn write_function_signature(
+    encoded: &mut Vec<u8>,
+    signature: &item_signatures::FunctionSignature,
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_symbols(encoded, &signature.generics, graph)?;
+    write_u64(encoded, signature.generic_params.len() as u64);
+    for param in &signature.generic_params {
+        graph.write_symbol(encoded, param.name)?;
+        match &param.kind {
+            item_signatures::GenericParamSignatureKind::Type => encoded.push(0),
+            item_signatures::GenericParamSignatureKind::Const { ty } => {
+                encoded.push(1);
+                write_type_index(encoded, graph.intern(*ty)?);
+            }
+        }
+    }
+    write_where_predicates(encoded, &signature.where_predicates, graph)?;
+    write_u64(encoded, signature.params.len() as u64);
+    for param in &signature.params {
+        write_optional_symbol(encoded, param.name, graph)?;
+        write_optional_receiver(encoded, param.receiver);
+        write_type_index(encoded, graph.intern(param.ty)?);
+        write_span(encoded, param.span);
+    }
+    write_type_index(encoded, graph.intern(signature.return_type)?);
+    write_bool(encoded, signature.is_extern);
+    write_bool(encoded, signature.is_const);
+    write_bool(encoded, signature.is_variadic);
+    write_u64(encoded, signature.attributes.len() as u64);
+    for attribute in &signature.attributes {
+        match attribute {
+            item_signatures::FunctionAttribute::Naked => encoded.push(0),
+            item_signatures::FunctionAttribute::Builtin(builtin) => {
+                encoded.push(1);
+                encoded.push(builtin_function_tag(*builtin));
+            }
+        }
+    }
+    write_bool(encoded, signature.has_body);
+    write_span(encoded, signature.span);
+    Ok(())
+}
+
+fn read_function_signature(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    symbols: &SymbolTable,
+    source_len: usize,
+) -> Option<item_signatures::FunctionSignature> {
+    let generics = read_symbols(cursor, symbols)?;
+    let generic_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut generic_params = Vec::with_capacity(generic_len);
+    for _ in 0..generic_len {
+        let name = read_symbol(cursor, symbols)?;
+        let kind = match read_u8(cursor)? {
+            0 => item_signatures::GenericParamSignatureKind::Type,
+            1 => item_signatures::GenericParamSignatureKind::Const {
+                ty: read_type_index(cursor, types)?,
+            },
+            _ => return None,
+        };
+        generic_params.push(item_signatures::GenericParamSignature { name, kind });
+    }
+    let where_predicates = read_where_predicates(cursor, types, symbols, source_len)?;
+    let param_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut params = Vec::with_capacity(param_len);
+    for _ in 0..param_len {
+        params.push(item_signatures::ParamSignature {
+            name: read_optional_symbol(cursor, symbols)?,
+            receiver: read_optional_receiver(cursor)?,
+            ty: read_type_index(cursor, types)?,
+            span: read_span(cursor, source_len)?,
+        });
+    }
+    let return_type = read_type_index(cursor, types)?;
+    let is_extern = read_bool(cursor)?;
+    let is_const = read_bool(cursor)?;
+    let is_variadic = read_bool(cursor)?;
+    let attribute_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut attributes = Vec::with_capacity(attribute_len);
+    for _ in 0..attribute_len {
+        attributes.push(match read_u8(cursor)? {
+            0 => item_signatures::FunctionAttribute::Naked,
+            1 => item_signatures::FunctionAttribute::Builtin(read_builtin_function(cursor)?),
+            _ => return None,
+        });
+    }
+    Some(item_signatures::FunctionSignature {
+        generics,
+        generic_params,
+        where_predicates,
+        params,
+        return_type,
+        is_extern,
+        is_const,
+        is_variadic,
+        attributes,
+        has_body: read_bool(cursor)?,
+        span: read_span(cursor, source_len)?,
+    })
+}
+
+fn write_struct_signature(
+    encoded: &mut Vec<u8>,
+    signature: &item_signatures::StructSignature,
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_symbols(encoded, &signature.generics, graph)?;
+    write_where_predicates(encoded, &signature.where_predicates, graph)?;
+    write_fields(encoded, &signature.fields, graph)?;
+    write_bool(encoded, signature.is_extern);
+    write_span(encoded, signature.span);
+    Ok(())
+}
+
+fn read_struct_signature(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    symbols: &SymbolTable,
+    source_len: usize,
+) -> Option<item_signatures::StructSignature> {
+    Some(item_signatures::StructSignature {
+        generics: read_symbols(cursor, symbols)?,
+        where_predicates: read_where_predicates(cursor, types, symbols, source_len)?,
+        fields: read_fields(cursor, types, symbols, source_len)?,
+        is_extern: read_bool(cursor)?,
+        span: read_span(cursor, source_len)?,
+    })
+}
+
+fn write_union_signature(
+    encoded: &mut Vec<u8>,
+    signature: &item_signatures::UnionSignature,
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_symbols(encoded, &signature.generics, graph)?;
+    write_where_predicates(encoded, &signature.where_predicates, graph)?;
+    write_fields(encoded, &signature.fields, graph)?;
+    write_bool(encoded, signature.is_extern);
+    write_span(encoded, signature.span);
+    Ok(())
+}
+
+fn read_union_signature(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    symbols: &SymbolTable,
+    source_len: usize,
+) -> Option<item_signatures::UnionSignature> {
+    Some(item_signatures::UnionSignature {
+        generics: read_symbols(cursor, symbols)?,
+        where_predicates: read_where_predicates(cursor, types, symbols, source_len)?,
+        fields: read_fields(cursor, types, symbols, source_len)?,
+        is_extern: read_bool(cursor)?,
+        span: read_span(cursor, source_len)?,
+    })
+}
+
+fn write_trait_signature(
+    encoded: &mut Vec<u8>,
+    signature: &item_signatures::TraitSignature,
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_symbols(encoded, &signature.generics, graph)?;
+    write_where_predicates(encoded, &signature.where_predicates, graph)?;
+    write_u64(encoded, signature.supertraits.len() as u64);
+    for supertrait in &signature.supertraits {
+        write_type_index(encoded, graph.intern(supertrait.ty)?);
+        write_span(encoded, supertrait.span);
+    }
+    write_u64(encoded, signature.associated_types.len() as u64);
+    for associated in &signature.associated_types {
+        write_u64(encoded, associated.def_id.0);
+        graph.write_symbol(encoded, associated.name)?;
+        write_span(encoded, associated.span);
+    }
+    write_u64(encoded, signature.associated_values.len() as u64);
+    for associated in &signature.associated_values {
+        write_u64(encoded, associated.def_id.0);
+        graph.write_symbol(encoded, associated.name)?;
+        write_type_index(encoded, graph.intern(associated.ty)?);
+        write_span(encoded, associated.span);
+    }
+    write_u64(encoded, signature.methods.len() as u64);
+    for method in &signature.methods {
+        write_u64(encoded, method.def_id.0);
+        graph.write_symbol(encoded, method.name)?;
+        write_function_signature(encoded, &method.signature, graph)?;
+        write_bool(encoded, method.has_default);
+        write_span(encoded, method.span);
+    }
+    match signature.builtin {
+        Some(builtin) => {
+            encoded.push(1);
+            encoded.push(builtin_trait_tag(builtin));
+        }
+        None => encoded.push(0),
+    }
+    write_span(encoded, signature.span);
+    Ok(())
+}
+
+fn read_trait_signature(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    symbols: &SymbolTable,
+    source_len: usize,
+) -> Option<item_signatures::TraitSignature> {
+    let generics = read_symbols(cursor, symbols)?;
+    let where_predicates = read_where_predicates(cursor, types, symbols, source_len)?;
+    let supertrait_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut supertraits = Vec::with_capacity(supertrait_len);
+    for _ in 0..supertrait_len {
+        supertraits.push(item_signatures::TraitSupertraitSignature {
+            ty: read_type_index(cursor, types)?,
+            span: read_span(cursor, source_len)?,
+        });
+    }
+    let associated_type_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut associated_types = Vec::with_capacity(associated_type_len);
+    let mut associated_type_ids = HashSet::new();
+    for _ in 0..associated_type_len {
+        let value = item_signatures::TraitAssociatedTypeSignature {
+            def_id: DefId(read_u64(cursor)?),
+            name: read_symbol(cursor, symbols)?,
+            span: read_span(cursor, source_len)?,
+        };
+        if !associated_type_ids.insert(value.def_id) {
+            return None;
+        }
+        associated_types.push(value);
+    }
+    let associated_value_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut associated_values = Vec::with_capacity(associated_value_len);
+    let mut associated_value_ids = HashSet::new();
+    for _ in 0..associated_value_len {
+        let value = item_signatures::TraitAssociatedValueSignature {
+            def_id: DefId(read_u64(cursor)?),
+            name: read_symbol(cursor, symbols)?,
+            ty: read_type_index(cursor, types)?,
+            span: read_span(cursor, source_len)?,
+        };
+        if !associated_value_ids.insert(value.def_id) {
+            return None;
+        }
+        associated_values.push(value);
+    }
+    let method_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut methods = Vec::with_capacity(method_len);
+    let mut method_ids = HashSet::new();
+    for _ in 0..method_len {
+        let method = item_signatures::TraitMethodSignature {
+            def_id: DefId(read_u64(cursor)?),
+            name: read_symbol(cursor, symbols)?,
+            signature: read_function_signature(cursor, types, symbols, source_len)?,
+            has_default: read_bool(cursor)?,
+            span: read_span(cursor, source_len)?,
+        };
+        if !method_ids.insert(method.def_id) {
+            return None;
+        }
+        methods.push(method);
+    }
+    let builtin = match read_u8(cursor)? {
+        0 => None,
+        1 => Some(read_builtin_trait(cursor)?),
+        _ => return None,
+    };
+    Some(item_signatures::TraitSignature {
+        generics,
+        where_predicates,
+        supertraits,
+        associated_types,
+        associated_values,
+        methods,
+        builtin,
+        span: read_span(cursor, source_len)?,
+    })
+}
+
+fn write_trait_impl_signature(
+    encoded: &mut Vec<u8>,
+    signature: &item_signatures::TraitImplSignature,
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_u64(encoded, signature.impl_id.0);
+    write_optional_string(encoded, signature.builtin.as_deref());
+    write_symbols(encoded, &signature.generics, graph)?;
+    write_type_index(encoded, graph.intern(signature.target_ty)?);
+    write_optional_type(encoded, signature.trait_ty, graph)?;
+    write_optional_span(encoded, signature.trait_span);
+    write_where_predicates(encoded, &signature.where_predicates, graph)?;
+    write_u64(encoded, signature.associated_types.len() as u64);
+    for associated in &signature.associated_types {
+        graph.write_symbol(encoded, associated.name)?;
+        write_type_index(encoded, graph.intern(associated.ty)?);
+        write_span(encoded, associated.span);
+    }
+    write_u64(encoded, signature.associated_values.len() as u64);
+    for associated in &signature.associated_values {
+        write_u64(encoded, associated.def_id.0);
+        graph.write_symbol(encoded, associated.name)?;
+        encoded.push(visibility_tag(associated.visibility));
+        write_span(encoded, associated.span);
+    }
+    write_u64(encoded, signature.methods.len() as u64);
+    for method in &signature.methods {
+        write_u64(encoded, method.def_id.0);
+        graph.write_symbol(encoded, method.name)?;
+        encoded.push(visibility_tag(method.visibility));
+        write_span(encoded, method.span);
+    }
+    write_span(encoded, signature.span);
+    Ok(())
+}
+
+fn read_trait_impl_signature(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    symbols: &SymbolTable,
+    source_len: usize,
+) -> Option<item_signatures::TraitImplSignature> {
+    let impl_id = TraitImplId(read_u64(cursor)?);
+    let builtin = read_optional_string(cursor)?;
+    let generics = read_symbols(cursor, symbols)?;
+    let target_ty = read_type_index(cursor, types)?;
+    let trait_ty = read_optional_type(cursor, types)?;
+    let trait_span = read_optional_span(cursor, source_len)?;
+    if trait_ty.is_some() != trait_span.is_some() {
+        return None;
+    }
+    let where_predicates = read_where_predicates(cursor, types, symbols, source_len)?;
+    let associated_type_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut associated_types = Vec::with_capacity(associated_type_len);
+    for _ in 0..associated_type_len {
+        associated_types.push(item_signatures::TraitImplAssociatedTypeSignature {
+            name: read_symbol(cursor, symbols)?,
+            ty: read_type_index(cursor, types)?,
+            span: read_span(cursor, source_len)?,
+        });
+    }
+    let associated_value_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut associated_values = Vec::with_capacity(associated_value_len);
+    let mut associated_value_ids = HashSet::new();
+    for _ in 0..associated_value_len {
+        let value = item_signatures::TraitImplAssociatedValueSignature {
+            def_id: DefId(read_u64(cursor)?),
+            name: read_symbol(cursor, symbols)?,
+            visibility: read_visibility(cursor)?,
+            span: read_span(cursor, source_len)?,
+        };
+        if !associated_value_ids.insert(value.def_id) {
+            return None;
+        }
+        associated_values.push(value);
+    }
+    let method_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut methods = Vec::with_capacity(method_len);
+    let mut method_ids = HashSet::new();
+    for _ in 0..method_len {
+        let method = item_signatures::TraitImplMethodSignature {
+            def_id: DefId(read_u64(cursor)?),
+            name: read_symbol(cursor, symbols)?,
+            visibility: read_visibility(cursor)?,
+            span: read_span(cursor, source_len)?,
+        };
+        if !method_ids.insert(method.def_id) {
+            return None;
+        }
+        methods.push(method);
+    }
+    Some(item_signatures::TraitImplSignature {
+        impl_id,
+        builtin,
+        generics,
+        target_ty,
+        trait_ty,
+        trait_span,
+        where_predicates,
+        associated_types,
+        associated_values,
+        methods,
+        span: read_span(cursor, source_len)?,
+    })
+}
+
+fn write_enum_signature(
+    encoded: &mut Vec<u8>,
+    signature: &item_signatures::EnumSignature,
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_type_index(encoded, graph.intern(signature.backing_type)?);
+    write_bool(encoded, signature.is_open);
+    write_u64(encoded, signature.variants.len() as u64);
+    for variant in &signature.variants {
+        write_u64(encoded, variant.def_id.0);
+        graph.write_symbol(encoded, variant.name)?;
+        write_span(encoded, variant.span);
+    }
+    write_span(encoded, signature.span);
+    Ok(())
+}
+
+fn read_enum_signature(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    symbols: &SymbolTable,
+    source_len: usize,
+) -> Option<item_signatures::EnumSignature> {
+    let backing_type = read_type_index(cursor, types)?;
+    let is_open = read_bool(cursor)?;
+    let variant_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut variants = Vec::with_capacity(variant_len);
+    let mut variant_ids = HashSet::new();
+    for _ in 0..variant_len {
+        let variant = item_signatures::EnumVariantSignature {
+            def_id: DefId(read_u64(cursor)?),
+            name: read_symbol(cursor, symbols)?,
+            span: read_span(cursor, source_len)?,
+        };
+        if !variant_ids.insert(variant.def_id) {
+            return None;
+        }
+        variants.push(variant);
+    }
+    Some(item_signatures::EnumSignature {
+        backing_type,
+        is_open,
+        variants,
+        span: read_span(cursor, source_len)?,
+    })
+}
+
+fn write_type_alias_signature(
+    encoded: &mut Vec<u8>,
+    signature: &item_signatures::TypeAliasSignature,
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_symbols(encoded, &signature.generics, graph)?;
+    write_type_index(encoded, graph.intern(signature.target)?);
+    write_span(encoded, signature.span);
+    Ok(())
+}
+
+fn read_type_alias_signature(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    symbols: &SymbolTable,
+    source_len: usize,
+) -> Option<item_signatures::TypeAliasSignature> {
+    Some(item_signatures::TypeAliasSignature {
+        generics: read_symbols(cursor, symbols)?,
+        target: read_type_index(cursor, types)?,
+        span: read_span(cursor, source_len)?,
+    })
+}
+
+fn write_global_signature(
+    encoded: &mut Vec<u8>,
+    signature: &item_signatures::GlobalSignature,
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_optional_type(encoded, signature.explicit_type, graph)?;
+    write_bool(encoded, signature.is_mutable);
+    write_bool(encoded, signature.is_extern);
+    write_span(encoded, signature.span);
+    Ok(())
+}
+
+fn read_global_signature(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    source_len: usize,
+) -> Option<item_signatures::GlobalSignature> {
+    Some(item_signatures::GlobalSignature {
+        explicit_type: read_optional_type(cursor, types)?,
+        is_mutable: read_bool(cursor)?,
+        is_extern: read_bool(cursor)?,
+        span: read_span(cursor, source_len)?,
+    })
+}
+
+fn write_const_signature(
+    encoded: &mut Vec<u8>,
+    signature: &item_signatures::ConstSignature,
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_optional_type(encoded, signature.explicit_type, graph)?;
+    match signature.builtin {
+        Some(builtin) => {
+            encoded.push(1);
+            encoded.push(builtin_const_tag(builtin));
+        }
+        None => encoded.push(0),
+    }
+    write_span(encoded, signature.span);
+    Ok(())
+}
+
+fn read_const_signature(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    source_len: usize,
+) -> Option<item_signatures::ConstSignature> {
+    let explicit_type = read_optional_type(cursor, types)?;
+    let builtin = match read_u8(cursor)? {
+        0 => None,
+        1 => Some(read_builtin_const(cursor)?),
+        _ => return None,
+    };
+    Some(item_signatures::ConstSignature {
+        explicit_type,
+        builtin,
+        span: read_span(cursor, source_len)?,
+    })
+}
+
+fn write_fields(
+    encoded: &mut Vec<u8>,
+    fields: &[item_signatures::FieldSignature],
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_u64(encoded, fields.len() as u64);
+    for field in fields {
+        write_u64(encoded, field.def_id.0);
+        graph.write_symbol(encoded, field.name)?;
+        write_type_index(encoded, graph.intern(field.ty)?);
+        write_span(encoded, field.span);
+    }
+    Ok(())
+}
+
+fn read_fields(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    symbols: &SymbolTable,
+    source_len: usize,
+) -> Option<Vec<item_signatures::FieldSignature>> {
+    let len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut fields = Vec::with_capacity(len);
+    let mut ids = HashSet::new();
+    for _ in 0..len {
+        let field = item_signatures::FieldSignature {
+            def_id: DefId(read_u64(cursor)?),
+            name: read_symbol(cursor, symbols)?,
+            ty: read_type_index(cursor, types)?,
+            span: read_span(cursor, source_len)?,
+        };
+        if !ids.insert(field.def_id) {
+            return None;
+        }
+        fields.push(field);
+    }
+    Some(fields)
+}
+
+fn write_where_predicates(
+    encoded: &mut Vec<u8>,
+    predicates: &[item_signatures::WherePredicateSignature],
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_u64(encoded, predicates.len() as u64);
+    for predicate in predicates {
+        write_type_index(encoded, graph.intern(predicate.ty)?);
+        write_u64(encoded, predicate.bounds.len() as u64);
+        for bound in &predicate.bounds {
+            write_type_index(encoded, graph.intern(bound.trait_ty)?);
+            write_u64(encoded, bound.associated_type_bindings.len() as u64);
+            for binding in &bound.associated_type_bindings {
+                graph.write_symbol(encoded, binding.name)?;
+                write_type_index(encoded, graph.intern(binding.ty)?);
+                write_span(encoded, binding.span);
+            }
+            write_span(encoded, bound.span);
+        }
+        write_span(encoded, predicate.span);
+    }
+    Ok(())
+}
+
+fn read_where_predicates(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    symbols: &SymbolTable,
+    source_len: usize,
+) -> Option<Vec<item_signatures::WherePredicateSignature>> {
+    let len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut predicates = Vec::with_capacity(len);
+    for _ in 0..len {
+        let ty = read_type_index(cursor, types)?;
+        let bound_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+        let mut bounds = Vec::with_capacity(bound_len);
+        for _ in 0..bound_len {
+            let trait_ty = read_type_index(cursor, types)?;
+            let binding_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+            let mut associated_type_bindings = Vec::with_capacity(binding_len);
+            for _ in 0..binding_len {
+                associated_type_bindings.push(item_signatures::AssociatedTypeBindingSignature {
+                    name: read_symbol(cursor, symbols)?,
+                    ty: read_type_index(cursor, types)?,
+                    span: read_span(cursor, source_len)?,
+                });
+            }
+            bounds.push(item_signatures::WhereBoundSignature {
+                trait_ty,
+                associated_type_bindings,
+                span: read_span(cursor, source_len)?,
+            });
+        }
+        predicates.push(item_signatures::WherePredicateSignature {
+            ty,
+            bounds,
+            span: read_span(cursor, source_len)?,
+        });
+    }
+    Some(predicates)
+}
+
+fn write_symbols(
+    encoded: &mut Vec<u8>,
+    symbols: &[nia_symbol::SymbolId],
+    graph: &TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_u64(encoded, symbols.len() as u64);
+    for symbol in symbols {
+        graph.write_symbol(encoded, *symbol)?;
+    }
+    Ok(())
+}
+
+fn read_symbols(
+    cursor: &mut Cursor<&[u8]>,
+    symbols: &SymbolTable,
+) -> Option<Vec<nia_symbol::SymbolId>> {
+    let len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    (0..len).map(|_| read_symbol(cursor, symbols)).collect()
+}
+
+fn write_optional_symbol(
+    encoded: &mut Vec<u8>,
+    symbol: Option<nia_symbol::SymbolId>,
+    graph: &TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    match symbol {
+        Some(symbol) => {
+            encoded.push(1);
+            graph.write_symbol(encoded, symbol)?;
+        }
+        None => encoded.push(0),
+    }
+    Ok(())
+}
+
+fn read_optional_symbol(
+    cursor: &mut Cursor<&[u8]>,
+    symbols: &SymbolTable,
+) -> Option<Option<nia_symbol::SymbolId>> {
+    match read_u8(cursor)? {
+        0 => Some(None),
+        1 => Some(Some(read_symbol(cursor, symbols)?)),
+        _ => None,
+    }
+}
+
+fn write_span(encoded: &mut Vec<u8>, span: nia_span::Span) {
+    write_u64(encoded, span.start as u64);
+    write_u64(encoded, span.end as u64);
+}
+
+fn read_span(cursor: &mut Cursor<&[u8]>, source_len: usize) -> Option<nia_span::Span> {
+    let start = usize::try_from(read_u64(cursor)?).ok()?;
+    let end = usize::try_from(read_u64(cursor)?).ok()?;
+    (start <= end && end <= source_len).then(|| nia_span::Span::new(start, end))
+}
+
+fn write_optional_span(encoded: &mut Vec<u8>, span: Option<nia_span::Span>) {
+    match span {
+        Some(span) => {
+            encoded.push(1);
+            write_span(encoded, span);
+        }
+        None => encoded.push(0),
+    }
+}
+
+fn read_optional_span(
+    cursor: &mut Cursor<&[u8]>,
+    source_len: usize,
+) -> Option<Option<nia_span::Span>> {
+    match read_u8(cursor)? {
+        0 => Some(None),
+        1 => Some(Some(read_span(cursor, source_len)?)),
+        _ => None,
+    }
+}
+
+fn write_optional_string(encoded: &mut Vec<u8>, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            encoded.push(1);
+            write_string(encoded, value);
+        }
+        None => encoded.push(0),
+    }
+}
+
+fn read_optional_string(cursor: &mut Cursor<&[u8]>) -> Option<Option<String>> {
+    match read_u8(cursor)? {
+        0 => Some(None),
+        1 => Some(Some(read_string(cursor, cursor.get_ref().len())?)),
+        _ => None,
+    }
+}
+
+fn write_optional_receiver(encoded: &mut Vec<u8>, receiver: Option<ReceiverKind>) {
+    encoded.push(match receiver {
+        None => 0,
+        Some(ReceiverKind::RefReadOnly) => 1,
+        Some(ReceiverKind::Ref) => 2,
+        Some(ReceiverKind::Value) => 3,
+    });
+}
+
+fn read_optional_receiver(cursor: &mut Cursor<&[u8]>) -> Option<Option<ReceiverKind>> {
+    match read_u8(cursor)? {
+        0 => Some(None),
+        1 => Some(Some(ReceiverKind::RefReadOnly)),
+        2 => Some(Some(ReceiverKind::Ref)),
+        3 => Some(Some(ReceiverKind::Value)),
+        _ => None,
+    }
+}
+
+fn visibility_tag(visibility: Visibility) -> u8 {
+    match visibility {
+        Visibility::Private => 0,
+        Visibility::PublicSuper => 1,
+        Visibility::PublicPkg => 2,
+        Visibility::Public => 3,
+    }
+}
+
+fn read_visibility(cursor: &mut Cursor<&[u8]>) -> Option<Visibility> {
+    Some(match read_u8(cursor)? {
+        0 => Visibility::Private,
+        1 => Visibility::PublicSuper,
+        2 => Visibility::PublicPkg,
+        3 => Visibility::Public,
+        _ => return None,
+    })
+}
+
+fn builtin_function_tag(value: BuiltinFunction) -> u8 {
+    BuiltinFunction::ALL
+        .iter()
+        .position(|candidate| *candidate == value)
+        .expect("all builtin functions have stable tags") as u8
+}
+
+fn read_builtin_function(cursor: &mut Cursor<&[u8]>) -> Option<BuiltinFunction> {
+    BuiltinFunction::ALL.get(read_u8(cursor)? as usize).copied()
+}
+
+const BUILTIN_CONSTS: [BuiltinConstValue; 7] = [
+    BuiltinConstValue::TargetArch,
+    BuiltinConstValue::TargetVendor,
+    BuiltinConstValue::TargetOs,
+    BuiltinConstValue::TargetEnv,
+    BuiltinConstValue::TargetAbi,
+    BuiltinConstValue::TargetEndian,
+    BuiltinConstValue::TargetPointerWidth,
+];
+
+fn builtin_const_tag(value: BuiltinConstValue) -> u8 {
+    BUILTIN_CONSTS
+        .iter()
+        .position(|candidate| *candidate == value)
+        .expect("all builtin consts have stable tags") as u8
+}
+
+fn read_builtin_const(cursor: &mut Cursor<&[u8]>) -> Option<BuiltinConstValue> {
+    BUILTIN_CONSTS.get(read_u8(cursor)? as usize).copied()
+}
+
 fn encode_type_lowering(
     lowering: &TypeLowering,
     source_version: SourceVersion,
@@ -528,11 +1639,7 @@ fn encode_type_lowering(
         .collect::<io::Result<Vec<_>>>()?;
 
     let mut encoded = Vec::new();
-    write_u64(&mut encoded, graph.nodes.len() as u64);
-    for node in graph.nodes {
-        write_u64(&mut encoded, node.len() as u64);
-        encoded.extend_from_slice(&node);
-    }
+    write_type_graph(&mut encoded, graph.nodes);
     write_u64(&mut encoded, uses.len() as u64);
     for (site, index) in uses {
         write_u64(&mut encoded, site.len().saturating_add(8) as u64);
@@ -552,17 +1659,14 @@ fn decode_type_lowering(
     module_id: ModuleId,
 ) -> Option<TypeLowering> {
     let mut cursor = Cursor::new(encoded);
-    let node_entries = read_entries(&mut cursor, encoded.len())?;
-    let append = type_store.append_for_module(module_id);
-    let mut types = Vec::with_capacity(node_entries.len());
-    for entry in node_entries {
-        let mut entry = Cursor::new(entry);
-        let kind = read_ty_kind(&mut entry, &types, modules, symbols)?;
-        if entry.position() as usize != entry.get_ref().len() {
-            return None;
-        }
-        types.push(append.intern(kind));
-    }
+    let types = read_type_graph(
+        &mut cursor,
+        encoded.len(),
+        modules,
+        symbols,
+        type_store,
+        module_id,
+    )?;
 
     let mut type_uses = HashMap::new();
     for entry in read_entries(&mut cursor, encoded.len())? {
@@ -584,6 +1688,36 @@ fn decode_type_lowering(
         const_expr_summaries: HashMap::new(),
         diagnostics: Vec::new(),
     })
+}
+
+fn write_type_graph(encoded: &mut Vec<u8>, nodes: Vec<Vec<u8>>) {
+    write_u64(encoded, nodes.len() as u64);
+    for node in nodes {
+        write_u64(encoded, node.len() as u64);
+        encoded.extend_from_slice(&node);
+    }
+}
+
+fn read_type_graph(
+    cursor: &mut Cursor<&[u8]>,
+    encoded_len: usize,
+    modules: &HashMap<String, ModuleId>,
+    symbols: &SymbolTable,
+    type_store: &TypeStore,
+    module_id: ModuleId,
+) -> Option<Vec<InternedTyId>> {
+    let node_entries = read_entries(cursor, encoded_len)?;
+    let append = type_store.append_for_module(module_id);
+    let mut types = Vec::with_capacity(node_entries.len());
+    for entry in node_entries {
+        let mut entry = Cursor::new(entry);
+        let kind = read_ty_kind(&mut entry, &types, modules, symbols)?;
+        if entry.position() as usize != entry.get_ref().len() {
+            return None;
+        }
+        types.push(append.intern(kind));
+    }
+    Some(types)
 }
 
 struct TypeGraphEncoder<'a> {
@@ -1509,6 +2643,12 @@ fn type_lowering_checksum(encoded: &[u8]) -> QueryFingerprint {
     builder.finish()
 }
 
+fn item_signatures_checksum(encoded: &[u8]) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.signature-item-signatures.entry.v1");
+    builder.write_bytes(encoded);
+    builder.finish()
+}
+
 fn atomic_publish(path: &Path, encoded: &[u8]) -> io::Result<()> {
     let stage_id = STAGE_ID.fetch_add(1, Ordering::Relaxed);
     let staged = path.with_extension(format!("tmp-{}-{stage_id}", std::process::id()));
@@ -1804,6 +2944,307 @@ mod tests {
                 )
                 .expect("load corrupt entry"),
             SignatureTypeResolutionLookup::Corrupt
+        );
+        assert!(!path.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
+        let root = temp_dir("item_signatures_rehydrate");
+        let cache = PersistentSignatureCache::new(root.clone());
+        let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
+        let dependency = StableModuleKey::from_source_identity(SourceIdentity::new("src/dep.nia"));
+        let source = crate::source_content_fingerprint("item signature fixture");
+        let dependency_source = crate::source_content_fingerprint("dependency fixture");
+        let program_sources = crate::frontend_program_source_fingerprint([
+            (&module, source, 512),
+            (&dependency, dependency_source, 128),
+        ]);
+        let namespace = crate::FrontendCacheNamespace::new(
+            &nia_target_config::TargetConfig::host(),
+            crate::RuntimeModel::Bare,
+        );
+        let key = crate::FrontendSignatureItemSignaturesCacheKey::new(
+            namespace,
+            &module,
+            SignatureItemSet::Types,
+            program_sources,
+        );
+
+        let mut old_ids = ModuleIdAllocator::new();
+        let old_module = old_ids.allocate();
+        let old_dependency = old_ids.allocate();
+        let old_store = TypeStore::new();
+        let append = old_store.append_for_module(old_module);
+        let old_symbols = SymbolTable::new();
+        let symbol = |text| old_symbols.intern(text).expect("intern fixture symbol");
+        let value_name = symbol("value");
+        let item_name = symbol("Item");
+        let generic_name = symbol("T");
+        let primitive = append.intern(TyKind::Primitive(PrimitiveTy::I32));
+        let generic = append.intern(TyKind::GenericParam(generic_name));
+        let nominal = append.intern(TyKind::Nominal {
+            def_id: GlobalDefId {
+                module_id: old_dependency,
+                def_id: DefId(70),
+            },
+            args: vec![generic],
+            const_args: Vec::new(),
+        });
+        let trait_ty = append.intern(TyKind::BuiltinTrait {
+            trait_id: BuiltinTrait::Iterator,
+            args: vec![generic],
+        });
+        let span = nia_span::Span::new(1, 8);
+        let where_predicates = vec![item_signatures::WherePredicateSignature {
+            ty: generic,
+            bounds: vec![item_signatures::WhereBoundSignature {
+                trait_ty,
+                associated_type_bindings: vec![item_signatures::AssociatedTypeBindingSignature {
+                    name: item_name,
+                    ty: primitive,
+                    span,
+                }],
+                span,
+            }],
+            span,
+        }];
+        let function = item_signatures::FunctionSignature {
+            generics: vec![generic_name],
+            generic_params: vec![item_signatures::GenericParamSignature {
+                name: generic_name,
+                kind: item_signatures::GenericParamSignatureKind::Const { ty: primitive },
+            }],
+            where_predicates: where_predicates.clone(),
+            params: vec![item_signatures::ParamSignature {
+                name: Some(value_name),
+                receiver: Some(ReceiverKind::RefReadOnly),
+                ty: nominal,
+                span,
+            }],
+            return_type: primitive,
+            is_extern: false,
+            is_const: true,
+            is_variadic: false,
+            attributes: vec![item_signatures::FunctionAttribute::Builtin(
+                BuiltinFunction::SizeOf,
+            )],
+            has_body: true,
+            span,
+        };
+        let field = item_signatures::FieldSignature {
+            def_id: DefId(11),
+            name: value_name,
+            ty: generic,
+            span,
+        };
+        let signatures = ItemSignatures {
+            functions: HashMap::from([(DefId(1), function.clone())]),
+            structs: HashMap::from([(
+                DefId(2),
+                item_signatures::StructSignature {
+                    generics: vec![generic_name],
+                    where_predicates: where_predicates.clone(),
+                    fields: vec![field.clone()],
+                    is_extern: false,
+                    span,
+                },
+            )]),
+            unions: HashMap::from([(
+                DefId(3),
+                item_signatures::UnionSignature {
+                    generics: Vec::new(),
+                    where_predicates: Vec::new(),
+                    fields: vec![field],
+                    is_extern: true,
+                    span,
+                },
+            )]),
+            traits: HashMap::from([(
+                DefId(4),
+                item_signatures::TraitSignature {
+                    generics: vec![generic_name],
+                    where_predicates: where_predicates.clone(),
+                    supertraits: vec![item_signatures::TraitSupertraitSignature {
+                        ty: trait_ty,
+                        span,
+                    }],
+                    associated_types: vec![item_signatures::TraitAssociatedTypeSignature {
+                        def_id: DefId(41),
+                        name: item_name,
+                        span,
+                    }],
+                    associated_values: vec![item_signatures::TraitAssociatedValueSignature {
+                        def_id: DefId(42),
+                        name: value_name,
+                        ty: primitive,
+                        span,
+                    }],
+                    methods: vec![item_signatures::TraitMethodSignature {
+                        def_id: DefId(43),
+                        name: symbol("next"),
+                        signature: function,
+                        has_default: true,
+                        span,
+                    }],
+                    builtin: Some(BuiltinTrait::Iterator),
+                    span,
+                },
+            )]),
+            trait_impls: vec![item_signatures::TraitImplSignature {
+                impl_id: TraitImplId(51),
+                builtin: Some("iterator".to_string()),
+                generics: vec![generic_name],
+                target_ty: nominal,
+                trait_ty: Some(trait_ty),
+                trait_span: Some(span),
+                where_predicates,
+                associated_types: vec![item_signatures::TraitImplAssociatedTypeSignature {
+                    name: item_name,
+                    ty: primitive,
+                    span,
+                }],
+                associated_values: vec![item_signatures::TraitImplAssociatedValueSignature {
+                    def_id: DefId(52),
+                    name: value_name,
+                    visibility: Visibility::PublicPkg,
+                    span,
+                }],
+                methods: vec![item_signatures::TraitImplMethodSignature {
+                    def_id: DefId(53),
+                    name: symbol("next"),
+                    visibility: Visibility::Public,
+                    span,
+                }],
+                span,
+            }],
+            enums: HashMap::from([(
+                DefId(5),
+                item_signatures::EnumSignature {
+                    backing_type: primitive,
+                    is_open: true,
+                    variants: vec![item_signatures::EnumVariantSignature {
+                        def_id: DefId(54),
+                        name: symbol("First"),
+                        span,
+                    }],
+                    span,
+                },
+            )]),
+            type_aliases: HashMap::from([(
+                DefId(6),
+                item_signatures::TypeAliasSignature {
+                    generics: vec![generic_name],
+                    target: nominal,
+                    span,
+                },
+            )]),
+            globals: HashMap::from([(
+                DefId(7),
+                item_signatures::GlobalSignature {
+                    explicit_type: Some(primitive),
+                    is_mutable: true,
+                    is_extern: false,
+                    span,
+                },
+            )]),
+            consts: HashMap::from([(
+                DefId(8),
+                item_signatures::ConstSignature {
+                    explicit_type: Some(primitive),
+                    builtin: Some(BuiltinConstValue::TargetPointerWidth),
+                    span,
+                },
+            )]),
+            diagnostics: Vec::new(),
+        };
+        let old_paths = HashMap::from([
+            (old_module, "src/main.nia".to_string()),
+            (old_dependency, "src/dep.nia".to_string()),
+        ]);
+        let old_payload = encode_item_signatures(&signatures, &old_paths, &old_symbols, &old_store)
+            .expect("encode old signatures");
+        cache
+            .publish_item_signatures(
+                SignatureItemSignaturesIdentity {
+                    key,
+                    namespace,
+                    module: &module,
+                    set: SignatureItemSet::Types,
+                    program_sources,
+                    source_len: 512,
+                },
+                &signatures,
+                &old_paths,
+                &old_symbols,
+                &old_store,
+                false,
+            )
+            .expect("publish signatures");
+
+        let mut new_ids = ModuleIdAllocator::new();
+        let new_dependency = new_ids.allocate();
+        let new_module = new_ids.allocate();
+        let new_store = TypeStore::new();
+        let new_symbols = SymbolTable::new();
+        let modules = HashMap::from([
+            ("src/main.nia".to_string(), new_module),
+            ("src/dep.nia".to_string(), new_dependency),
+        ]);
+        let loaded = cache
+            .load_item_signatures(
+                SignatureItemSignaturesIdentity {
+                    key,
+                    namespace,
+                    module: &module,
+                    set: SignatureItemSet::Types,
+                    program_sources,
+                    source_len: 512,
+                },
+                &modules,
+                &new_symbols,
+                &new_store,
+            )
+            .expect("load signatures");
+        let SignatureItemSignaturesLookup::Hit(loaded) = loaded else {
+            panic!("expected signatures cache hit");
+        };
+        assert!(
+            loaded
+                .type_roots()
+                .iter()
+                .all(|ty| ty.store_id == new_store.id())
+        );
+        let new_paths = HashMap::from([
+            (new_module, "src/main.nia".to_string()),
+            (new_dependency, "src/dep.nia".to_string()),
+        ]);
+        let new_payload = encode_item_signatures(&loaded, &new_paths, &new_symbols, &new_store)
+            .expect("encode rehydrated signatures");
+        assert_eq!(old_payload, new_payload);
+
+        let path = cache.item_signatures_path(key);
+        let mut corrupt = fs::read(&path).expect("read signatures entry");
+        corrupt[0] ^= 0xff;
+        fs::write(&path, corrupt).expect("corrupt signatures entry");
+        assert_eq!(
+            cache
+                .load_item_signatures(
+                    SignatureItemSignaturesIdentity {
+                        key,
+                        namespace,
+                        module: &module,
+                        set: SignatureItemSet::Types,
+                        program_sources,
+                        source_len: 512,
+                    },
+                    &modules,
+                    &new_symbols,
+                    &new_store,
+                )
+                .expect("load corrupt signatures"),
+            SignatureItemSignaturesLookup::Corrupt
         );
         assert!(!path.exists());
         let _ = fs::remove_dir_all(root);

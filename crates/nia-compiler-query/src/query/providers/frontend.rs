@@ -613,17 +613,133 @@ pub(super) fn provide_signature_item_signatures(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> ItemSignatures {
+    let program_sources = db.get(FrontendProgramSourcesQuery);
+    let cache_input = program_sources
+        .as_ref()
+        .as_ref()
+        .and_then(|program_sources| {
+            let source = program_sources.by_module.get(&module_id)?;
+            let namespace = crate::FrontendCacheNamespace::new(
+                &db.context().loader_facts.target(),
+                db.context().loader_facts.runtime(),
+            );
+            let key = crate::FrontendSignatureItemSignaturesCacheKey::new(
+                namespace,
+                &source.module,
+                set,
+                program_sources.fingerprint,
+            );
+            Some((program_sources, source, namespace, key))
+        });
+    let symbols = db.context().symbols();
+    let cached = if let Some(cache) = db.context().signature_cache.as_ref()
+        && let Some((program_sources, source, namespace, key)) = cache_input
+    {
+        match cache.load_item_signatures(
+            crate::signature_cache::SignatureItemSignaturesIdentity {
+                key,
+                namespace,
+                module: &source.module,
+                set,
+                program_sources: program_sources.fingerprint,
+                source_len: source.len,
+            },
+            &program_sources.module_by_path,
+            &symbols,
+            db.context().type_store(),
+        ) {
+            Ok(lookup) => {
+                match lookup {
+                    crate::signature_cache::SignatureItemSignaturesLookup::Hit(_) => {
+                        nia_timing::emit_counter(
+                            "frontend.signature_item_signatures_reuse_hits",
+                            1,
+                        );
+                    }
+                    crate::signature_cache::SignatureItemSignaturesLookup::NotFound => {
+                        nia_timing::emit_counter(
+                            "frontend.signature_item_signatures_reuse_miss_not_found",
+                            1,
+                        );
+                    }
+                    crate::signature_cache::SignatureItemSignaturesLookup::Corrupt => {
+                        nia_timing::emit_counter(
+                            "frontend.signature_item_signatures_reuse_miss_corrupt",
+                            1,
+                        );
+                    }
+                }
+                Some(lookup)
+            }
+            Err(_) => {
+                nia_timing::emit_counter(
+                    "frontend.signature_item_signatures_reuse_miss_read_error",
+                    1,
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    if let Some(crate::signature_cache::SignatureItemSignaturesLookup::Hit(cached)) = &cached
+        && !db.context().verify_frontend_cache
+    {
+        return cached.as_ref().clone();
+    }
     let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set));
     let defs = db.get(ModuleDefsQuery(module_id));
     let type_lowering = db.get(SignatureTypeLoweringQuery(module_id, set));
-    let symbols = db.context().symbols();
-    nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
-        source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
-        defs: &defs,
-        lowered: &type_lowering,
-        type_store: db.context().type_store(),
-        symbols: Some(&symbols),
-    })
+    let fresh =
+        nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
+            source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
+            defs: &defs,
+            lowered: &type_lowering,
+            type_store: db.context().type_store(),
+            symbols: Some(&symbols),
+        });
+    let cacheable = fresh.diagnostics.is_empty()
+        && type_lowering.diagnostics.is_empty()
+        && type_lowering.const_exprs.is_empty()
+        && type_lowering.const_expr_summaries.is_empty();
+    nia_timing::emit_counter(
+        if cacheable {
+            "frontend.signature_item_signatures_cacheable"
+        } else {
+            "frontend.signature_item_signatures_uncacheable"
+        },
+        1,
+    );
+    if let Some(cache) = &db.context().signature_cache
+        && let Some((program_sources, source, namespace, key)) = cache_input
+    {
+        let replace = matches!(
+            &cached,
+            Some(crate::signature_cache::SignatureItemSignaturesLookup::Hit(cached))
+                if cached.as_ref() != &fresh
+        );
+        if replace {
+            cache.remove_item_signatures(key);
+        }
+        if cacheable {
+            let _ = cache.publish_item_signatures(
+                crate::signature_cache::SignatureItemSignaturesIdentity {
+                    key,
+                    namespace,
+                    module: &source.module,
+                    set,
+                    program_sources: program_sources.fingerprint,
+                    source_len: source.len,
+                },
+                &fresh,
+                &program_sources.path_by_module,
+                &symbols,
+                db.context().type_store(),
+                replace,
+            );
+        }
+    }
+    fresh
 }
 
 pub(super) fn provide_signature_const_item_signatures(

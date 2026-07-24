@@ -418,6 +418,10 @@ fn unwrap[T](value: Box[T]) T { value.value }
         dependency.from.name == "signature_type_lowering"
             && dependency.to.name == "signature_type_resolution"
     }));
+    assert!(first_trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "signature_item_signatures"
+            && dependency.to.name == "signature_type_lowering"
+    }));
 
     let second_sources = SourceDatabase::new();
     second_sources.set_source(SourcePath::new("main.nia"), source);
@@ -436,6 +440,10 @@ fn unwrap[T](value: Box[T]) T { value.value }
         query_executions(&second_trace, "signature_type_resolution"),
         0
     );
+    assert!(
+        query_executions(&second_trace, "signature_type_lowering")
+            < query_executions(&first_trace, "signature_type_lowering")
+    );
     assert!(second_trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "signature_type_lowering"
             && dependency.to.name == "frontend_program_sources"
@@ -443,6 +451,14 @@ fn unwrap[T](value: Box[T]) T { value.value }
     assert!(!second_trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "signature_type_lowering"
             && dependency.to.name == "signature_type_resolution"
+    }));
+    assert!(second_trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "signature_item_signatures"
+            && dependency.to.name == "frontend_program_sources"
+    }));
+    assert!(!second_trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "signature_item_signatures"
+            && dependency.to.name == "signature_type_lowering"
     }));
 
     let verified_sources = SourceDatabase::new();
@@ -478,6 +494,16 @@ fn unwrap[T](value: Box[T]) T { value.value }
             .any(|dependency| {
                 dependency.from.name == "signature_type_lowering"
                     && dependency.to.name == "signature_type_resolution"
+            })
+    );
+    assert!(
+        verified_compiler
+            .query_trace()
+            .dependencies
+            .iter()
+            .any(|dependency| {
+                dependency.from.name == "signature_item_signatures"
+                    && dependency.to.name == "signature_type_lowering"
             })
     );
 }
