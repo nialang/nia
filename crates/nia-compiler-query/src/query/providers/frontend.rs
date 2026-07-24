@@ -236,14 +236,88 @@ pub(super) fn provide_signature_type_resolution(
     set: nia_item_tree::SignatureItemSet,
 ) -> TypeResolution {
     time_module_provider(db, "signature_type_resolution", module_id, || {
+        let program_sources = db.get(FrontendProgramSourcesQuery);
+        let cache_input = program_sources
+            .as_ref()
+            .as_ref()
+            .and_then(|program_sources| {
+                let source = program_sources.by_module.get(&module_id)?;
+                let namespace = crate::FrontendCacheNamespace::new(
+                    &db.context().loader_facts.target(),
+                    db.context().loader_facts.runtime(),
+                );
+                let key = crate::FrontendSignatureTypeResolutionCacheKey::new(
+                    namespace,
+                    &source.module,
+                    set,
+                    program_sources.fingerprint,
+                );
+                Some((program_sources, source, namespace, key))
+            });
+        let symbols = db.context().symbols();
+        let cached = if let Some(cache) = db.context().signature_cache.as_ref()
+            && let Some((program_sources, source, namespace, key)) = cache_input
+        {
+            match cache.load_type_resolution(
+                crate::signature_cache::SignatureTypeResolutionIdentity {
+                    key,
+                    namespace,
+                    module: &source.module,
+                    set,
+                    program_sources: program_sources.fingerprint,
+                    source_version: source.version,
+                    source_len: source.len,
+                },
+                &program_sources.module_by_path,
+                &symbols,
+                db.context().node_store(),
+            ) {
+                Ok(lookup) => {
+                    match lookup {
+                        crate::signature_cache::SignatureTypeResolutionLookup::Hit(_) => {
+                            nia_timing::emit_counter(
+                                "frontend.signature_type_resolution_reuse_hits",
+                                1,
+                            );
+                        }
+                        crate::signature_cache::SignatureTypeResolutionLookup::NotFound => {
+                            nia_timing::emit_counter(
+                                "frontend.signature_type_resolution_reuse_miss_not_found",
+                                1,
+                            );
+                        }
+                        crate::signature_cache::SignatureTypeResolutionLookup::Corrupt => {
+                            nia_timing::emit_counter(
+                                "frontend.signature_type_resolution_reuse_miss_corrupt",
+                                1,
+                            );
+                        }
+                    }
+                    Some(lookup)
+                }
+                Err(_) => {
+                    nia_timing::emit_counter(
+                        "frontend.signature_type_resolution_reuse_miss_read_error",
+                        1,
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        if let Some(crate::signature_cache::SignatureTypeResolutionLookup::Hit(cached)) = &cached
+            && !db.context().verify_frontend_cache
+        {
+            return cached.as_ref().clone();
+        }
         let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set));
         let defs = db.get(ModuleDefsQuery(module_id));
         let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
         let graph = QueryModuleGraphLookup::new(db);
         let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = QueryUsingScopeLookup::new(db, module_id);
-        let symbols = db.context().symbols();
-        nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
+        let fresh = nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
@@ -254,7 +328,36 @@ pub(super) fn provide_signature_type_resolution(
             &using_scope,
             &symbols,
             db.context().node_store(),
-        )
+        );
+        if fresh.diagnostics.is_empty()
+            && let Some(cache) = &db.context().signature_cache
+            && let Some((program_sources, source, namespace, key)) = cache_input
+        {
+            let replace = matches!(
+                &cached,
+                Some(crate::signature_cache::SignatureTypeResolutionLookup::Hit(cached))
+                    if cached.as_ref() != &fresh
+            );
+            if replace {
+                cache.remove_type_resolution(key);
+            }
+            let _ = cache.publish_type_resolution(
+                crate::signature_cache::SignatureTypeResolutionIdentity {
+                    key,
+                    namespace,
+                    module: &source.module,
+                    set,
+                    program_sources: program_sources.fingerprint,
+                    source_version: source.version,
+                    source_len: source.len,
+                },
+                &fresh,
+                &program_sources.path_by_module,
+                &symbols,
+                replace,
+            );
+        }
+        fresh
     })
 }
 

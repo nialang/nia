@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod frontend_fingerprint;
 mod query;
+mod signature_cache;
 
 use nia_abi_check::AbiCheck;
 use nia_backend_lower::BackendLowering;
@@ -36,9 +37,11 @@ pub use nia_body_check::{
 pub use frontend_fingerprint::{
     FrontendCacheNamespace, FrontendFacadeFactsCacheKey, FrontendItemSignatureCacheKey,
     FrontendModuleDependenciesCacheKey, FrontendModuleMapFingerprint,
-    FrontendProviderSummaryCacheKey, FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey,
-    FrontendSyntaxCacheKey, ItemSignatureFingerprint, SourceContentFingerprint, SyntaxFingerprint,
-    frontend_module_map_fingerprint, item_signature_fingerprint, source_content_fingerprint,
+    FrontendProgramSourceFingerprint, FrontendProviderSummaryCacheKey,
+    FrontendPublicSurfaceFactsCacheKey, FrontendSignatureTypeResolutionCacheKey,
+    FrontendSourceCacheKey, FrontendSyntaxCacheKey, ItemSignatureFingerprint,
+    SourceContentFingerprint, SyntaxFingerprint, frontend_module_map_fingerprint,
+    frontend_program_source_fingerprint, item_signature_fingerprint, source_content_fingerprint,
     syntax_fingerprint,
 };
 
@@ -183,6 +186,10 @@ pub trait LoaderFactProvider: Send + Sync {
     fn loaded_module_source_identities(&self) -> Vec<SourceIdentity>;
     fn module_path(&self, module_id: ModuleId) -> Option<SourcePath>;
     fn module_source_version(&self, module_id: ModuleId) -> Option<SourceVersion>;
+    fn module_source_fingerprint(
+        &self,
+        module_id: ModuleId,
+    ) -> Option<(SourceContentFingerprint, usize)>;
     fn module_provider_summary(&self, module_id: ModuleId) -> Option<ProviderSummary>;
     fn module_public_surface_facts(
         &self,
@@ -266,6 +273,13 @@ impl LoaderFactProvider for LoadedProgram {
             .iter()
             .find(|module| module.id == module_id)
             .map(|module| module.source_version)
+    }
+
+    fn module_source_fingerprint(
+        &self,
+        _module_id: ModuleId,
+    ) -> Option<(SourceContentFingerprint, usize)> {
+        None
     }
 
     fn module_provider_summary(&self, module_id: ModuleId) -> Option<ProviderSummary> {

@@ -2,6 +2,21 @@
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct FrontendProgramSourcesQuery;
+
+impl QueryKey<CompilerContext> for FrontendProgramSourcesQuery {
+    type Value = Option<FrontendProgramSources>;
+
+    fn name() -> &'static str {
+        "frontend_program_sources"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        db.context().frontend_program_sources(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct TypeResolutionQuery(pub(super) ModuleId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
