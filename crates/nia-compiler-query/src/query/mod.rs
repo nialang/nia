@@ -4395,9 +4395,11 @@ extend Value : Ops {
             dependency.from.name == "public_surfaces"
                 && dependency.to.name == "public_surface_module_facts"
         }));
-        assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "public_surface_module_facts"
-                && dependency.to.name == "module_defs"
+        assert!(!trace.dependencies.iter().any(|dependency| {
+            matches!(
+                dependency.from.name,
+                "public_surfaces" | "public_using_scopes" | "public_surface_module_facts"
+            ) && dependency.to.name == "module_defs"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "public_surfaces" && dependency.to.name == "module_graph"

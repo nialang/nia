@@ -184,6 +184,20 @@ pub trait LoaderFactProvider: Send + Sync {
     fn module_path(&self, module_id: ModuleId) -> Option<SourcePath>;
     fn module_source_version(&self, module_id: ModuleId) -> Option<SourceVersion>;
     fn module_provider_summary(&self, module_id: ModuleId) -> Option<ProviderSummary>;
+    fn module_public_surface_facts(
+        &self,
+        module_id: ModuleId,
+    ) -> Option<nia_defs::PublicSurfaceModuleFacts> {
+        let tree = self.active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)?;
+        let symbols = self.symbols();
+        let defs = nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
+            module_id,
+            &tree,
+            &self.node_store(),
+            &symbols,
+        );
+        Some(nia_defs::PublicSurfaceModuleFacts::from_defs(&defs))
+    }
     fn module_origins(&self, module_id: ModuleId) -> Option<NodeOriginTable>;
     fn module_parse_errors(&self, module_id: ModuleId) -> Option<Vec<ParseError>>;
     fn module_item_tree(&self, module_id: ModuleId) -> Option<ModuleItemTree>;

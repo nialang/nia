@@ -944,7 +944,12 @@ impl QueryKey<CompilerContext> for PublicSurfaceModuleFactsQuery {
     }
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        PublicSurfaceModuleFacts::from_defs(&db.get(ModuleDefsQuery(self.0)))
+        db.context()
+            .loader_facts()
+            .module_public_surface_facts(self.0)
+            .unwrap_or_else(|| {
+                db.invalid_input(self, format!("missing loaded module {:?}", self.0))
+            })
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {

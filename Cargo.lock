@@ -672,6 +672,7 @@ dependencies = [
  "nia-ast",
  "nia-ast-walk",
  "nia-compiler-query",
+ "nia-defs",
  "nia-diagnostic",
  "nia-ids",
  "nia-imports",

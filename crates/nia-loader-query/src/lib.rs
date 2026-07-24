@@ -44,6 +44,7 @@ fn loader_query_registry() -> nia_query::QueryRegistry {
         queries::ModuleOriginsFactQuery,
         queries::ModuleParseErrorsFactQuery,
         queries::ParsedModuleQuery,
+        queries::PublicSurfaceModuleFactsQuery,
         provider_facts::ProviderDemandsQuery,
         queries::ProviderSummaryQuery,
         queries::SourceStatusQuery,
@@ -294,6 +295,23 @@ impl LoaderFactProvider for LoaderDatabase {
         Some(
             self.db
                 .get(queries::provider_summary_query(&self.db, &module.path))
+                .as_ref()
+                .clone(),
+        )
+    }
+
+    fn module_public_surface_facts(
+        &self,
+        module_id: nia_imports::ModuleId,
+    ) -> Option<nia_defs::PublicSurfaceModuleFacts> {
+        let graph = self.db.get(graph::ModuleGraphQuery);
+        let module = graph.get(module_id)?;
+        Some(
+            self.db
+                .get(queries::public_surface_module_facts_query(
+                    &self.db,
+                    &module.path,
+                ))
                 .as_ref()
                 .clone(),
         )
