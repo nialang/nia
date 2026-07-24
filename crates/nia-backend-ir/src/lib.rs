@@ -55,10 +55,16 @@ impl BackendProgram {
     }
 
     pub fn module_for_partition(&self, partition: &CodegenPartition) -> &BackendModule {
-        let module = self.modules.get(partition.module_index).unwrap_or_else(|| {
+        let module_id = match partition.id {
+            CodegenUnitId::SourceModule { module_id, .. } => module_id,
+            CodegenUnitId::CompilerBuiltins => {
+                panic!("Nia ICE: compiler builtins partition has no backend module")
+            }
+        };
+        let module = self.modules.store.get(module_id).unwrap_or_else(|| {
             panic!(
-                "Nia ICE: codegen partition {:?} references missing backend module index {}",
-                partition.id, partition.module_index
+                "Nia ICE: codegen partition {:?} references missing backend module {module_id:?}",
+                partition.id
             )
         });
         assert_eq!(
@@ -615,8 +621,17 @@ pub struct CodegenPartitionPlan {
 
 impl CodegenPartitionPlan {
     fn from_modules(modules: &BackendModules) -> Self {
+        Self::from_module_iter(modules)
+    }
+
+    pub fn for_ready_module(module: &BackendModule) -> Self {
+        Self::from_module_iter([module])
+    }
+
+    fn from_module_iter<'a>(modules: impl IntoIterator<Item = &'a BackendModule>) -> Self {
+        let modules = modules.into_iter().collect::<Vec<_>>();
         let mut vtable_definitions = HashSet::new();
-        for module in modules {
+        for module in &modules {
             for vtable in &module.trait_object_vtables {
                 assert!(
                     vtable_definitions.insert(vtable.key.clone()),
@@ -626,15 +641,13 @@ impl CodegenPartitionPlan {
             }
         }
         let mut partitions = modules
-            .iter()
-            .enumerate()
-            .flat_map(|(module_index, module)| {
+            .into_iter()
+            .flat_map(|module| {
                 CodegenPartitionDefinitions::for_module(module)
                     .into_iter()
                     .map(move |(ordinal, definitions)| CodegenPartition {
                         id: CodegenUnitId::source_module(module.id, ordinal),
                         key: CodegenUnitKey::source_module(module.source_identity.clone(), ordinal),
-                        module_index,
                         definitions,
                     })
             })
@@ -667,7 +680,6 @@ impl CodegenPartitionPlan {
 pub struct CodegenPartition {
     pub id: CodegenUnitId,
     pub key: CodegenUnitKey,
-    module_index: usize,
     definitions: CodegenPartitionDefinitions,
 }
 
@@ -1256,6 +1268,15 @@ mod tests {
         );
         assert_eq!(program.module_for_partition(&partitions[0]).name, "first");
         assert_eq!(program.module_for_partition(&partitions[1]).name, "second");
+        let first_module = program
+            .modules
+            .iter()
+            .find(|module| module.id == first_id)
+            .expect("first ready module");
+        assert_eq!(
+            CodegenPartitionPlan::for_ready_module(first_module).partitions(),
+            &partitions[..1]
+        );
         for partition in partitions {
             assert_eq!(partition.global_definitions(), &[0]);
             assert!(partition.global_instance_definitions().is_empty());
