@@ -165,10 +165,18 @@ fn module_finalizations_merge_in_program_order() {
 
     let mut collector = BackendModuleFinalizationCollector::new(finalization, &[first, second]);
     let module_store = collector.module_store();
+    let mut readiness = collector.take_readiness();
     for module_finalization in completed_in_reverse_order {
         let position = module_finalization.position;
         collector.push(position, module_finalization);
     }
+    let second_ready = readiness.wait_next().expect("second completion");
+    assert_eq!(second_ready.position(), 1);
+    assert_eq!(second_ready.module_id(), second);
+    let first_ready = readiness.wait_next().expect("first completion");
+    assert_eq!(first_ready.position(), 0);
+    assert_eq!(first_ready.module_id(), first);
+    assert_eq!(readiness.wait_next(), None);
     assert_eq!(
         module_store
             .get(second)
@@ -177,6 +185,7 @@ fn module_finalizations_merge_in_program_order() {
         second
     );
     drop(module_store);
+    drop(readiness);
     let lowering = collector.finish();
 
     assert_eq!(

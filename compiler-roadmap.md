@@ -1422,6 +1422,8 @@ Acceptance：多核 workload CPU 利用率明显提升；小改动只重建受�
 
 进展（2026-07-24）：G-6e5a 为completion-driven coordinator建立唯一ID-owned final module arena。新增`BackendModuleStore`，在finalization启动前按确定序预注册全部`ModuleId`，每个slot以`OnceLock<BackendModule>`接受恰好一次并发发布；reader只持共享arena与`ModuleId`并借用已ready payload，没有per-module `Arc`、module clone、callback side store或第二truth source。`BackendModuleFinalizationCollector`已从`Vec<Option<BackendModule>>`迁到该arena，completion按真实顺序直接发布，外部可在aggregate finish前持有同一arena观察module readiness；所有reader释放后collector以`Arc::try_unwrap`无复制恢复原声明顺序的`BackendProgram`，重复owner、未注册owner、重复publish、缺失slot和aggregate finish仍有明确ICE。并发反序发布、live reader及确定序还原回归通过，backend-ir 15项、backend-lower 100项、compiler-query 147项与严格Clippy/fmt/diff check通过。该切片只完成payload ownership前置，不宣称LLVM已与frontend重叠；下一切片应让finalization schedule正式返回共享arena和typed completion/readiness事件，再把`ProgramIndex`改为按ready module增量发布。
 
+进展（2026-07-24）：G-6e5b 在唯一module arena上建立正式single-consumer typed readiness stream。每次slot首次发布后生成不可伪造的`BackendModuleReady { position, module_id }`，`BackendModuleReadiness::wait_next`按真实publication lock顺序交付；completion queue与“全部预注册slot均已发布”的终止判断读取同一mutex快照，最后一个publisher不能落在drain/complete检查之间而丢失事件。arena以atomic claim拒绝第二consumer，receiver持有的只是同一arena控制块和cursor；事件不携带payload、不复制module，也没有polling map或callback channel。collector正式暴露唯一receiver，回归在反序finalization中同时验证`second → first → None`、live store借用和释放reader后无复制aggregate finish；backend-ir 17项、backend-lower 100项及三crate严格Clippy/fmt/diff check通过。typed stream现已具备，但compiler provider仍在`BackendLoweringQuery`内部同步drain后才返回；下一切片必须让schedule/stream越过该aggregate query边界，并让incremental `ProgramIndex`按ready module发布，仍不能把事件仅记录成日志后继续整体等待。
+
 ### 阶段 H（P1/P2）：持久 frontend incremental
 
 1. stable module/def key。

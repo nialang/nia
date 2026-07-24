@@ -23,9 +23,9 @@ use std::sync::Arc;
 use nia_ast::{BindingItem, Block, Expr, StmtKind, Visibility, generic_param_names};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendGlobal, BackendGlobalInstance,
-    BackendGlobalInstanceKey, BackendLayouts, BackendModule, BackendModuleStore, BackendProgram,
-    BackendStruct, BackendTraitObjectVtable, BackendTraitObjectVtableFunction,
-    BackendTraitObjectVtableKey, BackendUnion,
+    BackendGlobalInstanceKey, BackendLayouts, BackendModule, BackendModuleReadiness,
+    BackendModuleStore, BackendProgram, BackendStruct, BackendTraitObjectVtable,
+    BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey, BackendUnion,
 };
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
@@ -175,6 +175,10 @@ impl BackendModuleFinalizationCollector {
 
     pub fn module_store(&self) -> Arc<BackendModuleStore> {
         Arc::clone(&self.modules)
+    }
+
+    pub fn take_readiness(&self) -> BackendModuleReadiness {
+        self.modules.take_readiness()
     }
 
     pub fn push(&mut self, position: usize, module_finalization: BackendModuleFinalization) {
