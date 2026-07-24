@@ -100,9 +100,20 @@ fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<Arc<DefCollection
         .collect()
 }
 
+fn shared_public_surface_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<DefCollection> {
+    let module_ids = resolve_stable_module_sequence(db, &db.get(ParseOkModuleIdsQuery));
+    module_ids
+        .into_iter()
+        .map(|module_id| {
+            db.get(PublicSurfaceModuleFactsQuery(module_id))
+                .materialize_for_public_surface(module_id)
+        })
+        .collect()
+}
+
 pub(super) fn provide_public_surfaces(db: &QueryDb<CompilerContext>) -> PublicSurfacesValue {
     time_provider(db.context().timings(), "public_surfaces", || {
-        let defs = shared_defs_by_module(db);
+        let defs = shared_public_surface_defs_by_module(db);
         let graph = db.get(ModuleGraphQuery);
         let symbols = db.context().symbols();
         let exports = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
@@ -124,7 +135,7 @@ pub(super) fn provide_module_public_surface(
 
 pub(super) fn provide_public_using_scopes(db: &QueryDb<CompilerContext>) -> PublicUsingScopesValue {
     time_provider(db.context().timings(), "public_using_scopes", || {
-        let defs = shared_defs_by_module(db);
+        let defs = shared_public_surface_defs_by_module(db);
         let graph = db.get(ModuleGraphQuery);
         let public_surfaces = db.get(PublicSurfacesQuery);
         let symbols = db.context().symbols();

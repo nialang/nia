@@ -41,6 +41,152 @@ pub struct DefCollection {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicSurfaceDefFact {
+    pub id: DefId,
+    pub name: SymbolId,
+    pub kind: DefKind,
+    pub parent: Option<DefId>,
+    pub visibility: Visibility,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PublicSurfaceModuleScopeFacts {
+    pub modules: Vec<(SymbolId, DefId)>,
+    pub types: Vec<(SymbolId, DefId)>,
+    pub values: Vec<(SymbolId, DefId)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicSurfaceEnumScopeFact {
+    pub owner: DefId,
+    pub variants: Vec<(SymbolId, DefId)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PublicSurfaceModuleFacts {
+    pub defs: Vec<PublicSurfaceDefFact>,
+    pub module_scope: PublicSurfaceModuleScopeFacts,
+    pub enum_scopes: Vec<PublicSurfaceEnumScopeFact>,
+    pub module_usings: Vec<ModuleUsing>,
+}
+
+impl PublicSurfaceModuleFacts {
+    pub fn from_defs(defs: &DefCollection) -> Self {
+        let mut def_facts = defs
+            .defs
+            .iter()
+            .map(|(id, def)| PublicSurfaceDefFact {
+                id,
+                name: def.name,
+                kind: def.kind,
+                parent: def.parent,
+                visibility: def.visibility,
+                span: def.span,
+            })
+            .collect::<Vec<_>>();
+        def_facts.sort_by_key(|def| def.id);
+        let mut enum_scopes = defs
+            .scopes
+            .enum_members
+            .iter()
+            .map(|(owner, scope)| PublicSurfaceEnumScopeFact {
+                owner: *owner,
+                variants: sorted_name_entries(&scope.variants),
+            })
+            .collect::<Vec<_>>();
+        enum_scopes.sort_by_key(|scope| scope.owner);
+        Self {
+            defs: def_facts,
+            module_scope: PublicSurfaceModuleScopeFacts {
+                modules: sorted_name_entries(&defs.module_scope.modules),
+                types: sorted_name_entries(&defs.module_scope.types),
+                values: sorted_name_entries(&defs.module_scope.values),
+            },
+            enum_scopes,
+            module_usings: defs.module_usings.clone(),
+        }
+    }
+
+    pub fn materialize_for_public_surface(&self, module_id: ModuleId) -> DefCollection {
+        let mut defs = DefMap::default();
+        for fact in &self.defs {
+            let index = defs.defs.len();
+            defs.defs.push(DefEntry {
+                id: fact.id,
+                identity: DefIdentity::cached(fact.id),
+                def: Def {
+                    name: fact.name,
+                    kind: fact.kind,
+                    module_id,
+                    parent: fact.parent,
+                    generics: Vec::new(),
+                    generic_params: Vec::new(),
+                    visibility: fact.visibility,
+                    span: fact.span,
+                },
+            });
+            defs.by_id.insert(fact.id, index);
+        }
+        let enum_members = self
+            .enum_scopes
+            .iter()
+            .map(|scope| {
+                (
+                    scope.owner,
+                    EnumScope {
+                        variants: name_table_from_fact_entries(&scope.variants),
+                    },
+                )
+            })
+            .collect();
+        DefCollection {
+            module_id,
+            defs,
+            module_scope: ModuleScope {
+                modules: name_table_from_fact_entries(&self.module_scope.modules),
+                types: name_table_from_fact_entries(&self.module_scope.types),
+                values: name_table_from_fact_entries(&self.module_scope.values),
+            },
+            scopes: DefScopes {
+                struct_members: HashMap::new(),
+                union_members: HashMap::new(),
+                enum_members,
+            },
+            def_nodes: DefNodeMap::default(),
+            module_usings: self.module_usings.clone(),
+            diagnostics: Vec::new(),
+        }
+    }
+}
+
+fn sorted_name_entries(table: &NameTable) -> Vec<(SymbolId, DefId)> {
+    let mut entries = table
+        .entries()
+        .map(|(name, id)| (*name, id))
+        .collect::<Vec<_>>();
+    entries.sort_unstable();
+    entries
+}
+
+fn name_table_from_fact_entries(entries: &[(SymbolId, DefId)]) -> NameTable {
+    NameTable {
+        entries: entries
+            .iter()
+            .map(|(name, def_id)| {
+                (
+                    *name,
+                    NameEntry {
+                        def_id: *def_id,
+                        span: Span::default(),
+                    },
+                )
+            })
+            .collect(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModuleUsing {
     pub visibility: Visibility,
@@ -414,6 +560,17 @@ enum DefNamespace {
 }
 
 impl DefIdentity {
+    fn cached(def_id: DefId) -> Self {
+        Self {
+            segments: vec![DefIdentitySegment::Extension {
+                target: format!("cached-def:{:016x}", def_id.0),
+                trait_ref: None,
+                generics: Vec::new(),
+                where_clause: Vec::new(),
+            }],
+        }
+    }
+
     fn top(namespace: DefNamespace, kind: DefKind, name: &SymbolId) -> Self {
         Self {
             segments: vec![DefIdentitySegment::Top {
@@ -1467,6 +1624,43 @@ static mut counter = 0;
                 .is_some()
         );
         assert!(collection.def_nodes.entries().count() >= collection.defs.len());
+    }
+
+    #[test]
+    fn public_surface_facts_rebase_without_revision_or_module_handles() {
+        let (module, errors) = parse_module(
+            r#"
+pub using entry::dep::{Thing, Choice::*};
+pub struct Local[T] { value: T }
+pub enum Choice { First, Second }
+pub fn make() void {}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut first_ids = ModuleIdAllocator::new();
+        let first_module = first_ids.allocate();
+        let original = collect_module_defs(first_module, &module);
+        assert!(
+            original.diagnostics.is_empty(),
+            "{:?}",
+            original.diagnostics
+        );
+        let facts = PublicSurfaceModuleFacts::from_defs(&original);
+        let mut second_ids = ModuleIdAllocator::new();
+        let second_module = second_ids.allocate();
+
+        let rebased = facts.materialize_for_public_surface(second_module);
+
+        assert_ne!(first_module, second_module);
+        assert_eq!(rebased.module_id, second_module);
+        assert_eq!(PublicSurfaceModuleFacts::from_defs(&rebased), facts,);
+        assert!(
+            rebased
+                .defs
+                .iter()
+                .all(|(_, def)| def.module_id == second_module)
+        );
+        assert!(rebased.def_nodes.entries().next().is_none());
     }
 
     #[test]
