@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    sync::OnceLock,
+};
 
 use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
@@ -40,6 +43,76 @@ impl BackendProgram {
             "Nia ICE: codegen partition stable key does not match its backend module"
         );
         module
+    }
+}
+
+#[derive(Debug)]
+pub struct BackendModuleStore {
+    module_ids: Vec<ModuleId>,
+    positions: HashMap<ModuleId, usize>,
+    slots: Vec<OnceLock<BackendModule>>,
+}
+
+impl BackendModuleStore {
+    pub fn new(module_ids: impl IntoIterator<Item = ModuleId>) -> Self {
+        let module_ids = module_ids.into_iter().collect::<Vec<_>>();
+        let mut positions = HashMap::with_capacity(module_ids.len());
+        for (position, module_id) in module_ids.iter().copied().enumerate() {
+            assert!(
+                positions.insert(module_id, position).is_none(),
+                "Nia ICE: backend module store contains duplicate module owner {module_id:?}"
+            );
+        }
+        Self {
+            slots: (0..module_ids.len()).map(|_| OnceLock::new()).collect(),
+            module_ids,
+            positions,
+        }
+    }
+
+    pub fn module_ids(&self) -> &[ModuleId] {
+        &self.module_ids
+    }
+
+    pub fn publish(&self, module: BackendModule) -> &BackendModule {
+        let module_id = module.id;
+        let position = *self.positions.get(&module_id).unwrap_or_else(|| {
+            panic!("Nia ICE: backend module store rejected unregistered owner {module_id:?}")
+        });
+        assert!(
+            self.slots[position].set(module).is_ok(),
+            "Nia ICE: backend module store owner {module_id:?} was published twice"
+        );
+        self.slots[position]
+            .get()
+            .expect("published backend module slot")
+    }
+
+    pub fn get(&self, module_id: ModuleId) -> Option<&BackendModule> {
+        self.positions
+            .get(&module_id)
+            .and_then(|position| self.slots[*position].get())
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.slots.iter().all(|slot| slot.get().is_some())
+    }
+
+    pub fn into_program(self) -> BackendProgram {
+        let modules = self
+            .module_ids
+            .into_iter()
+            .zip(self.slots)
+            .enumerate()
+            .map(|(position, (module_id, slot))| {
+                slot.into_inner().unwrap_or_else(|| {
+                    panic!(
+                        "Nia ICE: backend module store owner {module_id:?} at position {position} was not published"
+                    )
+                })
+            })
+            .collect();
+        BackendProgram { modules }
     }
 }
 
@@ -967,6 +1040,70 @@ mod tests {
             },
             [],
         );
+    }
+
+    #[test]
+    fn backend_module_store_publishes_concurrently_and_restores_declared_order() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let first_id = module_ids.allocate();
+        let second_id = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let first_ty = type_store
+            .append_for_module(first_id)
+            .primitive(PrimitiveTy::I32);
+        let second_ty = type_store
+            .append_for_module(second_id)
+            .primitive(PrimitiveTy::I32);
+        let store = std::sync::Arc::new(BackendModuleStore::new([first_id, second_id]));
+        let first_store = std::sync::Arc::clone(&store);
+        let second_store = std::sync::Arc::clone(&store);
+
+        let second = std::thread::spawn(move || {
+            second_store.publish(module_with_global(second_id, second_ty, "second", false));
+        });
+        let first = std::thread::spawn(move || {
+            first_store.publish(module_with_global(first_id, first_ty, "first", false));
+        });
+        second.join().expect("publish second module");
+        first.join().expect("publish first module");
+
+        assert!(store.is_complete());
+        assert_eq!(store.get(first_id).expect("first module").name, "first");
+        let program = std::sync::Arc::try_unwrap(store)
+            .expect("module store has no remaining readers")
+            .into_program();
+        assert_eq!(
+            program
+                .modules
+                .iter()
+                .map(|module| module.id)
+                .collect::<Vec<_>>(),
+            vec![first_id, second_id]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate module owner")]
+    fn backend_module_store_rejects_duplicate_registered_owners() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+
+        let _ = BackendModuleStore::new([module_id, module_id]);
+    }
+
+    #[test]
+    #[should_panic(expected = "was published twice")]
+    fn backend_module_store_rejects_duplicate_publication() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let ty = type_store
+            .append_for_module(module_id)
+            .primitive(PrimitiveTy::I32);
+        let store = BackendModuleStore::new([module_id]);
+        store.publish(module_with_global(module_id, ty, "first", false));
+
+        store.publish(module_with_global(module_id, ty, "second", false));
     }
 
     fn incremental_link_input(path: &str, key: CodegenUnitKey) -> IncrementalLinkInput<String> {

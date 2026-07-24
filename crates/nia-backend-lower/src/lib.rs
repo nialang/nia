@@ -18,13 +18,14 @@ mod type_context;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Deref;
+use std::sync::Arc;
 
 use nia_ast::{BindingItem, Block, Expr, StmtKind, Visibility, generic_param_names};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendGlobal, BackendGlobalInstance,
-    BackendGlobalInstanceKey, BackendLayouts, BackendModule, BackendProgram, BackendStruct,
-    BackendTraitObjectVtable, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
-    BackendUnion,
+    BackendGlobalInstanceKey, BackendLayouts, BackendModule, BackendModuleStore, BackendProgram,
+    BackendStruct, BackendTraitObjectVtable, BackendTraitObjectVtableFunction,
+    BackendTraitObjectVtableKey, BackendUnion,
 };
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
@@ -98,7 +99,7 @@ pub struct BackendModuleFinalization {
 pub struct BackendModuleFinalizationCollector {
     finalization: BackendItemPlanFinalization,
     module_order: Vec<ModuleId>,
-    modules: Vec<Option<BackendModule>>,
+    modules: Arc<BackendModuleStore>,
     optimization_reports: Vec<Option<BackendOptimizationReport>>,
     diagnostics: Vec<Option<Vec<Diagnostic>>>,
 }
@@ -166,10 +167,14 @@ impl BackendModuleFinalizationCollector {
         Self {
             finalization,
             module_order: module_order.to_vec(),
-            modules: (0..module_count).map(|_| None).collect(),
+            modules: Arc::new(BackendModuleStore::new(module_order.iter().copied())),
             optimization_reports: (0..module_count).map(|_| None).collect(),
             diagnostics: (0..module_count).map(|_| None).collect(),
         }
+    }
+
+    pub fn module_store(&self) -> Arc<BackendModuleStore> {
+        Arc::clone(&self.modules)
     }
 
     pub fn push(&mut self, position: usize, module_finalization: BackendModuleFinalization) {
@@ -184,11 +189,7 @@ impl BackendModuleFinalizationCollector {
             module_finalization.module.id, *expected_module,
             "Nia ICE: backend module finalization owner must match module order"
         );
-        assert!(
-            self.modules[position].is_none(),
-            "Nia ICE: backend module finalization was collected twice"
-        );
-        self.modules[position] = Some(module_finalization.module);
+        self.modules.publish(module_finalization.module);
         self.optimization_reports[position] = Some(module_finalization.optimization_report);
         self.diagnostics[position] = Some(module_finalization.diagnostics);
     }
@@ -199,17 +200,12 @@ impl BackendModuleFinalizationCollector {
             mut optimization_report,
             mut diagnostics,
         } = self.finalization;
-        let mut modules = Vec::with_capacity(self.module_order.len());
-        for (position, ((module, report), module_diagnostics)) in self
-            .modules
+        for (position, (report, module_diagnostics)) in self
+            .optimization_reports
             .into_iter()
-            .zip(self.optimization_reports)
             .zip(self.diagnostics)
             .enumerate()
         {
-            let module = module.unwrap_or_else(|| {
-                panic!("Nia ICE: backend module finalization {position} was not collected")
-            });
             let report = report.unwrap_or_else(|| {
                 panic!("Nia ICE: backend module finalization report {position} was not collected")
             });
@@ -222,9 +218,12 @@ impl BackendModuleFinalizationCollector {
                 .changed_passes
                 .extend(report.changed_passes);
             diagnostics.extend(module_diagnostics);
-            modules.push(module);
         }
-        let program = BackendProgram { modules };
+        let program = Arc::try_unwrap(self.modules)
+            .unwrap_or_else(|_| {
+                panic!("Nia ICE: backend module store still has readers during aggregate finish")
+            })
+            .into_program();
         let codegen_partitions = program.codegen_partition_plan();
         BackendLowering {
             program,

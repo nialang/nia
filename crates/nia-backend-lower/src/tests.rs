@@ -164,10 +164,19 @@ fn module_finalizations_merge_in_program_order() {
     ];
 
     let mut collector = BackendModuleFinalizationCollector::new(finalization, &[first, second]);
+    let module_store = collector.module_store();
     for module_finalization in completed_in_reverse_order {
         let position = module_finalization.position;
         collector.push(position, module_finalization);
     }
+    assert_eq!(
+        module_store
+            .get(second)
+            .expect("published second module")
+            .id,
+        second
+    );
+    drop(module_store);
     let lowering = collector.finish();
 
     assert_eq!(
