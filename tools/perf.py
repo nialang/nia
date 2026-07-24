@@ -268,6 +268,11 @@ def require_codegen_bucket_instrumentation(
     worker_lanes = (
         counters.get("llvm.worker_lanes") if isinstance(counters, dict) else None
     )
+    ready_submissions = (
+        counters.get("llvm.ready_task_submissions")
+        if isinstance(counters, dict)
+        else None
+    )
 
     def valid_count(value: object) -> bool:
         return isinstance(value, int) and not isinstance(value, bool)
@@ -279,9 +284,12 @@ def require_codegen_bucket_instrumentation(
         or not valid_count(worker_lanes)
         or worker_lanes < 1
         or worker_lanes > units
+        or not valid_count(ready_submissions)
+        or ready_submissions != units
     ):
         raise RuntimeError(
-            "codegen bucket timing report did not compile the required LLVM units"
+            "codegen bucket timing report did not compile the required LLVM units "
+            "through the live ready-task path"
         )
 
 

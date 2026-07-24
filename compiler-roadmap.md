@@ -1452,6 +1452,8 @@ Acceptance：多核 workload CPU 利用率明显提升；小改动只重建受�
 
 进展（2026-07-24）：G-6p 将ready partition从readiness consumer同步执行迁入唯一persistent executor，实现frontend finalization与LLVM emission的真实task overlap。`QuerySession::task_pool`为动态ready work提供资源有界、按提交序归并的短任务池；每个partition仍是独立executor task，不创建长期阻塞worker、不另建线程池，也不会持有jobserver permit等待下一次publication。ready task以priority插入尚未开始的普通batch work之前，已运行finalization继续并发，调用线程继续消费`BackendFinalizationSchedule::wait_next`；in-flight达到LLVM memory capacity或session parallelism时才精确backpressure。IR/native emitter都在publication后立即提交拥有唯一prepared membership与共享`ProgramIndex`的task，完成后按stable key汇总diagnostic/output；`llvm.ready_task_submissions`与真实worker lane计数进入timing telemetry。回归锁定两lane上限与提交序、priority早于排队batch work、task panic后完整drain且executor可复用，并以双模块Driver路径继续锁定`backend_lowering=0`；query 75项、LLVM 195项、Driver/CLI定向回归通过。Phase G现约99%，剩余切片只做代表性多模块workload的CPU/RSS overlap acceptance与必要调参，不再改动ownership或恢复aggregate barrier。
 
+进展（2026-07-24）：G-6q 完成 live codegen acceptance 的 runner 守卫与首轮同 revision 采样。`tools/perf.py` 的 `codegen_buckets`/`codegen_buckets_large` validation现在同时要求`llvm.units`、`llvm.worker_lanes`、`llvm.memory_permits`和`llvm.ready_task_submissions == llvm.units`，缺失或部分同步回退会直接拒绝样本；performance docs明确该指标含义，Python perf suite 17项通过。当前 commit 的 `perf-alloc` release 三次采样中，`module_backend` CPU 利用率中位约293%、RSS约260 MiB，finalization窗口peak-growth约5.27 MiB；small/large object workload均稳定为4 units、2 lanes、4 ready submissions，large workload CPU约192%、RSS约178 MiB。历史finalization样本来自不同且dirty revision，不能直接作为同 revision regression comparator；因此G保留约99%，下一步只需在稳定 runner上存储同 revision baseline/trend并完成跨样本 CPU/RSS guard，不再改变live ownership协议。
+
 ### 阶段 H（P1/P2）：持久 frontend incremental
 
 1. stable module/def key。

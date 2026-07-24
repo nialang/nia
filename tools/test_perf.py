@@ -50,6 +50,7 @@ class PerfRunnerTests(unittest.TestCase):
                     "llvm.units": 4,
                     "llvm.worker_lanes": 2,
                     "llvm.memory_permits": 4,
+                    "llvm.ready_task_submissions": 4,
                 }
             },
             4,
@@ -63,6 +64,7 @@ class PerfRunnerTests(unittest.TestCase):
                         "llvm.units": 1,
                         "llvm.worker_lanes": 1,
                         "llvm.memory_permits": 1,
+                        "llvm.ready_task_submissions": 1,
                     }
                 },
                 2,
@@ -76,6 +78,7 @@ class PerfRunnerTests(unittest.TestCase):
                         "llvm.units": True,
                         "llvm.worker_lanes": 2,
                         "llvm.memory_permits": 4,
+                        "llvm.ready_task_submissions": 4,
                     }
                 },
                 2,
@@ -89,6 +92,7 @@ class PerfRunnerTests(unittest.TestCase):
                         "llvm.units": 4,
                         "llvm.worker_lanes": 2,
                         "llvm.memory_permits": 0,
+                        "llvm.ready_task_submissions": 4,
                     }
                 },
                 4,
@@ -102,6 +106,34 @@ class PerfRunnerTests(unittest.TestCase):
                         "llvm.units": 4,
                         "llvm.worker_lanes": 5,
                         "llvm.memory_permits": 4,
+                        "llvm.ready_task_submissions": 4,
+                    }
+                },
+                4,
+            )
+
+    def test_rejects_missing_live_ready_task_counter(self):
+        with self.assertRaisesRegex(RuntimeError, "live ready-task path"):
+            require_codegen_bucket_instrumentation(
+                {
+                    "counters": {
+                        "llvm.units": 4,
+                        "llvm.worker_lanes": 2,
+                        "llvm.memory_permits": 4,
+                    }
+                },
+                4,
+            )
+
+    def test_rejects_partial_live_ready_task_submission(self):
+        with self.assertRaisesRegex(RuntimeError, "live ready-task path"):
+            require_codegen_bucket_instrumentation(
+                {
+                    "counters": {
+                        "llvm.units": 4,
+                        "llvm.worker_lanes": 2,
+                        "llvm.memory_permits": 4,
+                        "llvm.ready_task_submissions": 3,
                     }
                 },
                 4,
