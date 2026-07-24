@@ -271,7 +271,19 @@ impl Driver {
         T: ProviderDemandOutput,
     {
         let timings = request.timings;
-        let loader = self.loader_database(&request);
+        let database = self.compiler_database(&request);
+        let output = compile(&database);
+        emit_compilation_counters(
+            timings,
+            &database,
+            &output,
+            database.provider_demand_rounds(),
+        );
+        output
+    }
+
+    fn compiler_database(&self, request: &CheckRequest) -> CompilerDatabase {
+        let loader = self.loader_database(request);
         let query_session = loader.query_session();
         let mut compiler_guard = self.compiler.lock().expect("driver compiler lock poisoned");
         let database = if let Some(compiler) = &*compiler_guard
@@ -294,24 +306,82 @@ impl Driver {
             });
             database
         };
-        let output = compile(&database);
-        emit_compilation_counters(
-            timings,
-            &database,
-            &output,
-            database.provider_demand_rounds(),
-        );
-        output
+        drop(compiler_guard);
+        database
     }
 
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
         DriverOutput::catch_ice(|| {
             let timings = request.check.timings;
-            let program = match self.codegen(request.check).result {
-                Ok(program) => program,
+            let database = self.compiler_database(&request.check);
+            let preparation = database.codegen_preparation();
+            if has_error_diagnostics(&preparation.diagnostics) {
+                return DriverOutput::from_error(DriverError::CodegenPreparationDiagnostics(
+                    preparation.diagnostics,
+                ));
+            }
+            let checked_body_count = preparation
+                .modules
+                .iter()
+                .map(|module| module.body_ir.function_bodies.len())
+                .sum();
+            let options = codegen_options(preparation.optimization, timings);
+            let optimization = preparation.optimization;
+            let diagnostics = preparation.diagnostics;
+            let type_store = std::sync::Arc::clone(&preparation.type_store);
+            let result = database.with_backend_finalization_schedule(|schedule| match schedule {
+                Err(lowering) => Err(DriverError::CodegenDiagnostics(lowering.diagnostics)),
+                Ok(mut schedule) => {
+                    let mut emitter = nia_codegen_llvm::LlvmIrReadinessEmitter::new(
+                        schedule.module_store(),
+                        type_store,
+                        schedule.owner_directory(),
+                        options,
+                    );
+                    while let Some(ready) = schedule.wait_next() {
+                        emitter.publish(ready);
+                    }
+                    let lowering = schedule.finish();
+                    if !lowering.diagnostics.is_empty() {
+                        return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
+                    }
+                    let reachable_body_count = lowering
+                        .program
+                        .modules
+                        .iter()
+                        .map(|module| module.functions.len() + module.function_instances.len())
+                        .sum();
+                    Ok((
+                        emitter.finish(),
+                        reachable_body_count,
+                        lowering.optimization_report,
+                    ))
+                }
+            });
+            let (output, reachable_body_count, optimization_report) = match result {
+                Ok(output) => output,
                 Err(error) => return DriverOutput::from_error(error),
             };
-            self.emit_llvm_ir_from_codegen_with_timings(&program, timings)
+            emit_compilation_counters(
+                timings,
+                &database,
+                &LiveCodegenCounters {
+                    checked_body_count,
+                    reachable_body_count,
+                },
+                database.provider_demand_rounds(),
+            );
+            if !output.diagnostics.is_empty() {
+                return DriverOutput::from_error(DriverError::CodegenDiagnostics(
+                    output.diagnostics,
+                ));
+            }
+            DriverOutput::success(LlvmIrArtifact {
+                modules: output.modules,
+                optimization,
+                optimization_report,
+                diagnostics,
+            })
         })
     }
 
@@ -342,6 +412,9 @@ impl Driver {
             }
             DriverOutput::success(LlvmIrArtifact {
                 modules: output.modules,
+                optimization: program.optimization,
+                optimization_report: program.backend_lowering.optimization_report.clone(),
+                diagnostics: program.diagnostics.clone(),
             })
         })
     }
@@ -642,6 +715,21 @@ trait ProviderDemandOutput {
     fn reachable_body_count(&self) -> usize;
 }
 
+struct LiveCodegenCounters {
+    checked_body_count: usize,
+    reachable_body_count: usize,
+}
+
+impl ProviderDemandOutput for LiveCodegenCounters {
+    fn checked_body_count(&self) -> usize {
+        self.checked_body_count
+    }
+
+    fn reachable_body_count(&self) -> usize {
+        self.reachable_body_count
+    }
+}
+
 impl ProviderDemandOutput for CheckedProgram {
     fn checked_body_count(&self) -> usize {
         self.modules
@@ -842,6 +930,9 @@ pub enum ObjectOutput {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LlvmIrArtifact {
     pub modules: Vec<nia_codegen_llvm::LlvmModuleOutput>,
+    pub optimization: OptimizationPolicy,
+    pub optimization_report: crate::BackendOptimizationReport,
+    pub diagnostics: Vec<nia_compiler_query::ProgramDiagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -893,6 +984,7 @@ impl<T> DriverOutput<T> {
 pub enum DriverError {
     CheckDiagnostics(CheckedProgram),
     CodegenProgramDiagnostics(Box<CodegenProgram>),
+    CodegenPreparationDiagnostics(Vec<nia_compiler_query::ProgramDiagnostic>),
     CodegenDiagnostics(Vec<Diagnostic>),
     InternalDiagnostic(Diagnostic),
     InvalidArtifactRequest(String),

@@ -1062,21 +1062,24 @@ fn run_emit_llvm(
     runtime: Runtime,
 ) -> ExitCode {
     let driver = nia_driver::Driver::new();
-    let output = time_summary_stage(timings, "codegen", || {
-        codegen_with_driver(&driver, path, module_map, optimization, timings, runtime)
-    });
-    let program = match codegen_program_from_output(output, path, source) {
-        Ok(program) => program,
-        Err(code) => return code,
-    };
-    if opt_report {
-        print_optimization_report_to_stderr(&program);
-    }
     let output = time_summary_stage(timings, "emit_llvm_ir", || {
-        driver.emit_llvm_ir_from_codegen_with_timings(&program, timings)
+        driver.emit_llvm_ir(nia_driver::EmitLlvmRequest::new(
+            nia_driver::CheckRequest::new(path)
+                .with_module_map(module_map)
+                .with_optimization(optimization)
+                .with_timings(timings)
+                .with_runtime(runtime),
+        ))
     });
     match output.result {
         Ok(artifact) => {
+            eprint!(
+                "{}",
+                nia_driver::render_llvm_ir_warnings(&artifact, Some(path), Some(source))
+            );
+            if opt_report {
+                eprint!("{}", nia_driver::llvm_ir_optimization_report(&artifact));
+            }
             for module in artifact.modules {
                 print!("{}", module.ir);
             }

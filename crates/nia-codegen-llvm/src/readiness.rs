@@ -22,11 +22,23 @@ pub(super) struct PreparedCodegenPartition {
 
 pub(super) enum CodegenPartitionPreparation {
     Ready(PreparedCodegenPartition),
-    Invalid(Vec<Diagnostic>),
+    Invalid {
+        partition: CodegenPartition,
+        diagnostics: Vec<Diagnostic>,
+    },
+}
+
+impl CodegenPartitionPreparation {
+    pub(super) fn key(&self) -> &CodegenUnitKey {
+        match self {
+            Self::Ready(prepared) => &prepared.partition.key,
+            Self::Invalid { partition, .. } => &partition.key,
+        }
+    }
 }
 
 pub(super) struct CodegenReadinessCoordinator {
-    index: Arc<ProgramIndex>,
+    pub(super) index: Arc<ProgramIndex>,
     publisher: ProgramIndexPublisher,
     owners: Arc<BackendModuleOwnerDirectory>,
     pending: Vec<CodegenPartition>,
@@ -94,7 +106,10 @@ impl CodegenReadinessCoordinator {
             if all_modules_published {
                 let diagnostics = validate_backend_partition_definitions(&partition, &self.index);
                 if !diagnostics.is_empty() {
-                    ready.push(CodegenPartitionPreparation::Invalid(diagnostics));
+                    ready.push(CodegenPartitionPreparation::Invalid {
+                        partition,
+                        diagnostics,
+                    });
                     continue;
                 }
             }
@@ -104,7 +119,10 @@ impl CodegenReadinessCoordinator {
                         let diagnostics =
                             validate_backend_partition_definitions(&partition, &self.index);
                         if !diagnostics.is_empty() {
-                            ready.push(CodegenPartitionPreparation::Invalid(diagnostics));
+                            ready.push(CodegenPartitionPreparation::Invalid {
+                                partition,
+                                diagnostics,
+                            });
                             continue;
                         }
                     }

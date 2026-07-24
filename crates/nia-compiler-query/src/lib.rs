@@ -32,7 +32,7 @@ pub use nia_body_check::{
     ProviderDemand, ProviderFactRevision, ProviderFactRevisionTransition, ProviderRequest,
 };
 
-pub use nia_backend_lower::BackendOptimizationChange;
+pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport};
 pub use nia_timing::TimingMode;
 pub use query::{CompileRequest, CompilerDatabase};
 
@@ -70,7 +70,7 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
             .module_store()
     }
 
-    pub fn owner_directory(&self) -> &nia_backend_ir::BackendModuleOwnerDirectory {
+    pub fn owner_directory(&self) -> std::sync::Arc<nia_backend_ir::BackendModuleOwnerDirectory> {
         self.collector
             .as_ref()
             .expect("backend finalization collector")

@@ -1124,13 +1124,20 @@ fn main() i32 {
     let stderr = String::from_utf8_lossy(&llvm.stderr);
     assert!(stdout.contains("define i32 @"), "{stdout}");
     assert!(!stdout.contains("timing "), "{stdout}");
-    assert!(stderr.contains("timing summary stage codegen:"), "{stderr}");
+    assert!(
+        !stderr.contains("timing summary stage codegen:"),
+        "{stderr}"
+    );
     assert!(
         stderr.contains("timing summary stage emit_llvm_ir:"),
         "{stderr}"
     );
     assert!(
-        stderr.contains("timing summary query backend_lowering:"),
+        stderr.contains("timing summary query codegen_preparation:"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("timing summary query backend_lowering:"),
         "{stderr}"
     );
     assert!(

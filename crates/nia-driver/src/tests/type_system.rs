@@ -1032,7 +1032,18 @@ fn driver_facade_emits_llvm_ir_from_source_request() {
     write(
         &root.join("main.nia"),
         r#"
+module helper;
+using entry::helper;
+
 fn main() i32 {
+    helper::value()
+}
+"#,
+    );
+    write(
+        &root.join("helper.nia"),
+        r#"
+pub fn value() i32 {
     42
 }
 "#,
@@ -1053,6 +1064,12 @@ fn main() i32 {
             .any(|module| module.ir.contains("define i32 @")),
         "{:?}",
         artifact.modules
+    );
+    assert_eq!(driver.compiler_query_executions("codegen_preparation"), 1);
+    assert_eq!(driver.compiler_query_executions("backend_lowering"), 0);
+    assert_eq!(
+        driver.compiler_query_executions("backend_module_finalization"),
+        2
     );
 }
 

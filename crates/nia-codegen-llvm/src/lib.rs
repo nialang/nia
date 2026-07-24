@@ -39,6 +39,89 @@ pub use work_product::{
     ObjectWorkProductInvalidation, ObjectWorkProductLookup,
 };
 
+pub struct LlvmIrReadinessEmitter {
+    coordinator: CodegenReadinessCoordinator,
+    options: LlvmCodegenOptions,
+    outputs: Vec<LlvmModuleOutput>,
+    partition_diagnostics: Vec<(CodegenUnitKey, Vec<nia_diagnostic::Diagnostic>)>,
+    partition_count: usize,
+}
+
+impl LlvmIrReadinessEmitter {
+    pub fn new(
+        modules: Arc<nia_backend_ir::BackendModuleStore>,
+        type_store: Arc<TypeStore>,
+        owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
+        options: LlvmCodegenOptions,
+    ) -> Self {
+        Self {
+            coordinator: CodegenReadinessCoordinator::new(modules, type_store, owners),
+            options,
+            outputs: Vec::new(),
+            partition_diagnostics: Vec::new(),
+            partition_count: 0,
+        }
+    }
+
+    pub fn publish(&mut self, ready: nia_backend_ir::BackendModuleReady) {
+        for preparation in self.coordinator.publish(ready.module_id()) {
+            self.partition_count += 1;
+            match preparation {
+                CodegenPartitionPreparation::Ready(prepared) => {
+                    let key = prepared.partition.key.clone();
+                    match emit_llvm_ir_partition(
+                        prepared,
+                        Arc::clone(&self.coordinator.index),
+                        self.options,
+                    ) {
+                        Ok(output) => self.outputs.push(output),
+                        Err(diagnostics) => self.partition_diagnostics.push((key, diagnostics)),
+                    }
+                }
+                CodegenPartitionPreparation::Invalid {
+                    partition,
+                    diagnostics,
+                } => self
+                    .partition_diagnostics
+                    .push((partition.key, diagnostics)),
+            }
+        }
+    }
+
+    pub fn finish(mut self) -> LlvmCodegenOutput {
+        let index = self.coordinator.finish();
+        let mut declaration_diagnostics = Vec::new();
+        if self.partition_count == 0 {
+            for module_id in index.module_ids() {
+                if let Err(diagnostics) = validate_declaration_module(*module_id, &index) {
+                    declaration_diagnostics.extend(diagnostics);
+                }
+            }
+        }
+        self.outputs
+            .sort_unstable_by(|left, right| left.key.cmp(&right.key));
+        self.partition_diagnostics
+            .sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let mut diagnostics = self
+            .partition_diagnostics
+            .into_iter()
+            .flat_map(|(_, diagnostics)| diagnostics)
+            .collect::<Vec<_>>();
+        diagnostics.extend(declaration_diagnostics);
+        if self.options.timings.enabled() {
+            nia_timing::emit_counter("llvm.units", self.outputs.len() as u64);
+            nia_timing::emit_counter(
+                "llvm.worker_lanes",
+                u64::from(self.partition_count != 0 || !index.module_ids().is_empty()),
+            );
+        }
+        LlvmCodegenOutput {
+            modules: self.outputs,
+            diagnostics,
+        }
+    }
+}
+
 pub fn emit_llvm_ir(
     lowering: Arc<BackendLowering>,
     type_store: Arc<TypeStore>,
@@ -91,9 +174,9 @@ fn emit_llvm_ir_with_options_inner(
                 LlvmIrTask::Partition(CodegenPartitionPreparation::Ready(prepared)) => {
                     emit_llvm_ir_partition(prepared, index, options).map(Some)
                 }
-                LlvmIrTask::Partition(CodegenPartitionPreparation::Invalid(diagnostics)) => {
-                    Err(diagnostics)
-                }
+                LlvmIrTask::Partition(CodegenPartitionPreparation::Invalid {
+                    diagnostics, ..
+                }) => Err(diagnostics),
                 LlvmIrTask::DeclarationModule(module_id) => {
                     validate_declaration_module(module_id, &index).map(|()| None)
                 }
@@ -182,9 +265,10 @@ fn emit_native_objects_inner(
                     emit_native_object_partition(prepared, index, options, cache.as_deref())
                         .map(Some)
                 }
-                NativeCodegenTask::Partition(CodegenPartitionPreparation::Invalid(diagnostics)) => {
-                    Err(diagnostics)
-                }
+                NativeCodegenTask::Partition(CodegenPartitionPreparation::Invalid {
+                    diagnostics,
+                    ..
+                }) => Err(diagnostics),
                 NativeCodegenTask::DeclarationModule(module_id) => {
                     validate_declaration_module(module_id, &index).map(|()| None)
                 }
@@ -250,6 +334,7 @@ fn prepare_complete_codegen(
     for module_id in module_ids {
         preparations.extend(coordinator.publish(module_id));
     }
+    preparations.sort_unstable_by(|left, right| left.key().cmp(right.key()));
     (coordinator.finish(), preparations)
 }
 

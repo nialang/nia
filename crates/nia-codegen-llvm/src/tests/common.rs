@@ -605,7 +605,12 @@ fn find_mangled_symbol_any_module(ir: &str, sigil: char, name: &str) -> Option<S
         let Some((_, symbol_name)) = rest.split_once("__") else {
             continue;
         };
-        if symbol_name == name {
+        if symbol_name == name
+            || (name.contains("__inst__")
+                && symbol_name
+                    .strip_prefix(name)
+                    .is_some_and(|suffix| suffix.starts_with("__ctx_s")))
+        {
             return Some(token.to_string());
         }
     }
@@ -623,7 +628,12 @@ fn find_mangled_symbol_with_prefix(ir: &str, prefix: &str, name: &str) -> Option
         let Some((_, symbol_name)) = rest.split_once("__") else {
             continue;
         };
-        if symbol_name == name {
+        if symbol_name == name
+            || (name.contains("__inst__")
+                && symbol_name
+                    .strip_prefix(name)
+                    .is_some_and(|suffix| suffix.starts_with("__ctx_s")))
+        {
             return Some(token.to_string());
         }
     }
