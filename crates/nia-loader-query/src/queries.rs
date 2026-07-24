@@ -5,7 +5,8 @@ use crate::used_paths::{ModuleDeclarations, UsedModulePath, collect_used_modules
 use crate::{EntryRuntime, LoaderContext};
 use nia_compiler_query::{
     ActiveModuleItemTreeFactKind, FrontendCacheNamespace, FrontendProviderSummaryCacheKey,
-    LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel, source_content_fingerprint,
+    FrontendSourceCacheKey, LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel,
+    item_signature_fingerprint, source_content_fingerprint,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{
@@ -577,15 +578,31 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
                 );
                 let module = StableModuleKey::from_source_identity(file.path.identity());
                 let source = source_content_fingerprint(&file.text);
-                let key = FrontendProviderSummaryCacheKey::new(namespace, &module, source);
-                (namespace, module, source, key)
+                let source_key = FrontendSourceCacheKey::new(namespace, &module, source);
+                (namespace, module, source, source_key)
             });
-        let cached = cache_input
-            .as_ref()
-            .and_then(|(namespace, module, source, key)| {
+        let cached_item_signature =
+            cache_input
+                .as_ref()
+                .and_then(|(namespace, module, source, source_key)| {
+                    let cache = db.context().frontend_cache.as_ref()?;
+                    match cache
+                        .load_dependency_manifest(*source_key, *namespace, module, *source)
+                        .ok()?
+                    {
+                        crate::frontend_cache::DependencyManifestCacheLookup::Hit(
+                            item_signature,
+                        ) => Some(item_signature),
+                        crate::frontend_cache::DependencyManifestCacheLookup::NotFound
+                        | crate::frontend_cache::DependencyManifestCacheLookup::Corrupt => None,
+                    }
+                });
+        let cached = cache_input.as_ref().zip(cached_item_signature).and_then(
+            |((namespace, module, _, _), item_signature)| {
                 let cache = db.context().frontend_cache.as_ref()?;
+                let key = FrontendProviderSummaryCacheKey::new(*namespace, module, item_signature);
                 match cache
-                    .load_provider_summary(*key, *namespace, module, *source)
+                    .load_provider_summary(key, *namespace, module, item_signature)
                     .ok()?
                 {
                     crate::frontend_cache::ProviderSummaryCacheLookup::Hit(summary) => {
@@ -594,21 +611,63 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
                     crate::frontend_cache::ProviderSummaryCacheLookup::NotFound
                     | crate::frontend_cache::ProviderSummaryCacheLookup::Corrupt => None,
                 }
-            });
-        if let Some(cached) = cached.as_ref()
+            },
+        );
+        if let Some(cached) = &cached
             && !db.context().verify_frontend_cache
         {
             return cached.clone();
         }
+
+        let syntax = db.get(SyntaxModuleQuery(self.0));
         let parsed = db.get(ParsedModuleQuery(self.0));
-        let fresh = ProviderSummary::from_active_item_tree(&parsed.active_item_tree);
-        if let Some((namespace, module, source, key)) = cache_input
+        let item_signature = item_signature_fingerprint(&syntax, &parsed.item_tree);
+        let mut cached_for_item_signature = None;
+        if let Some((namespace, module, source, source_key)) = &cache_input
             && let Some(cache) = &db.context().frontend_cache
         {
-            if cached.as_ref().is_some_and(|cached| cached != &fresh) {
+            if cached_item_signature != Some(item_signature) {
+                if cached_item_signature.is_some() {
+                    cache.remove_dependency_manifest(*source_key);
+                }
+                let _ = cache.publish_dependency_manifest(
+                    *source_key,
+                    *namespace,
+                    module,
+                    *source,
+                    item_signature,
+                );
+            }
+
+            let key = FrontendProviderSummaryCacheKey::new(*namespace, module, item_signature);
+            cached_for_item_signature =
+                match cache.load_provider_summary(key, *namespace, module, item_signature) {
+                    Ok(crate::frontend_cache::ProviderSummaryCacheLookup::Hit(summary)) => {
+                        Some(summary)
+                    }
+                    Ok(crate::frontend_cache::ProviderSummaryCacheLookup::NotFound)
+                    | Ok(crate::frontend_cache::ProviderSummaryCacheLookup::Corrupt)
+                    | Err(_) => None,
+                };
+            if let Some(cached) = &cached_for_item_signature
+                && !db.context().verify_frontend_cache
+            {
+                return cached.clone();
+            }
+        }
+
+        let fresh = ProviderSummary::from_active_item_tree(&parsed.active_item_tree);
+        if let Some((namespace, module, _, _)) = cache_input
+            && let Some(cache) = &db.context().frontend_cache
+        {
+            let key = FrontendProviderSummaryCacheKey::new(namespace, &module, item_signature);
+            if cached_for_item_signature
+                .as_ref()
+                .is_some_and(|cached| cached != &fresh)
+            {
                 cache.remove_provider_summary(key);
             }
-            let _ = cache.publish_provider_summary(key, namespace, &module, source, &fresh);
+            let _ = cache.publish_provider_summary(key, namespace, &module, item_signature, &fresh);
         }
         fresh
     }
