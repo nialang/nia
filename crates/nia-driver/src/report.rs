@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
-    BackendOptimizationChange, CheckedProgram, CodegenProgram, DriverError, NiaOptimizationLevel,
+    BackendOptimizationChange, CheckedProgram, CodegenProgram, DriverError, LlvmIrArtifact,
+    NiaOptimizationLevel,
 };
 use nia_diagnostic::{
     Diagnostic, DiagnosticReportConfig, DiagnosticReportItem, build_diagnostic_report,
@@ -10,14 +11,34 @@ use nia_opt::{InlineThreshold, OptimizationDepth, SpecializationPolicy};
 use std::fs;
 
 pub fn optimization_report(program: &CodegenProgram) -> String {
-    let mut out = optimization_report_lines(program).join("\n");
+    let mut out = optimization_report_lines_from_parts(
+        program.optimization,
+        &program.backend_lowering.optimization_report,
+    )
+    .join("\n");
     out.push('\n');
     out
 }
 
 pub fn optimization_report_lines(program: &CodegenProgram) -> Vec<String> {
-    let report = &program.backend_lowering.optimization_report;
-    let policy = program.optimization;
+    optimization_report_lines_from_parts(
+        program.optimization,
+        &program.backend_lowering.optimization_report,
+    )
+}
+
+pub fn llvm_ir_optimization_report(artifact: &LlvmIrArtifact) -> String {
+    let mut out =
+        optimization_report_lines_from_parts(artifact.optimization, &artifact.optimization_report)
+            .join("\n");
+    out.push('\n');
+    out
+}
+
+fn optimization_report_lines_from_parts(
+    policy: crate::OptimizationPolicy,
+    report: &crate::BackendOptimizationReport,
+) -> Vec<String> {
     let mut lines = Vec::new();
     lines.push("backend optimization report:".to_string());
     lines.push(format!(
@@ -107,6 +128,20 @@ pub fn render_program_warnings(
     render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
 }
 
+pub fn render_llvm_ir_warnings(
+    artifact: &LlvmIrArtifact,
+    primary_path: Option<&str>,
+    primary_source: Option<&str>,
+) -> String {
+    let diagnostics = artifact
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.is_warning())
+        .cloned()
+        .collect::<Vec<_>>();
+    render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
+}
+
 fn render_program_diagnostic_items(
     diagnostics: &[crate::ProgramDiagnostic],
     primary_path: Option<&str>,
@@ -168,6 +203,9 @@ pub fn render_driver_error(
         }
         DriverError::CodegenProgramDiagnostics(program) => {
             render_codegen_program_diagnostics(program, primary_path, primary_source)
+        }
+        DriverError::CodegenPreparationDiagnostics(diagnostics) => {
+            render_program_diagnostic_items(diagnostics, primary_path, primary_source)
         }
         DriverError::CodegenDiagnostics(diagnostics) => {
             render_codegen_diagnostics(diagnostics, primary_path, primary_source)

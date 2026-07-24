@@ -47,7 +47,7 @@ use nia_mangle::{mangle_instance_symbol_id, mangle_symbol_id};
 use nia_node_id::VersionedNodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;
-use nia_symbol::{SymbolId, SymbolText, known, symbol_text_or_unresolved};
+use nia_symbol::{SymbolId, SymbolText, known, stable_hash, symbol_text_or_unresolved};
 use nia_ty::TyKind;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
@@ -81,7 +81,7 @@ pub struct BackendItemPlanFinalization {
     optimization: OptimizationPolicy,
     optimization_report: BackendOptimizationReport,
     diagnostics: Vec<Diagnostic>,
-    owner_directory: nia_backend_ir::BackendModuleOwnerDirectory,
+    owner_directory: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
 }
 
 pub struct BackendProgramFinalizationContext<S = std::sync::Arc<nia_ty::TypeStore>> {
@@ -179,8 +179,8 @@ impl BackendModuleFinalizationCollector {
         Arc::clone(&self.modules)
     }
 
-    pub fn owner_directory(&self) -> &nia_backend_ir::BackendModuleOwnerDirectory {
-        &self.finalization.owner_directory
+    pub fn owner_directory(&self) -> Arc<nia_backend_ir::BackendModuleOwnerDirectory> {
+        Arc::clone(&self.finalization.owner_directory)
     }
 
     pub fn take_readiness(&self) -> BackendModuleReadiness {
@@ -237,7 +237,7 @@ impl BackendModuleFinalizationCollector {
         let codegen_partitions = program.codegen_partition_plan();
         BackendLowering {
             program,
-            owner_directory: Arc::new(owner_directory),
+            owner_directory,
             codegen_partitions,
             optimization,
             optimization_report,
@@ -269,9 +269,9 @@ impl BackendItemPlan {
     }
 
     pub fn into_module_plans(self) -> (BackendItemPlanFinalization, Vec<BackendModuleItemPlan>) {
-        let owner_directory = nia_backend_ir::BackendModuleOwnerDirectory::from_modules(
+        let owner_directory = Arc::new(nia_backend_ir::BackendModuleOwnerDirectory::from_modules(
             self.modules.iter().map(BackendModuleItemPlan::module),
-        );
+        ));
         (
             BackendItemPlanFinalization {
                 optimization: self.optimization,
@@ -735,7 +735,7 @@ pub fn finalize_backend_module_item_plans_with_timings(
         let codegen_partitions = program.codegen_partition_plan();
         return BackendLowering {
             program,
-            owner_directory: Arc::new(finalization.owner_directory),
+            owner_directory: finalization.owner_directory,
             codegen_partitions,
             optimization,
             optimization_report: finalization.optimization_report,
@@ -872,6 +872,7 @@ pub(crate) struct ExtensionMethodSource {
 }
 
 pub(crate) struct BackendLowerShared {
+    source_identities: HashMap<ModuleId, nia_source::SourceIdentity>,
     program_extension_generics_by_method: HashMap<GlobalDefId, Vec<SymbolId>>,
     program_extension_method_sources_by_def: HashMap<GlobalDefId, ExtensionMethodSource>,
     program_trait_impls_by_method: HashMap<GlobalDefId, usize>,
@@ -885,6 +886,10 @@ impl BackendLowerShared {
     fn new(modules: &[BackendLowerModuleInput<'_>]) -> Self {
         let first = modules.first();
         Self {
+            source_identities: modules
+                .iter()
+                .map(|input| (input.module_id, input.source_identity.clone()))
+                .collect(),
             program_extension_generics_by_method: first
                 .map(|input| index_extension_generics_by_method(input.program.extension_methods()))
                 .unwrap_or_default(),
@@ -2418,7 +2423,14 @@ impl<'a> ModuleLowerer<'a> {
             arg_module_id,
             args: args.clone(),
             const_args: const_args.clone(),
-            symbol: self.mangle_instance_symbol(def_id, def.name, None, &args, &const_args),
+            symbol: self.mangle_contextual_instance_symbol(
+                def_id,
+                def.name,
+                arg_module_id,
+                None,
+                &args,
+                &const_args,
+            ),
             ty,
             is_let: !signature.is_mutable,
             init,
@@ -2634,6 +2646,29 @@ impl<'a> ModuleLowerer<'a> {
             symbol = symbol.replacen("__inst__t_", "__inst__t_self_", 1);
         }
         symbol
+    }
+
+    pub(crate) fn mangle_contextual_instance_symbol(
+        &mut self,
+        def_id: GlobalDefId,
+        name: SymbolId,
+        arg_module_id: ModuleId,
+        self_arg: Option<InternedTyId>,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+    ) -> String {
+        let source_identity = self
+            .shared
+            .source_identities
+            .get(&arg_module_id)
+            .unwrap_or_else(|| {
+                panic!("Nia ICE: missing source identity for instance context {arg_module_id:?}")
+            });
+        format!(
+            "{}__ctx_s{:016x}",
+            self.mangle_instance_symbol(def_id, name, self_arg, args, const_args),
+            stable_hash(source_identity.normalized_path())
+        )
     }
 
     pub(crate) fn symbol_name(&self, symbol: SymbolId) -> String {

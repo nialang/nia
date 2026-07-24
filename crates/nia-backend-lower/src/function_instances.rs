@@ -135,8 +135,14 @@ impl<'a> ModuleLowerer<'a> {
             let Some(name) = self.def_symbol_name(instance.def_id) else {
                 continue;
             };
-            let symbol =
-                self.mangle_instance_symbol(instance.def_id, name, self_arg, &args, &const_args);
+            let symbol = self.mangle_contextual_instance_symbol(
+                instance.def_id,
+                name,
+                instance.arg_module_id,
+                self_arg,
+                &args,
+                &const_args,
+            );
             if !self.lower_planned_function_instance(
                 &mut functions_by_def,
                 &mut seen,

@@ -168,6 +168,7 @@ impl<'a> MembershipBuilder<'a> {
             const_args: item.const_args.clone(),
         };
         if self.global_instances.insert(key) {
+            self.add_context_dependency(item.arg_module_id);
             self.add_dependency(
                 self.index.global_instance_owner(
                     item.def_id,
@@ -199,6 +200,7 @@ impl<'a> MembershipBuilder<'a> {
             const_args: item.const_args.clone(),
         };
         if self.function_instances.insert(key) {
+            self.add_context_dependency(item.arg_module_id);
             self.add_dependency(
                 self.index.function_instance_owner(
                     item.def_id,
@@ -362,6 +364,13 @@ impl<'a> MembershipBuilder<'a> {
             panic!("Nia ICE: declaration closure references missing {item} owner")
         });
         self.dependency_modules.insert(owner);
+    }
+
+    fn add_context_dependency(&mut self, module_id: ModuleId) {
+        self.dependency_modules.insert(module_id);
+        if !self.index.is_published(module_id) {
+            self.pending_modules.insert(module_id);
+        }
     }
 
     fn wait_for_owner(&mut self, owner: Option<ModuleId>, item: &str) {

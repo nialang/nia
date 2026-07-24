@@ -7,8 +7,8 @@ mod report;
 
 pub use inspect::{AstInspection, TokensInspection, ast_inspection, tokens_inspection};
 pub use nia_compiler_query::{
-    BackendOptimizationChange, CheckedModule, CheckedProgram, CodegenProgram, LoadedModule,
-    LoadedProgram, ProgramDiagnostic, TimingMode,
+    BackendOptimizationChange, BackendOptimizationReport, CheckedModule, CheckedProgram,
+    CodegenProgram, LoadedModule, LoadedProgram, ProgramDiagnostic, TimingMode,
 };
 pub use nia_imports::{ENTRY_MODULE_MAP_NAME, ModuleMap, PACKAGE_MODULE_MAP_NAME};
 pub use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
@@ -20,9 +20,10 @@ pub use pipeline::{
     ObjectOutput, Runtime, WriteObjectRequest, WrittenObjectArtifact,
 };
 pub use report::{
-    optimization_report, optimization_report_lines, render_codegen_diagnostics,
-    render_codegen_program_warnings, render_driver_error, render_parse_errors,
-    render_program_diagnostics, render_program_warnings,
+    llvm_ir_optimization_report, optimization_report, optimization_report_lines,
+    render_codegen_diagnostics, render_codegen_program_warnings, render_driver_error,
+    render_llvm_ir_warnings, render_parse_errors, render_program_diagnostics,
+    render_program_warnings,
 };
 
 #[cfg(test)]
