@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
+    fmt,
+    ops::Index,
     sync::{
         Arc, Condvar, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -21,10 +23,33 @@ const SOURCE_CODEGEN_SPLIT_THRESHOLD: usize = 8;
 
 #[derive(Debug, PartialEq)]
 pub struct BackendProgram {
-    pub modules: Vec<BackendModule>,
+    pub modules: BackendModules,
 }
 
 impl BackendProgram {
+    pub fn new(modules: Vec<BackendModule>) -> Self {
+        let module_ids = modules.iter().map(|module| module.id).collect::<Vec<_>>();
+        let store = Arc::new(BackendModuleStore::new(module_ids));
+        for module in modules {
+            store.publish(module);
+        }
+        Self::from_module_store(store)
+    }
+
+    pub fn from_module_store(store: Arc<BackendModuleStore>) -> Self {
+        assert!(
+            store.is_complete(),
+            "Nia ICE: backend program requires a complete module store"
+        );
+        Self {
+            modules: BackendModules { store },
+        }
+    }
+
+    pub fn module_store(&self) -> Arc<BackendModuleStore> {
+        Arc::clone(&self.modules.store)
+    }
+
     pub fn codegen_partition_plan(&self) -> CodegenPartitionPlan {
         CodegenPartitionPlan::from_modules(&self.modules)
     }
@@ -48,6 +73,90 @@ impl BackendProgram {
         module
     }
 }
+
+#[derive(Clone)]
+pub struct BackendModules {
+    store: Arc<BackendModuleStore>,
+}
+
+impl BackendModules {
+    pub fn len(&self) -> usize {
+        self.store.module_ids.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.store.module_ids.is_empty()
+    }
+
+    pub fn get(&self, position: usize) -> Option<&BackendModule> {
+        self.store.get_at(position)
+    }
+
+    pub fn iter(&self) -> BackendModulesIter<'_> {
+        BackendModulesIter {
+            modules: self,
+            position: 0,
+        }
+    }
+}
+
+impl From<Vec<BackendModule>> for BackendModules {
+    fn from(modules: Vec<BackendModule>) -> Self {
+        BackendProgram::new(modules).modules
+    }
+}
+
+impl fmt::Debug for BackendModules {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_list().entries(self.iter()).finish()
+    }
+}
+
+impl PartialEq for BackendModules {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().eq(other.iter())
+    }
+}
+
+impl Index<usize> for BackendModules {
+    type Output = BackendModule;
+
+    fn index(&self, position: usize) -> &Self::Output {
+        self.get(position)
+            .unwrap_or_else(|| panic!("Nia ICE: backend module position {position} is unavailable"))
+    }
+}
+
+impl<'a> IntoIterator for &'a BackendModules {
+    type Item = &'a BackendModule;
+    type IntoIter = BackendModulesIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+pub struct BackendModulesIter<'a> {
+    modules: &'a BackendModules,
+    position: usize,
+}
+
+impl<'a> Iterator for BackendModulesIter<'a> {
+    type Item = &'a BackendModule;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let module = self.modules.get(self.position)?;
+        self.position += 1;
+        Some(module)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.modules.len().saturating_sub(self.position);
+        (remaining, Some(remaining))
+    }
+}
+
+impl ExactSizeIterator for BackendModulesIter<'_> {}
 
 #[derive(Debug)]
 pub struct BackendModuleStore {
@@ -142,6 +251,10 @@ impl BackendModuleStore {
             .and_then(|position| self.slots[*position].get())
     }
 
+    fn get_at(&self, position: usize) -> Option<&BackendModule> {
+        self.slots.get(position).and_then(OnceLock::get)
+    }
+
     pub fn is_complete(&self) -> bool {
         self.slots.iter().all(|slot| slot.get().is_some())
     }
@@ -157,23 +270,6 @@ impl BackendModuleStore {
             store: Arc::clone(self),
             next: 0,
         }
-    }
-
-    pub fn into_program(self) -> BackendProgram {
-        let modules = self
-            .module_ids
-            .into_iter()
-            .zip(self.slots)
-            .enumerate()
-            .map(|(position, (module_id, slot))| {
-                slot.into_inner().unwrap_or_else(|| {
-                    panic!(
-                        "Nia ICE: backend module store owner {module_id:?} at position {position} was not published"
-                    )
-                })
-            })
-            .collect();
-        BackendProgram { modules }
     }
 }
 
@@ -328,7 +424,7 @@ pub struct CodegenPartitionPlan {
 }
 
 impl CodegenPartitionPlan {
-    fn from_modules(modules: &[BackendModule]) -> Self {
+    fn from_modules(modules: &BackendModules) -> Self {
         let mut vtable_definitions = HashSet::new();
         for module in modules {
             for vtable in &module.trait_object_vtables {
@@ -902,13 +998,11 @@ mod tests {
         let second_ty = type_store
             .append_for_module(second_id)
             .primitive(PrimitiveTy::I32);
-        let program = BackendProgram {
-            modules: vec![
-                module_with_global(second_id, second_ty, "second", false),
-                module_with_global(declaration_id, declaration_ty, "declaration", true),
-                module_with_global(first_id, first_ty, "first", false),
-            ],
-        };
+        let program = BackendProgram::new(vec![
+            module_with_global(second_id, second_ty, "second", false),
+            module_with_global(declaration_id, declaration_ty, "declaration", true),
+            module_with_global(first_id, first_ty, "first", false),
+        ]);
 
         let plan = program.codegen_partition_plan();
         let partitions = plan.partitions();
@@ -967,12 +1061,10 @@ mod tests {
         let a_ty = type_store
             .append_for_module(a_id)
             .primitive(PrimitiveTy::I32);
-        let program = BackendProgram {
-            modules: vec![
-                module_with_global(z_id, z_ty, "z", false),
-                module_with_global(a_id, a_ty, "a", false),
-            ],
-        };
+        let program = BackendProgram::new(vec![
+            module_with_global(z_id, z_ty, "z", false),
+            module_with_global(a_id, a_ty, "a", false),
+        ]);
 
         let plan = program.codegen_partition_plan();
 
@@ -999,9 +1091,7 @@ mod tests {
                 ..template.clone()
             })
             .collect();
-        let program = BackendProgram {
-            modules: vec![module],
-        };
+        let program = BackendProgram::new(vec![module]);
 
         let plan = program.codegen_partition_plan();
 
@@ -1031,12 +1121,10 @@ mod tests {
         let second_ty = type_store
             .append_for_module(second_id)
             .primitive(PrimitiveTy::I32);
-        let program = BackendProgram {
-            modules: vec![
-                module_with_global(first_id, first_ty, "same", false),
-                module_with_global(second_id, second_ty, "same", false),
-            ],
-        };
+        let program = BackendProgram::new(vec![
+            module_with_global(first_id, first_ty, "same", false),
+            module_with_global(second_id, second_ty, "same", false),
+        ]);
 
         let _ = program.codegen_partition_plan();
     }
@@ -1069,9 +1157,7 @@ mod tests {
         first.trait_object_vtables.push(vtable.clone());
         let mut second = module_with_global(second_id, ty, "second", false);
         second.trait_object_vtables.push(vtable);
-        let program = BackendProgram {
-            modules: vec![first, second],
-        };
+        let program = BackendProgram::new(vec![first, second]);
 
         let _ = program.codegen_partition_plan();
     }
@@ -1085,11 +1171,11 @@ mod tests {
         let ty = type_store
             .append_for_module(module_id)
             .primitive(PrimitiveTy::I32);
-        let mut program = BackendProgram {
-            modules: vec![module_with_global(module_id, ty, "main", false)],
-        };
+        let program = BackendProgram::new(vec![module_with_global(module_id, ty, "main", false)]);
         let plan = program.codegen_partition_plan();
-        program.modules[0].globals.clear();
+        let mut changed_module = module_with_global(module_id, ty, "main", false);
+        changed_module.globals.clear();
+        let program = BackendProgram::new(vec![changed_module]);
 
         plan.validate_program(&program);
     }
@@ -1128,7 +1214,7 @@ mod tests {
     }
 
     #[test]
-    fn backend_module_store_publishes_concurrently_and_restores_declared_order() {
+    fn backend_module_store_publishes_concurrently_without_moving_payloads() {
         let mut module_ids = ModuleIdAllocator::new();
         let first_id = module_ids.allocate();
         let second_id = module_ids.allocate();
@@ -1154,9 +1240,9 @@ mod tests {
 
         assert!(store.is_complete());
         assert_eq!(store.get(first_id).expect("first module").name, "first");
-        let program = std::sync::Arc::try_unwrap(store)
-            .expect("module store has no remaining readers")
-            .into_program();
+        let first_ptr = store.get(first_id).expect("first module") as *const BackendModule;
+        let program = BackendProgram::from_module_store(std::sync::Arc::clone(&store));
+        assert_eq!(&program.modules[0] as *const BackendModule, first_ptr);
         assert_eq!(
             program
                 .modules

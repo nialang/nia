@@ -599,9 +599,7 @@ fn codegen_program_from_query_error(
     optimization: OptimizationPolicy,
     err: QueryError,
 ) -> CodegenProgram {
-    let backend_program = nia_backend_ir::BackendProgram {
-        modules: Vec::new(),
-    };
+    let backend_program = nia_backend_ir::BackendProgram::new(Vec::new());
     let codegen_partitions = backend_program.codegen_partition_plan();
     CodegenProgram {
         type_store,

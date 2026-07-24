@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{AssignOp, BinaryOp};
-use nia_backend_ir::BackendProgram;
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionArrayElements, FunctionBody, FunctionBuiltinOperatorOp, FunctionCallee,
@@ -18,12 +17,9 @@ use nia_ty::{PrimitiveTy, TyKind};
 
 use crate::program_index::ProgramIndex;
 
-pub(crate) fn required_symbols(
-    program: &BackendProgram,
-    index: &ProgramIndex,
-) -> CompilerBuiltinSymbols {
+pub(crate) fn required_symbols(index: &ProgramIndex) -> CompilerBuiltinSymbols {
     let mut collector = CompilerBuiltinCollector::default();
-    collector.collect_program(program, index);
+    collector.collect_program(index);
     collector.symbols
 }
 
@@ -45,8 +41,11 @@ struct CompilerBuiltinCollector {
 }
 
 impl CompilerBuiltinCollector {
-    fn collect_program(&mut self, program: &BackendProgram, index: &ProgramIndex) {
-        for module in &program.modules {
+    fn collect_program(&mut self, index: &ProgramIndex) {
+        for module_id in index.module_ids() {
+            let module = index
+                .module(*module_id)
+                .expect("compiler builtin scan requires a published backend module");
             for function in &module.functions {
                 if let Some(body) = &function.function_body {
                     self.collect_body(index, body);

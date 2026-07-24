@@ -52,7 +52,7 @@ pub(super) fn validate_backend_partition_definitions(
     index: &ProgramIndex,
 ) -> Vec<Diagnostic> {
     let mut validator = BackendValidator::new(index);
-    let module = index.program().module_for_partition(partition);
+    let module = index.module_for_partition(partition);
     for &position in partition.function_definitions() {
         validator.validate_function(&module.name, &module.functions[position], true);
     }

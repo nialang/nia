@@ -68,10 +68,11 @@ fn emit_llvm_ir_with_options_inner(
         .codegen_partitions
         .validate_program(&lowering.program);
     let partitions = lowering.codegen_partitions.partitions().to_vec();
+    let module_store = lowering.program.module_store();
     let index = Arc::new(time_codegen_stage(
         timings,
         "llvm_codegen.program_index",
-        || ProgramIndex::new(lowering, type_store),
+        || ProgramIndex::new(module_store, type_store),
     ));
     let mut tasks = partitions
         .iter()
@@ -151,12 +152,13 @@ fn emit_native_objects_inner(
         .codegen_partitions
         .validate_program(&lowering.program);
     let partitions = lowering.codegen_partitions.partitions().to_vec();
+    let module_store = lowering.program.module_store();
     let index = Arc::new(time_codegen_stage(
         timings,
         "llvm_codegen.program_index",
-        || ProgramIndex::new(lowering, type_store),
+        || ProgramIndex::new(module_store, type_store),
     ));
-    let builtin_symbols = compiler_builtins::required_symbols(index.program(), &index);
+    let builtin_symbols = compiler_builtins::required_symbols(&index);
     let mut tasks = partitions
         .iter()
         .cloned()
@@ -234,12 +236,7 @@ fn declaration_only_modules(
     if !partitions.is_empty() {
         return Vec::new();
     }
-    index
-        .program()
-        .modules
-        .iter()
-        .map(|module| module.id)
-        .collect()
+    index.module_ids().to_vec()
 }
 
 fn validate_declaration_module(
@@ -338,7 +335,7 @@ fn emit_llvm_ir_partition(
     index: Arc<ProgramIndex>,
     options: LlvmCodegenOptions,
 ) -> Result<LlvmModuleOutput, Vec<nia_diagnostic::Diagnostic>> {
-    let module = index.program().module_for_partition(&partition);
+    let module = index.module_for_partition(&partition);
     let diagnostics = validate_backend_partition_definitions(&partition, &index);
     if !diagnostics.is_empty() {
         return Err(diagnostics);
@@ -402,7 +399,7 @@ fn emit_native_object_partition(
         options,
         fingerprint::ArtifactTarget::NativeObject(&target_identity),
     );
-    let module = index.program().module_for_partition(&partition);
+    let module = index.module_for_partition(&partition);
     let lookup = load_object_work_product(cache, &partition.key, fingerprints);
     if let ObjectReuseLookup::Hit(bytes) = lookup {
         return Ok((

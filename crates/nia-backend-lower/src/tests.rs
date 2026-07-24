@@ -184,10 +184,15 @@ fn module_finalizations_merge_in_program_order() {
             .id,
         second
     );
-    drop(module_store);
-    drop(readiness);
+    let first_ptr = module_store.get(first).expect("published first module")
+        as *const nia_backend_ir::BackendModule;
     let lowering = collector.finish();
 
+    assert_eq!(
+        &lowering.program.modules[0] as *const nia_backend_ir::BackendModule,
+        first_ptr
+    );
+    assert_eq!(readiness.wait_next(), None);
     assert_eq!(
         lowering
             .program
