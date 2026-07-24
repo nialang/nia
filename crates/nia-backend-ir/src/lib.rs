@@ -568,10 +568,9 @@ pub struct CodegenPartitionPlan {
 }
 
 impl CodegenPartitionPlan {
-    pub fn from_modules<'a>(modules: impl IntoIterator<Item = &'a BackendModule>) -> Self {
-        let modules = modules.into_iter().collect::<Vec<_>>();
+    fn from_modules(modules: &BackendModules) -> Self {
         let mut vtable_definitions = HashSet::new();
-        for module in &modules {
+        for module in modules {
             for vtable in &module.trait_object_vtables {
                 assert!(
                     vtable_definitions.insert(vtable.key.clone()),
@@ -581,7 +580,7 @@ impl CodegenPartitionPlan {
             }
         }
         let mut partitions = modules
-            .into_iter()
+            .iter()
             .enumerate()
             .flat_map(|(module_index, module)| {
                 CodegenPartitionDefinitions::for_module(module)

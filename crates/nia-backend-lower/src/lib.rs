@@ -265,12 +265,6 @@ impl BackendItemPlan {
         &self.modules
     }
 
-    pub fn codegen_partition_plan(&self) -> nia_backend_ir::CodegenPartitionPlan {
-        nia_backend_ir::CodegenPartitionPlan::from_modules(
-            self.modules.iter().map(BackendModuleItemPlan::module),
-        )
-    }
-
     pub fn into_module_plans(self) -> (BackendItemPlanFinalization, Vec<BackendModuleItemPlan>) {
         let owner_directory = nia_backend_ir::BackendModuleOwnerDirectory::from_modules(
             self.modules.iter().map(BackendModuleItemPlan::module),
