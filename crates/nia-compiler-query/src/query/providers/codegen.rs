@@ -300,6 +300,27 @@ pub(in crate::query) fn provide_backend_module_finalization(
 fn provide_backend_lowering_inner(
     db: &QueryDb<CompilerContext>,
 ) -> nia_backend_lower::BackendLowering {
+    let (lowering, finalization_allocation) = nia_timing::measure_allocation_live_window(|| {
+        with_backend_finalization_schedule(db, |schedule| match schedule {
+            Ok(schedule) => schedule.finish(),
+            Err(lowering) => lowering,
+        })
+    });
+    if let Some(measurement) = finalization_allocation {
+        emit_backend_module_finalization_allocation(measurement);
+    }
+    lowering
+}
+
+pub(in crate::query) fn with_backend_finalization_schedule<R>(
+    db: &QueryDb<CompilerContext>,
+    consume: impl for<'borrow, 'stream, 'executor> FnOnce(
+        Result<
+            crate::BackendFinalizationSchedule<'borrow, 'stream, 'executor>,
+            nia_backend_lower::BackendLowering,
+        >,
+    ) -> R,
+) -> R {
     let plan = db.get_owned(BackendItemPlanQuery);
     emit_backend_module_plan_allocation("before_publish");
     let has_diagnostics = !plan.diagnostics().is_empty();
@@ -323,41 +344,36 @@ fn provide_backend_lowering_inner(
             .map(|module_id| db.get_owned(BackendModuleItemPlanQuery(module_id)))
             .collect::<Vec<_>>();
         emit_backend_module_plan_allocation("after_consume");
-        return nia_backend_lower::finalize_backend_module_item_plans_with_timings(
+        let lowering = nia_backend_lower::finalize_backend_module_item_plans_with_timings(
             &[],
             &db.context().type_store,
             finalization,
             module_plans,
             db.context().timings(),
         );
+        return consume(Err(lowering));
     }
-    let (lowering, finalization_allocation) = nia_timing::measure_allocation_live_window(|| {
-        db.with_many_owned_completion(
-            module_ids
-                .iter()
-                .copied()
-                .enumerate()
-                .map(|(position, module_id)| BackendModuleFinalizationQuery {
-                    module_id,
-                    position,
-                }),
-            |completions| {
-                crate::BackendFinalizationSchedule::new(
-                    completions,
-                    nia_backend_lower::BackendModuleFinalizationCollector::new(
-                        finalization,
-                        &module_ids,
-                    ),
-                )
-                .finish()
-            },
-        )
-    });
-    if let Some(measurement) = finalization_allocation {
-        emit_backend_module_finalization_allocation(measurement);
-    }
+    let result = db.with_many_owned_completion(
+        module_ids
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(position, module_id)| BackendModuleFinalizationQuery {
+                module_id,
+                position,
+            }),
+        |completions| {
+            consume(Ok(crate::BackendFinalizationSchedule::new(
+                completions,
+                nia_backend_lower::BackendModuleFinalizationCollector::new(
+                    finalization,
+                    &module_ids,
+                ),
+            )))
+        },
+    );
     emit_backend_module_plan_allocation("after_consume");
-    lowering
+    result
 }
 
 fn emit_backend_module_plan_allocation(stage: &str) {

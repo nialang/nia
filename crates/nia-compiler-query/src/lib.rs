@@ -335,6 +335,16 @@ pub struct CheckedProgram {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct CodegenPreparation {
+    pub type_store: std::sync::Arc<nia_ty::TypeStore>,
+    pub graph: ModuleGraphSnapshot,
+    pub optimization: OptimizationPolicy,
+    pub modules: Vec<std::sync::Arc<CheckedModule>>,
+    pub monomorphization: std::sync::Arc<Monomorphization>,
+    pub diagnostics: Vec<ProgramDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct CodegenProgram {
     pub type_store: std::sync::Arc<nia_ty::TypeStore>,
     pub graph: ModuleGraphSnapshot,

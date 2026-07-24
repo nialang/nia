@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
-    ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CodegenProgram, ProgramDiagnostic,
-    RuntimeModel, TimingMode, module_diagnostics,
+    ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CodegenPreparation,
+    CodegenProgram, ProgramDiagnostic, RuntimeModel, TimingMode, module_diagnostics,
 };
 #[cfg(test)]
 use crate::{LoadedModule, LoadedProgram};
@@ -135,6 +135,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         CheckedModuleIdsQuery,
         CheckedModuleQuery,
         CheckedProgramQuery,
+        CodegenPreparationQuery,
         CodegenProgramQuery,
         CompilerOptimizationQuery,
         CompilerRuntimeQuery,
@@ -370,6 +371,49 @@ impl CompilerDatabase {
         self.settle_provider_worklist(true, Self::codegen_program_once, codegen_provider_demands)
     }
 
+    pub fn codegen_preparation(&self) -> CodegenPreparation {
+        self.settle_provider_worklist(
+            true,
+            Self::codegen_preparation_once,
+            codegen_preparation_provider_demands,
+        )
+    }
+
+    pub fn with_backend_finalization_schedule<R>(
+        &self,
+        consume: impl for<'borrow, 'stream, 'executor> FnOnce(
+            Result<
+                crate::BackendFinalizationSchedule<'borrow, 'stream, 'executor>,
+                nia_backend_lower::BackendLowering,
+            >,
+        ) -> R,
+    ) -> R {
+        providers::with_backend_finalization_schedule(&self.db, consume)
+    }
+
+    fn codegen_preparation_once(&self) -> CodegenPreparation {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.db.try_get(CodegenPreparationQuery)
+        })) {
+            Ok(Ok(preparation)) => Arc::unwrap_or_clone(preparation),
+            Ok(Err(err)) => codegen_preparation_from_query_error(
+                Arc::clone(&self.db.context().type_store),
+                self.current_graph(),
+                self.current_optimization(),
+                err,
+            ),
+            Err(payload) => match payload.downcast::<QueryError>() {
+                Ok(err) => codegen_preparation_from_query_error(
+                    Arc::clone(&self.db.context().type_store),
+                    self.current_graph(),
+                    self.current_optimization(),
+                    *err,
+                ),
+                Err(payload) => std::panic::resume_unwind(payload),
+            },
+        }
+    }
+
     fn codegen_program_once(&self) -> CodegenProgram {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_get(CodegenProgramQuery)
@@ -519,6 +563,16 @@ fn codegen_provider_demands(program: &CodegenProgram) -> Vec<crate::ProviderDema
         .collect()
 }
 
+fn codegen_preparation_provider_demands(
+    preparation: &CodegenPreparation,
+) -> Vec<crate::ProviderDemand> {
+    preparation
+        .modules
+        .iter()
+        .flat_map(|module| module.provider_demands.iter().cloned())
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CompilerInvalidation {
     pub invalidated: Vec<QueryFrame>,
@@ -616,6 +670,28 @@ fn codegen_program_from_query_error(
             codegen_partitions,
             optimization,
             optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
+            diagnostics: Vec::new(),
+        }),
+        diagnostics: vec![ProgramDiagnostic {
+            path: SourcePath::new("<query>"),
+            diagnostic: query_error_diagnostic(err),
+        }],
+    }
+}
+
+fn codegen_preparation_from_query_error(
+    type_store: Arc<nia_ty::TypeStore>,
+    graph: ModuleGraphSnapshot,
+    optimization: OptimizationPolicy,
+    err: QueryError,
+) -> CodegenPreparation {
+    CodegenPreparation {
+        type_store,
+        graph,
+        optimization,
+        modules: Vec::new(),
+        monomorphization: Arc::new(nia_monomorphize::Monomorphization {
+            instances: Vec::new(),
             diagnostics: Vec::new(),
         }),
         diagnostics: vec![ProgramDiagnostic {
@@ -1992,7 +2068,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 129);
+        assert_eq!(descriptors.len(), 130);
         assert!(
             !descriptors
                 .iter()
@@ -6179,6 +6255,11 @@ extend i32 : ParseFrom[Input] {
         assert!(trace_has_dependency(
             &trace,
             "codegen_program",
+            "codegen_preparation"
+        ));
+        assert!(trace_has_dependency(
+            &trace,
+            "codegen_preparation",
             "monomorphization"
         ));
         assert!(trace_has_dependency(
@@ -6895,6 +6976,69 @@ fn main() i32 {
             &cached.backend_lowering,
             &owned.backend_lowering
         ));
+    }
+
+    #[test]
+    fn codegen_preparation_does_not_cross_backend_aggregate_barrier() {
+        let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 1 }");
+        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
+
+        let preparation = database.codegen_preparation();
+
+        assert!(preparation.diagnostics.is_empty());
+        let trace = database.query_trace();
+        assert_eq!(query_executions(&trace, "codegen_preparation"), 1);
+        assert_eq!(query_executions(&trace, "backend_lowering"), 0);
+        assert_eq!(query_executions(&trace, "backend_module_finalization"), 0);
+    }
+
+    #[test]
+    fn scoped_backend_schedule_exposes_each_module_before_aggregate_finish() {
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            "module helper; using entry::helper; fn main() i32 { helper::value() }",
+        );
+        let entry = fixture.entry_id();
+        let helper = fixture.add_child(entry, "helper", "helper.nia", "pub fn value() i32 { 1 }");
+        let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
+        let preparation = database.codegen_preparation();
+        assert!(preparation.diagnostics.is_empty());
+
+        let lowering = database.with_backend_finalization_schedule(|schedule| {
+            let mut schedule = schedule.expect("healthy preparation must produce a schedule");
+            let store = schedule.module_store();
+            assert!(store.get(entry).is_none());
+            assert!(store.get(helper).is_none());
+
+            let ready = schedule.wait_next().expect("first backend module");
+            assert!(store.get(ready.module_id()).is_some());
+            let other = if ready.module_id() == entry {
+                helper
+            } else {
+                entry
+            };
+            assert!(store.get(other).is_none());
+            schedule.finish()
+        });
+
+        assert_eq!(lowering.program.modules.len(), 2);
+        assert!(
+            lowering
+                .program
+                .modules
+                .iter()
+                .any(|module| module.id == entry)
+        );
+        assert!(
+            lowering
+                .program
+                .modules
+                .iter()
+                .any(|module| module.id == helper)
+        );
+        let trace = database.query_trace();
+        assert_eq!(query_executions(&trace, "backend_lowering"), 0);
+        assert_eq!(query_executions(&trace, "backend_module_finalization"), 2);
     }
 
     #[test]

@@ -46,7 +46,7 @@ pub(in crate::query) use self::codegen::{
     provide_backend_finalization_task_context, provide_backend_item_plan,
     provide_backend_lowering_inputs, provide_backend_module_finalization,
     provide_backend_module_function_instance_plan, provide_backend_module_source_item_plan,
-    provide_lowered_function_body,
+    provide_lowered_function_body, with_backend_finalization_schedule,
 };
 use self::const_eval::*;
 pub(in crate::query) use self::executable_reachability::{
@@ -56,6 +56,7 @@ use self::extension_providers::*;
 use self::frontend::*;
 use self::layout_roots::*;
 use self::module_checks::*;
+pub(in crate::query) use self::program_flow::provide_codegen_preparation;
 use self::program_flow::*;
 use self::program_signatures::*;
 use self::semantic_inputs::*;

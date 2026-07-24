@@ -34,41 +34,42 @@ pub(super) fn provide_entry_checked_program(db: &QueryDb<CompilerContext>) -> Ch
     })
 }
 
-pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenProgram {
-    time_provider(db.context().timings(), "codegen_program", || {
+pub(in crate::query) fn provide_codegen_preparation(
+    db: &QueryDb<CompilerContext>,
+) -> CodegenPreparation {
+    time_provider(db.context().timings(), "codegen_preparation", || {
         let graph = time_provider(
             db.context().timings(),
-            "codegen_program.module_graph",
+            "codegen_preparation.module_graph",
             || db.get(ModuleGraphQuery).as_ref().clone(),
         );
         let optimization = time_provider(
             db.context().timings(),
-            "codegen_program.optimization",
+            "codegen_preparation.optimization",
             || *db.get(CompilerOptimizationQuery),
         );
         let mut diagnostics = time_provider(
             db.context().timings(),
-            "codegen_program.early_diagnostics",
+            "codegen_preparation.early_diagnostics",
             || early_program_diagnostics(db),
         );
         let modules = time_provider(
             db.context().timings(),
-            "codegen_program.checked_modules",
+            "codegen_preparation.checked_modules",
             || checked_modules_for_codegen(db),
         );
         diagnostics.extend(time_provider(
             db.context().timings(),
-            "codegen_program.checked_diagnostics",
+            "codegen_preparation.checked_diagnostics",
             || checked_module_diagnostics(db, &modules),
         ));
         if crate::has_error_diagnostics(&diagnostics) {
-            return CodegenProgram {
+            return CodegenPreparation {
                 type_store: Arc::clone(&db.context().type_store),
                 graph,
                 optimization,
                 modules,
                 monomorphization: Arc::new(empty_monomorphization()),
-                backend_lowering: Arc::new(empty_backend_lowering(optimization)),
                 diagnostics,
             };
         }
@@ -78,29 +79,37 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
             "codegen_program.monomorphization_diagnostics",
             || monomorphization_diagnostics(&modules, &monomorphization),
         ));
-        if crate::has_error_diagnostics(&diagnostics) {
-            return CodegenProgram {
-                type_store: Arc::clone(&db.context().type_store),
-                graph,
-                optimization,
-                modules,
-                monomorphization,
-                backend_lowering: Arc::new(empty_backend_lowering(optimization)),
-                diagnostics,
-            };
-        }
-        let backend_lowering = db.get(BackendLoweringQuery);
-        diagnostics.extend(time_provider(
-            db.context().timings(),
-            "codegen_program.backend_diagnostics",
-            || backend_lowering_diagnostics(&modules, &backend_lowering),
-        ));
-        CodegenProgram {
+        CodegenPreparation {
             type_store: Arc::clone(&db.context().type_store),
             graph,
             optimization,
             modules,
             monomorphization,
+            diagnostics,
+        }
+    })
+}
+
+pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenProgram {
+    time_provider(db.context().timings(), "codegen_program", || {
+        let preparation = db.get(CodegenPreparationQuery);
+        let backend_lowering = if crate::has_error_diagnostics(&preparation.diagnostics) {
+            Arc::new(empty_backend_lowering(preparation.optimization))
+        } else {
+            db.get(BackendLoweringQuery)
+        };
+        let mut diagnostics = preparation.diagnostics.clone();
+        diagnostics.extend(time_provider(
+            db.context().timings(),
+            "codegen_program.backend_diagnostics",
+            || backend_lowering_diagnostics(&preparation.modules, &backend_lowering),
+        ));
+        CodegenProgram {
+            type_store: Arc::clone(&preparation.type_store),
+            graph: preparation.graph.clone(),
+            optimization: preparation.optimization,
+            modules: preparation.modules.clone(),
+            monomorphization: Arc::clone(&preparation.monomorphization),
             backend_lowering,
             diagnostics,
         }

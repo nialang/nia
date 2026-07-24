@@ -49,6 +49,21 @@ impl QueryKey<CompilerContext> for ExecutableProviderDemandsQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct CodegenPreparationQuery;
+
+impl QueryKey<CompilerContext> for CodegenPreparationQuery {
+    type Value = CodegenPreparation;
+
+    fn name() -> &'static str {
+        "codegen_preparation"
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        provide_codegen_preparation(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CodegenProgramQuery;
 
 impl QueryKey<CompilerContext> for CodegenProgramQuery {
