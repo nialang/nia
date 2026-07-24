@@ -5,10 +5,10 @@ use crate::used_paths::{ModuleDeclarations, UsedModulePath, collect_used_modules
 use crate::{EntryRuntime, LoaderContext};
 use nia_compiler_query::{
     ActiveModuleItemTreeFactKind, FrontendCacheNamespace, FrontendFacadeFactsCacheKey,
-    FrontendModuleDependenciesCacheKey, FrontendProviderSummaryCacheKey, FrontendSourceCacheKey,
-    ItemSignatureFingerprint, LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel,
-    SourceContentFingerprint, frontend_module_map_fingerprint, item_signature_fingerprint,
-    source_content_fingerprint,
+    FrontendModuleDependenciesCacheKey, FrontendProviderSummaryCacheKey,
+    FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
+    LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel, SourceContentFingerprint,
+    frontend_module_map_fingerprint, item_signature_fingerprint, source_content_fingerprint,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{
@@ -635,6 +635,38 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        let cache_input = frontend_cache_input(db, self.0);
+        let cached = cache_input.as_ref().and_then(|input| {
+            let cache = db.context().frontend_cache.as_ref()?;
+            let key = FrontendPublicSurfaceFactsCacheKey::new(
+                input.namespace,
+                &input.module,
+                input.source,
+            );
+            match cache
+                .load_public_surface_facts(
+                    key,
+                    input.namespace,
+                    &input.module,
+                    crate::frontend_cache::PublicSurfaceFactsSource::new(
+                        input.source,
+                        input.source_len,
+                    ),
+                    &db.context().symbols,
+                )
+                .ok()?
+            {
+                crate::frontend_cache::PublicSurfaceFactsCacheLookup::Hit(facts) => Some(facts),
+                crate::frontend_cache::PublicSurfaceFactsCacheLookup::NotFound
+                | crate::frontend_cache::PublicSurfaceFactsCacheLookup::Corrupt => None,
+            }
+        });
+        if let Some(cached) = &cached
+            && !db.context().verify_frontend_cache
+        {
+            return cached.clone();
+        }
+
         let graph = db.get(ModuleGraphQuery);
         let source = db.get(SourceTextQuery(self.0.id));
         let source_identity = source
@@ -661,7 +693,35 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
             &db.context().node_store,
             &db.context().symbols,
         );
-        nia_defs::PublicSurfaceModuleFacts::from_defs(&defs)
+        let fresh = nia_defs::PublicSurfaceModuleFacts::from_defs(&defs);
+        let parsed = db.get(ParsedModuleQuery(self.0));
+        if let Some(input) = cache_input
+            && parsed.read_diagnostic.is_none()
+            && parsed.parse_errors.is_empty()
+            && parsed.prune_diagnostics.is_empty()
+            && defs.diagnostics.is_empty()
+            && let Some(cache) = &db.context().frontend_cache
+        {
+            let key = FrontendPublicSurfaceFactsCacheKey::new(
+                input.namespace,
+                &input.module,
+                input.source,
+            );
+            if cached.as_ref().is_some_and(|cached| cached != &fresh) {
+                cache.remove_public_surface_facts(key);
+            }
+            let _ = cache.publish_public_surface_facts(
+                input.namespace,
+                &input.module,
+                crate::frontend_cache::PublicSurfaceFactsSource::new(
+                    input.source,
+                    input.source_len,
+                ),
+                &fresh,
+                &db.context().symbols,
+            );
+        }
+        fresh
     }
 }
 
