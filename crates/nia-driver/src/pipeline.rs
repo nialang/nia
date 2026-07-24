@@ -920,10 +920,37 @@ fn emit_compilation_counters(
             "loader_public_surface_module_facts",
         ),
         ("query.executions.module_defs", "module_defs"),
+        ("query.executions.full_module_defs", "full_module_defs"),
         (
             "query.executions.public_surface_module_facts",
             "public_surface_module_facts",
         ),
+        ("query.executions.module_item_tree", "module_item_tree"),
+        (
+            "query.executions.active_module_item_tree",
+            "active_module_item_tree",
+        ),
+        ("query.executions.type_resolution", "type_resolution"),
+        ("query.executions.type_lowering", "type_lowering"),
+        ("query.executions.item_signatures", "item_signatures"),
+        (
+            "query.executions.signature_type_resolution",
+            "signature_type_resolution",
+        ),
+        (
+            "query.executions.signature_type_lowering",
+            "signature_type_lowering",
+        ),
+        (
+            "query.executions.signature_item_signatures",
+            "signature_item_signatures",
+        ),
+        (
+            "query.executions.signature_type_normalization",
+            "signature_type_normalization",
+        ),
+        ("query.executions.signature_layouts", "signature_layouts"),
+        ("query.executions.type_normalization", "type_normalization"),
     ] {
         nia_timing::emit_counter(
             counter,
