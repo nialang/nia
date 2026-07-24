@@ -136,6 +136,7 @@ fn module_finalizations_merge_in_program_order() {
         optimization: OptimizationPolicy::default(),
         optimization_report: BackendOptimizationReport::default(),
         diagnostics: Vec::new(),
+        owner_directory: nia_backend_ir::BackendModuleOwnerDirectory::default(),
     };
     let completed_in_reverse_order = [
         BackendModuleFinalization {

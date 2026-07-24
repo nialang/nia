@@ -1,60 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-struct BackendFinalizationSchedule<'borrow, 'stream, 'executor> {
-    completions: &'borrow mut QueryCompletionStream<
-        'stream,
-        'executor,
-        nia_backend_lower::BackendModuleFinalization,
-    >,
-    collector: Option<nia_backend_lower::BackendModuleFinalizationCollector>,
-    readiness: nia_backend_ir::BackendModuleReadiness,
-}
-
-impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 'executor> {
-    fn new(
-        completions: &'borrow mut QueryCompletionStream<
-            'stream,
-            'executor,
-            nia_backend_lower::BackendModuleFinalization,
-        >,
-        collector: nia_backend_lower::BackendModuleFinalizationCollector,
-    ) -> Self {
-        let readiness = collector.take_readiness();
-        Self {
-            completions,
-            collector: Some(collector),
-            readiness,
-        }
-    }
-
-    fn wait_next(&mut self) -> Option<nia_backend_ir::BackendModuleReady> {
-        let (position, finalization) = self.completions.wait_next()?;
-        self.collector
-            .as_mut()
-            .expect("backend finalization collector")
-            .push(position, finalization);
-        let ready = self
-            .readiness
-            .wait_next()
-            .expect("backend finalization publication must produce readiness");
-        assert_eq!(
-            ready.position(),
-            position,
-            "Nia ICE: backend readiness must match query completion position"
-        );
-        Some(ready)
-    }
-
-    fn finish(mut self) -> nia_backend_lower::BackendLowering {
-        while self.wait_next().is_some() {}
-        self.collector
-            .take()
-            .expect("backend finalization collector")
-            .finish()
-    }
-}
-
 pub(in crate::query) fn provide_backend_module_source_item_plan(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -396,7 +342,7 @@ fn provide_backend_lowering_inner(
                     position,
                 }),
             |completions| {
-                BackendFinalizationSchedule::new(
+                crate::BackendFinalizationSchedule::new(
                     completions,
                     nia_backend_lower::BackendModuleFinalizationCollector::new(
                         finalization,

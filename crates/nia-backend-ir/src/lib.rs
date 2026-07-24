@@ -9,7 +9,7 @@ use std::{
     },
 };
 
-use nia_function_ir::FunctionBody;
+use nia_function_ir::{FunctionBody, FunctionInstanceKey};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
 use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
 use nia_source::SourceIdentity;
@@ -193,6 +193,122 @@ struct BackendModuleReadinessState {
 pub struct BackendModuleReadiness {
     store: Arc<BackendModuleStore>,
     next: usize,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct BackendModuleOwnerDirectory {
+    items: HashMap<GlobalDefId, ModuleId>,
+    struct_instances: HashMap<BackendStructInstanceKey, ModuleId>,
+    union_instances: HashMap<BackendStructInstanceKey, ModuleId>,
+    global_instances: HashMap<BackendGlobalInstanceKey, ModuleId>,
+    function_instances: HashMap<FunctionInstanceKey, ModuleId>,
+    vtables: HashMap<BackendTraitObjectVtableKey, ModuleId>,
+}
+
+impl BackendModuleOwnerDirectory {
+    pub fn from_modules<'a>(modules: impl IntoIterator<Item = &'a BackendModule>) -> Self {
+        let mut directory = Self::default();
+        for module in modules {
+            for def_id in module
+                .structs
+                .iter()
+                .map(|item| item.def_id)
+                .chain(module.unions.iter().map(|item| item.def_id))
+                .chain(module.enums.iter().map(|item| item.def_id))
+                .chain(module.globals.iter().map(|item| item.def_id))
+                .chain(module.functions.iter().map(|item| item.def_id))
+            {
+                assert!(
+                    directory.items.insert(def_id, module.id).is_none(),
+                    "Nia ICE: backend item {def_id:?} has multiple module owners"
+                );
+            }
+            for item in &module.struct_instances {
+                let key = BackendStructInstanceKey {
+                    def_id: item.def_id,
+                    args: item.args.clone(),
+                    const_args: item.const_args.clone(),
+                };
+                assert!(
+                    directory.struct_instances.insert(key, module.id).is_none(),
+                    "Nia ICE: backend struct instance has multiple module owners"
+                );
+            }
+            for item in &module.union_instances {
+                let key = BackendStructInstanceKey {
+                    def_id: item.def_id,
+                    args: item.args.clone(),
+                    const_args: item.const_args.clone(),
+                };
+                assert!(
+                    directory.union_instances.insert(key, module.id).is_none(),
+                    "Nia ICE: backend union instance has multiple module owners"
+                );
+            }
+            for item in &module.global_instances {
+                let key = BackendGlobalInstanceKey {
+                    def_id: item.def_id,
+                    arg_module_id: item.arg_module_id,
+                    args: item.args.clone(),
+                    const_args: item.const_args.clone(),
+                };
+                assert!(
+                    directory.global_instances.insert(key, module.id).is_none(),
+                    "Nia ICE: backend global instance has multiple module owners"
+                );
+            }
+            for item in &module.function_instances {
+                let key = FunctionInstanceKey {
+                    def_id: item.def_id,
+                    arg_module_id: item.arg_module_id,
+                    self_arg: item.self_arg,
+                    args: item.args.clone(),
+                    const_args: item.const_args.clone(),
+                };
+                assert!(
+                    directory
+                        .function_instances
+                        .insert(key, module.id)
+                        .is_none(),
+                    "Nia ICE: backend function instance has multiple module owners"
+                );
+            }
+            for item in &module.trait_object_vtables {
+                assert!(
+                    directory
+                        .vtables
+                        .insert(item.key.clone(), module.id)
+                        .is_none(),
+                    "Nia ICE: backend vtable has multiple module owners"
+                );
+            }
+        }
+        directory
+    }
+
+    pub fn item_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
+        self.items.get(&def_id).copied()
+    }
+
+    pub fn struct_instance_owner(&self, key: &BackendStructInstanceKey) -> Option<ModuleId> {
+        self.struct_instances.get(key).copied()
+    }
+
+    pub fn union_instance_owner(&self, key: &BackendStructInstanceKey) -> Option<ModuleId> {
+        self.union_instances.get(key).copied()
+    }
+
+    pub fn global_instance_owner(&self, key: &BackendGlobalInstanceKey) -> Option<ModuleId> {
+        self.global_instances.get(key).copied()
+    }
+
+    pub fn function_instance_owner(&self, key: &FunctionInstanceKey) -> Option<ModuleId> {
+        self.function_instances.get(key).copied()
+    }
+
+    pub fn vtable_owner(&self, key: &BackendTraitObjectVtableKey) -> Option<ModuleId> {
+        self.vtables.get(key).copied()
+    }
 }
 
 impl BackendModuleStore {
@@ -980,6 +1096,48 @@ mod tests {
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
         }
+    }
+
+    #[test]
+    fn owner_directory_records_actual_instance_publication_module() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let semantic_owner = module_ids.allocate();
+        let publication_owner = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let ty = type_store
+            .append_for_module(semantic_owner)
+            .primitive(PrimitiveTy::I32);
+        let def_id = GlobalDefId {
+            module_id: semantic_owner,
+            def_id: DefId(7),
+        };
+        let mut module = module_with_global(publication_owner, ty, "publication", false);
+        module.global_instances.push(BackendGlobalInstance {
+            def_id,
+            name: SymbolId::EMPTY,
+            arg_module_id: publication_owner,
+            args: vec![ty],
+            const_args: Vec::new(),
+            symbol: "instance".to_string(),
+            ty,
+            is_let: false,
+            init: None,
+            span: Span::default(),
+        });
+        let key = BackendGlobalInstanceKey {
+            def_id,
+            arg_module_id: publication_owner,
+            args: vec![ty],
+            const_args: Vec::new(),
+        };
+
+        let directory = BackendModuleOwnerDirectory::from_modules([&module]);
+
+        assert_eq!(
+            directory.global_instance_owner(&key),
+            Some(publication_owner)
+        );
+        assert_ne!(directory.global_instance_owner(&key), Some(semantic_owner));
     }
 
     #[test]
