@@ -1637,6 +1637,7 @@ pub fn main() i32 { 0 }
             extension_method_id(&before, "len"),
             extension_method_id(&after, "len")
         );
+        assert_ne!(before.module_id, after.module_id);
     }
 
     #[test]

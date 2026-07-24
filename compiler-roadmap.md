@@ -1464,6 +1464,8 @@ Acceptance：多核 workload CPU 利用率明显提升；小改动只重建受�
 
 Acceptance：第二次无改动 check 接近 cache validation 成本；单文件 body edit 不重跑无关 module signature/trait/layout。
 
+进展（2026-07-24）：H-1 正式建立跨 session frontend definition identity。`StableModuleKey` 继续以规范化 `SourceIdentity` 作为无碰撞的持久边界；新增 `StableDefKey { StableModuleKey, DefId }`，只组合 canonical module identity 与已经由 definition identity 稳定生成的 module-local `DefId`，不序列化 `ModuleId` 的 owner/generation，也不把 `GlobalDefId` 冒充持久身份。`ModuleGraph` 提供 stable/local 双向映射：local→stable 会验证 handle 属于当前 graph，stable→local 则在当前 owner 中重新解析 module handle。独立 graph owner 与路径规范化回归证明同一 definition 得到相同 stable key并映射到各自不同的 local `GlobalDefId`，foreign handle明确拒绝；definition回归也显式锁定不同 allocator owner下 `DefId` 保持稳定。`StableModuleKey`仍为8 bytes、`StableDefKey`为16 bytes，没有新增process-global table、兼容alias或第二份身份真相。Phase H现约10%，整份roadmap约94%；下一切片为source/syntax/item signature建立versioned canonical fingerprint domain，再据此选择首个可安全序列化的高价值frontend product。
+
 ### 阶段 I（P2）：错误、诊断和工程重组
 
 1. 移除 panic-based query error flow。

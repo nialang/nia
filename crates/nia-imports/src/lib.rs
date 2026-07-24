@@ -3,7 +3,7 @@ use std::{fmt, sync::Arc};
 
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::ModuleIdAllocator;
-pub use nia_ids::{ModuleId, Visibility};
+pub use nia_ids::{DefId, GlobalDefId, ModuleId, Visibility};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 use nia_source::SourceIdentity;
 pub use nia_source::SourcePath;
@@ -209,6 +209,26 @@ impl StableModuleKey {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct StableDefKey {
+    module: StableModuleKey,
+    def: DefId,
+}
+
+impl StableDefKey {
+    pub fn new(module: StableModuleKey, def: DefId) -> Self {
+        Self { module, def }
+    }
+
+    pub fn module(&self) -> &StableModuleKey {
+        &self.module
+    }
+
+    pub fn def(&self) -> DefId {
+        self.def
+    }
+}
+
 #[derive(Clone)]
 pub struct ModuleGraph {
     module_ids: ModuleIdAllocator,
@@ -372,6 +392,20 @@ impl ModuleGraph {
 
     pub fn stable_key(&self, module_id: ModuleId) -> Option<&StableModuleKey> {
         Some(&self.get(module_id)?.stable_key)
+    }
+
+    pub fn stable_def_key(&self, def_id: GlobalDefId) -> Option<StableDefKey> {
+        Some(StableDefKey::new(
+            self.stable_key(def_id.module_id)?.clone(),
+            def_id.def_id,
+        ))
+    }
+
+    pub fn global_def_id_for_stable_key(&self, stable_key: &StableDefKey) -> Option<GlobalDefId> {
+        Some(GlobalDefId {
+            module_id: self.module_id_for_stable_key(stable_key.module())?,
+            def_id: stable_key.def(),
+        })
     }
 
     pub fn module_id_for_module_path(&self, path: &ModulePath) -> Option<ModuleId> {
@@ -996,6 +1030,36 @@ mod tests {
         assert_eq!(graph.entry().local_index(), foreign.entry().local_index());
         assert_ne!(graph.entry(), foreign.entry());
         assert!(graph.get(foreign.entry()).is_none());
+    }
+
+    #[test]
+    fn stable_definition_keys_remap_across_graph_owners() {
+        let first = ModuleGraph::new(SourcePath::new("src/./main.nia"));
+        let second = ModuleGraph::new(SourcePath::new("src/main.nia"));
+        let first_local = GlobalDefId {
+            module_id: first.entry(),
+            def_id: DefId(42),
+        };
+        let second_local = GlobalDefId {
+            module_id: second.entry(),
+            def_id: DefId(42),
+        };
+
+        assert_ne!(first_local, second_local);
+        let stable = first
+            .stable_def_key(first_local)
+            .expect("first stable definition key");
+        assert_eq!(second.stable_def_key(second_local), Some(stable.clone()));
+        assert_eq!(
+            first.global_def_id_for_stable_key(&stable),
+            Some(first_local)
+        );
+        assert_eq!(
+            second.global_def_id_for_stable_key(&stable),
+            Some(second_local)
+        );
+        assert_eq!(first.stable_def_key(second_local), None);
+        assert_eq!(std::mem::size_of::<StableDefKey>(), 16);
     }
 
     #[test]
