@@ -91,6 +91,7 @@ enum CliCommand {
         path: String,
         opt_report: bool,
         runtime: Runtime,
+        cache_dir: Option<PathBuf>,
     },
     Emit {
         path: String,
@@ -155,6 +156,7 @@ fn run_cli(cli: Cli) -> ExitCode {
             path,
             opt_report,
             runtime,
+            cache_dir,
         } => {
             let source = match read_source(&path) {
                 Ok(source) => source,
@@ -167,10 +169,13 @@ fn run_cli(cli: Cli) -> ExitCode {
                 &path,
                 &source,
                 cli.module_map,
-                cli.optimization,
-                cli.timings,
-                opt_report,
-                runtime,
+                CheckRunOptions {
+                    optimization: cli.optimization,
+                    timings: cli.timings,
+                    opt_report,
+                    runtime,
+                    cache_dir,
+                },
             )
         }
         CliCommand::Emit {
@@ -506,12 +511,17 @@ fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     let mut path = None;
     let mut opt_report = false;
     let mut runtime = Runtime::Bare;
+    let mut cache_dir = None;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         if let Some(value) = arg.strip_prefix("--runtime=") {
             runtime = parse_runtime(value).map_err(|message| {
                 CliError::new(format!("{message} for `nia check`"), HelpTopic::Check)
             })?;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--cache-dir=") {
+            cache_dir = Some(PathBuf::from(value));
             continue;
         }
         match arg.as_str() {
@@ -526,6 +536,15 @@ fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
                 runtime = parse_runtime(&value).map_err(|message| {
                     CliError::new(format!("{message} for `nia check`"), HelpTopic::Check)
                 })?;
+            }
+            "--cache-dir" => {
+                let Some(path) = iter.next() else {
+                    return Err(CliError::new(
+                        "missing path after `--cache-dir`",
+                        HelpTopic::Check,
+                    ));
+                };
+                cache_dir = Some(PathBuf::from(path));
             }
             _ if arg.starts_with('-') => {
                 return Err(CliError::new(
@@ -552,6 +571,7 @@ fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         path,
         opt_report,
         runtime,
+        cache_dir,
     })
 }
 
@@ -800,26 +820,47 @@ fn run_parse(path: &str, source: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn run_check(
-    path: &str,
-    source: &str,
-    module_map: ModuleMap,
+struct CheckRunOptions {
     optimization: NiaOptimizationLevel,
     timings: nia_driver::TimingMode,
     opt_report: bool,
     runtime: Runtime,
+    cache_dir: Option<PathBuf>,
+}
+
+fn run_check(
+    path: &str,
+    source: &str,
+    module_map: ModuleMap,
+    options: CheckRunOptions,
 ) -> ExitCode {
-    let output = time_summary_stage(timings, "check", || {
-        check_with_driver(path, module_map.clone(), optimization, timings, runtime)
+    let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
+        artifact_cache_dir: options.cache_dir,
+        ..nia_driver::DriverConfig::default()
+    });
+    let output = time_summary_stage(options.timings, "check", || {
+        driver.check_entry(
+            nia_driver::CheckRequest::new(path)
+                .with_module_map(module_map.clone())
+                .with_optimization(options.optimization)
+                .with_timings(options.timings)
+                .with_runtime(options.runtime),
+        )
     });
     match checked_program_from_output(output, path, source) {
         Ok(_) => {}
         Err(code) => return code,
     }
-    if opt_report {
-        let driver = nia_driver::Driver::new();
-        let output = time_summary_stage(timings, "codegen", || {
-            codegen_with_driver(&driver, path, module_map, optimization, timings, runtime)
+    if options.opt_report {
+        let output = time_summary_stage(options.timings, "codegen", || {
+            codegen_with_driver(
+                &driver,
+                path,
+                module_map,
+                options.optimization,
+                options.timings,
+                options.runtime,
+            )
         });
         let codegen = match codegen_program_from_output(output, path, source) {
             Ok(program) => program,

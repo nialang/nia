@@ -125,6 +125,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "print backend optimization policy, enabled passes, change count, and changes",
                 },
                 HelpRow {
+                    left: "--cache-dir <path>",
+                    right: "reuse persistent frontend artifacts from the selected cache directory",
+                },
+                HelpRow {
                     left: OPTIMIZATION_OPTION_HELP,
                     right: "set optimization level; -O means -O2",
                 },
