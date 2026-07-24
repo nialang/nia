@@ -6,15 +6,20 @@ use std::{
 };
 
 use nia_compiler_query::{
-    FrontendCacheNamespace, FrontendProviderSummaryCacheKey, FrontendSourceCacheKey,
-    ItemSignatureFingerprint, SourceContentFingerprint,
+    FrontendCacheNamespace, FrontendFacadeFactsCacheKey, FrontendModuleMapFingerprint,
+    FrontendProviderSummaryCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
+    SourceContentFingerprint,
 };
 use nia_imports::StableModuleKey;
 use nia_provider_summary::{Provider, ProviderSummary, ProviderTarget, ProviderTypeRef};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
 use nia_symbol::SymbolId;
 
+use crate::facade_facts::{ModuleFacadeFacts, PublicReexportSource};
+use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
+
 const DEPENDENCY_MANIFEST_MAGIC: &[u8; 8] = b"NIAFDM01";
+const FACADE_FACTS_MAGIC: &[u8; 8] = b"NIAFFF01";
 const PROVIDER_SUMMARY_MAGIC: &[u8; 8] = b"NIAFPS02";
 const FRONTEND_CACHE_SCHEMA: &str = "v2";
 const MAX_CACHE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
@@ -30,6 +35,13 @@ pub(crate) struct PersistentFrontendCache {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ProviderSummaryCacheLookup {
     Hit(ProviderSummary),
+    NotFound,
+    Corrupt,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FacadeFactsCacheLookup {
+    Hit(ModuleFacadeFacts),
     NotFound,
     Corrupt,
 }
@@ -105,6 +117,67 @@ impl PersistentFrontendCache {
         remove_corrupt(&self.provider_summary_path(key));
     }
 
+    pub(crate) fn load_facade_facts(
+        &self,
+        key: FrontendFacadeFactsCacheKey,
+        namespace: FrontendCacheNamespace,
+        module: &StableModuleKey,
+        item_signature: ItemSignatureFingerprint,
+        module_map: FrontendModuleMapFingerprint,
+    ) -> io::Result<FacadeFactsCacheLookup> {
+        let path = self.facade_facts_path(key);
+        let encoded = match read_cache_entry(&path)? {
+            Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
+            Some(_) => {
+                remove_corrupt(&path);
+                return Ok(FacadeFactsCacheLookup::Corrupt);
+            }
+            None => return Ok(FacadeFactsCacheLookup::NotFound),
+        };
+        let Some(entry) = decode_facade_facts(&encoded) else {
+            remove_corrupt(&path);
+            return Ok(FacadeFactsCacheLookup::Corrupt);
+        };
+        if entry.key != key.parts()
+            || entry.namespace != namespace.parts()
+            || entry.module != module.source_identity().normalized_path()
+            || entry.item_signature != item_signature.parts()
+            || entry.module_map != module_map.parts()
+            || path != self.facade_facts_path(FrontendFacadeFactsCacheKey::from_parts(entry.key))
+        {
+            remove_corrupt(&path);
+            return Ok(FacadeFactsCacheLookup::Corrupt);
+        }
+        Ok(FacadeFactsCacheLookup::Hit(entry.facts))
+    }
+
+    pub(crate) fn publish_facade_facts(
+        &self,
+        key: FrontendFacadeFactsCacheKey,
+        namespace: FrontendCacheNamespace,
+        module: &StableModuleKey,
+        item_signature: ItemSignatureFingerprint,
+        module_map: FrontendModuleMapFingerprint,
+        facts: &ModuleFacadeFacts,
+    ) -> io::Result<()> {
+        let path = self.facade_facts_path(key);
+        if path.is_file() {
+            return Ok(());
+        }
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid frontend facade facts path"))?;
+        fs::create_dir_all(parent)?;
+        let staged = staged_path(&path);
+        let encoded =
+            encode_facade_facts(key, namespace, module, item_signature, module_map, facts);
+        atomic_publish(&staged, &path, &encoded)
+    }
+
+    pub(crate) fn remove_facade_facts(&self, key: FrontendFacadeFactsCacheKey) {
+        remove_corrupt(&self.facade_facts_path(key));
+    }
+
     pub(crate) fn load_dependency_manifest(
         &self,
         key: FrontendSourceCacheKey,
@@ -172,6 +245,16 @@ impl PersistentFrontendCache {
             .join(FRONTEND_CACHE_SCHEMA)
             .join("provider-summaries")
             .join(format!("{first:016x}{second:016x}.fps"))
+    }
+
+    pub(crate) fn facade_facts_path(&self, key: FrontendFacadeFactsCacheKey) -> PathBuf {
+        let [first, second] = key.parts();
+        self.root
+            .join("artifacts")
+            .join("frontend")
+            .join(FRONTEND_CACHE_SCHEMA)
+            .join("facade-facts")
+            .join(format!("{first:016x}{second:016x}.fff"))
     }
 
     pub(crate) fn dependency_manifest_path(&self, key: FrontendSourceCacheKey) -> PathBuf {
@@ -288,6 +371,233 @@ fn decode_dependency_manifest(encoded: &[u8]) -> Option<DecodedDependencyManifes
         source,
         item_signature,
     })
+}
+
+fn encode_facade_facts(
+    key: FrontendFacadeFactsCacheKey,
+    namespace: FrontendCacheNamespace,
+    module: &StableModuleKey,
+    item_signature: ItemSignatureFingerprint,
+    module_map: FrontendModuleMapFingerprint,
+    facts: &ModuleFacadeFacts,
+) -> Vec<u8> {
+    let payload = encode_facade_facts_payload(facts);
+    let checksum = facade_facts_checksum(&payload);
+    let mut encoded =
+        Vec::with_capacity(112 + module.source_identity().normalized_path().len() + payload.len());
+    encoded.extend_from_slice(FACADE_FACTS_MAGIC);
+    write_parts(&mut encoded, key.parts());
+    write_parts(&mut encoded, namespace.parts());
+    write_string(&mut encoded, module.source_identity().normalized_path());
+    write_parts(&mut encoded, item_signature.parts());
+    write_parts(&mut encoded, module_map.parts());
+    encoded.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+    write_parts(&mut encoded, checksum.parts());
+    encoded.extend_from_slice(&payload);
+    encoded
+}
+
+struct DecodedFacadeFacts {
+    key: [u64; 2],
+    namespace: [u64; 2],
+    module: String,
+    item_signature: [u64; 2],
+    module_map: [u64; 2],
+    facts: ModuleFacadeFacts,
+}
+
+fn decode_facade_facts(encoded: &[u8]) -> Option<DecodedFacadeFacts> {
+    let mut cursor = Cursor::new(encoded);
+    let mut magic = [0; 8];
+    cursor.read_exact(&mut magic).ok()?;
+    (magic == *FACADE_FACTS_MAGIC).then_some(())?;
+    let key = read_parts(&mut cursor)?;
+    let namespace = read_parts(&mut cursor)?;
+    let module = read_string(&mut cursor, encoded.len())?;
+    let item_signature = read_parts(&mut cursor)?;
+    let module_map = read_parts(&mut cursor)?;
+    let payload_len = read_len(&mut cursor, MAX_CACHE_PAYLOAD_BYTES)?;
+    let checksum = read_parts(&mut cursor)?;
+    let mut payload = vec![0; payload_len];
+    cursor.read_exact(&mut payload).ok()?;
+    (cursor.position() as usize == encoded.len()).then_some(())?;
+    (facade_facts_checksum(&payload).parts() == checksum).then_some(())?;
+    let facts = decode_facade_facts_payload(&payload)?;
+    Some(DecodedFacadeFacts {
+        key,
+        namespace,
+        module,
+        item_signature,
+        module_map,
+        facts,
+    })
+}
+
+fn encode_facade_facts_payload(facts: &ModuleFacadeFacts) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    let mut public_type_names = facts.public_type_names().collect::<Vec<_>>();
+    public_type_names.sort_unstable();
+    write_symbols(&mut encoded, &public_type_names);
+    encoded.extend_from_slice(&(facts.public_reexports().len() as u64).to_le_bytes());
+    for reexport in facts.public_reexports() {
+        write_optional_symbol(&mut encoded, reexport.exposed_name);
+        write_used_module_path(&mut encoded, &reexport.source);
+    }
+    encoded.extend_from_slice(&(facts.provider_source_paths().len() as u64).to_le_bytes());
+    for path in facts.provider_source_paths() {
+        write_used_module_path(&mut encoded, path);
+    }
+    encoded
+}
+
+fn decode_facade_facts_payload(payload: &[u8]) -> Option<ModuleFacadeFacts> {
+    let mut cursor = Cursor::new(payload);
+    let public_type_names = read_symbols(&mut cursor)?;
+    is_strictly_sorted(&public_type_names).then_some(())?;
+    let reexport_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut public_reexports = Vec::with_capacity(reexport_len);
+    for _ in 0..reexport_len {
+        public_reexports.push(PublicReexportSource {
+            exposed_name: read_optional_symbol(&mut cursor)?,
+            source: read_used_module_path(&mut cursor)?,
+        });
+    }
+    is_strictly_sorted(&public_reexports).then_some(())?;
+    let provider_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut provider_source_paths = Vec::with_capacity(provider_len);
+    for _ in 0..provider_len {
+        provider_source_paths.push(read_used_module_path(&mut cursor)?);
+    }
+    is_strictly_sorted(&provider_source_paths).then_some(())?;
+    (cursor.position() as usize == payload.len()).then_some(())?;
+    Some(ModuleFacadeFacts::from_cache_parts(
+        public_type_names,
+        public_reexports,
+        provider_source_paths,
+    ))
+}
+
+fn write_used_module_path(encoded: &mut Vec<u8>, path: &UsedModulePath) {
+    let (tag, package, segments, include_declared_children, processing) = match path {
+        UsedModulePath::Package {
+            package,
+            segments,
+            include_declared_children,
+            processing,
+        } => (
+            0,
+            Some(*package),
+            segments,
+            *include_declared_children,
+            processing,
+        ),
+        UsedModulePath::PackageRelative {
+            segments,
+            include_declared_children,
+            processing,
+        } => (1, None, segments, *include_declared_children, processing),
+        UsedModulePath::ParentRelative {
+            segments,
+            include_declared_children,
+            processing,
+        } => (2, None, segments, *include_declared_children, processing),
+        UsedModulePath::Local {
+            segments,
+            include_declared_children,
+            processing,
+        } => (3, None, segments, *include_declared_children, processing),
+    };
+    encoded.push(tag);
+    if let Some(package) = package {
+        encoded.extend_from_slice(&package.raw().to_le_bytes());
+    }
+    write_symbols(encoded, segments);
+    encoded.push(u8::from(include_declared_children));
+    write_used_module_path_processing(encoded, processing);
+}
+
+fn read_used_module_path(cursor: &mut Cursor<&[u8]>) -> Option<UsedModulePath> {
+    let tag = read_u8(cursor)?;
+    (tag <= 3).then_some(())?;
+    let package = if tag == 0 {
+        Some(read_symbol(cursor)?)
+    } else {
+        None
+    };
+    let segments = read_symbols(cursor)?;
+    let include_declared_children = read_bool(cursor)?;
+    let processing = read_used_module_path_processing(cursor)?;
+    match tag {
+        0 => Some(UsedModulePath::Package {
+            package: package?,
+            segments,
+            include_declared_children,
+            processing,
+        }),
+        1 => Some(UsedModulePath::PackageRelative {
+            segments,
+            include_declared_children,
+            processing,
+        }),
+        2 => Some(UsedModulePath::ParentRelative {
+            segments,
+            include_declared_children,
+            processing,
+        }),
+        3 => Some(UsedModulePath::Local {
+            segments,
+            include_declared_children,
+            processing,
+        }),
+        _ => None,
+    }
+}
+
+fn write_used_module_path_processing(encoded: &mut Vec<u8>, processing: &UsedModulePathProcessing) {
+    match processing {
+        UsedModulePathProcessing::Never => encoded.push(0),
+        UsedModulePathProcessing::Always => encoded.push(1),
+        UsedModulePathProcessing::IfSelectedItem => encoded.push(2),
+        UsedModulePathProcessing::IfProvidesExtensions => encoded.push(3),
+        UsedModulePathProcessing::IfProvidesTraitImpl { trait_name } => {
+            encoded.push(4);
+            encoded.extend_from_slice(&trait_name.raw().to_le_bytes());
+        }
+        UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name } => {
+            encoded.push(5);
+            encoded.extend_from_slice(&trait_name.raw().to_le_bytes());
+        }
+        UsedModulePathProcessing::IfProvidesTraitMethod {
+            target_type_name,
+            associated_name,
+        } => {
+            encoded.push(6);
+            write_optional_symbol(encoded, *target_type_name);
+            encoded.extend_from_slice(&associated_name.raw().to_le_bytes());
+        }
+    }
+}
+
+fn read_used_module_path_processing(
+    cursor: &mut Cursor<&[u8]>,
+) -> Option<UsedModulePathProcessing> {
+    match read_u8(cursor)? {
+        0 => Some(UsedModulePathProcessing::Never),
+        1 => Some(UsedModulePathProcessing::Always),
+        2 => Some(UsedModulePathProcessing::IfSelectedItem),
+        3 => Some(UsedModulePathProcessing::IfProvidesExtensions),
+        4 => Some(UsedModulePathProcessing::IfProvidesTraitImpl {
+            trait_name: read_symbol(cursor)?,
+        }),
+        5 => Some(UsedModulePathProcessing::IfProvidesImplicitTraitImpl {
+            trait_name: read_symbol(cursor)?,
+        }),
+        6 => Some(UsedModulePathProcessing::IfProvidesTraitMethod {
+            target_type_name: read_optional_symbol(cursor)?,
+            associated_name: read_symbol(cursor)?,
+        }),
+        _ => None,
+    }
 }
 
 fn encode_provider_summary(
@@ -428,6 +738,32 @@ fn read_symbols(cursor: &mut Cursor<&[u8]>) -> Option<Vec<SymbolId>> {
     Some(symbols)
 }
 
+fn write_optional_symbol(encoded: &mut Vec<u8>, symbol: Option<SymbolId>) {
+    match symbol {
+        Some(symbol) => {
+            encoded.push(1);
+            encoded.extend_from_slice(&symbol.raw().to_le_bytes());
+        }
+        None => encoded.push(0),
+    }
+}
+
+fn read_optional_symbol(cursor: &mut Cursor<&[u8]>) -> Option<Option<SymbolId>> {
+    match read_u8(cursor)? {
+        0 => Some(None),
+        1 => Some(Some(read_symbol(cursor)?)),
+        _ => None,
+    }
+}
+
+fn read_symbol(cursor: &mut Cursor<&[u8]>) -> Option<SymbolId> {
+    Some(SymbolId::from_stable_hash(read_u64(cursor)?))
+}
+
+fn is_strictly_sorted<T: Ord>(values: &[T]) -> bool {
+    values.windows(2).all(|pair| pair[0] < pair[1])
+}
+
 fn payload_checksum(payload: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.frontend.provider-summary-payload.v1");
     builder.write_bytes(payload);
@@ -436,6 +772,12 @@ fn payload_checksum(payload: &[u8]) -> QueryFingerprint {
 
 fn dependency_manifest_checksum(payload: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.frontend.dependency-manifest-payload.v1");
+    builder.write_bytes(payload);
+    builder.finish()
+}
+
+fn facade_facts_checksum(payload: &[u8]) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.frontend.facade-facts-payload.v1");
     builder.write_bytes(payload);
     builder.finish()
 }
