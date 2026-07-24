@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod facade_facts;
+mod frontend_cache;
 mod graph;
 mod provider_facts;
 mod provider_loading;
@@ -17,7 +18,11 @@ use nia_symbol_table::SymbolTable;
 use nia_target_config::TargetConfig;
 use provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use queries::{LoadedProgramQuery, SourceTextQuery};
-use std::{collections::HashSet, path::Path, sync::Arc};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 fn loader_query_registry() -> nia_query::QueryRegistry {
     let mut registry = nia_query::QueryRegistry::new();
@@ -107,6 +112,10 @@ impl LoaderDatabase {
                 entry_runtime: request.entry_runtime,
                 package_roots_with_used_paths,
                 provider_facts: ProviderFactStore::default(),
+                frontend_cache: request
+                    .frontend_cache_dir
+                    .map(|root| Arc::new(frontend_cache::PersistentFrontendCache::new(root))),
+                verify_frontend_cache: request.verify_frontend_cache,
             },
             loader_query_registry(),
             session,
@@ -368,6 +377,8 @@ pub struct LoadRequest {
     pub target: TargetConfig,
     pub entry_runtime: EntryRuntime,
     pub package_root_used_paths: bool,
+    pub frontend_cache_dir: Option<PathBuf>,
+    pub verify_frontend_cache: bool,
 }
 
 impl LoadRequest {
@@ -379,6 +390,8 @@ impl LoadRequest {
             target: TargetConfig::host(),
             entry_runtime: EntryRuntime::None,
             package_root_used_paths: false,
+            frontend_cache_dir: None,
+            verify_frontend_cache: false,
         }
     }
 
@@ -404,6 +417,16 @@ impl LoadRequest {
 
     pub fn with_package_root_used_paths(mut self, package_root_used_paths: bool) -> Self {
         self.package_root_used_paths = package_root_used_paths;
+        self
+    }
+
+    pub fn with_frontend_cache_dir(mut self, frontend_cache_dir: Option<PathBuf>) -> Self {
+        self.frontend_cache_dir = frontend_cache_dir;
+        self
+    }
+
+    pub fn with_frontend_cache_verification(mut self, verify: bool) -> Self {
+        self.verify_frontend_cache = verify;
         self
     }
 }
@@ -446,6 +469,8 @@ fn load_program_trace(
             entry_runtime: EntryRuntime::None,
             package_roots_with_used_paths: HashSet::new(),
             provider_facts: ProviderFactStore::default(),
+            frontend_cache: None,
+            verify_frontend_cache: false,
         },
         loader_query_registry(),
     );
@@ -483,4 +508,6 @@ pub(crate) struct LoaderContext {
     pub(crate) entry_runtime: EntryRuntime,
     pub(crate) package_roots_with_used_paths: HashSet<nia_symbol::SymbolId>,
     pub(crate) provider_facts: ProviderFactStore,
+    pub(crate) frontend_cache: Option<Arc<frontend_cache::PersistentFrontendCache>>,
+    pub(crate) verify_frontend_cache: bool,
 }

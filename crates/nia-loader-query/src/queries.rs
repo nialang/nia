@@ -4,10 +4,13 @@ use crate::provider_facts::ProviderDemandsQuery;
 use crate::used_paths::{ModuleDeclarations, UsedModulePath, collect_used_modules};
 use crate::{EntryRuntime, LoaderContext};
 use nia_compiler_query::{
-    ActiveModuleItemTreeFactKind, LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel,
+    ActiveModuleItemTreeFactKind, FrontendCacheNamespace, FrontendProviderSummaryCacheKey,
+    LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel, source_content_fingerprint,
 };
 use nia_diagnostic::{Diagnostic, codes};
-use nia_imports::resolve_module_declarations_from_active_item_tree_with_symbols;
+use nia_imports::{
+    StableModuleKey, resolve_module_declarations_from_active_item_tree_with_symbols,
+};
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_provider_summary::ProviderSummary;
 use nia_query::{
@@ -562,8 +565,52 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        let source = db.get(SourceTextQuery(self.0.id));
+        let cache_input = source
+            .file
+            .as_ref()
+            .filter(|file| file.version() == self.0)
+            .map(|file| {
+                let namespace = FrontendCacheNamespace::new(
+                    &db.context().target,
+                    runtime_model(db.context().entry_runtime),
+                );
+                let module = StableModuleKey::from_source_identity(file.path.identity());
+                let source = source_content_fingerprint(&file.text);
+                let key = FrontendProviderSummaryCacheKey::new(namespace, &module, source);
+                (namespace, module, source, key)
+            });
+        let cached = cache_input
+            .as_ref()
+            .and_then(|(namespace, module, source, key)| {
+                let cache = db.context().frontend_cache.as_ref()?;
+                match cache
+                    .load_provider_summary(*key, *namespace, module, *source)
+                    .ok()?
+                {
+                    crate::frontend_cache::ProviderSummaryCacheLookup::Hit(summary) => {
+                        Some(summary)
+                    }
+                    crate::frontend_cache::ProviderSummaryCacheLookup::NotFound
+                    | crate::frontend_cache::ProviderSummaryCacheLookup::Corrupt => None,
+                }
+            });
+        if let Some(cached) = cached.as_ref()
+            && !db.context().verify_frontend_cache
+        {
+            return cached.clone();
+        }
         let parsed = db.get(ParsedModuleQuery(self.0));
-        ProviderSummary::from_active_item_tree(&parsed.active_item_tree)
+        let fresh = ProviderSummary::from_active_item_tree(&parsed.active_item_tree);
+        if let Some((namespace, module, source, key)) = cache_input
+            && let Some(cache) = &db.context().frontend_cache
+        {
+            if cached.as_ref().is_some_and(|cached| cached != &fresh) {
+                cache.remove_provider_summary(key);
+            }
+            let _ = cache.publish_provider_summary(key, namespace, &module, source, &fresh);
+        }
+        fresh
     }
 }
 

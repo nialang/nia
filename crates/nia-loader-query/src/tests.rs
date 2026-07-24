@@ -8,10 +8,11 @@ use crate::queries::{
     module_facade_facts_query, parsed_module_query, provider_summary_query,
 };
 use nia_compiler_query::{
-    CompileRequest, CompilerDatabase, ProviderDemand, ProviderGraphUpdate, RuntimeModel,
-    has_error_diagnostics,
+    CompileRequest, CompilerDatabase, FrontendCacheNamespace, FrontendProviderSummaryCacheKey,
+    ProviderDemand, ProviderGraphUpdate, RuntimeModel, has_error_diagnostics,
+    source_content_fingerprint,
 };
-use nia_imports::{ModuleGraph, ModuleNode};
+use nia_imports::{ModuleGraph, ModuleNode, StableModuleKey};
 use nia_item_tree::ItemTreeNodeKind;
 use nia_source::SourceId;
 use nia_symbol::{SymbolId, stable_hash};
@@ -20,7 +21,10 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -65,6 +69,8 @@ fn test_loader_context(
         entry_runtime: EntryRuntime::None,
         package_roots_with_used_paths: HashSet::new(),
         provider_facts: ProviderFactStore::default(),
+        frontend_cache: None,
+        verify_frontend_cache: false,
     }
 }
 
@@ -1650,6 +1656,86 @@ extend Widget {
 }
 
 #[test]
+fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
+    let root = temp_dir("persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption");
+    let cache_root = root.join("cache");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let provider = SourcePath::new("provider.nia");
+    sources.set_source(main.clone(), "fn main() void {}");
+    let provider_file = sources.set_source(
+        provider.clone(),
+        "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
+    );
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        cache_root,
+    ));
+    let (namespace, module, source, key) = provider_cache_identity(&provider_file);
+
+    let first = provider_summary_database(&main, &sources, cache.clone(), false);
+    let first_summary = first.get(provider_summary_query(&first, &provider));
+    assert!(first_summary.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
+    assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 1);
+
+    let second = provider_summary_database(&main, &sources, cache.clone(), false);
+    let second_summary = second.get(provider_summary_query(&second, &provider));
+    assert_eq!(first_summary, second_summary);
+    assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
+
+    let path = cache.provider_summary_path(key);
+    fs::write(&path, b"corrupt frontend cache entry").expect("corrupt provider summary cache");
+    let third = provider_summary_database(&main, &sources, cache.clone(), false);
+    let third_summary = third.get(provider_summary_query(&third, &provider));
+    assert_eq!(first_summary, third_summary);
+    assert_eq!(query_executions(&third.query_trace(), "parsed_module"), 1);
+    assert!(matches!(
+        cache
+            .load_provider_summary(key, namespace, &module, source)
+            .expect("reload repaired provider summary"),
+        crate::frontend_cache::ProviderSummaryCacheLookup::Hit(_)
+    ));
+}
+
+#[test]
+fn provider_summary_verification_replaces_semantically_wrong_valid_entry() {
+    let root = temp_dir("provider_summary_verification_replaces_semantically_wrong_valid_entry");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let provider = SourcePath::new("provider.nia");
+    sources.set_source(main.clone(), "fn main() void {}");
+    let provider_file = sources.set_source(
+        provider.clone(),
+        "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
+    );
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+    let (namespace, module, source, key) = provider_cache_identity(&provider_file);
+    cache
+        .publish_provider_summary(
+            key,
+            namespace,
+            &module,
+            source,
+            &nia_provider_summary::ProviderSummary::default(),
+        )
+        .expect("publish wrong but structurally valid provider summary");
+
+    let verifying = provider_summary_database(&main, &sources, cache.clone(), true);
+    let verified = verifying.get(provider_summary_query(&verifying, &provider));
+    assert!(verified.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
+    assert_eq!(
+        query_executions(&verifying.query_trace(), "parsed_module"),
+        1
+    );
+
+    let reused = provider_summary_database(&main, &sources, cache, false);
+    let reused_summary = reused.get(provider_summary_query(&reused, &provider));
+    assert_eq!(verified, reused_summary);
+    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+}
+
+#[test]
 fn facade_facts_are_cached_for_reexport_and_provider_loading() {
     let root = temp_dir("facade_facts_are_cached_for_reexport_and_provider_loading");
     let main = root.join("main.nia");
@@ -1914,6 +2000,33 @@ fn temp_dir(name: &str) -> PathBuf {
     ));
     fs::create_dir_all(&dir).expect("create temp dir");
     dir
+}
+
+fn provider_summary_database(
+    main: &SourcePath,
+    sources: &SourceDatabase,
+    cache: Arc<crate::frontend_cache::PersistentFrontendCache>,
+    verify: bool,
+) -> QueryDb<LoaderContext> {
+    let mut context = test_loader_context(main.clone(), ModuleMap::default(), sources.clone());
+    context.frontend_cache = Some(cache);
+    context.verify_frontend_cache = verify;
+    registered_query_db(context)
+}
+
+fn provider_cache_identity(
+    file: &SourceFile,
+) -> (
+    FrontendCacheNamespace,
+    StableModuleKey,
+    nia_compiler_query::SourceContentFingerprint,
+    FrontendProviderSummaryCacheKey,
+) {
+    let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+    let module = StableModuleKey::from_source_identity(file.path.identity());
+    let source = source_content_fingerprint(&file.text);
+    let key = FrontendProviderSummaryCacheKey::new(namespace, &module, source);
+    (namespace, module, source, key)
 }
 
 fn write(path: &Path, source: &str) {
