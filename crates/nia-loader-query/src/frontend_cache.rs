@@ -6,15 +6,17 @@ use std::{
 };
 
 use nia_compiler_query::{
-    FrontendCacheNamespace, FrontendProviderSummaryCacheKey, SourceContentFingerprint,
+    FrontendCacheNamespace, FrontendProviderSummaryCacheKey, FrontendSourceCacheKey,
+    ItemSignatureFingerprint, SourceContentFingerprint,
 };
 use nia_imports::StableModuleKey;
 use nia_provider_summary::{Provider, ProviderSummary, ProviderTarget, ProviderTypeRef};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
 use nia_symbol::SymbolId;
 
-const PROVIDER_SUMMARY_MAGIC: &[u8; 8] = b"NIAFPS01";
-const FRONTEND_CACHE_SCHEMA: &str = "v1";
+const DEPENDENCY_MANIFEST_MAGIC: &[u8; 8] = b"NIAFDM01";
+const PROVIDER_SUMMARY_MAGIC: &[u8; 8] = b"NIAFPS02";
+const FRONTEND_CACHE_SCHEMA: &str = "v2";
 const MAX_CACHE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_CACHE_ENTRY_BYTES: usize = MAX_CACHE_PAYLOAD_BYTES + 1024 * 1024;
 const MAX_CACHE_SEQUENCE_LEN: usize = 1_000_000;
@@ -32,6 +34,13 @@ pub(crate) enum ProviderSummaryCacheLookup {
     Corrupt,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DependencyManifestCacheLookup {
+    Hit(ItemSignatureFingerprint),
+    NotFound,
+    Corrupt,
+}
+
 impl PersistentFrontendCache {
     pub(crate) fn new(root: PathBuf) -> Self {
         Self { root }
@@ -42,7 +51,7 @@ impl PersistentFrontendCache {
         key: FrontendProviderSummaryCacheKey,
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
-        source: SourceContentFingerprint,
+        item_signature: ItemSignatureFingerprint,
     ) -> io::Result<ProviderSummaryCacheLookup> {
         let path = self.provider_summary_path(key);
         let encoded = match read_cache_entry(&path)? {
@@ -60,7 +69,7 @@ impl PersistentFrontendCache {
         if entry.key != key.parts()
             || entry.namespace != namespace.parts()
             || entry.module != module.source_identity().normalized_path()
-            || entry.source != source.parts()
+            || entry.item_signature != item_signature.parts()
             || path
                 != self
                     .provider_summary_path(FrontendProviderSummaryCacheKey::from_parts(entry.key))
@@ -76,7 +85,7 @@ impl PersistentFrontendCache {
         key: FrontendProviderSummaryCacheKey,
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
-        source: SourceContentFingerprint,
+        item_signature: ItemSignatureFingerprint,
         summary: &ProviderSummary,
     ) -> io::Result<()> {
         let path = self.provider_summary_path(key);
@@ -87,34 +96,72 @@ impl PersistentFrontendCache {
             .parent()
             .ok_or_else(|| io::Error::other("invalid frontend cache path"))?;
         fs::create_dir_all(parent)?;
-        let staged = path.with_extension(format!(
-            "tmp.{}.{}",
-            std::process::id(),
-            FRONTEND_CACHE_STAGE_ID.fetch_add(1, Ordering::Relaxed)
-        ));
-        let encoded = encode_provider_summary(key, namespace, module, source, summary);
-        let result = (|| {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&staged)?;
-            file.write_all(&encoded)?;
-            file.sync_all()?;
-            drop(file);
-            match fs::rename(&staged, &path) {
-                Ok(()) => Ok(()),
-                Err(_) if path.is_file() => Ok(()),
-                Err(error) => Err(error),
-            }
-        })();
-        if result.is_err() || staged.exists() {
-            let _ = fs::remove_file(&staged);
-        }
-        result
+        let staged = staged_path(&path);
+        let encoded = encode_provider_summary(key, namespace, module, item_signature, summary);
+        atomic_publish(&staged, &path, &encoded)
     }
 
     pub(crate) fn remove_provider_summary(&self, key: FrontendProviderSummaryCacheKey) {
         remove_corrupt(&self.provider_summary_path(key));
+    }
+
+    pub(crate) fn load_dependency_manifest(
+        &self,
+        key: FrontendSourceCacheKey,
+        namespace: FrontendCacheNamespace,
+        module: &StableModuleKey,
+        source: SourceContentFingerprint,
+    ) -> io::Result<DependencyManifestCacheLookup> {
+        let path = self.dependency_manifest_path(key);
+        let encoded = match read_cache_entry(&path)? {
+            Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
+            Some(_) => {
+                remove_corrupt(&path);
+                return Ok(DependencyManifestCacheLookup::Corrupt);
+            }
+            None => return Ok(DependencyManifestCacheLookup::NotFound),
+        };
+        let Some(entry) = decode_dependency_manifest(&encoded) else {
+            remove_corrupt(&path);
+            return Ok(DependencyManifestCacheLookup::Corrupt);
+        };
+        if entry.key != key.parts()
+            || entry.namespace != namespace.parts()
+            || entry.module != module.source_identity().normalized_path()
+            || entry.source != source.parts()
+            || path != self.dependency_manifest_path(FrontendSourceCacheKey::from_parts(entry.key))
+        {
+            remove_corrupt(&path);
+            return Ok(DependencyManifestCacheLookup::Corrupt);
+        }
+        Ok(DependencyManifestCacheLookup::Hit(
+            ItemSignatureFingerprint::from_parts(entry.item_signature),
+        ))
+    }
+
+    pub(crate) fn publish_dependency_manifest(
+        &self,
+        key: FrontendSourceCacheKey,
+        namespace: FrontendCacheNamespace,
+        module: &StableModuleKey,
+        source: SourceContentFingerprint,
+        item_signature: ItemSignatureFingerprint,
+    ) -> io::Result<()> {
+        let path = self.dependency_manifest_path(key);
+        if path.is_file() {
+            return Ok(());
+        }
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid frontend manifest path"))?;
+        fs::create_dir_all(parent)?;
+        let staged = staged_path(&path);
+        let encoded = encode_dependency_manifest(key, namespace, module, source, item_signature);
+        atomic_publish(&staged, &path, &encoded)
+    }
+
+    pub(crate) fn remove_dependency_manifest(&self, key: FrontendSourceCacheKey) {
+        remove_corrupt(&self.dependency_manifest_path(key));
     }
 
     pub(crate) fn provider_summary_path(&self, key: FrontendProviderSummaryCacheKey) -> PathBuf {
@@ -125,6 +172,16 @@ impl PersistentFrontendCache {
             .join(FRONTEND_CACHE_SCHEMA)
             .join("provider-summaries")
             .join(format!("{first:016x}{second:016x}.fps"))
+    }
+
+    pub(crate) fn dependency_manifest_path(&self, key: FrontendSourceCacheKey) -> PathBuf {
+        let [first, second] = key.parts();
+        self.root
+            .join("artifacts")
+            .join("frontend")
+            .join(FRONTEND_CACHE_SCHEMA)
+            .join("dependency-manifests")
+            .join(format!("{first:016x}{second:016x}.fdm"))
     }
 }
 
@@ -148,18 +205,46 @@ fn remove_corrupt(path: &Path) {
     }
 }
 
-fn encode_provider_summary(
-    key: FrontendProviderSummaryCacheKey,
+fn staged_path(path: &Path) -> PathBuf {
+    path.with_extension(format!(
+        "tmp.{}.{}",
+        std::process::id(),
+        FRONTEND_CACHE_STAGE_ID.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
+fn atomic_publish(staged: &Path, path: &Path, encoded: &[u8]) -> io::Result<()> {
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(staged)?;
+        file.write_all(encoded)?;
+        file.sync_all()?;
+        drop(file);
+        match fs::rename(staged, path) {
+            Ok(()) => Ok(()),
+            Err(_) if path.is_file() => Ok(()),
+            Err(error) => Err(error),
+        }
+    })();
+    if result.is_err() || staged.exists() {
+        let _ = fs::remove_file(staged);
+    }
+    result
+}
+
+fn encode_dependency_manifest(
+    key: FrontendSourceCacheKey,
     namespace: FrontendCacheNamespace,
     module: &StableModuleKey,
     source: SourceContentFingerprint,
-    summary: &ProviderSummary,
+    item_signature: ItemSignatureFingerprint,
 ) -> Vec<u8> {
-    let payload = encode_provider_summary_payload(summary);
-    let checksum = payload_checksum(&payload);
-    let mut encoded =
-        Vec::with_capacity(96 + module.source_identity().normalized_path().len() + payload.len());
-    encoded.extend_from_slice(PROVIDER_SUMMARY_MAGIC);
+    let payload = parts_bytes(item_signature.parts());
+    let checksum = dependency_manifest_checksum(&payload);
+    let mut encoded = Vec::with_capacity(112 + module.source_identity().normalized_path().len());
+    encoded.extend_from_slice(DEPENDENCY_MANIFEST_MAGIC);
     write_parts(&mut encoded, key.parts());
     write_parts(&mut encoded, namespace.parts());
     write_string(&mut encoded, module.source_identity().normalized_path());
@@ -170,11 +255,68 @@ fn encode_provider_summary(
     encoded
 }
 
-struct DecodedProviderSummary {
+struct DecodedDependencyManifest {
     key: [u64; 2],
     namespace: [u64; 2],
     module: String,
     source: [u64; 2],
+    item_signature: [u64; 2],
+}
+
+fn decode_dependency_manifest(encoded: &[u8]) -> Option<DecodedDependencyManifest> {
+    let mut cursor = Cursor::new(encoded);
+    let mut magic = [0; 8];
+    cursor.read_exact(&mut magic).ok()?;
+    (magic == *DEPENDENCY_MANIFEST_MAGIC).then_some(())?;
+    let key = read_parts(&mut cursor)?;
+    let namespace = read_parts(&mut cursor)?;
+    let module = read_string(&mut cursor, encoded.len())?;
+    let source = read_parts(&mut cursor)?;
+    let payload_len = read_len(&mut cursor, MAX_CACHE_PAYLOAD_BYTES)?;
+    (payload_len == 16).then_some(())?;
+    let checksum = read_parts(&mut cursor)?;
+    let mut payload = vec![0; payload_len];
+    cursor.read_exact(&mut payload).ok()?;
+    (cursor.position() as usize == encoded.len()).then_some(())?;
+    (dependency_manifest_checksum(&payload).parts() == checksum).then_some(())?;
+    let mut payload_cursor = Cursor::new(payload.as_slice());
+    let item_signature = read_parts(&mut payload_cursor)?;
+    Some(DecodedDependencyManifest {
+        key,
+        namespace,
+        module,
+        source,
+        item_signature,
+    })
+}
+
+fn encode_provider_summary(
+    key: FrontendProviderSummaryCacheKey,
+    namespace: FrontendCacheNamespace,
+    module: &StableModuleKey,
+    item_signature: ItemSignatureFingerprint,
+    summary: &ProviderSummary,
+) -> Vec<u8> {
+    let payload = encode_provider_summary_payload(summary);
+    let checksum = payload_checksum(&payload);
+    let mut encoded =
+        Vec::with_capacity(96 + module.source_identity().normalized_path().len() + payload.len());
+    encoded.extend_from_slice(PROVIDER_SUMMARY_MAGIC);
+    write_parts(&mut encoded, key.parts());
+    write_parts(&mut encoded, namespace.parts());
+    write_string(&mut encoded, module.source_identity().normalized_path());
+    write_parts(&mut encoded, item_signature.parts());
+    encoded.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+    write_parts(&mut encoded, checksum.parts());
+    encoded.extend_from_slice(&payload);
+    encoded
+}
+
+struct DecodedProviderSummary {
+    key: [u64; 2],
+    namespace: [u64; 2],
+    module: String,
+    item_signature: [u64; 2],
     summary: ProviderSummary,
 }
 
@@ -186,7 +328,7 @@ fn decode_provider_summary(encoded: &[u8]) -> Option<DecodedProviderSummary> {
     let key = read_parts(&mut cursor)?;
     let namespace = read_parts(&mut cursor)?;
     let module = read_string(&mut cursor, encoded.len())?;
-    let source = read_parts(&mut cursor)?;
+    let item_signature = read_parts(&mut cursor)?;
     let payload_len = read_len(&mut cursor, MAX_CACHE_PAYLOAD_BYTES)?;
     let checksum = read_parts(&mut cursor)?;
     let mut payload = vec![0; payload_len];
@@ -198,7 +340,7 @@ fn decode_provider_summary(encoded: &[u8]) -> Option<DecodedProviderSummary> {
         key,
         namespace,
         module,
-        source,
+        item_signature,
         summary,
     })
 }
@@ -290,6 +432,19 @@ fn payload_checksum(payload: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.frontend.provider-summary-payload.v1");
     builder.write_bytes(payload);
     builder.finish()
+}
+
+fn dependency_manifest_checksum(payload: &[u8]) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.frontend.dependency-manifest-payload.v1");
+    builder.write_bytes(payload);
+    builder.finish()
+}
+
+fn parts_bytes(parts: [u64; 2]) -> [u8; 16] {
+    let mut bytes = [0; 16];
+    bytes[..8].copy_from_slice(&parts[0].to_le_bytes());
+    bytes[8..].copy_from_slice(&parts[1].to_le_bytes());
+    bytes
 }
 
 fn write_parts(encoded: &mut Vec<u8>, parts: [u64; 2]) {

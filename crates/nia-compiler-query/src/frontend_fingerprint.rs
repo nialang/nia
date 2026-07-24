@@ -76,8 +76,8 @@ frontend_cache_key!(
 );
 frontend_cache_key!(
     FrontendProviderSummaryCacheKey,
-    SourceContentFingerprint,
-    "nia.frontend.cache-key.provider-summary.v1"
+    ItemSignatureFingerprint,
+    "nia.frontend.cache-key.provider-summary.v2"
 );
 
 impl FrontendCacheNamespace {
@@ -336,6 +336,8 @@ extend Value {
             FrontendSyntaxCacheKey::new(namespace, &module, syntax_fingerprint(&before_syntax));
         let signature_key =
             FrontendItemSignatureCacheKey::new(namespace, &module, before_signature);
+        let provider_key =
+            FrontendProviderSummaryCacheKey::new(namespace, &module, before_signature);
 
         assert_ne!(
             source_key,
@@ -354,12 +356,21 @@ extend Value {
             signature_key,
             FrontendItemSignatureCacheKey::new(namespace, &module, after_signature)
         );
+        assert_eq!(
+            provider_key,
+            FrontendProviderSummaryCacheKey::new(namespace, &module, after_signature)
+        );
         assert_ne!(
             signature_key,
             FrontendItemSignatureCacheKey::new(namespace, &other_module, after_signature)
         );
         assert_ne!(source_key.parts(), syntax_key.parts());
         assert_ne!(syntax_key.parts(), signature_key.parts());
+        assert_ne!(signature_key.parts(), provider_key.parts());
+        assert_eq!(
+            provider_key,
+            FrontendProviderSummaryCacheKey::from_parts(provider_key.parts())
+        );
         assert_eq!(std::mem::size_of::<FrontendCacheNamespace>(), 16);
         assert_eq!(std::mem::size_of::<FrontendSourceCacheKey>(), 16);
         assert_eq!(std::mem::size_of::<FrontendSyntaxCacheKey>(), 16);

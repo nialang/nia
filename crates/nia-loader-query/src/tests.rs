@@ -9,11 +9,12 @@ use crate::queries::{
 };
 use nia_compiler_query::{
     CompileRequest, CompilerDatabase, FrontendCacheNamespace, FrontendProviderSummaryCacheKey,
-    ProviderDemand, ProviderGraphUpdate, RuntimeModel, has_error_diagnostics,
+    FrontendSourceCacheKey, ItemSignatureFingerprint, ProviderDemand, ProviderGraphUpdate,
+    RuntimeModel, SourceContentFingerprint, has_error_diagnostics, item_signature_fingerprint,
     source_content_fingerprint,
 };
 use nia_imports::{ModuleGraph, ModuleNode, StableModuleKey};
-use nia_item_tree::ItemTreeNodeKind;
+use nia_item_tree::{ItemTreeNodeKind, ModuleItemTree};
 use nia_source::SourceId;
 use nia_symbol::{SymbolId, stable_hash};
 use nia_symbol_table::SymbolTable;
@@ -1670,7 +1671,7 @@ fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
         cache_root,
     ));
-    let (namespace, module, source, key) = provider_cache_identity(&provider_file);
+    let identity = provider_cache_identity(&provider_file);
 
     let first = provider_summary_database(&main, &sources, cache.clone(), false);
     let first_summary = first.get(provider_summary_query(&first, &provider));
@@ -1682,7 +1683,7 @@ fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     assert_eq!(first_summary, second_summary);
     assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
 
-    let path = cache.provider_summary_path(key);
+    let path = cache.provider_summary_path(identity.provider_key);
     fs::write(&path, b"corrupt frontend cache entry").expect("corrupt provider summary cache");
     let third = provider_summary_database(&main, &sources, cache.clone(), false);
     let third_summary = third.get(provider_summary_query(&third, &provider));
@@ -1690,10 +1691,39 @@ fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     assert_eq!(query_executions(&third.query_trace(), "parsed_module"), 1);
     assert!(matches!(
         cache
-            .load_provider_summary(key, namespace, &module, source)
+            .load_provider_summary(
+                identity.provider_key,
+                identity.namespace,
+                &identity.module,
+                identity.item_signature,
+            )
             .expect("reload repaired provider summary"),
         crate::frontend_cache::ProviderSummaryCacheLookup::Hit(_)
     ));
+
+    let manifest_path = cache.dependency_manifest_path(identity.source_key);
+    fs::write(&manifest_path, b"corrupt frontend manifest").expect("corrupt dependency manifest");
+    let fourth = provider_summary_database(&main, &sources, cache.clone(), false);
+    let fourth_summary = fourth.get(provider_summary_query(&fourth, &provider));
+    assert_eq!(first_summary, fourth_summary);
+    assert_eq!(query_executions(&fourth.query_trace(), "parsed_module"), 1);
+    assert!(matches!(
+        cache
+            .load_dependency_manifest(
+                identity.source_key,
+                identity.namespace,
+                &identity.module,
+                identity.source,
+            )
+            .expect("reload repaired dependency manifest"),
+        crate::frontend_cache::DependencyManifestCacheLookup::Hit(item_signature)
+            if item_signature == identity.item_signature
+    ));
+
+    let fifth = provider_summary_database(&main, &sources, cache, false);
+    let fifth_summary = fifth.get(provider_summary_query(&fifth, &provider));
+    assert_eq!(first_summary, fifth_summary);
+    assert_eq!(query_executions(&fifth.query_trace(), "parsed_module"), 0);
 }
 
 #[test]
@@ -1710,13 +1740,22 @@ fn provider_summary_verification_replaces_semantically_wrong_valid_entry() {
     let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
         root.join("cache"),
     ));
-    let (namespace, module, source, key) = provider_cache_identity(&provider_file);
+    let identity = provider_cache_identity(&provider_file);
+    cache
+        .publish_dependency_manifest(
+            identity.source_key,
+            identity.namespace,
+            &identity.module,
+            identity.source,
+            identity.item_signature,
+        )
+        .expect("publish dependency manifest");
     cache
         .publish_provider_summary(
-            key,
-            namespace,
-            &module,
-            source,
+            identity.provider_key,
+            identity.namespace,
+            &identity.module,
+            identity.item_signature,
             &nia_provider_summary::ProviderSummary::default(),
         )
         .expect("publish wrong but structurally valid provider summary");
@@ -1728,6 +1767,179 @@ fn provider_summary_verification_replaces_semantically_wrong_valid_entry() {
         query_executions(&verifying.query_trace(), "parsed_module"),
         1
     );
+
+    let reused = provider_summary_database(&main, &sources, cache, false);
+    let reused_summary = reused.get(provider_summary_query(&reused, &provider));
+    assert_eq!(verified, reused_summary);
+    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+}
+
+#[test]
+fn body_only_edits_reuse_item_signature_provider_summary() {
+    let root = temp_dir("body_only_edits_reuse_item_signature_provider_summary");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let provider = SourcePath::new("provider.nia");
+    sources.set_source(main.clone(), "fn main() void {}");
+    let first_file = sources.set_source(
+        provider.clone(),
+        "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
+    );
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+
+    let first = provider_summary_database(&main, &sources, cache.clone(), false);
+    let first_summary = first.get(provider_summary_query(&first, &provider));
+    assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 1);
+    let first_identity = provider_cache_identity(&first_file);
+
+    let edited_file = sources.set_source(
+        provider.clone(),
+        "struct Widget {} extend Widget { pub fn score(&self) i32 { 2 + 3 } }",
+    );
+    let edited_identity = provider_cache_identity(&edited_file);
+    assert_ne!(first_identity.source_key, edited_identity.source_key);
+    assert_eq!(
+        first_identity.item_signature,
+        edited_identity.item_signature
+    );
+    assert_eq!(first_identity.provider_key, edited_identity.provider_key);
+
+    let edited = provider_summary_database(&main, &sources, cache.clone(), false);
+    let edited_summary = edited.get(provider_summary_query(&edited, &provider));
+    assert_eq!(first_summary, edited_summary);
+    assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
+    assert!(matches!(
+        cache
+            .load_dependency_manifest(
+                edited_identity.source_key,
+                edited_identity.namespace,
+                &edited_identity.module,
+                edited_identity.source,
+            )
+            .expect("load edited dependency manifest"),
+        crate::frontend_cache::DependencyManifestCacheLookup::Hit(item_signature)
+            if item_signature == first_identity.item_signature
+    ));
+
+    let reused = provider_summary_database(&main, &sources, cache, false);
+    let reused_summary = reused.get(provider_summary_query(&reused, &provider));
+    assert_eq!(edited_summary, reused_summary);
+    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+}
+
+#[test]
+fn signature_edits_publish_distinct_provider_summaries() {
+    let root = temp_dir("signature_edits_publish_distinct_provider_summaries");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let provider = SourcePath::new("provider.nia");
+    sources.set_source(main.clone(), "fn main() void {}");
+    let first_file = sources.set_source(
+        provider.clone(),
+        "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
+    );
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+    let first = provider_summary_database(&main, &sources, cache.clone(), false);
+    let first_summary = first.get(provider_summary_query(&first, &provider));
+    assert!(first_summary.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
+    let first_identity = provider_cache_identity(&first_file);
+
+    let edited_file = sources.set_source(
+        provider.clone(),
+        "struct Widget {} extend Widget { pub fn rank(&self) i32 { 1 } }",
+    );
+    let edited_identity = provider_cache_identity(&edited_file);
+    assert_ne!(
+        first_identity.item_signature,
+        edited_identity.item_signature
+    );
+    assert_ne!(first_identity.provider_key, edited_identity.provider_key);
+
+    let edited = provider_summary_database(&main, &sources, cache.clone(), false);
+    let edited_summary = edited.get(provider_summary_query(&edited, &provider));
+    assert!(!edited_summary.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
+    assert!(edited_summary.defines_inherent_associated_item(&sym("Widget"), &sym("rank")));
+    assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
+    assert!(
+        cache
+            .provider_summary_path(first_identity.provider_key)
+            .is_file()
+    );
+    assert!(
+        cache
+            .provider_summary_path(edited_identity.provider_key)
+            .is_file()
+    );
+
+    let reused = provider_summary_database(&main, &sources, cache, false);
+    let reused_summary = reused.get(provider_summary_query(&reused, &provider));
+    assert_eq!(edited_summary, reused_summary);
+    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+}
+
+#[test]
+fn provider_summary_verification_repairs_wrong_dependency_manifest() {
+    let root = temp_dir("provider_summary_verification_repairs_wrong_dependency_manifest");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let provider = SourcePath::new("provider.nia");
+    sources.set_source(main.clone(), "fn main() void {}");
+    let provider_file = sources.set_source(
+        provider.clone(),
+        "struct Widget {} extend Widget { pub fn score(&self) i32 { 1 } }",
+    );
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+    let identity = provider_cache_identity(&provider_file);
+    let wrong_item_signature = ItemSignatureFingerprint::from_parts([1, 2]);
+    let wrong_provider_key = FrontendProviderSummaryCacheKey::new(
+        identity.namespace,
+        &identity.module,
+        wrong_item_signature,
+    );
+    cache
+        .publish_dependency_manifest(
+            identity.source_key,
+            identity.namespace,
+            &identity.module,
+            identity.source,
+            wrong_item_signature,
+        )
+        .expect("publish wrong dependency manifest");
+    cache
+        .publish_provider_summary(
+            wrong_provider_key,
+            identity.namespace,
+            &identity.module,
+            wrong_item_signature,
+            &nia_provider_summary::ProviderSummary::default(),
+        )
+        .expect("publish provider summary for wrong dependency");
+
+    let verifying = provider_summary_database(&main, &sources, cache.clone(), true);
+    let verified = verifying.get(provider_summary_query(&verifying, &provider));
+    assert!(verified.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
+    assert_eq!(
+        query_executions(&verifying.query_trace(), "parsed_module"),
+        1
+    );
+    assert!(matches!(
+        cache
+            .load_dependency_manifest(
+                identity.source_key,
+                identity.namespace,
+                &identity.module,
+                identity.source,
+            )
+            .expect("load repaired dependency manifest"),
+        crate::frontend_cache::DependencyManifestCacheLookup::Hit(item_signature)
+            if item_signature == identity.item_signature
+    ));
 
     let reused = provider_summary_database(&main, &sources, cache, false);
     let reused_summary = reused.get(provider_summary_query(&reused, &provider));
@@ -2014,19 +2226,37 @@ fn provider_summary_database(
     registered_query_db(context)
 }
 
-fn provider_cache_identity(
-    file: &SourceFile,
-) -> (
-    FrontendCacheNamespace,
-    StableModuleKey,
-    nia_compiler_query::SourceContentFingerprint,
-    FrontendProviderSummaryCacheKey,
-) {
+struct ProviderCacheIdentity {
+    namespace: FrontendCacheNamespace,
+    module: StableModuleKey,
+    source: SourceContentFingerprint,
+    source_key: FrontendSourceCacheKey,
+    item_signature: ItemSignatureFingerprint,
+    provider_key: FrontendProviderSummaryCacheKey,
+}
+
+fn provider_cache_identity(file: &SourceFile) -> ProviderCacheIdentity {
     let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
     let module = StableModuleKey::from_source_identity(file.path.identity());
     let source = source_content_fingerprint(&file.text);
-    let key = FrontendProviderSummaryCacheKey::new(namespace, &module, source);
-    (namespace, module, source, key)
+    let source_key = FrontendSourceCacheKey::new(namespace, &module, source);
+    let syntax = nia_syntax::parse_source(&file.text, Some(file.version()));
+    let (raw_module, _, _) = nia_parser::parse_module_syntax_with_node_store_and_symbols(
+        &syntax,
+        &nia_node_id::NodeStore::new(),
+        SymbolTable::new(),
+    );
+    let item_tree = ModuleItemTree::from_module(&raw_module);
+    let item_signature = item_signature_fingerprint(&syntax, &item_tree);
+    let provider_key = FrontendProviderSummaryCacheKey::new(namespace, &module, item_signature);
+    ProviderCacheIdentity {
+        namespace,
+        module,
+        source,
+        source_key,
+        item_signature,
+        provider_key,
+    }
 }
 
 fn write(path: &Path, source: &str) {
