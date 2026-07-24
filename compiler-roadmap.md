@@ -1474,6 +1474,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-24）：H-3b/H-5b 建立首条serialized frontend dependency edge，并把首个产品提升为body-stable复用。loader持久化的manifest只表达严格可验证的`FrontendSourceCacheKey → ItemSignatureFingerprint`映射；entry重复编码并校验key、namespace、canonical module path、source fingerprint、定长payload与独立checksum，和provider summary共同迁入唯一v2目录与magic，旧v1不读取、不fallback。`ProviderSummary`专用key与entry header已从精确source彻底迁到item signature：相同source跨session由manifest+product双命中直接跳过parse，body-only编辑只执行一次parse来生成新source manifest，随后按未变signature复用既有summary；声明签名编辑则产生新key与新产品。verification模式强制fresh parse/signature/summary，能分别修复格式合法但语义错误的manifest与summary；两层截断/损坏均删除后重算并恢复后续零parse命中。这里没有把完整module dependency graph错误挂到body-insensitive signature：`collect_used_modules`仍会读取qualified path、local using与iterator等function-body依赖，这些body-derived edges继续按当前source重算。loader-query 54、compiler-query 155、Driver 489项及严格Clippy/fmt/diff check全部通过；下一切片先拆分declaration/signature dependencies与body dependencies，再选择不含revision-local handle的declaration产品持久化。Phase H现约55%，整份roadmap仍约96%。
 
+进展（2026-07-24）：H-2c 为module-map-sensitive frontend产品建立typed配置身份。审计确认`ModuleFacadeFacts`本身只含稳定`SymbolId`、确定序路径与布尔/枚举语义，不含session handle，适合按item signature复用；但其alias、package/local root分类依赖effective `ModuleMap`，不能沿用只覆盖target/runtime的namespace。新增16-byte `FrontendModuleMapFingerprint`，按root `SymbolId`与canonical `SourceIdentity`排序编码，插入顺序不影响结果，映射名或路径变化必定失效；`FrontendFacadeFactsCacheKey`以独立domain组合namespace、stable module、item signature与module-map fingerprint，既不让全部frontend产品被module-map过宽失效，也不遗漏loader配置。6项fingerprint定向回归、严格compiler-query Clippy、fmt与diff check通过；下一切片在该key下序列化facade facts，并继续让body-derived dependency edges停留在exact-source域。Phase H现约58%，整份roadmap仍约96%。
+
 ### 阶段 I（P2）：错误、诊断和工程重组
 
 1. 移除 panic-based query error flow。
