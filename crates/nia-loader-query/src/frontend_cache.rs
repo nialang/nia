@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{BTreeSet, HashSet},
     fs::{self, File, OpenOptions},
     io::{self, Cursor, Read, Write},
     path::{Path, PathBuf},
@@ -14,18 +14,19 @@ use nia_compiler_query::{
 use nia_imports::{ResolvedModuleDeclaration, StableModuleKey, Visibility};
 use nia_provider_summary::{Provider, ProviderSummary, ProviderTarget, ProviderTypeRef};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
-use nia_symbol::SymbolId;
+use nia_symbol::{SymbolId, stable_hash};
+use nia_symbol_table::SymbolTable;
 
 use crate::facade_facts::{ModuleFacadeFacts, PublicReexportSource};
 use crate::used_paths::{
     ExplicitUsingImport, ModuleDeclarations, UsedModulePath, UsedModulePathProcessing,
 };
 
-const DEPENDENCY_MANIFEST_MAGIC: &[u8; 8] = b"NIAFDM01";
-const FACADE_FACTS_MAGIC: &[u8; 8] = b"NIAFFF01";
-const MODULE_DEPENDENCIES_MAGIC: &[u8; 8] = b"NIAFMD01";
-const PROVIDER_SUMMARY_MAGIC: &[u8; 8] = b"NIAFPS02";
-const FRONTEND_CACHE_SCHEMA: &str = "v2";
+const DEPENDENCY_MANIFEST_MAGIC: &[u8; 8] = b"NIAFDM02";
+const FACADE_FACTS_MAGIC: &[u8; 8] = b"NIAFFF02";
+const MODULE_DEPENDENCIES_MAGIC: &[u8; 8] = b"NIAFMD02";
+const PROVIDER_SUMMARY_MAGIC: &[u8; 8] = b"NIAFPS03";
+const FRONTEND_CACHE_SCHEMA: &str = "v3";
 const MAX_CACHE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_CACHE_ENTRY_BYTES: usize = MAX_CACHE_PAYLOAD_BYTES + 1024 * 1024;
 const MAX_CACHE_SEQUENCE_LEN: usize = 1_000_000;
@@ -58,6 +59,18 @@ pub(crate) enum ModuleDependenciesCacheLookup {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ModuleDependenciesSource {
+    pub(crate) fingerprint: SourceContentFingerprint,
+    pub(crate) len: usize,
+}
+
+impl ModuleDependenciesSource {
+    pub(crate) fn new(fingerprint: SourceContentFingerprint, len: usize) -> Self {
+        Self { fingerprint, len }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DependencyManifestCacheLookup {
     Hit(ItemSignatureFingerprint),
     NotFound,
@@ -75,6 +88,7 @@ impl PersistentFrontendCache {
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
         item_signature: ItemSignatureFingerprint,
+        symbols: &SymbolTable,
     ) -> io::Result<ProviderSummaryCacheLookup> {
         let path = self.provider_summary_path(key);
         let encoded = match read_cache_entry(&path)? {
@@ -100,7 +114,11 @@ impl PersistentFrontendCache {
             remove_corrupt(&path);
             return Ok(ProviderSummaryCacheLookup::Corrupt);
         }
-        Ok(ProviderSummaryCacheLookup::Hit(entry.summary))
+        let Some(summary) = decode_provider_summary_payload(&entry.payload, symbols) else {
+            remove_corrupt(&path);
+            return Ok(ProviderSummaryCacheLookup::Corrupt);
+        };
+        Ok(ProviderSummaryCacheLookup::Hit(summary))
     }
 
     pub(crate) fn publish_provider_summary(
@@ -110,6 +128,7 @@ impl PersistentFrontendCache {
         module: &StableModuleKey,
         item_signature: ItemSignatureFingerprint,
         summary: &ProviderSummary,
+        symbols: &SymbolTable,
     ) -> io::Result<()> {
         let path = self.provider_summary_path(key);
         if path.is_file() {
@@ -120,7 +139,8 @@ impl PersistentFrontendCache {
             .ok_or_else(|| io::Error::other("invalid frontend cache path"))?;
         fs::create_dir_all(parent)?;
         let staged = staged_path(&path);
-        let encoded = encode_provider_summary(key, namespace, module, item_signature, summary);
+        let encoded =
+            encode_provider_summary(key, namespace, module, item_signature, summary, symbols)?;
         atomic_publish(&staged, &path, &encoded)
     }
 
@@ -135,6 +155,7 @@ impl PersistentFrontendCache {
         module: &StableModuleKey,
         item_signature: ItemSignatureFingerprint,
         module_map: FrontendModuleMapFingerprint,
+        symbols: &SymbolTable,
     ) -> io::Result<FacadeFactsCacheLookup> {
         let path = self.facade_facts_path(key);
         let encoded = match read_cache_entry(&path)? {
@@ -159,18 +180,23 @@ impl PersistentFrontendCache {
             remove_corrupt(&path);
             return Ok(FacadeFactsCacheLookup::Corrupt);
         }
-        Ok(FacadeFactsCacheLookup::Hit(entry.facts))
+        let Some(facts) = decode_facade_facts_payload(&entry.payload, symbols) else {
+            remove_corrupt(&path);
+            return Ok(FacadeFactsCacheLookup::Corrupt);
+        };
+        Ok(FacadeFactsCacheLookup::Hit(facts))
     }
 
     pub(crate) fn publish_facade_facts(
         &self,
-        key: FrontendFacadeFactsCacheKey,
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
         item_signature: ItemSignatureFingerprint,
         module_map: FrontendModuleMapFingerprint,
         facts: &ModuleFacadeFacts,
+        symbols: &SymbolTable,
     ) -> io::Result<()> {
+        let key = FrontendFacadeFactsCacheKey::new(namespace, module, item_signature, module_map);
         let path = self.facade_facts_path(key);
         if path.is_file() {
             return Ok(());
@@ -180,8 +206,15 @@ impl PersistentFrontendCache {
             .ok_or_else(|| io::Error::other("invalid frontend facade facts path"))?;
         fs::create_dir_all(parent)?;
         let staged = staged_path(&path);
-        let encoded =
-            encode_facade_facts(key, namespace, module, item_signature, module_map, facts);
+        let encoded = encode_facade_facts(
+            key,
+            namespace,
+            module,
+            item_signature,
+            module_map,
+            facts,
+            symbols,
+        )?;
         atomic_publish(&staged, &path, &encoded)
     }
 
@@ -194,9 +227,9 @@ impl PersistentFrontendCache {
         key: FrontendModuleDependenciesCacheKey,
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
-        source: SourceContentFingerprint,
-        source_len: usize,
+        source: ModuleDependenciesSource,
         module_map: FrontendModuleMapFingerprint,
+        symbols: &SymbolTable,
     ) -> io::Result<ModuleDependenciesCacheLookup> {
         let path = self.module_dependencies_path(key);
         let encoded = match read_cache_entry(&path)? {
@@ -214,8 +247,8 @@ impl PersistentFrontendCache {
         if entry.key != key.parts()
             || entry.namespace != namespace.parts()
             || entry.module != module.source_identity().normalized_path()
-            || entry.source != source.parts()
-            || entry.source_len != source_len
+            || entry.source != source.fingerprint.parts()
+            || entry.source_len != source.len
             || entry.module_map != module_map.parts()
             || path
                 != self.module_dependencies_path(FrontendModuleDependenciesCacheKey::from_parts(
@@ -225,7 +258,8 @@ impl PersistentFrontendCache {
             remove_corrupt(&path);
             return Ok(ModuleDependenciesCacheLookup::Corrupt);
         }
-        let Some(declarations) = decode_module_dependencies_payload(&entry.payload, source_len)
+        let Some(declarations) =
+            decode_module_dependencies_payload(&entry.payload, source.len, symbols)
         else {
             remove_corrupt(&path);
             return Ok(ModuleDependenciesCacheLookup::Corrupt);
@@ -237,10 +271,10 @@ impl PersistentFrontendCache {
         &self,
         namespace: FrontendCacheNamespace,
         module: &StableModuleKey,
-        source: SourceContentFingerprint,
-        source_len: usize,
+        source: ModuleDependenciesSource,
         module_map: FrontendModuleMapFingerprint,
         declarations: &ModuleDeclarations,
+        symbols: &SymbolTable,
     ) -> io::Result<()> {
         if !declarations.diagnostics.is_empty() {
             return Err(io::Error::new(
@@ -248,7 +282,12 @@ impl PersistentFrontendCache {
                 "cannot cache module dependencies with diagnostics",
             ));
         }
-        let key = FrontendModuleDependenciesCacheKey::new(namespace, module, source, module_map);
+        let key = FrontendModuleDependenciesCacheKey::new(
+            namespace,
+            module,
+            source.fingerprint,
+            module_map,
+        );
         let path = self.module_dependencies_path(key);
         if path.is_file() {
             return Ok(());
@@ -263,10 +302,10 @@ impl PersistentFrontendCache {
             namespace,
             module,
             source,
-            source_len,
             module_map,
             declarations,
-        );
+            symbols,
+        )?;
         atomic_publish(&staged, &path, &encoded)
     }
 
@@ -489,8 +528,9 @@ fn encode_facade_facts(
     item_signature: ItemSignatureFingerprint,
     module_map: FrontendModuleMapFingerprint,
     facts: &ModuleFacadeFacts,
-) -> Vec<u8> {
-    let payload = encode_facade_facts_payload(facts);
+    symbols: &SymbolTable,
+) -> io::Result<Vec<u8>> {
+    let payload = encode_facade_facts_payload(facts, symbols)?;
     let checksum = facade_facts_checksum(&payload);
     let mut encoded =
         Vec::with_capacity(112 + module.source_identity().normalized_path().len() + payload.len());
@@ -503,7 +543,7 @@ fn encode_facade_facts(
     encoded.extend_from_slice(&(payload.len() as u64).to_le_bytes());
     write_parts(&mut encoded, checksum.parts());
     encoded.extend_from_slice(&payload);
-    encoded
+    Ok(encoded)
 }
 
 struct DecodedFacadeFacts {
@@ -512,7 +552,7 @@ struct DecodedFacadeFacts {
     module: String,
     item_signature: [u64; 2],
     module_map: [u64; 2],
-    facts: ModuleFacadeFacts,
+    payload: Vec<u8>,
 }
 
 fn decode_facade_facts(encoded: &[u8]) -> Option<DecodedFacadeFacts> {
@@ -531,19 +571,22 @@ fn decode_facade_facts(encoded: &[u8]) -> Option<DecodedFacadeFacts> {
     cursor.read_exact(&mut payload).ok()?;
     (cursor.position() as usize == encoded.len()).then_some(())?;
     (facade_facts_checksum(&payload).parts() == checksum).then_some(())?;
-    let facts = decode_facade_facts_payload(&payload)?;
     Some(DecodedFacadeFacts {
         key,
         namespace,
         module,
         item_signature,
         module_map,
-        facts,
+        payload,
     })
 }
 
-fn encode_facade_facts_payload(facts: &ModuleFacadeFacts) -> Vec<u8> {
+fn encode_facade_facts_payload(
+    facts: &ModuleFacadeFacts,
+    symbols: &SymbolTable,
+) -> io::Result<Vec<u8>> {
     let mut encoded = Vec::new();
+    write_symbol_dictionary(&mut encoded, facade_fact_symbols(facts), symbols)?;
     let mut public_type_names = facts.public_type_names().collect::<Vec<_>>();
     public_type_names.sort_unstable();
     write_symbols(&mut encoded, &public_type_names);
@@ -556,11 +599,12 @@ fn encode_facade_facts_payload(facts: &ModuleFacadeFacts) -> Vec<u8> {
     for path in facts.provider_source_paths() {
         write_used_module_path(&mut encoded, path);
     }
-    encoded
+    Ok(encoded)
 }
 
-fn decode_facade_facts_payload(payload: &[u8]) -> Option<ModuleFacadeFacts> {
+fn decode_facade_facts_payload(payload: &[u8], symbols: &SymbolTable) -> Option<ModuleFacadeFacts> {
     let mut cursor = Cursor::new(payload);
+    let dictionary = read_symbol_dictionary(&mut cursor, payload.len())?;
     let public_type_names = read_symbols(&mut cursor)?;
     is_strictly_sorted(&public_type_names).then_some(())?;
     let reexport_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
@@ -579,23 +623,25 @@ fn decode_facade_facts_payload(payload: &[u8]) -> Option<ModuleFacadeFacts> {
     }
     is_strictly_sorted(&provider_source_paths).then_some(())?;
     (cursor.position() as usize == payload.len()).then_some(())?;
-    Some(ModuleFacadeFacts::from_cache_parts(
+    let facts = ModuleFacadeFacts::from_cache_parts(
         public_type_names,
         public_reexports,
         provider_source_paths,
-    ))
+    );
+    install_symbol_dictionary(&dictionary, facade_fact_symbols(&facts), symbols)?;
+    Some(facts)
 }
 
 fn encode_module_dependencies(
     key: FrontendModuleDependenciesCacheKey,
     namespace: FrontendCacheNamespace,
     module: &StableModuleKey,
-    source: SourceContentFingerprint,
-    source_len: usize,
+    source: ModuleDependenciesSource,
     module_map: FrontendModuleMapFingerprint,
     declarations: &ModuleDeclarations,
-) -> Vec<u8> {
-    let payload = encode_module_dependencies_payload(declarations);
+    symbols: &SymbolTable,
+) -> io::Result<Vec<u8>> {
+    let payload = encode_module_dependencies_payload(declarations, symbols)?;
     let checksum = module_dependencies_checksum(&payload);
     let mut encoded =
         Vec::with_capacity(120 + module.source_identity().normalized_path().len() + payload.len());
@@ -603,13 +649,13 @@ fn encode_module_dependencies(
     write_parts(&mut encoded, key.parts());
     write_parts(&mut encoded, namespace.parts());
     write_string(&mut encoded, module.source_identity().normalized_path());
-    write_parts(&mut encoded, source.parts());
-    encoded.extend_from_slice(&(source_len as u64).to_le_bytes());
+    write_parts(&mut encoded, source.fingerprint.parts());
+    encoded.extend_from_slice(&(source.len as u64).to_le_bytes());
     write_parts(&mut encoded, module_map.parts());
     encoded.extend_from_slice(&(payload.len() as u64).to_le_bytes());
     write_parts(&mut encoded, checksum.parts());
     encoded.extend_from_slice(&payload);
-    encoded
+    Ok(encoded)
 }
 
 struct DecodedModuleDependencies {
@@ -650,8 +696,16 @@ fn decode_module_dependencies(encoded: &[u8]) -> Option<DecodedModuleDependencie
     })
 }
 
-fn encode_module_dependencies_payload(declarations: &ModuleDeclarations) -> Vec<u8> {
+fn encode_module_dependencies_payload(
+    declarations: &ModuleDeclarations,
+    symbols: &SymbolTable,
+) -> io::Result<Vec<u8>> {
     let mut encoded = Vec::new();
+    write_symbol_dictionary(
+        &mut encoded,
+        module_declaration_symbols(declarations),
+        symbols,
+    )?;
     encoded.extend_from_slice(&(declarations.declarations.len() as u64).to_le_bytes());
     for declaration in &declarations.declarations {
         encoded.extend_from_slice(&declaration.name.raw().to_le_bytes());
@@ -670,14 +724,16 @@ fn encode_module_dependencies_payload(declarations: &ModuleDeclarations) -> Vec<
         write_used_module_path(&mut encoded, &import.path);
     }
     write_symbols(&mut encoded, &declarations.used_import_aliases);
-    encoded
+    Ok(encoded)
 }
 
 fn decode_module_dependencies_payload(
     payload: &[u8],
     source_len: usize,
+    symbols: &SymbolTable,
 ) -> Option<ModuleDeclarations> {
     let mut cursor = Cursor::new(payload);
+    let dictionary = read_symbol_dictionary(&mut cursor, payload.len())?;
     let declaration_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
     let mut declarations = Vec::with_capacity(declaration_len);
     let mut declaration_names = HashSet::with_capacity(declaration_len);
@@ -710,14 +766,20 @@ fn decode_module_dependencies_payload(
     let used_import_aliases = read_symbols(&mut cursor)?;
     is_strictly_sorted(&used_import_aliases).then_some(())?;
     (cursor.position() as usize == payload.len()).then_some(())?;
-    Some(ModuleDeclarations {
+    let declarations = ModuleDeclarations {
         declarations,
         package_roots,
         used_module_paths,
         explicit_imports,
         used_import_aliases,
         diagnostics: Vec::new(),
-    })
+    };
+    install_symbol_dictionary(
+        &dictionary,
+        module_declaration_symbols(&declarations),
+        symbols,
+    )?;
+    Some(declarations)
 }
 
 fn write_visibility(encoded: &mut Vec<u8>, visibility: Visibility) {
@@ -879,8 +941,9 @@ fn encode_provider_summary(
     module: &StableModuleKey,
     item_signature: ItemSignatureFingerprint,
     summary: &ProviderSummary,
-) -> Vec<u8> {
-    let payload = encode_provider_summary_payload(summary);
+    symbols: &SymbolTable,
+) -> io::Result<Vec<u8>> {
+    let payload = encode_provider_summary_payload(summary, symbols)?;
     let checksum = payload_checksum(&payload);
     let mut encoded =
         Vec::with_capacity(96 + module.source_identity().normalized_path().len() + payload.len());
@@ -892,7 +955,7 @@ fn encode_provider_summary(
     encoded.extend_from_slice(&(payload.len() as u64).to_le_bytes());
     write_parts(&mut encoded, checksum.parts());
     encoded.extend_from_slice(&payload);
-    encoded
+    Ok(encoded)
 }
 
 struct DecodedProviderSummary {
@@ -900,7 +963,7 @@ struct DecodedProviderSummary {
     namespace: [u64; 2],
     module: String,
     item_signature: [u64; 2],
-    summary: ProviderSummary,
+    payload: Vec<u8>,
 }
 
 fn decode_provider_summary(encoded: &[u8]) -> Option<DecodedProviderSummary> {
@@ -918,18 +981,21 @@ fn decode_provider_summary(encoded: &[u8]) -> Option<DecodedProviderSummary> {
     cursor.read_exact(&mut payload).ok()?;
     (cursor.position() as usize == encoded.len()).then_some(())?;
     (payload_checksum(&payload).parts() == checksum).then_some(())?;
-    let summary = decode_provider_summary_payload(&payload)?;
     Some(DecodedProviderSummary {
         key,
         namespace,
         module,
         item_signature,
-        summary,
+        payload,
     })
 }
 
-fn encode_provider_summary_payload(summary: &ProviderSummary) -> Vec<u8> {
+fn encode_provider_summary_payload(
+    summary: &ProviderSummary,
+    symbols: &SymbolTable,
+) -> io::Result<Vec<u8>> {
     let mut encoded = Vec::new();
+    write_symbol_dictionary(&mut encoded, provider_summary_symbols(summary), symbols)?;
     encoded.extend_from_slice(&(summary.providers().len() as u64).to_le_bytes());
     for provider in summary.providers() {
         write_provider_type_ref(&mut encoded, &provider.target.ty);
@@ -943,11 +1009,15 @@ fn encode_provider_summary_payload(summary: &ProviderSummary) -> Vec<u8> {
         write_symbols(&mut encoded, &provider.associated_methods);
         write_symbols(&mut encoded, &provider.associated_values);
     }
-    encoded
+    Ok(encoded)
 }
 
-fn decode_provider_summary_payload(payload: &[u8]) -> Option<ProviderSummary> {
+fn decode_provider_summary_payload(
+    payload: &[u8],
+    symbols: &SymbolTable,
+) -> Option<ProviderSummary> {
     let mut cursor = Cursor::new(payload);
+    let dictionary = read_symbol_dictionary(&mut cursor, payload.len())?;
     let provider_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
     let mut providers = Vec::with_capacity(provider_len);
     for _ in 0..provider_len {
@@ -967,7 +1037,9 @@ fn decode_provider_summary_payload(payload: &[u8]) -> Option<ProviderSummary> {
         });
     }
     (cursor.position() as usize == payload.len()).then_some(())?;
-    Some(ProviderSummary::from_providers(providers))
+    let summary = ProviderSummary::from_providers(providers);
+    install_symbol_dictionary(&dictionary, provider_summary_symbols(&summary), symbols)?;
+    Some(summary)
 }
 
 fn write_provider_type_ref(encoded: &mut Vec<u8>, ty: &ProviderTypeRef) {
@@ -993,6 +1065,152 @@ fn read_provider_type_ref(cursor: &mut Cursor<&[u8]>) -> Option<ProviderTypeRef>
         is_generic_or_structural_target: read_bool(cursor)?,
         semantic_is_conservative: read_bool(cursor)?,
     })
+}
+
+fn provider_summary_symbols(summary: &ProviderSummary) -> BTreeSet<SymbolId> {
+    let mut symbols = BTreeSet::new();
+    for provider in summary.providers() {
+        symbols.extend(provider.target.ty.last_name);
+        symbols.extend(
+            provider
+                .trait_ref
+                .as_ref()
+                .and_then(|trait_ref| trait_ref.last_name),
+        );
+        symbols.extend(provider.associated_methods.iter().copied());
+        symbols.extend(provider.associated_values.iter().copied());
+    }
+    symbols
+}
+
+fn facade_fact_symbols(facts: &ModuleFacadeFacts) -> BTreeSet<SymbolId> {
+    let mut symbols = facts.public_type_names().collect::<BTreeSet<_>>();
+    for reexport in facts.public_reexports() {
+        symbols.extend(reexport.exposed_name);
+        collect_used_module_path_symbols(&reexport.source, &mut symbols);
+    }
+    for path in facts.provider_source_paths() {
+        collect_used_module_path_symbols(path, &mut symbols);
+    }
+    symbols
+}
+
+fn module_declaration_symbols(declarations: &ModuleDeclarations) -> BTreeSet<SymbolId> {
+    let mut symbols = BTreeSet::new();
+    symbols.extend(
+        declarations
+            .declarations
+            .iter()
+            .map(|declaration| declaration.name),
+    );
+    symbols.extend(declarations.package_roots.iter().copied());
+    for path in &declarations.used_module_paths {
+        collect_used_module_path_symbols(path, &mut symbols);
+    }
+    for import in &declarations.explicit_imports {
+        symbols.insert(import.alias);
+        collect_used_module_path_symbols(&import.path, &mut symbols);
+    }
+    symbols.extend(declarations.used_import_aliases.iter().copied());
+    symbols
+}
+
+fn collect_used_module_path_symbols(path: &UsedModulePath, symbols: &mut BTreeSet<SymbolId>) {
+    let (package, segments, processing) = match path {
+        UsedModulePath::Package {
+            package,
+            segments,
+            processing,
+            ..
+        } => (Some(*package), segments, processing),
+        UsedModulePath::PackageRelative {
+            segments,
+            processing,
+            ..
+        }
+        | UsedModulePath::ParentRelative {
+            segments,
+            processing,
+            ..
+        }
+        | UsedModulePath::Local {
+            segments,
+            processing,
+            ..
+        } => (None, segments, processing),
+    };
+    symbols.extend(package);
+    symbols.extend(segments.iter().copied());
+    match processing {
+        UsedModulePathProcessing::Never
+        | UsedModulePathProcessing::Always
+        | UsedModulePathProcessing::IfSelectedItem
+        | UsedModulePathProcessing::IfProvidesExtensions => {}
+        UsedModulePathProcessing::IfProvidesTraitImpl { trait_name }
+        | UsedModulePathProcessing::IfProvidesImplicitTraitImpl { trait_name } => {
+            symbols.insert(*trait_name);
+        }
+        UsedModulePathProcessing::IfProvidesTraitMethod {
+            target_type_name,
+            associated_name,
+        } => {
+            symbols.extend(*target_type_name);
+            symbols.insert(*associated_name);
+        }
+    }
+}
+
+fn write_symbol_dictionary(
+    encoded: &mut Vec<u8>,
+    symbols: BTreeSet<SymbolId>,
+    table: &SymbolTable,
+) -> io::Result<()> {
+    encoded.extend_from_slice(&(symbols.len() as u64).to_le_bytes());
+    for symbol in symbols {
+        let text = table.resolve(symbol).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("cannot persist unresolved symbol {:#018x}", symbol.raw()),
+            )
+        })?;
+        encoded.extend_from_slice(&symbol.raw().to_le_bytes());
+        write_string(encoded, &text);
+    }
+    Ok(())
+}
+
+fn read_symbol_dictionary(
+    cursor: &mut Cursor<&[u8]>,
+    payload_len: usize,
+) -> Option<Vec<(SymbolId, String)>> {
+    let len = read_len(cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut dictionary = Vec::with_capacity(len);
+    for _ in 0..len {
+        let symbol = SymbolId::from_stable_hash(read_u64(cursor)?);
+        let text = read_string(cursor, payload_len)?;
+        (symbol == SymbolId::from_stable_hash(stable_hash(&text))).then_some(())?;
+        dictionary.push((symbol, text));
+    }
+    dictionary
+        .windows(2)
+        .all(|pair| pair[0].0 < pair[1].0)
+        .then_some(dictionary)
+}
+
+fn install_symbol_dictionary(
+    dictionary: &[(SymbolId, String)],
+    expected: BTreeSet<SymbolId>,
+    symbols: &SymbolTable,
+) -> Option<()> {
+    dictionary
+        .iter()
+        .map(|(symbol, _)| *symbol)
+        .eq(expected)
+        .then_some(())?;
+    for (symbol, text) in dictionary {
+        (symbols.intern(text).ok()? == *symbol).then_some(())?;
+    }
+    Some(())
 }
 
 fn write_symbols(encoded: &mut Vec<u8>, symbols: &[SymbolId]) {

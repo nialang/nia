@@ -529,9 +529,12 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
                     key,
                     input.namespace,
                     &input.module,
-                    input.source,
-                    input.source_len,
+                    crate::frontend_cache::ModuleDependenciesSource::new(
+                        input.source,
+                        input.source_len,
+                    ),
                     module_map,
+                    &db.context().symbols,
                 )
                 .ok()?
             {
@@ -604,10 +607,13 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
             let _ = cache.publish_module_dependencies(
                 input.namespace,
                 &input.module,
-                input.source,
-                input.source_len,
+                crate::frontend_cache::ModuleDependenciesSource::new(
+                    input.source,
+                    input.source_len,
+                ),
                 module_map,
                 &fresh,
+                &db.context().symbols,
             );
         }
         fresh
@@ -729,7 +735,13 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
                         item_signature,
                     );
                     match cache
-                        .load_provider_summary(key, input.namespace, &input.module, item_signature)
+                        .load_provider_summary(
+                            key,
+                            input.namespace,
+                            &input.module,
+                            item_signature,
+                            &db.context().symbols,
+                        )
                         .ok()?
                     {
                         crate::frontend_cache::ProviderSummaryCacheLookup::Hit(summary) => {
@@ -761,6 +773,7 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
                 input.namespace,
                 &input.module,
                 item_signature,
+                &db.context().symbols,
             ) {
                 Ok(crate::frontend_cache::ProviderSummaryCacheLookup::Hit(summary)) => {
                     Some(summary)
@@ -797,6 +810,7 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
                 &input.module,
                 item_signature,
                 &fresh,
+                &db.context().symbols,
             );
         }
         fresh
@@ -840,6 +854,7 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
                             &input.module,
                             item_signature,
                             module_map,
+                            &db.context().symbols,
                         )
                         .ok()?
                     {
@@ -872,6 +887,7 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
                 &input.module,
                 item_signature,
                 module_map,
+                &db.context().symbols,
             ) {
                 Ok(crate::frontend_cache::FacadeFactsCacheLookup::Hit(facts)) => Some(facts),
                 Ok(crate::frontend_cache::FacadeFactsCacheLookup::NotFound)
@@ -905,12 +921,12 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
                 cache.remove_facade_facts(key);
             }
             let _ = cache.publish_facade_facts(
-                key,
                 input.namespace,
                 &input.module,
                 item_signature,
                 module_map,
                 &fresh,
+                &db.context().symbols,
             );
         }
         fresh
