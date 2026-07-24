@@ -16,7 +16,7 @@ use backend_validate::{
     validate_backend_declaration_module, validate_backend_partition_declarations,
     validate_backend_partition_definitions,
 };
-use declaration_membership::CodegenDeclarationMembership;
+use declaration_membership::{CodegenDeclarationMembership, CodegenDeclarationMembershipBuild};
 use module_codegen::ModuleCodegen;
 use nia_backend_ir::CodegenPartition;
 pub use nia_backend_ir::{
@@ -69,6 +69,7 @@ fn emit_llvm_ir_with_options_inner(
         .validate_program(&lowering.program);
     let partitions = lowering.codegen_partitions.partitions().to_vec();
     let module_store = lowering.program.module_store();
+    let owners = Arc::clone(&lowering.owner_directory);
     let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
         let (index, mut publisher) = ProgramIndex::new(module_store, type_store);
         for module_id in index.module_ids().to_vec() {
@@ -90,9 +91,10 @@ fn emit_llvm_ir_with_options_inner(
     let outcomes = session.run_tasks_bounded(
         tasks.into_iter().map(|task| {
             let index = Arc::clone(&index);
+            let owners = Arc::clone(&owners);
             move || match task {
                 LlvmIrTask::Partition(partition) => {
-                    emit_llvm_ir_partition(partition, index, options).map(Some)
+                    emit_llvm_ir_partition(partition, index, owners, options).map(Some)
                 }
                 LlvmIrTask::DeclarationModule(module_id) => {
                     validate_declaration_module(module_id, &index).map(|()| None)
@@ -155,6 +157,7 @@ fn emit_native_objects_inner(
         .validate_program(&lowering.program);
     let partitions = lowering.codegen_partitions.partitions().to_vec();
     let module_store = lowering.program.module_store();
+    let owners = Arc::clone(&lowering.owner_directory);
     let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
         let (index, mut publisher) = ProgramIndex::new(module_store, type_store);
         for module_id in index.module_ids().to_vec() {
@@ -180,12 +183,17 @@ fn emit_native_objects_inner(
     let outcomes = session.run_tasks_bounded(
         tasks.into_iter().map(|task| {
             let index = Arc::clone(&index);
+            let owners = Arc::clone(&owners);
             let cache = cache.clone();
             move || match task {
-                NativeCodegenTask::Partition(partition) => {
-                    emit_native_object_partition(partition, index, options, cache.as_deref())
-                        .map(Some)
-                }
+                NativeCodegenTask::Partition(partition) => emit_native_object_partition(
+                    partition,
+                    index,
+                    owners,
+                    options,
+                    cache.as_deref(),
+                )
+                .map(Some),
                 NativeCodegenTask::DeclarationModule(module_id) => {
                     validate_declaration_module(module_id, &index).map(|()| None)
                 }
@@ -337,6 +345,7 @@ impl ObjectReuseCounts {
 fn emit_llvm_ir_partition(
     partition: CodegenPartition,
     index: Arc<ProgramIndex>,
+    owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
     options: LlvmCodegenOptions,
 ) -> Result<LlvmModuleOutput, Vec<nia_diagnostic::Diagnostic>> {
     let module = index.module_for_partition(&partition);
@@ -344,7 +353,13 @@ fn emit_llvm_ir_partition(
     if !diagnostics.is_empty() {
         return Err(diagnostics);
     }
-    let declarations = CodegenDeclarationMembership::build(&partition, &index);
+    let declarations = match CodegenDeclarationMembership::build(&partition, &index, &owners) {
+        CodegenDeclarationMembershipBuild::Ready(declarations) => declarations,
+        CodegenDeclarationMembershipBuild::Pending(pending) => panic!(
+            "Nia ICE: complete backend program produced pending LLVM IR membership for {:?}",
+            pending.modules()
+        ),
+    };
     let diagnostics = validate_backend_partition_declarations(&declarations, &index);
     if !diagnostics.is_empty() {
         return Err(diagnostics);
@@ -378,6 +393,7 @@ fn emit_llvm_ir_partition(
 fn emit_native_object_partition(
     partition: CodegenPartition,
     index: Arc<ProgramIndex>,
+    owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
     options: LlvmCodegenOptions,
     cache: Option<&dyn ObjectWorkProductCache>,
 ) -> Result<(IncrementalLinkInput<NativeObject>, ObjectReuse), Vec<nia_diagnostic::Diagnostic>> {
@@ -391,7 +407,13 @@ fn emit_native_object_partition(
         TargetMachine::native_identity,
     )
     .map_err(|error| vec![error.diagnostic()])?;
-    let declarations = CodegenDeclarationMembership::build(&partition, &index);
+    let declarations = match CodegenDeclarationMembership::build(&partition, &index, &owners) {
+        CodegenDeclarationMembershipBuild::Ready(declarations) => declarations,
+        CodegenDeclarationMembershipBuild::Pending(pending) => panic!(
+            "Nia ICE: complete backend program produced pending native object membership for {:?}",
+            pending.modules()
+        ),
+    };
     let diagnostics = validate_backend_partition_declarations(&declarations, &index);
     if !diagnostics.is_empty() {
         return Err(diagnostics);

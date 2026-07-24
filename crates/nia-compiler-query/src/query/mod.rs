@@ -612,6 +612,7 @@ fn codegen_program_from_query_error(
         }),
         backend_lowering: Arc::new(nia_backend_lower::BackendLowering {
             program: backend_program,
+            owner_directory: Arc::new(nia_backend_ir::BackendModuleOwnerDirectory::default()),
             codegen_partitions,
             optimization,
             optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
