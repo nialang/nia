@@ -296,14 +296,18 @@ impl Driver {
             compiler.database.update(
                 CompileRequest::new(loader.clone())
                     .with_optimization(request.optimization)
-                    .with_timings(request.timings),
+                    .with_timings(request.timings)
+                    .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
+                    .with_frontend_cache_verification(self.config.verify_frontend_cache),
             );
             compiler.database.clone()
         } else {
             let database = CompilerDatabase::new(
                 CompileRequest::new(loader)
                     .with_optimization(request.optimization)
-                    .with_timings(request.timings),
+                    .with_timings(request.timings)
+                    .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
+                    .with_frontend_cache_verification(self.config.verify_frontend_cache),
             );
             *compiler_guard = Some(SessionCompiler {
                 database: database.clone(),

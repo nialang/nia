@@ -286,6 +286,19 @@ impl LoaderFactProvider for LoaderDatabase {
         }
     }
 
+    fn module_source_fingerprint(
+        &self,
+        module_id: nia_imports::ModuleId,
+    ) -> Option<(nia_compiler_query::SourceContentFingerprint, usize)> {
+        let source_id = self.source_id_for_module(module_id)?;
+        let source = self.db.get(queries::SourceTextQuery(source_id));
+        let file = source.file.as_ref()?;
+        Some((
+            nia_compiler_query::source_content_fingerprint(&file.text),
+            file.text.len(),
+        ))
+    }
+
     fn module_provider_summary(
         &self,
         module_id: nia_imports::ModuleId,

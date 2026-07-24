@@ -1,6 +1,6 @@
 use nia_ast::FunctionItem;
 use nia_imports::{ModuleMap, StableModuleKey};
-use nia_item_tree::{ItemTreeNodeKind, ModuleItemTree};
+use nia_item_tree::{ItemTreeNodeKind, ModuleItemTree, SignatureItemSet};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
 use nia_span::Span;
 use nia_syntax::SyntaxTree;
@@ -32,6 +32,7 @@ frontend_fingerprint!(SyntaxFingerprint);
 frontend_fingerprint!(ItemSignatureFingerprint);
 frontend_fingerprint!(FrontendCacheNamespace);
 frontend_fingerprint!(FrontendModuleMapFingerprint);
+frontend_fingerprint!(FrontendProgramSourceFingerprint);
 
 macro_rules! frontend_cache_key {
     ($name:ident, $fingerprint:ident, $domain:literal) => {
@@ -65,6 +66,32 @@ frontend_cache_key!(
     SourceContentFingerprint,
     "nia.frontend.cache-key.source.v1"
 );
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FrontendSignatureTypeResolutionCacheKey(QueryFingerprint);
+
+impl FrontendSignatureTypeResolutionCacheKey {
+    pub fn new(
+        namespace: FrontendCacheNamespace,
+        module: &StableModuleKey,
+        set: SignatureItemSet,
+        program_sources: FrontendProgramSourceFingerprint,
+    ) -> Self {
+        let mut builder =
+            QueryFingerprintBuilder::new("nia.frontend.cache-key.signature-type-resolution.v1");
+        write_frontend_cache_key(&mut builder, namespace, module, program_sources.parts());
+        builder.write_u8(signature_item_set_tag(set));
+        Self(builder.finish())
+    }
+
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(QueryFingerprint::from_parts(parts))
+    }
+
+    pub const fn parts(self) -> [u64; 2] {
+        self.0.parts()
+    }
+}
 frontend_cache_key!(
     FrontendSyntaxCacheKey,
     SyntaxFingerprint,
@@ -176,6 +203,36 @@ pub fn source_content_fingerprint(source: &str) -> SourceContentFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.frontend.source-content.v1");
     builder.write_bytes(source.as_bytes());
     SourceContentFingerprint(builder.finish())
+}
+
+pub fn frontend_program_source_fingerprint<'a>(
+    sources: impl IntoIterator<Item = (&'a StableModuleKey, SourceContentFingerprint, usize)>,
+) -> FrontendProgramSourceFingerprint {
+    let mut sources = sources.into_iter().collect::<Vec<_>>();
+    sources.sort_unstable_by(|left, right| {
+        left.0
+            .source_identity()
+            .normalized_path()
+            .cmp(right.0.source_identity().normalized_path())
+    });
+    let mut builder = QueryFingerprintBuilder::new("nia.frontend.program-sources.v1");
+    builder.write_u64(sources.len() as u64);
+    for (module, source, len) in sources {
+        builder.write_str(module.source_identity().normalized_path());
+        builder.write_fingerprint(QueryFingerprint::from_parts(source.parts()));
+        builder.write_u64(len as u64);
+    }
+    FrontendProgramSourceFingerprint(builder.finish())
+}
+
+fn signature_item_set_tag(set: SignatureItemSet) -> u8 {
+    match set {
+        SignatureItemSet::Functions => 0,
+        SignatureItemSet::ExtensionFunctions => 1,
+        SignatureItemSet::Values => 2,
+        SignatureItemSet::Types => 3,
+        SignatureItemSet::Traits => 4,
+    }
 }
 
 pub fn frontend_module_map_fingerprint(module_map: &ModuleMap) -> FrontendModuleMapFingerprint {
@@ -412,6 +469,77 @@ extend Value {
             FrontendModuleMapFingerprint::from_parts(fingerprint.parts())
         );
         assert_eq!(std::mem::size_of::<FrontendModuleMapFingerprint>(), 16);
+    }
+
+    #[test]
+    fn signature_resolution_keys_cover_program_sources_module_and_item_set() {
+        let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+        let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
+        let dependency =
+            StableModuleKey::from_source_identity(SourceIdentity::new("src/dependency.nia"));
+        let source = source_content_fingerprint("fn main() i32 { 0 }");
+        let dependency_source = source_content_fingerprint("pub struct Value {}");
+        let program = frontend_program_source_fingerprint([
+            (&module, source, 19),
+            (&dependency, dependency_source, 19),
+        ]);
+        let reordered = frontend_program_source_fingerprint([
+            (&dependency, dependency_source, 19),
+            (&module, source, 19),
+        ]);
+        let changed = frontend_program_source_fingerprint([
+            (
+                &module,
+                source_content_fingerprint("fn main() i32 { 1 }"),
+                19,
+            ),
+            (&dependency, dependency_source, 19),
+        ]);
+        let key = FrontendSignatureTypeResolutionCacheKey::new(
+            namespace,
+            &module,
+            SignatureItemSet::Functions,
+            program,
+        );
+
+        assert_eq!(program, reordered);
+        assert_ne!(program, changed);
+        assert_ne!(
+            key,
+            FrontendSignatureTypeResolutionCacheKey::new(
+                namespace,
+                &module,
+                SignatureItemSet::Types,
+                program,
+            )
+        );
+        assert_ne!(
+            key,
+            FrontendSignatureTypeResolutionCacheKey::new(
+                namespace,
+                &dependency,
+                SignatureItemSet::Functions,
+                program,
+            )
+        );
+        assert_ne!(
+            key,
+            FrontendSignatureTypeResolutionCacheKey::new(
+                namespace,
+                &module,
+                SignatureItemSet::Functions,
+                changed,
+            )
+        );
+        assert_eq!(
+            key,
+            FrontendSignatureTypeResolutionCacheKey::from_parts(key.parts())
+        );
+        assert_eq!(std::mem::size_of::<FrontendProgramSourceFingerprint>(), 16);
+        assert_eq!(
+            std::mem::size_of::<FrontendSignatureTypeResolutionCacheKey>(),
+            16
+        );
     }
 
     #[test]

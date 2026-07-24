@@ -55,6 +55,7 @@ use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 use std::{
     collections::{HashMap, HashSet},
+    path::PathBuf,
     sync::{Arc, RwLock},
 };
 
@@ -180,6 +181,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ExtensionTraitSignatureIndexQuery,
         ExtensionTraitSolvingModuleFactsQuery,
         FlowCheckQuery,
+        FrontendProgramSourcesQuery,
         FullActiveModuleItemTreeInputQuery,
         FullActiveModuleItemTreeQuery,
         FullModuleDefsQuery,
@@ -259,6 +261,8 @@ pub struct CompileRequest {
     loader_facts: Arc<dyn crate::LoaderFactProvider>,
     pub optimization: NiaOptimizationLevel,
     pub timings: TimingMode,
+    frontend_cache_dir: Option<PathBuf>,
+    verify_frontend_cache: bool,
 }
 
 impl CompileRequest {
@@ -268,6 +272,8 @@ impl CompileRequest {
             loader_facts,
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,
+            frontend_cache_dir: None,
+            verify_frontend_cache: false,
         }
     }
 
@@ -278,6 +284,16 @@ impl CompileRequest {
 
     pub fn with_timings(mut self, timings: TimingMode) -> Self {
         self.timings = timings;
+        self
+    }
+
+    pub fn with_frontend_cache_dir(mut self, frontend_cache_dir: Option<PathBuf>) -> Self {
+        self.frontend_cache_dir = frontend_cache_dir;
+        self
+    }
+
+    pub fn with_frontend_cache_verification(mut self, verify: bool) -> Self {
+        self.verify_frontend_cache = verify;
         self
     }
 
@@ -500,6 +516,20 @@ impl CompilerDatabase {
             self.db.session().ptr_eq(&loader_session),
             "Nia ICE: compiler update loader facts belong to a different query session"
         );
+        assert_eq!(
+            request.frontend_cache_dir.as_deref(),
+            self.db
+                .context()
+                .signature_cache
+                .as_ref()
+                .map(|cache| cache.root()),
+            "Nia ICE: compiler frontend cache root cannot change within a query session"
+        );
+        assert_eq!(
+            request.verify_frontend_cache,
+            self.db.context().verify_frontend_cache,
+            "Nia ICE: compiler frontend cache verification cannot change within a query session"
+        );
         let new_inputs = CompilerInputs::new(request);
         let optimization_changed = {
             let mut inputs = self.inputs.write().expect("compiler input lock poisoned");
@@ -603,6 +633,12 @@ fn compiler_database_with_providers_in_session(
     session: nia_query::QuerySession,
 ) -> CompilerDatabase {
     let timings = request.timings;
+    let signature_cache = request.frontend_cache_dir.as_ref().map(|root| {
+        Arc::new(crate::signature_cache::PersistentSignatureCache::new(
+            root.clone(),
+        ))
+    });
+    let verify_frontend_cache = request.verify_frontend_cache;
     let loader_facts = Arc::clone(&request.loader_facts);
     if let Some(loader_session) = loader_facts.query_session() {
         assert!(
@@ -623,6 +659,8 @@ fn compiler_database_with_providers_in_session(
             executable_fact_scheduler: std::sync::Mutex::new(()),
             type_store,
             node_store,
+            signature_cache,
+            verify_frontend_cache,
             provider_demand_rounds: std::sync::atomic::AtomicU64::new(0),
         },
         timings,
@@ -731,7 +769,24 @@ struct CompilerContext {
     executable_fact_scheduler: std::sync::Mutex<()>,
     type_store: Arc<nia_ty::TypeStore>,
     node_store: nia_node_id::NodeStore,
+    signature_cache: Option<Arc<crate::signature_cache::PersistentSignatureCache>>,
+    verify_frontend_cache: bool,
     provider_demand_rounds: std::sync::atomic::AtomicU64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FrontendProgramSource {
+    module: StableModuleKey,
+    version: SourceVersion,
+    len: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FrontendProgramSources {
+    fingerprint: crate::FrontendProgramSourceFingerprint,
+    by_module: HashMap<ModuleId, FrontendProgramSource>,
+    module_by_path: HashMap<String, ModuleId>,
+    path_by_module: HashMap<ModuleId, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1000,6 +1055,52 @@ impl CompilerContext {
 
     fn node_store(&self) -> &nia_node_id::NodeStore {
         &self.node_store
+    }
+
+    fn frontend_program_sources(
+        &self,
+        db: &QueryDb<CompilerContext>,
+    ) -> Option<FrontendProgramSources> {
+        let modules = db.get(LoadedModulesQuery);
+        let module_ids = resolve_stable_module_sequence_from_current_inputs(db, &modules);
+        let mut by_module = HashMap::new();
+        let mut module_by_path = HashMap::new();
+        let mut path_by_module = HashMap::new();
+        let mut fingerprint_inputs = Vec::new();
+        for module_id in module_ids {
+            let path = db.get(ModulePathQuery(module_id));
+            let version = *db.get(ModuleSourceVersionQuery(module_id));
+            let (source, len) = self.loader_facts.module_source_fingerprint(module_id)?;
+            let module = StableModuleKey::from_source_identity(path.identity());
+            let normalized_path = module.source_identity().normalized_path().to_string();
+            if module_by_path
+                .insert(normalized_path.clone(), module_id)
+                .is_some()
+                || path_by_module.insert(module_id, normalized_path).is_some()
+            {
+                return None;
+            }
+            fingerprint_inputs.push((module.clone(), source, len));
+            by_module.insert(
+                module_id,
+                FrontendProgramSource {
+                    module,
+                    version,
+                    len,
+                },
+            );
+        }
+        let fingerprint = crate::frontend_program_source_fingerprint(
+            fingerprint_inputs
+                .iter()
+                .map(|(module, source, len)| (module, *source, *len)),
+        );
+        Some(FrontendProgramSources {
+            fingerprint,
+            by_module,
+            module_by_path,
+            path_by_module,
+        })
     }
 
     fn stable_module_sequence(
@@ -1574,6 +1675,13 @@ mod tests {
             *version
         }
 
+        fn module_source_fingerprint(
+            &self,
+            _module_id: ModuleId,
+        ) -> Option<(crate::SourceContentFingerprint, usize)> {
+            None
+        }
+
         fn module_provider_summary(
             &self,
             module_id: ModuleId,
@@ -1986,6 +2094,8 @@ mod tests {
                 executable_fact_scheduler: std::sync::Mutex::new(()),
                 type_store: Arc::new(nia_ty::TypeStore::new()),
                 node_store,
+                signature_cache: None,
+                verify_frontend_cache: false,
                 provider_demand_rounds: std::sync::atomic::AtomicU64::new(0),
             },
             compiler_query_registry(),
@@ -2069,7 +2179,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 131);
+        assert_eq!(descriptors.len(), 132);
         assert!(
             !descriptors
                 .iter()

@@ -391,6 +391,79 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
 }
 
 #[test]
+fn persistent_signature_resolution_skips_resolver_dependencies_across_sessions() {
+    let root = temp_dir("persistent_signature_resolution_skips_resolver_dependencies");
+    let source = r#"
+pub struct Box[T] { value: T }
+fn unwrap[T](value: Box[T]) T { value.value }
+"#;
+
+    let first_sources = SourceDatabase::new();
+    first_sources.set_source(SourcePath::new("main.nia"), source);
+    let first_loader = LoaderDatabase::new(
+        LoadRequest::new("main.nia")
+            .with_sources(first_sources)
+            .with_frontend_cache_dir(Some(root.clone())),
+    );
+    let first_compiler = CompilerDatabase::new(
+        CompileRequest::new(first_loader).with_frontend_cache_dir(Some(root.clone())),
+    );
+    let first = first_compiler.check_program();
+    assert!(!has_error_diagnostics(&first.diagnostics));
+    let first_trace = first_compiler.query_trace();
+    assert!(first_trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "signature_type_resolution" && dependency.to.name == "module_defs"
+    }));
+
+    let second_sources = SourceDatabase::new();
+    second_sources.set_source(SourcePath::new("main.nia"), source);
+    let second_loader = LoaderDatabase::new(
+        LoadRequest::new("main.nia")
+            .with_sources(second_sources)
+            .with_frontend_cache_dir(Some(root.clone())),
+    );
+    let second_compiler = CompilerDatabase::new(
+        CompileRequest::new(second_loader).with_frontend_cache_dir(Some(root.clone())),
+    );
+    let second = second_compiler.check_program();
+    assert!(!has_error_diagnostics(&second.diagnostics));
+    let second_trace = second_compiler.query_trace();
+    assert!(second_trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "signature_type_resolution"
+            && dependency.to.name == "frontend_program_sources"
+    }));
+    assert!(!second_trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "signature_type_resolution" && dependency.to.name == "module_defs"
+    }));
+
+    let verified_sources = SourceDatabase::new();
+    verified_sources.set_source(SourcePath::new("main.nia"), source);
+    let verified_loader = LoaderDatabase::new(
+        LoadRequest::new("main.nia")
+            .with_sources(verified_sources)
+            .with_frontend_cache_dir(Some(root.clone()))
+            .with_frontend_cache_verification(true),
+    );
+    let verified_compiler = CompilerDatabase::new(
+        CompileRequest::new(verified_loader)
+            .with_frontend_cache_dir(Some(root))
+            .with_frontend_cache_verification(true),
+    );
+    let verified = verified_compiler.check_program();
+    assert!(!has_error_diagnostics(&verified.diagnostics));
+    assert!(
+        verified_compiler
+            .query_trace()
+            .dependencies
+            .iter()
+            .any(|dependency| {
+                dependency.from.name == "signature_type_resolution"
+                    && dependency.to.name == "module_defs"
+            })
+    );
+}
+
+#[test]
 fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
     let sources = SourceDatabase::new();
     sources.set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }");
