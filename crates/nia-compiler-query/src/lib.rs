@@ -34,9 +34,10 @@ pub use nia_body_check::{
 };
 
 pub use frontend_fingerprint::{
-    FrontendCacheNamespace, FrontendItemSignatureCacheKey, FrontendSourceCacheKey,
-    FrontendSyntaxCacheKey, ItemSignatureFingerprint, SourceContentFingerprint, SyntaxFingerprint,
-    item_signature_fingerprint, source_content_fingerprint, syntax_fingerprint,
+    FrontendCacheNamespace, FrontendItemSignatureCacheKey, FrontendProviderSummaryCacheKey,
+    FrontendSourceCacheKey, FrontendSyntaxCacheKey, ItemSignatureFingerprint,
+    SourceContentFingerprint, SyntaxFingerprint, item_signature_fingerprint,
+    source_content_fingerprint, syntax_fingerprint,
 };
 
 pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport};

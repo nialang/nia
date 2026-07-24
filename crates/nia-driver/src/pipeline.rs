@@ -37,6 +37,7 @@ pub struct CheckRequest {
 pub struct DriverConfig {
     pub target: TargetConfig,
     pub artifact_cache_dir: Option<PathBuf>,
+    pub verify_frontend_cache: bool,
 }
 
 impl Default for DriverConfig {
@@ -44,6 +45,7 @@ impl Default for DriverConfig {
         Self {
             target: TargetConfig::host(),
             artifact_cache_dir: None,
+            verify_frontend_cache: false,
         }
     }
 }
@@ -788,7 +790,9 @@ impl Driver {
                         .with_module_map(key.module_map.clone())
                         .with_sources(self.sources.clone())
                         .with_target(key.target.clone())
-                        .with_entry_runtime(key.entry_runtime),
+                        .with_entry_runtime(key.entry_runtime)
+                        .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
+                        .with_frontend_cache_verification(self.config.verify_frontend_cache),
                 );
                 *loader_guard = Some(SessionLoader {
                     key,

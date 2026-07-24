@@ -75,6 +75,10 @@ where
 }
 
 impl ProviderSummary {
+    pub fn from_providers(providers: Vec<Provider>) -> Self {
+        Self { providers }
+    }
+
     pub fn providers(&self) -> &[Provider] {
         &self.providers
     }

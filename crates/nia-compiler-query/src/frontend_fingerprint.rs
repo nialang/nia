@@ -74,6 +74,11 @@ frontend_cache_key!(
     ItemSignatureFingerprint,
     "nia.frontend.cache-key.item-signature.v1"
 );
+frontend_cache_key!(
+    FrontendProviderSummaryCacheKey,
+    SourceContentFingerprint,
+    "nia.frontend.cache-key.provider-summary.v1"
+);
 
 impl FrontendCacheNamespace {
     pub fn new(target: &TargetConfig, runtime: RuntimeModel) -> Self {
@@ -359,6 +364,7 @@ extend Value {
         assert_eq!(std::mem::size_of::<FrontendSourceCacheKey>(), 16);
         assert_eq!(std::mem::size_of::<FrontendSyntaxCacheKey>(), 16);
         assert_eq!(std::mem::size_of::<FrontendItemSignatureCacheKey>(), 16);
+        assert_eq!(std::mem::size_of::<FrontendProviderSummaryCacheKey>(), 16);
     }
 
     fn signature_fingerprint(source: &str) -> ItemSignatureFingerprint {
