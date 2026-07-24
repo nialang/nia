@@ -34,6 +34,9 @@ fn writing_native_object_preserves_incremental_link_identity() {
                 bytes: b"native-object".to_vec(),
             },
         }]),
+        optimization: crate::OptimizationPolicy::default(),
+        optimization_report: crate::BackendOptimizationReport::default(),
+        diagnostics: Vec::new(),
     };
 
     let written = crate::Driver::new()
@@ -98,6 +101,9 @@ fn link_result_cache_skips_linker_until_typed_input_changes() {
                 bytes: b"object".to_vec(),
             },
         }]),
+        optimization: crate::OptimizationPolicy::default(),
+        optimization_report: crate::BackendOptimizationReport::default(),
+        diagnostics: Vec::new(),
     };
     let first_objects = object(CodegenUnitFingerprint::from_parts([1, 2]));
     let first_output = root.join("first");
