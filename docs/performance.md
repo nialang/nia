@@ -74,6 +74,20 @@ The compiler can also emit one structured timing record directly:
 target/release/nia --timings=detail --timings-format=json check benchmarks/minimal.nia
 ```
 
+To audit persistent frontend reuse across separate compiler processes, give both
+checks the same explicit artifact cache directory:
+
+```sh
+target/release/nia --timings=detail --timings-format=json check benchmarks/minimal.nia --cache-dir target/nia-perf/frontend-cache
+target/release/nia --timings=detail --timings-format=json check benchmarks/minimal.nia --cache-dir target/nia-perf/frontend-cache
+```
+
+The detailed counters include executions for parsing, loader item-tree and
+serialized fact queries, compiler module definitions, and public-surface facts.
+Compare those deterministic counts before interpreting wall-time differences.
+A warm frontend cache does not imply that all revision-local semantic products
+are persistent.
+
 A normal build emits all non-allocation timing data with this command;
 allocation counters are present only in the instrumented build above.
 

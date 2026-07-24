@@ -244,6 +244,10 @@ fn help_and_version_use_nia_command_name() {
     );
     assert!(check_stdout.contains("--opt-report"), "{check_stdout}");
     assert!(
+        check_stdout.contains("--cache-dir <path>"),
+        "{check_stdout}"
+    );
+    assert!(
         check_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
         "{check_stdout}"
     );
@@ -1199,6 +1203,14 @@ fn main() i32 {
     }
     assert!(report.contains("\"query.executions\":"), "{report}");
     assert!(
+        report.contains("\"query.executions.parsed_module\":"),
+        "{report}"
+    );
+    assert!(
+        report.contains("\"query.executions.loader_public_surface_module_facts\":"),
+        "{report}"
+    );
+    assert!(
         report.contains("\"driver.provider_demand_rounds\":"),
         "{report}"
     );
@@ -1572,6 +1584,53 @@ fn main() i32 {
         output.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn check_accepts_persistent_frontend_cache_directory() {
+    let root = temp_dir("check_accepts_persistent_frontend_cache_directory");
+    let main = root.join("main.nia");
+    let cache = root.join("cache");
+    std::fs::write(
+        &main,
+        "pub struct Widget { value: i32 } fn main() i32 { 0 }",
+    )
+    .expect("write main source");
+
+    let first = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("check")
+        .arg(&main)
+        .arg("--cache-dir")
+        .arg(&cache)
+        .output_timeout("run nia check with frontend cache directory");
+    assert!(
+        first.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(
+        std::fs::read_dir(
+            cache
+                .join("artifacts")
+                .join("frontend")
+                .join("v3")
+                .join("public-surface-facts")
+        )
+        .expect("read public surface facts cache")
+        .next()
+        .is_some()
+    );
+
+    let second = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("check")
+        .arg(format!("--cache-dir={}", cache.display()))
+        .arg(&main)
+        .output_timeout("rerun nia check with persistent frontend cache");
+    assert!(
+        second.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&second.stderr)
     );
 }
 

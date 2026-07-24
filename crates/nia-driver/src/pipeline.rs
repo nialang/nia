@@ -275,9 +275,11 @@ impl Driver {
         let timings = request.timings;
         let database = self.compiler_database(&request);
         let output = compile(&database);
+        let loader_trace = self.loader_query_trace();
         emit_compilation_counters(
             timings,
             &database,
+            &loader_trace,
             &output,
             database.provider_demand_rounds(),
         );
@@ -366,9 +368,11 @@ impl Driver {
                 Ok(output) => output,
                 Err(error) => return DriverOutput::from_error(error),
             };
+            let loader_trace = self.loader_query_trace();
             emit_compilation_counters(
                 timings,
                 &database,
+                &loader_trace,
                 &LiveCodegenCounters {
                     checked_body_count,
                     reachable_body_count,
@@ -481,9 +485,11 @@ impl Driver {
                 Ok(output) => output,
                 Err(error) => return DriverOutput::from_error(error),
             };
+            let loader_trace = self.loader_query_trace();
             emit_compilation_counters(
                 timings,
                 &database,
+                &loader_trace,
                 &LiveCodegenCounters {
                     checked_body_count,
                     reachable_body_count,
@@ -804,6 +810,15 @@ impl Driver {
         drop(loader_guard);
         database
     }
+
+    fn loader_query_trace(&self) -> nia_query::QueryTrace {
+        self.loader
+            .lock()
+            .expect("driver loader lock poisoned")
+            .as_ref()
+            .map(|loader| loader.database.query_trace())
+            .unwrap_or_default()
+    }
 }
 
 trait ProviderDemandOutput {
@@ -860,29 +875,66 @@ impl ProviderDemandOutput for CodegenProgram {
 fn emit_compilation_counters(
     timings: TimingMode,
     database: &CompilerDatabase,
+    loader_trace: &nia_query::QueryTrace,
     output: &impl ProviderDemandOutput,
     provider_demand_rounds: u64,
 ) {
     if !timings.enabled() {
         return;
     }
-    let trace = database.query_trace();
+    let compiler_trace = database.query_trace();
+    let traces = [loader_trace, &compiler_trace];
     nia_timing::emit_counter(
         "query.executions",
-        trace
-            .queries
+        traces
             .iter()
+            .flat_map(|trace| trace.queries.iter())
             .map(|query| query.stats.executions as u64)
             .sum(),
     );
     nia_timing::emit_counter(
         "query.cache_hits",
-        trace
-            .queries
+        traces
             .iter()
+            .flat_map(|trace| trace.queries.iter())
             .map(|query| query.stats.cache_hits as u64)
             .sum(),
     );
+    for (counter, query_name) in [
+        ("query.executions.parsed_module", "parsed_module"),
+        (
+            "query.executions.loader_active_module_item_tree_fact",
+            "loader_active_module_item_tree_fact",
+        ),
+        (
+            "query.executions.module_declarations",
+            "module_declarations",
+        ),
+        ("query.executions.provider_summary", "provider_summary"),
+        (
+            "query.executions.module_facade_facts",
+            "module_facade_facts",
+        ),
+        (
+            "query.executions.loader_public_surface_module_facts",
+            "loader_public_surface_module_facts",
+        ),
+        ("query.executions.module_defs", "module_defs"),
+        (
+            "query.executions.public_surface_module_facts",
+            "public_surface_module_facts",
+        ),
+    ] {
+        nia_timing::emit_counter(
+            counter,
+            traces
+                .iter()
+                .flat_map(|trace| trace.queries.iter())
+                .filter(|query| query.frame.name == query_name)
+                .map(|query| query.stats.executions as u64)
+                .sum(),
+        );
+    }
     nia_timing::emit_counter("driver.provider_demand_rounds", provider_demand_rounds);
     nia_timing::emit_counter(
         "compiler.checked_bodies",
