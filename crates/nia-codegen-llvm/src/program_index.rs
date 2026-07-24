@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, RwLock, RwLockReadGuard},
+};
 
 use nia_backend_ir::{
     BackendEnum, BackendEnumVariant, BackendFunctionInstance, BackendModuleStore,
@@ -44,6 +47,12 @@ struct EnumVariantPosition {
 pub(super) struct ProgramIndex {
     modules: Arc<BackendModuleStore>,
     type_store: Arc<TypeStore>,
+    tables: RwLock<ProgramIndexTables>,
+}
+
+#[derive(Default)]
+struct ProgramIndexTables {
+    published_modules: HashSet<ModuleId>,
     structs: HashMap<GlobalDefId, ItemPosition>,
     unions: HashMap<GlobalDefId, ItemPosition>,
     struct_instances: AggregateInstanceIndex,
@@ -70,6 +79,10 @@ pub(super) struct ProgramIndex {
     union_instances_by_def: HashMap<GlobalDefId, Vec<ItemPosition>>,
 }
 
+pub(super) struct ProgramIndexPublisher {
+    index: Arc<ProgramIndex>,
+}
+
 pub(super) struct BackendLayoutInstance<'a> {
     pub(super) key: &'a BackendStructInstanceKey,
     pub(super) layout: &'a StructLayout,
@@ -82,249 +95,37 @@ pub(super) struct EnumVariantInfo<'a> {
 }
 
 impl ProgramIndex {
-    pub(super) fn new(modules: Arc<BackendModuleStore>, type_store: Arc<TypeStore>) -> Self {
-        let mut index = Self {
+    pub(super) fn new(
+        modules: Arc<BackendModuleStore>,
+        type_store: Arc<TypeStore>,
+    ) -> (Arc<Self>, ProgramIndexPublisher) {
+        let index = Arc::new(Self {
             modules,
             type_store,
-            structs: HashMap::new(),
-            unions: HashMap::new(),
-            struct_instances: HashMap::new(),
-            union_instances: HashMap::new(),
-            enums: HashMap::new(),
-            enum_variants: HashMap::new(),
-            globals: HashMap::new(),
-            global_instances: HashMap::new(),
-            global_instances_by_def: HashMap::new(),
-            functions: HashMap::new(),
-            function_instances: HashMap::new(),
-            function_instances_by_def: HashMap::new(),
-            trait_object_vtables_by_object_ty: HashMap::new(),
-            trait_object_vtables_by_trait: HashMap::new(),
-            trait_object_vtables: HashMap::new(),
-            type_layouts: HashMap::new(),
-            struct_layouts: HashMap::new(),
-            union_layouts: HashMap::new(),
-            struct_instance_layouts: HashMap::new(),
-            union_instance_layouts: HashMap::new(),
-            struct_instance_layouts_by_def: HashMap::new(),
-            union_instance_layouts_by_def: HashMap::new(),
-            struct_instances_by_def: HashMap::new(),
-            union_instances_by_def: HashMap::new(),
+            tables: RwLock::new(ProgramIndexTables::default()),
+        });
+        let publisher = ProgramIndexPublisher {
+            index: Arc::clone(&index),
         };
-        for module_id in index.modules.module_ids() {
-            let module = index
-                .modules
-                .get(*module_id)
-                .expect("program index requires every backend module to be published");
-            for (layout_index, (ty, _)) in module.layouts.types.iter().enumerate() {
-                index.type_layouts.insert(
-                    *ty,
-                    LayoutPosition {
-                        module: module.id,
-                        layout: layout_index,
-                    },
-                );
-            }
-            for (layout_index, (def_id, _)) in module.layouts.structs.iter().enumerate() {
-                index.struct_layouts.insert(
-                    *def_id,
-                    LayoutPosition {
-                        module: module.id,
-                        layout: layout_index,
-                    },
-                );
-            }
-            for (layout_index, (def_id, _)) in module.layouts.unions.iter().enumerate() {
-                index.union_layouts.insert(
-                    *def_id,
-                    LayoutPosition {
-                        module: module.id,
-                        layout: layout_index,
-                    },
-                );
-            }
-            for (layout_index, (key, _)) in module.layouts.struct_instances.iter().enumerate() {
-                let position = LayoutPosition {
-                    module: module.id,
-                    layout: layout_index,
-                };
-                index
-                    .struct_instance_layouts
-                    .entry(key.def_id)
-                    .or_default()
-                    .insert((key.args.clone(), key.const_args.clone()), position);
-                index
-                    .struct_instance_layouts_by_def
-                    .entry(key.def_id)
-                    .or_default()
-                    .push(position);
-            }
-            for (layout_index, (key, _)) in module.layouts.union_instances.iter().enumerate() {
-                let position = LayoutPosition {
-                    module: module.id,
-                    layout: layout_index,
-                };
-                index
-                    .union_instance_layouts
-                    .entry(key.def_id)
-                    .or_default()
-                    .insert((key.args.clone(), key.const_args.clone()), position);
-                index
-                    .union_instance_layouts_by_def
-                    .entry(key.def_id)
-                    .or_default()
-                    .push(position);
-            }
-            for (item_index, item) in module.structs.iter().enumerate() {
-                index.structs.insert(
-                    item.def_id,
-                    ItemPosition {
-                        module: module.id,
-                        item: item_index,
-                    },
-                );
-            }
-            for (item_index, item) in module.unions.iter().enumerate() {
-                index.unions.insert(
-                    item.def_id,
-                    ItemPosition {
-                        module: module.id,
-                        item: item_index,
-                    },
-                );
-            }
-            for (item_index, item) in module.struct_instances.iter().enumerate() {
-                let position = ItemPosition {
-                    module: module.id,
-                    item: item_index,
-                };
-                index
-                    .struct_instances
-                    .entry(item.def_id)
-                    .or_default()
-                    .insert((item.args.clone(), item.const_args.clone()), position);
-                index
-                    .struct_instances_by_def
-                    .entry(item.def_id)
-                    .or_default()
-                    .push(position);
-            }
-            for (item_index, item) in module.union_instances.iter().enumerate() {
-                let position = ItemPosition {
-                    module: module.id,
-                    item: item_index,
-                };
-                index
-                    .union_instances
-                    .entry(item.def_id)
-                    .or_default()
-                    .insert((item.args.clone(), item.const_args.clone()), position);
-                index
-                    .union_instances_by_def
-                    .entry(item.def_id)
-                    .or_default()
-                    .push(position);
-            }
-            for (item_index, item) in module.enums.iter().enumerate() {
-                index.enums.insert(
-                    item.def_id,
-                    ItemPosition {
-                        module: module.id,
-                        item: item_index,
-                    },
-                );
-                for (variant_index, variant) in item.variants.iter().enumerate() {
-                    index.enum_variants.insert(
-                        variant.def_id,
-                        EnumVariantPosition {
-                            module: module.id,
-                            owner: item_index,
-                            variant: variant_index,
-                        },
-                    );
-                }
-            }
-            for (item_index, item) in module.globals.iter().enumerate() {
-                index.globals.insert(
-                    item.def_id,
-                    ItemPosition {
-                        module: module.id,
-                        item: item_index,
-                    },
-                );
-            }
-            for (item_index, item) in module.global_instances.iter().enumerate() {
-                let position = ItemPosition {
-                    module: module.id,
-                    item: item_index,
-                };
-                index
-                    .global_instances
-                    .entry((item.def_id, item.arg_module_id))
-                    .or_default()
-                    .insert((item.args.clone(), item.const_args.clone()), position);
-                index
-                    .global_instances_by_def
-                    .entry(item.def_id)
-                    .or_default()
-                    .push(position);
-            }
-            for (item_index, item) in module.functions.iter().enumerate() {
-                index.functions.insert(
-                    item.def_id,
-                    ItemPosition {
-                        module: module.id,
-                        item: item_index,
-                    },
-                );
-            }
-            for (item_index, item) in module.function_instances.iter().enumerate() {
-                let position = ItemPosition {
-                    module: module.id,
-                    item: item_index,
-                };
-                index
-                    .function_instances
-                    .entry((item.def_id, item.arg_module_id))
-                    .or_default()
-                    .insert(
-                        (item.self_arg, item.args.clone(), item.const_args.clone()),
-                        position,
-                    );
-                index
-                    .function_instances_by_def
-                    .entry(item.def_id)
-                    .or_default()
-                    .push(position);
-            }
-            for (item_index, vtable) in module.trait_object_vtables.iter().enumerate() {
-                let position = ItemPosition {
-                    module: module.id,
-                    item: item_index,
-                };
-                index
-                    .trait_object_vtables
-                    .insert(vtable.key.clone(), position);
-                index
-                    .trait_object_vtables_by_object_ty
-                    .entry(vtable.key.object_ty)
-                    .or_default()
-                    .push(position);
-                if let Some(TyKind::TraitObject { trait_id, .. }) =
-                    index.ty_kind(vtable.key.object_ty)
-                {
-                    index
-                        .trait_object_vtables_by_trait
-                        .entry(*trait_id)
-                        .or_default()
-                        .push(position);
-                }
-            }
-        }
-        index
+        (index, publisher)
+    }
+
+    fn tables(&self) -> RwLockReadGuard<'_, ProgramIndexTables> {
+        self.tables.read().expect("program index lock poisoned")
+    }
+
+    fn item_owner(position: ItemPosition) -> ModuleId {
+        position.module
+    }
+
+    pub(super) fn is_published(&self, module_id: ModuleId) -> bool {
+        self.tables().published_modules.contains(&module_id)
     }
 
     pub(super) fn module(&self, module_id: ModuleId) -> Option<&nia_backend_ir::BackendModule> {
+        if !self.is_published(module_id) {
+            return None;
+        }
         self.modules.get(module_id)
     }
 
@@ -342,6 +143,10 @@ impl ProgramIndex {
                 panic!("Nia ICE: compiler builtins partition has no backend module")
             }
         };
+        assert!(
+            self.is_published(module_id),
+            "Nia ICE: codegen partition references an unindexed backend module"
+        );
         let module = self.module_at(module_id);
         assert_eq!(
             partition.key,
@@ -355,24 +160,250 @@ impl ProgramIndex {
     }
 
     fn module_at(&self, module_id: ModuleId) -> &nia_backend_ir::BackendModule {
-        self.module(module_id)
+        self.modules
+            .get(module_id)
             .expect("program index position references published module")
     }
+}
 
-    fn item_owner(&self, position: ItemPosition) -> ModuleId {
-        position.module
+impl ProgramIndexPublisher {
+    pub(super) fn publish(&mut self, module_id: ModuleId) {
+        let module = self
+            .index
+            .modules
+            .get(module_id)
+            .expect("program index publisher requires a ready backend module");
+        let mut index = self
+            .index
+            .tables
+            .write()
+            .expect("program index lock poisoned");
+        assert!(
+            index.published_modules.insert(module_id),
+            "Nia ICE: backend module was published to the program index twice"
+        );
+        for (layout_index, (ty, _)) in module.layouts.types.iter().enumerate() {
+            index.type_layouts.insert(
+                *ty,
+                LayoutPosition {
+                    module: module.id,
+                    layout: layout_index,
+                },
+            );
+        }
+        for (layout_index, (def_id, _)) in module.layouts.structs.iter().enumerate() {
+            index.struct_layouts.insert(
+                *def_id,
+                LayoutPosition {
+                    module: module.id,
+                    layout: layout_index,
+                },
+            );
+        }
+        for (layout_index, (def_id, _)) in module.layouts.unions.iter().enumerate() {
+            index.union_layouts.insert(
+                *def_id,
+                LayoutPosition {
+                    module: module.id,
+                    layout: layout_index,
+                },
+            );
+        }
+        for (layout_index, (key, _)) in module.layouts.struct_instances.iter().enumerate() {
+            let position = LayoutPosition {
+                module: module.id,
+                layout: layout_index,
+            };
+            index
+                .struct_instance_layouts
+                .entry(key.def_id)
+                .or_default()
+                .insert((key.args.clone(), key.const_args.clone()), position);
+            index
+                .struct_instance_layouts_by_def
+                .entry(key.def_id)
+                .or_default()
+                .push(position);
+        }
+        for (layout_index, (key, _)) in module.layouts.union_instances.iter().enumerate() {
+            let position = LayoutPosition {
+                module: module.id,
+                layout: layout_index,
+            };
+            index
+                .union_instance_layouts
+                .entry(key.def_id)
+                .or_default()
+                .insert((key.args.clone(), key.const_args.clone()), position);
+            index
+                .union_instance_layouts_by_def
+                .entry(key.def_id)
+                .or_default()
+                .push(position);
+        }
+        for (item_index, item) in module.structs.iter().enumerate() {
+            index.structs.insert(
+                item.def_id,
+                ItemPosition {
+                    module: module.id,
+                    item: item_index,
+                },
+            );
+        }
+        for (item_index, item) in module.unions.iter().enumerate() {
+            index.unions.insert(
+                item.def_id,
+                ItemPosition {
+                    module: module.id,
+                    item: item_index,
+                },
+            );
+        }
+        for (item_index, item) in module.struct_instances.iter().enumerate() {
+            let position = ItemPosition {
+                module: module.id,
+                item: item_index,
+            };
+            index
+                .struct_instances
+                .entry(item.def_id)
+                .or_default()
+                .insert((item.args.clone(), item.const_args.clone()), position);
+            index
+                .struct_instances_by_def
+                .entry(item.def_id)
+                .or_default()
+                .push(position);
+        }
+        for (item_index, item) in module.union_instances.iter().enumerate() {
+            let position = ItemPosition {
+                module: module.id,
+                item: item_index,
+            };
+            index
+                .union_instances
+                .entry(item.def_id)
+                .or_default()
+                .insert((item.args.clone(), item.const_args.clone()), position);
+            index
+                .union_instances_by_def
+                .entry(item.def_id)
+                .or_default()
+                .push(position);
+        }
+        for (item_index, item) in module.enums.iter().enumerate() {
+            index.enums.insert(
+                item.def_id,
+                ItemPosition {
+                    module: module.id,
+                    item: item_index,
+                },
+            );
+            for (variant_index, variant) in item.variants.iter().enumerate() {
+                index.enum_variants.insert(
+                    variant.def_id,
+                    EnumVariantPosition {
+                        module: module.id,
+                        owner: item_index,
+                        variant: variant_index,
+                    },
+                );
+            }
+        }
+        for (item_index, item) in module.globals.iter().enumerate() {
+            index.globals.insert(
+                item.def_id,
+                ItemPosition {
+                    module: module.id,
+                    item: item_index,
+                },
+            );
+        }
+        for (item_index, item) in module.global_instances.iter().enumerate() {
+            let position = ItemPosition {
+                module: module.id,
+                item: item_index,
+            };
+            index
+                .global_instances
+                .entry((item.def_id, item.arg_module_id))
+                .or_default()
+                .insert((item.args.clone(), item.const_args.clone()), position);
+            index
+                .global_instances_by_def
+                .entry(item.def_id)
+                .or_default()
+                .push(position);
+        }
+        for (item_index, item) in module.functions.iter().enumerate() {
+            index.functions.insert(
+                item.def_id,
+                ItemPosition {
+                    module: module.id,
+                    item: item_index,
+                },
+            );
+        }
+        for (item_index, item) in module.function_instances.iter().enumerate() {
+            let position = ItemPosition {
+                module: module.id,
+                item: item_index,
+            };
+            index
+                .function_instances
+                .entry((item.def_id, item.arg_module_id))
+                .or_default()
+                .insert(
+                    (item.self_arg, item.args.clone(), item.const_args.clone()),
+                    position,
+                );
+            index
+                .function_instances_by_def
+                .entry(item.def_id)
+                .or_default()
+                .push(position);
+        }
+        for (item_index, vtable) in module.trait_object_vtables.iter().enumerate() {
+            let position = ItemPosition {
+                module: module.id,
+                item: item_index,
+            };
+            index
+                .trait_object_vtables
+                .insert(vtable.key.clone(), position);
+            index
+                .trait_object_vtables_by_object_ty
+                .entry(vtable.key.object_ty)
+                .or_default()
+                .push(position);
+            if let Some(TyKind::TraitObject { trait_id, .. }) =
+                self.index.ty_kind(vtable.key.object_ty)
+            {
+                index
+                    .trait_object_vtables_by_trait
+                    .entry(*trait_id)
+                    .or_default()
+                    .push(position);
+            }
+        }
     }
+}
 
+impl ProgramIndex {
     pub(super) fn struct_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
-        self.structs
+        self.tables()
+            .structs
             .get(&def_id)
-            .map(|position| self.item_owner(*position))
+            .copied()
+            .map(Self::item_owner)
     }
 
     pub(super) fn union_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
-        self.unions
+        self.tables()
+            .unions
             .get(&def_id)
-            .map(|position| self.item_owner(*position))
+            .copied()
+            .map(Self::item_owner)
     }
 
     pub(super) fn struct_instance_owner(
@@ -381,10 +412,12 @@ impl ProgramIndex {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<ModuleId> {
-        self.struct_instances
+        self.tables()
+            .struct_instances
             .get(&def_id)
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| self.item_owner(*position))
+            .copied()
+            .map(Self::item_owner)
     }
 
     pub(super) fn union_instance_owner(
@@ -393,16 +426,20 @@ impl ProgramIndex {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<ModuleId> {
-        self.union_instances
+        self.tables()
+            .union_instances
             .get(&def_id)
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| self.item_owner(*position))
+            .copied()
+            .map(Self::item_owner)
     }
 
     pub(super) fn global_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
-        self.globals
+        self.tables()
+            .globals
             .get(&def_id)
-            .map(|position| self.item_owner(*position))
+            .copied()
+            .map(Self::item_owner)
     }
 
     pub(super) fn global_instance_owner(
@@ -412,16 +449,20 @@ impl ProgramIndex {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<ModuleId> {
-        self.global_instances
+        self.tables()
+            .global_instances
             .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| self.item_owner(*position))
+            .copied()
+            .map(Self::item_owner)
     }
 
     pub(super) fn function_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
-        self.functions
+        self.tables()
+            .functions
             .get(&def_id)
-            .map(|position| self.item_owner(*position))
+            .copied()
+            .map(Self::item_owner)
     }
 
     pub(super) fn function_instance_owner(
@@ -432,19 +473,23 @@ impl ProgramIndex {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<ModuleId> {
-        self.function_instances
+        self.tables()
+            .function_instances
             .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(&(self_arg, args.to_vec(), const_args.to_vec())))
-            .map(|position| self.item_owner(*position))
+            .copied()
+            .map(Self::item_owner)
     }
 
     pub(super) fn trait_object_vtable_owner(
         &self,
         key: &nia_backend_ir::BackendTraitObjectVtableKey,
     ) -> Option<ModuleId> {
-        self.trait_object_vtables
+        self.tables()
+            .trait_object_vtables
             .get(key)
-            .map(|position| self.item_owner(*position))
+            .copied()
+            .map(Self::item_owner)
     }
 
     pub(super) fn type_store(&self) -> &TypeStore {
@@ -456,21 +501,18 @@ impl ProgramIndex {
     }
 
     pub(super) fn type_layout(&self, ty: InternedTyId) -> Option<&TypeLayout> {
-        self.type_layouts
-            .get(&ty)
-            .map(|position| &self.module_at(position.module).layouts.types[position.layout].1)
+        let position = self.tables().type_layouts.get(&ty).copied()?;
+        Some(&self.module_at(position.module).layouts.types[position.layout].1)
     }
 
     pub(super) fn struct_layout(&self, def_id: GlobalDefId) -> Option<&StructLayout> {
-        self.struct_layouts
-            .get(&def_id)
-            .map(|position| &self.module_at(position.module).layouts.structs[position.layout].1)
+        let position = self.tables().struct_layouts.get(&def_id).copied()?;
+        Some(&self.module_at(position.module).layouts.structs[position.layout].1)
     }
 
     pub(super) fn union_layout(&self, def_id: GlobalDefId) -> Option<&StructLayout> {
-        self.union_layouts
-            .get(&def_id)
-            .map(|position| &self.module_at(position.module).layouts.unions[position.layout].1)
+        let position = self.tables().union_layouts.get(&def_id).copied()?;
+        Some(&self.module_at(position.module).layouts.unions[position.layout].1)
     }
 
     pub(super) fn struct_instance_layout(
@@ -479,12 +521,13 @@ impl ProgramIndex {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<&StructLayout> {
-        self.struct_instance_layouts
+        let position = self
+            .tables()
+            .struct_instance_layouts
             .get(&def_id)
             .and_then(|layouts| layouts.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| {
-                &self.module_at(position.module).layouts.struct_instances[position.layout].1
-            })
+            .copied()?;
+        Some(&self.module_at(position.module).layouts.struct_instances[position.layout].1)
     }
 
     pub(super) fn union_instance_layout(
@@ -493,12 +536,13 @@ impl ProgramIndex {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<&StructLayout> {
-        self.union_instance_layouts
+        let position = self
+            .tables()
+            .union_instance_layouts
             .get(&def_id)
             .and_then(|layouts| layouts.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| {
-                &self.module_at(position.module).layouts.union_instances[position.layout].1
-            })
+            .copied()?;
+        Some(&self.module_at(position.module).layouts.union_instances[position.layout].1)
     }
 
     pub(super) fn struct_instance(
@@ -507,10 +551,13 @@ impl ProgramIndex {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<&nia_backend_ir::BackendStructInstance> {
-        self.struct_instances
+        let position = self
+            .tables()
+            .struct_instances
             .get(&def_id)
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| &self.module_at(position.module).struct_instances[position.item])
+            .copied()?;
+        Some(&self.module_at(position.module).struct_instances[position.item])
     }
 
     pub(super) fn union_instance(
@@ -519,10 +566,13 @@ impl ProgramIndex {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<&nia_backend_ir::BackendUnionInstance> {
-        self.union_instances
+        let position = self
+            .tables()
+            .union_instances
             .get(&def_id)
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| &self.module_at(position.module).union_instances[position.item])
+            .copied()?;
+        Some(&self.module_at(position.module).union_instances[position.item])
     }
 
     pub(super) fn function_instance(
@@ -533,98 +583,104 @@ impl ProgramIndex {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<&BackendFunctionInstance> {
-        self.function_instances
+        let position = self
+            .tables()
+            .function_instances
             .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(&(self_arg, args.to_vec(), const_args.to_vec())))
-            .map(|position| &self.module_at(position.module).function_instances[position.item])
+            .copied()?;
+        Some(&self.module_at(position.module).function_instances[position.item])
     }
 
     pub(super) fn struct_item(
         &self,
         def_id: GlobalDefId,
     ) -> Option<&nia_backend_ir::BackendStruct> {
-        self.structs
-            .get(&def_id)
-            .map(|position| &self.module_at(position.module).structs[position.item])
+        let position = self.tables().structs.get(&def_id).copied()?;
+        Some(&self.module_at(position.module).structs[position.item])
     }
 
     pub(super) fn has_struct(&self, def_id: GlobalDefId) -> bool {
-        self.structs.contains_key(&def_id)
+        self.tables().structs.contains_key(&def_id)
     }
 
     pub(super) fn union_item(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendUnion> {
-        self.unions
-            .get(&def_id)
-            .map(|position| &self.module_at(position.module).unions[position.item])
+        let position = self.tables().unions.get(&def_id).copied()?;
+        Some(&self.module_at(position.module).unions[position.item])
     }
 
     pub(super) fn has_union(&self, def_id: GlobalDefId) -> bool {
-        self.unions.contains_key(&def_id)
+        self.tables().unions.contains_key(&def_id)
     }
 
     pub(super) fn has_struct_instances(&self, def_id: GlobalDefId) -> bool {
-        self.struct_instances_by_def.contains_key(&def_id)
+        self.tables().struct_instances_by_def.contains_key(&def_id)
     }
 
     pub(super) fn struct_instances_for(
         &self,
         def_id: GlobalDefId,
     ) -> impl Iterator<Item = &nia_backend_ir::BackendStructInstance> {
-        self.struct_instances_by_def
+        let positions = self
+            .tables()
+            .struct_instances_by_def
             .get(&def_id)
+            .cloned()
+            .unwrap_or_default();
+        positions
             .into_iter()
-            .flatten()
             .map(|position| &self.module_at(position.module).struct_instances[position.item])
     }
 
     pub(super) fn has_union_instances(&self, def_id: GlobalDefId) -> bool {
-        self.union_instances_by_def.contains_key(&def_id)
+        self.tables().union_instances_by_def.contains_key(&def_id)
     }
 
     pub(super) fn union_instances_for(
         &self,
         def_id: GlobalDefId,
     ) -> impl Iterator<Item = &nia_backend_ir::BackendUnionInstance> {
-        self.union_instances_by_def
+        let positions = self
+            .tables()
+            .union_instances_by_def
             .get(&def_id)
+            .cloned()
+            .unwrap_or_default();
+        positions
             .into_iter()
-            .flatten()
             .map(|position| &self.module_at(position.module).union_instances[position.item])
     }
 
     pub(super) fn has_enum(&self, def_id: GlobalDefId) -> bool {
-        self.enums.contains_key(&def_id)
+        self.tables().enums.contains_key(&def_id)
     }
 
     pub(super) fn enum_item(&self, def_id: GlobalDefId) -> Option<&BackendEnum> {
-        self.enums
-            .get(&def_id)
-            .map(|position| &self.module_at(position.module).enums[position.item])
+        let position = self.tables().enums.get(&def_id).copied()?;
+        Some(&self.module_at(position.module).enums[position.item])
     }
 
     pub(super) fn enum_variant_info(&self, def_id: GlobalDefId) -> Option<EnumVariantInfo<'_>> {
-        self.enum_variants.get(&def_id).map(|position| {
-            let owner = &self.module_at(position.module).enums[position.owner];
-            EnumVariantInfo {
-                owner,
-                variant: &owner.variants[position.variant],
-                index: position.variant,
-            }
+        let position = self.tables().enum_variants.get(&def_id).copied()?;
+        let owner = &self.module_at(position.module).enums[position.owner];
+        Some(EnumVariantInfo {
+            owner,
+            variant: &owner.variants[position.variant],
+            index: position.variant,
         })
     }
 
     pub(super) fn has_enum_variant(&self, def_id: GlobalDefId) -> bool {
-        self.enum_variants.contains_key(&def_id)
+        self.tables().enum_variants.contains_key(&def_id)
     }
 
     pub(super) fn global(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendGlobal> {
-        self.globals
-            .get(&def_id)
-            .map(|position| &self.module_at(position.module).globals[position.item])
+        let position = self.tables().globals.get(&def_id).copied()?;
+        Some(&self.module_at(position.module).globals[position.item])
     }
 
     pub(super) fn has_global(&self, def_id: GlobalDefId) -> bool {
-        self.globals.contains_key(&def_id)
+        self.tables().globals.contains_key(&def_id)
     }
 
     pub(super) fn global_instance(
@@ -634,35 +690,42 @@ impl ProgramIndex {
         args: &[InternedTyId],
         const_args: &[ConstGenericArg],
     ) -> Option<&nia_backend_ir::BackendGlobalInstance> {
-        self.global_instances
+        let position = self
+            .tables()
+            .global_instances
             .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| &self.module_at(position.module).global_instances[position.item])
+            .copied()?;
+        Some(&self.module_at(position.module).global_instances[position.item])
     }
 
     pub(super) fn function(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendFunction> {
-        self.functions
-            .get(&def_id)
-            .map(|position| &self.module_at(position.module).functions[position.item])
+        let position = self.tables().functions.get(&def_id).copied()?;
+        Some(&self.module_at(position.module).functions[position.item])
     }
 
     pub(super) fn has_function(&self, def_id: GlobalDefId) -> bool {
-        self.functions.contains_key(&def_id)
+        self.tables().functions.contains_key(&def_id)
     }
 
     pub(super) fn function_instances_for(
         &self,
         def_id: GlobalDefId,
     ) -> impl Iterator<Item = &BackendFunctionInstance> {
-        self.function_instances_by_def
+        let positions = self
+            .tables()
+            .function_instances_by_def
             .get(&def_id)
+            .cloned()
+            .unwrap_or_default();
+        positions
             .into_iter()
-            .flatten()
             .map(|position| &self.module_at(position.module).function_instances[position.item])
     }
 
     pub(super) fn function_instance_count(&self, def_id: GlobalDefId) -> usize {
-        self.function_instances_by_def
+        self.tables()
+            .function_instances_by_def
             .get(&def_id)
             .map_or(0, Vec::len)
     }
@@ -671,40 +734,48 @@ impl ProgramIndex {
         &self,
         def_id: GlobalDefId,
     ) -> impl Iterator<Item = BackendLayoutInstance<'_>> {
-        self.struct_instance_layouts_by_def
+        let positions = self
+            .tables()
+            .struct_instance_layouts_by_def
             .get(&def_id)
-            .into_iter()
-            .flatten()
-            .map(|position| {
-                let (key, layout) =
-                    &self.module_at(position.module).layouts.struct_instances[position.layout];
-                BackendLayoutInstance { key, layout }
-            })
+            .cloned()
+            .unwrap_or_default();
+        positions.into_iter().map(|position| {
+            let (key, layout) =
+                &self.module_at(position.module).layouts.struct_instances[position.layout];
+            BackendLayoutInstance { key, layout }
+        })
     }
 
     pub(super) fn union_instance_layouts(
         &self,
         def_id: GlobalDefId,
     ) -> impl Iterator<Item = BackendLayoutInstance<'_>> {
-        self.union_instance_layouts_by_def
+        let positions = self
+            .tables()
+            .union_instance_layouts_by_def
             .get(&def_id)
-            .into_iter()
-            .flatten()
-            .map(|position| {
-                let (key, layout) =
-                    &self.module_at(position.module).layouts.union_instances[position.layout];
-                BackendLayoutInstance { key, layout }
-            })
+            .cloned()
+            .unwrap_or_default();
+        positions.into_iter().map(|position| {
+            let (key, layout) =
+                &self.module_at(position.module).layouts.union_instances[position.layout];
+            BackendLayoutInstance { key, layout }
+        })
     }
 
     pub(super) fn trait_object_vtables_for_object_ty(
         &self,
         object_ty: InternedTyId,
     ) -> impl Iterator<Item = &BackendTraitObjectVtable> {
-        self.trait_object_vtables_by_object_ty
+        let positions = self
+            .tables()
+            .trait_object_vtables_by_object_ty
             .get(&object_ty)
+            .cloned()
+            .unwrap_or_default();
+        positions
             .into_iter()
-            .flatten()
             .map(|position| &self.module_at(position.module).trait_object_vtables[position.item])
     }
 
@@ -712,19 +783,22 @@ impl ProgramIndex {
         &self,
         key: &nia_backend_ir::BackendTraitObjectVtableKey,
     ) -> Option<&BackendTraitObjectVtable> {
-        self.trait_object_vtables
-            .get(key)
-            .map(|position| &self.module_at(position.module).trait_object_vtables[position.item])
+        let position = self.tables().trait_object_vtables.get(key).copied()?;
+        Some(&self.module_at(position.module).trait_object_vtables[position.item])
     }
 
     pub(super) fn trait_object_vtables_for_trait(
         &self,
         trait_id: TraitId,
     ) -> impl Iterator<Item = &BackendTraitObjectVtable> {
-        self.trait_object_vtables_by_trait
+        let positions = self
+            .tables()
+            .trait_object_vtables_by_trait
             .get(&trait_id)
+            .cloned()
+            .unwrap_or_default();
+        positions
             .into_iter()
-            .flatten()
             .map(|position| &self.module_at(position.module).trait_object_vtables[position.item])
     }
 }
@@ -745,6 +819,104 @@ mod tests {
 
     fn sym(text: &str) -> SymbolId {
         SymbolId::from_stable_hash(stable_hash(text))
+    }
+
+    fn enum_module(
+        module_id: ModuleId,
+        ty: InternedTyId,
+        def_id: GlobalDefId,
+        name: &str,
+    ) -> BackendModule {
+        BackendModule {
+            id: module_id,
+            source_identity: nia_source::SourceIdentity::new(name),
+            name: name.to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
+                types: vec![(ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            unions: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+            enums: vec![BackendEnum {
+                def_id,
+                name: sym(name),
+                backing_type: ty,
+                variants: Vec::new(),
+                span: Span::default(),
+            }],
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn publishes_ready_modules_out_of_order_for_concurrent_readers() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let first = module_ids.allocate();
+        let second = module_ids.allocate();
+        let first_def = global(first, 1);
+        let second_def = global(second, 1);
+        let type_store = TypeStore::new();
+        let interner = type_store.append_for_module(first);
+        let first_ty = interner.primitive(PrimitiveTy::I32);
+        let second_ty = interner.primitive(PrimitiveTy::U32);
+        let program = BackendProgram::new(vec![
+            enum_module(first, first_ty, first_def, "first"),
+            enum_module(second, second_ty, second_def, "second"),
+        ]);
+        let (index, mut publisher) =
+            ProgramIndex::new(program.module_store(), Arc::new(type_store));
+
+        publisher.publish(second);
+        assert!(!index.has_enum(first_def));
+        assert!(index.module(first).is_none());
+        assert!(index.has_enum(second_def));
+        assert_eq!(index.module(second).map(|module| module.id), Some(second));
+        assert_eq!(
+            index.enum_item(second_def).map(|item| item.def_id),
+            Some(second_def)
+        );
+
+        let reader = Arc::clone(&index);
+        let read = std::thread::spawn(move || {
+            for _ in 0..1_000 {
+                assert_eq!(
+                    reader.enum_item(second_def).map(|item| item.def_id),
+                    Some(second_def)
+                );
+            }
+        });
+        publisher.publish(first);
+        read.join().expect("concurrent program index reader");
+
+        assert!(index.has_enum(first_def));
+        assert_eq!(
+            index
+                .tables()
+                .enums
+                .get(&first_def)
+                .map(|position| position.module),
+            Some(first)
+        );
+        assert_eq!(
+            index
+                .tables()
+                .enums
+                .get(&second_def)
+                .map(|position| position.module),
+            Some(second)
+        );
     }
 
     #[test]
@@ -871,10 +1043,15 @@ mod tests {
             .into(),
         };
 
-        let index = ProgramIndex::new(program.module_store(), Arc::new(type_store));
+        let (index, mut publisher) =
+            ProgramIndex::new(program.module_store(), Arc::new(type_store));
+        assert!(!index.is_published(module_id));
+        publisher.publish(module_id);
+        assert!(index.is_published(module_id));
 
         assert_eq!(
             index
+                .tables()
                 .struct_instance_layouts
                 .get(&struct_def)
                 .and_then(|layouts| layouts.get(&(vec![i32_ty], Vec::new())))
@@ -883,6 +1060,7 @@ mod tests {
         );
         assert_eq!(
             index
+                .tables()
                 .function_instances
                 .get(&(function_def, module_id))
                 .and_then(|instances| { instances.get(&(None, vec![i32_ty], Vec::new())) })
@@ -891,6 +1069,7 @@ mod tests {
         );
         assert_eq!(
             index
+                .tables()
                 .enum_variants
                 .get(&second_variant)
                 .map(|position| position.module),
@@ -970,7 +1149,7 @@ mod tests {
             })
         };
         let program = BackendProgram::new(Vec::new());
-        let index = ProgramIndex::new(program.module_store(), Arc::new(type_store));
+        let (index, _publisher) = ProgramIndex::new(program.module_store(), Arc::new(type_store));
 
         assert!(matches!(
             index.ty_kind(ty),
