@@ -502,6 +502,9 @@ impl QueryKey<LoaderContext> for SourceStatusQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ModuleDeclarationsQuery(SourceVersion);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct PublicSurfaceModuleFactsQuery(SourceVersion);
+
 impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
     type Value = ModuleDeclarations;
 
@@ -617,6 +620,48 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
             );
         }
         fresh
+    }
+}
+
+impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
+    type Value = nia_defs::PublicSurfaceModuleFacts;
+
+    fn name() -> &'static str {
+        "loader_public_surface_module_facts"
+    }
+
+    fn description(&self) -> String {
+        format!("loader_public_surface_module_facts({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        let graph = db.get(ModuleGraphQuery);
+        let source = db.get(SourceTextQuery(self.0.id));
+        let source_identity = source
+            .file
+            .as_ref()
+            .filter(|file| file.version() == self.0)
+            .map(|file| file.path.identity())
+            .unwrap_or_else(|| db.invalid_input(self, format!("missing source for {:?}", self.0)));
+        let module_id = graph
+            .module_id_for_source_identity(&source_identity)
+            .unwrap_or_else(|| {
+                db.invalid_input(
+                    self,
+                    format!("source {:?} is outside the module graph", self.0),
+                )
+            });
+        let item_tree = db.get(ActiveModuleItemTreeFactQuery(
+            self.0.id,
+            ActiveModuleItemTreeFactKind::Full,
+        ));
+        let defs = nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
+            module_id,
+            &item_tree,
+            &db.context().node_store,
+            &db.context().symbols,
+        );
+        nia_defs::PublicSurfaceModuleFacts::from_defs(&defs)
     }
 }
 
@@ -948,6 +993,14 @@ pub(crate) fn module_declarations_query(
     ModuleDeclarationsQuery(source_version(db, source_id))
 }
 
+pub(crate) fn public_surface_module_facts_query(
+    db: &QueryDb<LoaderContext>,
+    path: &SourcePath,
+) -> PublicSurfaceModuleFactsQuery {
+    let source_id = db.context().sources.id_for_path(path);
+    PublicSurfaceModuleFactsQuery(source_version(db, source_id))
+}
+
 pub(crate) fn provider_summary_query(
     db: &QueryDb<LoaderContext>,
     path: &SourcePath,
@@ -970,6 +1023,7 @@ pub(crate) fn retire_source_revision_queries(
     retirement.retire(&ParsedModuleQuery(version));
     retirement.retire(&SyntaxModuleQuery(version));
     retirement.retire(&ModuleDeclarationsQuery(version));
+    retirement.retire(&PublicSurfaceModuleFactsQuery(version));
     retirement.retire(&ProviderSummaryQuery(version));
     retirement.retire(&ModuleFacadeFactsQuery(version));
 }

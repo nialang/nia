@@ -3,9 +3,10 @@ use crate::provider_facts::{ProviderDemandsQuery, ProviderFactStore};
 use crate::queries::{
     ActiveModuleItemTreeFactQuery, LoadedModuleQuery, ModuleDeclarationsQuery,
     ModuleFacadeFactsQuery, ModuleItemTreeFactQuery, ModuleOriginsFactQuery,
-    ModuleParseErrorsFactQuery, ParsedModuleQuery, ProviderSummaryQuery, SourceStatus,
-    SourceStatusQuery, SourceTextQuery, SyntaxModuleQuery, module_declarations_query,
-    module_facade_facts_query, parsed_module_query, provider_summary_query,
+    ModuleParseErrorsFactQuery, ParsedModuleQuery, ProviderSummaryQuery,
+    PublicSurfaceModuleFactsQuery, SourceStatus, SourceStatusQuery, SourceTextQuery,
+    SyntaxModuleQuery, module_declarations_query, module_facade_facts_query, parsed_module_query,
+    provider_summary_query,
 };
 use nia_compiler_query::{
     CompileRequest, CompilerDatabase, FrontendCacheNamespace, FrontendFacadeFactsCacheKey,
@@ -63,6 +64,7 @@ fn source_frontend_query_keys_are_compact_handles() {
     assert_eq!(std::mem::size_of::<ModuleDeclarationsQuery>(), 16);
     assert_eq!(std::mem::size_of::<ProviderSummaryQuery>(), 16);
     assert_eq!(std::mem::size_of::<ModuleFacadeFactsQuery>(), 16);
+    assert_eq!(std::mem::size_of::<PublicSurfaceModuleFactsQuery>(), 16);
 }
 
 fn test_loader_context(
@@ -146,7 +148,7 @@ impl nia_query::QueryKey<LoaderContext> for SemanticFieldParent {
 fn loader_query_registry_covers_all_declared_query_contracts() {
     let descriptors = crate::loader_query_registry().descriptors();
 
-    assert_eq!(descriptors.len(), 17);
+    assert_eq!(descriptors.len(), 18);
     assert!(
         descriptors
             .windows(2)
@@ -378,6 +380,10 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "module_parse_errors"
             && dependency.to.name == "loader_module_parse_errors_fact"
+    }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "public_surface_module_facts"
+            && dependency.to.name == "loader_public_surface_module_facts"
     }));
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "provider_fact_worklist" && dependency.to.name == "provider_demands"
