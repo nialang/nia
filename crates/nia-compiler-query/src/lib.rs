@@ -44,6 +44,7 @@ pub struct BackendFinalizationSchedule<'borrow, 'stream, 'executor> {
     >,
     collector: Option<nia_backend_lower::BackendModuleFinalizationCollector>,
     readiness: nia_backend_ir::BackendModuleReadiness,
+    codegen_partitions: nia_backend_ir::CodegenPartitionPlan,
 }
 
 impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 'executor> {
@@ -54,12 +55,14 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
             nia_backend_lower::BackendModuleFinalization,
         >,
         collector: nia_backend_lower::BackendModuleFinalizationCollector,
+        codegen_partitions: nia_backend_ir::CodegenPartitionPlan,
     ) -> Self {
         let readiness = collector.take_readiness();
         Self {
             completions,
             collector: Some(collector),
             readiness,
+            codegen_partitions,
         }
     }
 
@@ -75,6 +78,10 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
             .as_ref()
             .expect("backend finalization collector")
             .owner_directory()
+    }
+
+    pub fn codegen_partitions(&self) -> &nia_backend_ir::CodegenPartitionPlan {
+        &self.codegen_partitions
     }
 
     pub fn wait_next(&mut self) -> Option<nia_backend_ir::BackendModuleReady> {
@@ -97,10 +104,16 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
 
     pub fn finish(mut self) -> BackendLowering {
         while self.wait_next().is_some() {}
-        self.collector
+        let lowering = self
+            .collector
             .take()
             .expect("backend finalization collector")
-            .finish()
+            .finish();
+        assert_eq!(
+            lowering.codegen_partitions, self.codegen_partitions,
+            "Nia ICE: finalized backend modules changed the frozen codegen partition plan"
+        );
+        lowering
     }
 }
 

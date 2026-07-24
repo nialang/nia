@@ -7006,6 +7006,18 @@ fn main() i32 {
 
         let lowering = database.with_backend_finalization_schedule(|schedule| {
             let mut schedule = schedule.expect("healthy preparation must produce a schedule");
+            let partition_owners = schedule
+                .codegen_partitions()
+                .partitions()
+                .iter()
+                .map(|partition| match partition.id {
+                    nia_backend_ir::CodegenUnitId::SourceModule { module_id, .. } => module_id,
+                    nia_backend_ir::CodegenUnitId::CompilerBuiltins => {
+                        panic!("source backend plan contains compiler builtins")
+                    }
+                })
+                .collect::<HashSet<_>>();
+            assert_eq!(partition_owners, HashSet::from([entry, helper]));
             let store = schedule.module_store();
             assert!(store.get(entry).is_none());
             assert!(store.get(helper).is_none());
