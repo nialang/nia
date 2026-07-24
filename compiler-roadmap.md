@@ -1486,6 +1486,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-24）：H-3g 把`PublicSurfaceModuleFacts`生产权从compiler迁到唯一loader fact。`LoaderFactProvider`新增stable facts方法；query-backed `LoaderDatabase`通过按`SourceVersion`键控的`loader_public_surface_module_facts`生成产品，compiler同名边界跨共享`QuerySession`直接记录到该loader query的依赖，不再触发`ModuleDefsQuery`。非query `LoadedProgram`与测试provider复用trait默认实现，从full active item tree fresh收集后立即投影，不维护缓存或第二份truth source。loader query从当前`ModuleGraph`解析source identity到local `ModuleId`，只在收集瞬间使用node store，输出仍不含owner/revision/node handle；source retirement同步回收旧version key。跨数据库trace回归锁定`public_surface_module_facts → loader_public_surface_module_facts`边，compiler回归锁定public surface链不存在到`module_defs`的依赖。该切片完成ownership接线但尚未落盘，因此下一步只需为这个唯一loader fact增加exact-source typed key、symbol-aware entry与verification。Phase H现约83%，整份roadmap约98%。
 
+进展（2026-07-24）：H-2d 为loader-owned public-surface input建立独立16-byte `FrontendPublicSurfaceFactsCacheKey`。key组合frontend namespace、canonical stable module与exact `SourceContentFingerprint`：facts保留definition/using span，任何body长度或source byte变化都必须失效；effective module map不参与，因为DTO只保存尚未解析的using syntax与module-local definition facts，跨模块解析仍由当前graph上的aggregate算法完成。domain与source identity、module dependencies、provider summary等现有产品完全分离，parts roundtrip、module/source变化和size均有回归。下一切片在该key下实现v3 symbol-aware entry、span/source-length验证、corruption recovery与verification命中。Phase H现约84%，整份roadmap约98%。
+
 ### 阶段 I（P2）：错误、诊断和工程重组
 
 1. 移除 panic-based query error flow。
