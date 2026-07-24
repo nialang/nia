@@ -24,19 +24,19 @@ type AggregateLayoutIndex = HashMap<GlobalDefId, HashMap<InstanceArgs, LayoutPos
 
 #[derive(Clone, Copy)]
 struct ItemPosition {
-    module: usize,
+    module: ModuleId,
     item: usize,
 }
 
 #[derive(Clone, Copy)]
 struct LayoutPosition {
-    module: usize,
+    module: ModuleId,
     layout: usize,
 }
 
 #[derive(Clone, Copy)]
 struct EnumVariantPosition {
-    module: usize,
+    module: ModuleId,
     owner: usize,
     variant: usize,
 }
@@ -119,7 +119,7 @@ impl ProgramIndex {
                 index.type_layouts.insert(
                     *ty,
                     LayoutPosition {
-                        module: module_index,
+                        module: module.id,
                         layout: layout_index,
                     },
                 );
@@ -128,7 +128,7 @@ impl ProgramIndex {
                 index.struct_layouts.insert(
                     *def_id,
                     LayoutPosition {
-                        module: module_index,
+                        module: module.id,
                         layout: layout_index,
                     },
                 );
@@ -137,14 +137,14 @@ impl ProgramIndex {
                 index.union_layouts.insert(
                     *def_id,
                     LayoutPosition {
-                        module: module_index,
+                        module: module.id,
                         layout: layout_index,
                     },
                 );
             }
             for (layout_index, (key, _)) in module.layouts.struct_instances.iter().enumerate() {
                 let position = LayoutPosition {
-                    module: module_index,
+                    module: module.id,
                     layout: layout_index,
                 };
                 index
@@ -160,7 +160,7 @@ impl ProgramIndex {
             }
             for (layout_index, (key, _)) in module.layouts.union_instances.iter().enumerate() {
                 let position = LayoutPosition {
-                    module: module_index,
+                    module: module.id,
                     layout: layout_index,
                 };
                 index
@@ -178,7 +178,7 @@ impl ProgramIndex {
                 index.structs.insert(
                     item.def_id,
                     ItemPosition {
-                        module: module_index,
+                        module: module.id,
                         item: item_index,
                     },
                 );
@@ -187,14 +187,14 @@ impl ProgramIndex {
                 index.unions.insert(
                     item.def_id,
                     ItemPosition {
-                        module: module_index,
+                        module: module.id,
                         item: item_index,
                     },
                 );
             }
             for (item_index, item) in module.struct_instances.iter().enumerate() {
                 let position = ItemPosition {
-                    module: module_index,
+                    module: module.id,
                     item: item_index,
                 };
                 index
@@ -210,7 +210,7 @@ impl ProgramIndex {
             }
             for (item_index, item) in module.union_instances.iter().enumerate() {
                 let position = ItemPosition {
-                    module: module_index,
+                    module: module.id,
                     item: item_index,
                 };
                 index
@@ -228,7 +228,7 @@ impl ProgramIndex {
                 index.enums.insert(
                     item.def_id,
                     ItemPosition {
-                        module: module_index,
+                        module: module.id,
                         item: item_index,
                     },
                 );
@@ -236,7 +236,7 @@ impl ProgramIndex {
                     index.enum_variants.insert(
                         variant.def_id,
                         EnumVariantPosition {
-                            module: module_index,
+                            module: module.id,
                             owner: item_index,
                             variant: variant_index,
                         },
@@ -247,14 +247,14 @@ impl ProgramIndex {
                 index.globals.insert(
                     item.def_id,
                     ItemPosition {
-                        module: module_index,
+                        module: module.id,
                         item: item_index,
                     },
                 );
             }
             for (item_index, item) in module.global_instances.iter().enumerate() {
                 let position = ItemPosition {
-                    module: module_index,
+                    module: module.id,
                     item: item_index,
                 };
                 index
@@ -272,14 +272,14 @@ impl ProgramIndex {
                 index.functions.insert(
                     item.def_id,
                     ItemPosition {
-                        module: module_index,
+                        module: module.id,
                         item: item_index,
                     },
                 );
             }
             for (item_index, item) in module.function_instances.iter().enumerate() {
                 let position = ItemPosition {
-                    module: module_index,
+                    module: module.id,
                     item: item_index,
                 };
                 index
@@ -298,7 +298,7 @@ impl ProgramIndex {
             }
             for (item_index, vtable) in module.trait_object_vtables.iter().enumerate() {
                 let position = ItemPosition {
-                    module: module_index,
+                    module: module.id,
                     item: item_index,
                 };
                 index
@@ -333,8 +333,13 @@ impl ProgramIndex {
             .map(|module| &self.lowering.program.modules[*module])
     }
 
+    fn module_at(&self, module_id: ModuleId) -> &nia_backend_ir::BackendModule {
+        self.module(module_id)
+            .expect("program index position references published module")
+    }
+
     fn item_owner(&self, position: ItemPosition) -> ModuleId {
-        self.lowering.program.modules[position.module].id
+        position.module
     }
 
     pub(super) fn struct_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
@@ -430,27 +435,21 @@ impl ProgramIndex {
     }
 
     pub(super) fn type_layout(&self, ty: InternedTyId) -> Option<&TypeLayout> {
-        self.type_layouts.get(&ty).map(|position| {
-            &self.lowering.program.modules[position.module].layouts.types[position.layout].1
-        })
+        self.type_layouts
+            .get(&ty)
+            .map(|position| &self.module_at(position.module).layouts.types[position.layout].1)
     }
 
     pub(super) fn struct_layout(&self, def_id: GlobalDefId) -> Option<&StructLayout> {
-        self.struct_layouts.get(&def_id).map(|position| {
-            &self.lowering.program.modules[position.module]
-                .layouts
-                .structs[position.layout]
-                .1
-        })
+        self.struct_layouts
+            .get(&def_id)
+            .map(|position| &self.module_at(position.module).layouts.structs[position.layout].1)
     }
 
     pub(super) fn union_layout(&self, def_id: GlobalDefId) -> Option<&StructLayout> {
-        self.union_layouts.get(&def_id).map(|position| {
-            &self.lowering.program.modules[position.module]
-                .layouts
-                .unions[position.layout]
-                .1
-        })
+        self.union_layouts
+            .get(&def_id)
+            .map(|position| &self.module_at(position.module).layouts.unions[position.layout].1)
     }
 
     pub(super) fn struct_instance_layout(
@@ -463,10 +462,7 @@ impl ProgramIndex {
             .get(&def_id)
             .and_then(|layouts| layouts.get(&(args.to_vec(), const_args.to_vec())))
             .map(|position| {
-                &self.lowering.program.modules[position.module]
-                    .layouts
-                    .struct_instances[position.layout]
-                    .1
+                &self.module_at(position.module).layouts.struct_instances[position.layout].1
             })
     }
 
@@ -480,10 +476,7 @@ impl ProgramIndex {
             .get(&def_id)
             .and_then(|layouts| layouts.get(&(args.to_vec(), const_args.to_vec())))
             .map(|position| {
-                &self.lowering.program.modules[position.module]
-                    .layouts
-                    .union_instances[position.layout]
-                    .1
+                &self.module_at(position.module).layouts.union_instances[position.layout].1
             })
     }
 
@@ -496,9 +489,7 @@ impl ProgramIndex {
         self.struct_instances
             .get(&def_id)
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| {
-                &self.lowering.program.modules[position.module].struct_instances[position.item]
-            })
+            .map(|position| &self.module_at(position.module).struct_instances[position.item])
     }
 
     pub(super) fn union_instance(
@@ -510,9 +501,7 @@ impl ProgramIndex {
         self.union_instances
             .get(&def_id)
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| {
-                &self.lowering.program.modules[position.module].union_instances[position.item]
-            })
+            .map(|position| &self.module_at(position.module).union_instances[position.item])
     }
 
     pub(super) fn function_instance(
@@ -526,9 +515,7 @@ impl ProgramIndex {
         self.function_instances
             .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(&(self_arg, args.to_vec(), const_args.to_vec())))
-            .map(|position| {
-                &self.lowering.program.modules[position.module].function_instances[position.item]
-            })
+            .map(|position| &self.module_at(position.module).function_instances[position.item])
     }
 
     pub(super) fn struct_item(
@@ -537,7 +524,7 @@ impl ProgramIndex {
     ) -> Option<&nia_backend_ir::BackendStruct> {
         self.structs
             .get(&def_id)
-            .map(|position| &self.lowering.program.modules[position.module].structs[position.item])
+            .map(|position| &self.module_at(position.module).structs[position.item])
     }
 
     pub(super) fn has_struct(&self, def_id: GlobalDefId) -> bool {
@@ -547,7 +534,7 @@ impl ProgramIndex {
     pub(super) fn union_item(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendUnion> {
         self.unions
             .get(&def_id)
-            .map(|position| &self.lowering.program.modules[position.module].unions[position.item])
+            .map(|position| &self.module_at(position.module).unions[position.item])
     }
 
     pub(super) fn has_union(&self, def_id: GlobalDefId) -> bool {
@@ -566,9 +553,7 @@ impl ProgramIndex {
             .get(&def_id)
             .into_iter()
             .flatten()
-            .map(|position| {
-                &self.lowering.program.modules[position.module].struct_instances[position.item]
-            })
+            .map(|position| &self.module_at(position.module).struct_instances[position.item])
     }
 
     pub(super) fn has_union_instances(&self, def_id: GlobalDefId) -> bool {
@@ -583,9 +568,7 @@ impl ProgramIndex {
             .get(&def_id)
             .into_iter()
             .flatten()
-            .map(|position| {
-                &self.lowering.program.modules[position.module].union_instances[position.item]
-            })
+            .map(|position| &self.module_at(position.module).union_instances[position.item])
     }
 
     pub(super) fn has_enum(&self, def_id: GlobalDefId) -> bool {
@@ -595,12 +578,12 @@ impl ProgramIndex {
     pub(super) fn enum_item(&self, def_id: GlobalDefId) -> Option<&BackendEnum> {
         self.enums
             .get(&def_id)
-            .map(|position| &self.lowering.program.modules[position.module].enums[position.item])
+            .map(|position| &self.module_at(position.module).enums[position.item])
     }
 
     pub(super) fn enum_variant_info(&self, def_id: GlobalDefId) -> Option<EnumVariantInfo<'_>> {
         self.enum_variants.get(&def_id).map(|position| {
-            let owner = &self.lowering.program.modules[position.module].enums[position.owner];
+            let owner = &self.module_at(position.module).enums[position.owner];
             EnumVariantInfo {
                 owner,
                 variant: &owner.variants[position.variant],
@@ -616,7 +599,7 @@ impl ProgramIndex {
     pub(super) fn global(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendGlobal> {
         self.globals
             .get(&def_id)
-            .map(|position| &self.lowering.program.modules[position.module].globals[position.item])
+            .map(|position| &self.module_at(position.module).globals[position.item])
     }
 
     pub(super) fn has_global(&self, def_id: GlobalDefId) -> bool {
@@ -633,15 +616,13 @@ impl ProgramIndex {
         self.global_instances
             .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
-            .map(|position| {
-                &self.lowering.program.modules[position.module].global_instances[position.item]
-            })
+            .map(|position| &self.module_at(position.module).global_instances[position.item])
     }
 
     pub(super) fn function(&self, def_id: GlobalDefId) -> Option<&nia_backend_ir::BackendFunction> {
-        self.functions.get(&def_id).map(|position| {
-            &self.lowering.program.modules[position.module].functions[position.item]
-        })
+        self.functions
+            .get(&def_id)
+            .map(|position| &self.module_at(position.module).functions[position.item])
     }
 
     pub(super) fn has_function(&self, def_id: GlobalDefId) -> bool {
@@ -656,9 +637,7 @@ impl ProgramIndex {
             .get(&def_id)
             .into_iter()
             .flatten()
-            .map(|position| {
-                &self.lowering.program.modules[position.module].function_instances[position.item]
-            })
+            .map(|position| &self.module_at(position.module).function_instances[position.item])
     }
 
     pub(super) fn function_instance_count(&self, def_id: GlobalDefId) -> usize {
@@ -676,9 +655,8 @@ impl ProgramIndex {
             .into_iter()
             .flatten()
             .map(|position| {
-                let (key, layout) = &self.lowering.program.modules[position.module]
-                    .layouts
-                    .struct_instances[position.layout];
+                let (key, layout) =
+                    &self.module_at(position.module).layouts.struct_instances[position.layout];
                 BackendLayoutInstance { key, layout }
             })
     }
@@ -692,9 +670,8 @@ impl ProgramIndex {
             .into_iter()
             .flatten()
             .map(|position| {
-                let (key, layout) = &self.lowering.program.modules[position.module]
-                    .layouts
-                    .union_instances[position.layout];
+                let (key, layout) =
+                    &self.module_at(position.module).layouts.union_instances[position.layout];
                 BackendLayoutInstance { key, layout }
             })
     }
@@ -707,18 +684,16 @@ impl ProgramIndex {
             .get(&object_ty)
             .into_iter()
             .flatten()
-            .map(|position| {
-                &self.lowering.program.modules[position.module].trait_object_vtables[position.item]
-            })
+            .map(|position| &self.module_at(position.module).trait_object_vtables[position.item])
     }
 
     pub(super) fn trait_object_vtable(
         &self,
         key: &nia_backend_ir::BackendTraitObjectVtableKey,
     ) -> Option<&BackendTraitObjectVtable> {
-        self.trait_object_vtables.get(key).map(|position| {
-            &self.lowering.program.modules[position.module].trait_object_vtables[position.item]
-        })
+        self.trait_object_vtables
+            .get(key)
+            .map(|position| &self.module_at(position.module).trait_object_vtables[position.item])
     }
 
     pub(super) fn trait_object_vtables_for_trait(
@@ -729,9 +704,7 @@ impl ProgramIndex {
             .get(&trait_id)
             .into_iter()
             .flatten()
-            .map(|position| {
-                &self.lowering.program.modules[position.module].trait_object_vtables[position.item]
-            })
+            .map(|position| &self.module_at(position.module).trait_object_vtables[position.item])
     }
 }
 
@@ -890,6 +863,29 @@ mod tests {
         let lowering = lowering(program);
         let index = ProgramIndex::new(Arc::clone(&lowering), Arc::new(type_store));
 
+        assert_eq!(
+            index
+                .struct_instance_layouts
+                .get(&struct_def)
+                .and_then(|layouts| layouts.get(&(vec![i32_ty], Vec::new())))
+                .map(|position| position.module),
+            Some(module_id)
+        );
+        assert_eq!(
+            index
+                .function_instances
+                .get(&(function_def, module_id))
+                .and_then(|instances| { instances.get(&(None, vec![i32_ty], Vec::new())) })
+                .map(|position| position.module),
+            Some(module_id)
+        );
+        assert_eq!(
+            index
+                .enum_variants
+                .get(&second_variant)
+                .map(|position| position.module),
+            Some(module_id)
+        );
         assert!(std::ptr::eq(
             index.module(module_id).expect("indexed module"),
             &lowering.program.modules[0]

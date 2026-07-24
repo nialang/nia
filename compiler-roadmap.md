@@ -1424,6 +1424,8 @@ Acceptance：多核 workload CPU 利用率明显提升；小改动只重建受�
 
 进展（2026-07-24）：G-6e5b 在唯一module arena上建立正式single-consumer typed readiness stream。每次slot首次发布后生成不可伪造的`BackendModuleReady { position, module_id }`，`BackendModuleReadiness::wait_next`按真实publication lock顺序交付；completion queue与“全部预注册slot均已发布”的终止判断读取同一mutex快照，最后一个publisher不能落在drain/complete检查之间而丢失事件。arena以atomic claim拒绝第二consumer，receiver持有的只是同一arena控制块和cursor；事件不携带payload、不复制module，也没有polling map或callback channel。collector正式暴露唯一receiver，回归在反序finalization中同时验证`second → first → None`、live store借用和释放reader后无复制aggregate finish；backend-ir 17项、backend-lower 100项及三crate严格Clippy/fmt/diff check通过。typed stream现已具备，但compiler provider仍在`BackendLoweringQuery`内部同步drain后才返回；下一切片必须让schedule/stream越过该aggregate query边界，并让incremental `ProgramIndex`按ready module发布，仍不能把事件仅记录成日志后继续整体等待。
 
+进展（2026-07-24）：G-6e5c 消除LLVM `ProgramIndex` position对`BackendProgram.modules` Vec ordinal的结构依赖。item、layout与enum variant三类position现在直接保存实际发布owner的`ModuleId`，owner查询不再从下标反推identity，所有payload读取统一经过唯一`module_at(ModuleId)` resolver；semantic def owner与concrete instance/vtable实际发布owner不同的回归继续锁定后者，并新增layout、function instance与enum variant内部position断言，防止未来退回输入顺序身份。LLVM 191项、定向回归、严格Clippy、fmt与diff check通过。当前resolver仍通过`Arc<BackendLowering>`持有完整aggregate和`ModuleId → Vec index`映射，尚未消费`BackendModuleStore`，因此不宣称已有incremental index或frontend/LLVM overlap；下一切片必须把`ProgramIndex`的payload owner迁到唯一module arena，并让lookup table只由ready module增量发布，物理删除完整program构造入口与双轨索引路径。
+
 ### 阶段 H（P1/P2）：持久 frontend incremental
 
 1. stable module/def key。
