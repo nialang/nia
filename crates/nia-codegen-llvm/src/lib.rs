@@ -8,17 +8,15 @@ mod literals;
 mod module_codegen;
 mod output;
 mod program_index;
+mod readiness;
 mod work_product;
 
 use std::sync::Arc;
 
 use backend_validate::{
     validate_backend_declaration_module, validate_backend_partition_declarations,
-    validate_backend_partition_definitions,
 };
-use declaration_membership::{CodegenDeclarationMembership, CodegenDeclarationMembershipBuild};
 use module_codegen::ModuleCodegen;
-use nia_backend_ir::CodegenPartition;
 pub use nia_backend_ir::{
     CodegenUnitFingerprint, CodegenUnitId, CodegenUnitKey, IncrementalLinkInput,
     IncrementalLinkInputs,
@@ -33,6 +31,9 @@ pub use output::{
     LlvmCodegenOptions, LlvmCodegenOutput, LlvmModuleOutput, LlvmObjectOutput, NativeObject,
 };
 use program_index::ProgramIndex;
+use readiness::{
+    CodegenPartitionPreparation, CodegenReadinessCoordinator, PreparedCodegenPartition,
+};
 pub use work_product::{
     CodegenUnitFingerprintComponents, CodegenUnitFingerprintSet, ObjectWorkProductCache,
     ObjectWorkProductInvalidation, ObjectWorkProductLookup,
@@ -67,23 +68,18 @@ fn emit_llvm_ir_with_options_inner(
     lowering
         .codegen_partitions
         .validate_program(&lowering.program);
-    let partitions = lowering.codegen_partitions.partitions().to_vec();
     let module_store = lowering.program.module_store();
     let owners = Arc::clone(&lowering.owner_directory);
-    let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
-        let (index, mut publisher) = ProgramIndex::new(module_store, type_store);
-        for module_id in index.module_ids().to_vec() {
-            publisher.publish(module_id);
-        }
-        index
+    let (index, preparations) = time_codegen_stage(timings, "llvm_codegen.program_index", || {
+        prepare_complete_codegen(module_store, type_store, owners)
     });
-    let mut tasks = partitions
-        .iter()
-        .cloned()
+    let has_partitions = !preparations.is_empty();
+    let mut tasks = preparations
+        .into_iter()
         .map(LlvmIrTask::Partition)
         .collect::<Vec<_>>();
     tasks.extend(
-        declaration_only_modules(&index, &partitions)
+        declaration_only_modules(&index, has_partitions)
             .into_iter()
             .map(LlvmIrTask::DeclarationModule),
     );
@@ -91,10 +87,12 @@ fn emit_llvm_ir_with_options_inner(
     let outcomes = session.run_tasks_bounded(
         tasks.into_iter().map(|task| {
             let index = Arc::clone(&index);
-            let owners = Arc::clone(&owners);
             move || match task {
-                LlvmIrTask::Partition(partition) => {
-                    emit_llvm_ir_partition(partition, index, owners, options).map(Some)
+                LlvmIrTask::Partition(CodegenPartitionPreparation::Ready(prepared)) => {
+                    emit_llvm_ir_partition(prepared, index, options).map(Some)
+                }
+                LlvmIrTask::Partition(CodegenPartitionPreparation::Invalid(diagnostics)) => {
+                    Err(diagnostics)
                 }
                 LlvmIrTask::DeclarationModule(module_id) => {
                     validate_declaration_module(module_id, &index).map(|()| None)
@@ -155,24 +153,19 @@ fn emit_native_objects_inner(
     lowering
         .codegen_partitions
         .validate_program(&lowering.program);
-    let partitions = lowering.codegen_partitions.partitions().to_vec();
     let module_store = lowering.program.module_store();
     let owners = Arc::clone(&lowering.owner_directory);
-    let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
-        let (index, mut publisher) = ProgramIndex::new(module_store, type_store);
-        for module_id in index.module_ids().to_vec() {
-            publisher.publish(module_id);
-        }
-        index
+    let (index, preparations) = time_codegen_stage(timings, "llvm_codegen.program_index", || {
+        prepare_complete_codegen(module_store, type_store, owners)
     });
     let builtin_symbols = compiler_builtins::required_symbols(&index);
-    let mut tasks = partitions
-        .iter()
-        .cloned()
+    let has_partitions = !preparations.is_empty();
+    let mut tasks = preparations
+        .into_iter()
         .map(NativeCodegenTask::Partition)
         .collect::<Vec<_>>();
     tasks.extend(
-        declaration_only_modules(&index, &partitions)
+        declaration_only_modules(&index, has_partitions)
             .into_iter()
             .map(NativeCodegenTask::DeclarationModule),
     );
@@ -183,17 +176,15 @@ fn emit_native_objects_inner(
     let outcomes = session.run_tasks_bounded(
         tasks.into_iter().map(|task| {
             let index = Arc::clone(&index);
-            let owners = Arc::clone(&owners);
             let cache = cache.clone();
             move || match task {
-                NativeCodegenTask::Partition(partition) => emit_native_object_partition(
-                    partition,
-                    index,
-                    owners,
-                    options,
-                    cache.as_deref(),
-                )
-                .map(Some),
+                NativeCodegenTask::Partition(CodegenPartitionPreparation::Ready(prepared)) => {
+                    emit_native_object_partition(prepared, index, options, cache.as_deref())
+                        .map(Some)
+                }
+                NativeCodegenTask::Partition(CodegenPartitionPreparation::Invalid(diagnostics)) => {
+                    Err(diagnostics)
+                }
                 NativeCodegenTask::DeclarationModule(module_id) => {
                     validate_declaration_module(module_id, &index).map(|()| None)
                 }
@@ -231,24 +222,35 @@ fn emit_native_objects_inner(
 }
 
 enum NativeCodegenTask {
-    Partition(CodegenPartition),
+    Partition(CodegenPartitionPreparation),
     DeclarationModule(ModuleId),
     CompilerBuiltins(compiler_builtins::CompilerBuiltinSymbols),
 }
 
 enum LlvmIrTask {
-    Partition(CodegenPartition),
+    Partition(CodegenPartitionPreparation),
     DeclarationModule(ModuleId),
 }
 
-fn declaration_only_modules(
-    index: &ProgramIndex,
-    partitions: &[CodegenPartition],
-) -> Vec<ModuleId> {
-    if !partitions.is_empty() {
+fn declaration_only_modules(index: &ProgramIndex, has_partitions: bool) -> Vec<ModuleId> {
+    if has_partitions {
         return Vec::new();
     }
     index.module_ids().to_vec()
+}
+
+fn prepare_complete_codegen(
+    modules: Arc<nia_backend_ir::BackendModuleStore>,
+    type_store: Arc<TypeStore>,
+    owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
+) -> (Arc<ProgramIndex>, Vec<CodegenPartitionPreparation>) {
+    let module_ids = modules.module_ids().to_vec();
+    let mut coordinator = CodegenReadinessCoordinator::new(modules, type_store, owners);
+    let mut preparations = Vec::new();
+    for module_id in module_ids {
+        preparations.extend(coordinator.publish(module_id));
+    }
+    (coordinator.finish(), preparations)
 }
 
 fn validate_declaration_module(
@@ -343,23 +345,15 @@ impl ObjectReuseCounts {
 }
 
 fn emit_llvm_ir_partition(
-    partition: CodegenPartition,
+    prepared: PreparedCodegenPartition,
     index: Arc<ProgramIndex>,
-    owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
     options: LlvmCodegenOptions,
 ) -> Result<LlvmModuleOutput, Vec<nia_diagnostic::Diagnostic>> {
+    let PreparedCodegenPartition {
+        partition,
+        declarations,
+    } = prepared;
     let module = index.module_for_partition(&partition);
-    let diagnostics = validate_backend_partition_definitions(&partition, &index);
-    if !diagnostics.is_empty() {
-        return Err(diagnostics);
-    }
-    let declarations = match CodegenDeclarationMembership::build(&partition, &index, &owners) {
-        CodegenDeclarationMembershipBuild::Ready(declarations) => declarations,
-        CodegenDeclarationMembershipBuild::Pending(pending) => panic!(
-            "Nia ICE: complete backend program produced pending LLVM IR membership for {:?}",
-            pending.modules()
-        ),
-    };
     let diagnostics = validate_backend_partition_declarations(&declarations, &index);
     if !diagnostics.is_empty() {
         return Err(diagnostics);
@@ -391,29 +385,21 @@ fn emit_llvm_ir_partition(
 }
 
 fn emit_native_object_partition(
-    partition: CodegenPartition,
+    prepared: PreparedCodegenPartition,
     index: Arc<ProgramIndex>,
-    owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
     options: LlvmCodegenOptions,
     cache: Option<&dyn ObjectWorkProductCache>,
 ) -> Result<(IncrementalLinkInput<NativeObject>, ObjectReuse), Vec<nia_diagnostic::Diagnostic>> {
-    let diagnostics = validate_backend_partition_definitions(&partition, &index);
-    if !diagnostics.is_empty() {
-        return Err(diagnostics);
-    }
+    let PreparedCodegenPartition {
+        partition,
+        declarations,
+    } = prepared;
     let target_identity = time_codegen_stage(
         options.timings,
         "llvm_codegen.native_target_identity",
         TargetMachine::native_identity,
     )
     .map_err(|error| vec![error.diagnostic()])?;
-    let declarations = match CodegenDeclarationMembership::build(&partition, &index, &owners) {
-        CodegenDeclarationMembershipBuild::Ready(declarations) => declarations,
-        CodegenDeclarationMembershipBuild::Pending(pending) => panic!(
-            "Nia ICE: complete backend program produced pending native object membership for {:?}",
-            pending.modules()
-        ),
-    };
     let diagnostics = validate_backend_partition_declarations(&declarations, &index);
     if !diagnostics.is_empty() {
         return Err(diagnostics);

@@ -1444,6 +1444,8 @@ Acceptance：多核 workload CPU 利用率明显提升；小改动只重建受�
 
 进展（2026-07-24）：G-6e5l 建立ready module到最终CGU partition的唯一构造路径。`CodegenPartition`已物理删除`BackendProgram.modules` Vec ordinal，只保留stable `CodegenUnitId/CodegenUnitKey`与definition positions；完整程序和增量`ProgramIndex`均从unit中的真实`ModuleId`解析同一canonical store payload。`CodegenPartitionPlan::for_ready_module`现在可在单个module publication后立即按最终优化payload生成definition-filtered buckets，完整程序plan复用同一个module iterator实现做stable-key排序与全局唯一性校验，不存在provisional partition格式或第二套bucket算法。回归证明反序存放的program中，单个ready module plan与最终stable全局plan的精确对应切片相等；backend-ir 18项、LLVM 194项通过。下一切片可由Driver coordinator执行`wait_next → ProgramIndexPublisher::publish → for_ready_module → membership Ready/Pending`，不再等待aggregate lowering或依赖module Vec位置。
 
+进展（2026-07-24）：G-6e5m 在LLVM层落地唯一readiness coordinator状态机。每个publication只能执行`ProgramIndexPublisher::publish → for_ready_module → typed membership retry`；新unit stable key全局去重，Pending partition只保留typed final partition而不复制module/declaration payload，exact owner齐备后才生成携带唯一closed membership的`PreparedCodegenPartition`。IR与native完整程序入口已删除“全量publish index后在worker内重新build membership”的旧路径，统一先经同一coordinator准备unit，worker直接消费prepared membership；definition validator在partial状态只对membership已经Ready的exact closure运行，而全部module已发布时仍先于membership处理malformed Backend IR，保留结构化诊断边界。跨模块struct literal顺序回归锁定main先发布时0个ready unit、geom发布后main unit立即Ready且dependency集合精确为main+geom；LLVM 195项通过。当前完整入口仍以既有`BackendLowering`顺序喂给coordinator，尚未由Driver直接消费live schedule，故不宣称frontend/LLVM overlap已经接线；下一切片应把coordinator所有权提升到Driver scoped callback并在每次`wait_next`后立即提交prepared LLVM task。
+
 ### 阶段 H（P1/P2）：持久 frontend incremental
 
 1. stable module/def key。
