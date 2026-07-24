@@ -953,6 +953,30 @@ fn emit_compilation_counters(
             "query.executions.signature_type_normalization",
             "signature_type_normalization",
         ),
+        (
+            "query.executions.module_program_signature_facts",
+            "module_program_signature_facts",
+        ),
+        (
+            "query.executions.extension_signature_module_input",
+            "extension_signature_module_input",
+        ),
+        (
+            "query.executions.extension_trait_solving_module_facts",
+            "extension_trait_solving_module_facts",
+        ),
+        (
+            "query.executions.extension_provider_module_facts",
+            "extension_provider_module_facts",
+        ),
+        (
+            "query.executions.extension_provider_nominal_module_facts",
+            "extension_provider_nominal_module_facts",
+        ),
+        (
+            "query.executions.extension_provider_validation_facts",
+            "extension_provider_validation_facts",
+        ),
         ("query.executions.signature_layouts", "signature_layouts"),
         ("query.executions.type_normalization", "type_normalization"),
     ] {
