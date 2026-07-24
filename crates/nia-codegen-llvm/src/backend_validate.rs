@@ -10,9 +10,11 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use crate::program_index::ProgramIndex;
+use crate::{declaration_membership::CodegenDeclarationMembership, program_index::ProgramIndex};
 use nia_backend_ir::{
-    BackendModule, BackendParam, BackendProgram, BackendTraitObjectVtableFunction,
+    BackendFunction, BackendFunctionInstance, BackendGlobal, BackendGlobalInstance, BackendModule,
+    BackendParam, BackendStruct, BackendStructInstance, BackendTraitObjectVtable,
+    BackendTraitObjectVtableFunction, BackendUnion, BackendUnionInstance, CodegenPartition,
 };
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBody, FunctionLocalKind};
@@ -45,27 +47,182 @@ pub(super) fn backend_symbol_debug_name(name: SymbolId) -> String {
     mangle_symbol_id(name)
 }
 
-pub(super) fn validate_backend_program(
-    program: &BackendProgram,
+pub(super) fn validate_backend_partition_definitions(
+    partition: &CodegenPartition,
     index: &ProgramIndex,
 ) -> Vec<Diagnostic> {
-    let mut validator = BackendValidator {
-        index,
-        diagnostics: Vec::new(),
-        seen_types: HashSet::new(),
-        layout_cache: RefCell::new(HashMap::new()),
-        same_type_cache: RefCell::new(HashMap::new()),
-        function_instance_ref_cache: RefCell::new(HashMap::new()),
-        struct_fields_lookup_cache: RefCell::new(HashMap::new()),
-        union_fields_lookup_cache: RefCell::new(HashMap::new()),
-        local_tys: Vec::new(),
-        current_item: None,
-        current_subject: None,
-    };
-    for module in &program.modules {
-        validator.validate_module(module);
+    let mut validator = BackendValidator::new(index);
+    let module = index.program().module_for_partition(partition);
+    for &position in partition.function_definitions() {
+        validator.validate_function(&module.name, &module.functions[position], true);
+    }
+    for &position in partition.function_instance_definitions() {
+        validator.validate_function_instance(
+            &module.name,
+            &module.function_instances[position],
+            true,
+        );
+    }
+    for &position in partition.global_definitions() {
+        validator.validate_global(&module.globals[position], true);
+    }
+    for &position in partition.global_instance_definitions() {
+        validator.validate_global_instance(&module.global_instances[position], true);
+    }
+    for &position in partition.vtable_definitions() {
+        validator.validate_vtable(&module.trait_object_vtables[position], true);
     }
     validator.diagnostics
+}
+
+pub(super) fn validate_backend_partition_declarations(
+    declarations: &CodegenDeclarationMembership,
+    index: &ProgramIndex,
+) -> Vec<Diagnostic> {
+    let mut validator = BackendValidator::new(index);
+    for &def_id in &declarations.functions {
+        let item = index
+            .function(def_id)
+            .expect("declaration membership contains indexed function");
+        let owner = index
+            .function_owner(def_id)
+            .and_then(|owner| index.module(owner))
+            .expect("indexed function owner");
+        validator.validate_function(&owner.name, item, false);
+    }
+    for key in &declarations.function_instances {
+        let item = index
+            .function_instance(
+                key.def_id,
+                key.arg_module_id,
+                key.self_arg,
+                &key.args,
+                &key.const_args,
+            )
+            .expect("declaration membership contains indexed function instance");
+        let owner = index
+            .function_instance_owner(
+                key.def_id,
+                key.arg_module_id,
+                key.self_arg,
+                &key.args,
+                &key.const_args,
+            )
+            .and_then(|owner| index.module(owner))
+            .expect("indexed function instance owner");
+        validator.validate_function_instance(&owner.name, item, false);
+    }
+    for &def_id in &declarations.globals {
+        validator.validate_global(
+            index
+                .global(def_id)
+                .expect("declaration membership contains indexed global"),
+            false,
+        );
+    }
+    for key in &declarations.global_instances {
+        validator.validate_global_instance(
+            index
+                .global_instance(key.def_id, key.arg_module_id, &key.args, &key.const_args)
+                .expect("declaration membership contains indexed global instance"),
+            false,
+        );
+    }
+    for &def_id in &declarations.structs {
+        validator.validate_struct(
+            index
+                .struct_item(def_id)
+                .expect("declaration membership contains indexed struct"),
+        );
+    }
+    for key in &declarations.struct_instances {
+        validator.validate_struct_instance(
+            index
+                .struct_instance(key.def_id, &key.args, &key.const_args)
+                .expect("declaration membership contains indexed struct instance"),
+        );
+    }
+    for &def_id in &declarations.unions {
+        validator.validate_union(
+            index
+                .union_item(def_id)
+                .expect("declaration membership contains indexed union"),
+        );
+    }
+    for key in &declarations.union_instances {
+        validator.validate_union_instance(
+            index
+                .union_instance(key.def_id, &key.args, &key.const_args)
+                .expect("declaration membership contains indexed union instance"),
+        );
+    }
+    for key in &declarations.vtables {
+        validator.validate_vtable(
+            index
+                .trait_object_vtable(key)
+                .expect("declaration membership contains indexed vtable"),
+            false,
+        );
+    }
+    validator.diagnostics
+}
+
+pub(super) fn validate_backend_declaration_module(
+    module: &BackendModule,
+    index: &ProgramIndex,
+) -> Vec<Diagnostic> {
+    let mut validator = BackendValidator::new(index);
+    for function in &module.functions {
+        validator.validate_function(&module.name, function, false);
+    }
+    for function in &module.function_instances {
+        validator.validate_function_instance(&module.name, function, false);
+    }
+    for global in &module.globals {
+        validator.validate_global(global, false);
+    }
+    for global in &module.global_instances {
+        validator.validate_global_instance(global, false);
+    }
+    for item in &module.structs {
+        validator.validate_struct(item);
+    }
+    for item in &module.struct_instances {
+        validator.validate_struct_instance(item);
+    }
+    for item in &module.unions {
+        validator.validate_union(item);
+    }
+    for item in &module.union_instances {
+        validator.validate_union_instance(item);
+    }
+    for item in &module.enums {
+        validator.current_item = Some(format!("enum {}", backend_symbol_debug_name(item.name)));
+        validator.validate_runtime_type(item.backing_type, item.span);
+        validator.current_item = None;
+    }
+    for vtable in &module.trait_object_vtables {
+        validator.validate_vtable(vtable, false);
+    }
+    validator.diagnostics
+}
+
+impl<'a> BackendValidator<'a> {
+    fn new(index: &'a ProgramIndex) -> Self {
+        Self {
+            index,
+            diagnostics: Vec::new(),
+            seen_types: HashSet::new(),
+            layout_cache: RefCell::new(HashMap::new()),
+            same_type_cache: RefCell::new(HashMap::new()),
+            function_instance_ref_cache: RefCell::new(HashMap::new()),
+            struct_fields_lookup_cache: RefCell::new(HashMap::new()),
+            union_fields_lookup_cache: RefCell::new(HashMap::new()),
+            local_tys: Vec::new(),
+            current_item: None,
+            current_subject: None,
+        }
+    }
 }
 
 pub(super) struct BackendValidator<'a> {
@@ -83,110 +240,130 @@ pub(super) struct BackendValidator<'a> {
 }
 
 impl BackendValidator<'_> {
-    fn validate_module(&mut self, module: &BackendModule) {
-        for function in &module.functions {
-            if function.generics.is_empty() {
-                self.current_item = Some(format!(
-                    "function {} in {}::{:?}",
-                    backend_symbol_debug_name(function.name),
-                    module.name,
-                    function.def_id
-                ));
-                self.validate_type(function.return_type, function.span);
-                for param in &function.params {
-                    self.current_subject = Some("param passing_ty");
-                    self.validate_runtime_type(param.passing_ty, param.span);
-                    self.current_subject = Some("param local_ty");
-                    self.validate_runtime_type(param.local_ty, param.span);
-                    self.current_subject = None;
-                }
-                if let Some(body) = &function.function_body {
-                    self.validate_function_param_locals(&function.params, body);
-                    self.validate_function_body(body);
-                }
-                self.current_item = None;
-            }
+    fn validate_function(&mut self, module_name: &str, function: &BackendFunction, body: bool) {
+        if !function.generics.is_empty() {
+            return;
         }
-        for function in &module.function_instances {
-            self.current_item = Some(format!(
-                "function instance {} in {}::{:?}::{:?}",
-                backend_symbol_debug_name(function.name),
-                module.name,
-                function.def_id,
-                function.args
-            ));
-            self.validate_type(function.return_type, function.span);
-            for param in &function.params {
-                self.current_subject = Some("param passing_ty");
-                self.validate_runtime_type(param.passing_ty, param.span);
-                self.current_subject = Some("param local_ty");
-                self.validate_runtime_type(param.local_ty, param.span);
-                self.current_subject = None;
-            }
-            if let Some(body) = &function.function_body {
-                self.validate_function_param_locals(&function.params, body);
-                self.validate_function_body(body);
-            }
+        self.current_item = Some(format!(
+            "function {} in {}::{:?}",
+            backend_symbol_debug_name(function.name),
+            module_name,
+            function.def_id
+        ));
+        self.validate_function_signature(&function.params, function.return_type, function.span);
+        if body && let Some(body) = &function.function_body {
+            self.validate_function_param_locals(&function.params, body);
+            self.validate_function_body(body);
+        }
+        self.current_item = None;
+    }
+
+    fn validate_function_instance(
+        &mut self,
+        module_name: &str,
+        function: &BackendFunctionInstance,
+        body: bool,
+    ) {
+        self.current_item = Some(format!(
+            "function instance {} in {}::{:?}::{:?}",
+            backend_symbol_debug_name(function.name),
+            module_name,
+            function.def_id,
+            function.args
+        ));
+        self.validate_function_signature(&function.params, function.return_type, function.span);
+        if body && let Some(body) = &function.function_body {
+            self.validate_function_param_locals(&function.params, body);
+            self.validate_function_body(body);
+        }
+        self.current_item = None;
+    }
+
+    fn validate_function_signature(
+        &mut self,
+        params: &[BackendParam],
+        return_type: InternedTyId,
+        span: nia_span::Span,
+    ) {
+        self.validate_type(return_type, span);
+        for param in params {
+            self.current_subject = Some("param passing_ty");
+            self.validate_runtime_type(param.passing_ty, param.span);
+            self.current_subject = Some("param local_ty");
+            self.validate_runtime_type(param.local_ty, param.span);
+            self.current_subject = None;
+        }
+    }
+
+    fn validate_global(&mut self, global: &BackendGlobal, init: bool) {
+        self.current_item = Some(format!("global {}", backend_symbol_debug_name(global.name)));
+        self.validate_runtime_type(global.ty, global.span);
+        if init && let Some(value) = &global.init {
+            self.validate_static_init(global.ty, value, global.span);
+        }
+        self.current_item = None;
+    }
+
+    fn validate_global_instance(&mut self, global: &BackendGlobalInstance, init: bool) {
+        self.current_item = Some(format!(
+            "global instance {}::{:?}",
+            backend_symbol_debug_name(global.name),
+            global.args
+        ));
+        self.validate_runtime_type(global.ty, global.span);
+        if init && let Some(value) = &global.init {
+            self.validate_static_init(global.ty, value, global.span);
+        }
+        self.current_item = None;
+    }
+
+    fn validate_struct(&mut self, item: &BackendStruct) {
+        if item.generics.is_empty() {
+            self.current_item = Some(format!("struct {}", backend_symbol_debug_name(item.name)));
+            self.validate_fields(&item.fields);
             self.current_item = None;
         }
-        for global in &module.globals {
-            self.current_item = Some(format!("global {}", backend_symbol_debug_name(global.name)));
-            self.validate_runtime_type(global.ty, global.span);
-            if let Some(init) = &global.init {
-                self.validate_static_init(global.ty, init, global.span);
-            }
+    }
+
+    fn validate_struct_instance(&mut self, item: &BackendStructInstance) {
+        self.current_item = Some(format!(
+            "struct instance {}::{:?}",
+            backend_symbol_debug_name(item.name),
+            item.args
+        ));
+        self.validate_fields(&item.fields);
+        self.current_item = None;
+    }
+
+    fn validate_union(&mut self, item: &BackendUnion) {
+        if item.generics.is_empty() {
+            self.current_item = Some(format!("union {}", backend_symbol_debug_name(item.name)));
+            self.validate_fields(&item.fields);
             self.current_item = None;
         }
-        for item in &module.structs {
-            if item.generics.is_empty() {
-                self.current_item =
-                    Some(format!("struct {}", backend_symbol_debug_name(item.name)));
-                for field in &item.fields {
-                    self.validate_runtime_type(field.ty, field.span);
-                }
-                self.current_item = None;
-            }
+    }
+
+    fn validate_union_instance(&mut self, item: &BackendUnionInstance) {
+        self.current_item = Some(format!(
+            "union instance {}::{:?}",
+            backend_symbol_debug_name(item.name),
+            item.args
+        ));
+        self.validate_fields(&item.fields);
+        self.current_item = None;
+    }
+
+    fn validate_fields(&mut self, fields: &[nia_backend_ir::BackendField]) {
+        for field in fields {
+            self.validate_runtime_type(field.ty, field.span);
         }
-        for item in &module.struct_instances {
-            self.current_item = Some(format!(
-                "struct instance {}::{:?}",
-                backend_symbol_debug_name(item.name),
-                item.args
-            ));
-            for field in &item.fields {
-                self.validate_runtime_type(field.ty, field.span);
-            }
-            self.current_item = None;
-        }
-        for item in &module.unions {
-            if item.generics.is_empty() {
-                self.current_item = Some(format!("union {}", backend_symbol_debug_name(item.name)));
-                for field in &item.fields {
-                    self.validate_runtime_type(field.ty, field.span);
-                }
-                self.current_item = None;
-            }
-        }
-        for item in &module.union_instances {
-            self.current_item = Some(format!(
-                "union instance {}::{:?}",
-                backend_symbol_debug_name(item.name),
-                item.args
-            ));
-            for field in &item.fields {
-                self.validate_runtime_type(field.ty, field.span);
-            }
-            self.current_item = None;
-        }
-        for item in &module.enums {
-            self.current_item = Some(format!("enum {}", backend_symbol_debug_name(item.name)));
-            self.validate_runtime_type(item.backing_type, item.span);
-            self.current_item = None;
-        }
-        for vtable in &module.trait_object_vtables {
-            self.current_item = Some(format!("trait object vtable {:?}", vtable.key));
-            self.validate_trait_object_self_type(vtable.key.self_ty, vtable.span);
-            self.validate_runtime_type(vtable.key.object_ty, vtable.span);
+    }
+
+    fn validate_vtable(&mut self, vtable: &BackendTraitObjectVtable, entries: bool) {
+        self.current_item = Some(format!("trait object vtable {:?}", vtable.key));
+        self.validate_trait_object_self_type(vtable.key.self_ty, vtable.span);
+        self.validate_runtime_type(vtable.key.object_ty, vtable.span);
+        if entries {
             for entry in &vtable.entries {
                 match &entry.function {
                     BackendTraitObjectVtableFunction::Function(def_id) => {
@@ -217,8 +394,8 @@ impl BackendValidator<'_> {
                     }
                 }
             }
-            self.current_item = None;
         }
+        self.current_item = None;
     }
 
     fn validate_function_param_locals(&mut self, params: &[BackendParam], body: &FunctionBody) {

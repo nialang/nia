@@ -12,7 +12,10 @@ mod work_product;
 
 use std::sync::Arc;
 
-use backend_validate::validate_backend_program;
+use backend_validate::{
+    validate_backend_declaration_module, validate_backend_partition_declarations,
+    validate_backend_partition_definitions,
+};
 use declaration_membership::CodegenDeclarationMembership;
 use module_codegen::ModuleCodegen;
 use nia_backend_ir::CodegenPartition;
@@ -21,6 +24,7 @@ pub use nia_backend_ir::{
     IncrementalLinkInputs,
 };
 use nia_backend_lower::BackendLowering;
+use nia_ids::ModuleId;
 use nia_llvm::{Context, OptimizationLevel as LlvmOptimizationLevel, target::TargetMachine};
 use nia_opt::NiaOptimizationLevel;
 use nia_query::QuerySession;
@@ -69,20 +73,28 @@ fn emit_llvm_ir_with_options_inner(
         "llvm_codegen.program_index",
         || ProgramIndex::new(lowering, type_store),
     ));
-    let validation_diagnostics = time_codegen_stage(timings, "llvm_codegen.validate", || {
-        validate_backend_program(index.program(), &index)
-    });
-    if !validation_diagnostics.is_empty() {
-        return LlvmCodegenOutput {
-            modules: Vec::new(),
-            diagnostics: validation_diagnostics,
-        };
-    }
-    let worker_lanes = codegen_worker_lanes(session, partitions.len());
+    let mut tasks = partitions
+        .iter()
+        .cloned()
+        .map(LlvmIrTask::Partition)
+        .collect::<Vec<_>>();
+    tasks.extend(
+        declaration_only_modules(&index, &partitions)
+            .into_iter()
+            .map(LlvmIrTask::DeclarationModule),
+    );
+    let worker_lanes = codegen_worker_lanes(session, tasks.len());
     let outcomes = session.run_tasks_bounded(
-        partitions.into_iter().map(|partition| {
+        tasks.into_iter().map(|task| {
             let index = Arc::clone(&index);
-            move || emit_llvm_ir_partition(partition, index, options)
+            move || match task {
+                LlvmIrTask::Partition(partition) => {
+                    emit_llvm_ir_partition(partition, index, options).map(Some)
+                }
+                LlvmIrTask::DeclarationModule(module_id) => {
+                    validate_declaration_module(module_id, &index).map(|()| None)
+                }
+            }
         }),
         nia_query::llvm_memory_task_capacity(),
     );
@@ -90,8 +102,9 @@ fn emit_llvm_ir_with_options_inner(
     let mut diagnostics = Vec::new();
     for outcome in outcomes {
         match outcome {
-            Ok(output) => outputs.push(output),
-            Err(diagnostic) => diagnostics.push(diagnostic),
+            Ok(Some(output)) => outputs.push(output),
+            Ok(None) => {}
+            Err(partition_diagnostics) => diagnostics.extend(partition_diagnostics),
         }
     }
     if timings.enabled() {
@@ -143,20 +156,17 @@ fn emit_native_objects_inner(
         "llvm_codegen.program_index",
         || ProgramIndex::new(lowering, type_store),
     ));
-    let validation_diagnostics = time_codegen_stage(timings, "llvm_codegen.validate", || {
-        validate_backend_program(index.program(), &index)
-    });
-    if !validation_diagnostics.is_empty() {
-        return LlvmObjectOutput {
-            link_inputs: IncrementalLinkInputs::default(),
-            diagnostics: validation_diagnostics,
-        };
-    }
     let builtin_symbols = compiler_builtins::required_symbols(index.program(), &index);
     let mut tasks = partitions
-        .into_iter()
+        .iter()
+        .cloned()
         .map(NativeCodegenTask::Partition)
         .collect::<Vec<_>>();
+    tasks.extend(
+        declaration_only_modules(&index, &partitions)
+            .into_iter()
+            .map(NativeCodegenTask::DeclarationModule),
+    );
     if builtin_symbols.any() {
         tasks.push(NativeCodegenTask::CompilerBuiltins(builtin_symbols));
     }
@@ -168,9 +178,15 @@ fn emit_native_objects_inner(
             move || match task {
                 NativeCodegenTask::Partition(partition) => {
                     emit_native_object_partition(partition, index, options, cache.as_deref())
+                        .map(Some)
+                }
+                NativeCodegenTask::DeclarationModule(module_id) => {
+                    validate_declaration_module(module_id, &index).map(|()| None)
                 }
                 NativeCodegenTask::CompilerBuiltins(symbols) => {
                     emit_compiler_builtins_object(symbols, options, cache.as_deref())
+                        .map(Some)
+                        .map_err(|diagnostic| vec![diagnostic])
                 }
             }
         }),
@@ -181,11 +197,12 @@ fn emit_native_objects_inner(
     let mut reuse_counts = ObjectReuseCounts::default();
     for outcome in outcomes {
         match outcome {
-            Ok((output, reuse)) => {
+            Ok(Some((output, reuse))) => {
                 reuse_counts.record(reuse);
                 outputs.push(output);
             }
-            Err(diagnostic) => diagnostics.push(diagnostic),
+            Ok(None) => {}
+            Err(task_diagnostics) => diagnostics.extend(task_diagnostics),
         }
     }
     if timings.enabled() {
@@ -201,7 +218,43 @@ fn emit_native_objects_inner(
 
 enum NativeCodegenTask {
     Partition(CodegenPartition),
+    DeclarationModule(ModuleId),
     CompilerBuiltins(compiler_builtins::CompilerBuiltinSymbols),
+}
+
+enum LlvmIrTask {
+    Partition(CodegenPartition),
+    DeclarationModule(ModuleId),
+}
+
+fn declaration_only_modules(
+    index: &ProgramIndex,
+    partitions: &[CodegenPartition],
+) -> Vec<ModuleId> {
+    if !partitions.is_empty() {
+        return Vec::new();
+    }
+    index
+        .program()
+        .modules
+        .iter()
+        .map(|module| module.id)
+        .collect()
+}
+
+fn validate_declaration_module(
+    module_id: ModuleId,
+    index: &ProgramIndex,
+) -> Result<(), Vec<nia_diagnostic::Diagnostic>> {
+    let module = index
+        .module(module_id)
+        .expect("declaration validation task references published module");
+    let diagnostics = validate_backend_declaration_module(module, index);
+    if diagnostics.is_empty() {
+        Ok(())
+    } else {
+        Err(diagnostics)
+    }
 }
 
 fn codegen_worker_lanes(session: &QuerySession, task_count: usize) -> usize {
@@ -284,11 +337,17 @@ fn emit_llvm_ir_partition(
     partition: CodegenPartition,
     index: Arc<ProgramIndex>,
     options: LlvmCodegenOptions,
-) -> Result<LlvmModuleOutput, nia_diagnostic::Diagnostic> {
-    let memory_permit = nia_query::acquire_llvm_memory_permit();
-    record_memory_permit(options.timings, memory_permit.waited());
+) -> Result<LlvmModuleOutput, Vec<nia_diagnostic::Diagnostic>> {
     let module = index.program().module_for_partition(&partition);
+    let diagnostics = validate_backend_partition_definitions(&partition, &index);
+    if !diagnostics.is_empty() {
+        return Err(diagnostics);
+    }
     let declarations = CodegenDeclarationMembership::build(&partition, &index);
+    let diagnostics = validate_backend_partition_declarations(&declarations, &index);
+    if !diagnostics.is_empty() {
+        return Err(diagnostics);
+    }
     let fingerprints = fingerprint::source_unit_fingerprint(
         &partition,
         &declarations,
@@ -296,13 +355,16 @@ fn emit_llvm_ir_partition(
         options,
         fingerprint::ArtifactTarget::LlvmIr,
     );
+    let memory_permit = nia_query::acquire_llvm_memory_permit();
+    record_memory_permit(options.timings, memory_permit.waited());
     let context =
         time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
     let mut codegen =
         time_codegen_module_stage(options.timings, "new_module", &module.name, || {
             ModuleCodegen::new(&context, module, &partition, &declarations, &index, options)
-        })?;
-    let ir = codegen.emit_ir()?;
+        })
+        .map_err(|diagnostic| vec![diagnostic])?;
+    let ir = codegen.emit_ir().map_err(|diagnostic| vec![diagnostic])?;
     Ok(LlvmModuleOutput {
         unit: partition.id,
         key: partition.key,
@@ -317,14 +379,22 @@ fn emit_native_object_partition(
     index: Arc<ProgramIndex>,
     options: LlvmCodegenOptions,
     cache: Option<&dyn ObjectWorkProductCache>,
-) -> Result<(IncrementalLinkInput<NativeObject>, ObjectReuse), nia_diagnostic::Diagnostic> {
+) -> Result<(IncrementalLinkInput<NativeObject>, ObjectReuse), Vec<nia_diagnostic::Diagnostic>> {
+    let diagnostics = validate_backend_partition_definitions(&partition, &index);
+    if !diagnostics.is_empty() {
+        return Err(diagnostics);
+    }
     let target_identity = time_codegen_stage(
         options.timings,
         "llvm_codegen.native_target_identity",
         TargetMachine::native_identity,
     )
-    .map_err(|error| error.diagnostic())?;
+    .map_err(|error| vec![error.diagnostic()])?;
     let declarations = CodegenDeclarationMembership::build(&partition, &index);
+    let diagnostics = validate_backend_partition_declarations(&declarations, &index);
+    if !diagnostics.is_empty() {
+        return Err(diagnostics);
+    }
     let fingerprints = fingerprint::source_unit_fingerprint(
         &partition,
         &declarations,
@@ -359,17 +429,20 @@ fn emit_native_object_partition(
             llvm_optimization_level(options.optimization.level),
         )
     })
-    .map_err(|error| error.diagnostic())?;
+    .map_err(|error| vec![error.diagnostic()])?;
     let context =
         time_codegen_module_stage(options.timings, "context", &module.name, Context::create);
     let mut codegen =
         time_codegen_module_stage(options.timings, "new_module", &module.name, || {
             ModuleCodegen::new(&context, module, &partition, &declarations, &index, options)
-        })?;
+        })
+        .map_err(|diagnostic| vec![diagnostic])?;
     target
         .configure_module(&codegen.module)
-        .map_err(|error| error.diagnostic())?;
-    let bytes = codegen.emit_object(&target)?;
+        .map_err(|error| vec![error.diagnostic()])?;
+    let bytes = codegen
+        .emit_object(&target)
+        .map_err(|diagnostic| vec![diagnostic])?;
     publish_object_work_product(cache, &partition.key, fingerprints, &bytes);
     Ok((
         IncrementalLinkInput {
