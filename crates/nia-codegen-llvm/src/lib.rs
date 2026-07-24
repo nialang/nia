@@ -69,11 +69,13 @@ fn emit_llvm_ir_with_options_inner(
         .validate_program(&lowering.program);
     let partitions = lowering.codegen_partitions.partitions().to_vec();
     let module_store = lowering.program.module_store();
-    let index = Arc::new(time_codegen_stage(
-        timings,
-        "llvm_codegen.program_index",
-        || ProgramIndex::new(module_store, type_store),
-    ));
+    let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
+        let (index, mut publisher) = ProgramIndex::new(module_store, type_store);
+        for module_id in index.module_ids().to_vec() {
+            publisher.publish(module_id);
+        }
+        index
+    });
     let mut tasks = partitions
         .iter()
         .cloned()
@@ -153,11 +155,13 @@ fn emit_native_objects_inner(
         .validate_program(&lowering.program);
     let partitions = lowering.codegen_partitions.partitions().to_vec();
     let module_store = lowering.program.module_store();
-    let index = Arc::new(time_codegen_stage(
-        timings,
-        "llvm_codegen.program_index",
-        || ProgramIndex::new(module_store, type_store),
-    ));
+    let index = time_codegen_stage(timings, "llvm_codegen.program_index", || {
+        let (index, mut publisher) = ProgramIndex::new(module_store, type_store);
+        for module_id in index.module_ids().to_vec() {
+            publisher.publish(module_id);
+        }
+        index
+    });
     let builtin_symbols = compiler_builtins::required_symbols(&index);
     let mut tasks = partitions
         .iter()

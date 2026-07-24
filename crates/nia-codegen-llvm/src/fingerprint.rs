@@ -1888,7 +1888,6 @@ const fn llvm_sys_version() -> u64 {
 mod tests {
     use std::sync::Arc;
 
-    use nia_backend_lower::{BackendLowering, BackendOptimizationReport};
     use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
     use nia_layout::{TargetDataLayout, TypeLayout};
     use nia_source::SourceIdentity;
@@ -1899,7 +1898,7 @@ mod tests {
     use super::*;
 
     struct Fixture {
-        index: ProgramIndex,
+        index: Arc<ProgramIndex>,
         partition: CodegenPartition,
     }
 
@@ -2011,17 +2010,12 @@ mod tests {
             })
             .expect("owner partition")
             .clone();
-        let lowering = Arc::new(BackendLowering {
-            program,
-            codegen_partitions: plan,
-            optimization: OptimizationPolicy::default(),
-            optimization_report: BackendOptimizationReport::default(),
-            diagnostics: Vec::new(),
-        });
-        Fixture {
-            index: ProgramIndex::new(lowering.program.module_store(), Arc::new(type_store)),
-            partition,
+        let (index, mut publisher) =
+            ProgramIndex::new(program.module_store(), Arc::new(type_store));
+        for module_id in index.module_ids().to_vec() {
+            publisher.publish(module_id);
         }
+        Fixture { index, partition }
     }
 
     fn ir_fingerprints(
