@@ -80,6 +80,11 @@ frontend_cache_key!(
     ItemSignatureFingerprint,
     "nia.frontend.cache-key.provider-summary.v2"
 );
+frontend_cache_key!(
+    FrontendPublicSurfaceFactsCacheKey,
+    SourceContentFingerprint,
+    "nia.frontend.cache-key.public-surface-facts.v1"
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrontendFacadeFactsCacheKey(QueryFingerprint);
@@ -434,6 +439,11 @@ extend Value {
             FrontendItemSignatureCacheKey::new(namespace, &module, before_signature);
         let provider_key =
             FrontendProviderSummaryCacheKey::new(namespace, &module, before_signature);
+        let public_surface_facts_key = FrontendPublicSurfaceFactsCacheKey::new(
+            namespace,
+            &module,
+            source_content_fingerprint(before_source),
+        );
         let mut module_map = ModuleMap::new();
         module_map.insert("dep", SourcePath::new("deps/dep.nia"));
         let module_map = frontend_module_map_fingerprint(&module_map);
@@ -490,6 +500,14 @@ extend Value {
             )
         );
         assert_ne!(
+            public_surface_facts_key,
+            FrontendPublicSurfaceFactsCacheKey::new(
+                namespace,
+                &module,
+                source_content_fingerprint(after_source)
+            )
+        );
+        assert_ne!(
             dependencies_key,
             FrontendModuleDependenciesCacheKey::new(
                 namespace,
@@ -507,6 +525,8 @@ extend Value {
         assert_ne!(signature_key.parts(), provider_key.parts());
         assert_ne!(provider_key.parts(), facade_key.parts());
         assert_ne!(source_key.parts(), dependencies_key.parts());
+        assert_ne!(source_key.parts(), public_surface_facts_key.parts());
+        assert_ne!(dependencies_key.parts(), public_surface_facts_key.parts());
         assert_eq!(
             provider_key,
             FrontendProviderSummaryCacheKey::from_parts(provider_key.parts())
@@ -517,6 +537,14 @@ extend Value {
         assert_eq!(std::mem::size_of::<FrontendItemSignatureCacheKey>(), 16);
         assert_eq!(std::mem::size_of::<FrontendProviderSummaryCacheKey>(), 16);
         assert_eq!(std::mem::size_of::<FrontendFacadeFactsCacheKey>(), 16);
+        assert_eq!(
+            public_surface_facts_key,
+            FrontendPublicSurfaceFactsCacheKey::from_parts(public_surface_facts_key.parts())
+        );
+        assert_eq!(
+            std::mem::size_of::<FrontendPublicSurfaceFactsCacheKey>(),
+            16
+        );
         assert_eq!(
             dependencies_key,
             FrontendModuleDependenciesCacheKey::from_parts(dependencies_key.parts())

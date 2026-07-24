@@ -36,8 +36,8 @@ pub use nia_body_check::{
 pub use frontend_fingerprint::{
     FrontendCacheNamespace, FrontendFacadeFactsCacheKey, FrontendItemSignatureCacheKey,
     FrontendModuleDependenciesCacheKey, FrontendModuleMapFingerprint,
-    FrontendProviderSummaryCacheKey, FrontendSourceCacheKey, FrontendSyntaxCacheKey,
-    ItemSignatureFingerprint, SourceContentFingerprint, SyntaxFingerprint,
+    FrontendProviderSummaryCacheKey, FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey,
+    FrontendSyntaxCacheKey, ItemSignatureFingerprint, SourceContentFingerprint, SyntaxFingerprint,
     frontend_module_map_fingerprint, item_signature_fingerprint, source_content_fingerprint,
     syntax_fingerprint,
 };
