@@ -333,6 +333,94 @@ impl ProgramIndex {
             .map(|module| &self.lowering.program.modules[*module])
     }
 
+    fn item_owner(&self, position: ItemPosition) -> ModuleId {
+        self.lowering.program.modules[position.module].id
+    }
+
+    pub(super) fn struct_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
+        self.structs
+            .get(&def_id)
+            .map(|position| self.item_owner(*position))
+    }
+
+    pub(super) fn union_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
+        self.unions
+            .get(&def_id)
+            .map(|position| self.item_owner(*position))
+    }
+
+    pub(super) fn struct_instance_owner(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<ModuleId> {
+        self.struct_instances
+            .get(&def_id)
+            .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
+            .map(|position| self.item_owner(*position))
+    }
+
+    pub(super) fn union_instance_owner(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<ModuleId> {
+        self.union_instances
+            .get(&def_id)
+            .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
+            .map(|position| self.item_owner(*position))
+    }
+
+    pub(super) fn global_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
+        self.globals
+            .get(&def_id)
+            .map(|position| self.item_owner(*position))
+    }
+
+    pub(super) fn global_instance_owner(
+        &self,
+        def_id: GlobalDefId,
+        arg_module_id: ModuleId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<ModuleId> {
+        self.global_instances
+            .get(&(def_id, arg_module_id))
+            .and_then(|instances| instances.get(&(args.to_vec(), const_args.to_vec())))
+            .map(|position| self.item_owner(*position))
+    }
+
+    pub(super) fn function_owner(&self, def_id: GlobalDefId) -> Option<ModuleId> {
+        self.functions
+            .get(&def_id)
+            .map(|position| self.item_owner(*position))
+    }
+
+    pub(super) fn function_instance_owner(
+        &self,
+        def_id: GlobalDefId,
+        arg_module_id: ModuleId,
+        self_arg: Option<InternedTyId>,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<ModuleId> {
+        self.function_instances
+            .get(&(def_id, arg_module_id))
+            .and_then(|instances| instances.get(&(self_arg, args.to_vec(), const_args.to_vec())))
+            .map(|position| self.item_owner(*position))
+    }
+
+    pub(super) fn trait_object_vtable_owner(
+        &self,
+        key: &nia_backend_ir::BackendTraitObjectVtableKey,
+    ) -> Option<ModuleId> {
+        self.trait_object_vtables
+            .get(key)
+            .map(|position| self.item_owner(*position))
+    }
+
     pub(super) fn type_store(&self) -> &TypeStore {
         &self.type_store
     }
@@ -679,16 +767,17 @@ mod tests {
     #[test]
     fn indexes_codegen_lookup_tables_by_exact_keys_and_fallback_groups() {
         let mut module_ids = ModuleIdAllocator::new();
+        let semantic_module_id = module_ids.allocate();
         let module_id = module_ids.allocate();
         let type_store = TypeStore::new();
         let interner = type_store.append_for_module(module_id);
         let i32_ty = interner.primitive(PrimitiveTy::I32);
-        let function_def = global(module_id, 1);
-        let struct_def = global(module_id, 2);
-        let enum_def = global(module_id, 3);
-        let first_variant = global(module_id, 4);
-        let second_variant = global(module_id, 5);
-        let trait_def = global(module_id, 6);
+        let function_def = global(semantic_module_id, 1);
+        let struct_def = global(semantic_module_id, 2);
+        let enum_def = global(semantic_module_id, 3);
+        let first_variant = global(semantic_module_id, 4);
+        let second_variant = global(semantic_module_id, 5);
+        let trait_def = global(semantic_module_id, 6);
         let object_ty = interner.intern(TyKind::TraitObject {
             is_readonly: true,
             trait_id: TraitId::Source(trait_def),
@@ -814,12 +903,20 @@ mod tests {
             Some(&struct_layout)
         );
         assert!(index.struct_instance(struct_def, &[i32_ty], &[]).is_some());
+        assert_eq!(
+            index.struct_instance_owner(struct_def, &[i32_ty], &[]),
+            Some(module_id)
+        );
         assert!(std::ptr::eq(
             index
                 .function_instance(function_def, module_id, None, &[i32_ty], &[])
                 .expect("indexed function instance"),
             &lowering.program.modules[0].function_instances[0]
         ));
+        assert_eq!(
+            index.function_instance_owner(function_def, module_id, None, &[i32_ty], &[]),
+            Some(module_id)
+        );
         let variant_info = index
             .enum_variant_info(second_variant)
             .expect("second enum variant info");
@@ -839,6 +936,12 @@ mod tests {
                 .map(|vtable| vtable.key.object_ty)
                 .collect::<Vec<_>>(),
             vec![object_ty]
+        );
+        assert_eq!(
+            index.trait_object_vtable_owner(
+                &lowering.program.modules[0].trait_object_vtables[0].key
+            ),
+            Some(module_id)
         );
     }
 

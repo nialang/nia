@@ -35,6 +35,7 @@ pub(super) fn source_unit_fingerprint(
     options: LlvmCodegenOptions,
     target: ArtifactTarget<'_>,
 ) -> CodegenUnitFingerprintSet {
+    declarations.validate_dependencies(partition, index);
     let mut policy = Encoder::new("nia.llvm.source-policy.v2", index);
     policy.compiler_contract();
     policy.codegen_unit_key(&partition.key);
@@ -2039,6 +2040,75 @@ mod tests {
 
     fn ir_fingerprint(fixture: &Fixture, options: LlvmCodegenOptions) -> CodegenUnitFingerprint {
         ir_fingerprints(fixture, options).fingerprint
+    }
+
+    fn dependencies(fixture: &Fixture) -> CodegenUnitDependencies {
+        CodegenDeclarationMembership::build(&fixture.partition, &fixture.index).dependencies
+    }
+
+    #[test]
+    fn declaration_dependencies_include_only_referenced_module_owners() {
+        let mut ids = ModuleIdAllocator::new();
+        let main_id = ids.allocate();
+        let foreign_id = ids.allocate();
+        let unrelated_id = ids.allocate();
+        let store = TypeStore::new();
+        let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
+        let foreign_def = GlobalDefId {
+            module_id: foreign_id,
+            def_id: DefId(0),
+        };
+        let mut main = module_with_global(main_id, "main.nia", ty, 1);
+        main.globals[0].init = Some(StaticInit::AddrOfFunction {
+            function: foreign_def,
+            args: Vec::new(),
+        });
+        let fixture = fixture(
+            BackendProgram {
+                modules: vec![
+                    main,
+                    declaration_module(
+                        foreign_id,
+                        "foreign.nia",
+                        vec![(ty, TypeLayout { size: 4, align: 4 })],
+                        ty,
+                    ),
+                    module_with_global(unrelated_id, "unrelated.nia", ty, 2),
+                ],
+            },
+            store,
+            "main.nia",
+        );
+
+        let dependencies = dependencies(&fixture);
+
+        assert_eq!(dependencies.unit(), fixture.partition.id);
+        assert_eq!(dependencies.modules(), &[main_id, foreign_id]);
+        assert!(!dependencies.contains(unrelated_id));
+    }
+
+    #[test]
+    fn declaration_dependencies_are_self_contained_without_foreign_refs() {
+        let mut ids = ModuleIdAllocator::new();
+        let main_id = ids.allocate();
+        let unrelated_id = ids.allocate();
+        let store = TypeStore::new();
+        let ty = store.append_for_module(main_id).primitive(PrimitiveTy::I32);
+        let fixture = fixture(
+            BackendProgram {
+                modules: vec![
+                    module_with_global(main_id, "main.nia", ty, 1),
+                    module_with_global(unrelated_id, "unrelated.nia", ty, 2),
+                ],
+            },
+            store,
+            "main.nia",
+        );
+
+        let dependencies = dependencies(&fixture);
+
+        assert_eq!(dependencies.unit(), fixture.partition.id);
+        assert_eq!(dependencies.modules(), &[main_id]);
     }
 
     #[test]

@@ -5,16 +5,18 @@ use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendGlobal, BackendGlobalInstance,
     BackendGlobalInstanceKey, BackendStructInstanceKey, BackendTraitObjectVtable,
     BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey, CodegenPartition,
+    CodegenUnitDependencies, CodegenUnitId,
 };
 use nia_function_ir::{FunctionBodyRefs, FunctionInstanceKey, TraitObjectVtableRef};
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_mangle::{mangle_symbol_id, mangle_type_with};
-use nia_ty::TyKind;
+use nia_ty::{ArrayLenTy, TraitId, TyKind};
 
 use crate::program_index::ProgramIndex;
 
 #[derive(Debug)]
 pub(super) struct CodegenDeclarationMembership {
+    pub(super) dependencies: CodegenUnitDependencies,
     pub(super) structs: Vec<GlobalDefId>,
     pub(super) struct_instances: Vec<BackendStructInstanceKey>,
     pub(super) unions: Vec<GlobalDefId>,
@@ -29,6 +31,25 @@ pub(super) struct CodegenDeclarationMembership {
 impl CodegenDeclarationMembership {
     pub(super) fn build(partition: &CodegenPartition, index: &ProgramIndex) -> Self {
         MembershipBuilder::new(index).build(partition)
+    }
+
+    pub(super) fn validate_dependencies(&self, partition: &CodegenPartition, index: &ProgramIndex) {
+        assert_eq!(
+            self.dependencies.unit(),
+            partition.id,
+            "Nia ICE: codegen dependency closure belongs to a different unit"
+        );
+        let owner = index.program().module_for_partition(partition);
+        assert!(
+            self.dependencies.contains(owner.id),
+            "Nia ICE: codegen dependency closure omits its definition owner"
+        );
+        for &module_id in self.dependencies.modules() {
+            assert!(
+                index.module(module_id).is_some(),
+                "Nia ICE: codegen dependency module {module_id:?} is not published"
+            );
+        }
     }
 }
 
@@ -46,6 +67,7 @@ struct MembershipBuilder<'a> {
     expanded_vtable_definitions: HashSet<BackendTraitObjectVtableKey>,
     pending_types: VecDeque<InternedTyId>,
     visited_types: HashSet<InternedTyId>,
+    dependency_modules: BTreeSet<ModuleId>,
 }
 
 impl<'a> MembershipBuilder<'a> {
@@ -64,11 +86,13 @@ impl<'a> MembershipBuilder<'a> {
             expanded_vtable_definitions: HashSet::new(),
             pending_types: VecDeque::new(),
             visited_types: HashSet::new(),
+            dependency_modules: BTreeSet::new(),
         }
     }
 
     fn build(mut self, partition: &CodegenPartition) -> CodegenDeclarationMembership {
         let owner = self.index.program().module_for_partition(partition);
+        self.dependency_modules.insert(owner.id);
         for &index in partition.global_definitions() {
             self.add_global_definition(&owner.globals[index]);
         }
@@ -85,7 +109,7 @@ impl<'a> MembershipBuilder<'a> {
             self.add_vtable_definition(&owner.trait_object_vtables[index]);
         }
         self.close_types();
-        self.finish()
+        self.finish(partition.id)
     }
 
     fn add_global_definition(&mut self, item: &BackendGlobal) {
@@ -118,6 +142,7 @@ impl<'a> MembershipBuilder<'a> {
 
     fn add_global(&mut self, item: &BackendGlobal) {
         if self.globals.insert(item.def_id) {
+            self.add_dependency(self.index.global_owner(item.def_id), "global");
             self.add_type(item.ty);
         }
     }
@@ -130,6 +155,15 @@ impl<'a> MembershipBuilder<'a> {
             const_args: item.const_args.clone(),
         };
         if self.global_instances.insert(key) {
+            self.add_dependency(
+                self.index.global_instance_owner(
+                    item.def_id,
+                    item.arg_module_id,
+                    &item.args,
+                    &item.const_args,
+                ),
+                "global instance",
+            );
             self.add_type(item.ty);
             self.add_types(item.args.iter().copied());
             self.add_types(item.const_args.iter().map(|arg| arg.ty));
@@ -138,6 +172,7 @@ impl<'a> MembershipBuilder<'a> {
 
     fn add_function(&mut self, item: &BackendFunction) {
         if self.functions.insert(item.def_id) {
+            self.add_dependency(self.index.function_owner(item.def_id), "function");
             self.add_function_signature(&item.params, item.return_type);
         }
     }
@@ -151,6 +186,16 @@ impl<'a> MembershipBuilder<'a> {
             const_args: item.const_args.clone(),
         };
         if self.function_instances.insert(key) {
+            self.add_dependency(
+                self.index.function_instance_owner(
+                    item.def_id,
+                    item.arg_module_id,
+                    item.self_arg,
+                    &item.args,
+                    &item.const_args,
+                ),
+                "function instance",
+            );
             self.add_function_signature(&item.params, item.return_type);
             self.add_types(item.self_arg);
             self.add_types(item.args.iter().copied());
@@ -234,6 +279,10 @@ impl<'a> MembershipBuilder<'a> {
 
     fn add_vtable(&mut self, item: &BackendTraitObjectVtable) {
         if self.vtables.insert(item.key.clone()) {
+            self.add_dependency(
+                self.index.trait_object_vtable_owner(&item.key),
+                "trait-object vtable",
+            );
             self.add_types([item.key.self_ty, item.key.object_ty]);
             self.add_types(item.trait_args.iter().copied());
         }
@@ -277,6 +326,52 @@ impl<'a> MembershipBuilder<'a> {
         }
     }
 
+    fn add_dependency(&mut self, owner: Option<ModuleId>, item: &str) {
+        let owner = owner.unwrap_or_else(|| {
+            panic!("Nia ICE: declaration closure references missing {item} owner")
+        });
+        self.dependency_modules.insert(owner);
+    }
+
+    fn add_trait_dependency(&mut self, trait_id: TraitId) {
+        if let TraitId::Source(def_id) = trait_id {
+            self.dependency_modules.insert(def_id.module_id);
+        }
+    }
+
+    fn add_type_owner_dependencies(&mut self, kind: &TyKind) {
+        match kind {
+            TyKind::Array {
+                len: ArrayLenTy::ConstExpr(expr_id),
+                ..
+            } => {
+                self.dependency_modules.insert(expr_id.module_id);
+            }
+            TyKind::Nominal { def_id, .. } => {
+                self.dependency_modules.insert(def_id.module_id);
+            }
+            TyKind::TraitObject {
+                trait_id,
+                associated_type_bindings,
+                ..
+            }
+            | TyKind::TraitObjectPointee {
+                trait_id,
+                associated_type_bindings,
+                ..
+            } => {
+                self.add_trait_dependency(*trait_id);
+                for binding in associated_type_bindings {
+                    if let Some(trait_id) = binding.trait_id {
+                        self.add_trait_dependency(trait_id);
+                    }
+                }
+            }
+            TyKind::Projection { trait_id, .. } => self.add_trait_dependency(*trait_id),
+            _ => {}
+        }
+    }
+
     fn add_types(&mut self, types: impl IntoIterator<Item = InternedTyId>) {
         for ty in types {
             self.add_type(ty);
@@ -288,6 +383,7 @@ impl<'a> MembershipBuilder<'a> {
             let kind = self.index.ty_kind(ty).unwrap_or_else(|| {
                 panic!("Nia ICE: declaration closure references missing type {ty:?}")
             });
+            self.add_type_owner_dependencies(kind);
             kind.visit_referenced_types(|referenced| self.add_type(referenced));
             let TyKind::Nominal {
                 def_id,
@@ -298,6 +394,10 @@ impl<'a> MembershipBuilder<'a> {
                 continue;
             };
             if let Some(item) = self.index.struct_instance(*def_id, args, const_args) {
+                self.add_dependency(
+                    self.index.struct_instance_owner(*def_id, args, const_args),
+                    "struct instance",
+                );
                 let key = BackendStructInstanceKey {
                     def_id: *def_id,
                     args: args.clone(),
@@ -307,6 +407,10 @@ impl<'a> MembershipBuilder<'a> {
                     self.add_types(item.fields.iter().map(|field| field.ty));
                 }
             } else if let Some(item) = self.index.union_instance(*def_id, args, const_args) {
+                self.add_dependency(
+                    self.index.union_instance_owner(*def_id, args, const_args),
+                    "union instance",
+                );
                 let key = BackendStructInstanceKey {
                     def_id: *def_id,
                     args: args.clone(),
@@ -316,18 +420,20 @@ impl<'a> MembershipBuilder<'a> {
                     self.add_types(item.fields.iter().map(|field| field.ty));
                 }
             } else if let Some(item) = self.index.struct_item(*def_id) {
+                self.add_dependency(self.index.struct_owner(*def_id), "struct");
                 if self.structs.insert(*def_id) {
                     self.add_types(item.fields.iter().map(|field| field.ty));
                 }
             } else if let Some(item) = self.index.union_item(*def_id)
                 && self.unions.insert(*def_id)
             {
+                self.add_dependency(self.index.union_owner(*def_id), "union");
                 self.add_types(item.fields.iter().map(|field| field.ty));
             }
         }
     }
 
-    fn finish(self) -> CodegenDeclarationMembership {
+    fn finish(self, unit: CodegenUnitId) -> CodegenDeclarationMembership {
         let mut structs = self.structs.into_iter().collect::<Vec<_>>();
         structs.sort_unstable_by(|left, right| {
             stable_def_key(self.index, *left).cmp(&stable_def_key(self.index, *right))
@@ -392,6 +498,7 @@ impl<'a> MembershipBuilder<'a> {
             )
         });
         CodegenDeclarationMembership {
+            dependencies: CodegenUnitDependencies::new(unit, self.dependency_modules),
             structs,
             struct_instances,
             unions,

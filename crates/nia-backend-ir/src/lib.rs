@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId, ReceiverKind};
@@ -83,6 +83,38 @@ impl CodegenUnitKey {
             source_identity,
             ordinal,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodegenUnitDependencies {
+    unit: CodegenUnitId,
+    modules: Vec<ModuleId>,
+}
+
+impl CodegenUnitDependencies {
+    pub fn new(unit: CodegenUnitId, modules: impl IntoIterator<Item = ModuleId>) -> Self {
+        let modules = modules.into_iter().collect::<BTreeSet<_>>();
+        assert!(
+            !modules.is_empty(),
+            "Nia ICE: codegen unit dependency modules must include its owner"
+        );
+        Self {
+            unit,
+            modules: modules.into_iter().collect(),
+        }
+    }
+
+    pub fn unit(&self) -> CodegenUnitId {
+        self.unit
+    }
+
+    pub fn modules(&self) -> &[ModuleId] {
+        &self.modules
+    }
+
+    pub fn contains(&self, module_id: ModuleId) -> bool {
+        self.modules.binary_search(&module_id).is_ok()
     }
 }
 
@@ -902,6 +934,39 @@ mod tests {
         program.modules[0].globals.clear();
 
         plan.validate_program(&program);
+    }
+
+    #[test]
+    fn codegen_unit_dependencies_preserve_unit_and_canonicalize_modules() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let first_id = module_ids.allocate();
+        let second_id = module_ids.allocate();
+        let unit = CodegenUnitId::SourceModule {
+            module_id: first_id,
+            ordinal: 2,
+        };
+
+        let dependencies = CodegenUnitDependencies::new(unit, [second_id, first_id, second_id]);
+
+        assert_eq!(dependencies.unit(), unit);
+        assert_eq!(dependencies.modules(), &[first_id, second_id]);
+        assert!(dependencies.contains(first_id));
+        assert!(dependencies.contains(second_id));
+    }
+
+    #[test]
+    #[should_panic(expected = "dependency modules must include its owner")]
+    fn codegen_unit_dependencies_reject_empty_module_sets() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let module_id = module_ids.allocate();
+
+        let _ = CodegenUnitDependencies::new(
+            CodegenUnitId::SourceModule {
+                module_id,
+                ordinal: 0,
+            },
+            [],
+        );
     }
 
     fn incremental_link_input(path: &str, key: CodegenUnitKey) -> IncrementalLinkInput<String> {
