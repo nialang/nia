@@ -127,6 +127,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         program: &'a ProgramIndex,
         options: crate::output::LlvmCodegenOptions,
     ) -> Result<Self, Diagnostic> {
+        declarations.validate_dependencies(partition, program);
         Ok(Self {
             context,
             source,
