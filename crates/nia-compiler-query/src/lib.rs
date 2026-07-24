@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod frontend_fingerprint;
 mod query;
 
 use nia_abi_check::AbiCheck;
@@ -30,6 +31,11 @@ use nia_value_resolve::ValueResolution;
 
 pub use nia_body_check::{
     ProviderDemand, ProviderFactRevision, ProviderFactRevisionTransition, ProviderRequest,
+};
+
+pub use frontend_fingerprint::{
+    ItemSignatureFingerprint, SourceContentFingerprint, SyntaxFingerprint,
+    item_signature_fingerprint, source_content_fingerprint, syntax_fingerprint,
 };
 
 pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport};
