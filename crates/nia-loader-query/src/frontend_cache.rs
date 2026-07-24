@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs::{self, File, OpenOptions},
     io::{self, Cursor, Read, Write},
     path::{Path, PathBuf},
@@ -6,20 +7,23 @@ use std::{
 };
 
 use nia_compiler_query::{
-    FrontendCacheNamespace, FrontendFacadeFactsCacheKey, FrontendModuleMapFingerprint,
-    FrontendProviderSummaryCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
-    SourceContentFingerprint,
+    FrontendCacheNamespace, FrontendFacadeFactsCacheKey, FrontendModuleDependenciesCacheKey,
+    FrontendModuleMapFingerprint, FrontendProviderSummaryCacheKey, FrontendSourceCacheKey,
+    ItemSignatureFingerprint, SourceContentFingerprint,
 };
-use nia_imports::StableModuleKey;
+use nia_imports::{ResolvedModuleDeclaration, StableModuleKey, Visibility};
 use nia_provider_summary::{Provider, ProviderSummary, ProviderTarget, ProviderTypeRef};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
 use nia_symbol::SymbolId;
 
 use crate::facade_facts::{ModuleFacadeFacts, PublicReexportSource};
-use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
+use crate::used_paths::{
+    ExplicitUsingImport, ModuleDeclarations, UsedModulePath, UsedModulePathProcessing,
+};
 
 const DEPENDENCY_MANIFEST_MAGIC: &[u8; 8] = b"NIAFDM01";
 const FACADE_FACTS_MAGIC: &[u8; 8] = b"NIAFFF01";
+const MODULE_DEPENDENCIES_MAGIC: &[u8; 8] = b"NIAFMD01";
 const PROVIDER_SUMMARY_MAGIC: &[u8; 8] = b"NIAFPS02";
 const FRONTEND_CACHE_SCHEMA: &str = "v2";
 const MAX_CACHE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
@@ -42,6 +46,13 @@ pub(crate) enum ProviderSummaryCacheLookup {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum FacadeFactsCacheLookup {
     Hit(ModuleFacadeFacts),
+    NotFound,
+    Corrupt,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ModuleDependenciesCacheLookup {
+    Hit(ModuleDeclarations),
     NotFound,
     Corrupt,
 }
@@ -178,6 +189,91 @@ impl PersistentFrontendCache {
         remove_corrupt(&self.facade_facts_path(key));
     }
 
+    pub(crate) fn load_module_dependencies(
+        &self,
+        key: FrontendModuleDependenciesCacheKey,
+        namespace: FrontendCacheNamespace,
+        module: &StableModuleKey,
+        source: SourceContentFingerprint,
+        source_len: usize,
+        module_map: FrontendModuleMapFingerprint,
+    ) -> io::Result<ModuleDependenciesCacheLookup> {
+        let path = self.module_dependencies_path(key);
+        let encoded = match read_cache_entry(&path)? {
+            Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
+            Some(_) => {
+                remove_corrupt(&path);
+                return Ok(ModuleDependenciesCacheLookup::Corrupt);
+            }
+            None => return Ok(ModuleDependenciesCacheLookup::NotFound),
+        };
+        let Some(entry) = decode_module_dependencies(&encoded) else {
+            remove_corrupt(&path);
+            return Ok(ModuleDependenciesCacheLookup::Corrupt);
+        };
+        if entry.key != key.parts()
+            || entry.namespace != namespace.parts()
+            || entry.module != module.source_identity().normalized_path()
+            || entry.source != source.parts()
+            || entry.source_len != source_len
+            || entry.module_map != module_map.parts()
+            || path
+                != self.module_dependencies_path(FrontendModuleDependenciesCacheKey::from_parts(
+                    entry.key,
+                ))
+        {
+            remove_corrupt(&path);
+            return Ok(ModuleDependenciesCacheLookup::Corrupt);
+        }
+        let Some(declarations) = decode_module_dependencies_payload(&entry.payload, source_len)
+        else {
+            remove_corrupt(&path);
+            return Ok(ModuleDependenciesCacheLookup::Corrupt);
+        };
+        Ok(ModuleDependenciesCacheLookup::Hit(declarations))
+    }
+
+    pub(crate) fn publish_module_dependencies(
+        &self,
+        namespace: FrontendCacheNamespace,
+        module: &StableModuleKey,
+        source: SourceContentFingerprint,
+        source_len: usize,
+        module_map: FrontendModuleMapFingerprint,
+        declarations: &ModuleDeclarations,
+    ) -> io::Result<()> {
+        if !declarations.diagnostics.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "cannot cache module dependencies with diagnostics",
+            ));
+        }
+        let key = FrontendModuleDependenciesCacheKey::new(namespace, module, source, module_map);
+        let path = self.module_dependencies_path(key);
+        if path.is_file() {
+            return Ok(());
+        }
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid frontend module dependencies path"))?;
+        fs::create_dir_all(parent)?;
+        let staged = staged_path(&path);
+        let encoded = encode_module_dependencies(
+            key,
+            namespace,
+            module,
+            source,
+            source_len,
+            module_map,
+            declarations,
+        );
+        atomic_publish(&staged, &path, &encoded)
+    }
+
+    pub(crate) fn remove_module_dependencies(&self, key: FrontendModuleDependenciesCacheKey) {
+        remove_corrupt(&self.module_dependencies_path(key));
+    }
+
     pub(crate) fn load_dependency_manifest(
         &self,
         key: FrontendSourceCacheKey,
@@ -255,6 +351,19 @@ impl PersistentFrontendCache {
             .join(FRONTEND_CACHE_SCHEMA)
             .join("facade-facts")
             .join(format!("{first:016x}{second:016x}.fff"))
+    }
+
+    pub(crate) fn module_dependencies_path(
+        &self,
+        key: FrontendModuleDependenciesCacheKey,
+    ) -> PathBuf {
+        let [first, second] = key.parts();
+        self.root
+            .join("artifacts")
+            .join("frontend")
+            .join(FRONTEND_CACHE_SCHEMA)
+            .join("module-dependencies")
+            .join(format!("{first:016x}{second:016x}.fmd"))
     }
 
     pub(crate) fn dependency_manifest_path(&self, key: FrontendSourceCacheKey) -> PathBuf {
@@ -475,6 +584,170 @@ fn decode_facade_facts_payload(payload: &[u8]) -> Option<ModuleFacadeFacts> {
         public_reexports,
         provider_source_paths,
     ))
+}
+
+fn encode_module_dependencies(
+    key: FrontendModuleDependenciesCacheKey,
+    namespace: FrontendCacheNamespace,
+    module: &StableModuleKey,
+    source: SourceContentFingerprint,
+    source_len: usize,
+    module_map: FrontendModuleMapFingerprint,
+    declarations: &ModuleDeclarations,
+) -> Vec<u8> {
+    let payload = encode_module_dependencies_payload(declarations);
+    let checksum = module_dependencies_checksum(&payload);
+    let mut encoded =
+        Vec::with_capacity(120 + module.source_identity().normalized_path().len() + payload.len());
+    encoded.extend_from_slice(MODULE_DEPENDENCIES_MAGIC);
+    write_parts(&mut encoded, key.parts());
+    write_parts(&mut encoded, namespace.parts());
+    write_string(&mut encoded, module.source_identity().normalized_path());
+    write_parts(&mut encoded, source.parts());
+    encoded.extend_from_slice(&(source_len as u64).to_le_bytes());
+    write_parts(&mut encoded, module_map.parts());
+    encoded.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+    write_parts(&mut encoded, checksum.parts());
+    encoded.extend_from_slice(&payload);
+    encoded
+}
+
+struct DecodedModuleDependencies {
+    key: [u64; 2],
+    namespace: [u64; 2],
+    module: String,
+    source: [u64; 2],
+    source_len: usize,
+    module_map: [u64; 2],
+    payload: Vec<u8>,
+}
+
+fn decode_module_dependencies(encoded: &[u8]) -> Option<DecodedModuleDependencies> {
+    let mut cursor = Cursor::new(encoded);
+    let mut magic = [0; 8];
+    cursor.read_exact(&mut magic).ok()?;
+    (magic == *MODULE_DEPENDENCIES_MAGIC).then_some(())?;
+    let key = read_parts(&mut cursor)?;
+    let namespace = read_parts(&mut cursor)?;
+    let module = read_string(&mut cursor, encoded.len())?;
+    let source = read_parts(&mut cursor)?;
+    let source_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
+    let module_map = read_parts(&mut cursor)?;
+    let payload_len = read_len(&mut cursor, MAX_CACHE_PAYLOAD_BYTES)?;
+    let checksum = read_parts(&mut cursor)?;
+    let mut payload = vec![0; payload_len];
+    cursor.read_exact(&mut payload).ok()?;
+    (cursor.position() as usize == encoded.len()).then_some(())?;
+    (module_dependencies_checksum(&payload).parts() == checksum).then_some(())?;
+    Some(DecodedModuleDependencies {
+        key,
+        namespace,
+        module,
+        source,
+        source_len,
+        module_map,
+        payload,
+    })
+}
+
+fn encode_module_dependencies_payload(declarations: &ModuleDeclarations) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(&(declarations.declarations.len() as u64).to_le_bytes());
+    for declaration in &declarations.declarations {
+        encoded.extend_from_slice(&declaration.name.raw().to_le_bytes());
+        write_visibility(&mut encoded, declaration.visibility);
+        write_span(&mut encoded, declaration.span);
+    }
+    write_symbols(&mut encoded, &declarations.package_roots);
+    encoded.extend_from_slice(&(declarations.used_module_paths.len() as u64).to_le_bytes());
+    for path in &declarations.used_module_paths {
+        write_used_module_path(&mut encoded, path);
+    }
+    encoded.extend_from_slice(&(declarations.explicit_imports.len() as u64).to_le_bytes());
+    for import in &declarations.explicit_imports {
+        write_span(&mut encoded, import.span);
+        encoded.extend_from_slice(&import.alias.raw().to_le_bytes());
+        write_used_module_path(&mut encoded, &import.path);
+    }
+    write_symbols(&mut encoded, &declarations.used_import_aliases);
+    encoded
+}
+
+fn decode_module_dependencies_payload(
+    payload: &[u8],
+    source_len: usize,
+) -> Option<ModuleDeclarations> {
+    let mut cursor = Cursor::new(payload);
+    let declaration_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut declarations = Vec::with_capacity(declaration_len);
+    let mut declaration_names = HashSet::with_capacity(declaration_len);
+    for _ in 0..declaration_len {
+        let name = read_symbol(&mut cursor)?;
+        declaration_names.insert(name).then_some(())?;
+        declarations.push(ResolvedModuleDeclaration {
+            name,
+            visibility: read_visibility(&mut cursor)?,
+            span: read_span(&mut cursor, source_len)?,
+        });
+    }
+    let package_roots = read_symbols(&mut cursor)?;
+    is_strictly_sorted(&package_roots).then_some(())?;
+    let used_path_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut used_module_paths = Vec::with_capacity(used_path_len);
+    for _ in 0..used_path_len {
+        used_module_paths.push(read_used_module_path(&mut cursor)?);
+    }
+    is_strictly_sorted(&used_module_paths).then_some(())?;
+    let import_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut explicit_imports = Vec::with_capacity(import_len);
+    for _ in 0..import_len {
+        explicit_imports.push(ExplicitUsingImport {
+            span: read_span(&mut cursor, source_len)?,
+            alias: read_symbol(&mut cursor)?,
+            path: read_used_module_path(&mut cursor)?,
+        });
+    }
+    let used_import_aliases = read_symbols(&mut cursor)?;
+    is_strictly_sorted(&used_import_aliases).then_some(())?;
+    (cursor.position() as usize == payload.len()).then_some(())?;
+    Some(ModuleDeclarations {
+        declarations,
+        package_roots,
+        used_module_paths,
+        explicit_imports,
+        used_import_aliases,
+        diagnostics: Vec::new(),
+    })
+}
+
+fn write_visibility(encoded: &mut Vec<u8>, visibility: Visibility) {
+    encoded.push(match visibility {
+        Visibility::Private => 0,
+        Visibility::PublicSuper => 1,
+        Visibility::PublicPkg => 2,
+        Visibility::Public => 3,
+    });
+}
+
+fn read_visibility(cursor: &mut Cursor<&[u8]>) -> Option<Visibility> {
+    match read_u8(cursor)? {
+        0 => Some(Visibility::Private),
+        1 => Some(Visibility::PublicSuper),
+        2 => Some(Visibility::PublicPkg),
+        3 => Some(Visibility::Public),
+        _ => None,
+    }
+}
+
+fn write_span(encoded: &mut Vec<u8>, span: nia_span::Span) {
+    encoded.extend_from_slice(&(span.start as u64).to_le_bytes());
+    encoded.extend_from_slice(&(span.end as u64).to_le_bytes());
+}
+
+fn read_span(cursor: &mut Cursor<&[u8]>, source_len: usize) -> Option<nia_span::Span> {
+    let start = usize::try_from(read_u64(cursor)?).ok()?;
+    let end = usize::try_from(read_u64(cursor)?).ok()?;
+    (start <= end && end <= source_len).then_some(nia_span::Span { start, end })
 }
 
 fn write_used_module_path(encoded: &mut Vec<u8>, path: &UsedModulePath) {
@@ -778,6 +1051,12 @@ fn dependency_manifest_checksum(payload: &[u8]) -> QueryFingerprint {
 
 fn facade_facts_checksum(payload: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.frontend.facade-facts-payload.v1");
+    builder.write_bytes(payload);
+    builder.finish()
+}
+
+fn module_dependencies_checksum(payload: &[u8]) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.frontend.module-dependencies-payload.v1");
     builder.write_bytes(payload);
     builder.finish()
 }

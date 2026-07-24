@@ -9,12 +9,13 @@ use crate::queries::{
 };
 use nia_compiler_query::{
     CompileRequest, CompilerDatabase, FrontendCacheNamespace, FrontendFacadeFactsCacheKey,
-    FrontendModuleMapFingerprint, FrontendProviderSummaryCacheKey, FrontendSourceCacheKey,
-    ItemSignatureFingerprint, ProviderDemand, ProviderGraphUpdate, RuntimeModel,
-    SourceContentFingerprint, frontend_module_map_fingerprint, has_error_diagnostics,
-    item_signature_fingerprint, source_content_fingerprint,
+    FrontendModuleDependenciesCacheKey, FrontendModuleMapFingerprint,
+    FrontendProviderSummaryCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
+    ProviderDemand, ProviderGraphUpdate, RuntimeModel, SourceContentFingerprint,
+    frontend_module_map_fingerprint, has_error_diagnostics, item_signature_fingerprint,
+    source_content_fingerprint,
 };
-use nia_imports::{ModuleGraph, ModuleNode, StableModuleKey};
+use nia_imports::{ModuleGraph, ModuleNode, StableModuleKey, Visibility};
 use nia_item_tree::{ItemTreeNodeKind, ModuleItemTree};
 use nia_source::SourceId;
 use nia_symbol::{SymbolId, stable_hash};
@@ -1658,6 +1659,284 @@ extend Widget {
 }
 
 #[test]
+fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans() {
+    let root = temp_dir("persistent_module_dependencies_hit_skips_parse_and_tracks_spans");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    sources.set_source(main.clone(), "fn helper() i32 { 1 } pub module child;");
+    let first_file = sources
+        .source_for_path(&main)
+        .expect("main source should be present");
+    let module_map = ModuleMap::new();
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+    let first_identity = module_dependencies_cache_identity(&first_file, &main, &module_map);
+
+    let first = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
+    let first_dependencies = first.get(module_declarations_query(&first, &main));
+    assert!(first_dependencies.diagnostics.is_empty());
+    assert_eq!(first_dependencies.declarations.len(), 1);
+    assert_eq!(first_dependencies.declarations[0].name, sym("child"));
+    assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 1);
+    let first_span = first_dependencies.declarations[0].span;
+
+    let second = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
+    let second_dependencies = second.get(module_declarations_query(&second, &main));
+    assert_eq!(first_dependencies, second_dependencies);
+    assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
+
+    let path = cache.module_dependencies_path(first_identity.key);
+    fs::write(&path, b"corrupt module dependency summary")
+        .expect("corrupt module dependencies entry");
+    let repaired =
+        frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
+    let repaired_dependencies = repaired.get(module_declarations_query(&repaired, &main));
+    assert_eq!(first_dependencies, repaired_dependencies);
+    assert_eq!(
+        query_executions(&repaired.query_trace(), "parsed_module"),
+        1
+    );
+
+    let edited_file = sources.set_source(
+        main.clone(),
+        "fn helper() i32 { 1000 + 2000 + 3000 } pub module child;",
+    );
+    let edited_identity = module_dependencies_cache_identity(&edited_file, &main, &module_map);
+    assert_ne!(first_identity.key, edited_identity.key);
+    let edited = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
+    let edited_dependencies = edited.get(module_declarations_query(&edited, &main));
+    assert_eq!(edited_dependencies.declarations[0].name, sym("child"));
+    assert_ne!(first_span, edited_dependencies.declarations[0].span);
+    assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
+
+    let reused = frontend_cache_database(&main, &sources, module_map, cache, false);
+    let reused_dependencies = reused.get(module_declarations_query(&reused, &main));
+    assert_eq!(edited_dependencies, reused_dependencies);
+    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+}
+
+#[test]
+fn module_dependencies_cache_keys_include_effective_module_map() {
+    let root = temp_dir("module_dependencies_cache_keys_include_effective_module_map");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let file = sources.set_source(main.clone(), "using dep::Thing; fn main() void {}");
+    let mut mapped = ModuleMap::new();
+    mapped.insert("dep", SourcePath::new("deps/root.nia"));
+    let unmapped = ModuleMap::new();
+    let mapped_identity = module_dependencies_cache_identity(&file, &main, &mapped);
+    let unmapped_identity = module_dependencies_cache_identity(&file, &main, &unmapped);
+    assert_ne!(mapped_identity.module_map, unmapped_identity.module_map);
+    assert_ne!(mapped_identity.key, unmapped_identity.key);
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+
+    let mapped_db = frontend_cache_database(&main, &sources, mapped, cache.clone(), false);
+    let mapped_dependencies = mapped_db.get(module_declarations_query(&mapped_db, &main));
+    assert!(matches!(
+        mapped_dependencies.explicit_imports[0].path,
+        crate::used_paths::UsedModulePath::Package { .. }
+    ));
+
+    let unmapped_db =
+        frontend_cache_database(&main, &sources, unmapped.clone(), cache.clone(), false);
+    let unmapped_dependencies = unmapped_db.get(module_declarations_query(&unmapped_db, &main));
+    assert!(matches!(
+        unmapped_dependencies.explicit_imports[0].path,
+        crate::used_paths::UsedModulePath::Local { .. }
+    ));
+    assert_ne!(mapped_dependencies, unmapped_dependencies);
+    assert_eq!(
+        query_executions(&unmapped_db.query_trace(), "parsed_module"),
+        1
+    );
+
+    let reused = frontend_cache_database(&main, &sources, unmapped, cache, false);
+    let reused_dependencies = reused.get(module_declarations_query(&reused, &main));
+    assert_eq!(unmapped_dependencies, reused_dependencies);
+    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+}
+
+#[test]
+fn module_dependencies_verification_replaces_semantically_wrong_valid_entry() {
+    let root = temp_dir("module_dependencies_verification_replaces_wrong_valid_entry");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let file = sources.set_source(main.clone(), "pub module child;");
+    let module_map = ModuleMap::new();
+    let identity = module_dependencies_cache_identity(&file, &main, &module_map);
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+    let wrong = crate::used_paths::ModuleDeclarations {
+        declarations: Vec::new(),
+        package_roots: Vec::new(),
+        used_module_paths: Vec::new(),
+        explicit_imports: Vec::new(),
+        used_import_aliases: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+    cache
+        .publish_module_dependencies(
+            identity.namespace,
+            &identity.module,
+            identity.source,
+            identity.source_len,
+            identity.module_map,
+            &wrong,
+        )
+        .expect("publish wrong but structurally valid module dependencies");
+
+    let verifying =
+        frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), true);
+    let verified = verifying.get(module_declarations_query(&verifying, &main));
+    assert_eq!(verified.declarations.len(), 1);
+    assert_eq!(verified.declarations[0].name, sym("child"));
+    assert_eq!(
+        query_executions(&verifying.query_trace(), "parsed_module"),
+        1
+    );
+
+    let reused = frontend_cache_database(&main, &sources, module_map, cache, false);
+    let reused_dependencies = reused.get(module_declarations_query(&reused, &main));
+    assert_eq!(verified, reused_dependencies);
+    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+}
+
+#[test]
+fn module_dependencies_with_diagnostics_are_not_persisted() {
+    let root = temp_dir("module_dependencies_with_diagnostics_are_not_persisted");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let file = sources.set_source(main.clone(), "module child; module child;");
+    let module_map = ModuleMap::new();
+    let identity = module_dependencies_cache_identity(&file, &main, &module_map);
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+    let database = frontend_cache_database(&main, &sources, module_map, cache.clone(), false);
+    let dependencies = database.get(module_declarations_query(&database, &main));
+
+    assert!(!dependencies.diagnostics.is_empty());
+    assert!(!cache.module_dependencies_path(identity.key).is_file());
+
+    let malformed_file = sources.set_source(main.clone(), "fn broken(");
+    let malformed_identity =
+        module_dependencies_cache_identity(&malformed_file, &main, &ModuleMap::new());
+    let malformed =
+        frontend_cache_database(&main, &sources, ModuleMap::new(), cache.clone(), false);
+    let malformed_dependencies = malformed.get(module_declarations_query(&malformed, &main));
+    assert!(malformed_dependencies.declarations.is_empty());
+    assert!(
+        !cache
+            .module_dependencies_path(malformed_identity.key)
+            .is_file()
+    );
+}
+
+#[test]
+fn module_dependencies_cache_round_trips_all_stable_fields() {
+    use crate::used_paths::{ExplicitUsingImport, UsedModulePath, UsedModulePathProcessing};
+
+    let root = temp_dir("module_dependencies_cache_round_trips_all_stable_fields");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let file = sources.set_source(main.clone(), " ".repeat(256));
+    let module_map = ModuleMap::new();
+    let identity = module_dependencies_cache_identity(&file, &main, &module_map);
+    let cache = crate::frontend_cache::PersistentFrontendCache::new(root.join("cache"));
+    let declarations = [
+        ("private", Visibility::Private, nia_span::Span::new(1, 2)),
+        ("super", Visibility::PublicSuper, nia_span::Span::new(3, 4)),
+        ("package", Visibility::PublicPkg, nia_span::Span::new(5, 6)),
+        ("public", Visibility::Public, nia_span::Span::new(7, 8)),
+    ]
+    .into_iter()
+    .map(
+        |(name, visibility, span)| nia_imports::ResolvedModuleDeclaration {
+            name: sym(name),
+            visibility,
+            span,
+        },
+    )
+    .collect::<Vec<_>>();
+    let mut package_roots = vec![sym("dep_b"), sym("dep_a")];
+    package_roots.sort();
+    let mut used_module_paths = vec![
+        UsedModulePath::Package {
+            package: sym("dep_a"),
+            segments: vec![sym("one")],
+            include_declared_children: true,
+            processing: UsedModulePathProcessing::Always,
+        },
+        UsedModulePath::PackageRelative {
+            segments: vec![sym("two")],
+            include_declared_children: false,
+            processing: UsedModulePathProcessing::IfSelectedItem,
+        },
+        UsedModulePath::ParentRelative {
+            segments: vec![sym("three")],
+            include_declared_children: true,
+            processing: UsedModulePathProcessing::IfProvidesExtensions,
+        },
+        UsedModulePath::Local {
+            segments: vec![sym("four")],
+            include_declared_children: false,
+            processing: UsedModulePathProcessing::IfProvidesTraitImpl {
+                trait_name: sym("Trait"),
+            },
+        },
+    ];
+    used_module_paths.sort();
+    let explicit_imports = vec![ExplicitUsingImport {
+        span: nia_span::Span::new(9, 20),
+        alias: sym("Alias"),
+        path: UsedModulePath::Local {
+            segments: vec![sym("value")],
+            include_declared_children: false,
+            processing: UsedModulePathProcessing::Never,
+        },
+    }];
+    let mut used_import_aliases = vec![sym("AliasB"), sym("AliasA")];
+    used_import_aliases.sort();
+    let dependencies = crate::used_paths::ModuleDeclarations {
+        declarations,
+        package_roots,
+        used_module_paths,
+        explicit_imports,
+        used_import_aliases,
+        diagnostics: Vec::new(),
+    };
+    cache
+        .publish_module_dependencies(
+            identity.namespace,
+            &identity.module,
+            identity.source,
+            identity.source_len,
+            identity.module_map,
+            &dependencies,
+        )
+        .expect("publish complete module dependency summary");
+
+    assert!(matches!(
+        cache
+            .load_module_dependencies(
+                identity.key,
+                identity.namespace,
+                &identity.module,
+                identity.source,
+                identity.source_len,
+                identity.module_map,
+            )
+            .expect("load complete module dependency summary"),
+        crate::frontend_cache::ModuleDependenciesCacheLookup::Hit(cached)
+            if cached == dependencies
+    ));
+}
+
+#[test]
 fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     let root = temp_dir("persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption");
     let cache_root = root.join("cache");
@@ -2502,6 +2781,15 @@ struct FacadeCacheIdentity {
     facade_key: FrontendFacadeFactsCacheKey,
 }
 
+struct ModuleDependenciesCacheIdentity {
+    namespace: FrontendCacheNamespace,
+    module: StableModuleKey,
+    source: SourceContentFingerprint,
+    source_len: usize,
+    module_map: FrontendModuleMapFingerprint,
+    key: FrontendModuleDependenciesCacheKey,
+}
+
 fn provider_cache_identity(file: &SourceFile) -> ProviderCacheIdentity {
     let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
     let module = StableModuleKey::from_source_identity(file.path.identity());
@@ -2548,6 +2836,28 @@ fn facade_cache_identity(
         item_signature: provider.item_signature,
         module_map,
         facade_key,
+    }
+}
+
+fn module_dependencies_cache_identity(
+    file: &SourceFile,
+    entry_path: &SourcePath,
+    module_map: &ModuleMap,
+) -> ModuleDependenciesCacheIdentity {
+    let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+    let module = StableModuleKey::from_source_identity(file.path.identity());
+    let source = source_content_fingerprint(&file.text);
+    let source_len = file.text.len();
+    let effective_module_map = effective_module_map(entry_path, module_map.clone());
+    let module_map = frontend_module_map_fingerprint(&effective_module_map);
+    let key = FrontendModuleDependenciesCacheKey::new(namespace, &module, source, module_map);
+    ModuleDependenciesCacheIdentity {
+        namespace,
+        module,
+        source,
+        source_len,
+        module_map,
+        key,
     }
 }
 

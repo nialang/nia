@@ -5,9 +5,10 @@ use crate::used_paths::{ModuleDeclarations, UsedModulePath, collect_used_modules
 use crate::{EntryRuntime, LoaderContext};
 use nia_compiler_query::{
     ActiveModuleItemTreeFactKind, FrontendCacheNamespace, FrontendFacadeFactsCacheKey,
-    FrontendProviderSummaryCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
-    LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel, SourceContentFingerprint,
-    frontend_module_map_fingerprint, item_signature_fingerprint, source_content_fingerprint,
+    FrontendModuleDependenciesCacheKey, FrontendProviderSummaryCacheKey, FrontendSourceCacheKey,
+    ItemSignatureFingerprint, LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel,
+    SourceContentFingerprint, frontend_module_map_fingerprint, item_signature_fingerprint,
+    source_content_fingerprint,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{
@@ -513,6 +514,40 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        let cache_input = frontend_cache_input(db, self.0);
+        let module_map = frontend_module_map_fingerprint(&db.context().module_map);
+        let cached = cache_input.as_ref().and_then(|input| {
+            let cache = db.context().frontend_cache.as_ref()?;
+            let key = FrontendModuleDependenciesCacheKey::new(
+                input.namespace,
+                &input.module,
+                input.source,
+                module_map,
+            );
+            match cache
+                .load_module_dependencies(
+                    key,
+                    input.namespace,
+                    &input.module,
+                    input.source,
+                    input.source_len,
+                    module_map,
+                )
+                .ok()?
+            {
+                crate::frontend_cache::ModuleDependenciesCacheLookup::Hit(declarations) => {
+                    Some(declarations)
+                }
+                crate::frontend_cache::ModuleDependenciesCacheLookup::NotFound
+                | crate::frontend_cache::ModuleDependenciesCacheLookup::Corrupt => None,
+            }
+        });
+        if let Some(cached) = &cached
+            && !db.context().verify_frontend_cache
+        {
+            return cached.clone();
+        }
+
         let parsed = db.get(ParsedModuleQuery(self.0));
         let mut diagnostics = parsed
             .read_diagnostic
@@ -542,14 +577,40 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
                 },
             )
         };
-        ModuleDeclarations {
+        let fresh = ModuleDeclarations {
             declarations,
             package_roots: used_modules.package_roots,
             used_module_paths: used_modules.used_module_paths,
             explicit_imports: used_modules.explicit_imports,
             used_import_aliases: used_modules.used_aliases,
             diagnostics,
+        };
+        if let Some(input) = cache_input
+            && parsed.read_diagnostic.is_none()
+            && parsed.parse_errors.is_empty()
+            && parsed.prune_diagnostics.is_empty()
+            && fresh.diagnostics.is_empty()
+            && let Some(cache) = &db.context().frontend_cache
+        {
+            let key = FrontendModuleDependenciesCacheKey::new(
+                input.namespace,
+                &input.module,
+                input.source,
+                module_map,
+            );
+            if cached.as_ref().is_some_and(|cached| cached != &fresh) {
+                cache.remove_module_dependencies(key);
+            }
+            let _ = cache.publish_module_dependencies(
+                input.namespace,
+                &input.module,
+                input.source,
+                input.source_len,
+                module_map,
+                &fresh,
+            );
         }
+        fresh
     }
 }
 
@@ -560,6 +621,7 @@ struct FrontendCacheInput {
     namespace: FrontendCacheNamespace,
     module: StableModuleKey,
     source: SourceContentFingerprint,
+    source_len: usize,
     source_key: FrontendSourceCacheKey,
 }
 
@@ -579,11 +641,13 @@ fn frontend_cache_input(
             );
             let module = StableModuleKey::from_source_identity(file.path.identity());
             let source = source_content_fingerprint(&file.text);
+            let source_len = file.text.len();
             let source_key = FrontendSourceCacheKey::new(namespace, &module, source);
             FrontendCacheInput {
                 namespace,
                 module,
                 source,
+                source_len,
                 source_key,
             }
         })
