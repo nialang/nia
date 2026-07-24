@@ -29,8 +29,11 @@ with only one small function body, keeping frontend work out of the object
 codegen comparison. The workloads are rejected unless they compile at least two
 and four LLVM units respectively, so their CPU/RSS trends cannot silently become
 single-unit, cache-hit, or linker measurements. The reports also record the
-bounded LLVM worker lanes separately from stable unit count; one lane may
-consume multiple units without coarsening their work-product identities.
+bounded LLVM worker lanes and live ready-task submissions separately from stable
+unit count; one lane may consume multiple units without coarsening their
+work-product identities. Object-codegen workloads are rejected unless every
+emitted unit was submitted through the live readiness path, so a synchronous or
+aggregate fallback cannot silently become the benchmark.
 
 Each result contains process wall, user, and system time; maximum resident set
 size; CPU utilization; aggregated stage/query timings; query execution and
