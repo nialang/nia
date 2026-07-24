@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
     BackendOptimizationChange, CheckedProgram, CodegenProgram, DriverError, LlvmIrArtifact,
-    NiaOptimizationLevel,
+    NiaOptimizationLevel, ObjectArtifact,
 };
 use nia_diagnostic::{
     Diagnostic, DiagnosticReportConfig, DiagnosticReportItem, build_diagnostic_report,
@@ -31,6 +31,23 @@ pub fn llvm_ir_optimization_report(artifact: &LlvmIrArtifact) -> String {
     let mut out =
         optimization_report_lines_from_parts(artifact.optimization, &artifact.optimization_report)
             .join("\n");
+    out.push('\n');
+    out
+}
+
+pub fn object_optimization_report(artifact: &ObjectArtifact) -> String {
+    let mut out =
+        optimization_report_lines_from_parts(artifact.optimization, &artifact.optimization_report)
+            .join("\n");
+    out.push('\n');
+    out
+}
+
+pub fn optimization_report_from_parts(
+    optimization: crate::OptimizationPolicy,
+    report: &crate::BackendOptimizationReport,
+) -> String {
+    let mut out = optimization_report_lines_from_parts(optimization, report).join("\n");
     out.push('\n');
     out
 }
@@ -130,6 +147,34 @@ pub fn render_program_warnings(
 
 pub fn render_llvm_ir_warnings(
     artifact: &LlvmIrArtifact,
+    primary_path: Option<&str>,
+    primary_source: Option<&str>,
+) -> String {
+    let diagnostics = artifact
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.is_warning())
+        .cloned()
+        .collect::<Vec<_>>();
+    render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
+}
+
+pub fn render_object_warnings(
+    artifact: &ObjectArtifact,
+    primary_path: Option<&str>,
+    primary_source: Option<&str>,
+) -> String {
+    let diagnostics = artifact
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.is_warning())
+        .cloned()
+        .collect::<Vec<_>>();
+    render_program_diagnostic_items(&diagnostics, primary_path, primary_source)
+}
+
+pub fn render_executable_warnings(
+    artifact: &crate::ExecutableArtifact,
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {

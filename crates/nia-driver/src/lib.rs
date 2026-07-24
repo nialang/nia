@@ -20,10 +20,11 @@ pub use pipeline::{
     ObjectOutput, Runtime, WriteObjectRequest, WrittenObjectArtifact,
 };
 pub use report::{
-    llvm_ir_optimization_report, optimization_report, optimization_report_lines,
-    render_codegen_diagnostics, render_codegen_program_warnings, render_driver_error,
-    render_llvm_ir_warnings, render_parse_errors, render_program_diagnostics,
-    render_program_warnings,
+    llvm_ir_optimization_report, object_optimization_report, optimization_report,
+    optimization_report_from_parts, optimization_report_lines, render_codegen_diagnostics,
+    render_codegen_program_warnings, render_driver_error, render_executable_warnings,
+    render_llvm_ir_warnings, render_object_warnings, render_parse_errors,
+    render_program_diagnostics, render_program_warnings,
 };
 
 #[cfg(test)]

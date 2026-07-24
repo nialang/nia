@@ -15,7 +15,7 @@ use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_source::{SourceDatabase, SourcePath};
 use nia_target_config::TargetConfig;
 
-use crate::{CheckedProgram, CodegenProgram};
+use crate::{CheckedProgram, CodegenProgram, ProgramDiagnostic};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Runtime {
@@ -422,11 +422,79 @@ impl Driver {
     pub fn emit_native_objects(&self, request: EmitObjectRequest) -> DriverOutput<ObjectArtifact> {
         DriverOutput::catch_ice(|| {
             let timings = request.check.timings;
-            let program = match self.codegen(request.check).result {
-                Ok(program) => program,
+            let database = self.compiler_database(&request.check);
+            let preparation = database.codegen_preparation();
+            if has_error_diagnostics(&preparation.diagnostics) {
+                return DriverOutput::from_error(DriverError::CodegenPreparationDiagnostics(
+                    preparation.diagnostics,
+                ));
+            }
+            let checked_body_count = preparation
+                .modules
+                .iter()
+                .map(|module| module.body_ir.function_bodies.len())
+                .sum();
+            let optimization = preparation.optimization;
+            let diagnostics = preparation.diagnostics;
+            let type_store = std::sync::Arc::clone(&preparation.type_store);
+            let options = codegen_options(optimization, timings);
+            let cache = self.object_cache.as_ref().map(|cache| {
+                cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::ObjectWorkProductCache>
+            });
+            let result = database.with_backend_finalization_schedule(|schedule| match schedule {
+                Err(lowering) => Err(DriverError::CodegenDiagnostics(lowering.diagnostics)),
+                Ok(mut schedule) => {
+                    let mut emitter = nia_codegen_llvm::LlvmNativeObjectReadinessEmitter::new(
+                        schedule.module_store(),
+                        type_store,
+                        schedule.owner_directory(),
+                        options,
+                        cache,
+                    );
+                    while let Some(ready) = schedule.wait_next() {
+                        emitter.publish(ready);
+                    }
+                    let lowering = schedule.finish();
+                    if !lowering.diagnostics.is_empty() {
+                        return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
+                    }
+                    let reachable_body_count = lowering
+                        .program
+                        .modules
+                        .iter()
+                        .map(|module| module.functions.len() + module.function_instances.len())
+                        .sum();
+                    Ok((
+                        emitter.finish(),
+                        reachable_body_count,
+                        lowering.optimization_report,
+                    ))
+                }
+            });
+            let (output, reachable_body_count, optimization_report) = match result {
+                Ok(output) => output,
                 Err(error) => return DriverOutput::from_error(error),
             };
-            self.emit_native_objects_from_codegen_with_timings(&program, timings)
+            emit_compilation_counters(
+                timings,
+                &database,
+                &LiveCodegenCounters {
+                    checked_body_count,
+                    reachable_body_count,
+                },
+                database.provider_demand_rounds(),
+            );
+            if !output.diagnostics.is_empty() {
+                return DriverOutput::from_error(DriverError::CodegenDiagnostics(
+                    output.diagnostics,
+                ));
+            }
+            DriverOutput::success(ObjectArtifact {
+                link_inputs: output.link_inputs,
+                optimization,
+                optimization_report,
+                diagnostics,
+            })
         })
     }
 
@@ -461,6 +529,9 @@ impl Driver {
             }
             DriverOutput::success(ObjectArtifact {
                 link_inputs: output.link_inputs,
+                optimization: program.optimization,
+                optimization_report: program.backend_lowering.optimization_report.clone(),
+                diagnostics: program.diagnostics.clone(),
             })
         })
     }
@@ -560,9 +631,16 @@ impl Driver {
             let mut request = request;
             request.link_options.target = LinkTarget::from_target_config(&self.config.target);
             let timings = request.check.timings;
-            let output = self.emit_native_objects(EmitObjectRequest {
-                check: request.check.with_runtime(Runtime::Freestanding),
-            });
+            let output = nia_timing::time_stage(
+                timings,
+                nia_timing::TimingLevel::Summary,
+                "emit_native_objects",
+                || {
+                    self.emit_native_objects(EmitObjectRequest {
+                        check: request.check.with_runtime(Runtime::Freestanding),
+                    })
+                },
+            );
             let objects = match output.result {
                 Ok(objects) => objects,
                 Err(error) => return DriverOutput::from_error(error),
@@ -608,7 +686,12 @@ impl Driver {
             };
             emit_link_result_reuse(timings, reuse);
             if reuse == LinkResultReuse::Hit {
-                return DriverOutput::success(ExecutableArtifact { path: output });
+                return DriverOutput::success(ExecutableArtifact {
+                    path: output,
+                    optimization: objects.optimization,
+                    optimization_report: objects.optimization_report.clone(),
+                    diagnostics: objects.diagnostics.clone(),
+                });
             }
             let temp = TempDir::new("nia_emit_exe");
             if let Err(error) = fs::create_dir_all(temp.path()) {
@@ -666,7 +749,12 @@ impl Driver {
                             );
                         }
                     }
-                    DriverOutput::success(ExecutableArtifact { path: output })
+                    DriverOutput::success(ExecutableArtifact {
+                        path: output,
+                        optimization: objects.optimization,
+                        optimization_report: objects.optimization_report.clone(),
+                        diagnostics: objects.diagnostics.clone(),
+                    })
                 }
                 Ok(status) => DriverOutput::from_error(DriverError::LinkerStatus {
                     program: invocation.program,
@@ -938,6 +1026,9 @@ pub struct LlvmIrArtifact {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ObjectArtifact {
     pub link_inputs: nia_codegen_llvm::IncrementalLinkInputs<nia_codegen_llvm::NativeObject>,
+    pub optimization: OptimizationPolicy,
+    pub optimization_report: crate::BackendOptimizationReport,
+    pub diagnostics: Vec<ProgramDiagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -945,9 +1036,12 @@ pub struct WrittenObjectArtifact {
     pub link_inputs: nia_codegen_llvm::IncrementalLinkInputs<PathBuf>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExecutableArtifact {
     pub path: PathBuf,
+    pub optimization: OptimizationPolicy,
+    pub optimization_report: crate::BackendOptimizationReport,
+    pub diagnostics: Vec<ProgramDiagnostic>,
 }
 
 #[derive(Debug)]

@@ -1115,25 +1115,14 @@ fn run_emit_obj(
         artifact_cache_dir: options.cache_dir.clone(),
         ..nia_driver::DriverConfig::default()
     });
-    let output = time_summary_stage(timings, "codegen", || {
-        codegen_with_driver(
-            &driver,
-            path,
-            module_map,
-            optimization,
-            timings,
-            options.runtime,
-        )
-    });
-    let program = match codegen_program_from_output(output, path, source) {
-        Ok(program) => program,
-        Err(code) => return code,
-    };
-    if opt_report {
-        print_optimization_report_to_stderr(&program);
-    }
     let output = time_summary_stage(timings, "emit_native_objects", || {
-        driver.emit_native_objects_from_codegen_with_timings(&program, timings)
+        driver.emit_native_objects(nia_driver::EmitObjectRequest::new(
+            nia_driver::CheckRequest::new(path)
+                .with_module_map(module_map)
+                .with_optimization(optimization)
+                .with_timings(timings)
+                .with_runtime(options.runtime),
+        ))
     });
     let objects = match output.result {
         Ok(objects) => objects,
@@ -1145,8 +1134,17 @@ fn run_emit_obj(
             return ExitCode::FAILURE;
         }
     };
-    let output = nia_driver::Driver::new()
-        .write_native_objects_from_artifact(&objects, options.output.into_driver_output());
+    if !objects.diagnostics.is_empty() {
+        eprint!(
+            "{}",
+            nia_driver::render_object_warnings(&objects, Some(path), Some(source))
+        );
+    }
+    if opt_report {
+        eprint!("{}", nia_driver::object_optimization_report(&objects));
+    }
+    let output =
+        driver.write_native_objects_from_artifact(&objects, options.output.into_driver_output());
     match output.result {
         Ok(_) => ExitCode::SUCCESS,
         Err(error) => {
@@ -1179,28 +1177,19 @@ fn run_emit_exe(
         artifact_cache_dir: options.cache_dir.clone(),
         ..nia_driver::DriverConfig::default()
     });
-    let output = time_summary_stage(timings, "codegen_exe", || {
-        codegen_with_driver(
-            &driver,
-            path,
-            module_map,
-            optimization,
-            timings,
-            Runtime::Freestanding,
-        )
+    let output = time_summary_stage(timings, "link_executable", || {
+        driver.link_executable(nia_driver::LinkExecutableRequest {
+            check: nia_driver::CheckRequest::new(path)
+                .with_module_map(module_map)
+                .with_optimization(optimization)
+                .with_timings(timings)
+                .with_runtime(Runtime::Freestanding),
+            output: options.output.clone(),
+            link_options: options.link_options.clone(),
+        })
     });
-    let program = match codegen_program_from_output(output, path, source) {
-        Ok(program) => program,
-        Err(code) => return code,
-    };
-    if opt_report {
-        print_optimization_report_to_stderr(&program);
-    }
-    let output = time_summary_stage(timings, "emit_native_objects", || {
-        driver.emit_native_objects_from_codegen_with_timings(&program, timings)
-    });
-    let objects = match output.result {
-        Ok(objects) => objects,
+    let executable = match output.result {
+        Ok(executable) => executable,
         Err(error) => {
             eprint!(
                 "{}",
@@ -1209,24 +1198,22 @@ fn run_emit_exe(
             return ExitCode::FAILURE;
         }
     };
-    let output = time_summary_stage(timings, "link_executable", || {
-        driver.link_executable_from_objects(
-            &objects,
-            options.output.clone(),
-            options.link_options.clone(),
-            timings,
-        )
-    });
-    match output.result {
-        Ok(_) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprint!(
-                "{}",
-                nia_driver::render_driver_error(&error, Some(path), Some(source))
-            );
-            ExitCode::FAILURE
-        }
+    if !executable.diagnostics.is_empty() {
+        eprint!(
+            "{}",
+            nia_driver::render_executable_warnings(&executable, Some(path), Some(source))
+        );
     }
+    if opt_report {
+        eprint!(
+            "{}",
+            nia_driver::optimization_report_from_parts(
+                executable.optimization,
+                &executable.optimization_report,
+            )
+        );
+    }
+    ExitCode::SUCCESS
 }
 
 struct EmitObjOptions {
