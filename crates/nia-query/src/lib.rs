@@ -61,6 +61,10 @@ pub enum QueryFingerprintPolicy {
 pub struct QueryFingerprint([u64; 2]);
 
 impl QueryFingerprint {
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(parts)
+    }
+
     pub const fn parts(self) -> [u64; 2] {
         self.0
     }
