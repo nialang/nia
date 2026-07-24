@@ -489,6 +489,34 @@ impl CodegenUnitDependencies {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodegenUnitPendingModules {
+    unit: CodegenUnitId,
+    modules: Vec<ModuleId>,
+}
+
+impl CodegenUnitPendingModules {
+    pub fn new(unit: CodegenUnitId, modules: impl IntoIterator<Item = ModuleId>) -> Self {
+        let modules = modules.into_iter().collect::<BTreeSet<_>>();
+        assert!(
+            !modules.is_empty(),
+            "Nia ICE: pending codegen unit must wait for at least one module"
+        );
+        Self {
+            unit,
+            modules: modules.into_iter().collect(),
+        }
+    }
+
+    pub fn unit(&self) -> CodegenUnitId {
+        self.unit
+    }
+
+    pub fn modules(&self) -> &[ModuleId] {
+        &self.modules
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncrementalLinkInput<T> {
     pub key: CodegenUnitKey,
     pub fingerprint: CodegenUnitFingerprint,

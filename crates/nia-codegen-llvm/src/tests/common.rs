@@ -152,9 +152,13 @@ pub(super) fn emit_owned_llvm_ir(
     type_store: nia_ty::TypeStore,
 ) -> LlvmCodegenOutput {
     let codegen_partitions = program.codegen_partition_plan();
+    let owner_directory = Arc::new(nia_backend_ir::BackendModuleOwnerDirectory::from_modules(
+        &program.modules,
+    ));
     emit_llvm_ir(
         &Arc::new(nia_backend_lower::BackendLowering {
             program,
+            owner_directory,
             codegen_partitions,
             optimization: nia_opt::OptimizationPolicy::default(),
             optimization_report: nia_backend_lower::BackendOptimizationReport::default(),

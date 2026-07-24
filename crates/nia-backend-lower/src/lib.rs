@@ -55,6 +55,7 @@ use nia_value_resolve::ValueResolution;
 #[derive(Debug, PartialEq)]
 pub struct BackendLowering {
     pub program: BackendProgram,
+    pub owner_directory: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
     pub codegen_partitions: nia_backend_ir::CodegenPartitionPlan,
     pub optimization: OptimizationPolicy,
     pub optimization_report: BackendOptimizationReport,
@@ -208,7 +209,7 @@ impl BackendModuleFinalizationCollector {
             optimization,
             mut optimization_report,
             mut diagnostics,
-            owner_directory: _,
+            owner_directory,
         } = self.finalization;
         for (position, (report, module_diagnostics)) in self
             .optimization_reports
@@ -233,6 +234,7 @@ impl BackendModuleFinalizationCollector {
         let codegen_partitions = program.codegen_partition_plan();
         BackendLowering {
             program,
+            owner_directory: Arc::new(owner_directory),
             codegen_partitions,
             optimization,
             optimization_report,
@@ -640,6 +642,7 @@ pub fn finalize_backend_module_item_plans_with_timings(
         let codegen_partitions = program.codegen_partition_plan();
         return BackendLowering {
             program,
+            owner_directory: Arc::new(finalization.owner_directory),
             codegen_partitions,
             optimization,
             optimization_report: finalization.optimization_report,

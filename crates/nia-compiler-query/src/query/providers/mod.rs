@@ -436,6 +436,7 @@ fn empty_backend_lowering(optimization: OptimizationPolicy) -> nia_backend_lower
     nia_backend_lower::BackendLowering {
         codegen_partitions: program.codegen_partition_plan(),
         program,
+        owner_directory: Arc::new(nia_backend_ir::BackendModuleOwnerDirectory::default()),
         optimization,
         optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
         diagnostics: Vec::new(),

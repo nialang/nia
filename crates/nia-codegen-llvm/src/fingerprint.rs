@@ -1888,6 +1888,7 @@ const fn llvm_sys_version() -> u64 {
 mod tests {
     use std::sync::Arc;
 
+    use crate::declaration_membership::CodegenDeclarationMembershipBuild;
     use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
     use nia_layout::{TargetDataLayout, TypeLayout};
     use nia_source::SourceIdentity;
@@ -1900,6 +1901,7 @@ mod tests {
     struct Fixture {
         index: Arc<ProgramIndex>,
         partition: CodegenPartition,
+        owners: BackendModuleOwnerDirectory,
     }
 
     fn module_with_global(
@@ -1997,6 +1999,7 @@ mod tests {
     }
 
     fn fixture(program: BackendProgram, type_store: TypeStore, owner: &str) -> Fixture {
+        let owners = BackendModuleOwnerDirectory::from_modules(&program.modules);
         let plan = program.codegen_partition_plan();
         let partition = plan
             .partitions()
@@ -2015,14 +2018,31 @@ mod tests {
         for module_id in index.module_ids().to_vec() {
             publisher.publish(module_id);
         }
-        Fixture { index, partition }
+        Fixture {
+            index,
+            partition,
+            owners,
+        }
+    }
+
+    fn declarations(fixture: &Fixture) -> CodegenDeclarationMembership {
+        let CodegenDeclarationMembershipBuild::Ready(declarations) =
+            CodegenDeclarationMembership::build(
+                &fixture.partition,
+                &fixture.index,
+                &fixture.owners,
+            )
+        else {
+            panic!("complete fingerprint fixture produced pending declaration membership")
+        };
+        *declarations
     }
 
     fn ir_fingerprints(
         fixture: &Fixture,
         options: LlvmCodegenOptions,
     ) -> CodegenUnitFingerprintSet {
-        let declarations = CodegenDeclarationMembership::build(&fixture.partition, &fixture.index);
+        let declarations = declarations(fixture);
         source_unit_fingerprint(
             &fixture.partition,
             &declarations,
@@ -2037,7 +2057,7 @@ mod tests {
     }
 
     fn dependencies(fixture: &Fixture) -> CodegenUnitDependencies {
-        CodegenDeclarationMembership::build(&fixture.partition, &fixture.index).dependencies
+        declarations(fixture).dependencies
     }
 
     #[test]
@@ -2472,7 +2492,7 @@ mod tests {
             ..target.clone()
         };
 
-        let declarations = CodegenDeclarationMembership::build(&fixture.partition, &fixture.index);
+        let declarations = declarations(&fixture);
         let baseline = source_unit_fingerprint(
             &fixture.partition,
             &declarations,
