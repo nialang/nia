@@ -344,6 +344,21 @@ struct TaskCompletionStream<'a, O> {
     panic: Option<Box<dyn Any + Send>>,
 }
 
+struct SpawnedQueryTask<O> {
+    position: usize,
+    batch: Arc<QueryBatch<O>>,
+    batch_id: usize,
+}
+
+pub struct QueryTaskPool<'session, O: Send + 'static> {
+    session: &'session QuerySession,
+    _activity: QueryActivityGuard<'session>,
+    capacity: usize,
+    next_position: usize,
+    pending: VecDeque<SpawnedQueryTask<O>>,
+    completed: Vec<(usize, O)>,
+}
+
 pub struct QueryCompletionStream<'stream, 'executor, O> {
     tasks: &'stream mut TaskCompletionStream<'executor, (O, RecordedDependencies)>,
     dependencies: RecordedDependencies,
@@ -630,6 +645,27 @@ impl QueryExecutor {
             "query executor accepted work after shutdown"
         );
         state.queue.extend(tasks);
+        drop(state);
+        self.shared.ready.notify_all();
+    }
+
+    fn submit_all_priority(&self, tasks: Vec<QueryTask>) {
+        if tasks.is_empty() {
+            return;
+        }
+        self.ensure_workers(self.shared.parallelism);
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .expect("query executor state lock poisoned");
+        assert!(
+            !state.shutdown,
+            "query executor accepted work after shutdown"
+        );
+        for task in tasks.into_iter().rev() {
+            state.queue.push_front(task);
+        }
         drop(state);
         self.shared.ready.notify_all();
     }
@@ -997,6 +1033,105 @@ impl<O> TaskCompletionStream<'_, O> {
 
     fn drain(&mut self) {
         while self.wait_next().is_some() {}
+    }
+}
+
+impl<'session, O> QueryTaskPool<'session, O>
+where
+    O: Send + 'static,
+{
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    pub fn submit(&mut self, task: impl FnOnce() -> O + Send + 'static) {
+        if self.pending.len() >= self.capacity {
+            self.wait_one();
+        }
+        let batch = Arc::new(QueryBatch::new(1));
+        let batch_id = Arc::as_ptr(&batch) as usize;
+        let executor_shared = Arc::clone(&self.session.inner.executor.shared);
+        let task_batch = Arc::clone(&batch);
+        self.session
+            .inner
+            .executor
+            .submit_all_priority(vec![QueryTask {
+                batch: batch_id,
+                run: Box::new(move || {
+                    task_batch.complete(0, catch_unwind(AssertUnwindSafe(task)));
+                    executor_shared.notify_waiters();
+                }),
+            }]);
+        let position = self.next_position;
+        self.next_position += 1;
+        self.pending.push_back(SpawnedQueryTask {
+            position,
+            batch,
+            batch_id,
+        });
+    }
+
+    pub fn finish(mut self) -> Vec<O> {
+        let mut panic = None;
+        while !self.pending.is_empty() {
+            let result = catch_unwind(AssertUnwindSafe(|| self.wait_one()));
+            if let Err(payload) = result
+                && panic.is_none()
+            {
+                panic = Some(payload);
+            }
+        }
+        if let Some(payload) = panic {
+            resume_unwind(payload);
+        }
+        self.completed
+            .sort_unstable_by_key(|(position, _)| *position);
+        std::mem::take(&mut self.completed)
+            .into_iter()
+            .map(|(_, output)| output)
+            .collect()
+    }
+
+    fn wait_one(&mut self) {
+        loop {
+            if let Some(index) = self
+                .pending
+                .iter()
+                .position(|task| task.batch.is_complete())
+            {
+                let task = self
+                    .pending
+                    .remove(index)
+                    .expect("completed query task must remain pending");
+                let output = task.batch.finish().pop().expect("single query task output");
+                self.completed.push((task.position, output));
+                return;
+            }
+            let task = self
+                .pending
+                .front()
+                .expect("query task pool must have a pending task");
+            if !self.session.inner.executor.try_run_one(task.batch_id) {
+                self.session
+                    .inner
+                    .executor
+                    .wait_for_batch_progress(&task.batch);
+            }
+        }
+    }
+}
+
+impl<O> Drop for QueryTaskPool<'_, O>
+where
+    O: Send + 'static,
+{
+    fn drop(&mut self) {
+        while !self.pending.is_empty() {
+            let result = catch_unwind(AssertUnwindSafe(|| self.wait_one()));
+            if result.is_err() {
+                continue;
+            }
+        }
     }
 }
 
@@ -1487,6 +1622,24 @@ impl QuerySession {
             .collect::<Vec<_>>();
         outcomes.sort_unstable_by_key(|(index, _)| *index);
         outcomes.into_iter().map(|(_, output)| output).collect()
+    }
+
+    pub fn task_pool<O>(&self, max_parallelism: usize) -> QueryTaskPool<'_, O>
+    where
+        O: Send + 'static,
+    {
+        assert!(
+            max_parallelism > 0,
+            "bounded task parallelism must be non-zero"
+        );
+        QueryTaskPool {
+            session: self,
+            _activity: self.enter_activity(),
+            capacity: max_parallelism.min(self.executor_parallelism()),
+            next_position: 0,
+            pending: VecDeque::new(),
+            completed: Vec::new(),
+        }
     }
 
     fn run_tasks_inner<T, O>(&self, tasks: impl IntoIterator<Item = T>) -> Vec<O>
@@ -4569,6 +4722,121 @@ mod tests {
         assert_eq!(active.load(Ordering::SeqCst), 0);
         assert_eq!(peak_active.load(Ordering::SeqCst), 2);
         assert_eq!(session.inner.executor.peak_active(), 2);
+    }
+
+    #[test]
+    fn bounded_priority_task_pool_preserves_submission_order_and_lanes() {
+        let session = QuerySession::with_parallelism(4);
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak_active = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(Barrier::new(2));
+        let mut pool = session.task_pool(2);
+
+        for value in 0..4 {
+            let active = Arc::clone(&active);
+            let peak_active = Arc::clone(&peak_active);
+            let barrier = Arc::clone(&barrier);
+            pool.submit(move || {
+                let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak_active.fetch_max(current, Ordering::SeqCst);
+                barrier.wait();
+                active.fetch_sub(1, Ordering::SeqCst);
+                OwnedNonCloneValue { value }
+            });
+        }
+
+        let values = pool.finish();
+
+        assert_eq!(
+            values
+                .into_iter()
+                .map(|value| value.value)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert_eq!(peak_active.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn priority_task_pool_runs_before_queued_batch_work() {
+        let session = QuerySession::with_parallelism(2);
+        let executor = &session.inner.executor;
+        let normal_batch = Arc::new(QueryBatch::new(2));
+        let normal_batch_id = Arc::as_ptr(&normal_batch) as usize;
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let (started_sender, started_receiver) = std::sync::mpsc::channel();
+        let (release_sender, release_receiver) = std::sync::mpsc::channel();
+        let (normal_sender, normal_receiver) = std::sync::mpsc::channel();
+        let blocker_batch = Arc::clone(&normal_batch);
+        let blocker_shared = Arc::clone(&executor.shared);
+        let normal_order = Arc::clone(&order);
+        let normal_task_batch = Arc::clone(&normal_batch);
+        let normal_shared = Arc::clone(&executor.shared);
+
+        executor.submit_all(vec![
+            QueryTask {
+                batch: normal_batch_id,
+                run: Box::new(move || {
+                    started_sender.send(()).expect("signal blocker start");
+                    release_receiver.recv().expect("release blocker");
+                    blocker_batch.complete(0, Ok(()));
+                    blocker_shared.notify_waiters();
+                }),
+            },
+            QueryTask {
+                batch: normal_batch_id,
+                run: Box::new(move || {
+                    normal_order
+                        .lock()
+                        .expect("task order lock poisoned")
+                        .push("normal");
+                    normal_task_batch.complete(1, Ok(()));
+                    normal_shared.notify_waiters();
+                    normal_sender.send(()).expect("signal normal completion");
+                }),
+            },
+        ]);
+        started_receiver.recv().expect("wait for blocker start");
+
+        let priority_order = Arc::clone(&order);
+        let mut pool = session.task_pool(1);
+        pool.submit(move || {
+            priority_order
+                .lock()
+                .expect("task order lock poisoned")
+                .push("priority");
+        });
+        release_sender.send(()).expect("release executor worker");
+        normal_receiver
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("queued normal task completion");
+
+        assert_eq!(pool.finish(), vec![()]);
+        assert_eq!(normal_batch.finish(), vec![(), ()]);
+        assert_eq!(
+            *order.lock().expect("task order lock poisoned"),
+            vec!["priority", "normal"]
+        );
+    }
+
+    #[test]
+    fn priority_task_pool_drains_after_task_panic() {
+        let session = QuerySession::with_parallelism(2);
+        let completed = Arc::new(AtomicUsize::new(0));
+        let mut pool = session.task_pool(2);
+        pool.submit(|| -> usize { panic!("priority task failure") });
+        let task_completed = Arc::clone(&completed);
+        pool.submit(move || {
+            task_completed.fetch_add(1, Ordering::SeqCst);
+            7
+        });
+
+        let result = catch_unwind(AssertUnwindSafe(|| pool.finish()));
+
+        assert!(result.is_err());
+        assert_eq!(completed.load(Ordering::SeqCst), 1);
+        assert_eq!(session.run_tasks([|| 9]), vec![9]);
     }
 
     #[test]
