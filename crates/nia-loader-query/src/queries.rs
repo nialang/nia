@@ -4,9 +4,10 @@ use crate::provider_facts::ProviderDemandsQuery;
 use crate::used_paths::{ModuleDeclarations, UsedModulePath, collect_used_modules};
 use crate::{EntryRuntime, LoaderContext};
 use nia_compiler_query::{
-    ActiveModuleItemTreeFactKind, FrontendCacheNamespace, FrontendProviderSummaryCacheKey,
-    FrontendSourceCacheKey, LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel,
-    item_signature_fingerprint, source_content_fingerprint,
+    ActiveModuleItemTreeFactKind, FrontendCacheNamespace, FrontendFacadeFactsCacheKey,
+    FrontendProviderSummaryCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
+    LoadedModule, LoadedProgram, ProgramDiagnostic, RuntimeModel, SourceContentFingerprint,
+    frontend_module_map_fingerprint, item_signature_fingerprint, source_content_fingerprint,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_imports::{
@@ -20,6 +21,7 @@ use nia_query::{
 };
 use nia_source::{SourceFile, SourceId, SourcePath, SourceRevision, SourceVersion};
 use nia_target_config::prune_module_for_target_with_symbols;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct LoadedProgramQuery;
@@ -554,6 +556,89 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ProviderSummaryQuery(SourceVersion);
 
+struct FrontendCacheInput {
+    namespace: FrontendCacheNamespace,
+    module: StableModuleKey,
+    source: SourceContentFingerprint,
+    source_key: FrontendSourceCacheKey,
+}
+
+fn frontend_cache_input(
+    db: &QueryDb<LoaderContext>,
+    version: SourceVersion,
+) -> Option<FrontendCacheInput> {
+    let source = db.get(SourceTextQuery(version.id));
+    source
+        .file
+        .as_ref()
+        .filter(|file| file.version() == version)
+        .map(|file| {
+            let namespace = FrontendCacheNamespace::new(
+                &db.context().target,
+                runtime_model(db.context().entry_runtime),
+            );
+            let module = StableModuleKey::from_source_identity(file.path.identity());
+            let source = source_content_fingerprint(&file.text);
+            let source_key = FrontendSourceCacheKey::new(namespace, &module, source);
+            FrontendCacheInput {
+                namespace,
+                module,
+                source,
+                source_key,
+            }
+        })
+}
+
+fn cached_item_signature(
+    db: &QueryDb<LoaderContext>,
+    input: Option<&FrontendCacheInput>,
+) -> Option<ItemSignatureFingerprint> {
+    let input = input?;
+    let cache = db.context().frontend_cache.as_ref()?;
+    match cache
+        .load_dependency_manifest(
+            input.source_key,
+            input.namespace,
+            &input.module,
+            input.source,
+        )
+        .ok()?
+    {
+        crate::frontend_cache::DependencyManifestCacheLookup::Hit(item_signature) => {
+            Some(item_signature)
+        }
+        crate::frontend_cache::DependencyManifestCacheLookup::NotFound
+        | crate::frontend_cache::DependencyManifestCacheLookup::Corrupt => None,
+    }
+}
+
+fn fresh_item_signature(
+    db: &QueryDb<LoaderContext>,
+    version: SourceVersion,
+    input: Option<&FrontendCacheInput>,
+    cached: Option<ItemSignatureFingerprint>,
+) -> (Arc<ParsedModule>, ItemSignatureFingerprint) {
+    let syntax = db.get(SyntaxModuleQuery(version));
+    let parsed = db.get(ParsedModuleQuery(version));
+    let item_signature = item_signature_fingerprint(&syntax, &parsed.item_tree);
+    if let Some(input) = input
+        && let Some(cache) = &db.context().frontend_cache
+        && cached != Some(item_signature)
+    {
+        if cached.is_some() {
+            cache.remove_dependency_manifest(input.source_key);
+        }
+        let _ = cache.publish_dependency_manifest(
+            input.source_key,
+            input.namespace,
+            &input.module,
+            input.source,
+            item_signature,
+        );
+    }
+    (parsed, item_signature)
+}
+
 impl QueryKey<LoaderContext> for ProviderSummaryQuery {
     type Value = ProviderSummary;
 
@@ -566,89 +651,60 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let source = db.get(SourceTextQuery(self.0.id));
-        let cache_input = source
-            .file
-            .as_ref()
-            .filter(|file| file.version() == self.0)
-            .map(|file| {
-                let namespace = FrontendCacheNamespace::new(
-                    &db.context().target,
-                    runtime_model(db.context().entry_runtime),
-                );
-                let module = StableModuleKey::from_source_identity(file.path.identity());
-                let source = source_content_fingerprint(&file.text);
-                let source_key = FrontendSourceCacheKey::new(namespace, &module, source);
-                (namespace, module, source, source_key)
-            });
-        let cached_item_signature =
+        let cache_input = frontend_cache_input(db, self.0);
+        let cached_item_signature = cached_item_signature(db, cache_input.as_ref());
+        let cached =
             cache_input
                 .as_ref()
-                .and_then(|(namespace, module, source, source_key)| {
+                .zip(cached_item_signature)
+                .and_then(|(input, item_signature)| {
                     let cache = db.context().frontend_cache.as_ref()?;
+                    let key = FrontendProviderSummaryCacheKey::new(
+                        input.namespace,
+                        &input.module,
+                        item_signature,
+                    );
                     match cache
-                        .load_dependency_manifest(*source_key, *namespace, module, *source)
+                        .load_provider_summary(key, input.namespace, &input.module, item_signature)
                         .ok()?
                     {
-                        crate::frontend_cache::DependencyManifestCacheLookup::Hit(
-                            item_signature,
-                        ) => Some(item_signature),
-                        crate::frontend_cache::DependencyManifestCacheLookup::NotFound
-                        | crate::frontend_cache::DependencyManifestCacheLookup::Corrupt => None,
+                        crate::frontend_cache::ProviderSummaryCacheLookup::Hit(summary) => {
+                            Some(summary)
+                        }
+                        crate::frontend_cache::ProviderSummaryCacheLookup::NotFound
+                        | crate::frontend_cache::ProviderSummaryCacheLookup::Corrupt => None,
                     }
                 });
-        let cached = cache_input.as_ref().zip(cached_item_signature).and_then(
-            |((namespace, module, _, _), item_signature)| {
-                let cache = db.context().frontend_cache.as_ref()?;
-                let key = FrontendProviderSummaryCacheKey::new(*namespace, module, item_signature);
-                match cache
-                    .load_provider_summary(key, *namespace, module, item_signature)
-                    .ok()?
-                {
-                    crate::frontend_cache::ProviderSummaryCacheLookup::Hit(summary) => {
-                        Some(summary)
-                    }
-                    crate::frontend_cache::ProviderSummaryCacheLookup::NotFound
-                    | crate::frontend_cache::ProviderSummaryCacheLookup::Corrupt => None,
-                }
-            },
-        );
         if let Some(cached) = &cached
             && !db.context().verify_frontend_cache
         {
             return cached.clone();
         }
 
-        let syntax = db.get(SyntaxModuleQuery(self.0));
-        let parsed = db.get(ParsedModuleQuery(self.0));
-        let item_signature = item_signature_fingerprint(&syntax, &parsed.item_tree);
+        let (parsed, item_signature) =
+            fresh_item_signature(db, self.0, cache_input.as_ref(), cached_item_signature);
         let mut cached_for_item_signature = None;
-        if let Some((namespace, module, source, source_key)) = &cache_input
+        if let Some(input) = &cache_input
             && let Some(cache) = &db.context().frontend_cache
         {
-            if cached_item_signature != Some(item_signature) {
-                if cached_item_signature.is_some() {
-                    cache.remove_dependency_manifest(*source_key);
+            let key = FrontendProviderSummaryCacheKey::new(
+                input.namespace,
+                &input.module,
+                item_signature,
+            );
+            cached_for_item_signature = match cache.load_provider_summary(
+                key,
+                input.namespace,
+                &input.module,
+                item_signature,
+            ) {
+                Ok(crate::frontend_cache::ProviderSummaryCacheLookup::Hit(summary)) => {
+                    Some(summary)
                 }
-                let _ = cache.publish_dependency_manifest(
-                    *source_key,
-                    *namespace,
-                    module,
-                    *source,
-                    item_signature,
-                );
-            }
-
-            let key = FrontendProviderSummaryCacheKey::new(*namespace, module, item_signature);
-            cached_for_item_signature =
-                match cache.load_provider_summary(key, *namespace, module, item_signature) {
-                    Ok(crate::frontend_cache::ProviderSummaryCacheLookup::Hit(summary)) => {
-                        Some(summary)
-                    }
-                    Ok(crate::frontend_cache::ProviderSummaryCacheLookup::NotFound)
-                    | Ok(crate::frontend_cache::ProviderSummaryCacheLookup::Corrupt)
-                    | Err(_) => None,
-                };
+                Ok(crate::frontend_cache::ProviderSummaryCacheLookup::NotFound)
+                | Ok(crate::frontend_cache::ProviderSummaryCacheLookup::Corrupt)
+                | Err(_) => None,
+            };
             if let Some(cached) = &cached_for_item_signature
                 && !db.context().verify_frontend_cache
             {
@@ -657,17 +713,27 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
         }
 
         let fresh = ProviderSummary::from_active_item_tree(&parsed.active_item_tree);
-        if let Some((namespace, module, _, _)) = cache_input
+        if let Some(input) = cache_input
             && let Some(cache) = &db.context().frontend_cache
         {
-            let key = FrontendProviderSummaryCacheKey::new(namespace, &module, item_signature);
+            let key = FrontendProviderSummaryCacheKey::new(
+                input.namespace,
+                &input.module,
+                item_signature,
+            );
             if cached_for_item_signature
                 .as_ref()
                 .is_some_and(|cached| cached != &fresh)
             {
                 cache.remove_provider_summary(key);
             }
-            let _ = cache.publish_provider_summary(key, namespace, &module, item_signature, &fresh);
+            let _ = cache.publish_provider_summary(
+                key,
+                input.namespace,
+                &input.module,
+                item_signature,
+                &fresh,
+            );
         }
         fresh
     }
@@ -688,8 +754,102 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let parsed = db.get(ParsedModuleQuery(self.0));
-        ModuleFacadeFacts::from_active_item_tree(&parsed.active_item_tree, &db.context().module_map)
+        let cache_input = frontend_cache_input(db, self.0);
+        let cached_item_signature = cached_item_signature(db, cache_input.as_ref());
+        let module_map = frontend_module_map_fingerprint(&db.context().module_map);
+        let cached =
+            cache_input
+                .as_ref()
+                .zip(cached_item_signature)
+                .and_then(|(input, item_signature)| {
+                    let cache = db.context().frontend_cache.as_ref()?;
+                    let key = FrontendFacadeFactsCacheKey::new(
+                        input.namespace,
+                        &input.module,
+                        item_signature,
+                        module_map,
+                    );
+                    match cache
+                        .load_facade_facts(
+                            key,
+                            input.namespace,
+                            &input.module,
+                            item_signature,
+                            module_map,
+                        )
+                        .ok()?
+                    {
+                        crate::frontend_cache::FacadeFactsCacheLookup::Hit(facts) => Some(facts),
+                        crate::frontend_cache::FacadeFactsCacheLookup::NotFound
+                        | crate::frontend_cache::FacadeFactsCacheLookup::Corrupt => None,
+                    }
+                });
+        if let Some(cached) = &cached
+            && !db.context().verify_frontend_cache
+        {
+            return cached.clone();
+        }
+
+        let (parsed, item_signature) =
+            fresh_item_signature(db, self.0, cache_input.as_ref(), cached_item_signature);
+        let mut cached_for_item_signature = None;
+        if let Some(input) = &cache_input
+            && let Some(cache) = &db.context().frontend_cache
+        {
+            let key = FrontendFacadeFactsCacheKey::new(
+                input.namespace,
+                &input.module,
+                item_signature,
+                module_map,
+            );
+            cached_for_item_signature = match cache.load_facade_facts(
+                key,
+                input.namespace,
+                &input.module,
+                item_signature,
+                module_map,
+            ) {
+                Ok(crate::frontend_cache::FacadeFactsCacheLookup::Hit(facts)) => Some(facts),
+                Ok(crate::frontend_cache::FacadeFactsCacheLookup::NotFound)
+                | Ok(crate::frontend_cache::FacadeFactsCacheLookup::Corrupt)
+                | Err(_) => None,
+            };
+            if let Some(cached) = &cached_for_item_signature
+                && !db.context().verify_frontend_cache
+            {
+                return cached.clone();
+            }
+        }
+
+        let fresh = ModuleFacadeFacts::from_active_item_tree(
+            &parsed.active_item_tree,
+            &db.context().module_map,
+        );
+        if let Some(input) = cache_input
+            && let Some(cache) = &db.context().frontend_cache
+        {
+            let key = FrontendFacadeFactsCacheKey::new(
+                input.namespace,
+                &input.module,
+                item_signature,
+                module_map,
+            );
+            if cached_for_item_signature
+                .as_ref()
+                .is_some_and(|cached| cached != &fresh)
+            {
+                cache.remove_facade_facts(key);
+            }
+            let _ = cache.publish_facade_facts(
+                key,
+                input.namespace,
+                &input.module,
+                item_signature,
+                module_map,
+                &fresh,
+            );
+        }
+        fresh
     }
 }
 

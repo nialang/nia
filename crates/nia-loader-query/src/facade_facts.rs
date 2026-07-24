@@ -13,12 +13,32 @@ pub(crate) struct ModuleFacadeFacts {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct PublicReexportSource {
-    exposed_name: Option<SymbolId>,
-    source: UsedModulePath,
+pub(crate) struct PublicReexportSource {
+    pub(crate) exposed_name: Option<SymbolId>,
+    pub(crate) source: UsedModulePath,
 }
 
 impl ModuleFacadeFacts {
+    pub(crate) fn from_cache_parts(
+        public_type_names: impl IntoIterator<Item = SymbolId>,
+        public_reexports: Vec<PublicReexportSource>,
+        provider_source_paths: Vec<UsedModulePath>,
+    ) -> Self {
+        Self {
+            public_type_names: public_type_names.into_iter().collect(),
+            public_reexports,
+            provider_source_paths,
+        }
+    }
+
+    pub(crate) fn public_type_names(&self) -> impl Iterator<Item = SymbolId> + '_ {
+        self.public_type_names.iter().copied()
+    }
+
+    pub(crate) fn public_reexports(&self) -> &[PublicReexportSource] {
+        &self.public_reexports
+    }
+
     pub(crate) fn from_active_item_tree(
         item_tree: &ActiveModuleItemTree,
         module_map: &ModuleMap,
