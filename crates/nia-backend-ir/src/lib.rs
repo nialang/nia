@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    sync::OnceLock,
+    sync::{
+        Arc, Condvar, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use nia_function_ir::FunctionBody;
@@ -51,6 +54,36 @@ pub struct BackendModuleStore {
     module_ids: Vec<ModuleId>,
     positions: HashMap<ModuleId, usize>,
     slots: Vec<OnceLock<BackendModule>>,
+    readiness: Mutex<BackendModuleReadinessState>,
+    readiness_changed: Condvar,
+    readiness_claimed: AtomicBool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackendModuleReady {
+    position: usize,
+    module_id: ModuleId,
+}
+
+impl BackendModuleReady {
+    pub fn position(self) -> usize {
+        self.position
+    }
+
+    pub fn module_id(self) -> ModuleId {
+        self.module_id
+    }
+}
+
+#[derive(Debug)]
+struct BackendModuleReadinessState {
+    completions: Vec<BackendModuleReady>,
+}
+
+#[derive(Debug)]
+pub struct BackendModuleReadiness {
+    store: Arc<BackendModuleStore>,
+    next: usize,
 }
 
 impl BackendModuleStore {
@@ -67,6 +100,11 @@ impl BackendModuleStore {
             slots: (0..module_ids.len()).map(|_| OnceLock::new()).collect(),
             module_ids,
             positions,
+            readiness: Mutex::new(BackendModuleReadinessState {
+                completions: Vec::new(),
+            }),
+            readiness_changed: Condvar::new(),
+            readiness_claimed: AtomicBool::new(false),
         }
     }
 
@@ -83,9 +121,19 @@ impl BackendModuleStore {
             self.slots[position].set(module).is_ok(),
             "Nia ICE: backend module store owner {module_id:?} was published twice"
         );
-        self.slots[position]
+        let published = self.slots[position]
             .get()
-            .expect("published backend module slot")
+            .expect("published backend module slot");
+        let mut readiness = self
+            .readiness
+            .lock()
+            .expect("backend module readiness lock poisoned");
+        readiness.completions.push(BackendModuleReady {
+            position,
+            module_id,
+        });
+        self.readiness_changed.notify_one();
+        published
     }
 
     pub fn get(&self, module_id: ModuleId) -> Option<&BackendModule> {
@@ -96,6 +144,19 @@ impl BackendModuleStore {
 
     pub fn is_complete(&self) -> bool {
         self.slots.iter().all(|slot| slot.get().is_some())
+    }
+
+    pub fn take_readiness(self: &Arc<Self>) -> BackendModuleReadiness {
+        assert!(
+            self.readiness_claimed
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok(),
+            "Nia ICE: backend module readiness already has a consumer"
+        );
+        BackendModuleReadiness {
+            store: Arc::clone(self),
+            next: 0,
+        }
     }
 
     pub fn into_program(self) -> BackendProgram {
@@ -113,6 +174,30 @@ impl BackendModuleStore {
             })
             .collect();
         BackendProgram { modules }
+    }
+}
+
+impl BackendModuleReadiness {
+    pub fn wait_next(&mut self) -> Option<BackendModuleReady> {
+        let mut readiness = self
+            .store
+            .readiness
+            .lock()
+            .expect("backend module readiness lock poisoned");
+        loop {
+            if let Some(completion) = readiness.completions.get(self.next).copied() {
+                self.next += 1;
+                return Some(completion);
+            }
+            if readiness.completions.len() == self.store.module_ids.len() {
+                return None;
+            }
+            readiness = self
+                .store
+                .readiness_changed
+                .wait(readiness)
+                .expect("backend module readiness lock poisoned");
+        }
     }
 }
 
@@ -1104,6 +1189,54 @@ mod tests {
         store.publish(module_with_global(module_id, ty, "first", false));
 
         store.publish(module_with_global(module_id, ty, "second", false));
+    }
+
+    #[test]
+    fn backend_module_readiness_delivers_publish_order_and_terminal_state() {
+        let mut module_ids = ModuleIdAllocator::new();
+        let first_id = module_ids.allocate();
+        let second_id = module_ids.allocate();
+        let type_store = nia_ty::TypeStore::new();
+        let first_ty = type_store
+            .append_for_module(first_id)
+            .primitive(PrimitiveTy::I32);
+        let second_ty = type_store
+            .append_for_module(second_id)
+            .primitive(PrimitiveTy::I32);
+        let store = std::sync::Arc::new(BackendModuleStore::new([first_id, second_id]));
+        let mut readiness = store.take_readiness();
+        let publisher = std::sync::Arc::clone(&store);
+
+        let publish = std::thread::spawn(move || {
+            publisher.publish(module_with_global(second_id, second_ty, "second", false));
+            publisher.publish(module_with_global(first_id, first_ty, "first", false));
+        });
+
+        assert_eq!(
+            readiness.wait_next(),
+            Some(BackendModuleReady {
+                position: 1,
+                module_id: second_id,
+            })
+        );
+        assert_eq!(
+            readiness.wait_next(),
+            Some(BackendModuleReady {
+                position: 0,
+                module_id: first_id,
+            })
+        );
+        assert_eq!(readiness.wait_next(), None);
+        publish.join().expect("publish backend modules");
+    }
+
+    #[test]
+    #[should_panic(expected = "readiness already has a consumer")]
+    fn backend_module_readiness_rejects_second_consumer() {
+        let store = std::sync::Arc::new(BackendModuleStore::new([]));
+        let _readiness = store.take_readiness();
+
+        let _second = store.take_readiness();
     }
 
     fn incremental_link_input(path: &str, key: CodegenUnitKey) -> IncrementalLinkInput<String> {
