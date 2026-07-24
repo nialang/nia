@@ -1,5 +1,5 @@
 use nia_ast::FunctionItem;
-use nia_imports::StableModuleKey;
+use nia_imports::{ModuleMap, StableModuleKey};
 use nia_item_tree::{ItemTreeNodeKind, ModuleItemTree};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
 use nia_span::Span;
@@ -31,6 +31,7 @@ frontend_fingerprint!(SourceContentFingerprint);
 frontend_fingerprint!(SyntaxFingerprint);
 frontend_fingerprint!(ItemSignatureFingerprint);
 frontend_fingerprint!(FrontendCacheNamespace);
+frontend_fingerprint!(FrontendModuleMapFingerprint);
 
 macro_rules! frontend_cache_key {
     ($name:ident, $fingerprint:ident, $domain:literal) => {
@@ -80,6 +81,31 @@ frontend_cache_key!(
     "nia.frontend.cache-key.provider-summary.v2"
 );
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FrontendFacadeFactsCacheKey(QueryFingerprint);
+
+impl FrontendFacadeFactsCacheKey {
+    pub fn new(
+        namespace: FrontendCacheNamespace,
+        module: &StableModuleKey,
+        item_signature: ItemSignatureFingerprint,
+        module_map: FrontendModuleMapFingerprint,
+    ) -> Self {
+        let mut builder = QueryFingerprintBuilder::new("nia.frontend.cache-key.facade-facts.v1");
+        write_frontend_cache_key(&mut builder, namespace, module, item_signature.parts());
+        builder.write_fingerprint(QueryFingerprint::from_parts(module_map.parts()));
+        Self(builder.finish())
+    }
+
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(QueryFingerprint::from_parts(parts))
+    }
+
+    pub const fn parts(self) -> [u64; 2] {
+        self.0.parts()
+    }
+}
+
 impl FrontendCacheNamespace {
     pub fn new(target: &TargetConfig, runtime: RuntimeModel) -> Self {
         let mut builder = QueryFingerprintBuilder::new("nia.frontend.cache-namespace.v1");
@@ -119,6 +145,25 @@ pub fn source_content_fingerprint(source: &str) -> SourceContentFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.frontend.source-content.v1");
     builder.write_bytes(source.as_bytes());
     SourceContentFingerprint(builder.finish())
+}
+
+pub fn frontend_module_map_fingerprint(module_map: &ModuleMap) -> FrontendModuleMapFingerprint {
+    let mut entries = module_map
+        .entries()
+        .map(|(name, path)| (name.raw(), path.identity()))
+        .collect::<Vec<_>>();
+    entries.sort_unstable_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.normalized_path().cmp(right.1.normalized_path()))
+    });
+    let mut builder = QueryFingerprintBuilder::new("nia.frontend.module-map.v1");
+    builder.write_u64(entries.len() as u64);
+    for (name, path) in entries {
+        builder.write_u64(name);
+        builder.write_str(path.normalized_path());
+    }
+    FrontendModuleMapFingerprint(builder.finish())
 }
 
 pub fn syntax_fingerprint(syntax: &SyntaxTree) -> SyntaxFingerprint {
@@ -189,7 +234,7 @@ mod tests {
     use super::*;
     use nia_imports::StableModuleKey;
     use nia_source::SourceIdentity;
-    use nia_source::{SourceId, SourceRevision, SourceVersion};
+    use nia_source::{SourceId, SourcePath, SourceRevision, SourceVersion};
 
     #[test]
     fn source_and_syntax_fingerprints_are_version_independent_and_domain_separated() {
@@ -314,6 +359,31 @@ extend Value {
     }
 
     #[test]
+    fn frontend_module_map_fingerprint_is_order_independent_and_path_sensitive() {
+        let mut first = ModuleMap::new();
+        first.insert("beta", SourcePath::new("deps/beta.nia"));
+        first.insert("alpha", SourcePath::new("deps/alpha.nia"));
+        let mut reordered = ModuleMap::new();
+        reordered.insert("alpha", SourcePath::new("deps/alpha.nia"));
+        reordered.insert("beta", SourcePath::new("deps/beta.nia"));
+        let mut changed_path = reordered.clone();
+        changed_path.insert("beta", SourcePath::new("vendor/beta.nia"));
+        let mut changed_name = ModuleMap::new();
+        changed_name.insert("alpha", SourcePath::new("deps/alpha.nia"));
+        changed_name.insert("gamma", SourcePath::new("deps/beta.nia"));
+
+        let fingerprint = frontend_module_map_fingerprint(&first);
+        assert_eq!(fingerprint, frontend_module_map_fingerprint(&reordered));
+        assert_ne!(fingerprint, frontend_module_map_fingerprint(&changed_path));
+        assert_ne!(fingerprint, frontend_module_map_fingerprint(&changed_name));
+        assert_eq!(
+            fingerprint,
+            FrontendModuleMapFingerprint::from_parts(fingerprint.parts())
+        );
+        assert_eq!(std::mem::size_of::<FrontendModuleMapFingerprint>(), 16);
+    }
+
+    #[test]
     fn frontend_product_keys_separate_domains_modules_and_body_edits() {
         let target = TargetConfig::host();
         let namespace = FrontendCacheNamespace::new(&target, RuntimeModel::Bare);
@@ -338,6 +408,11 @@ extend Value {
             FrontendItemSignatureCacheKey::new(namespace, &module, before_signature);
         let provider_key =
             FrontendProviderSummaryCacheKey::new(namespace, &module, before_signature);
+        let mut module_map = ModuleMap::new();
+        module_map.insert("dep", SourcePath::new("deps/dep.nia"));
+        let module_map = frontend_module_map_fingerprint(&module_map);
+        let facade_key =
+            FrontendFacadeFactsCacheKey::new(namespace, &module, before_signature, module_map);
 
         assert_ne!(
             source_key,
@@ -360,6 +435,19 @@ extend Value {
             provider_key,
             FrontendProviderSummaryCacheKey::new(namespace, &module, after_signature)
         );
+        assert_eq!(
+            facade_key,
+            FrontendFacadeFactsCacheKey::new(namespace, &module, after_signature, module_map)
+        );
+        assert_ne!(
+            facade_key,
+            FrontendFacadeFactsCacheKey::new(
+                namespace,
+                &module,
+                after_signature,
+                FrontendModuleMapFingerprint::from_parts([1, 2])
+            )
+        );
         assert_ne!(
             signature_key,
             FrontendItemSignatureCacheKey::new(namespace, &other_module, after_signature)
@@ -367,6 +455,7 @@ extend Value {
         assert_ne!(source_key.parts(), syntax_key.parts());
         assert_ne!(syntax_key.parts(), signature_key.parts());
         assert_ne!(signature_key.parts(), provider_key.parts());
+        assert_ne!(provider_key.parts(), facade_key.parts());
         assert_eq!(
             provider_key,
             FrontendProviderSummaryCacheKey::from_parts(provider_key.parts())
@@ -376,6 +465,7 @@ extend Value {
         assert_eq!(std::mem::size_of::<FrontendSyntaxCacheKey>(), 16);
         assert_eq!(std::mem::size_of::<FrontendItemSignatureCacheKey>(), 16);
         assert_eq!(std::mem::size_of::<FrontendProviderSummaryCacheKey>(), 16);
+        assert_eq!(std::mem::size_of::<FrontendFacadeFactsCacheKey>(), 16);
     }
 
     fn signature_fingerprint(source: &str) -> ItemSignatureFingerprint {
