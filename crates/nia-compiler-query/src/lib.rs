@@ -38,11 +38,11 @@ pub use frontend_fingerprint::{
     FrontendCacheNamespace, FrontendFacadeFactsCacheKey, FrontendItemSignatureCacheKey,
     FrontendModuleDependenciesCacheKey, FrontendModuleMapFingerprint,
     FrontendProgramSourceFingerprint, FrontendProviderSummaryCacheKey,
-    FrontendPublicSurfaceFactsCacheKey, FrontendSignatureTypeResolutionCacheKey,
-    FrontendSourceCacheKey, FrontendSyntaxCacheKey, ItemSignatureFingerprint,
-    SourceContentFingerprint, SyntaxFingerprint, frontend_module_map_fingerprint,
-    frontend_program_source_fingerprint, item_signature_fingerprint, source_content_fingerprint,
-    syntax_fingerprint,
+    FrontendPublicSurfaceFactsCacheKey, FrontendSignatureTypeLoweringCacheKey,
+    FrontendSignatureTypeResolutionCacheKey, FrontendSourceCacheKey, FrontendSyntaxCacheKey,
+    ItemSignatureFingerprint, SourceContentFingerprint, SyntaxFingerprint,
+    frontend_module_map_fingerprint, frontend_program_source_fingerprint,
+    item_signature_fingerprint, source_content_fingerprint, syntax_fingerprint,
 };
 
 pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport};

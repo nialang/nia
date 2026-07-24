@@ -391,8 +391,8 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
 }
 
 #[test]
-fn persistent_signature_resolution_skips_resolver_dependencies_across_sessions() {
-    let root = temp_dir("persistent_signature_resolution_skips_resolver_dependencies");
+fn persistent_signature_semantics_skip_lowerer_and_resolver_dependencies_across_sessions() {
+    let root = temp_dir("persistent_signature_semantics_skip_dependencies");
     let source = r#"
 pub struct Box[T] { value: T }
 fn unwrap[T](value: Box[T]) T { value.value }
@@ -414,6 +414,10 @@ fn unwrap[T](value: Box[T]) T { value.value }
     assert!(first_trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "signature_type_resolution" && dependency.to.name == "module_defs"
     }));
+    assert!(first_trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "signature_type_lowering"
+            && dependency.to.name == "signature_type_resolution"
+    }));
 
     let second_sources = SourceDatabase::new();
     second_sources.set_source(SourcePath::new("main.nia"), source);
@@ -428,12 +432,17 @@ fn unwrap[T](value: Box[T]) T { value.value }
     let second = second_compiler.check_program();
     assert!(!has_error_diagnostics(&second.diagnostics));
     let second_trace = second_compiler.query_trace();
+    assert_eq!(
+        query_executions(&second_trace, "signature_type_resolution"),
+        0
+    );
     assert!(second_trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "signature_type_resolution"
+        dependency.from.name == "signature_type_lowering"
             && dependency.to.name == "frontend_program_sources"
     }));
     assert!(!second_trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "signature_type_resolution" && dependency.to.name == "module_defs"
+        dependency.from.name == "signature_type_lowering"
+            && dependency.to.name == "signature_type_resolution"
     }));
 
     let verified_sources = SourceDatabase::new();
@@ -459,6 +468,16 @@ fn unwrap[T](value: Box[T]) T { value.value }
             .any(|dependency| {
                 dependency.from.name == "signature_type_resolution"
                     && dependency.to.name == "module_defs"
+            })
+    );
+    assert!(
+        verified_compiler
+            .query_trace()
+            .dependencies
+            .iter()
+            .any(|dependency| {
+                dependency.from.name == "signature_type_lowering"
+                    && dependency.to.name == "signature_type_resolution"
             })
     );
 }

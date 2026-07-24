@@ -437,22 +437,136 @@ pub(super) fn provide_signature_type_lowering(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> TypeLowering {
+    let program_sources = db.get(FrontendProgramSourcesQuery);
+    let cache_input = program_sources
+        .as_ref()
+        .as_ref()
+        .and_then(|program_sources| {
+            let source = program_sources.by_module.get(&module_id)?;
+            let namespace = crate::FrontendCacheNamespace::new(
+                &db.context().loader_facts.target(),
+                db.context().loader_facts.runtime(),
+            );
+            let key = crate::FrontendSignatureTypeLoweringCacheKey::new(
+                namespace,
+                &source.module,
+                set,
+                program_sources.fingerprint,
+            );
+            Some((program_sources, source, namespace, key))
+        });
+    let symbols = db.context().symbols();
+    let cached = if let Some(cache) = db.context().signature_cache.as_ref()
+        && let Some((program_sources, source, namespace, key)) = cache_input
+    {
+        match cache.load_type_lowering(
+            crate::signature_cache::SignatureTypeLoweringIdentity {
+                key,
+                namespace,
+                module: &source.module,
+                set,
+                program_sources: program_sources.fingerprint,
+                source_version: source.version,
+                source_len: source.len,
+            },
+            &program_sources.module_by_path,
+            &symbols,
+            db.context().type_store(),
+        ) {
+            Ok(lookup) => {
+                match lookup {
+                    crate::signature_cache::SignatureTypeLoweringLookup::Hit(_) => {
+                        nia_timing::emit_counter("frontend.signature_type_lowering_reuse_hits", 1);
+                    }
+                    crate::signature_cache::SignatureTypeLoweringLookup::NotFound => {
+                        nia_timing::emit_counter(
+                            "frontend.signature_type_lowering_reuse_miss_not_found",
+                            1,
+                        );
+                    }
+                    crate::signature_cache::SignatureTypeLoweringLookup::Corrupt => {
+                        nia_timing::emit_counter(
+                            "frontend.signature_type_lowering_reuse_miss_corrupt",
+                            1,
+                        );
+                    }
+                }
+                Some(lookup)
+            }
+            Err(_) => {
+                nia_timing::emit_counter(
+                    "frontend.signature_type_lowering_reuse_miss_read_error",
+                    1,
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    if let Some(crate::signature_cache::SignatureTypeLoweringLookup::Hit(cached)) = &cached
+        && !db.context().verify_frontend_cache
+    {
+        return cached.as_ref().clone();
+    }
     let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set));
     let type_resolution = db.get(SignatureTypeResolutionQuery(module_id, set));
     let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
-    let symbols = db.context().symbols();
-    nia_type_lower::lower_module_declaration_types_from_active_item_tree_with_context(
-        module_id,
-        &active_item_tree,
-        &type_resolution,
-        nia_type_lower::TypeLoweringContext::from_program_defs(
-            db.context().type_store(),
-            nia_type_lower::ProgramDefsContext {
-                defs: Some(&program_defs),
-            },
-        )
-        .with_symbols(&symbols),
-    )
+    let lowering =
+        nia_type_lower::lower_module_declaration_types_from_active_item_tree_with_context(
+            module_id,
+            &active_item_tree,
+            &type_resolution,
+            nia_type_lower::TypeLoweringContext::from_program_defs(
+                db.context().type_store(),
+                nia_type_lower::ProgramDefsContext {
+                    defs: Some(&program_defs),
+                },
+            )
+            .with_symbols(&symbols),
+        );
+    nia_timing::emit_counter(
+        if lowering.const_exprs.is_empty() && lowering.const_expr_summaries.is_empty() {
+            "frontend.signature_type_lowering_cacheable"
+        } else {
+            "frontend.signature_type_lowering_has_const_exprs"
+        },
+        1,
+    );
+    if let Some(cache) = &db.context().signature_cache
+        && let Some((program_sources, source, namespace, key)) = cache_input
+    {
+        let replace = matches!(
+            &cached,
+            Some(crate::signature_cache::SignatureTypeLoweringLookup::Hit(cached))
+                if cached.as_ref() != &lowering
+        );
+        if replace {
+            cache.remove_type_lowering(key);
+        }
+        if lowering.diagnostics.is_empty()
+            && lowering.const_exprs.is_empty()
+            && lowering.const_expr_summaries.is_empty()
+        {
+            let _ = cache.publish_type_lowering(
+                crate::signature_cache::SignatureTypeLoweringIdentity {
+                    key,
+                    namespace,
+                    module: &source.module,
+                    set,
+                    program_sources: program_sources.fingerprint,
+                    source_version: source.version,
+                    source_len: source.len,
+                },
+                &lowering,
+                &program_sources.path_by_module,
+                &symbols,
+                db.context().type_store(),
+                replace,
+            );
+        }
+    }
+    lowering
 }
 
 pub(super) fn provide_signature_const_type_lowering(
