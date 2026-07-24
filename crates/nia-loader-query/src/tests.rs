@@ -36,6 +36,14 @@ fn sym(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))
 }
 
+fn symbols_for(texts: &[&str]) -> SymbolTable {
+    let symbols = SymbolTable::new();
+    for text in texts {
+        symbols.intern(text).expect("test symbols must not collide");
+    }
+    symbols
+}
+
 #[test]
 fn source_frontend_query_keys_are_compact_handles() {
     assert_eq!(std::mem::size_of::<ProviderDemandsQuery>(), 0);
@@ -1717,6 +1725,61 @@ fn persistent_module_dependencies_hit_skips_parse_and_tracks_exact_source_spans(
 }
 
 #[test]
+fn persistent_module_dependencies_skip_all_graph_discovery_parses_across_sessions() {
+    let root = temp_dir("persistent_module_dependencies_skip_graph_discovery_parses");
+    let main = SourcePath::new("main.nia");
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+    let first_sources = SourceDatabase::new();
+    first_sources.set_source(main.clone(), "module middle;");
+    first_sources.set_source(SourcePath::new("middle.nia"), "module leaf;");
+    first_sources.set_source(SourcePath::new("middle/leaf.nia"), "pub struct Value {}");
+    let first = frontend_cache_database(
+        &main,
+        &first_sources,
+        ModuleMap::default(),
+        cache.clone(),
+        false,
+    );
+
+    let first_graph = first.get(crate::graph::ModuleGraphQuery);
+    let first_paths = first_graph
+        .modules()
+        .map(|module| module.path.clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(first_paths.len(), 3);
+    assert_eq!(query_executions(&first.query_trace(), "parsed_module"), 3);
+    assert_eq!(
+        query_executions(&first.query_trace(), "module_declarations"),
+        3
+    );
+    drop(first_graph);
+    drop(first);
+
+    let second_sources = SourceDatabase::new();
+    second_sources.set_source(main.clone(), "module middle;");
+    second_sources.set_source(SourcePath::new("middle.nia"), "module leaf;");
+    second_sources.set_source(SourcePath::new("middle/leaf.nia"), "pub struct Value {}");
+    let second =
+        frontend_cache_database(&main, &second_sources, ModuleMap::default(), cache, false);
+
+    let second_graph = second.get(crate::graph::ModuleGraphQuery);
+    let second_paths = second_graph
+        .modules()
+        .map(|module| module.path.clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(second_paths, first_paths);
+    assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        query_executions(&second.query_trace(), "module_declarations"),
+        3
+    );
+}
+
+#[test]
 fn module_dependencies_cache_keys_include_effective_module_map() {
     let root = temp_dir("module_dependencies_cache_keys_include_effective_module_map");
     let sources = SourceDatabase::new();
@@ -1782,10 +1845,13 @@ fn module_dependencies_verification_replaces_semantically_wrong_valid_entry() {
         .publish_module_dependencies(
             identity.namespace,
             &identity.module,
-            identity.source,
-            identity.source_len,
+            crate::frontend_cache::ModuleDependenciesSource::new(
+                identity.source,
+                identity.source_len,
+            ),
             identity.module_map,
             &wrong,
+            &SymbolTable::new(),
         )
         .expect("publish wrong but structurally valid module dependencies");
 
@@ -1847,6 +1913,10 @@ fn module_dependencies_cache_round_trips_all_stable_fields() {
     let module_map = ModuleMap::new();
     let identity = module_dependencies_cache_identity(&file, &main, &module_map);
     let cache = crate::frontend_cache::PersistentFrontendCache::new(root.join("cache"));
+    let symbols = symbols_for(&[
+        "private", "super", "package", "public", "dep_b", "dep_a", "one", "two", "three", "four",
+        "Trait", "Alias", "value", "AliasB", "AliasA",
+    ]);
     let declarations = [
         ("private", Visibility::Private, nia_span::Span::new(1, 2)),
         ("super", Visibility::PublicSuper, nia_span::Span::new(3, 4)),
@@ -1913,12 +1983,16 @@ fn module_dependencies_cache_round_trips_all_stable_fields() {
         .publish_module_dependencies(
             identity.namespace,
             &identity.module,
-            identity.source,
-            identity.source_len,
+            crate::frontend_cache::ModuleDependenciesSource::new(
+                identity.source,
+                identity.source_len,
+            ),
             identity.module_map,
             &dependencies,
+            &symbols,
         )
         .expect("publish complete module dependency summary");
+    let loaded_symbols = SymbolTable::new();
 
     assert!(matches!(
         cache
@@ -1926,14 +2000,21 @@ fn module_dependencies_cache_round_trips_all_stable_fields() {
                 identity.key,
                 identity.namespace,
                 &identity.module,
-                identity.source,
-                identity.source_len,
+                crate::frontend_cache::ModuleDependenciesSource::new(
+                    identity.source,
+                    identity.source_len,
+                ),
                 identity.module_map,
+                &loaded_symbols,
             )
             .expect("load complete module dependency summary"),
         crate::frontend_cache::ModuleDependenciesCacheLookup::Hit(cached)
             if cached == dependencies
     ));
+    assert_eq!(
+        loaded_symbols.resolve(sym("private")).as_deref(),
+        Some("private")
+    );
 }
 
 #[test]
@@ -1970,14 +2051,18 @@ fn persistent_provider_summary_hit_skips_parse_and_recovers_from_corruption() {
     assert_eq!(first_summary, third_summary);
     assert_eq!(query_executions(&third.query_trace(), "parsed_module"), 1);
     assert!(matches!(
-        cache
-            .load_provider_summary(
-                identity.provider_key,
-                identity.namespace,
-                &identity.module,
-                identity.item_signature,
-            )
-            .expect("reload repaired provider summary"),
+        {
+            let loaded_symbols = SymbolTable::new();
+            cache
+                .load_provider_summary(
+                    identity.provider_key,
+                    identity.namespace,
+                    &identity.module,
+                    identity.item_signature,
+                    &loaded_symbols,
+                )
+                .expect("reload repaired provider summary")
+        },
         crate::frontend_cache::ProviderSummaryCacheLookup::Hit(_)
     ));
 
@@ -2037,6 +2122,7 @@ fn provider_summary_verification_replaces_semantically_wrong_valid_entry() {
             &identity.module,
             identity.item_signature,
             &nia_provider_summary::ProviderSummary::default(),
+            &SymbolTable::new(),
         )
         .expect("publish wrong but structurally valid provider summary");
 
@@ -2198,6 +2284,7 @@ fn provider_summary_verification_repairs_wrong_dependency_manifest() {
             &identity.module,
             wrong_item_signature,
             &nia_provider_summary::ProviderSummary::default(),
+            &SymbolTable::new(),
         )
         .expect("publish provider summary for wrong dependency");
 
@@ -2355,12 +2442,12 @@ fn facade_facts_verification_replaces_semantically_wrong_valid_entry() {
         .expect("publish facade dependency manifest");
     cache
         .publish_facade_facts(
-            identity.facade_key,
             identity.namespace,
             &identity.module,
             identity.item_signature,
             identity.module_map,
             &crate::facade_facts::ModuleFacadeFacts::from_cache_parts([], Vec::new(), Vec::new()),
+            &SymbolTable::new(),
         )
         .expect("publish wrong but structurally valid facade facts");
 
@@ -2392,6 +2479,11 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
     let module_map = ModuleMap::new();
     let identity = facade_cache_identity(&facade_file, &main, &module_map);
     let cache = crate::frontend_cache::PersistentFrontendCache::new(root.join("cache"));
+    let symbol_texts = [
+        "Widget", "TraitA", "TraitB", "first", "second", "dep", "segment0", "segment1", "segment2",
+        "segment3", "segment4", "segment5", "segment6", "segment7",
+    ];
+    let symbols = symbols_for(&symbol_texts);
     let processing = [
         UsedModulePathProcessing::Never,
         UsedModulePathProcessing::Always,
@@ -2416,7 +2508,7 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
         .into_iter()
         .enumerate()
         .map(|(index, processing)| {
-            let segments = vec![SymbolId::from_stable_hash(index as u64 + 100)];
+            let segments = vec![sym(symbol_texts[index + 6])];
             match index % 4 {
                 0 => UsedModulePath::Package {
                     package: sym("dep"),
@@ -2450,14 +2542,15 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
     );
     cache
         .publish_facade_facts(
-            identity.facade_key,
             identity.namespace,
             &identity.module,
             identity.item_signature,
             identity.module_map,
             &facts,
+            &symbols,
         )
         .expect("publish facade facts path variants");
+    let loaded_symbols = SymbolTable::new();
 
     assert!(matches!(
         cache
@@ -2467,10 +2560,15 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
                 &identity.module,
                 identity.item_signature,
                 identity.module_map,
+                &loaded_symbols,
             )
             .expect("load facade facts path variants"),
         crate::frontend_cache::FacadeFactsCacheLookup::Hit(cached) if cached == facts
     ));
+    assert_eq!(
+        loaded_symbols.resolve(sym("segment7")).as_deref(),
+        Some("segment7")
+    );
 }
 
 #[test]
