@@ -391,7 +391,7 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
 }
 
 #[test]
-fn persistent_signature_semantics_skip_lowerer_and_resolver_dependencies_across_sessions() {
+fn persistent_signature_semantics_skip_raw_dependencies_across_sessions() {
     let root = temp_dir("persistent_signature_semantics_skip_dependencies");
     let source = r#"
 pub struct Box[T] { value: T }
@@ -422,6 +422,10 @@ fn unwrap[T](value: Box[T]) T { value.value }
         dependency.from.name == "signature_item_signatures"
             && dependency.to.name == "signature_type_lowering"
     }));
+    assert!(first_trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "extension_trait_solving_module_facts"
+            && dependency.to.name == "extension_signature_module_input"
+    }));
 
     let second_sources = SourceDatabase::new();
     second_sources.set_source(SourcePath::new("main.nia"), source);
@@ -440,14 +444,10 @@ fn unwrap[T](value: Box[T]) T { value.value }
         query_executions(&second_trace, "signature_type_resolution"),
         0
     );
-    assert!(
-        query_executions(&second_trace, "signature_type_lowering")
-            < query_executions(&first_trace, "signature_type_lowering")
+    assert_eq!(
+        query_executions(&second_trace, "signature_type_lowering"),
+        0
     );
-    assert!(second_trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "signature_type_lowering"
-            && dependency.to.name == "frontend_program_sources"
-    }));
     assert!(!second_trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "signature_type_lowering"
             && dependency.to.name == "signature_type_resolution"
@@ -459,6 +459,18 @@ fn unwrap[T](value: Box[T]) T { value.value }
     assert!(!second_trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "signature_item_signatures"
             && dependency.to.name == "signature_type_lowering"
+    }));
+    assert!(
+        query_executions(&second_trace, "extension_signature_module_input")
+            < query_executions(&first_trace, "extension_signature_module_input")
+    );
+    assert!(second_trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "extension_trait_solving_module_facts"
+            && dependency.to.name == "frontend_program_sources"
+    }));
+    assert!(!second_trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "extension_trait_solving_module_facts"
+            && dependency.to.name == "extension_signature_module_input"
     }));
 
     let verified_sources = SourceDatabase::new();
@@ -504,6 +516,16 @@ fn unwrap[T](value: Box[T]) T { value.value }
             .any(|dependency| {
                 dependency.from.name == "signature_item_signatures"
                     && dependency.to.name == "signature_type_lowering"
+            })
+    );
+    assert!(
+        verified_compiler
+            .query_trace()
+            .dependencies
+            .iter()
+            .any(|dependency| {
+                dependency.from.name == "extension_trait_solving_module_facts"
+                    && dependency.to.name == "extension_signature_module_input"
             })
     );
 }

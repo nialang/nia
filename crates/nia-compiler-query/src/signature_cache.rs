@@ -25,14 +25,15 @@ use nia_type_lower::TypeLowering;
 use nia_type_resolve::{TypeNameResolution, TypeResolution};
 
 use crate::{
-    FrontendCacheNamespace, FrontendProgramSourceFingerprint,
-    FrontendSignatureItemSignaturesCacheKey, FrontendSignatureTypeLoweringCacheKey,
-    FrontendSignatureTypeResolutionCacheKey,
+    FrontendCacheNamespace, FrontendExtensionTraitSolvingFactsCacheKey,
+    FrontendProgramSourceFingerprint, FrontendSignatureItemSignaturesCacheKey,
+    FrontendSignatureTypeLoweringCacheKey, FrontendSignatureTypeResolutionCacheKey,
 };
 
 const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR001";
 const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL001";
 const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI001";
+const EXTENSION_TRAIT_FACTS_MAGIC: &[u8; 8] = b"NIAET001";
 const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
@@ -74,6 +75,21 @@ pub(crate) struct SignatureItemSignaturesIdentity<'a> {
     pub(crate) source_len: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ExtensionTraitSolvingFactsIdentity<'a> {
+    pub(crate) key: FrontendExtensionTraitSolvingFactsCacheKey,
+    pub(crate) namespace: FrontendCacheNamespace,
+    pub(crate) module: &'a StableModuleKey,
+    pub(crate) program_sources: FrontendProgramSourceFingerprint,
+    pub(crate) source_len: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CachedExtensionTraitSolvingFacts {
+    pub(crate) trait_impls: Vec<item_signatures::ProgramTraitImplSignature>,
+    pub(crate) invalid_trait_impl_method_ids: HashSet<GlobalDefId>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SignatureTypeResolutionLookup {
     Hit(Box<TypeResolution>),
@@ -91,6 +107,13 @@ pub(crate) enum SignatureTypeLoweringLookup {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SignatureItemSignaturesLookup {
     Hit(Box<ItemSignatures>),
+    NotFound,
+    Corrupt,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ExtensionTraitSolvingFactsLookup {
+    Hit(Box<CachedExtensionTraitSolvingFacts>),
     NotFound,
     Corrupt,
 }
@@ -326,6 +349,85 @@ impl PersistentSignatureCache {
         remove_corrupt(&self.item_signatures_path(key));
     }
 
+    pub(crate) fn load_extension_trait_solving_facts(
+        &self,
+        identity: ExtensionTraitSolvingFactsIdentity<'_>,
+        modules: &HashMap<String, ModuleId>,
+        symbols: &SymbolTable,
+        type_store: &TypeStore,
+    ) -> io::Result<ExtensionTraitSolvingFactsLookup> {
+        let path = self.extension_trait_solving_facts_path(identity.key);
+        let encoded = match fs::read(&path) {
+            Ok(encoded) if encoded.len() <= MAX_ENTRY_BYTES => encoded,
+            Ok(_) => {
+                remove_corrupt(&path);
+                return Ok(ExtensionTraitSolvingFactsLookup::Corrupt);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(ExtensionTraitSolvingFactsLookup::NotFound);
+            }
+            Err(error) => return Err(error),
+        };
+        let Some(payload) = decode_extension_trait_solving_facts_entry(&encoded, identity) else {
+            remove_corrupt(&path);
+            return Ok(ExtensionTraitSolvingFactsLookup::Corrupt);
+        };
+        let Some(module_id) = modules
+            .get(identity.module.source_identity().normalized_path())
+            .copied()
+        else {
+            remove_corrupt(&path);
+            return Ok(ExtensionTraitSolvingFactsLookup::Corrupt);
+        };
+        let Some(facts) = decode_extension_trait_solving_facts(
+            payload,
+            identity.source_len,
+            modules,
+            symbols,
+            type_store,
+            module_id,
+        ) else {
+            remove_corrupt(&path);
+            return Ok(ExtensionTraitSolvingFactsLookup::Corrupt);
+        };
+        Ok(ExtensionTraitSolvingFactsLookup::Hit(Box::new(facts)))
+    }
+
+    pub(crate) fn publish_extension_trait_solving_facts(
+        &self,
+        identity: ExtensionTraitSolvingFactsIdentity<'_>,
+        facts: &CachedExtensionTraitSolvingFacts,
+        module_paths: &HashMap<ModuleId, String>,
+        symbols: &SymbolTable,
+        type_store: &TypeStore,
+        replace: bool,
+    ) -> io::Result<()> {
+        let path = self.extension_trait_solving_facts_path(identity.key);
+        if !replace && path.is_file() {
+            return Ok(());
+        }
+        let payload = encode_extension_trait_solving_facts(
+            facts,
+            identity.module,
+            module_paths,
+            symbols,
+            type_store,
+        )?;
+        let encoded = encode_extension_trait_solving_facts_entry(identity, &payload);
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
+        fs::create_dir_all(parent)?;
+        atomic_publish(&path, &encoded)
+    }
+
+    pub(crate) fn remove_extension_trait_solving_facts(
+        &self,
+        key: FrontendExtensionTraitSolvingFactsCacheKey,
+    ) {
+        remove_corrupt(&self.extension_trait_solving_facts_path(key));
+    }
+
     pub(crate) fn type_resolution_path(
         &self,
         key: FrontendSignatureTypeResolutionCacheKey,
@@ -360,6 +462,19 @@ impl PersistentSignatureCache {
             .join("v3")
             .join("signature-item-signatures")
             .join(format!("{first:016x}{second:016x}.sis"))
+    }
+
+    pub(crate) fn extension_trait_solving_facts_path(
+        &self,
+        key: FrontendExtensionTraitSolvingFactsCacheKey,
+    ) -> PathBuf {
+        let [first, second] = key.parts();
+        self.root
+            .join("artifacts")
+            .join("frontend")
+            .join("v3")
+            .join("extension-trait-solving-facts")
+            .join(format!("{first:016x}{second:016x}.ets"))
     }
 }
 
@@ -521,6 +636,62 @@ fn decode_item_signatures_entry<'a>(
         || read_string(&mut cursor, encoded.len())?
             != identity.module.source_identity().normalized_path()
         || read_u8(&mut cursor)? != signature_set_tag(identity.set)
+        || usize::try_from(read_u64(&mut cursor)?).ok()? != identity.source_len
+    {
+        return None;
+    }
+    let payload_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
+    if payload_len > MAX_ENTRY_BYTES {
+        return None;
+    }
+    let start = usize::try_from(cursor.position()).ok()?;
+    let end = start.checked_add(payload_len)?;
+    (end == checksum_offset).then(|| &encoded[start..end])
+}
+
+fn encode_extension_trait_solving_facts_entry(
+    identity: ExtensionTraitSolvingFactsIdentity<'_>,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(EXTENSION_TRAIT_FACTS_MAGIC);
+    write_parts(&mut encoded, identity.key.parts());
+    write_parts(&mut encoded, identity.namespace.parts());
+    write_parts(&mut encoded, identity.program_sources.parts());
+    write_string(
+        &mut encoded,
+        identity.module.source_identity().normalized_path(),
+    );
+    write_u64(&mut encoded, identity.source_len as u64);
+    write_u64(&mut encoded, payload.len() as u64);
+    encoded.extend_from_slice(payload);
+    let checksum = extension_trait_solving_facts_checksum(&encoded);
+    write_parts(&mut encoded, checksum.parts());
+    encoded
+}
+
+fn decode_extension_trait_solving_facts_entry<'a>(
+    encoded: &'a [u8],
+    identity: ExtensionTraitSolvingFactsIdentity<'_>,
+) -> Option<&'a [u8]> {
+    if encoded.len() < EXTENSION_TRAIT_FACTS_MAGIC.len() + 16 {
+        return None;
+    }
+    let checksum_offset = encoded.len().checked_sub(16)?;
+    let expected_checksum = extension_trait_solving_facts_checksum(&encoded[..checksum_offset]);
+    let mut checksum_cursor = Cursor::new(&encoded[checksum_offset..]);
+    if read_parts(&mut checksum_cursor)? != expected_checksum.parts() {
+        return None;
+    }
+    let mut cursor = Cursor::new(&encoded[..checksum_offset]);
+    let mut magic = [0_u8; 8];
+    cursor.read_exact(&mut magic).ok()?;
+    if &magic != EXTENSION_TRAIT_FACTS_MAGIC
+        || read_parts(&mut cursor)? != identity.key.parts()
+        || read_parts(&mut cursor)? != identity.namespace.parts()
+        || read_parts(&mut cursor)? != identity.program_sources.parts()
+        || read_string(&mut cursor, encoded.len())?
+            != identity.module.source_identity().normalized_path()
         || usize::try_from(read_u64(&mut cursor)?).ok()? != identity.source_len
     {
         return None;
@@ -775,6 +946,220 @@ fn decode_item_signatures(
         globals,
         consts,
         diagnostics: Vec::new(),
+    })
+}
+
+fn encode_extension_trait_solving_facts(
+    facts: &CachedExtensionTraitSolvingFacts,
+    module: &StableModuleKey,
+    module_paths: &HashMap<ModuleId, String>,
+    symbols: &SymbolTable,
+    type_store: &TypeStore,
+) -> io::Result<Vec<u8>> {
+    let module_path = module.source_identity().normalized_path();
+    let mut matching_modules = module_paths
+        .iter()
+        .filter_map(|(module_id, path)| (path == module_path).then_some(*module_id));
+    let module_id = matching_modules.next().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "extension facts module is absent from current program",
+        )
+    })?;
+    if matching_modules.next().is_some()
+        || facts
+            .trait_impls
+            .iter()
+            .any(|signature| signature.module_id != module_id)
+        || facts
+            .invalid_trait_impl_method_ids
+            .iter()
+            .any(|def_id| def_id.module_id != module_id)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "extension facts contain a foreign module owner",
+        ));
+    }
+
+    let mut graph = TypeGraphEncoder {
+        type_store,
+        module_paths,
+        symbols,
+        indexes: HashMap::new(),
+        visiting: HashSet::new(),
+        nodes: Vec::new(),
+    };
+    let mut body = Vec::new();
+    write_u64(&mut body, facts.trait_impls.len() as u64);
+    let mut impl_ids = HashSet::new();
+    for signature in &facts.trait_impls {
+        if !impl_ids.insert(signature.impl_id) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "duplicate extension trait impl identity",
+            ));
+        }
+        write_program_trait_impl_signature(&mut body, signature, &mut graph)?;
+    }
+    let mut invalid_methods = facts
+        .invalid_trait_impl_method_ids
+        .iter()
+        .map(|def_id| def_id.def_id)
+        .collect::<Vec<_>>();
+    invalid_methods.sort_unstable_by_key(|def_id| def_id.0);
+    write_u64(&mut body, invalid_methods.len() as u64);
+    for def_id in invalid_methods {
+        write_u64(&mut body, def_id.0);
+    }
+
+    let mut encoded = Vec::new();
+    write_type_graph(&mut encoded, graph.nodes);
+    encoded.extend_from_slice(&body);
+    Ok(encoded)
+}
+
+fn decode_extension_trait_solving_facts(
+    encoded: &[u8],
+    source_len: usize,
+    modules: &HashMap<String, ModuleId>,
+    symbols: &SymbolTable,
+    type_store: &TypeStore,
+    module_id: ModuleId,
+) -> Option<CachedExtensionTraitSolvingFacts> {
+    let mut cursor = Cursor::new(encoded);
+    let types = read_type_graph(
+        &mut cursor,
+        encoded.len(),
+        modules,
+        symbols,
+        type_store,
+        module_id,
+    )?;
+    let trait_impl_len = read_len(&mut cursor, MAX_SEQUENCE_LEN)?;
+    let mut trait_impls = Vec::with_capacity(trait_impl_len);
+    let mut impl_ids = HashSet::new();
+    for _ in 0..trait_impl_len {
+        let signature = read_program_trait_impl_signature(
+            &mut cursor,
+            &types,
+            symbols,
+            modules,
+            module_id,
+            source_len,
+        )?;
+        if !impl_ids.insert(signature.impl_id) {
+            return None;
+        }
+        trait_impls.push(signature);
+    }
+    let invalid_len = read_len(&mut cursor, MAX_SEQUENCE_LEN)?;
+    let mut invalid_trait_impl_method_ids = HashSet::with_capacity(invalid_len);
+    let mut previous = None;
+    for _ in 0..invalid_len {
+        let def_id = DefId(read_u64(&mut cursor)?);
+        if previous.is_some_and(|previous| previous >= def_id)
+            || !invalid_trait_impl_method_ids.insert(GlobalDefId { module_id, def_id })
+        {
+            return None;
+        }
+        previous = Some(def_id);
+    }
+    if cursor.position() as usize != encoded.len() {
+        return None;
+    }
+    Some(CachedExtensionTraitSolvingFacts {
+        trait_impls,
+        invalid_trait_impl_method_ids,
+    })
+}
+
+fn write_program_trait_impl_signature(
+    encoded: &mut Vec<u8>,
+    signature: &item_signatures::ProgramTraitImplSignature,
+    graph: &mut TypeGraphEncoder<'_>,
+) -> io::Result<()> {
+    write_u64(encoded, signature.impl_id.0);
+    write_optional_string(encoded, signature.builtin.as_deref());
+    write_symbols(encoded, &signature.generics, graph)?;
+    write_type_index(encoded, graph.intern(signature.target_ty)?);
+    write_trait_id(encoded, signature.trait_id, graph.module_paths)?;
+    write_types(encoded, &signature.trait_args, graph)?;
+    write_const_args(encoded, &signature.trait_const_args, graph)?;
+    write_where_predicates(encoded, &signature.where_predicates, graph)?;
+    write_u64(encoded, signature.associated_types.len() as u64);
+    for associated in &signature.associated_types {
+        graph.write_symbol(encoded, associated.name)?;
+        write_type_index(encoded, graph.intern(associated.ty)?);
+        write_span(encoded, associated.span);
+    }
+    write_u64(encoded, signature.associated_values.len() as u64);
+    for associated in &signature.associated_values {
+        write_u64(encoded, associated.def_id.0);
+        graph.write_symbol(encoded, associated.name)?;
+        encoded.push(visibility_tag(associated.visibility));
+        write_span(encoded, associated.span);
+    }
+    Ok(())
+}
+
+fn read_program_trait_impl_signature(
+    cursor: &mut Cursor<&[u8]>,
+    types: &[InternedTyId],
+    symbols: &SymbolTable,
+    modules: &HashMap<String, ModuleId>,
+    module_id: ModuleId,
+    source_len: usize,
+) -> Option<item_signatures::ProgramTraitImplSignature> {
+    let impl_id = TraitImplId(read_u64(cursor)?);
+    let builtin = read_optional_string(cursor)?;
+    let generics = read_symbols(cursor, symbols)?;
+    let target_ty = read_type_index(cursor, types)?;
+    let trait_id = read_trait_id(cursor, modules)?;
+    let trait_args = read_types(cursor, types)?;
+    let trait_const_args = read_const_args(cursor, types, symbols)?;
+    let where_predicates = read_where_predicates(cursor, types, symbols, source_len)?;
+    let associated_type_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut associated_types = Vec::with_capacity(associated_type_len);
+    let mut associated_type_names = HashSet::new();
+    for _ in 0..associated_type_len {
+        let associated = item_signatures::TraitImplAssociatedTypeSignature {
+            name: read_symbol(cursor, symbols)?,
+            ty: read_type_index(cursor, types)?,
+            span: read_span(cursor, source_len)?,
+        };
+        if !associated_type_names.insert(associated.name) {
+            return None;
+        }
+        associated_types.push(associated);
+    }
+    let associated_value_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut associated_values = Vec::with_capacity(associated_value_len);
+    let mut associated_value_ids = HashSet::new();
+    for _ in 0..associated_value_len {
+        let associated = item_signatures::TraitImplAssociatedValueSignature {
+            def_id: DefId(read_u64(cursor)?),
+            name: read_symbol(cursor, symbols)?,
+            visibility: read_visibility(cursor)?,
+            span: read_span(cursor, source_len)?,
+        };
+        if !associated_value_ids.insert(associated.def_id) {
+            return None;
+        }
+        associated_values.push(associated);
+    }
+    Some(item_signatures::ProgramTraitImplSignature {
+        module_id,
+        impl_id,
+        builtin,
+        generics,
+        target_ty,
+        trait_id,
+        trait_args,
+        trait_const_args,
+        where_predicates,
+        associated_types,
+        associated_values,
     })
 }
 
@@ -2649,6 +3034,12 @@ fn item_signatures_checksum(encoded: &[u8]) -> QueryFingerprint {
     builder.finish()
 }
 
+fn extension_trait_solving_facts_checksum(encoded: &[u8]) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.extension-trait-solving-facts.entry.v1");
+    builder.write_bytes(encoded);
+    builder.finish()
+}
+
 fn atomic_publish(path: &Path, encoded: &[u8]) -> io::Result<()> {
     let stage_id = STAGE_ID.fetch_add(1, Ordering::Relaxed);
     let staged = path.with_extension(format!("tmp-{}-{stage_id}", std::process::id()));
@@ -3245,6 +3636,212 @@ mod tests {
                 )
                 .expect("load corrupt signatures"),
             SignatureItemSignaturesLookup::Corrupt
+        );
+        assert!(!path.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn extension_trait_facts_roundtrip_rehydrates_stable_owners() {
+        let root = temp_dir("extension_trait_facts_rehydrate");
+        let cache = PersistentSignatureCache::new(root.clone());
+        let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
+        let dependency = StableModuleKey::from_source_identity(SourceIdentity::new("src/dep.nia"));
+        let source = crate::source_content_fingerprint("extension trait facts fixture");
+        let dependency_source = crate::source_content_fingerprint("dependency fixture");
+        let program_sources = crate::frontend_program_source_fingerprint([
+            (&module, source, 512),
+            (&dependency, dependency_source, 128),
+        ]);
+        let namespace = crate::FrontendCacheNamespace::new(
+            &nia_target_config::TargetConfig::host(),
+            crate::RuntimeModel::Bare,
+        );
+        let key = crate::FrontendExtensionTraitSolvingFactsCacheKey::new(
+            namespace,
+            &module,
+            program_sources,
+        );
+
+        let mut old_ids = ModuleIdAllocator::new();
+        let old_module = old_ids.allocate();
+        let old_dependency = old_ids.allocate();
+        let old_store = TypeStore::new();
+        let append = old_store.append_for_module(old_module);
+        let old_symbols = SymbolTable::new();
+        let generic_name = old_symbols.intern("Item").expect("intern generic");
+        let associated_name = old_symbols.intern("Output").expect("intern associated");
+        let value_name = old_symbols.intern("VALUE").expect("intern value");
+        let primitive = append.intern(TyKind::Primitive(PrimitiveTy::Usize));
+        let generic = append.intern(TyKind::GenericParam(generic_name));
+        let target_ty = append.intern(TyKind::Nominal {
+            def_id: GlobalDefId {
+                module_id: old_dependency,
+                def_id: DefId(31),
+            },
+            args: vec![generic],
+            const_args: Vec::new(),
+        });
+        let trait_id = TraitId::Source(GlobalDefId {
+            module_id: old_dependency,
+            def_id: DefId(37),
+        });
+        let facts = CachedExtensionTraitSolvingFacts {
+            trait_impls: vec![item_signatures::ProgramTraitImplSignature {
+                module_id: old_module,
+                impl_id: TraitImplId(41),
+                builtin: Some("iterator".to_string()),
+                generics: vec![generic_name],
+                target_ty,
+                trait_id,
+                trait_args: vec![primitive],
+                trait_const_args: vec![ConstGenericArg {
+                    ty: primitive,
+                    value: ConstGenericValue::Int(IntConst::unsigned(8)),
+                }],
+                where_predicates: vec![item_signatures::WherePredicateSignature {
+                    ty: generic,
+                    bounds: vec![item_signatures::WhereBoundSignature {
+                        trait_ty: primitive,
+                        associated_type_bindings: vec![
+                            item_signatures::AssociatedTypeBindingSignature {
+                                name: associated_name,
+                                ty: target_ty,
+                                span: nia_span::Span::new(20, 30),
+                            },
+                        ],
+                        span: nia_span::Span::new(15, 31),
+                    }],
+                    span: nia_span::Span::new(10, 32),
+                }],
+                associated_types: vec![item_signatures::TraitImplAssociatedTypeSignature {
+                    name: associated_name,
+                    ty: target_ty,
+                    span: nia_span::Span::new(40, 50),
+                }],
+                associated_values: vec![item_signatures::TraitImplAssociatedValueSignature {
+                    def_id: DefId(43),
+                    name: value_name,
+                    visibility: Visibility::PublicPkg,
+                    span: nia_span::Span::new(60, 70),
+                }],
+            }],
+            invalid_trait_impl_method_ids: HashSet::from([GlobalDefId {
+                module_id: old_module,
+                def_id: DefId(47),
+            }]),
+        };
+        let old_paths = HashMap::from([
+            (old_module, "src/main.nia".to_string()),
+            (old_dependency, "src/dep.nia".to_string()),
+        ]);
+        let old_payload = encode_extension_trait_solving_facts(
+            &facts,
+            &module,
+            &old_paths,
+            &old_symbols,
+            &old_store,
+        )
+        .expect("encode old extension facts");
+        cache
+            .publish_extension_trait_solving_facts(
+                ExtensionTraitSolvingFactsIdentity {
+                    key,
+                    namespace,
+                    module: &module,
+                    program_sources,
+                    source_len: 512,
+                },
+                &facts,
+                &old_paths,
+                &old_symbols,
+                &old_store,
+                false,
+            )
+            .expect("publish extension facts");
+
+        let mut new_ids = ModuleIdAllocator::new();
+        let new_dependency = new_ids.allocate();
+        let new_module = new_ids.allocate();
+        let new_store = TypeStore::new();
+        let new_symbols = SymbolTable::new();
+        let modules = HashMap::from([
+            ("src/main.nia".to_string(), new_module),
+            ("src/dep.nia".to_string(), new_dependency),
+        ]);
+        let loaded = cache
+            .load_extension_trait_solving_facts(
+                ExtensionTraitSolvingFactsIdentity {
+                    key,
+                    namespace,
+                    module: &module,
+                    program_sources,
+                    source_len: 512,
+                },
+                &modules,
+                &new_symbols,
+                &new_store,
+            )
+            .expect("load extension facts");
+        let ExtensionTraitSolvingFactsLookup::Hit(loaded) = loaded else {
+            panic!("expected extension facts cache hit");
+        };
+        assert_eq!(loaded.trait_impls[0].module_id, new_module);
+        assert!(loaded.invalid_trait_impl_method_ids.contains(&GlobalDefId {
+            module_id: new_module,
+            def_id: DefId(47),
+        }));
+        assert!(matches!(
+            loaded.trait_impls[0].trait_id,
+            TraitId::Source(def_id) if def_id.module_id == new_dependency
+        ));
+        assert!(loaded.trait_impls.iter().all(|signature| {
+            signature.target_ty.store_id == new_store.id()
+                && signature
+                    .trait_args
+                    .iter()
+                    .all(|ty| ty.store_id == new_store.id())
+        }));
+        assert_eq!(new_symbols.resolve(generic_name).as_deref(), Some("Item"));
+        assert_eq!(
+            new_symbols.resolve(associated_name).as_deref(),
+            Some("Output")
+        );
+        assert_eq!(new_symbols.resolve(value_name).as_deref(), Some("VALUE"));
+        let new_paths = HashMap::from([
+            (new_module, "src/main.nia".to_string()),
+            (new_dependency, "src/dep.nia".to_string()),
+        ]);
+        let new_payload = encode_extension_trait_solving_facts(
+            &loaded,
+            &module,
+            &new_paths,
+            &new_symbols,
+            &new_store,
+        )
+        .expect("encode rehydrated extension facts");
+        assert_eq!(old_payload, new_payload);
+
+        let path = cache.extension_trait_solving_facts_path(key);
+        let mut corrupt = fs::read(&path).expect("read extension facts entry");
+        corrupt[0] ^= 0xff;
+        fs::write(&path, corrupt).expect("corrupt extension facts entry");
+        assert_eq!(
+            cache
+                .load_extension_trait_solving_facts(
+                    ExtensionTraitSolvingFactsIdentity {
+                        key,
+                        namespace,
+                        module: &module,
+                        program_sources,
+                        source_len: 512,
+                    },
+                    &modules,
+                    &new_symbols,
+                    &new_store,
+                )
+                .expect("load corrupt extension facts"),
+            ExtensionTraitSolvingFactsLookup::Corrupt
         );
         assert!(!path.exists());
         let _ = fs::remove_dir_all(root);
