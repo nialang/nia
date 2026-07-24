@@ -336,6 +336,19 @@ struct QueryBatchState<O> {
     completed: VecDeque<usize>,
 }
 
+struct TaskCompletionStream<'a, O> {
+    executor: &'a QueryExecutor,
+    batch: Arc<QueryBatch<O>>,
+    batch_id: usize,
+    pending: VecDeque<(usize, QueryBatchOutcome<O>)>,
+    panic: Option<Box<dyn Any + Send>>,
+}
+
+pub struct QueryCompletionStream<'stream, 'executor, O> {
+    tasks: &'stream mut TaskCompletionStream<'executor, (O, RecordedDependencies)>,
+    dependencies: RecordedDependencies,
+}
+
 struct QueryDbInner<C> {
     id: QueryDbId,
     session: QuerySession,
@@ -951,6 +964,42 @@ impl<O> QueryBatch<O> {
     }
 }
 
+impl<O> TaskCompletionStream<'_, O> {
+    fn wait_next(&mut self) -> Option<(usize, O)> {
+        loop {
+            while let Some((position, outcome)) = self.pending.pop_front() {
+                match outcome {
+                    Ok(value) if self.panic.is_none() => return Some((position, value)),
+                    Ok(_) => {}
+                    Err(payload) => {
+                        if self.panic.is_none() {
+                            self.panic = Some(payload);
+                        }
+                    }
+                }
+            }
+            let (completed, is_complete) = self.batch.take_completed();
+            self.pending.extend(completed);
+            if !self.pending.is_empty() {
+                continue;
+            }
+            if is_complete {
+                if let Some(payload) = self.panic.take() {
+                    resume_unwind(payload);
+                }
+                return None;
+            }
+            if !self.executor.try_run_one(self.batch_id) {
+                self.executor.wait_for_batch_progress(&self.batch);
+            }
+        }
+    }
+
+    fn drain(&mut self) {
+        while self.wait_next().is_some() {}
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct QueryNodeId {
     db_id: QueryDbId,
@@ -1322,6 +1371,20 @@ struct QueryStackInstallGuard {
     previous: Vec<QueryStackEntry>,
 }
 
+impl<O> QueryCompletionStream<'_, '_, O> {
+    pub fn wait_next(&mut self) -> Option<(usize, O)> {
+        let (position, (value, task_dependencies)) = self.tasks.wait_next()?;
+        self.dependencies.nodes.extend(task_dependencies.nodes);
+        if let (Some(dependencies), Some(task_dependencies)) = (
+            self.dependencies.fingerprints.as_mut(),
+            task_dependencies.fingerprints,
+        ) {
+            dependencies.extend(task_dependencies);
+        }
+        Some((position, value))
+    }
+}
+
 thread_local! {
     static QUERY_STACK: RefCell<Vec<QueryStackEntry>> = const { RefCell::new(Vec::new()) };
     static QUERY_EXECUTOR_STACK: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
@@ -1463,21 +1526,16 @@ impl QuerySession {
         batch.finish()
     }
 
-    fn run_tasks_inner_with_completion<T, O>(
+    fn with_task_completion_stream_inner<T, O, R>(
         &self,
         tasks: impl IntoIterator<Item = T>,
-        mut on_complete: impl FnMut(usize, O),
-    ) where
+        consume: impl FnOnce(&mut TaskCompletionStream<'_, O>) -> R,
+    ) -> R
+    where
         T: FnOnce() -> O + Send + 'static,
         O: Send + 'static,
     {
         let tasks = tasks.into_iter().collect::<Vec<_>>();
-        if tasks.len() <= 1 {
-            for (index, task) in tasks.into_iter().enumerate() {
-                on_complete(index, task());
-            }
-            return;
-        }
         let batch = Arc::new(QueryBatch::new(tasks.len()));
         let batch_id = Arc::as_ptr(&batch) as usize;
         let executor = &self.inner.executor;
@@ -1498,35 +1556,23 @@ impl QuerySession {
             })
             .collect();
         executor.submit_all(tasks);
-        let mut panic = None;
-        loop {
-            let (completed, is_complete) = batch.take_completed();
-            for (index, outcome) in completed {
-                match outcome {
-                    Ok(value) if panic.is_none() => {
-                        if let Err(payload) =
-                            catch_unwind(AssertUnwindSafe(|| on_complete(index, value)))
-                        {
-                            panic = Some(payload);
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(payload) => {
-                        if panic.is_none() {
-                            panic = Some(payload);
-                        }
-                    }
+        let mut stream = TaskCompletionStream {
+            executor,
+            batch,
+            batch_id,
+            pending: VecDeque::new(),
+            panic: None,
+        };
+        let result = catch_unwind(AssertUnwindSafe(|| consume(&mut stream)));
+        let drain = catch_unwind(AssertUnwindSafe(|| stream.drain()));
+        match result {
+            Ok(value) => {
+                if let Err(payload) = drain {
+                    resume_unwind(payload);
                 }
+                value
             }
-            if is_complete {
-                break;
-            }
-            if !executor.try_run_one(batch_id) {
-                executor.wait_for_batch_progress(&batch);
-            }
-        }
-        if let Some(payload) = panic {
-            resume_unwind(payload);
+            Err(payload) => resume_unwind(payload),
         }
     }
 
@@ -2233,12 +2279,42 @@ impl<C> QueryDb<C> {
         self.for_each_many_with(keys, Self::get_owned::<K>, on_complete)
     }
 
+    pub fn with_many_owned_completion<K, R>(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        consume: impl FnOnce(&mut QueryCompletionStream<'_, '_, K::Value>) -> R,
+    ) -> R
+    where
+        C: Send + Sync + 'static,
+        K: QueryKey<C>,
+    {
+        self.with_many_completion_with(keys, Self::get_owned::<K>, consume)
+    }
+
     fn for_each_many_with<K, O>(
         &self,
         keys: impl IntoIterator<Item = K>,
         get: fn(&Self, K) -> O,
         mut on_complete: impl FnMut(usize, O),
     ) where
+        C: Send + Sync + 'static,
+        K: QueryKey<C>,
+        O: Send + 'static,
+    {
+        self.with_many_completion_with(keys, get, |stream| {
+            while let Some((position, value)) = stream.wait_next() {
+                on_complete(position, value);
+            }
+        });
+    }
+
+    fn with_many_completion_with<K, O, R>(
+        &self,
+        keys: impl IntoIterator<Item = K>,
+        get: fn(&Self, K) -> O,
+        consume: impl FnOnce(&mut QueryCompletionStream<'_, '_, O>) -> R,
+    ) -> R
+    where
         C: Send + Sync + 'static,
         K: QueryKey<C>,
         O: Send + 'static,
@@ -2257,24 +2333,34 @@ impl<C> QueryDb<C> {
                 (value, take_current_stack_dependencies())
             }
         });
-        let mut dependencies = RecordedDependencies {
-            nodes: FastHashSet::default(),
-            fingerprints: records_fingerprints.then(DependencyFingerprints::default),
-        };
-        self.inner.session.run_tasks_inner_with_completion(
-            tasks,
-            |position, (value, task_dependencies)| {
-                dependencies.nodes.extend(task_dependencies.nodes);
-                if let (Some(dependencies), Some(task_dependencies)) = (
-                    dependencies.fingerprints.as_mut(),
-                    task_dependencies.fingerprints,
-                ) {
-                    dependencies.extend(task_dependencies);
-                }
-                on_complete(position, value);
-            },
-        );
+        let (result, dependencies) =
+            self.inner
+                .session
+                .with_task_completion_stream_inner(tasks, |tasks| {
+                    let mut stream = QueryCompletionStream {
+                        tasks,
+                        dependencies: RecordedDependencies {
+                            nodes: FastHashSet::default(),
+                            fingerprints: records_fingerprints
+                                .then(DependencyFingerprints::default),
+                        },
+                    };
+                    let result = catch_unwind(AssertUnwindSafe(|| consume(&mut stream)));
+                    let drain =
+                        catch_unwind(AssertUnwindSafe(|| while stream.wait_next().is_some() {}));
+                    let dependencies = stream.dependencies;
+                    match result {
+                        Ok(value) => {
+                            if let Err(payload) = drain {
+                                resume_unwind(payload);
+                            }
+                            (value, dependencies)
+                        }
+                        Err(payload) => resume_unwind(payload),
+                    }
+                });
         merge_dependencies_into_current_stack(dependencies);
+        result
     }
 
     fn get_many_with<K, O>(
@@ -4316,6 +4402,36 @@ mod tests {
             |position, value| {
                 completed.push((position, value));
                 db.context().phase.store(value + 1, Ordering::SeqCst);
+            },
+        );
+
+        assert_eq!(completed, vec![(2, 0), (1, 1), (0, 2)]);
+    }
+
+    #[test]
+    fn typed_owned_completion_stream_moves_values_in_completion_order() {
+        let session = QuerySession::with_parallelism(3);
+        let db = QueryDb::new_with_timings_in_session(
+            CompletionOrderContext {
+                phase: AtomicUsize::new(0),
+            },
+            nia_timing::TimingMode::Off,
+            session,
+        );
+
+        let completed = db.with_many_owned_completion(
+            [
+                CompletionOrderProbe(2),
+                CompletionOrderProbe(1),
+                CompletionOrderProbe(0),
+            ],
+            |stream| {
+                let mut completed = Vec::new();
+                while let Some((position, value)) = stream.wait_next() {
+                    completed.push((position, value));
+                    db.context().phase.store(value + 1, Ordering::SeqCst);
+                }
+                completed
             },
         );
 
