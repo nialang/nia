@@ -6,15 +6,15 @@ use crate::queries::{
     ModuleParseErrorsFactQuery, ParsedModuleQuery, ProviderSummaryQuery,
     PublicSurfaceModuleFactsQuery, SourceStatus, SourceStatusQuery, SourceTextQuery,
     SyntaxModuleQuery, module_declarations_query, module_facade_facts_query, parsed_module_query,
-    provider_summary_query,
+    provider_summary_query, public_surface_module_facts_query,
 };
 use nia_compiler_query::{
     CompileRequest, CompilerDatabase, FrontendCacheNamespace, FrontendFacadeFactsCacheKey,
     FrontendModuleDependenciesCacheKey, FrontendModuleMapFingerprint,
-    FrontendProviderSummaryCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
-    ProviderDemand, ProviderGraphUpdate, RuntimeModel, SourceContentFingerprint,
-    frontend_module_map_fingerprint, has_error_diagnostics, item_signature_fingerprint,
-    source_content_fingerprint,
+    FrontendProviderSummaryCacheKey, FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey,
+    ItemSignatureFingerprint, ProviderDemand, ProviderGraphUpdate, RuntimeModel,
+    SourceContentFingerprint, frontend_module_map_fingerprint, has_error_diagnostics,
+    item_signature_fingerprint, source_content_fingerprint,
 };
 use nia_imports::{ModuleGraph, ModuleNode, StableModuleKey, Visibility};
 use nia_item_tree::{ItemTreeNodeKind, ModuleItemTree};
@@ -1909,6 +1909,462 @@ fn module_dependencies_with_diagnostics_are_not_persisted() {
 }
 
 #[test]
+fn persistent_public_surface_facts_skip_item_tree_and_recover_from_corruption() {
+    let root = temp_dir("persistent_public_surface_facts_skip_item_tree");
+    let main = SourcePath::new("main.nia");
+    let source = r#"
+pub fn before() i32 { 1 }
+pub struct Widget { value: i32 }
+pub enum Choice { First, Second }
+pub using self::Choice::{First as Selected, Second};
+"#;
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+    let first_sources = SourceDatabase::new();
+    let first_file = first_sources.set_source(main.clone(), source);
+    let first_identity = public_surface_facts_cache_identity(&first_file);
+    let first = frontend_cache_database(
+        &main,
+        &first_sources,
+        ModuleMap::default(),
+        cache.clone(),
+        false,
+    );
+    let first_facts = first.get(public_surface_module_facts_query(&first, &main));
+    let first_widget_span = first_facts
+        .defs
+        .iter()
+        .find(|def| def.name == sym("Widget"))
+        .expect("Widget definition fact")
+        .span;
+    assert_eq!(
+        query_executions(&first.query_trace(), "loader_active_module_item_tree_fact"),
+        1
+    );
+
+    let second_sources = SourceDatabase::new();
+    second_sources.set_source(main.clone(), source);
+    let second = frontend_cache_database(
+        &main,
+        &second_sources,
+        ModuleMap::default(),
+        cache.clone(),
+        false,
+    );
+    let second_facts = second.get(public_surface_module_facts_query(&second, &main));
+    assert_eq!(first_facts, second_facts);
+    assert_eq!(
+        query_executions(&second.query_trace(), "loader_public_surface_module_facts"),
+        1
+    );
+    assert_eq!(
+        query_executions(&second.query_trace(), "loader_active_module_item_tree_fact"),
+        0
+    );
+    assert_eq!(query_executions(&second.query_trace(), "parsed_module"), 0);
+    assert_eq!(
+        second.context().symbols.resolve(sym("Widget")).as_deref(),
+        Some("Widget")
+    );
+
+    let path = cache.public_surface_facts_path(first_identity.key);
+    fs::write(&path, b"corrupt public surface facts").expect("corrupt facts entry");
+    let repaired_sources = SourceDatabase::new();
+    repaired_sources.set_source(main.clone(), source);
+    let repaired = frontend_cache_database(
+        &main,
+        &repaired_sources,
+        ModuleMap::default(),
+        cache.clone(),
+        false,
+    );
+    let repaired_facts = repaired.get(public_surface_module_facts_query(&repaired, &main));
+    assert_eq!(first_facts, repaired_facts);
+    assert_eq!(
+        query_executions(&repaired.query_trace(), "parsed_module"),
+        1
+    );
+
+    let edited_source = source.replace("{ 1 }", "{ 1000 + 2000 + 3000 }");
+    let edited_sources = SourceDatabase::new();
+    let edited_file = edited_sources.set_source(main.clone(), edited_source.clone());
+    let edited_identity = public_surface_facts_cache_identity(&edited_file);
+    assert_ne!(first_identity.key, edited_identity.key);
+    let edited = frontend_cache_database(
+        &main,
+        &edited_sources,
+        ModuleMap::default(),
+        cache.clone(),
+        false,
+    );
+    let edited_facts = edited.get(public_surface_module_facts_query(&edited, &main));
+    let edited_widget_span = edited_facts
+        .defs
+        .iter()
+        .find(|def| def.name == sym("Widget"))
+        .expect("edited Widget definition fact")
+        .span;
+    assert_ne!(first_widget_span, edited_widget_span);
+    assert_eq!(query_executions(&edited.query_trace(), "parsed_module"), 1);
+
+    let reused_sources = SourceDatabase::new();
+    reused_sources.set_source(main.clone(), edited_source);
+    let reused =
+        frontend_cache_database(&main, &reused_sources, ModuleMap::default(), cache, false);
+    let reused_facts = reused.get(public_surface_module_facts_query(&reused, &main));
+    assert_eq!(edited_facts, reused_facts);
+    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+}
+
+#[test]
+fn public_surface_facts_verification_replaces_semantically_wrong_valid_entry() {
+    let root = temp_dir("public_surface_facts_verification_replaces_wrong_entry");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let file = sources.set_source(main.clone(), "pub struct Widget {}");
+    let identity = public_surface_facts_cache_identity(&file);
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+    cache
+        .publish_public_surface_facts(
+            identity.namespace,
+            &identity.module,
+            crate::frontend_cache::PublicSurfaceFactsSource::new(
+                identity.source,
+                identity.source_len,
+            ),
+            &nia_defs::PublicSurfaceModuleFacts {
+                defs: Vec::new(),
+                module_scope: nia_defs::PublicSurfaceModuleScopeFacts::default(),
+                enum_scopes: Vec::new(),
+                module_usings: Vec::new(),
+            },
+            &SymbolTable::new(),
+        )
+        .expect("publish wrong but structurally valid public surface facts");
+
+    let verifying =
+        frontend_cache_database(&main, &sources, ModuleMap::default(), cache.clone(), true);
+    let verified = verifying.get(public_surface_module_facts_query(&verifying, &main));
+    assert!(verified.defs.iter().any(|def| def.name == sym("Widget")));
+    assert_eq!(
+        query_executions(&verifying.query_trace(), "parsed_module"),
+        1
+    );
+
+    let reused_sources = SourceDatabase::new();
+    reused_sources.set_source(main.clone(), "pub struct Widget {}");
+    let reused =
+        frontend_cache_database(&main, &reused_sources, ModuleMap::default(), cache, false);
+    let reused_facts = reused.get(public_surface_module_facts_query(&reused, &main));
+    assert_eq!(verified, reused_facts);
+    assert_eq!(query_executions(&reused.query_trace(), "parsed_module"), 0);
+}
+
+#[test]
+fn public_surface_facts_with_diagnostics_are_not_persisted() {
+    let root = temp_dir("public_surface_facts_with_diagnostics_are_not_persisted");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let file = sources.set_source(
+        main.clone(),
+        "pub fn value() void {} pub fn value() void {}",
+    );
+    let identity = public_surface_facts_cache_identity(&file);
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+    let database =
+        frontend_cache_database(&main, &sources, ModuleMap::default(), cache.clone(), false);
+    let facts = database.get(public_surface_module_facts_query(&database, &main));
+    assert_eq!(
+        facts
+            .defs
+            .iter()
+            .filter(|def| def.name == sym("value"))
+            .count(),
+        2
+    );
+    assert!(!cache.public_surface_facts_path(identity.key).is_file());
+
+    let malformed_file = sources.set_source(main.clone(), "pub fn broken(");
+    let malformed_identity = public_surface_facts_cache_identity(&malformed_file);
+    let malformed =
+        frontend_cache_database(&main, &sources, ModuleMap::default(), cache.clone(), false);
+    let _ = malformed.get(public_surface_module_facts_query(&malformed, &main));
+    assert!(
+        !cache
+            .public_surface_facts_path(malformed_identity.key)
+            .is_file()
+    );
+}
+
+#[test]
+fn public_surface_facts_cache_round_trips_all_stable_fields() {
+    use nia_ast::PathSegmentKind;
+    use nia_defs::{
+        DefId, DefKind, ModuleUsing, PublicSurfaceDefFact, PublicSurfaceEnumScopeFact,
+        PublicSurfaceModuleFacts, PublicSurfaceModuleScopeFacts, UsingGroupItem, UsingName,
+        UsingPathSegment, UsingSelector,
+    };
+    use nia_span::Span;
+
+    let root = temp_dir("public_surface_facts_round_trip_all_stable_fields");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let file = sources.set_source(main, " ".repeat(512));
+    let identity = public_surface_facts_cache_identity(&file);
+    let cache = crate::frontend_cache::PersistentFrontendCache::new(root.join("cache"));
+    let names = [
+        "module",
+        "function",
+        "global",
+        "const",
+        "struct",
+        "struct_field",
+        "union",
+        "union_field",
+        "trait",
+        "associated_type",
+        "trait_method",
+        "method",
+        "enum",
+        "variant",
+        "type_alias",
+    ];
+    let symbols = symbols_for(&[
+        "module",
+        "function",
+        "global",
+        "const",
+        "struct",
+        "struct_field",
+        "union",
+        "union_field",
+        "trait",
+        "associated_type",
+        "trait_method",
+        "method",
+        "enum",
+        "variant",
+        "type_alias",
+        "host",
+        "selected",
+        "renamed",
+        "nested",
+        "plain",
+        "final",
+    ]);
+    let kinds = [
+        DefKind::Module,
+        DefKind::Function,
+        DefKind::Global,
+        DefKind::Const,
+        DefKind::Struct,
+        DefKind::StructField,
+        DefKind::Union,
+        DefKind::UnionField,
+        DefKind::Trait,
+        DefKind::TraitAssociatedType,
+        DefKind::TraitMethod,
+        DefKind::Method,
+        DefKind::Enum,
+        DefKind::EnumVariant,
+        DefKind::TypeAlias,
+    ];
+    let parents = [
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(DefId(5)),
+        None,
+        Some(DefId(7)),
+        None,
+        Some(DefId(9)),
+        Some(DefId(9)),
+        Some(DefId(5)),
+        None,
+        Some(DefId(13)),
+        None,
+    ];
+    let visibilities = [
+        Visibility::Private,
+        Visibility::PublicSuper,
+        Visibility::PublicPkg,
+        Visibility::Public,
+    ];
+    let defs = names
+        .into_iter()
+        .zip(kinds)
+        .zip(parents)
+        .enumerate()
+        .map(|(index, ((name, kind), parent))| PublicSurfaceDefFact {
+            id: DefId((index + 1) as u64),
+            name: sym(name),
+            kind,
+            parent,
+            visibility: visibilities[index % visibilities.len()],
+            span: Span::new(index + 1, index + 2),
+        })
+        .collect::<Vec<_>>();
+    let mut modules = vec![(sym("module"), DefId(1))];
+    let mut types = vec![
+        (sym("struct"), DefId(5)),
+        (sym("union"), DefId(7)),
+        (sym("trait"), DefId(9)),
+        (sym("enum"), DefId(13)),
+        (sym("type_alias"), DefId(15)),
+    ];
+    let mut values = vec![
+        (sym("function"), DefId(2)),
+        (sym("global"), DefId(3)),
+        (sym("const"), DefId(4)),
+    ];
+    modules.sort_by_key(|entry| entry.0);
+    types.sort_by_key(|entry| entry.0);
+    values.sort_by_key(|entry| entry.0);
+    let facts = PublicSurfaceModuleFacts {
+        defs,
+        module_scope: PublicSurfaceModuleScopeFacts {
+            modules,
+            types,
+            values,
+        },
+        enum_scopes: vec![PublicSurfaceEnumScopeFact {
+            owner: DefId(13),
+            variants: vec![(sym("variant"), DefId(14))],
+        }],
+        module_usings: vec![ModuleUsing {
+            visibility: Visibility::PublicPkg,
+            span: Span::new(40, 90),
+            host: vec![
+                UsingPathSegment {
+                    kind: PathSegmentKind::Name(sym("host")),
+                    span: Span::new(41, 45),
+                },
+                UsingPathSegment {
+                    kind: PathSegmentKind::Package,
+                    span: Span::new(46, 49),
+                },
+                UsingPathSegment {
+                    kind: PathSegmentKind::Super,
+                    span: Span::new(50, 53),
+                },
+                UsingPathSegment {
+                    kind: PathSegmentKind::SelfValue,
+                    span: Span::new(54, 57),
+                },
+            ],
+            selector: UsingSelector::Group(vec![
+                UsingGroupItem::Name(UsingName {
+                    name: sym("selected"),
+                    name_span: Span::new(58, 62),
+                    alias: Some(sym("renamed")),
+                    alias_span: Some(Span::new(63, 67)),
+                }),
+                UsingGroupItem::Nested {
+                    host: vec![UsingPathSegment {
+                        kind: PathSegmentKind::Name(sym("nested")),
+                        span: Span::new(68, 72),
+                    }],
+                    selector: Box::new(UsingSelector::Group(vec![
+                        UsingGroupItem::Name(UsingName {
+                            name: sym("plain"),
+                            name_span: Span::new(73, 75),
+                            alias: None,
+                            alias_span: None,
+                        }),
+                        UsingGroupItem::Nested {
+                            host: vec![UsingPathSegment {
+                                kind: PathSegmentKind::Super,
+                                span: Span::new(76, 77),
+                            }],
+                            selector: Box::new(UsingSelector::Wildcard {
+                                span: Span::new(78, 79),
+                            }),
+                        },
+                        UsingGroupItem::Nested {
+                            host: vec![UsingPathSegment {
+                                kind: PathSegmentKind::Package,
+                                span: Span::new(80, 81),
+                            }],
+                            selector: Box::new(UsingSelector::SelfName),
+                        },
+                        UsingGroupItem::Nested {
+                            host: vec![UsingPathSegment {
+                                kind: PathSegmentKind::SelfValue,
+                                span: Span::new(82, 83),
+                            }],
+                            selector: Box::new(UsingSelector::Single(UsingName {
+                                name: sym("final"),
+                                name_span: Span::new(84, 85),
+                                alias: None,
+                                alias_span: None,
+                            })),
+                        },
+                    ])),
+                },
+            ]),
+        }],
+    };
+    let source =
+        crate::frontend_cache::PublicSurfaceFactsSource::new(identity.source, identity.source_len);
+    cache
+        .publish_public_surface_facts(
+            identity.namespace,
+            &identity.module,
+            source,
+            &facts,
+            &symbols,
+        )
+        .expect("publish complete public surface facts");
+    let loaded_symbols = SymbolTable::new();
+
+    assert!(matches!(
+        cache
+            .load_public_surface_facts(
+                identity.key,
+                identity.namespace,
+                &identity.module,
+                source,
+                &loaded_symbols,
+            )
+            .expect("load complete public surface facts"),
+        crate::frontend_cache::PublicSurfaceFactsCacheLookup::Hit(cached) if cached == facts
+    ));
+    assert_eq!(
+        loaded_symbols.resolve(sym("renamed")).as_deref(),
+        Some("renamed")
+    );
+    assert_eq!(
+        loaded_symbols.resolve(sym("final")).as_deref(),
+        Some("final")
+    );
+
+    let short_sources = SourceDatabase::new();
+    let short_file = short_sources.set_source(SourcePath::new("short.nia"), " ".repeat(32));
+    let short_identity = public_surface_facts_cache_identity(&short_file);
+    assert!(
+        cache
+            .publish_public_surface_facts(
+                short_identity.namespace,
+                &short_identity.module,
+                crate::frontend_cache::PublicSurfaceFactsSource::new(
+                    short_identity.source,
+                    short_identity.source_len,
+                ),
+                &facts,
+                &symbols,
+            )
+            .is_err()
+    );
+}
+
+#[test]
 fn module_dependencies_cache_round_trips_all_stable_fields() {
     use crate::used_paths::{ExplicitUsingImport, UsedModulePath, UsedModulePathProcessing};
 
@@ -2840,6 +3296,9 @@ fn temp_dir(name: &str) -> PathBuf {
         std::process::id(),
         std::thread::current().id()
     ));
+    if dir.exists() {
+        fs::remove_dir_all(&dir).expect("remove stale temp dir");
+    }
     fs::create_dir_all(&dir).expect("create temp dir");
     dir
 }
@@ -2892,6 +3351,14 @@ struct ModuleDependenciesCacheIdentity {
     source_len: usize,
     module_map: FrontendModuleMapFingerprint,
     key: FrontendModuleDependenciesCacheKey,
+}
+
+struct PublicSurfaceFactsCacheIdentity {
+    namespace: FrontendCacheNamespace,
+    module: StableModuleKey,
+    source: SourceContentFingerprint,
+    source_len: usize,
+    key: FrontendPublicSurfaceFactsCacheKey,
 }
 
 fn provider_cache_identity(file: &SourceFile) -> ProviderCacheIdentity {
@@ -2961,6 +3428,21 @@ fn module_dependencies_cache_identity(
         source,
         source_len,
         module_map,
+        key,
+    }
+}
+
+fn public_surface_facts_cache_identity(file: &SourceFile) -> PublicSurfaceFactsCacheIdentity {
+    let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+    let module = StableModuleKey::from_source_identity(file.path.identity());
+    let source = source_content_fingerprint(&file.text);
+    let source_len = file.text.len();
+    let key = FrontendPublicSurfaceFactsCacheKey::new(namespace, &module, source);
+    PublicSurfaceFactsCacheIdentity {
+        namespace,
+        module,
+        source,
+        source_len,
         key,
     }
 }

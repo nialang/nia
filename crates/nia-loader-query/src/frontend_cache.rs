@@ -6,10 +6,17 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use nia_ast::PathSegmentKind;
 use nia_compiler_query::{
     FrontendCacheNamespace, FrontendFacadeFactsCacheKey, FrontendModuleDependenciesCacheKey,
-    FrontendModuleMapFingerprint, FrontendProviderSummaryCacheKey, FrontendSourceCacheKey,
-    ItemSignatureFingerprint, SourceContentFingerprint,
+    FrontendModuleMapFingerprint, FrontendProviderSummaryCacheKey,
+    FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
+    SourceContentFingerprint,
+};
+use nia_defs::{
+    DefKind, ModuleUsing, PublicSurfaceDefFact, PublicSurfaceEnumScopeFact,
+    PublicSurfaceModuleFacts, PublicSurfaceModuleScopeFacts, UsingGroupItem, UsingName,
+    UsingPathSegment, UsingSelector,
 };
 use nia_imports::{ResolvedModuleDeclaration, StableModuleKey, Visibility};
 use nia_provider_summary::{Provider, ProviderSummary, ProviderTarget, ProviderTypeRef};
@@ -26,10 +33,12 @@ const DEPENDENCY_MANIFEST_MAGIC: &[u8; 8] = b"NIAFDM02";
 const FACADE_FACTS_MAGIC: &[u8; 8] = b"NIAFFF02";
 const MODULE_DEPENDENCIES_MAGIC: &[u8; 8] = b"NIAFMD02";
 const PROVIDER_SUMMARY_MAGIC: &[u8; 8] = b"NIAFPS03";
+const PUBLIC_SURFACE_FACTS_MAGIC: &[u8; 8] = b"NIAFPF01";
 const FRONTEND_CACHE_SCHEMA: &str = "v3";
 const MAX_CACHE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_CACHE_ENTRY_BYTES: usize = MAX_CACHE_PAYLOAD_BYTES + 1024 * 1024;
 const MAX_CACHE_SEQUENCE_LEN: usize = 1_000_000;
+const MAX_USING_SELECTOR_DEPTH: usize = 256;
 static FRONTEND_CACHE_STAGE_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug)]
@@ -58,6 +67,13 @@ pub(crate) enum ModuleDependenciesCacheLookup {
     Corrupt,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum PublicSurfaceFactsCacheLookup {
+    Hit(PublicSurfaceModuleFacts),
+    NotFound,
+    Corrupt,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ModuleDependenciesSource {
     pub(crate) fingerprint: SourceContentFingerprint,
@@ -65,6 +81,18 @@ pub(crate) struct ModuleDependenciesSource {
 }
 
 impl ModuleDependenciesSource {
+    pub(crate) fn new(fingerprint: SourceContentFingerprint, len: usize) -> Self {
+        Self { fingerprint, len }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PublicSurfaceFactsSource {
+    pub(crate) fingerprint: SourceContentFingerprint,
+    pub(crate) len: usize,
+}
+
+impl PublicSurfaceFactsSource {
     pub(crate) fn new(fingerprint: SourceContentFingerprint, len: usize) -> Self {
         Self { fingerprint, len }
     }
@@ -313,6 +341,74 @@ impl PersistentFrontendCache {
         remove_corrupt(&self.module_dependencies_path(key));
     }
 
+    pub(crate) fn load_public_surface_facts(
+        &self,
+        key: FrontendPublicSurfaceFactsCacheKey,
+        namespace: FrontendCacheNamespace,
+        module: &StableModuleKey,
+        source: PublicSurfaceFactsSource,
+        symbols: &SymbolTable,
+    ) -> io::Result<PublicSurfaceFactsCacheLookup> {
+        let path = self.public_surface_facts_path(key);
+        let encoded = match read_cache_entry(&path)? {
+            Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
+            Some(_) => {
+                remove_corrupt(&path);
+                return Ok(PublicSurfaceFactsCacheLookup::Corrupt);
+            }
+            None => return Ok(PublicSurfaceFactsCacheLookup::NotFound),
+        };
+        let Some(entry) = decode_public_surface_facts(&encoded) else {
+            remove_corrupt(&path);
+            return Ok(PublicSurfaceFactsCacheLookup::Corrupt);
+        };
+        if entry.key != key.parts()
+            || entry.namespace != namespace.parts()
+            || entry.module != module.source_identity().normalized_path()
+            || entry.source != source.fingerprint.parts()
+            || entry.source_len != source.len
+            || path
+                != self.public_surface_facts_path(FrontendPublicSurfaceFactsCacheKey::from_parts(
+                    entry.key,
+                ))
+        {
+            remove_corrupt(&path);
+            return Ok(PublicSurfaceFactsCacheLookup::Corrupt);
+        }
+        let Some(facts) = decode_public_surface_facts_payload(&entry.payload, source.len, symbols)
+        else {
+            remove_corrupt(&path);
+            return Ok(PublicSurfaceFactsCacheLookup::Corrupt);
+        };
+        Ok(PublicSurfaceFactsCacheLookup::Hit(facts))
+    }
+
+    pub(crate) fn publish_public_surface_facts(
+        &self,
+        namespace: FrontendCacheNamespace,
+        module: &StableModuleKey,
+        source: PublicSurfaceFactsSource,
+        facts: &PublicSurfaceModuleFacts,
+        symbols: &SymbolTable,
+    ) -> io::Result<()> {
+        let key = FrontendPublicSurfaceFactsCacheKey::new(namespace, module, source.fingerprint);
+        let path = self.public_surface_facts_path(key);
+        if path.is_file() {
+            return Ok(());
+        }
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid frontend public surface facts path"))?;
+        fs::create_dir_all(parent)?;
+        let staged = staged_path(&path);
+        let encoded = encode_public_surface_facts(key, namespace, module, source, facts, symbols)?;
+        atomic_publish(&staged, &path, &encoded)
+    }
+
+    pub(crate) fn remove_public_surface_facts(&self, key: FrontendPublicSurfaceFactsCacheKey) {
+        remove_corrupt(&self.public_surface_facts_path(key));
+    }
+
     pub(crate) fn load_dependency_manifest(
         &self,
         key: FrontendSourceCacheKey,
@@ -413,6 +509,19 @@ impl PersistentFrontendCache {
             .join(FRONTEND_CACHE_SCHEMA)
             .join("dependency-manifests")
             .join(format!("{first:016x}{second:016x}.fdm"))
+    }
+
+    pub(crate) fn public_surface_facts_path(
+        &self,
+        key: FrontendPublicSurfaceFactsCacheKey,
+    ) -> PathBuf {
+        let [first, second] = key.parts();
+        self.root
+            .join("artifacts")
+            .join("frontend")
+            .join(FRONTEND_CACHE_SCHEMA)
+            .join("public-surface-facts")
+            .join(format!("{first:016x}{second:016x}.fpf"))
     }
 }
 
@@ -782,6 +891,550 @@ fn decode_module_dependencies_payload(
     Some(declarations)
 }
 
+fn encode_public_surface_facts(
+    key: FrontendPublicSurfaceFactsCacheKey,
+    namespace: FrontendCacheNamespace,
+    module: &StableModuleKey,
+    source: PublicSurfaceFactsSource,
+    facts: &PublicSurfaceModuleFacts,
+    symbols: &SymbolTable,
+) -> io::Result<Vec<u8>> {
+    let payload = encode_public_surface_facts_payload(facts, symbols, source.len)?;
+    let checksum = public_surface_facts_checksum(&payload);
+    let mut encoded =
+        Vec::with_capacity(112 + module.source_identity().normalized_path().len() + payload.len());
+    encoded.extend_from_slice(PUBLIC_SURFACE_FACTS_MAGIC);
+    write_parts(&mut encoded, key.parts());
+    write_parts(&mut encoded, namespace.parts());
+    write_string(&mut encoded, module.source_identity().normalized_path());
+    write_parts(&mut encoded, source.fingerprint.parts());
+    encoded.extend_from_slice(&(source.len as u64).to_le_bytes());
+    encoded.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+    write_parts(&mut encoded, checksum.parts());
+    encoded.extend_from_slice(&payload);
+    Ok(encoded)
+}
+
+struct DecodedPublicSurfaceFacts {
+    key: [u64; 2],
+    namespace: [u64; 2],
+    module: String,
+    source: [u64; 2],
+    source_len: usize,
+    payload: Vec<u8>,
+}
+
+fn decode_public_surface_facts(encoded: &[u8]) -> Option<DecodedPublicSurfaceFacts> {
+    let mut cursor = Cursor::new(encoded);
+    let mut magic = [0; 8];
+    cursor.read_exact(&mut magic).ok()?;
+    (magic == *PUBLIC_SURFACE_FACTS_MAGIC).then_some(())?;
+    let key = read_parts(&mut cursor)?;
+    let namespace = read_parts(&mut cursor)?;
+    let module = read_string(&mut cursor, encoded.len())?;
+    let source = read_parts(&mut cursor)?;
+    let source_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
+    let payload_len = read_len(&mut cursor, MAX_CACHE_PAYLOAD_BYTES)?;
+    let checksum = read_parts(&mut cursor)?;
+    let mut payload = vec![0; payload_len];
+    cursor.read_exact(&mut payload).ok()?;
+    (cursor.position() as usize == encoded.len()).then_some(())?;
+    (public_surface_facts_checksum(&payload).parts() == checksum).then_some(())?;
+    Some(DecodedPublicSurfaceFacts {
+        key,
+        namespace,
+        module,
+        source,
+        source_len,
+        payload,
+    })
+}
+
+fn encode_public_surface_facts_payload(
+    facts: &PublicSurfaceModuleFacts,
+    symbols: &SymbolTable,
+    source_len: usize,
+) -> io::Result<Vec<u8>> {
+    validate_public_surface_facts(facts, source_len).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "cannot persist malformed public surface facts",
+        )
+    })?;
+    let fact_symbols = public_surface_fact_symbols(facts)?;
+    let mut encoded = Vec::new();
+    write_symbol_dictionary(&mut encoded, fact_symbols, symbols)?;
+    encoded.extend_from_slice(&(facts.defs.len() as u64).to_le_bytes());
+    for def in &facts.defs {
+        write_def_id(&mut encoded, def.id);
+        encoded.extend_from_slice(&def.name.raw().to_le_bytes());
+        write_def_kind(&mut encoded, def.kind);
+        write_optional_def_id(&mut encoded, def.parent);
+        write_visibility(&mut encoded, def.visibility);
+        write_span(&mut encoded, def.span);
+    }
+    write_public_surface_scope_entries(&mut encoded, &facts.module_scope.modules);
+    write_public_surface_scope_entries(&mut encoded, &facts.module_scope.types);
+    write_public_surface_scope_entries(&mut encoded, &facts.module_scope.values);
+    encoded.extend_from_slice(&(facts.enum_scopes.len() as u64).to_le_bytes());
+    for scope in &facts.enum_scopes {
+        write_def_id(&mut encoded, scope.owner);
+        write_public_surface_scope_entries(&mut encoded, &scope.variants);
+    }
+    encoded.extend_from_slice(&(facts.module_usings.len() as u64).to_le_bytes());
+    for using in &facts.module_usings {
+        write_module_using(&mut encoded, using, 0)?;
+    }
+    Ok(encoded)
+}
+
+fn decode_public_surface_facts_payload(
+    payload: &[u8],
+    source_len: usize,
+    symbols: &SymbolTable,
+) -> Option<PublicSurfaceModuleFacts> {
+    let mut cursor = Cursor::new(payload);
+    let dictionary = read_symbol_dictionary(&mut cursor, payload.len())?;
+    let def_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut defs = Vec::with_capacity(def_len);
+    for _ in 0..def_len {
+        defs.push(PublicSurfaceDefFact {
+            id: read_def_id(&mut cursor)?,
+            name: read_symbol(&mut cursor)?,
+            kind: read_def_kind(&mut cursor)?,
+            parent: read_optional_def_id(&mut cursor)?,
+            visibility: read_visibility(&mut cursor)?,
+            span: read_span(&mut cursor, source_len)?,
+        });
+    }
+    let module_scope = PublicSurfaceModuleScopeFacts {
+        modules: read_public_surface_scope_entries(&mut cursor)?,
+        types: read_public_surface_scope_entries(&mut cursor)?,
+        values: read_public_surface_scope_entries(&mut cursor)?,
+    };
+    let enum_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut enum_scopes = Vec::with_capacity(enum_len);
+    for _ in 0..enum_len {
+        enum_scopes.push(PublicSurfaceEnumScopeFact {
+            owner: read_def_id(&mut cursor)?,
+            variants: read_public_surface_scope_entries(&mut cursor)?,
+        });
+    }
+    let using_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut module_usings = Vec::with_capacity(using_len);
+    for _ in 0..using_len {
+        module_usings.push(read_module_using(&mut cursor, source_len, 0)?);
+    }
+    (cursor.position() as usize == payload.len()).then_some(())?;
+    let facts = PublicSurfaceModuleFacts {
+        defs,
+        module_scope,
+        enum_scopes,
+        module_usings,
+    };
+    validate_public_surface_facts(&facts, source_len)?;
+    install_symbol_dictionary(
+        &dictionary,
+        public_surface_fact_symbols(&facts).ok()?,
+        symbols,
+    )?;
+    Some(facts)
+}
+
+fn validate_public_surface_facts(
+    facts: &PublicSurfaceModuleFacts,
+    source_len: usize,
+) -> Option<()> {
+    facts
+        .defs
+        .windows(2)
+        .all(|pair| pair[0].id < pair[1].id)
+        .then_some(())?;
+    let defs = facts
+        .defs
+        .iter()
+        .map(|def| (def.id, def))
+        .collect::<std::collections::HashMap<_, _>>();
+    for def in &facts.defs {
+        valid_source_span(def.span, source_len).then_some(())?;
+        def.parent
+            .is_none_or(|parent| defs.contains_key(&parent))
+            .then_some(())?;
+    }
+    validate_public_surface_scope_entries(&facts.module_scope.modules, &defs, |kind| {
+        kind == DefKind::Module
+    })?;
+    validate_public_surface_scope_entries(&facts.module_scope.types, &defs, |kind| {
+        matches!(
+            kind,
+            DefKind::Struct | DefKind::Union | DefKind::Trait | DefKind::Enum | DefKind::TypeAlias
+        )
+    })?;
+    validate_public_surface_scope_entries(&facts.module_scope.values, &defs, |kind| {
+        matches!(kind, DefKind::Function | DefKind::Global | DefKind::Const)
+    })?;
+    facts
+        .enum_scopes
+        .windows(2)
+        .all(|pair| pair[0].owner < pair[1].owner)
+        .then_some(())?;
+    for scope in &facts.enum_scopes {
+        (defs.get(&scope.owner)?.kind == DefKind::Enum).then_some(())?;
+        validate_public_surface_scope_entries(&scope.variants, &defs, |kind| {
+            kind == DefKind::EnumVariant
+        })?;
+        for (_, variant) in &scope.variants {
+            (defs.get(variant)?.parent == Some(scope.owner)).then_some(())?;
+        }
+    }
+    for using in &facts.module_usings {
+        validate_module_using(using, source_len, 0)?;
+    }
+    Some(())
+}
+
+fn validate_module_using(using: &ModuleUsing, source_len: usize, depth: usize) -> Option<()> {
+    (depth <= MAX_USING_SELECTOR_DEPTH).then_some(())?;
+    valid_source_span(using.span, source_len).then_some(())?;
+    for segment in &using.host {
+        valid_source_span(segment.span, source_len).then_some(())?;
+    }
+    validate_using_selector(&using.selector, source_len, depth)
+}
+
+fn validate_using_selector(
+    selector: &UsingSelector,
+    source_len: usize,
+    depth: usize,
+) -> Option<()> {
+    (depth <= MAX_USING_SELECTOR_DEPTH).then_some(())?;
+    match selector {
+        UsingSelector::Single(name) => validate_using_name(name, source_len),
+        UsingSelector::Group(items) => {
+            for item in items {
+                match item {
+                    UsingGroupItem::Name(name) => validate_using_name(name, source_len)?,
+                    UsingGroupItem::Nested { host, selector } => {
+                        for segment in host {
+                            valid_source_span(segment.span, source_len).then_some(())?;
+                        }
+                        validate_using_selector(selector, source_len, depth + 1)?;
+                    }
+                }
+            }
+            Some(())
+        }
+        UsingSelector::Wildcard { span } => valid_source_span(*span, source_len).then_some(()),
+        UsingSelector::SelfName => Some(()),
+    }
+}
+
+fn validate_using_name(name: &UsingName, source_len: usize) -> Option<()> {
+    valid_source_span(name.name_span, source_len).then_some(())?;
+    match (name.alias, name.alias_span) {
+        (Some(_), Some(alias_span)) => valid_source_span(alias_span, source_len).then_some(()),
+        (None, None) => Some(()),
+        _ => None,
+    }
+}
+
+fn valid_source_span(span: nia_span::Span, source_len: usize) -> bool {
+    span.start <= span.end && span.end <= source_len
+}
+
+fn validate_public_surface_scope_entries(
+    entries: &[(SymbolId, nia_defs::DefId)],
+    defs: &std::collections::HashMap<nia_defs::DefId, &PublicSurfaceDefFact>,
+    valid_kind: impl Fn(DefKind) -> bool,
+) -> Option<()> {
+    entries
+        .windows(2)
+        .all(|pair| pair[0].0 < pair[1].0)
+        .then_some(())?;
+    for (name, def_id) in entries {
+        let def = defs.get(def_id)?;
+        (def.name == *name && valid_kind(def.kind)).then_some(())?;
+    }
+    Some(())
+}
+
+fn write_public_surface_scope_entries(
+    encoded: &mut Vec<u8>,
+    entries: &[(SymbolId, nia_defs::DefId)],
+) {
+    encoded.extend_from_slice(&(entries.len() as u64).to_le_bytes());
+    for (name, def_id) in entries {
+        encoded.extend_from_slice(&name.raw().to_le_bytes());
+        write_def_id(encoded, *def_id);
+    }
+}
+
+fn read_public_surface_scope_entries(
+    cursor: &mut Cursor<&[u8]>,
+) -> Option<Vec<(SymbolId, nia_defs::DefId)>> {
+    let len = read_len(cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut entries = Vec::with_capacity(len);
+    for _ in 0..len {
+        entries.push((read_symbol(cursor)?, read_def_id(cursor)?));
+    }
+    Some(entries)
+}
+
+fn write_def_id(encoded: &mut Vec<u8>, def_id: nia_defs::DefId) {
+    encoded.extend_from_slice(&def_id.0.to_le_bytes());
+}
+
+fn read_def_id(cursor: &mut Cursor<&[u8]>) -> Option<nia_defs::DefId> {
+    Some(nia_defs::DefId(read_u64(cursor)?))
+}
+
+fn write_optional_def_id(encoded: &mut Vec<u8>, def_id: Option<nia_defs::DefId>) {
+    match def_id {
+        Some(def_id) => {
+            encoded.push(1);
+            write_def_id(encoded, def_id);
+        }
+        None => encoded.push(0),
+    }
+}
+
+fn read_optional_def_id(cursor: &mut Cursor<&[u8]>) -> Option<Option<nia_defs::DefId>> {
+    match read_u8(cursor)? {
+        0 => Some(None),
+        1 => Some(Some(read_def_id(cursor)?)),
+        _ => None,
+    }
+}
+
+fn write_def_kind(encoded: &mut Vec<u8>, kind: DefKind) {
+    encoded.push(match kind {
+        DefKind::Module => 0,
+        DefKind::Function => 1,
+        DefKind::Global => 2,
+        DefKind::Const => 3,
+        DefKind::Struct => 4,
+        DefKind::StructField => 5,
+        DefKind::Union => 6,
+        DefKind::UnionField => 7,
+        DefKind::Trait => 8,
+        DefKind::TraitAssociatedType => 9,
+        DefKind::TraitMethod => 10,
+        DefKind::Method => 11,
+        DefKind::Enum => 12,
+        DefKind::EnumVariant => 13,
+        DefKind::TypeAlias => 14,
+    });
+}
+
+fn read_def_kind(cursor: &mut Cursor<&[u8]>) -> Option<DefKind> {
+    match read_u8(cursor)? {
+        0 => Some(DefKind::Module),
+        1 => Some(DefKind::Function),
+        2 => Some(DefKind::Global),
+        3 => Some(DefKind::Const),
+        4 => Some(DefKind::Struct),
+        5 => Some(DefKind::StructField),
+        6 => Some(DefKind::Union),
+        7 => Some(DefKind::UnionField),
+        8 => Some(DefKind::Trait),
+        9 => Some(DefKind::TraitAssociatedType),
+        10 => Some(DefKind::TraitMethod),
+        11 => Some(DefKind::Method),
+        12 => Some(DefKind::Enum),
+        13 => Some(DefKind::EnumVariant),
+        14 => Some(DefKind::TypeAlias),
+        _ => None,
+    }
+}
+
+fn write_module_using(encoded: &mut Vec<u8>, using: &ModuleUsing, depth: usize) -> io::Result<()> {
+    if depth > MAX_USING_SELECTOR_DEPTH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "public surface using selector is too deeply nested",
+        ));
+    }
+    write_visibility(encoded, using.visibility);
+    write_span(encoded, using.span);
+    write_using_path_segments(encoded, &using.host);
+    write_using_selector(encoded, &using.selector, depth)
+}
+
+fn read_module_using(
+    cursor: &mut Cursor<&[u8]>,
+    source_len: usize,
+    depth: usize,
+) -> Option<ModuleUsing> {
+    (depth <= MAX_USING_SELECTOR_DEPTH).then_some(())?;
+    Some(ModuleUsing {
+        visibility: read_visibility(cursor)?,
+        span: read_span(cursor, source_len)?,
+        host: read_using_path_segments(cursor, source_len)?,
+        selector: read_using_selector(cursor, source_len, depth)?,
+    })
+}
+
+fn write_using_path_segments(encoded: &mut Vec<u8>, segments: &[UsingPathSegment]) {
+    encoded.extend_from_slice(&(segments.len() as u64).to_le_bytes());
+    for segment in segments {
+        match segment.kind {
+            PathSegmentKind::Name(name) => {
+                encoded.push(0);
+                encoded.extend_from_slice(&name.raw().to_le_bytes());
+            }
+            PathSegmentKind::Package => encoded.push(1),
+            PathSegmentKind::Super => encoded.push(2),
+            PathSegmentKind::SelfValue => encoded.push(3),
+        }
+        write_span(encoded, segment.span);
+    }
+}
+
+fn read_using_path_segments(
+    cursor: &mut Cursor<&[u8]>,
+    source_len: usize,
+) -> Option<Vec<UsingPathSegment>> {
+    let len = read_len(cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut segments = Vec::with_capacity(len);
+    for _ in 0..len {
+        let kind = match read_u8(cursor)? {
+            0 => PathSegmentKind::Name(read_symbol(cursor)?),
+            1 => PathSegmentKind::Package,
+            2 => PathSegmentKind::Super,
+            3 => PathSegmentKind::SelfValue,
+            _ => return None,
+        };
+        segments.push(UsingPathSegment {
+            kind,
+            span: read_span(cursor, source_len)?,
+        });
+    }
+    Some(segments)
+}
+
+fn write_using_selector(
+    encoded: &mut Vec<u8>,
+    selector: &UsingSelector,
+    depth: usize,
+) -> io::Result<()> {
+    if depth > MAX_USING_SELECTOR_DEPTH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "public surface using selector is too deeply nested",
+        ));
+    }
+    match selector {
+        UsingSelector::Single(name) => {
+            encoded.push(0);
+            write_using_name(encoded, name);
+        }
+        UsingSelector::Group(items) => {
+            encoded.push(1);
+            encoded.extend_from_slice(&(items.len() as u64).to_le_bytes());
+            for item in items {
+                write_using_group_item(encoded, item, depth + 1)?;
+            }
+        }
+        UsingSelector::Wildcard { span } => {
+            encoded.push(2);
+            write_span(encoded, *span);
+        }
+        UsingSelector::SelfName => encoded.push(3),
+    }
+    Ok(())
+}
+
+fn read_using_selector(
+    cursor: &mut Cursor<&[u8]>,
+    source_len: usize,
+    depth: usize,
+) -> Option<UsingSelector> {
+    (depth <= MAX_USING_SELECTOR_DEPTH).then_some(())?;
+    match read_u8(cursor)? {
+        0 => Some(UsingSelector::Single(read_using_name(cursor, source_len)?)),
+        1 => {
+            let len = read_len(cursor, MAX_CACHE_SEQUENCE_LEN)?;
+            let mut items = Vec::with_capacity(len);
+            for _ in 0..len {
+                items.push(read_using_group_item(cursor, source_len, depth + 1)?);
+            }
+            Some(UsingSelector::Group(items))
+        }
+        2 => Some(UsingSelector::Wildcard {
+            span: read_span(cursor, source_len)?,
+        }),
+        3 => Some(UsingSelector::SelfName),
+        _ => None,
+    }
+}
+
+fn write_using_group_item(
+    encoded: &mut Vec<u8>,
+    item: &UsingGroupItem,
+    depth: usize,
+) -> io::Result<()> {
+    match item {
+        UsingGroupItem::Name(name) => {
+            encoded.push(0);
+            write_using_name(encoded, name);
+        }
+        UsingGroupItem::Nested { host, selector } => {
+            encoded.push(1);
+            write_using_path_segments(encoded, host);
+            write_using_selector(encoded, selector, depth)?;
+        }
+    }
+    Ok(())
+}
+
+fn read_using_group_item(
+    cursor: &mut Cursor<&[u8]>,
+    source_len: usize,
+    depth: usize,
+) -> Option<UsingGroupItem> {
+    (depth <= MAX_USING_SELECTOR_DEPTH).then_some(())?;
+    match read_u8(cursor)? {
+        0 => Some(UsingGroupItem::Name(read_using_name(cursor, source_len)?)),
+        1 => Some(UsingGroupItem::Nested {
+            host: read_using_path_segments(cursor, source_len)?,
+            selector: Box::new(read_using_selector(cursor, source_len, depth)?),
+        }),
+        _ => None,
+    }
+}
+
+fn write_using_name(encoded: &mut Vec<u8>, name: &UsingName) {
+    encoded.extend_from_slice(&name.name.raw().to_le_bytes());
+    write_span(encoded, name.name_span);
+    match (name.alias, name.alias_span) {
+        (Some(alias), Some(alias_span)) => {
+            encoded.push(1);
+            encoded.extend_from_slice(&alias.raw().to_le_bytes());
+            write_span(encoded, alias_span);
+        }
+        _ => encoded.push(0),
+    }
+}
+
+fn read_using_name(cursor: &mut Cursor<&[u8]>, source_len: usize) -> Option<UsingName> {
+    let name = read_symbol(cursor)?;
+    let name_span = read_span(cursor, source_len)?;
+    let (alias, alias_span) = match read_u8(cursor)? {
+        0 => (None, None),
+        1 => (
+            Some(read_symbol(cursor)?),
+            Some(read_span(cursor, source_len)?),
+        ),
+        _ => return None,
+    };
+    Some(UsingName {
+        name,
+        name_span,
+        alias,
+        alias_span,
+    })
+}
+
 fn write_visibility(encoded: &mut Vec<u8>, visibility: Visibility) {
     encoded.push(match visibility {
         Visibility::Private => 0,
@@ -1115,6 +1768,88 @@ fn module_declaration_symbols(declarations: &ModuleDeclarations) -> BTreeSet<Sym
     symbols
 }
 
+fn public_surface_fact_symbols(facts: &PublicSurfaceModuleFacts) -> io::Result<BTreeSet<SymbolId>> {
+    let mut symbols = facts
+        .defs
+        .iter()
+        .map(|def| def.name)
+        .collect::<BTreeSet<_>>();
+    for entries in [
+        &facts.module_scope.modules,
+        &facts.module_scope.types,
+        &facts.module_scope.values,
+    ] {
+        symbols.extend(entries.iter().map(|(name, _)| *name));
+    }
+    for scope in &facts.enum_scopes {
+        symbols.extend(scope.variants.iter().map(|(name, _)| *name));
+    }
+    for using in &facts.module_usings {
+        collect_using_path_segment_symbols(&using.host, &mut symbols);
+        collect_using_selector_symbols(&using.selector, &mut symbols, 0)?;
+    }
+    Ok(symbols)
+}
+
+fn collect_using_path_segment_symbols(
+    segments: &[UsingPathSegment],
+    symbols: &mut BTreeSet<SymbolId>,
+) {
+    symbols.extend(segments.iter().filter_map(|segment| match segment.kind {
+        PathSegmentKind::Name(name) => Some(name),
+        PathSegmentKind::Package | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
+    }));
+}
+
+fn collect_using_selector_symbols(
+    selector: &UsingSelector,
+    symbols: &mut BTreeSet<SymbolId>,
+    depth: usize,
+) -> io::Result<()> {
+    if depth > MAX_USING_SELECTOR_DEPTH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "public surface using selector is too deeply nested",
+        ));
+    }
+    match selector {
+        UsingSelector::Single(name) => collect_using_name_symbols(name, symbols)?,
+        UsingSelector::Group(items) => {
+            for item in items {
+                match item {
+                    UsingGroupItem::Name(name) => collect_using_name_symbols(name, symbols)?,
+                    UsingGroupItem::Nested { host, selector } => {
+                        collect_using_path_segment_symbols(host, symbols);
+                        collect_using_selector_symbols(selector, symbols, depth + 1)?;
+                    }
+                }
+            }
+        }
+        UsingSelector::Wildcard { .. } | UsingSelector::SelfName => {}
+    }
+    Ok(())
+}
+
+fn collect_using_name_symbols(
+    name: &UsingName,
+    symbols: &mut BTreeSet<SymbolId>,
+) -> io::Result<()> {
+    symbols.insert(name.name);
+    match (name.alias, name.alias_span) {
+        (Some(alias), Some(_)) => {
+            symbols.insert(alias);
+        }
+        (None, None) => {}
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "public surface using alias and span disagree",
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn collect_used_module_path_symbols(path: &UsedModulePath, symbols: &mut BTreeSet<SymbolId>) {
     let (package, segments, processing) = match path {
         UsedModulePath::Package {
@@ -1275,6 +2010,12 @@ fn facade_facts_checksum(payload: &[u8]) -> QueryFingerprint {
 
 fn module_dependencies_checksum(payload: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.frontend.module-dependencies-payload.v1");
+    builder.write_bytes(payload);
+    builder.finish()
+}
+
+fn public_surface_facts_checksum(payload: &[u8]) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.frontend.public-surface-facts-payload.v1");
     builder.write_bytes(payload);
     builder.finish()
 }
