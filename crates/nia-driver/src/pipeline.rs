@@ -329,6 +329,7 @@ impl Driver {
             let optimization = preparation.optimization;
             let diagnostics = preparation.diagnostics;
             let type_store = std::sync::Arc::clone(&preparation.type_store);
+            let session = database.query_session();
             let result = database.with_backend_finalization_schedule(|schedule| match schedule {
                 Err(lowering) => Err(DriverError::CodegenDiagnostics(lowering.diagnostics)),
                 Ok(mut schedule) => {
@@ -337,6 +338,7 @@ impl Driver {
                         type_store,
                         schedule.owner_directory(),
                         options,
+                        &session,
                     );
                     while let Some(ready) = schedule.wait_next() {
                         emitter.publish(ready);
@@ -438,6 +440,7 @@ impl Driver {
             let diagnostics = preparation.diagnostics;
             let type_store = std::sync::Arc::clone(&preparation.type_store);
             let options = codegen_options(optimization, timings);
+            let session = database.query_session();
             let cache = self.object_cache.as_ref().map(|cache| {
                 cache.clone() as std::sync::Arc<dyn nia_codegen_llvm::ObjectWorkProductCache>
             });
@@ -450,6 +453,7 @@ impl Driver {
                         schedule.owner_directory(),
                         options,
                         cache,
+                        &session,
                     );
                     while let Some(ready) = schedule.wait_next() {
                         emitter.publish(ready);

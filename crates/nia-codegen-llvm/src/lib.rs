@@ -39,15 +39,25 @@ pub use work_product::{
     ObjectWorkProductInvalidation, ObjectWorkProductLookup,
 };
 
-pub struct LlvmIrReadinessEmitter {
+type LlvmIrReadinessOutcome = (
+    CodegenUnitKey,
+    Result<LlvmModuleOutput, Vec<nia_diagnostic::Diagnostic>>,
+);
+type LlvmNativeObjectReadinessOutcome = (
+    CodegenUnitKey,
+    Result<(IncrementalLinkInput<NativeObject>, ObjectReuse), Vec<nia_diagnostic::Diagnostic>>,
+);
+
+pub struct LlvmIrReadinessEmitter<'session> {
     coordinator: CodegenReadinessCoordinator,
     options: LlvmCodegenOptions,
     outputs: Vec<LlvmModuleOutput>,
     partition_diagnostics: Vec<(CodegenUnitKey, Vec<nia_diagnostic::Diagnostic>)>,
     partition_count: usize,
+    tasks: nia_query::QueryTaskPool<'session, LlvmIrReadinessOutcome>,
 }
 
-pub struct LlvmNativeObjectReadinessEmitter {
+pub struct LlvmNativeObjectReadinessEmitter<'session> {
     coordinator: CodegenReadinessCoordinator,
     options: LlvmCodegenOptions,
     cache: Option<Arc<dyn ObjectWorkProductCache>>,
@@ -55,15 +65,17 @@ pub struct LlvmNativeObjectReadinessEmitter {
     partition_diagnostics: Vec<(CodegenUnitKey, Vec<nia_diagnostic::Diagnostic>)>,
     reuse_counts: ObjectReuseCounts,
     partition_count: usize,
+    tasks: nia_query::QueryTaskPool<'session, LlvmNativeObjectReadinessOutcome>,
 }
 
-impl LlvmNativeObjectReadinessEmitter {
+impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
     pub fn new(
         modules: Arc<nia_backend_ir::BackendModuleStore>,
         type_store: Arc<TypeStore>,
         owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
         options: LlvmCodegenOptions,
         cache: Option<Arc<dyn ObjectWorkProductCache>>,
+        session: &'session QuerySession,
     ) -> Self {
         Self {
             coordinator: CodegenReadinessCoordinator::new(modules, type_store, owners),
@@ -73,6 +85,7 @@ impl LlvmNativeObjectReadinessEmitter {
             partition_diagnostics: Vec::new(),
             reuse_counts: ObjectReuseCounts::default(),
             partition_count: 0,
+            tasks: session.task_pool(nia_query::llvm_memory_task_capacity()),
         }
     }
 
@@ -82,18 +95,18 @@ impl LlvmNativeObjectReadinessEmitter {
             match preparation {
                 CodegenPartitionPreparation::Ready(prepared) => {
                     let key = prepared.partition.key.clone();
-                    match emit_native_object_partition(
-                        prepared,
-                        Arc::clone(&self.coordinator.index),
-                        self.options,
-                        self.cache.as_deref(),
-                    ) {
-                        Ok((output, reuse)) => {
-                            self.reuse_counts.record(reuse);
-                            self.outputs.push(output);
-                        }
-                        Err(diagnostics) => self.partition_diagnostics.push((key, diagnostics)),
-                    }
+                    let index = Arc::clone(&self.coordinator.index);
+                    let options = self.options;
+                    let cache = self.cache.clone();
+                    self.tasks.submit(move || {
+                        let outcome = emit_native_object_partition(
+                            prepared,
+                            index,
+                            options,
+                            cache.as_deref(),
+                        );
+                        (key, outcome)
+                    });
                 }
                 CodegenPartitionPreparation::Invalid {
                     partition,
@@ -107,6 +120,17 @@ impl LlvmNativeObjectReadinessEmitter {
 
     pub fn finish(mut self) -> LlvmObjectOutput {
         let index = self.coordinator.finish();
+        let worker_lanes = self.partition_count.min(self.tasks.capacity());
+        let task_outcomes = self.tasks.finish();
+        for (key, outcome) in task_outcomes {
+            match outcome {
+                Ok((output, reuse)) => {
+                    self.reuse_counts.record(reuse);
+                    self.outputs.push(output);
+                }
+                Err(diagnostics) => self.partition_diagnostics.push((key, diagnostics)),
+            }
+        }
         let has_partitions = self.partition_count != 0;
         let mut declaration_diagnostics = Vec::new();
         if !has_partitions {
@@ -146,8 +170,9 @@ impl LlvmNativeObjectReadinessEmitter {
             nia_timing::emit_counter("llvm.units", self.outputs.len() as u64);
             nia_timing::emit_counter(
                 "llvm.worker_lanes",
-                u64::from(self.partition_count != 0 || !index.module_ids().is_empty()),
+                worker_lanes.max(usize::from(!index.module_ids().is_empty())) as u64,
             );
+            nia_timing::emit_counter("llvm.ready_task_submissions", self.partition_count as u64);
             self.reuse_counts.emit();
         }
         LlvmObjectOutput {
@@ -157,12 +182,13 @@ impl LlvmNativeObjectReadinessEmitter {
     }
 }
 
-impl LlvmIrReadinessEmitter {
+impl<'session> LlvmIrReadinessEmitter<'session> {
     pub fn new(
         modules: Arc<nia_backend_ir::BackendModuleStore>,
         type_store: Arc<TypeStore>,
         owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
         options: LlvmCodegenOptions,
+        session: &'session QuerySession,
     ) -> Self {
         Self {
             coordinator: CodegenReadinessCoordinator::new(modules, type_store, owners),
@@ -170,6 +196,7 @@ impl LlvmIrReadinessEmitter {
             outputs: Vec::new(),
             partition_diagnostics: Vec::new(),
             partition_count: 0,
+            tasks: session.task_pool(nia_query::llvm_memory_task_capacity()),
         }
     }
 
@@ -179,14 +206,12 @@ impl LlvmIrReadinessEmitter {
             match preparation {
                 CodegenPartitionPreparation::Ready(prepared) => {
                     let key = prepared.partition.key.clone();
-                    match emit_llvm_ir_partition(
-                        prepared,
-                        Arc::clone(&self.coordinator.index),
-                        self.options,
-                    ) {
-                        Ok(output) => self.outputs.push(output),
-                        Err(diagnostics) => self.partition_diagnostics.push((key, diagnostics)),
-                    }
+                    let index = Arc::clone(&self.coordinator.index);
+                    let options = self.options;
+                    self.tasks.submit(move || {
+                        let outcome = emit_llvm_ir_partition(prepared, index, options);
+                        (key, outcome)
+                    });
                 }
                 CodegenPartitionPreparation::Invalid {
                     partition,
@@ -200,6 +225,14 @@ impl LlvmIrReadinessEmitter {
 
     pub fn finish(mut self) -> LlvmCodegenOutput {
         let index = self.coordinator.finish();
+        let worker_lanes = self.partition_count.min(self.tasks.capacity());
+        let task_outcomes = self.tasks.finish();
+        for (key, outcome) in task_outcomes {
+            match outcome {
+                Ok(output) => self.outputs.push(output),
+                Err(diagnostics) => self.partition_diagnostics.push((key, diagnostics)),
+            }
+        }
         let mut declaration_diagnostics = Vec::new();
         if self.partition_count == 0 {
             for module_id in index.module_ids() {
@@ -222,8 +255,9 @@ impl LlvmIrReadinessEmitter {
             nia_timing::emit_counter("llvm.units", self.outputs.len() as u64);
             nia_timing::emit_counter(
                 "llvm.worker_lanes",
-                u64::from(self.partition_count != 0 || !index.module_ids().is_empty()),
+                worker_lanes.max(usize::from(!index.module_ids().is_empty())) as u64,
             );
+            nia_timing::emit_counter("llvm.ready_task_submissions", self.partition_count as u64);
         }
         LlvmCodegenOutput {
             modules: self.outputs,

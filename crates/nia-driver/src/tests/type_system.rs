@@ -1079,7 +1079,25 @@ pub fn value() i32 {
 fn driver_facade_emits_native_objects_from_source_request() {
     let _permit = nia_test_support::compiler_permit();
     let root = temp_dir("driver_facade_emits_native_objects_from_source_request");
-    write(&root.join("main.nia"), "fn main() i32 { 42 }\n");
+    write(
+        &root.join("main.nia"),
+        r#"
+module helper;
+using entry::helper;
+
+fn main() i32 {
+    helper::value()
+}
+"#,
+    );
+    write(
+        &root.join("helper.nia"),
+        r#"
+pub fn value() i32 {
+    42
+}
+"#,
+    );
 
     let driver = Driver::new();
     let output = driver.emit_native_objects(EmitObjectRequest::new(CheckRequest::new(
@@ -1094,7 +1112,7 @@ fn driver_facade_emits_native_objects_from_source_request() {
     assert_eq!(driver.compiler_query_executions("backend_lowering"), 0);
     assert_eq!(
         driver.compiler_query_executions("backend_module_finalization"),
-        1
+        2
     );
 }
 

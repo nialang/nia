@@ -1144,6 +1144,10 @@ fn main() i32 {
         stderr.contains("timing summary counter llvm.memory_permits: 1"),
         "{stderr}"
     );
+    assert!(
+        stderr.contains("timing summary counter llvm.ready_task_submissions: 1"),
+        "{stderr}"
+    );
 
     let traced = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("--timings")
