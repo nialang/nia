@@ -7042,6 +7042,81 @@ fn main() i32 {
     }
 
     #[test]
+    fn backend_definition_manifest_precedes_finalization_at_every_optimization_level() {
+        let mut fixture = LoadedProgramFixture::new(
+            "main.nia",
+            r#"
+module geom;
+using entry::geom;
+
+fn main() i32 {
+    let mut point: geom::Point = { x: 40, y: 2 };
+    point.x + point.y
+}
+"#,
+        );
+        let entry = fixture.entry_id();
+        let geom = fixture.add_child(
+            entry,
+            "geom",
+            "geom.nia",
+            r#"
+pub struct Point {
+    x: i32,
+    y: i32,
+}
+"#,
+        );
+
+        for level in [
+            NiaOptimizationLevel::O0,
+            NiaOptimizationLevel::O1,
+            NiaOptimizationLevel::O2,
+            NiaOptimizationLevel::O3,
+            NiaOptimizationLevel::Os,
+            NiaOptimizationLevel::Oz,
+        ] {
+            let mut program = fixture.program();
+            program.runtime = RuntimeModel::FreestandingExecutable;
+            let database =
+                CompilerDatabase::new(CompileRequest::new(program).with_optimization(level));
+            let preparation = database.codegen_preparation();
+            assert!(
+                preparation.diagnostics.is_empty(),
+                "{level:?}: {:?}",
+                preparation.diagnostics
+            );
+            let defs = database.db.get(FullModuleDefsQuery(geom));
+            let point =
+                defs.defs
+                    .iter()
+                    .find_map(|(def_id, def)| {
+                        (def.name == sym("Point") && def.kind == nia_defs::DefKind::Struct)
+                            .then_some(GlobalDefId {
+                                module_id: geom,
+                                def_id,
+                            })
+                    })
+                    .expect("Point definition");
+
+            database.with_backend_finalization_schedule(|schedule| {
+                let mut schedule = schedule.expect("healthy preparation must produce a schedule");
+                assert_eq!(schedule.owner_directory().item_owner(point), Some(geom));
+                assert!(schedule.module_store().get(geom).is_none());
+                while schedule.wait_next().is_some() {}
+                let lowering = schedule.finish();
+                let geom_module = lowering
+                    .program
+                    .modules
+                    .iter()
+                    .find(|module| module.id == geom)
+                    .expect("finalized geom module");
+                assert!(geom_module.structs.iter().any(|item| item.def_id == point));
+            });
+        }
+    }
+
+    #[test]
     fn executable_checked_modules_reuse_filtered_const_inputs() {
         let fixture = LoadedProgramFixture::new(
             "main.nia",

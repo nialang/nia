@@ -290,6 +290,52 @@ impl BackendModuleOwnerDirectory {
         self.items.get(&def_id).copied()
     }
 
+    pub fn validate_finalized_module(&self, module: &BackendModule) {
+        let definitions = Self::from_modules([module]);
+        for (def_id, owner) in definitions.items {
+            assert_eq!(
+                self.items.get(&def_id),
+                Some(&owner),
+                "Nia ICE: finalized backend item {def_id:?} was absent from its definition manifest"
+            );
+        }
+        for (key, owner) in definitions.struct_instances {
+            assert_eq!(
+                self.struct_instances.get(&key),
+                Some(&owner),
+                "Nia ICE: finalized backend struct instance was absent from its definition manifest"
+            );
+        }
+        for (key, owner) in definitions.union_instances {
+            assert_eq!(
+                self.union_instances.get(&key),
+                Some(&owner),
+                "Nia ICE: finalized backend union instance was absent from its definition manifest"
+            );
+        }
+        for (key, owner) in definitions.global_instances {
+            assert_eq!(
+                self.global_instances.get(&key),
+                Some(&owner),
+                "Nia ICE: finalized backend global instance was absent from its definition manifest"
+            );
+        }
+        for (key, owner) in definitions.function_instances {
+            assert_eq!(
+                self.function_instances.get(&key),
+                Some(&owner),
+                "Nia ICE: finalized backend function instance was absent from its definition manifest"
+            );
+        }
+        for (key, owner) in definitions.vtables {
+            assert_eq!(
+                self.vtables.get(&key),
+                Some(&owner),
+                "Nia ICE: finalized backend vtable was absent from its definition manifest"
+            );
+        }
+    }
+
     pub fn struct_instance_owner(&self, key: &BackendStructInstanceKey) -> Option<ModuleId> {
         self.struct_instances.get(key).copied()
     }

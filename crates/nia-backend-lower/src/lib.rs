@@ -24,8 +24,9 @@ use nia_ast::{BindingItem, Block, Expr, StmtKind, Visibility, generic_param_name
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendGlobal, BackendGlobalInstance,
     BackendGlobalInstanceKey, BackendLayouts, BackendModule, BackendModuleReadiness,
-    BackendModuleStore, BackendProgram, BackendStruct, BackendTraitObjectVtable,
-    BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey, BackendUnion,
+    BackendModuleStore, BackendProgram, BackendStruct, BackendStructInstanceKey,
+    BackendTraitObjectVtable, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
+    BackendUnion,
 };
 use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
@@ -145,7 +146,6 @@ where
             &self.shared,
             self.timing,
         );
-        lowerer.index_aggregate_sources_for_finalization();
         let mut module = module_plan.module;
         lowerer.finish_module(&mut module);
         BackendModuleFinalization {
@@ -199,6 +199,9 @@ impl BackendModuleFinalizationCollector {
             module_finalization.module.id, *expected_module,
             "Nia ICE: backend module finalization owner must match module order"
         );
+        self.finalization
+            .owner_directory
+            .validate_finalized_module(&module_finalization.module);
         self.modules.publish(module_finalization.module);
         self.optimization_reports[position] = Some(module_finalization.optimization_report);
         self.diagnostics[position] = Some(module_finalization.diagnostics);
@@ -561,6 +564,16 @@ pub fn plan_backend_program_with_timings(
         lowered_modules.len(),
         "Nia ICE: backend lowerers must match materialized modules"
     );
+    time_backend_stage(timing, "backend_lower.definition_membership", || {
+        for (lowerer, module) in lowerers.iter_mut().zip(&mut lowered_modules) {
+            lowerer.complete_definition_membership(module);
+            diagnostics.extend(std::mem::take(&mut lowerer.diagnostics));
+            optimization_report.changed_passes.extend(std::mem::take(
+                &mut lowerer.optimization_report.changed_passes,
+            ));
+        }
+    });
+    assign_unique_aggregate_instance_owners(&mut lowered_modules);
     assign_unique_vtable_owners(&mut lowered_modules);
 
     BackendItemPlan {
@@ -571,6 +584,86 @@ pub fn plan_backend_program_with_timings(
         optimization,
         optimization_report,
         diagnostics,
+    }
+}
+
+fn assign_unique_aggregate_instance_owners(modules: &mut [BackendModule]) {
+    let mut struct_owners = HashMap::<BackendStructInstanceKey, (usize, usize)>::new();
+    for (module_index, module) in modules.iter().enumerate() {
+        for (item_index, item) in module.struct_instances.iter().enumerate() {
+            let key = BackendStructInstanceKey {
+                def_id: item.def_id,
+                args: item.args.clone(),
+                const_args: item.const_args.clone(),
+            };
+            let Some(&(owner_module_index, owner_item_index)) = struct_owners.get(&key) else {
+                struct_owners.insert(key, (module_index, item_index));
+                continue;
+            };
+            let owner_module = &modules[owner_module_index];
+            let owner = &owner_module.struct_instances[owner_item_index];
+            assert_eq!(
+                owner, item,
+                "Nia ICE: backend struct instance has conflicting definitions in modules {:?} and {:?}",
+                owner_module.id, module.id
+            );
+            if module.source_identity.normalized_path()
+                < owner_module.source_identity.normalized_path()
+            {
+                struct_owners.insert(key, (module_index, item_index));
+            }
+        }
+    }
+    for (module_index, module) in modules.iter_mut().enumerate() {
+        module.struct_instances.retain(|item| {
+            let key = BackendStructInstanceKey {
+                def_id: item.def_id,
+                args: item.args.clone(),
+                const_args: item.const_args.clone(),
+            };
+            struct_owners
+                .get(&key)
+                .is_some_and(|(owner, _)| *owner == module_index)
+        });
+    }
+
+    let mut union_owners = HashMap::<BackendStructInstanceKey, (usize, usize)>::new();
+    for (module_index, module) in modules.iter().enumerate() {
+        for (item_index, item) in module.union_instances.iter().enumerate() {
+            let key = BackendStructInstanceKey {
+                def_id: item.def_id,
+                args: item.args.clone(),
+                const_args: item.const_args.clone(),
+            };
+            let Some(&(owner_module_index, owner_item_index)) = union_owners.get(&key) else {
+                union_owners.insert(key, (module_index, item_index));
+                continue;
+            };
+            let owner_module = &modules[owner_module_index];
+            let owner = &owner_module.union_instances[owner_item_index];
+            assert_eq!(
+                owner, item,
+                "Nia ICE: backend union instance has conflicting definitions in modules {:?} and {:?}",
+                owner_module.id, module.id
+            );
+            if module.source_identity.normalized_path()
+                < owner_module.source_identity.normalized_path()
+            {
+                union_owners.insert(key, (module_index, item_index));
+            }
+        }
+    }
+    for (module_index, module) in modules.iter_mut().enumerate() {
+        module.union_instances.retain(|item| {
+            let key = BackendStructInstanceKey {
+                def_id: item.def_id,
+                args: item.args.clone(),
+                const_args: item.const_args.clone(),
+            };
+            union_owners
+                .get(&key)
+                .is_some_and(|(owner, _)| *owner == module_index)
+        });
     }
 }
 
@@ -1532,6 +1625,17 @@ impl<'a> ModuleLowerer<'a> {
             &module.globals,
             &module.trait_object_vtables,
         );
+        let mut layouts =
+            BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
+        self.extend_backend_layouts_for_instances(
+            &mut layouts,
+            &module.struct_instances,
+            &module.union_instances,
+        );
+        module.layouts = layouts;
+    }
+
+    fn complete_definition_membership(&mut self, module: &mut BackendModule) {
         self.extend_struct_instances_from_functions(
             &mut module.struct_instances,
             &mut module.union_instances,
@@ -1550,15 +1654,6 @@ impl<'a> ModuleLowerer<'a> {
                 trait_object_vtables: &module.trait_object_vtables,
             },
         );
-
-        let mut layouts =
-            BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
-        self.extend_backend_layouts_for_instances(
-            &mut layouts,
-            &module.struct_instances,
-            &module.union_instances,
-        );
-        module.layouts = layouts;
     }
 
     fn lower_function_local_static_globals(
@@ -1760,27 +1855,6 @@ impl<'a> ModuleLowerer<'a> {
             },
         );
         Some(global_def_id)
-    }
-
-    fn index_aggregate_sources_for_finalization(&mut self) {
-        for item in &self.input.active_item_tree.items {
-            match &item.kind {
-                ItemTreeNodeKind::Struct(item_struct) => {
-                    self.index_aggregate_source(&item.node_key, item.span, item_struct);
-                }
-                ItemTreeNodeKind::Union(item_union) => {
-                    self.index_union_source(&item.node_key, item.span, item_union);
-                }
-                ItemTreeNodeKind::Trait(_)
-                | ItemTreeNodeKind::Extend(_)
-                | ItemTreeNodeKind::Enum(_)
-                | ItemTreeNodeKind::Function(_)
-                | ItemTreeNodeKind::Binding(_)
-                | ItemTreeNodeKind::Module(_)
-                | ItemTreeNodeKind::Using(_)
-                | ItemTreeNodeKind::TypeAlias(_) => {}
-            }
-        }
     }
 
     fn is_backend_function_root(
