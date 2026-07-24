@@ -27,7 +27,8 @@ fn single_module_program(
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     }
 }
 
@@ -104,7 +105,8 @@ fn emits_function_body_from_function_ir_when_available() {
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     };
 
     drop(interner);
@@ -436,7 +438,8 @@ fn rejects_field_access_with_mismatched_base_struct() {
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     };
 
     drop(interner);
@@ -470,49 +473,48 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
     });
     let mut const_eval = BackendConstFacts::default();
     const_eval.array_lengths.insert(len_id, 4);
-    let mut program = BackendProgram {
-        modules: vec![BackendModule {
-            id: module_id,
-            source_identity: nia_source::SourceIdentity::new("main"),
-            name: "main".to_string(),
-            const_eval,
-            layouts: BackendLayouts {
-                target: nia_layout::TargetDataLayout::LP64,
-                types: vec![
-                    (elem, TypeLayout { size: 1, align: 1 }),
-                    (array_ty, TypeLayout { size: 4, align: 1 }),
-                ],
-                structs: Vec::new(),
-                unions: Vec::new(),
-                struct_instances: Vec::new(),
-                union_instances: Vec::new(),
-            },
+    let mut module = BackendModule {
+        id: module_id,
+        source_identity: nia_source::SourceIdentity::new("main"),
+        name: "main".to_string(),
+        const_eval,
+        layouts: BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
+            types: vec![
+                (elem, TypeLayout { size: 1, align: 1 }),
+                (array_ty, TypeLayout { size: 4, align: 1 }),
+            ],
             structs: Vec::new(),
-            struct_instances: Vec::new(),
             unions: Vec::new(),
+            struct_instances: Vec::new(),
             union_instances: Vec::new(),
-            enums: Vec::new(),
-            globals: vec![BackendGlobal {
-                def_id: GlobalDefId {
-                    module_id,
-                    def_id: DefId(0),
-                },
-                name: sym("buffer"),
-                link_name: None,
-                ty: array_ty,
-                is_let: false,
-                is_extern: true,
-                init: None,
-                span,
-            }],
-            global_instances: Vec::new(),
-            functions: Vec::new(),
-            function_instances: Vec::new(),
-            trait_object_vtables: Vec::new(),
-            generic_instantiations: Vec::new(),
+        },
+        structs: Vec::new(),
+        struct_instances: Vec::new(),
+        unions: Vec::new(),
+        union_instances: Vec::new(),
+        enums: Vec::new(),
+        globals: vec![BackendGlobal {
+            def_id: GlobalDefId {
+                module_id,
+                def_id: DefId(0),
+            },
+            name: sym("buffer"),
+            link_name: None,
+            ty: array_ty,
+            is_let: false,
+            is_extern: true,
+            init: None,
+            span,
         }],
+        global_instances: Vec::new(),
+        functions: Vec::new(),
+        function_instances: Vec::new(),
+        trait_object_vtables: Vec::new(),
+        generic_instantiations: Vec::new(),
     };
-    program.modules[0].const_eval.array_lengths.clear();
+    module.const_eval.array_lengths.clear();
+    let program = BackendProgram::new(vec![module]);
 
     drop(interner);
     let output = emit_owned_llvm_ir(program, type_store);
@@ -607,7 +609,8 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     };
 
     drop(interner);
@@ -681,7 +684,8 @@ fn validates_backend_ir_error_type_before_llvm() {
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     };
 
     drop(interner);
@@ -784,7 +788,8 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     };
 
     drop(interner);
@@ -959,7 +964,8 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
             }],
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     };
 
     drop(interner);
@@ -1037,7 +1043,8 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
                 span,
             }],
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     };
 
     drop(interner);
@@ -1112,7 +1119,8 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     };
 
     drop(interner);
@@ -1218,7 +1226,8 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     };
 
     drop(interner);
@@ -1328,7 +1337,8 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     };
 
     drop(interner);
@@ -1404,7 +1414,8 @@ fn validates_function_ir_missing_entry_before_llvm() {
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     };
 
     drop(interner);
@@ -1500,7 +1511,8 @@ fn validates_function_ir_missing_successor_before_llvm() {
             function_instances: Vec::new(),
             trait_object_vtables: Vec::new(),
             generic_instantiations: Vec::new(),
-        }],
+        }]
+        .into(),
     };
 
     drop(interner);

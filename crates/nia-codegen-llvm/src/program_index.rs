@@ -2,10 +2,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use nia_backend_ir::{
-    BackendEnum, BackendEnumVariant, BackendFunctionInstance, BackendProgram,
-    BackendStructInstanceKey, BackendTraitObjectVtable,
+    BackendEnum, BackendEnumVariant, BackendFunctionInstance, BackendModuleStore,
+    BackendStructInstanceKey, BackendTraitObjectVtable, CodegenPartition, CodegenUnitId,
+    CodegenUnitKey,
 };
-use nia_backend_lower::BackendLowering;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{StructLayout, TypeLayout};
 use nia_ty::{ConstGenericArg, TraitId, TyKind, TypeStore};
@@ -42,9 +42,8 @@ struct EnumVariantPosition {
 }
 
 pub(super) struct ProgramIndex {
-    lowering: Arc<BackendLowering>,
+    modules: Arc<BackendModuleStore>,
     type_store: Arc<TypeStore>,
-    modules: HashMap<ModuleId, usize>,
     structs: HashMap<GlobalDefId, ItemPosition>,
     unions: HashMap<GlobalDefId, ItemPosition>,
     struct_instances: AggregateInstanceIndex,
@@ -83,11 +82,10 @@ pub(super) struct EnumVariantInfo<'a> {
 }
 
 impl ProgramIndex {
-    pub(super) fn new(lowering: Arc<BackendLowering>, type_store: Arc<TypeStore>) -> Self {
+    pub(super) fn new(modules: Arc<BackendModuleStore>, type_store: Arc<TypeStore>) -> Self {
         let mut index = Self {
-            lowering,
+            modules,
             type_store,
-            modules: HashMap::new(),
             structs: HashMap::new(),
             unions: HashMap::new(),
             struct_instances: HashMap::new(),
@@ -113,8 +111,11 @@ impl ProgramIndex {
             struct_instances_by_def: HashMap::new(),
             union_instances_by_def: HashMap::new(),
         };
-        for (module_index, module) in index.lowering.program.modules.iter().enumerate() {
-            index.modules.insert(module.id, module_index);
+        for module_id in index.modules.module_ids() {
+            let module = index
+                .modules
+                .get(*module_id)
+                .expect("program index requires every backend module to be published");
             for (layout_index, (ty, _)) in module.layouts.types.iter().enumerate() {
                 index.type_layouts.insert(
                     *ty,
@@ -323,14 +324,34 @@ impl ProgramIndex {
         index
     }
 
-    pub(super) fn program(&self) -> &BackendProgram {
-        &self.lowering.program
+    pub(super) fn module(&self, module_id: ModuleId) -> Option<&nia_backend_ir::BackendModule> {
+        self.modules.get(module_id)
     }
 
-    pub(super) fn module(&self, module_id: ModuleId) -> Option<&nia_backend_ir::BackendModule> {
-        self.modules
-            .get(&module_id)
-            .map(|module| &self.lowering.program.modules[*module])
+    pub(super) fn module_ids(&self) -> &[ModuleId] {
+        self.modules.module_ids()
+    }
+
+    pub(super) fn module_for_partition(
+        &self,
+        partition: &CodegenPartition,
+    ) -> &nia_backend_ir::BackendModule {
+        let (module_id, ordinal) = match partition.id {
+            CodegenUnitId::SourceModule { module_id, ordinal } => (module_id, ordinal),
+            CodegenUnitId::CompilerBuiltins => {
+                panic!("Nia ICE: compiler builtins partition has no backend module")
+            }
+        };
+        let module = self.module_at(module_id);
+        assert_eq!(
+            partition.key,
+            CodegenUnitKey::SourceModule {
+                source_identity: module.source_identity.clone(),
+                ordinal,
+            },
+            "Nia ICE: codegen partition stable key does not match its backend module"
+        );
+        module
     }
 
     fn module_at(&self, module_id: ModuleId) -> &nia_backend_ir::BackendModule {
@@ -726,17 +747,6 @@ mod tests {
         SymbolId::from_stable_hash(stable_hash(text))
     }
 
-    fn lowering(program: BackendProgram) -> Arc<BackendLowering> {
-        let codegen_partitions = program.codegen_partition_plan();
-        Arc::new(BackendLowering {
-            program,
-            codegen_partitions,
-            optimization: nia_opt::OptimizationPolicy::default(),
-            optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
-            diagnostics: Vec::new(),
-        })
-    }
-
     #[test]
     fn indexes_codegen_lookup_tables_by_exact_keys_and_fallback_groups() {
         let mut module_ids = ModuleIdAllocator::new();
@@ -857,11 +867,11 @@ mod tests {
                 function_instances: vec![function_instance],
                 trait_object_vtables: vec![vtable],
                 generic_instantiations: Vec::<BackendGenericInstantiation>::new(),
-            }],
+            }]
+            .into(),
         };
 
-        let lowering = lowering(program);
-        let index = ProgramIndex::new(Arc::clone(&lowering), Arc::new(type_store));
+        let index = ProgramIndex::new(program.module_store(), Arc::new(type_store));
 
         assert_eq!(
             index
@@ -888,7 +898,7 @@ mod tests {
         );
         assert!(std::ptr::eq(
             index.module(module_id).expect("indexed module"),
-            &lowering.program.modules[0]
+            &program.modules[0]
         ));
         assert_eq!(
             index.type_layout(i32_ty),
@@ -907,7 +917,7 @@ mod tests {
             index
                 .function_instance(function_def, module_id, None, &[i32_ty], &[])
                 .expect("indexed function instance"),
-            &lowering.program.modules[0].function_instances[0]
+            &program.modules[0].function_instances[0]
         ));
         assert_eq!(
             index.function_instance_owner(function_def, module_id, None, &[i32_ty], &[]),
@@ -934,9 +944,7 @@ mod tests {
             vec![object_ty]
         );
         assert_eq!(
-            index.trait_object_vtable_owner(
-                &lowering.program.modules[0].trait_object_vtables[0].key
-            ),
+            index.trait_object_vtable_owner(&program.modules[0].trait_object_vtables[0].key),
             Some(module_id)
         );
     }
@@ -961,10 +969,8 @@ mod tests {
                 elem,
             })
         };
-        let program = BackendProgram {
-            modules: Vec::new(),
-        };
-        let index = ProgramIndex::new(lowering(program), Arc::new(type_store));
+        let program = BackendProgram::new(Vec::new());
+        let index = ProgramIndex::new(program.module_store(), Arc::new(type_store));
 
         assert!(matches!(
             index.ty_kind(ty),

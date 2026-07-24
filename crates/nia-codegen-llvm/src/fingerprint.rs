@@ -42,7 +42,7 @@ pub(super) fn source_unit_fingerprint(
     policy.optimization(options.optimization);
     policy.artifact_kind(target);
 
-    let owner = index.program().module_for_partition(partition);
+    let owner = index.module_for_partition(partition);
     let mut definition = Encoder::new("nia.llvm.source-definition.v3", index);
     definition.partition_definitions(partition, owner);
 
@@ -2019,7 +2019,7 @@ mod tests {
             diagnostics: Vec::new(),
         });
         Fixture {
-            index: ProgramIndex::new(lowering, Arc::new(type_store)),
+            index: ProgramIndex::new(lowering.program.module_store(), Arc::new(type_store)),
             partition,
         }
     }
@@ -2074,7 +2074,8 @@ mod tests {
                         ty,
                     ),
                     module_with_global(unrelated_id, "unrelated.nia", ty, 2),
-                ],
+                ]
+                .into(),
             },
             store,
             "main.nia",
@@ -2099,7 +2100,8 @@ mod tests {
                 modules: vec![
                     module_with_global(main_id, "main.nia", ty, 1),
                     module_with_global(unrelated_id, "unrelated.nia", ty, 2),
-                ],
+                ]
+                .into(),
             },
             store,
             "main.nia",
@@ -2121,7 +2123,7 @@ mod tests {
             .primitive(PrimitiveTy::I32);
         let first = fixture(
             BackendProgram {
-                modules: vec![module_with_global(first_id, "main.nia", first_ty, 1)],
+                modules: vec![module_with_global(first_id, "main.nia", first_ty, 1)].into(),
             },
             first_store,
             "main.nia",
@@ -2139,7 +2141,7 @@ mod tests {
             .primitive(PrimitiveTy::I32);
         let second = fixture(
             BackendProgram {
-                modules: vec![module_with_global(second_id, "main.nia", second_ty, 1)],
+                modules: vec![module_with_global(second_id, "main.nia", second_ty, 1)].into(),
             },
             second_store,
             "main.nia",
@@ -2162,7 +2164,7 @@ mod tests {
         let helper = module_with_global(helper_id, "helper.nia", ty, 2);
         let first = fixture(
             BackendProgram {
-                modules: vec![main, helper],
+                modules: vec![main, helper].into(),
             },
             store,
             "main.nia",
@@ -2178,7 +2180,8 @@ mod tests {
                 modules: vec![
                     module_with_global(helper_id, "helper.nia", ty, 2),
                     module_with_global(main_id, "main.nia", ty, 1),
-                ],
+                ]
+                .into(),
             },
             store,
             "main.nia",
@@ -2200,7 +2203,7 @@ mod tests {
             .primitive(PrimitiveTy::I32);
         let baseline = fixture(
             BackendProgram {
-                modules: vec![module_with_global(module_id, "main.nia", ty, 1)],
+                modules: vec![module_with_global(module_id, "main.nia", ty, 1)].into(),
             },
             store,
             "main.nia",
@@ -2216,7 +2219,7 @@ mod tests {
         span_only_module.globals[0].span = Span::new(100, 200);
         let span_only = fixture(
             BackendProgram {
-                modules: vec![span_only_module],
+                modules: vec![span_only_module].into(),
             },
             store,
             "main.nia",
@@ -2230,7 +2233,7 @@ mod tests {
             .primitive(PrimitiveTy::I32);
         let changed = fixture(
             BackendProgram {
-                modules: vec![module_with_global(module_id, "main.nia", ty, 2)],
+                modules: vec![module_with_global(module_id, "main.nia", ty, 2)].into(),
             },
             store,
             "main.nia",
@@ -2283,7 +2286,8 @@ mod tests {
                             ],
                             selected,
                         ),
-                    ],
+                    ]
+                    .into(),
                 },
                 store,
                 "main.nia",
@@ -2369,7 +2373,8 @@ mod tests {
                             ],
                             selected,
                         ),
-                    ],
+                    ]
+                    .into(),
                 },
                 store,
                 "main.nia",
@@ -2435,7 +2440,7 @@ mod tests {
             });
             fixture(
                 BackendProgram {
-                    modules: vec![main, foreign],
+                    modules: vec![main, foreign].into(),
                 },
                 store,
                 "main.nia",
@@ -2458,7 +2463,7 @@ mod tests {
             .primitive(PrimitiveTy::I32);
         let fixture = fixture(
             BackendProgram {
-                modules: vec![module_with_global(module_id, "main.nia", ty, 1)],
+                modules: vec![module_with_global(module_id, "main.nia", ty, 1)].into(),
             },
             store,
             "main.nia",

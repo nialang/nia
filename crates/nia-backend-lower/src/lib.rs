@@ -223,11 +223,7 @@ impl BackendModuleFinalizationCollector {
                 .extend(report.changed_passes);
             diagnostics.extend(module_diagnostics);
         }
-        let program = Arc::try_unwrap(self.modules)
-            .unwrap_or_else(|_| {
-                panic!("Nia ICE: backend module store still has readers during aggregate finish")
-            })
-            .into_program();
+        let program = BackendProgram::from_module_store(self.modules);
         let codegen_partitions = program.codegen_partition_plan();
         BackendLowering {
             program,
@@ -625,12 +621,12 @@ pub fn finalize_backend_module_item_plans_with_timings(
 ) -> BackendLowering {
     let optimization = finalization.optimization;
     if !finalization.diagnostics.is_empty() {
-        let program = BackendProgram {
-            modules: module_plans
+        let program = BackendProgram::new(
+            module_plans
                 .into_iter()
                 .map(|module_plan| module_plan.module)
                 .collect(),
-        };
+        );
         let codegen_partitions = program.codegen_partition_plan();
         return BackendLowering {
             program,

@@ -39,7 +39,7 @@ impl CodegenDeclarationMembership {
             partition.id,
             "Nia ICE: codegen dependency closure belongs to a different unit"
         );
-        let owner = index.program().module_for_partition(partition);
+        let owner = index.module_for_partition(partition);
         assert!(
             self.dependencies.contains(owner.id),
             "Nia ICE: codegen dependency closure omits its definition owner"
@@ -91,7 +91,7 @@ impl<'a> MembershipBuilder<'a> {
     }
 
     fn build(mut self, partition: &CodegenPartition) -> CodegenDeclarationMembership {
-        let owner = self.index.program().module_for_partition(partition);
+        let owner = self.index.module_for_partition(partition);
         self.dependency_modules.insert(owner.id);
         for &index in partition.global_definitions() {
             self.add_global_definition(&owner.globals[index]);

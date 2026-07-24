@@ -1426,6 +1426,8 @@ Acceptance：多核 workload CPU 利用率明显提升；小改动只重建受�
 
 进展（2026-07-24）：G-6e5c 消除LLVM `ProgramIndex` position对`BackendProgram.modules` Vec ordinal的结构依赖。item、layout与enum variant三类position现在直接保存实际发布owner的`ModuleId`，owner查询不再从下标反推identity，所有payload读取统一经过唯一`module_at(ModuleId)` resolver；semantic def owner与concrete instance/vtable实际发布owner不同的回归继续锁定后者，并新增layout、function instance与enum variant内部position断言，防止未来退回输入顺序身份。LLVM 191项、定向回归、严格Clippy、fmt与diff check通过。当前resolver仍通过`Arc<BackendLowering>`持有完整aggregate和`ModuleId → Vec index`映射，尚未消费`BackendModuleStore`，因此不宣称已有incremental index或frontend/LLVM overlap；下一切片必须把`ProgramIndex`的payload owner迁到唯一module arena，并让lookup table只由ready module增量发布，物理删除完整program构造入口与双轨索引路径。
 
+进展（2026-07-24）：G-6e5d 将final backend module的canonical ownership永久留在`BackendModuleStore`。`BackendProgram.modules`不再是第二个`Vec<BackendModule>` payload owner，而是同一arena上的确定序只读`BackendModules`视图；collector aggregate finish已物理删除`Arc::try_unwrap`/`into_program`搬移路径，store与readiness reader可以跨finish继续存活，指针相等回归证明aggregate、reader与后续consumer观察同一allocation。LLVM `ProgramIndex`同时删除`Arc<BackendLowering>`和`ModuleId → Vec ordinal`映射，只持共享arena与`TypeStore`，module/partition/builtin/declaration/fingerprint/codegen读取全部经ID resolver落回唯一slot；没有per-module `Arc`、module clone、兼容Vec owner或fallback lookup。backend-ir 17项、backend-lower 100项、LLVM 191项、compiler-query 147项、workspace all-target/all-feature check、四crate严格Clippy、fmt与diff check通过。当前`ProgramIndex::new`仍要求所有slot已发布并一次性构造全部lookup tables，因此frontend/LLVM仍未重叠；下一切片必须把tables改为single-writer按`BackendModuleReady`增量发布，并以unit dependency全部ready作为唯一task launch条件，删除full-index build barrier而不保留双轨入口。
+
 ### 阶段 H（P1/P2）：持久 frontend incremental
 
 1. stable module/def key。
