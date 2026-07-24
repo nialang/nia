@@ -36,6 +36,74 @@ pub use nia_backend_lower::BackendOptimizationChange;
 pub use nia_timing::TimingMode;
 pub use query::{CompileRequest, CompilerDatabase};
 
+pub struct BackendFinalizationSchedule<'borrow, 'stream, 'executor> {
+    completions: &'borrow mut nia_query::QueryCompletionStream<
+        'stream,
+        'executor,
+        nia_backend_lower::BackendModuleFinalization,
+    >,
+    collector: Option<nia_backend_lower::BackendModuleFinalizationCollector>,
+    readiness: nia_backend_ir::BackendModuleReadiness,
+}
+
+impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 'executor> {
+    pub(crate) fn new(
+        completions: &'borrow mut nia_query::QueryCompletionStream<
+            'stream,
+            'executor,
+            nia_backend_lower::BackendModuleFinalization,
+        >,
+        collector: nia_backend_lower::BackendModuleFinalizationCollector,
+    ) -> Self {
+        let readiness = collector.take_readiness();
+        Self {
+            completions,
+            collector: Some(collector),
+            readiness,
+        }
+    }
+
+    pub fn module_store(&self) -> std::sync::Arc<nia_backend_ir::BackendModuleStore> {
+        self.collector
+            .as_ref()
+            .expect("backend finalization collector")
+            .module_store()
+    }
+
+    pub fn owner_directory(&self) -> &nia_backend_ir::BackendModuleOwnerDirectory {
+        self.collector
+            .as_ref()
+            .expect("backend finalization collector")
+            .owner_directory()
+    }
+
+    pub fn wait_next(&mut self) -> Option<nia_backend_ir::BackendModuleReady> {
+        let (position, finalization) = self.completions.wait_next()?;
+        self.collector
+            .as_mut()
+            .expect("backend finalization collector")
+            .push(position, finalization);
+        let ready = self
+            .readiness
+            .wait_next()
+            .expect("backend finalization publication must produce readiness");
+        assert_eq!(
+            ready.position(),
+            position,
+            "Nia ICE: backend readiness must match query completion position"
+        );
+        Some(ready)
+    }
+
+    pub fn finish(mut self) -> BackendLowering {
+        while self.wait_next().is_some() {}
+        self.collector
+            .take()
+            .expect("backend finalization collector")
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActiveModuleItemTreeFactKind {
     Signature(nia_item_tree::SignatureItemSet),

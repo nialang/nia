@@ -79,6 +79,7 @@ pub struct BackendItemPlanFinalization {
     optimization: OptimizationPolicy,
     optimization_report: BackendOptimizationReport,
     diagnostics: Vec<Diagnostic>,
+    owner_directory: nia_backend_ir::BackendModuleOwnerDirectory,
 }
 
 pub struct BackendProgramFinalizationContext<S = std::sync::Arc<nia_ty::TypeStore>> {
@@ -177,6 +178,10 @@ impl BackendModuleFinalizationCollector {
         Arc::clone(&self.modules)
     }
 
+    pub fn owner_directory(&self) -> &nia_backend_ir::BackendModuleOwnerDirectory {
+        &self.finalization.owner_directory
+    }
+
     pub fn take_readiness(&self) -> BackendModuleReadiness {
         self.modules.take_readiness()
     }
@@ -203,6 +208,7 @@ impl BackendModuleFinalizationCollector {
             optimization,
             mut optimization_report,
             mut diagnostics,
+            owner_directory: _,
         } = self.finalization;
         for (position, (report, module_diagnostics)) in self
             .optimization_reports
@@ -258,11 +264,15 @@ impl BackendItemPlan {
     }
 
     pub fn into_module_plans(self) -> (BackendItemPlanFinalization, Vec<BackendModuleItemPlan>) {
+        let owner_directory = nia_backend_ir::BackendModuleOwnerDirectory::from_modules(
+            self.modules.iter().map(BackendModuleItemPlan::module),
+        );
         (
             BackendItemPlanFinalization {
                 optimization: self.optimization,
                 optimization_report: self.optimization_report,
                 diagnostics: self.diagnostics,
+                owner_directory,
             },
             self.modules,
         )
