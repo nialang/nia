@@ -41,8 +41,9 @@ use nia_public_surface::{
     compute_using_scopes_from_surfaces_with_symbols,
 };
 use nia_query::{
-    QueryDb, QueryError, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy,
-    QueryFrame, QueryKey, QueryProviderPolicy, QueryStoragePolicy, QueryTrace,
+    QueryCompletionStream, QueryDb, QueryError, QueryFingerprint, QueryFingerprintBuilder,
+    QueryFingerprintPolicy, QueryFrame, QueryKey, QueryProviderPolicy, QueryStoragePolicy,
+    QueryTrace,
 };
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;
