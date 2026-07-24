@@ -776,6 +776,9 @@ pub(super) struct ModuleDefsQuery(pub(super) ModuleId);
 pub(super) struct FullModuleDefsQuery(pub(super) ModuleId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct PublicSurfaceModuleFactsQuery(pub(super) ModuleId);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ModuleItemTreeQuery(pub(super) ModuleId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -924,6 +927,28 @@ impl QueryKey<CompilerContext> for FullModuleDefsQuery {
 
     fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
         (db.context().providers.full_module_defs)(db, self.0)
+    }
+}
+
+impl QueryKey<CompilerContext> for PublicSurfaceModuleFactsQuery {
+    type Value = PublicSurfaceModuleFacts;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "public_surface_module_facts"
+    }
+
+    fn description(&self) -> String {
+        format!("public_surface_module_facts({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+        PublicSurfaceModuleFacts::from_defs(&db.get(ModuleDefsQuery(self.0)))
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 

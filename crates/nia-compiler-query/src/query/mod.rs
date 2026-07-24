@@ -8,8 +8,8 @@ use crate::{LoadedModule, LoadedProgram};
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_const_check::{ConstCheck, ConstModuleLowering};
 use nia_defs::{
-    DefCollection, ModulePublicSurface, ModuleUsingScope, PublicSurfaceLookup, PublicSurfaces,
-    UsingScopeLookup,
+    DefCollection, ModulePublicSurface, ModuleUsingScope, PublicSurfaceLookup,
+    PublicSurfaceModuleFacts, PublicSurfaces, UsingScopeLookup,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
@@ -206,6 +206,7 @@ fn compiler_query_registry() -> nia_query::QueryRegistry {
         ModulePathQuery,
         ModuleProgramSignatureFactsQuery,
         ModulePublicSurfaceQuery,
+        PublicSurfaceModuleFactsQuery,
         ModuleSourceVersionQuery,
         ModuleUsingScopeQuery,
         MonomorphizationQuery,
@@ -2068,7 +2069,7 @@ mod tests {
     fn compiler_query_registry_covers_all_declared_query_contracts() {
         let descriptors = compiler_query_registry().descriptors();
 
-        assert_eq!(descriptors.len(), 130);
+        assert_eq!(descriptors.len(), 131);
         assert!(
             !descriptors
                 .iter()
@@ -2151,6 +2152,7 @@ mod tests {
                 | "module_origins"
                 | "module_parse_errors"
                 | "module_using_scope"
+                | "public_surface_module_facts"
                 | "public_surface_type"
                 | "public_surface_value"
                 | "public_surfaces"
@@ -4390,7 +4392,12 @@ extend Value : Ops {
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "public_surfaces" && dependency.to.name == "module_defs"
+            dependency.from.name == "public_surfaces"
+                && dependency.to.name == "public_surface_module_facts"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "public_surface_module_facts"
+                && dependency.to.name == "module_defs"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "public_surfaces" && dependency.to.name == "module_graph"
@@ -4399,7 +4406,8 @@ extend Value : Ops {
             dependency.from.name == "public_using_scopes" && dependency.to.name == "public_surfaces"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "public_using_scopes" && dependency.to.name == "module_defs"
+            dependency.from.name == "public_using_scopes"
+                && dependency.to.name == "public_surface_module_facts"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "module_using_scope"
