@@ -19,13 +19,12 @@ pub fn collect_module_program_signature_facts(
     module: ModuleSignatureInput<'_>,
 ) -> ModuleProgramSignatureFacts {
     let trait_defs = module
-        .defs
-        .defs
-        .iter()
-        .filter(|(_, def)| matches!(def.kind, nia_defs::DefKind::Trait))
-        .map(|(def_id, _)| GlobalDefId {
+        .signatures
+        .traits
+        .keys()
+        .map(|def_id| GlobalDefId {
             module_id: module.module_id,
-            def_id,
+            def_id: *def_id,
         })
         .collect();
     let modules = [module];
@@ -116,12 +115,7 @@ pub fn collect_program_functions_excluding(
             functions.insert(
                 global_def_id,
                 ProgramFunctionSignature {
-                    name: module
-                        .defs
-                        .defs
-                        .get(*def_id)
-                        .map(|def| def.name)
-                        .unwrap_or_default(),
+                    name: signature.name,
                     signature: signature.clone(),
                 },
             );

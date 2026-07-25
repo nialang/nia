@@ -28,14 +28,10 @@ pub(super) fn provide_module_program_signature_facts(
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
 ) -> ModuleProgramSignatureFactsValue {
-    let defs = db.get(ModuleDefsQuery(module_id));
-    let lowering = db.get(SignatureTypeLoweringQuery(module_id, set));
     let signatures = db.get(SignatureItemSignaturesQuery(module_id, set));
     nia_program_signatures::collect_module_program_signature_facts(ModuleSignatureInput {
         module_id,
         type_store: &db.context().type_store,
-        defs: &defs,
-        lowering: &lowering,
         signatures: &signatures,
     })
 }
@@ -263,17 +259,12 @@ pub(super) fn executable_program_functions_for_modules(
         .flat_map(|module_id| {
             let lowered = db.get(TypeLoweringQuery(module_id));
             let signatures = body_local_item_signatures(db, module_id, &lowered);
-            let defs = db.get(ModuleDefsQuery(module_id));
             signatures
                 .functions
                 .into_iter()
                 .map(move |(def_id, signature)| {
                     let global_def_id = GlobalDefId { module_id, def_id };
-                    let name = defs
-                        .defs
-                        .get(def_id)
-                        .map(|def| def.name)
-                        .unwrap_or_default();
+                    let name = signature.name;
                     (global_def_id, ProgramFunctionSignature { name, signature })
                 })
         })

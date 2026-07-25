@@ -196,6 +196,7 @@ impl ProgramTraitImplIndex {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSignature {
+    pub name: SymbolId,
     pub generics: Vec<SymbolId>,
     pub generic_params: Vec<GenericParamSignature>,
     pub where_predicates: Vec<WherePredicateSignature>,
@@ -1226,6 +1227,7 @@ impl<'a> SignatureCollector<'a> {
             None => self.primitive(PrimitiveTy::Void),
         };
         FunctionSignature {
+            name: function.name,
             generics: generic_signature_names(&function.generics),
             generic_params: self.generic_param_signatures(&function.generics),
             where_predicates: self.where_predicate_signatures(&function.where_clause),
