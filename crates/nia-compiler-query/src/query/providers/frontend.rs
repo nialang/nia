@@ -106,52 +106,83 @@ pub(super) fn provide_full_module_defs(
     )
 }
 
-fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<Arc<DefCollection>> {
-    let module_ids = resolve_stable_module_sequence(db, &db.get(ParseOkModuleIdsQuery));
+fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> QueryResult<Vec<Arc<DefCollection>>> {
+    let parse_ok_modules = db.try_get(ParseOkModuleIdsQuery)?;
+    let _graph = db.try_get(ModuleGraphQuery)?;
+    let module_ids = db
+        .context()
+        .resolve_stable_module_sequence(&parse_ok_modules);
     module_ids
         .into_iter()
-        .map(|module_id| db.get(ModuleDefsQuery(module_id)))
+        .map(|module_id| db.try_get(ModuleDefsQuery(module_id)))
         .collect()
 }
 
-fn shared_public_surface_defs_by_module(db: &QueryDb<CompilerContext>) -> Vec<DefCollection> {
-    let module_ids = resolve_stable_module_sequence(db, &db.get(ParseOkModuleIdsQuery));
+fn shared_public_surface_defs_by_module(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<Vec<DefCollection>> {
+    let parse_ok_modules = db.try_get(ParseOkModuleIdsQuery)?;
+    let _graph = db.try_get(ModuleGraphQuery)?;
+    let module_ids = db
+        .context()
+        .resolve_stable_module_sequence(&parse_ok_modules);
     module_ids
         .into_iter()
         .map(|module_id| {
-            db.get(PublicSurfaceModuleFactsQuery(module_id))
-                .materialize_for_public_surface(module_id)
+            Ok(db
+                .try_get(PublicSurfaceModuleFactsQuery(module_id))?
+                .materialize_for_public_surface(module_id))
         })
         .collect()
 }
 
-pub(super) fn provide_public_surfaces(db: &QueryDb<CompilerContext>) -> PublicSurfacesValue {
+fn capture_query_failure<T>(
+    failure: &RefCell<Option<QueryError>>,
+    result: QueryResult<T>,
+) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(error) => {
+            if failure.borrow().is_none() {
+                *failure.borrow_mut() = Some(error);
+            }
+            None
+        }
+    }
+}
+
+pub(super) fn provide_public_surfaces(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<PublicSurfacesValue> {
     time_provider(db.context().timings(), "public_surfaces", || {
-        let defs = shared_public_surface_defs_by_module(db);
-        let graph = db.get(ModuleGraphQuery);
+        let defs = shared_public_surface_defs_by_module(db)?;
+        let graph = db.try_get(ModuleGraphQuery)?;
         let symbols = db.context().symbols();
         let exports = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
-        PublicSurfacesQueryValue {
+        Ok(PublicSurfacesQueryValue {
             surfaces: exports.surfaces,
             diagnostics: exports.diagnostics,
-        }
+        })
     })
 }
 
 pub(super) fn provide_module_public_surface(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> Option<Arc<ModulePublicSurface>> {
-    db.get(PublicSurfacesQuery)
+) -> QueryResult<Option<Arc<ModulePublicSurface>>> {
+    Ok(db
+        .try_get(PublicSurfacesQuery)?
         .surfaces
-        .public_surface(module_id)
+        .public_surface(module_id))
 }
 
-pub(super) fn provide_public_using_scopes(db: &QueryDb<CompilerContext>) -> PublicUsingScopesValue {
+pub(super) fn provide_public_using_scopes(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<PublicUsingScopesValue> {
     time_provider(db.context().timings(), "public_using_scopes", || {
-        let defs = shared_public_surface_defs_by_module(db);
-        let graph = db.get(ModuleGraphQuery);
-        let public_surfaces = db.get(PublicSurfacesQuery);
+        let defs = shared_public_surface_defs_by_module(db)?;
+        let graph = db.try_get(ModuleGraphQuery)?;
+        let public_surfaces = db.try_get(PublicSurfacesQuery)?;
         let symbols = db.context().symbols();
         let using_scopes = compute_using_scopes_from_surfaces_with_symbols(
             &defs,
@@ -159,88 +190,101 @@ pub(super) fn provide_public_using_scopes(db: &QueryDb<CompilerContext>) -> Publ
             &public_surfaces.surfaces,
             &symbols,
         );
-        PublicUsingScopesQueryValue {
+        Ok(PublicUsingScopesQueryValue {
             using_scopes: using_scopes.using_scopes,
             diagnostics: using_scopes.diagnostics,
-        }
+        })
     })
 }
 
 pub(super) fn provide_module_using_scope(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ModuleUsingScope {
-    db.get(PublicUsingScopesQuery)
+) -> QueryResult<ModuleUsingScope> {
+    Ok(db
+        .try_get(PublicUsingScopesQuery)?
         .using_scopes
         .get(&module_id)
         .cloned()
-        .unwrap_or_default()
+        .unwrap_or_default())
 }
 
-pub(super) fn provide_type_exposure_index(db: &QueryDb<CompilerContext>) -> TypeExposureIndexValue {
+pub(super) fn provide_type_exposure_index(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<TypeExposureIndexValue> {
     time_provider(db.context().timings(), "type_exposure_index", || {
-        let defs = shared_defs_by_module(db);
-        let public_surfaces = db.get(PublicSurfacesQuery);
-        let public_using_scopes = db.get(PublicUsingScopesQuery);
-        TypeExposureIndex::from_defs_surfaces_and_using_scopes(
+        let defs = shared_defs_by_module(db)?;
+        let public_surfaces = db.try_get(PublicSurfacesQuery)?;
+        let public_using_scopes = db.try_get(PublicUsingScopesQuery)?;
+        Ok(TypeExposureIndex::from_defs_surfaces_and_using_scopes(
             &defs,
             &public_surfaces.surfaces,
             &public_using_scopes.using_scopes,
-        )
+        ))
     })
 }
 
 pub(super) fn provide_type_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> TypeResolution {
+) -> QueryResult<TypeResolution> {
     time_module_provider(db, "type_resolution", module_id, || {
-        let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
-        let defs = db.get(FullModuleDefsQuery(module_id));
-        let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
-        let graph = QueryModuleGraphLookup::new(db);
-        let public_surfaces = QueryPublicSurfaceLookup::new(db);
-        let using_scope = QueryUsingScopeLookup::new(db, module_id);
+        let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
+        let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+        let graph = db.try_get(ModuleGraphQuery)?;
+        let public_surfaces = db.try_get(PublicSurfacesQuery)?;
+        let using_scope = db.try_get(ModuleUsingScopeQuery(module_id))?;
+        let query_failure = RefCell::new(None);
+        let program_defs = |module_id| {
+            capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+        };
         let symbols = db.context().symbols();
-        nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
-            &active_item_tree,
-            &defs,
-            nia_type_resolve::ProgramDefsContext {
-                defs: Some(&program_defs),
-                graph: Some(&graph),
-            },
-            &public_surfaces,
-            &using_scope,
-            &symbols,
-            db.context().node_store(),
-        )
+        let resolution =
+            nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
+                &active_item_tree,
+                &defs,
+                nia_type_resolve::ProgramDefsContext {
+                    defs: Some(&program_defs),
+                    graph: Some(graph.as_ref()),
+                },
+                &public_surfaces.surfaces,
+                using_scope.as_ref(),
+                &symbols,
+                db.context().node_store(),
+            );
+        query_failure.into_inner().map_or(Ok(resolution), Err)
     })
 }
 
 pub(super) fn provide_declaration_type_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> TypeResolution {
+) -> QueryResult<TypeResolution> {
     time_module_provider(db, "declaration_type_resolution", module_id, || {
-        let active_item_tree = db.get(DeclarationActiveModuleItemTreeQuery(module_id));
-        let defs = db.get(ModuleDefsQuery(module_id));
-        let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
-        let graph = QueryModuleGraphLookup::new(db);
-        let public_surfaces = QueryPublicSurfaceLookup::new(db);
-        let using_scope = QueryUsingScopeLookup::new(db, module_id);
+        let active_item_tree = db.try_get(DeclarationActiveModuleItemTreeQuery(module_id))?;
+        let defs = db.try_get(ModuleDefsQuery(module_id))?;
+        let graph = db.try_get(ModuleGraphQuery)?;
+        let public_surfaces = db.try_get(PublicSurfacesQuery)?;
+        let using_scope = db.try_get(ModuleUsingScopeQuery(module_id))?;
+        let query_failure = RefCell::new(None);
+        let program_defs = |module_id| {
+            capture_query_failure(&query_failure, db.try_get(ModuleDefsQuery(module_id)))
+        };
         let symbols = db.context().symbols();
-        nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
-            &active_item_tree,
-            &defs,
-            nia_type_resolve::ProgramDefsContext {
-                defs: Some(&program_defs),
-                graph: Some(&graph),
-            },
-            &public_surfaces,
-            &using_scope,
-            &symbols,
-            db.context().node_store(),
-        )
+        let resolution =
+            nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
+                &active_item_tree,
+                &defs,
+                nia_type_resolve::ProgramDefsContext {
+                    defs: Some(&program_defs),
+                    graph: Some(graph.as_ref()),
+                },
+                &public_surfaces.surfaces,
+                using_scope.as_ref(),
+                &symbols,
+                db.context().node_store(),
+            );
+        query_failure.into_inner().map_or(Ok(resolution), Err)
     })
 }
 
@@ -248,9 +292,9 @@ pub(super) fn provide_signature_type_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
-) -> TypeResolution {
+) -> QueryResult<TypeResolution> {
     time_module_provider(db, "signature_type_resolution", module_id, || {
-        let program_sources = db.get(FrontendProgramSourcesQuery);
+        let program_sources = db.try_get(FrontendProgramSourcesQuery)?;
         let cache_input = program_sources
             .as_ref()
             .as_ref()
@@ -323,26 +367,32 @@ pub(super) fn provide_signature_type_resolution(
         if let Some(crate::signature_cache::SignatureTypeResolutionLookup::Hit(cached)) = &cached
             && !db.context().verify_frontend_cache
         {
-            return cached.as_ref().clone();
+            return Ok(cached.as_ref().clone());
         }
-        let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set));
-        let defs = db.get(ModuleDefsQuery(module_id));
-        let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
-        let graph = QueryModuleGraphLookup::new(db);
-        let public_surfaces = QueryPublicSurfaceLookup::new(db);
-        let using_scope = QueryUsingScopeLookup::new(db, module_id);
+        let active_item_tree = db.try_get(SignatureItemTreeQuery(module_id, set))?;
+        let defs = db.try_get(ModuleDefsQuery(module_id))?;
+        let graph = db.try_get(ModuleGraphQuery)?;
+        let public_surfaces = db.try_get(PublicSurfacesQuery)?;
+        let using_scope = db.try_get(ModuleUsingScopeQuery(module_id))?;
+        let query_failure = RefCell::new(None);
+        let program_defs = |module_id| {
+            capture_query_failure(&query_failure, db.try_get(ModuleDefsQuery(module_id)))
+        };
         let fresh = nia_type_resolve::resolve_module_declaration_types_from_active_item_tree_with_symbols_in_store(
             &active_item_tree,
             &defs,
             nia_type_resolve::ProgramDefsContext {
                 defs: Some(&program_defs),
-                graph: Some(&graph),
+                graph: Some(graph.as_ref()),
             },
-            &public_surfaces,
-            &using_scope,
+            &public_surfaces.surfaces,
+            using_scope.as_ref(),
             &symbols,
             db.context().node_store(),
         );
+        if let Some(error) = query_failure.into_inner() {
+            return Err(error);
+        }
         if fresh.diagnostics.is_empty()
             && let Some(cache) = &db.context().signature_cache
             && let Some((program_sources, source, namespace, key)) = cache_input
@@ -371,34 +421,39 @@ pub(super) fn provide_signature_type_resolution(
                 replace,
             );
         }
-        fresh
+        Ok(fresh)
     })
 }
 
 pub(super) fn provide_signature_const_type_resolution(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> TypeResolution {
+) -> QueryResult<TypeResolution> {
     time_module_provider(db, "signature_const_type_resolution", module_id, || {
-        let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id));
-        let defs = db.get(ModuleDefsQuery(module_id));
-        let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
-        let graph = QueryModuleGraphLookup::new(db);
-        let public_surfaces = QueryPublicSurfaceLookup::new(db);
-        let using_scope = QueryUsingScopeLookup::new(db, module_id);
+        let active_item_tree = db.try_get(SignatureConstItemTreeQuery(module_id))?;
+        let defs = db.try_get(ModuleDefsQuery(module_id))?;
+        let graph = db.try_get(ModuleGraphQuery)?;
+        let public_surfaces = db.try_get(PublicSurfacesQuery)?;
+        let using_scope = db.try_get(ModuleUsingScopeQuery(module_id))?;
+        let query_failure = RefCell::new(None);
+        let program_defs = |module_id| {
+            capture_query_failure(&query_failure, db.try_get(ModuleDefsQuery(module_id)))
+        };
         let symbols = db.context().symbols();
-        nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
-            &active_item_tree,
-            &defs,
-            nia_type_resolve::ProgramDefsContext {
-                defs: Some(&program_defs),
-                graph: Some(&graph),
-            },
-            &public_surfaces,
-            &using_scope,
-            &symbols,
-            db.context().node_store(),
-        )
+        let resolution =
+            nia_type_resolve::resolve_module_types_from_active_item_tree_with_symbols_in_store(
+                &active_item_tree,
+                &defs,
+                nia_type_resolve::ProgramDefsContext {
+                    defs: Some(&program_defs),
+                    graph: Some(graph.as_ref()),
+                },
+                &public_surfaces.surfaces,
+                using_scope.as_ref(),
+                &symbols,
+                db.context().node_store(),
+            );
+        query_failure.into_inner().map_or(Ok(resolution), Err)
     })
 }
 

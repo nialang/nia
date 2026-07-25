@@ -206,6 +206,9 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
     }
 }
 
+type ModulePublicSurfaceProvider =
+    fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<Option<Arc<ModulePublicSurface>>>;
+
 #[derive(Clone)]
 pub(super) struct CompilerQueryProviders {
     pub(super) checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgramAnalysis,
@@ -226,19 +229,25 @@ pub(super) struct CompilerQueryProviders {
     pub(super) module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<DefCollection>,
     pub(super) full_module_defs:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<DefCollection>,
-    pub(super) public_surfaces: fn(&QueryDb<CompilerContext>) -> PublicSurfacesValue,
-    pub(super) module_public_surface:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> Option<Arc<ModulePublicSurface>>,
-    pub(super) public_using_scopes: fn(&QueryDb<CompilerContext>) -> PublicUsingScopesValue,
-    pub(super) module_using_scope: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleUsingScope,
-    pub(super) type_exposure_index: fn(&QueryDb<CompilerContext>) -> TypeExposureIndexValue,
-    pub(super) type_resolution: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
+    pub(super) public_surfaces: fn(&QueryDb<CompilerContext>) -> QueryResult<PublicSurfacesValue>,
+    pub(super) module_public_surface: ModulePublicSurfaceProvider,
+    pub(super) public_using_scopes:
+        fn(&QueryDb<CompilerContext>) -> QueryResult<PublicUsingScopesValue>,
+    pub(super) module_using_scope:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleUsingScope>,
+    pub(super) type_exposure_index:
+        fn(&QueryDb<CompilerContext>) -> QueryResult<TypeExposureIndexValue>,
+    pub(super) type_resolution:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeResolution>,
     pub(super) declaration_type_resolution:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
-    pub(super) signature_type_resolution:
-        fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> TypeResolution,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeResolution>,
+    pub(super) signature_type_resolution: fn(
+        &QueryDb<CompilerContext>,
+        ModuleId,
+        nia_item_tree::SignatureItemSet,
+    ) -> QueryResult<TypeResolution>,
     pub(super) signature_const_type_resolution:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> TypeResolution,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeResolution>,
     pub(super) type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
     pub(super) declaration_type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
     pub(super) signature_type_lowering:
