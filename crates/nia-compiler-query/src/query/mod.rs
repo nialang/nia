@@ -32,7 +32,7 @@ use nia_program_signatures::{
     ExtensionTraitSignatureIndex, ModuleProgramSignatureFacts, ModuleSignatureInput,
     VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTraitImplsForModule,
     VisibleTypeSignatures, collect_extension_associated_value_index_for_module,
-    collect_extension_method_index_for_module, collect_extension_methods_for_module,
+    collect_extension_method_diagnostics_for_module, collect_extension_method_index_for_module,
     collect_nominal_extension_providers_for_module, visible_extensions_for_module,
     visible_trait_impls_for_module,
 };

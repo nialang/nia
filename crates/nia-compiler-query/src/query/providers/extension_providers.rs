@@ -401,7 +401,6 @@ pub(super) fn provide_extension_provider_validation_facts(
     time_module_provider(db, "extension_provider_validation_facts", module_id, || {
         if !*db.get(ExtensionProviderModuleEligibilityQuery(module_id)) {
             return ExtensionProviderValidationFactsQueryValue {
-                methods: nia_defs::ExtensionMethods::default(),
                 diagnostics: Vec::new(),
             };
         }
@@ -413,7 +412,7 @@ pub(super) fn provide_extension_provider_validation_facts(
                 .clone()
         };
         let symbols = db.context().symbols();
-        let (methods, diagnostics) = collect_extension_methods_for_module(
+        let diagnostics = collect_extension_method_diagnostics_for_module(
             &input.module(&db.context().type_store),
             ExtensionMethodValidationInput {
                 type_store: &db.context().type_store,
@@ -423,10 +422,7 @@ pub(super) fn provide_extension_provider_validation_facts(
                 symbols: &symbols,
             },
         );
-        ExtensionProviderValidationFactsQueryValue {
-            methods,
-            diagnostics,
-        }
+        ExtensionProviderValidationFactsQueryValue { diagnostics }
     })
 }
 

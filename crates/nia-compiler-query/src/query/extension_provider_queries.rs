@@ -216,7 +216,6 @@ pub(super) struct ExtensionProviderModuleFactsQueryValue {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionProviderValidationFactsQueryValue {
-    pub(super) methods: nia_defs::ExtensionMethods,
     pub(super) diagnostics: Vec<Diagnostic>,
 }
 
