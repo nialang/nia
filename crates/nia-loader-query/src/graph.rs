@@ -51,7 +51,7 @@ impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let event = db.context().provider_facts.event(self.0).ok_or_else(|| {
-            db.invalid_input_error(self, format!("unknown provider fact revision {:?}", self.0))
+            db.invalid_input(self, format!("unknown provider fact revision {:?}", self.0))
         })?;
         let graph = match event {
             ProviderFactEvent::Current { demands } => build_module_graph(db, None, &demands),

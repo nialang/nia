@@ -213,12 +213,14 @@ pub(super) struct CompilerQueryProviders {
     pub(super) codegen_program: fn(&QueryDb<CompilerContext>) -> CodegenProgram,
     pub(super) parse_ok_module_ids: fn(&QueryDb<CompilerContext>) -> StableModuleSequence,
     pub(super) semantic_module_ids: fn(&QueryDb<CompilerContext>) -> StableModuleSequence,
-    pub(super) module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
+    pub(super) module_item_tree:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleItemTree>,
     pub(super) active_module_item_tree:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
-    pub(super) full_module_item_tree: fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleItemTree,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ActiveModuleItemTree>,
+    pub(super) full_module_item_tree:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleItemTree>,
     pub(super) full_active_module_item_tree:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ActiveModuleItemTree,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ActiveModuleItemTree>,
     pub(super) module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
     pub(super) full_module_defs: fn(&QueryDb<CompilerContext>, ModuleId) -> DefCollection,
     pub(super) public_surfaces: fn(&QueryDb<CompilerContext>) -> PublicSurfacesValue,
@@ -268,8 +270,11 @@ pub(super) struct CompilerQueryProviders {
     ) -> ModuleProgramSignatureFactsValue,
     pub(super) module_abi_signature_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleAbiSignatureFactsValue,
-    pub(super) extension_provider_summary:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_provider_summary::ProviderSummary,
+    pub(super) extension_provider_summary: fn(
+        &QueryDb<CompilerContext>,
+        ModuleId,
+    )
+        -> QueryResult<nia_provider_summary::ProviderSummary>,
     pub(super) extension_provider_discovery_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionProviderDiscoveryIndexValue,
     pub(super) extension_provider_module_ids: fn(&QueryDb<CompilerContext>) -> StableModuleSequence,

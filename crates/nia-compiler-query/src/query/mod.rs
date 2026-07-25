@@ -44,7 +44,7 @@ use nia_public_surface::{
 };
 use nia_query::{
     QueryDb, QueryError, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy,
-    QueryFrame, QueryKey, QueryProviderPolicy, QueryStoragePolicy, QueryTrace,
+    QueryFrame, QueryKey, QueryProviderPolicy, QueryResult, QueryStoragePolicy, QueryTrace,
 };
 use nia_source::{SourceIdentity, SourcePath, SourceVersion};
 use nia_span::Span;
@@ -1394,25 +1394,27 @@ impl CompilerContext {
             .collect()
     }
 
-    fn module_path(&self, db: &QueryDb<CompilerContext>, module_id: ModuleId) -> SourcePath {
-        self.loader_facts()
-            .module_path(module_id)
-            .unwrap_or_else(|| {
-                db.invalid_input(
-                    &ModulePathQuery(module_id),
-                    format!("missing loaded module {module_id:?}"),
-                )
-            })
+    fn module_path(
+        &self,
+        db: &QueryDb<CompilerContext>,
+        module_id: ModuleId,
+    ) -> QueryResult<SourcePath> {
+        self.loader_facts().module_path(module_id).ok_or_else(|| {
+            db.invalid_input(
+                &ModulePathQuery(module_id),
+                format!("missing loaded module {module_id:?}"),
+            )
+        })
     }
 
     fn module_source_version(
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> SourceVersion {
+    ) -> QueryResult<SourceVersion> {
         self.loader_facts()
             .module_source_version(module_id)
-            .unwrap_or_else(|| {
+            .ok_or_else(|| {
                 db.invalid_input(
                     &ModuleSourceVersionQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
@@ -1424,10 +1426,10 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> NodeOriginTable {
+    ) -> QueryResult<NodeOriginTable> {
         self.loader_facts()
             .module_origins(module_id)
-            .unwrap_or_else(|| {
+            .ok_or_else(|| {
                 db.invalid_input(
                     &ModuleOriginsQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
@@ -1439,10 +1441,10 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> Vec<ParseError> {
+    ) -> QueryResult<Vec<ParseError>> {
         self.loader_facts()
             .module_parse_errors(module_id)
-            .unwrap_or_else(|| {
+            .ok_or_else(|| {
                 db.invalid_input(
                     &ModuleParseErrorsQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
@@ -1454,10 +1456,10 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> ModuleItemTree {
+    ) -> QueryResult<ModuleItemTree> {
         self.loader_facts()
             .module_item_tree(module_id)
-            .unwrap_or_else(|| {
+            .ok_or_else(|| {
                 db.invalid_input(
                     &ModuleItemTreeInputQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
@@ -1469,10 +1471,10 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> ModuleItemTree {
+    ) -> QueryResult<ModuleItemTree> {
         self.loader_facts()
             .module_item_tree(module_id)
-            .unwrap_or_else(|| {
+            .ok_or_else(|| {
                 db.invalid_input(
                     &DeclarationModuleItemTreeInputQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
@@ -1484,10 +1486,10 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> ModuleItemTree {
+    ) -> QueryResult<ModuleItemTree> {
         self.loader_facts()
             .module_item_tree(module_id)
-            .unwrap_or_else(|| {
+            .ok_or_else(|| {
                 db.invalid_input(
                     &FullModuleItemTreeInputQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
@@ -1499,10 +1501,10 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> ActiveModuleItemTree {
+    ) -> QueryResult<ActiveModuleItemTree> {
         self.loader_facts()
             .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)
-            .unwrap_or_else(|| {
+            .ok_or_else(|| {
                 db.invalid_input(
                     &ActiveModuleItemTreeInputQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
@@ -1514,10 +1516,10 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> ActiveModuleItemTree {
+    ) -> QueryResult<ActiveModuleItemTree> {
         self.loader_facts()
             .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)
-            .unwrap_or_else(|| {
+            .ok_or_else(|| {
                 db.invalid_input(
                     &DeclarationActiveModuleItemTreeInputQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
@@ -1529,10 +1531,10 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> ActiveModuleItemTree {
+    ) -> QueryResult<ActiveModuleItemTree> {
         self.loader_facts()
             .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Full)
-            .unwrap_or_else(|| {
+            .ok_or_else(|| {
                 db.invalid_input(
                     &FullActiveModuleItemTreeInputQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
@@ -1545,10 +1547,10 @@ impl CompilerContext {
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
         set: nia_item_tree::SignatureItemSet,
-    ) -> ActiveModuleItemTree {
+    ) -> QueryResult<ActiveModuleItemTree> {
         self.loader_facts()
             .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::Signature(set))
-            .unwrap_or_else(|| {
+            .ok_or_else(|| {
                 db.invalid_input(
                     &SignatureItemTreeQuery(module_id, set),
                     format!("missing loaded module {module_id:?}"),
@@ -1560,10 +1562,10 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> ActiveModuleItemTree {
+    ) -> QueryResult<ActiveModuleItemTree> {
         self.loader_facts()
             .active_module_item_tree(module_id, ActiveModuleItemTreeFactKind::ConstSignature)
-            .unwrap_or_else(|| {
+            .ok_or_else(|| {
                 db.invalid_input(
                     &SignatureConstItemTreeQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
@@ -1575,10 +1577,10 @@ impl CompilerContext {
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> nia_provider_summary::ProviderSummary {
+    ) -> QueryResult<nia_provider_summary::ProviderSummary> {
         self.loader_facts()
             .module_provider_summary(module_id)
-            .unwrap_or_else(|| {
+            .ok_or_else(|| {
                 db.invalid_input(
                     &ExtensionProviderSummaryQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
@@ -4397,11 +4399,30 @@ fn main() i32 {
         };
         let policy = NiaOptimizationLevel::Oz.policy();
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
-        let checked = compiler_database_with_providers(
+        let database = compiler_database_with_providers(
             CompileRequest::new(fixture.program()).with_optimization(NiaOptimizationLevel::Oz),
             providers,
-        )
-        .analyze_program();
+        );
+        let missing_module = unknown_module_id();
+        for error in [
+            database
+                .db
+                .try_get(ModulePathQuery(missing_module))
+                .expect_err("missing module path should be a query error"),
+            database
+                .db
+                .try_get(ModuleItemTreeQuery(missing_module))
+                .expect_err("missing module item tree should propagate its input query error"),
+        ] {
+            assert!(matches!(error, QueryError::InvalidInput { .. }));
+            assert!(
+                error
+                    .to_string()
+                    .contains(&format!("missing loaded module {missing_module:?}"))
+            );
+        }
+
+        let checked = database.analyze_program();
 
         assert!(checked.modules.is_empty());
         assert_eq!(checked.optimization, policy);

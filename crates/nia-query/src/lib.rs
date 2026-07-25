@@ -2006,17 +2006,7 @@ impl<C> QueryDb<C> {
             .unwrap_or_else(|err| std::panic::panic_any(err))
     }
 
-    pub fn invalid_input<K>(&self, key: &K, message: impl Into<String>) -> !
-    where
-        K: QueryKey<C>,
-    {
-        std::panic::panic_any(QueryError::InvalidInput {
-            query: query_frame::<C, K>(key),
-            message: message.into(),
-        })
-    }
-
-    pub fn invalid_input_error<K>(&self, key: &K, message: impl Into<String>) -> QueryError
+    pub fn invalid_input<K>(&self, key: &K, message: impl Into<String>) -> QueryError
     where
         K: QueryKey<C>,
     {
@@ -5981,7 +5971,7 @@ mod tests {
         }
 
         fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
-            Err(db.invalid_input_error(self, "bad fixture"))
+            Err(db.invalid_input(self, "bad fixture"))
         }
     }
 
@@ -5997,7 +5987,7 @@ mod tests {
 
         fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
             let _ = db.try_get(Double(3))?;
-            Err(db.invalid_input_error(self, "failed after dependency"))
+            Err(db.invalid_input(self, "failed after dependency"))
         }
     }
 
