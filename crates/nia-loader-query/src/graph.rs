@@ -17,7 +17,7 @@ use nia_imports::{
     ModuleGraph, ModuleGraphSnapshot, ModuleNode, ResolvedModuleDeclaration,
     module_declaration_visibility_allows,
 };
-use nia_query::{QueryDb, QueryKey};
+use nia_query::{QueryDb, QueryKey, QueryResult};
 use nia_source::SourcePath;
 use nia_span::Span;
 use nia_symbol::{SymbolId, known};
@@ -29,11 +29,12 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
         "module_graph"
     }
 
-    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let provider_facts = db.get(ProviderDemandsQuery);
-        db.get(ModuleGraphRevisionQuery(provider_facts.revision()))
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        let provider_facts = db.try_get(ProviderDemandsQuery)?;
+        Ok(db
+            .try_get(ModuleGraphRevisionQuery(provider_facts.revision()))?
             .as_ref()
-            .clone()
+            .clone())
     }
 }
 
@@ -48,23 +49,19 @@ impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
         format!("module_graph_revision({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let event = db
-            .context()
-            .provider_facts
-            .event(self.0)
-            .unwrap_or_else(|| {
-                db.invalid_input(self, format!("unknown provider fact revision {:?}", self.0))
-            });
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        let event = db.context().provider_facts.event(self.0).ok_or_else(|| {
+            db.invalid_input_error(self, format!("unknown provider fact revision {:?}", self.0))
+        })?;
         let graph = match event {
             ProviderFactEvent::Current { demands } => build_module_graph(db, None, &demands),
             ProviderFactEvent::Added { previous, demands } => {
-                let seed = db.get(ModuleGraphRevisionQuery(previous));
+                let seed = db.try_get(ModuleGraphRevisionQuery(previous))?;
                 build_module_graph(db, Some(seed.as_ref().clone()), &demands)
             }
         };
         db.context().provider_facts.compact_transition(self.0);
-        graph
+        Ok(graph)
     }
 }
 

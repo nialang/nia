@@ -35,7 +35,13 @@ pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     fn description(&self) -> String {
         format!("{}::{self:?}", Self::name())
     }
-    fn execute(&self, db: &QueryDb<C>) -> Self::Value;
+    fn execute(&self, db: &QueryDb<C>) -> Self::Value {
+        self.execute_result(db)
+            .unwrap_or_else(|error| std::panic::panic_any(error))
+    }
+    fn execute_result(&self, db: &QueryDb<C>) -> QueryResult<Self::Value> {
+        Ok(self.execute(db))
+    }
     fn fingerprint(&self, _value: &Self::Value) -> Option<QueryFingerprint> {
         None
     }
@@ -2010,6 +2016,16 @@ impl<C> QueryDb<C> {
         })
     }
 
+    pub fn invalid_input_error<K>(&self, key: &K, message: impl Into<String>) -> QueryError
+    where
+        K: QueryKey<C>,
+    {
+        QueryError::InvalidInput {
+            query: query_frame::<C, K>(key),
+            message: message.into(),
+        }
+    }
+
     pub fn try_get<K>(&self, key: K) -> QueryResult<Arc<K::Value>>
     where
         K: QueryKey<C>,
@@ -2080,10 +2096,18 @@ impl<C> QueryDb<C> {
                     });
                     let value = match catch_unwind(AssertUnwindSafe(|| {
                         nia_timing::time_detail(detail_timing, "query.provider", || {
-                            key.execute(self)
+                            key.execute_result(self)
                         })
                     })) {
-                        Ok(value) => value,
+                        Ok(Ok(value)) => value,
+                        Ok(Err(error)) => {
+                            let mut state = slot.state.lock().expect("query cache lock poisoned");
+                            *state = QueryState::Empty;
+                            guard.discard();
+                            self.clear_dependencies_from(node_id);
+                            slot.ready.notify_all();
+                            return Err(error);
+                        }
                         Err(payload) => {
                             let mut state = slot.state.lock().expect("query cache lock poisoned");
                             *state = QueryState::Empty;
@@ -2091,10 +2115,7 @@ impl<C> QueryDb<C> {
                             self.clear_dependencies_from(node_id);
                             slot.ready.notify_all();
                             drop(state);
-                            match payload.downcast::<QueryError>() {
-                                Ok(err) => return Err(*err),
-                                Err(payload) => resume_unwind(payload),
-                            }
+                            resume_unwind(payload)
                         }
                     };
 
@@ -2325,10 +2346,18 @@ impl<C> QueryDb<C> {
                     });
                     let value = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         nia_timing::time_detail(detail_timing, "query.provider", || {
-                            key.execute(self)
+                            key.execute_result(self)
                         })
                     })) {
-                        Ok(value) => value,
+                        Ok(Ok(value)) => value,
+                        Ok(Err(error)) => {
+                            let mut state = slot.state.lock().expect("query cache lock poisoned");
+                            *state = QueryState::Empty;
+                            guard.discard();
+                            self.clear_dependencies_from(node_id);
+                            slot.ready.notify_all();
+                            return Err(error);
+                        }
                         Err(payload) => {
                             let mut state = slot.state.lock().expect("query cache lock poisoned");
                             *state = QueryState::Empty;
@@ -2339,10 +2368,7 @@ impl<C> QueryDb<C> {
                             self.clear_dependencies_from(node_id);
                             slot.ready.notify_all();
                             drop(state);
-                            match payload.downcast::<QueryError>() {
-                                Ok(err) => return Err(*err),
-                                Err(payload) => std::panic::resume_unwind(payload),
-                            }
+                            std::panic::resume_unwind(payload)
                         }
                     };
 
@@ -4149,8 +4175,8 @@ mod tests {
             "recursive"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            *db.get(Recursive)
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Ok(*db.try_get(Recursive)?)
         }
     }
 
@@ -5899,11 +5925,14 @@ mod tests {
             "parallel_recursive"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            db.get_many([ParallelRecursiveChild])
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Ok(db
+                .get_many_with([ParallelRecursiveChild], QueryDb::try_get)
+                .into_iter()
+                .collect::<QueryResult<Vec<_>>>()?
                 .into_iter()
                 .map(|value| *value)
-                .sum()
+                .sum())
         }
     }
 
@@ -5917,8 +5946,8 @@ mod tests {
             "parallel_recursive_child"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            *db.get(ParallelRecursive)
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Ok(*db.try_get(ParallelRecursive)?)
         }
     }
 
@@ -5951,8 +5980,8 @@ mod tests {
             "invalid_input_query"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            db.invalid_input(self, "bad fixture")
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Err(db.invalid_input_error(self, "bad fixture"))
         }
     }
 
@@ -5966,9 +5995,9 @@ mod tests {
             "invalid_after_dependency"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            let _ = db.get(Double(3));
-            db.invalid_input(self, "failed after dependency")
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            let _ = db.try_get(Double(3))?;
+            Err(db.invalid_input_error(self, "failed after dependency"))
         }
     }
 

@@ -18,7 +18,7 @@ use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_provider_summary::ProviderSummary;
 use nia_query::{
     QueryDb, QueryFingerprint, QueryFingerprintBuilder, QueryFingerprintPolicy, QueryKey,
-    QueryRetirement,
+    QueryResult, QueryRetirement,
 };
 use nia_source::{SourceFile, SourceId, SourcePath, SourceRevision, SourceVersion};
 use nia_target_config::prune_module_for_target_with_symbols;
@@ -186,20 +186,19 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
         format!("loaded_module({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let path =
-            db.context().sources.path_for_id(self.0).unwrap_or_else(|| {
-                db.invalid_input(self, format!("unknown source id {:?}", self.0))
-            });
-        let graph = db.get(ModuleGraphQuery);
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        let path = db.context().sources.path_for_id(self.0).ok_or_else(|| {
+            db.invalid_input_error(self, format!("unknown source id {:?}", self.0))
+        })?;
+        let graph = db.try_get(ModuleGraphQuery)?;
         let id = graph
             .module_id_for_source_identity(&path.identity())
-            .unwrap_or_else(|| {
-                db.invalid_input(self, format!("missing module id for `{}`", path.as_str()))
-            });
-        let parsed = db.get(parsed_module_query_for_id(db, self.0));
-        let provider_summary = db.get(provider_summary_query_for_id(db, self.0));
-        LoadedModule {
+            .ok_or_else(|| {
+                db.invalid_input_error(self, format!("missing module id for `{}`", path.as_str()))
+            })?;
+        let parsed = db.try_get(parsed_module_query_for_id(db, self.0))?;
+        let provider_summary = db.try_get(provider_summary_query_for_id(db, self.0))?;
+        Ok(LoadedModule {
             id,
             path: path.as_ref().clone(),
             source_identity: path.identity(),
@@ -209,7 +208,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             provider_summary: provider_summary.as_ref().clone(),
             origins: parsed.origins.clone(),
             parse_errors: parsed.parse_errors.clone(),
-        }
+        })
     }
 }
 
@@ -423,12 +422,11 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
         format!("source_text({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let path =
-            db.context().sources.path_for_id(self.0).unwrap_or_else(|| {
-                db.invalid_input(self, format!("unknown source id {:?}", self.0))
-            });
-        match db.context().sources.read_source(&path) {
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        let path = db.context().sources.path_for_id(self.0).ok_or_else(|| {
+            db.invalid_input_error(self, format!("unknown source id {:?}", self.0))
+        })?;
+        Ok(match db.context().sources.read_source(&path) {
             Ok(file) => SourceText {
                 file: Some(file),
                 diagnostic: None,
@@ -444,7 +442,7 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
                     .finish(),
                 ),
             },
-        }
+        })
     }
 }
 
@@ -634,7 +632,7 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
         format!("loader_public_surface_module_facts({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let cache_input = frontend_cache_input(db, self.0);
         let cached = cache_input.as_ref().and_then(|input| {
             let cache = db.context().frontend_cache.as_ref()?;
@@ -664,29 +662,31 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
         if let Some(cached) = &cached
             && !db.context().verify_frontend_cache
         {
-            return cached.clone();
+            return Ok(cached.clone());
         }
 
-        let graph = db.get(ModuleGraphQuery);
-        let source = db.get(SourceTextQuery(self.0.id));
+        let graph = db.try_get(ModuleGraphQuery)?;
+        let source = db.try_get(SourceTextQuery(self.0.id))?;
         let source_identity = source
             .file
             .as_ref()
             .filter(|file| file.version() == self.0)
             .map(|file| file.path.identity())
-            .unwrap_or_else(|| db.invalid_input(self, format!("missing source for {:?}", self.0)));
+            .ok_or_else(|| {
+                db.invalid_input_error(self, format!("missing source for {:?}", self.0))
+            })?;
         let module_id = graph
             .module_id_for_source_identity(&source_identity)
-            .unwrap_or_else(|| {
-                db.invalid_input(
+            .ok_or_else(|| {
+                db.invalid_input_error(
                     self,
                     format!("source {:?} is outside the module graph", self.0),
                 )
-            });
-        let item_tree = db.get(ActiveModuleItemTreeFactQuery(
+            })?;
+        let item_tree = db.try_get(ActiveModuleItemTreeFactQuery(
             self.0.id,
             ActiveModuleItemTreeFactKind::Full,
-        ));
+        ))?;
         let defs = nia_defs::collect_module_defs_from_active_item_tree_with_node_store_and_symbols(
             module_id,
             &item_tree,
@@ -694,7 +694,7 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
             &db.context().symbols,
         );
         let fresh = nia_defs::PublicSurfaceModuleFacts::from_defs(&defs);
-        let parsed = db.get(ParsedModuleQuery(self.0));
+        let parsed = db.try_get(ParsedModuleQuery(self.0))?;
         if let Some(input) = cache_input
             && parsed.read_diagnostic.is_none()
             && parsed.parse_errors.is_empty()
@@ -721,7 +721,7 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
                 &db.context().symbols,
             );
         }
-        fresh
+        Ok(fresh)
     }
 }
 
