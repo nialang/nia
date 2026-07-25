@@ -46,8 +46,6 @@ pub struct NominalExtensionProviderEntry {
 pub struct ModuleSignatureInput<'a> {
     pub module_id: nia_ids::ModuleId,
     pub type_store: &'a TypeStore,
-    pub defs: &'a DefCollection,
-    pub lowering: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
 }
 
@@ -99,8 +97,6 @@ pub fn collect_valid_program_trait_impls(
             .map(|module| ModuleSignatureInput {
                 module_id: module.module_id,
                 type_store: module.type_store,
-                defs: module.defs,
-                lowering: module.lowering,
                 signatures: module.signatures,
             })
             .collect::<Vec<_>>(),

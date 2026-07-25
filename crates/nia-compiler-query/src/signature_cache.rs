@@ -32,7 +32,7 @@ use crate::{
 
 const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR001";
 const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL001";
-const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI001";
+const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI002";
 const EXTENSION_TRAIT_FACTS_MAGIC: &[u8; 8] = b"NIAET001";
 const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
@@ -1203,6 +1203,7 @@ fn write_function_signature(
     signature: &item_signatures::FunctionSignature,
     graph: &mut TypeGraphEncoder<'_>,
 ) -> io::Result<()> {
+    graph.write_symbol(encoded, signature.name)?;
     write_symbols(encoded, &signature.generics, graph)?;
     write_u64(encoded, signature.generic_params.len() as u64);
     for param in &signature.generic_params {
@@ -1248,6 +1249,7 @@ fn read_function_signature(
     symbols: &SymbolTable,
     source_len: usize,
 ) -> Option<item_signatures::FunctionSignature> {
+    let function_name = read_symbol(cursor, symbols)?;
     let generics = read_symbols(cursor, symbols)?;
     let generic_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
     let mut generic_params = Vec::with_capacity(generic_len);
@@ -1287,6 +1289,7 @@ fn read_function_signature(
         });
     }
     Some(item_signatures::FunctionSignature {
+        name: function_name,
         generics,
         generic_params,
         where_predicates,
@@ -3402,6 +3405,7 @@ mod tests {
             span,
         }];
         let function = item_signatures::FunctionSignature {
+            name: old_symbols.intern("transform").expect("intern function"),
             generics: vec![generic_name],
             generic_params: vec![item_signatures::GenericParamSignature {
                 name: generic_name,

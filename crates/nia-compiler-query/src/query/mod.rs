@@ -4732,6 +4732,21 @@ extend Value : Ops {
             "extension_trait_signature_index",
             "module_program_signature_facts"
         ));
+        assert!(trace_has_dependency(
+            &trace,
+            "module_program_signature_facts",
+            "signature_item_signatures"
+        ));
+        assert!(!trace_has_dependency(
+            &trace,
+            "module_program_signature_facts",
+            "module_defs"
+        ));
+        assert!(!trace_has_dependency(
+            &trace,
+            "module_program_signature_facts",
+            "signature_type_lowering"
+        ));
         assert!(!trace_has_dependency(
             &trace,
             "extension_provider_validation_facts",
