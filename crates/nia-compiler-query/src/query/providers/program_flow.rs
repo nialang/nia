@@ -1,100 +1,107 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedProgramAnalysis {
+pub(super) fn provide_checked_program(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<CheckedProgramAnalysis> {
     time_provider(db.context().timings(), "checked_program", || {
-        let graph = db.get(ModuleGraphQuery).as_ref().clone();
-        let optimization = *db.get(CompilerOptimizationQuery);
-        let mut diagnostics = early_program_diagnostics(db);
-        let diagnostic_modules =
-            materialize_checked_modules(db, db.get(CheckedModuleIdsQuery).as_ref().clone());
-        diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
-        CheckedProgramAnalysis {
+        let graph = db.try_get(ModuleGraphQuery)?.as_ref().clone();
+        let optimization = *db.try_get(CompilerOptimizationQuery)?;
+        let mut diagnostics = early_program_diagnostics(db)?;
+        let module_ids = db.try_get(CheckedModuleIdsQuery)?.as_ref().clone();
+        let diagnostic_modules = materialize_checked_modules(db, module_ids)?;
+        diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules)?);
+        Ok(CheckedProgramAnalysis {
             graph,
             optimization,
             modules: diagnostic_modules,
             diagnostics,
-        }
+        })
     })
 }
 
 pub(super) fn provide_entry_checked_program(
     db: &QueryDb<CompilerContext>,
-) -> CheckedProgramAnalysis {
+) -> QueryResult<CheckedProgramAnalysis> {
     time_provider(db.context().timings(), "entry_checked_program", || {
-        let graph = db.get(ModuleGraphQuery).as_ref().clone();
-        let optimization = *db.get(CompilerOptimizationQuery);
-        let mut diagnostics = early_program_diagnostics(db);
-        let diagnostic_modules = checked_modules_for_diagnostics(db);
-        diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
-        CheckedProgramAnalysis {
+        let graph = db.try_get(ModuleGraphQuery)?.as_ref().clone();
+        let optimization = *db.try_get(CompilerOptimizationQuery)?;
+        let mut diagnostics = early_program_diagnostics(db)?;
+        let diagnostic_modules = checked_modules_for_diagnostics(db)?;
+        diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules)?);
+        Ok(CheckedProgramAnalysis {
             graph,
             optimization,
             modules: diagnostic_modules,
             diagnostics,
-        }
+        })
     })
 }
 
 pub(in crate::query) fn provide_codegen_preparation(
     db: &QueryDb<CompilerContext>,
-) -> CodegenPreparation {
+) -> QueryResult<CodegenPreparation> {
     time_provider(db.context().timings(), "codegen_preparation", || {
         let graph = time_provider(
             db.context().timings(),
             "codegen_preparation.module_graph",
-            || db.get(ModuleGraphQuery).as_ref().clone(),
-        );
+            || db.try_get(ModuleGraphQuery),
+        )?
+        .as_ref()
+        .clone();
         let optimization = time_provider(
             db.context().timings(),
             "codegen_preparation.optimization",
-            || *db.get(CompilerOptimizationQuery),
-        );
+            || db.try_get(CompilerOptimizationQuery),
+        )?;
+        let optimization = *optimization;
         let mut diagnostics = time_provider(
             db.context().timings(),
             "codegen_preparation.early_diagnostics",
             || early_program_diagnostics(db),
-        );
+        )?;
         let modules = time_provider(
             db.context().timings(),
             "codegen_preparation.checked_modules",
             || checked_modules_for_codegen(db),
-        );
+        )?;
         diagnostics.extend(time_provider(
             db.context().timings(),
             "codegen_preparation.checked_diagnostics",
             || checked_module_diagnostics(db, &modules),
-        ));
+        )?);
         if crate::has_error_diagnostics(&diagnostics) {
-            return CodegenPreparation {
+            return Ok(CodegenPreparation {
                 type_store: Arc::clone(&db.context().type_store),
                 graph,
                 optimization,
                 modules,
                 monomorphization: Arc::new(empty_monomorphization()),
                 diagnostics,
-            };
+            });
         }
-        let monomorphization = db.get(MonomorphizationQuery);
+        let monomorphization = db.try_get(MonomorphizationQuery)?;
         diagnostics.extend(time_provider(
             db.context().timings(),
             "codegen_program.monomorphization_diagnostics",
             || monomorphization_diagnostics(&modules, &monomorphization),
         ));
-        CodegenPreparation {
+        Ok(CodegenPreparation {
             type_store: Arc::clone(&db.context().type_store),
             graph,
             optimization,
             modules,
             monomorphization,
             diagnostics,
-        }
+        })
     })
 }
 
-pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenProgram {
+pub(super) fn provide_codegen_program(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<CodegenProgram> {
     time_provider(db.context().timings(), "codegen_program", || {
-        let preparation = db.get(CodegenPreparationQuery);
+        let preparation = db.try_get(CodegenPreparationQuery)?;
         let backend_lowering = if crate::has_error_diagnostics(&preparation.diagnostics) {
             Arc::new(empty_backend_lowering(preparation.optimization))
         } else {
@@ -106,7 +113,7 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
             "codegen_program.backend_diagnostics",
             || backend_lowering_diagnostics(&preparation.modules, &backend_lowering),
         ));
-        CodegenProgram {
+        Ok(CodegenProgram {
             type_store: Arc::clone(&preparation.type_store),
             graph: preparation.graph.clone(),
             optimization: preparation.optimization,
@@ -114,6 +121,6 @@ pub(super) fn provide_codegen_program(db: &QueryDb<CompilerContext>) -> CodegenP
             monomorphization: Arc::clone(&preparation.monomorphization),
             backend_lowering,
             diagnostics,
-        }
+        })
     })
 }

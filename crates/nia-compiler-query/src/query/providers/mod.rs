@@ -270,9 +270,11 @@ type ModulePublicSurfaceProvider =
 
 #[derive(Clone)]
 pub(super) struct CompilerQueryProviders {
-    pub(super) checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgramAnalysis,
-    pub(super) entry_checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgramAnalysis,
-    pub(super) codegen_program: fn(&QueryDb<CompilerContext>) -> CodegenProgram,
+    pub(super) checked_program:
+        fn(&QueryDb<CompilerContext>) -> QueryResult<CheckedProgramAnalysis>,
+    pub(super) entry_checked_program:
+        fn(&QueryDb<CompilerContext>) -> QueryResult<CheckedProgramAnalysis>,
+    pub(super) codegen_program: fn(&QueryDb<CompilerContext>) -> QueryResult<CodegenProgram>,
     pub(super) parse_ok_module_ids:
         fn(&QueryDb<CompilerContext>) -> QueryResult<StableModuleSequence>,
     pub(super) semantic_module_ids:
@@ -448,7 +450,7 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_body_check::BodyCheck>,
     pub(super) checked_module:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<CheckedModule>,
-    pub(super) checked_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
+    pub(super) checked_module_ids: fn(&QueryDb<CompilerContext>) -> QueryResult<Vec<ModuleId>>,
     pub(super) monomorphization:
         fn(&QueryDb<CompilerContext>) -> QueryResult<nia_monomorphize::Monomorphization>,
     pub(super) backend_lowering:

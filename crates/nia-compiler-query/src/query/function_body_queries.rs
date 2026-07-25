@@ -28,22 +28,20 @@ impl QueryKey<CompilerContext> for ExecutableFunctionBodyQuery {
 
 pub(super) fn materialize_executable_checked_modules(
     db: &QueryDb<CompilerContext>,
-) -> Vec<Arc<CheckedModule>> {
-    let facts = db.get(ExecutableCheckedModuleFactsQuery);
-    let bodies = db.get_many(
-        facts
-            .runtime_functions
-            .iter()
-            .copied()
-            .map(ExecutableFunctionBodyQuery),
-    );
-    let static_inits = db.get_many(
-        facts
-            .runtime_globals
-            .iter()
-            .copied()
-            .map(ExecutableStaticInitQuery),
-    );
+) -> QueryResult<Vec<Arc<CheckedModule>>> {
+    let facts = db.try_get(ExecutableCheckedModuleFactsQuery)?;
+    let bodies = facts
+        .runtime_functions
+        .iter()
+        .copied()
+        .map(|def_id| db.try_get(ExecutableFunctionBodyQuery(def_id)))
+        .collect::<QueryResult<Vec<_>>>()?;
+    let static_inits = facts
+        .runtime_globals
+        .iter()
+        .copied()
+        .map(|def_id| db.try_get(ExecutableStaticInitQuery(def_id)))
+        .collect::<QueryResult<Vec<_>>>()?;
     let mut bodies_by_module =
         HashMap::<ModuleId, HashMap<GlobalDefId, Arc<nia_body_ir::TypedBody>>>::new();
     for (def_id, body) in facts.runtime_functions.iter().copied().zip(bodies) {
@@ -65,7 +63,7 @@ pub(super) fn materialize_executable_checked_modules(
         }
     }
 
-    facts
+    Ok(facts
         .modules
         .iter()
         .map(|module| {
@@ -79,7 +77,7 @@ pub(super) fn materialize_executable_checked_modules(
             });
             Arc::new(module)
         })
-        .collect()
+        .collect())
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -126,7 +124,7 @@ impl QueryKey<CompilerContext> for LoweredFunctionBodyQuery {
         format!("lowered_function_body({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         provide_lowered_function_body(db, self.0)
     }
 

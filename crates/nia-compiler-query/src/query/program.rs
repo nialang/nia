@@ -25,7 +25,7 @@ impl QueryKey<CompilerContext> for BackendModuleSourceItemPlanQuery {
         format!("backend_module_source_item_plan({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         provide_backend_module_source_item_plan(db, self.0)
     }
 
@@ -55,7 +55,7 @@ impl QueryKey<CompilerContext> for BackendModuleFunctionInstancePlanQuery {
         format!("backend_module_function_instance_plan({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         provide_backend_module_function_instance_plan(db, self.0)
     }
 

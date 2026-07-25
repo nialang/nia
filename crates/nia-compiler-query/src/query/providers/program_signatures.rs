@@ -256,13 +256,13 @@ pub(super) fn executable_program_non_function_signatures(
 pub(super) fn executable_program_functions_for_modules(
     db: &QueryDb<CompilerContext>,
     module_ids: impl IntoIterator<Item = ModuleId>,
-) -> HashMap<GlobalDefId, ProgramFunctionSignature> {
+) -> QueryResult<HashMap<GlobalDefId, ProgramFunctionSignature>> {
     module_ids
         .into_iter()
-        .flat_map(|module_id| {
-            let lowered = db.get(TypeLoweringQuery(module_id));
-            let signatures = body_local_item_signatures(db, module_id, &lowered);
-            signatures
+        .map(|module_id| {
+            let lowered = db.try_get(TypeLoweringQuery(module_id))?;
+            let signatures = body_local_item_signatures(db, module_id, &lowered)?;
+            Ok(signatures
                 .functions
                 .into_iter()
                 .map(move |(def_id, signature)| {
@@ -270,8 +270,10 @@ pub(super) fn executable_program_functions_for_modules(
                     let name = signature.name;
                     (global_def_id, ProgramFunctionSignature { name, signature })
                 })
+                .collect::<HashMap<_, _>>())
         })
-        .collect()
+        .collect::<QueryResult<Vec<_>>>()
+        .map(|maps| maps.into_iter().flatten().collect())
 }
 
 pub(super) fn provide_program_abi_signatures(

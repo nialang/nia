@@ -4,8 +4,8 @@ use super::*;
 pub(in crate::query) fn provide_backend_module_source_item_plan(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> BackendModuleSourceItemPlan {
-    let facts = db.get(ExecutableCheckedModuleFactsQuery);
+) -> QueryResult<BackendModuleSourceItemPlan> {
+    let facts = db.try_get(ExecutableCheckedModuleFactsQuery)?;
     let module = facts
         .modules
         .iter()
@@ -43,24 +43,24 @@ pub(in crate::query) fn provide_backend_module_source_item_plan(
         .collect::<Vec<_>>();
     unions.sort_unstable();
     unions.dedup();
-    BackendModuleSourceItemPlan {
+    Ok(BackendModuleSourceItemPlan {
         functions,
         globals,
         structs,
         unions,
-    }
+    })
 }
 
 pub(in crate::query) fn provide_backend_module_function_instance_plan(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> BackendModuleFunctionInstancePlan {
-    let facts = db.get(ExecutableCheckedModuleFactsQuery);
+) -> QueryResult<BackendModuleFunctionInstancePlan> {
+    let facts = db.try_get(ExecutableCheckedModuleFactsQuery)?;
     assert!(
         facts.modules.iter().any(|module| module.id == module_id),
         "Nia ICE: missing executable facts for module {module_id:?}"
     );
-    let monomorphization = db.get(MonomorphizationQuery);
+    let monomorphization = db.try_get(MonomorphizationQuery)?;
     let mut instances = monomorphization
         .instances
         .iter()
@@ -93,14 +93,14 @@ pub(in crate::query) fn provide_backend_module_function_instance_plan(
             }
         })
         .collect();
-    BackendModuleFunctionInstancePlan { instances }
+    Ok(BackendModuleFunctionInstancePlan { instances })
 }
 
 pub(super) fn provide_monomorphization(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<nia_monomorphize::Monomorphization> {
     time_provider(db.context().timings(), "monomorphization", || {
-        let checked_modules = checked_modules_for_codegen(db);
+        let checked_modules = checked_modules_for_codegen(db)?;
         monomorphization_for_checked_modules(db, &checked_modules)
     })
 }
@@ -115,9 +115,9 @@ pub(super) fn monomorphization_for_checked_modules(
     let trait_impl_index = &executable_signatures.trait_impl_index;
     let local_signatures = checked_modules
         .iter()
-        .map(|module| (module.id, db.get(ItemSignaturesQuery(module.id))))
-        .collect::<HashMap<_, _>>();
-    let _function_bodies = function_bodies_from_checked_modules(db, checked_modules);
+        .map(|module| Ok((module.id, db.try_get(ItemSignaturesQuery(module.id))?)))
+        .collect::<QueryResult<HashMap<_, _>>>()?;
+    let _function_bodies = function_bodies_from_checked_modules(db, checked_modules)?;
     let semantic_instantiations = checked_modules
         .iter()
         .map(|module| {
@@ -157,27 +157,30 @@ pub(super) fn monomorphization_for_checked_modules(
 
 pub(super) fn checked_modules_for_codegen(
     db: &QueryDb<CompilerContext>,
-) -> Vec<Arc<CheckedModule>> {
-    db.get(ExecutableCheckedModulesQuery).as_ref().clone()
+) -> QueryResult<Vec<Arc<CheckedModule>>> {
+    Ok(db.try_get(ExecutableCheckedModulesQuery)?.as_ref().clone())
 }
 
 pub(super) fn checked_modules_for_diagnostics(
     db: &QueryDb<CompilerContext>,
-) -> Vec<Arc<CheckedModule>> {
-    db.get(ExecutableCheckedModulesQuery).as_ref().clone()
+) -> QueryResult<Vec<Arc<CheckedModule>>> {
+    checked_modules_for_codegen(db)
 }
 
 pub(super) fn materialize_checked_modules(
     db: &QueryDb<CompilerContext>,
     module_ids: Vec<ModuleId>,
-) -> Vec<Arc<CheckedModule>> {
-    db.get_many(module_ids.into_iter().map(CheckedModuleQuery))
+) -> QueryResult<Vec<Arc<CheckedModule>>> {
+    module_ids
+        .into_iter()
+        .map(|module_id| db.try_get(CheckedModuleQuery(module_id)))
+        .collect()
 }
 
 fn function_bodies_from_checked_modules(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
-) -> Vec<LoweredFunctionBodyHandle> {
+) -> QueryResult<Vec<LoweredFunctionBodyHandle>> {
     time_provider(
         db.context().timings(),
         "function_bodies_from_checked_modules",
@@ -187,12 +190,16 @@ fn function_bodies_from_checked_modules(
                 .flat_map(|module| module.body_ir.function_bodies.keys().copied())
                 .collect::<Vec<_>>();
             def_ids.sort_unstable();
-            let lowered = db.get_many(def_ids.iter().copied().map(LoweredFunctionBodyQuery));
-            def_ids
+            let lowered = def_ids
+                .iter()
+                .copied()
+                .map(|def_id| db.try_get(LoweredFunctionBodyQuery(def_id)))
+                .collect::<QueryResult<Vec<_>>>()?;
+            Ok(def_ids
                 .into_iter()
                 .zip(lowered)
                 .map(|(def_id, value)| LoweredFunctionBodyHandle { def_id, value })
-                .collect()
+                .collect())
         },
     )
 }
@@ -200,7 +207,7 @@ fn function_bodies_from_checked_modules(
 fn static_inits_from_checked_modules(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
-) -> Vec<StaticInitHandle> {
+) -> QueryResult<Vec<StaticInitHandle>> {
     time_provider(
         db.context().timings(),
         "static_inits_from_checked_modules",
@@ -210,12 +217,16 @@ fn static_inits_from_checked_modules(
                 .flat_map(|module| module.body_ir.global_inits.keys().copied())
                 .collect::<Vec<_>>();
             def_ids.sort_unstable();
-            let inits = db.get_many(def_ids.iter().copied().map(ExecutableStaticInitQuery));
-            def_ids
+            let inits = def_ids
+                .iter()
+                .copied()
+                .map(|def_id| db.try_get(ExecutableStaticInitQuery(def_id)))
+                .collect::<QueryResult<Vec<_>>>()?;
+            Ok(def_ids
                 .into_iter()
                 .zip(inits)
                 .map(|(def_id, value)| StaticInitHandle { def_id, value })
-                .collect()
+                .collect())
         },
     )
 }
@@ -223,15 +234,15 @@ fn static_inits_from_checked_modules(
 pub(in crate::query) fn provide_lowered_function_body(
     db: &QueryDb<CompilerContext>,
     def_id: GlobalDefId,
-) -> LoweredFunctionBodyValue {
-    let checked_body = db.get(ExecutableFunctionBodyQuery(def_id));
+) -> QueryResult<LoweredFunctionBodyValue> {
+    let checked_body = db.try_get(ExecutableFunctionBodyQuery(def_id))?;
     let Some(body) = checked_body.as_ref() else {
-        return LoweredFunctionBodyValue::Diagnostic(
+        return Ok(LoweredFunctionBodyValue::Diagnostic(
             nia_function_lower::FunctionLoweringDiagnostic {
                 span: Span::default(),
                 message: format!("missing executable checked function body for {def_id:?}"),
             },
-        );
+        ));
     };
     match nia_function_lower::lower_function_body(
         def_id.module_id,
@@ -241,8 +252,8 @@ pub(in crate::query) fn provide_lowered_function_body(
             def_id.module_id,
         ),
     ) {
-        Ok(lowered) => LoweredFunctionBodyValue::Body(lowered.body),
-        Err(diagnostic) => LoweredFunctionBodyValue::Diagnostic(diagnostic),
+        Ok(lowered) => Ok(LoweredFunctionBodyValue::Body(lowered.body)),
+        Err(diagnostic) => Ok(LoweredFunctionBodyValue::Diagnostic(diagnostic)),
     }
 }
 
@@ -416,7 +427,7 @@ fn emit_backend_module_finalization_allocation(
 pub(in crate::query) fn provide_backend_lowering_inputs(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<Result<BackendLoweringInputs, Vec<Diagnostic>>> {
-    let checked_modules = checked_modules_for_codegen(db);
+    let checked_modules = checked_modules_for_codegen(db)?;
     let (
         active_item_trees,
         item_signatures,
@@ -429,88 +440,97 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         source_item_plans,
         function_instance_plans,
         program_defs,
-    ) = time_provider(db.context().timings(), "backend_lowering.inputs", || {
-        let timings = db.context().timings();
-        let active_item_trees =
-            time_provider(timings, "backend_lowering.inputs.active_item_trees", || {
-                checked_modules
-                    .iter()
-                    .map(|checked_module| db.get(FullActiveModuleItemTreeQuery(checked_module.id)))
-                    .collect::<Vec<_>>()
-            });
-        let item_signatures =
-            time_provider(timings, "backend_lowering.inputs.item_signatures", || {
-                checked_modules
-                    .iter()
-                    .map(|checked_module| {
-                        body_local_item_signatures(
-                            db,
-                            checked_module.id,
-                            &checked_module.type_lowering,
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            });
-        let const_array_lengths = checked_modules
-            .iter()
-            .map(|checked_module| nia_const_check::ConstArrayLengths {
-                values: checked_module.const_eval.array_lengths.clone(),
-                diagnostics: checked_module.const_eval.diagnostics.clone(),
-            })
-            .collect::<Vec<_>>();
-        let const_enum_values = checked_modules
-            .iter()
-            .map(|checked_module| nia_const_check::ConstEnumValues {
-                values: checked_module.const_eval.enum_values.clone(),
-                typed_values: checked_module.const_eval.typed_enum_values.clone(),
-                diagnostics: checked_module.const_eval.diagnostics.clone(),
-            })
-            .collect::<Vec<_>>();
-        let visible_extensions = time_provider(
-            timings,
-            "backend_lowering.inputs.visible_extensions",
-            || {
-                checked_modules
-                    .iter()
-                    .map(|checked_module| db.get(VisibleExtensionsQuery(checked_module.id)))
-                    .collect::<Vec<_>>()
-            },
-        );
-        let extension_methods =
-            time_provider(timings, "backend_lowering.inputs.extension_methods", || {
-                db.get(ExtensionMethodIndexQuery)
-            });
-        let function_bodies = function_bodies_from_checked_modules(db, &checked_modules);
-        let static_inits = static_inits_from_checked_modules(db, &checked_modules);
-        let source_item_plans = db.get_many(
-            checked_modules
+    ) = time_provider(
+        db.context().timings(),
+        "backend_lowering.inputs",
+        || -> QueryResult<_> {
+            let timings = db.context().timings();
+            let active_item_trees = time_provider(
+                timings,
+                "backend_lowering.inputs.active_item_trees",
+                || -> QueryResult<Vec<_>> {
+                    checked_modules
+                        .iter()
+                        .map(|checked_module| {
+                            db.try_get(FullActiveModuleItemTreeQuery(checked_module.id))
+                        })
+                        .collect::<QueryResult<Vec<_>>>()
+                },
+            )?;
+            let item_signatures = time_provider(
+                timings,
+                "backend_lowering.inputs.item_signatures",
+                || -> QueryResult<Vec<_>> {
+                    checked_modules
+                        .iter()
+                        .map(|checked_module| {
+                            body_local_item_signatures(
+                                db,
+                                checked_module.id,
+                                &checked_module.type_lowering,
+                            )
+                        })
+                        .collect::<QueryResult<Vec<_>>>()
+                },
+            )?;
+            let const_array_lengths = checked_modules
                 .iter()
-                .map(|module| BackendModuleSourceItemPlanQuery(module.id)),
-        );
-        let function_instance_plans = db.get_many(
-            checked_modules
+                .map(|checked_module| nia_const_check::ConstArrayLengths {
+                    values: checked_module.const_eval.array_lengths.clone(),
+                    diagnostics: checked_module.const_eval.diagnostics.clone(),
+                })
+                .collect::<Vec<_>>();
+            let const_enum_values = checked_modules
                 .iter()
-                .map(|module| BackendModuleFunctionInstancePlanQuery(module.id)),
-        );
-        let program_defs = db.get_many(
-            checked_modules
+                .map(|checked_module| nia_const_check::ConstEnumValues {
+                    values: checked_module.const_eval.enum_values.clone(),
+                    typed_values: checked_module.const_eval.typed_enum_values.clone(),
+                    diagnostics: checked_module.const_eval.diagnostics.clone(),
+                })
+                .collect::<Vec<_>>();
+            let visible_extensions = time_provider(
+                timings,
+                "backend_lowering.inputs.visible_extensions",
+                || -> QueryResult<Vec<_>> {
+                    checked_modules
+                        .iter()
+                        .map(|checked_module| db.try_get(VisibleExtensionsQuery(checked_module.id)))
+                        .collect::<QueryResult<Vec<_>>>()
+                },
+            )?;
+            let extension_methods =
+                time_provider(timings, "backend_lowering.inputs.extension_methods", || {
+                    db.try_get(ExtensionMethodIndexQuery)
+                })?;
+            let function_bodies = function_bodies_from_checked_modules(db, &checked_modules)?;
+            let static_inits = static_inits_from_checked_modules(db, &checked_modules)?;
+            let source_item_plans = checked_modules
                 .iter()
-                .map(|module| FullModuleDefsQuery(module.id)),
-        );
-        (
-            active_item_trees,
-            item_signatures,
-            const_array_lengths,
-            const_enum_values,
-            visible_extensions,
-            extension_methods,
-            function_bodies,
-            static_inits,
-            source_item_plans,
-            function_instance_plans,
-            program_defs,
-        )
-    });
+                .map(|module| db.try_get(BackendModuleSourceItemPlanQuery(module.id)))
+                .collect::<QueryResult<Vec<_>>>()?;
+            let function_instance_plans = checked_modules
+                .iter()
+                .map(|module| db.try_get(BackendModuleFunctionInstancePlanQuery(module.id)))
+                .collect::<QueryResult<Vec<_>>>()?;
+            let program_defs = checked_modules
+                .iter()
+                .map(|module| db.try_get(FullModuleDefsQuery(module.id)))
+                .collect::<QueryResult<Vec<_>>>()?;
+            Ok((
+                active_item_trees,
+                item_signatures,
+                const_array_lengths,
+                const_enum_values,
+                visible_extensions,
+                extension_methods,
+                function_bodies,
+                static_inits,
+                source_item_plans,
+                function_instance_plans,
+                program_defs,
+            ))
+        },
+    )?;
     let function_lowering_diagnostics =
         function_lowering_diagnostics(&checked_modules, &function_bodies);
     if !function_lowering_diagnostics.is_empty() {
@@ -523,7 +543,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
     let functions = executable_program_functions_for_modules(
         db,
         checked_modules.iter().map(|module| module.id),
-    );
+    )?;
     let inputs = time_provider(
         db.context().timings(),
         "backend_lowering.module_inputs",
@@ -551,12 +571,16 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
     Ok(Ok(inputs))
 }
 
-pub(super) fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
-    let mut diagnostics = db.get(ProgramLoadDiagnosticsQuery).as_ref().clone();
-    let loaded_modules = resolve_stable_module_sequence(db, &db.get(LoadedModulesQuery));
+pub(super) fn early_program_diagnostics(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<Vec<ProgramDiagnostic>> {
+    let mut diagnostics = db.try_get(ProgramLoadDiagnosticsQuery)?.as_ref().clone();
+    let loaded_modules = db.try_get(LoadedModulesQuery)?;
+    let _graph = db.try_get(ModuleGraphQuery)?;
+    let loaded_modules = resolve_stable_module_sequence_from_current_inputs(db, &loaded_modules);
     for module_id in loaded_modules {
-        let parse_errors = db.get(ModuleParseErrorsQuery(module_id));
-        let path = db.get(ModulePathQuery(module_id));
+        let parse_errors = db.try_get(ModuleParseErrorsQuery(module_id))?;
+        let path = db.try_get(ModulePathQuery(module_id))?;
         for error in parse_errors.iter() {
             diagnostics.push(ProgramDiagnostic {
                 path: path.as_ref().clone(),
@@ -568,25 +592,25 @@ pub(super) fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<Pr
             });
         }
     }
-    let public_surfaces = db.get(PublicSurfacesQuery);
-    let public_using_scopes = db.get(PublicUsingScopesQuery);
+    let public_surfaces = db.try_get(PublicSurfacesQuery)?;
+    let public_using_scopes = db.try_get(PublicUsingScopesQuery)?;
     for (module_id, diagnostic) in public_surfaces
         .diagnostics
         .iter()
         .chain(public_using_scopes.diagnostics.iter())
     {
         diagnostics.push(ProgramDiagnostic {
-            path: db.get(ModulePathQuery(*module_id)).as_ref().clone(),
+            path: db.try_get(ModulePathQuery(*module_id))?.as_ref().clone(),
             diagnostic: diagnostic.clone(),
         });
     }
-    diagnostics
+    Ok(diagnostics)
 }
 
 pub(super) fn checked_module_diagnostics(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
-) -> Vec<ProgramDiagnostic> {
+) -> QueryResult<Vec<ProgramDiagnostic>> {
     let mut diagnostics = Vec::new();
     for checked in checked_modules {
         diagnostics.extend(module_diagnostics(&checked.path, &checked.defs.diagnostics));
@@ -606,7 +630,7 @@ pub(super) fn checked_module_diagnostics(
             &checked.path,
             &checked.local_resolution.diagnostics,
         ));
-        let item_signatures = db.get(ItemSignaturesQuery(checked.id));
+        let item_signatures = db.try_get(ItemSignaturesQuery(checked.id))?;
         diagnostics.extend(module_diagnostics(
             &checked.path,
             &item_signatures.diagnostics,
@@ -636,18 +660,18 @@ pub(super) fn checked_module_diagnostics(
             &checked.flow_check.diagnostics,
         ));
         diagnostics.extend(module_diagnostics(&checked.path, &checked.body_diagnostics));
-        let extension_validation = db.get(ExtensionProviderValidationFactsQuery(checked.id));
+        let extension_validation = db.try_get(ExtensionProviderValidationFactsQuery(checked.id))?;
         diagnostics.extend(module_diagnostics(
             &checked.path,
             &extension_validation.diagnostics,
         ));
-        let extension_provider = db.get(ExtensionProviderModuleFactsQuery(checked.id));
+        let extension_provider = db.try_get(ExtensionProviderModuleFactsQuery(checked.id))?;
         diagnostics.extend(module_diagnostics(
             &checked.path,
             &extension_provider.associated_value_diagnostics,
         ));
     }
-    diagnostics
+    Ok(diagnostics)
 }
 
 pub(super) fn monomorphization_diagnostics(
