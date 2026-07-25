@@ -1,6 +1,6 @@
 use crate::LoaderContext;
 use nia_compiler_query::{ProviderDemand, ProviderFactRevision, ProviderFactSnapshot};
-use nia_query::{QueryDb, QueryFingerprintPolicy, QueryKey};
+use nia_query::{QueryDb, QueryFingerprintPolicy, QueryKey, QueryResult};
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
@@ -195,8 +195,8 @@ impl QueryKey<LoaderContext> for ProviderDemandsQuery {
         "provider_demands"
     }
 
-    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        db.context().provider_facts.snapshot()
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        Ok(db.context().provider_facts.snapshot())
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
