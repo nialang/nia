@@ -435,13 +435,13 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_const_check::ConstValues>,
     pub(super) const_typed_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_const_check::ConstTypedFacts>,
-    pub(super) layouts: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_layout::Layouts,
+    pub(super) layouts: fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_layout::Layouts>,
     pub(super) signature_layouts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_layout::Layouts>,
     pub(super) abi_check:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_abi_check::AbiCheck>,
     pub(super) static_check:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_static_check::StaticCheck,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_static_check::StaticCheck>,
     pub(super) flow_check:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_flow_check::FlowCheck>,
     pub(super) body_check:

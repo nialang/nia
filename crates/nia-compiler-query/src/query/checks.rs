@@ -101,7 +101,7 @@ impl QueryKey<CompilerContext> for LayoutsQuery {
         "layouts"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.layouts)(db, self.0)
     }
 }
@@ -150,7 +150,7 @@ impl QueryKey<CompilerContext> for StaticCheckQuery {
         "static_check"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.static_check)(db, self.0)
     }
 }

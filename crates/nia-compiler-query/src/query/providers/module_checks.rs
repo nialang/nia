@@ -4,39 +4,50 @@ use super::*;
 pub(super) fn provide_layouts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> nia_layout::Layouts {
+) -> QueryResult<nia_layout::Layouts> {
     time_module_provider(db, "layouts", module_id, || {
-        let defs = db.get(FullModuleDefsQuery(module_id));
-        let type_lowering = db.get(TypeLoweringQuery(module_id));
-        let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id));
-        let item_signatures = db.get(ItemSignaturesQuery(module_id));
-        let array_lengths = db.get(ConstArrayLengthsQuery(module_id));
+        let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+        let type_lowering = db.try_get(TypeLoweringQuery(module_id))?;
+        let type_normalization = db.try_get(LayoutTypeNormalizationQuery(module_id))?;
+        let item_signatures = db.try_get(ItemSignaturesQuery(module_id))?;
+        let array_lengths = db.try_get(ConstArrayLengthsQuery(module_id))?;
         let symbols = db.context().symbols();
+        let query_failure = RefCell::new(None);
         let mut root_types = item_signatures.type_roots();
         root_types.extend(type_lowering.explicit_type_roots());
         root_types.sort_unstable();
         root_types.dedup();
-        let layout_query = |module_id| Some(db.get(SignatureLayoutsQuery(module_id)));
+        let layout_query = |module_id| {
+            capture_query_failure(&query_failure, db.try_get(SignatureLayoutsQuery(module_id)))
+        };
         let local_array_lengths = |id| array_lengths.values.get(&id).copied();
         let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
-            Some(db.get(ConstArrayLengthsQuery(id.module_id)))
-                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+            capture_query_failure(
+                &query_failure,
+                db.try_get(ConstArrayLengthsQuery(id.module_id)),
+            )
+            .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
-        nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
-            type_store: &db.context().type_store,
-            defs: &defs,
-            signatures: &item_signatures,
-            root_types: &root_types,
-            normalized: &type_normalization.normalized,
-            array_lengths: &local_array_lengths,
-            target: nia_layout::TargetDataLayout::LP64,
-            program: nia_layout::ProgramLayoutContext {
-                symbols: Some(&symbols),
-                layouts: Some(&layout_query),
-                array_lengths: Some(&program_array_lengths),
-                ..Default::default()
-            },
-        })
+        let layouts =
+            nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
+                type_store: &db.context().type_store,
+                defs: &defs,
+                signatures: &item_signatures,
+                root_types: &root_types,
+                normalized: &type_normalization.normalized,
+                array_lengths: &local_array_lengths,
+                target: nia_layout::TargetDataLayout::LP64,
+                program: nia_layout::ProgramLayoutContext {
+                    symbols: Some(&symbols),
+                    layouts: Some(&layout_query),
+                    array_lengths: Some(&program_array_lengths),
+                    ..Default::default()
+                },
+            });
+        match query_failure.into_inner() {
+            Some(error) => Err(error),
+            None => Ok(layouts),
+        }
     })
 }
 
@@ -88,21 +99,25 @@ pub(super) fn provide_abi_check(
 pub(super) fn provide_static_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> nia_static_check::StaticCheck {
-    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.get(FullModuleDefsQuery(module_id));
-    let values = db.get(ValueResolutionQuery(module_id));
-    let locals = db.get(LocalResolutionQuery(module_id));
-    let semantic_uses = db.get(SemanticUseTableQuery(module_id));
+) -> QueryResult<nia_static_check::StaticCheck> {
+    let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
+    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+    let values = db.try_get(ValueResolutionQuery(module_id))?;
+    let locals = db.try_get(LocalResolutionQuery(module_id))?;
+    let semantic_uses = db.try_get(SemanticUseTableQuery(module_id))?;
     let symbols = db.context().symbols();
-    let signatures = db.get(SignatureItemSignaturesQuery(
+    let signatures = db.try_get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Values,
-    ));
-    let const_eval = db.get(ConstValuesQuery(module_id));
-    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
-    let program_const_values = |module_id| Some(db.get(ConstValuesQuery(module_id)));
-    nia_static_check::check_module_static_initializers_with_signatures(
+    ))?;
+    let const_eval = db.try_get(ConstValuesQuery(module_id))?;
+    let query_failure = RefCell::new(None);
+    let program_defs = |module_id| {
+        capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+    };
+    let program_const_values =
+        |module_id| capture_query_failure(&query_failure, db.try_get(ConstValuesQuery(module_id)));
+    let static_check = nia_static_check::check_module_static_initializers_with_signatures(
         nia_static_check::StaticCheckPreciseInput {
             active_item_tree: &active_item_tree,
             defs: &defs,
@@ -116,9 +131,13 @@ pub(super) fn provide_static_check(
             const_eval: &const_eval,
             program_defs: &program_defs,
             program_const: &program_const_values,
-            target: db.get(CompilerTargetQuery).as_ref(),
+            target: db.try_get(CompilerTargetQuery)?.as_ref(),
         },
-    )
+    );
+    match query_failure.into_inner() {
+        Some(error) => Err(error),
+        None => Ok(static_check),
+    }
 }
 
 pub(super) fn provide_flow_check(
