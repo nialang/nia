@@ -460,12 +460,15 @@ pub(super) fn provide_signature_const_type_resolution(
 pub(super) fn provide_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> TypeLowering {
-    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
-    let type_resolution = db.get(TypeResolutionQuery(module_id));
-    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
+) -> QueryResult<TypeLowering> {
+    let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
+    let type_resolution = db.try_get(TypeResolutionQuery(module_id))?;
+    let query_failure = RefCell::new(None);
+    let program_defs = |module_id| {
+        capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+    };
     let symbols = db.context().symbols();
-    nia_type_lower::lower_module_types_from_active_item_tree_with_context(
+    let lowering = nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
         &active_item_tree,
         &type_resolution,
@@ -476,18 +479,21 @@ pub(super) fn provide_type_lowering(
             },
         )
         .with_symbols(&symbols),
-    )
+    );
+    query_failure.into_inner().map_or(Ok(lowering), Err)
 }
 
 pub(super) fn provide_declaration_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> TypeLowering {
-    let active_item_tree = db.get(DeclarationActiveModuleItemTreeQuery(module_id));
-    let type_resolution = db.get(DeclarationTypeResolutionQuery(module_id));
-    let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
+) -> QueryResult<TypeLowering> {
+    let active_item_tree = db.try_get(DeclarationActiveModuleItemTreeQuery(module_id))?;
+    let type_resolution = db.try_get(DeclarationTypeResolutionQuery(module_id))?;
+    let query_failure = RefCell::new(None);
+    let program_defs =
+        |module_id| capture_query_failure(&query_failure, db.try_get(ModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
-    nia_type_lower::lower_module_types_from_active_item_tree_with_context(
+    let lowering = nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
         &active_item_tree,
         &type_resolution,
@@ -498,15 +504,16 @@ pub(super) fn provide_declaration_type_lowering(
             },
         )
         .with_symbols(&symbols),
-    )
+    );
+    query_failure.into_inner().map_or(Ok(lowering), Err)
 }
 
 pub(super) fn provide_signature_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
-) -> TypeLowering {
-    let program_sources = db.get(FrontendProgramSourcesQuery);
+) -> QueryResult<TypeLowering> {
+    let program_sources = db.try_get(FrontendProgramSourcesQuery)?;
     let cache_input = program_sources
         .as_ref()
         .as_ref()
@@ -576,11 +583,13 @@ pub(super) fn provide_signature_type_lowering(
     if let Some(crate::signature_cache::SignatureTypeLoweringLookup::Hit(cached)) = &cached
         && !db.context().verify_frontend_cache
     {
-        return cached.as_ref().clone();
+        return Ok(cached.as_ref().clone());
     }
-    let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set));
-    let type_resolution = db.get(SignatureTypeResolutionQuery(module_id, set));
-    let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
+    let active_item_tree = db.try_get(SignatureItemTreeQuery(module_id, set))?;
+    let type_resolution = db.try_get(SignatureTypeResolutionQuery(module_id, set))?;
+    let query_failure = RefCell::new(None);
+    let program_defs =
+        |module_id| capture_query_failure(&query_failure, db.try_get(ModuleDefsQuery(module_id)));
     let lowering =
         nia_type_lower::lower_module_declaration_types_from_active_item_tree_with_context(
             module_id,
@@ -602,6 +611,9 @@ pub(super) fn provide_signature_type_lowering(
         },
         1,
     );
+    if let Some(error) = query_failure.into_inner() {
+        return Err(error);
+    }
     if let Some(cache) = &db.context().signature_cache
         && let Some((program_sources, source, namespace, key)) = cache_input
     {
@@ -635,18 +647,20 @@ pub(super) fn provide_signature_type_lowering(
             );
         }
     }
-    lowering
+    Ok(lowering)
 }
 
 pub(super) fn provide_signature_const_type_lowering(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> TypeLowering {
-    let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id));
-    let type_resolution = db.get(SignatureConstTypeResolutionQuery(module_id));
-    let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
+) -> QueryResult<TypeLowering> {
+    let active_item_tree = db.try_get(SignatureConstItemTreeQuery(module_id))?;
+    let type_resolution = db.try_get(SignatureConstTypeResolutionQuery(module_id))?;
+    let query_failure = RefCell::new(None);
+    let program_defs =
+        |module_id| capture_query_failure(&query_failure, db.try_get(ModuleDefsQuery(module_id)));
     let symbols = db.context().symbols();
-    nia_type_lower::lower_module_types_from_active_item_tree_with_context(
+    let lowering = nia_type_lower::lower_module_types_from_active_item_tree_with_context(
         module_id,
         &active_item_tree,
         &type_resolution,
@@ -657,32 +671,35 @@ pub(super) fn provide_signature_const_type_lowering(
             },
         )
         .with_symbols(&symbols),
-    )
+    );
+    query_failure.into_inner().map_or(Ok(lowering), Err)
 }
 
 pub(super) fn provide_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ItemSignatures {
-    let active_item_tree = db.get(DeclarationActiveModuleItemTreeQuery(module_id));
-    let defs = db.get(ModuleDefsQuery(module_id));
-    let type_lowering = db.get(DeclarationTypeLoweringQuery(module_id));
+) -> QueryResult<ItemSignatures> {
+    let active_item_tree = db.try_get(DeclarationActiveModuleItemTreeQuery(module_id))?;
+    let defs = db.try_get(ModuleDefsQuery(module_id))?;
+    let type_lowering = db.try_get(DeclarationTypeLoweringQuery(module_id))?;
     let symbols = db.context().symbols();
-    nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
-        source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
-        defs: &defs,
-        lowered: &type_lowering,
-        type_store: db.context().type_store(),
-        symbols: Some(&symbols),
-    })
+    Ok(nia_item_signatures::collect_item_signatures(
+        nia_item_signatures::ItemSignatureInput {
+            source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
+            defs: &defs,
+            lowered: &type_lowering,
+            type_store: db.context().type_store(),
+            symbols: Some(&symbols),
+        },
+    ))
 }
 
 pub(super) fn provide_signature_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
-) -> ItemSignatures {
-    let program_sources = db.get(FrontendProgramSourcesQuery);
+) -> QueryResult<ItemSignatures> {
+    let program_sources = db.try_get(FrontendProgramSourcesQuery)?;
     let cache_input = program_sources
         .as_ref()
         .as_ref()
@@ -754,11 +771,11 @@ pub(super) fn provide_signature_item_signatures(
     if let Some(crate::signature_cache::SignatureItemSignaturesLookup::Hit(cached)) = &cached
         && !db.context().verify_frontend_cache
     {
-        return cached.as_ref().clone();
+        return Ok(cached.as_ref().clone());
     }
-    let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set));
-    let defs = db.get(ModuleDefsQuery(module_id));
-    let type_lowering = db.get(SignatureTypeLoweringQuery(module_id, set));
+    let active_item_tree = db.try_get(SignatureItemTreeQuery(module_id, set))?;
+    let defs = db.try_get(ModuleDefsQuery(module_id))?;
+    let type_lowering = db.try_get(SignatureTypeLoweringQuery(module_id, set))?;
     let fresh =
         nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
             source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
@@ -808,61 +825,83 @@ pub(super) fn provide_signature_item_signatures(
             );
         }
     }
-    fresh
+    Ok(fresh)
 }
 
 pub(super) fn provide_signature_const_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ItemSignatures {
-    let active_item_tree = db.get(SignatureConstItemTreeQuery(module_id));
-    let defs = db.get(ModuleDefsQuery(module_id));
-    let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id));
+) -> QueryResult<ItemSignatures> {
+    let active_item_tree = db.try_get(SignatureConstItemTreeQuery(module_id))?;
+    let defs = db.try_get(ModuleDefsQuery(module_id))?;
+    let type_lowering = db.try_get(SignatureConstTypeLoweringQuery(module_id))?;
     let symbols = db.context().symbols();
-    nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
-        source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
-        defs: &defs,
-        lowered: &type_lowering,
-        type_store: db.context().type_store(),
-        symbols: Some(&symbols),
-    })
+    Ok(nia_item_signatures::collect_item_signatures(
+        nia_item_signatures::ItemSignatureInput {
+            source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
+            defs: &defs,
+            lowered: &type_lowering,
+            type_store: db.context().type_store(),
+            symbols: Some(&symbols),
+        },
+    ))
 }
 
 pub(super) fn provide_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> TypeNormalization {
-    let type_lowering = db.get(TypeLoweringQuery(module_id));
-    let item_signatures = db.get(ItemSignaturesQuery(module_id));
-    normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
+) -> QueryResult<TypeNormalization> {
+    let type_lowering = db.try_get(TypeLoweringQuery(module_id))?;
+    let item_signatures = db.try_get(ItemSignaturesQuery(module_id))?;
+    Ok(normalize_types_in_session_store(
+        db,
+        module_id,
+        &type_lowering,
+        &item_signatures,
+    ))
 }
 
 pub(super) fn provide_layout_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> TypeNormalization {
-    let type_lowering = db.get(TypeLoweringQuery(module_id));
-    let item_signatures = db.get(ItemSignaturesQuery(module_id));
-    normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
+) -> QueryResult<TypeNormalization> {
+    let type_lowering = db.try_get(TypeLoweringQuery(module_id))?;
+    let item_signatures = db.try_get(ItemSignaturesQuery(module_id))?;
+    Ok(normalize_types_in_session_store(
+        db,
+        module_id,
+        &type_lowering,
+        &item_signatures,
+    ))
 }
 
 pub(super) fn provide_signature_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     set: nia_item_tree::SignatureItemSet,
-) -> TypeNormalization {
-    let type_lowering = db.get(SignatureTypeLoweringQuery(module_id, set));
-    let item_signatures = db.get(SignatureItemSignaturesQuery(module_id, set));
-    normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
+) -> QueryResult<TypeNormalization> {
+    let type_lowering = db.try_get(SignatureTypeLoweringQuery(module_id, set))?;
+    let item_signatures = db.try_get(SignatureItemSignaturesQuery(module_id, set))?;
+    Ok(normalize_types_in_session_store(
+        db,
+        module_id,
+        &type_lowering,
+        &item_signatures,
+    ))
 }
 
 pub(super) fn provide_signature_const_type_normalization(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> TypeNormalization {
-    let type_lowering = db.get(SignatureConstTypeLoweringQuery(module_id));
-    let item_signatures = db.get(SignatureConstItemSignaturesQuery(module_id));
-    normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)
+) -> QueryResult<TypeNormalization> {
+    let type_lowering = db.try_get(SignatureConstTypeLoweringQuery(module_id))?;
+    let item_signatures = db.try_get(SignatureConstItemSignaturesQuery(module_id))?;
+    Ok(normalize_types_in_session_store(
+        db,
+        module_id,
+        &type_lowering,
+        &item_signatures,
+    ))
 }
 
 fn normalize_types_in_session_store(
