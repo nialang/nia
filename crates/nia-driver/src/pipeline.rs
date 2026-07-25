@@ -977,6 +977,48 @@ fn emit_compilation_counters(
             "query.executions.extension_provider_validation_facts",
             "extension_provider_validation_facts",
         ),
+        ("query.executions.const_module", "const_module"),
+        ("query.executions.const", "const"),
+        (
+            "query.executions.const_array_lengths",
+            "const_array_lengths",
+        ),
+        ("query.executions.const_enum_values", "const_enum_values"),
+        ("query.executions.const_values", "const_values"),
+        ("query.executions.const_typed_facts", "const_typed_facts"),
+        ("query.executions.layouts", "layouts"),
+        ("query.executions.abi_check", "abi_check"),
+        ("query.executions.static_check", "static_check"),
+        ("query.executions.flow_check", "flow_check"),
+        ("query.executions.body_check", "body_check"),
+        (
+            "query.executions.executable_checked_module_facts",
+            "executable_checked_module_facts",
+        ),
+        (
+            "query.executions.executable_checked_modules",
+            "executable_checked_modules",
+        ),
+        (
+            "query.executions.executable_value_ref_item",
+            "executable_value_ref_item",
+        ),
+        (
+            "query.executions.executable_value_ref_edges",
+            "executable_value_ref_edges",
+        ),
+        (
+            "query.executions.executable_function_body",
+            "executable_function_body",
+        ),
+        (
+            "query.executions.executable_static_init",
+            "executable_static_init",
+        ),
+        (
+            "query.executions.lowered_function_body",
+            "lowered_function_body",
+        ),
         ("query.executions.signature_layouts", "signature_layouts"),
         ("query.executions.type_normalization", "type_normalization"),
     ] {
