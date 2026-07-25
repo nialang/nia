@@ -23,12 +23,12 @@ fn walk_executable_value_ref_closure(
     checked_functions: Option<&HashSet<GlobalDefId>>,
     mut on_function: impl FnMut(GlobalDefId) -> bool,
     mut on_global: impl FnMut(GlobalDefId) -> bool,
-) -> bool {
+) -> QueryResult<bool> {
     let mut changed = false;
     let mut pending_functions = functions.iter().copied().collect::<VecDeque<_>>();
     let mut scanned_functions = HashSet::with_capacity(functions.len());
     for global in globals {
-        let edges = db.get(ExecutableValueRefEdgesQuery(*global));
+        let edges = db.try_get(ExecutableValueRefEdgesQuery(*global))?;
         changed |= visit_executable_value_ref_edges(
             module_id,
             functions,
@@ -43,7 +43,7 @@ fn walk_executable_value_ref_closure(
         if !scanned_functions.insert(function) {
             continue;
         }
-        let edges = db.get(ExecutableValueRefEdgesQuery(function));
+        let edges = db.try_get(ExecutableValueRefEdgesQuery(function))?;
         changed |= visit_executable_value_ref_edges(
             module_id,
             functions,
@@ -54,7 +54,7 @@ fn walk_executable_value_ref_closure(
             &mut on_global,
         );
     }
-    changed
+    Ok(changed)
 }
 
 fn visit_executable_value_ref_edges(
@@ -84,22 +84,26 @@ fn visit_executable_value_ref_edges(
 }
 
 impl ExecutableValueRefEdges {
-    fn insert_edge(&mut self, db: &QueryDb<CompilerContext>, global_id: GlobalDefId) -> bool {
-        let defs = db.get(FullModuleDefsQuery(global_id.module_id));
+    fn insert_edge(
+        &mut self,
+        db: &QueryDb<CompilerContext>,
+        global_id: GlobalDefId,
+    ) -> QueryResult<bool> {
+        let defs = db.try_get(FullModuleDefsQuery(global_id.module_id))?;
         let Some(def) = defs.defs.get(global_id.def_id) else {
-            return false;
+            return Ok(false);
         };
-        match def.kind {
+        Ok(match def.kind {
             DefKind::Function | DefKind::Method | DefKind::TraitMethod => {
-                let signatures = db.get(SignatureItemSignaturesQuery(
+                let signatures = db.try_get(SignatureItemSignaturesQuery(
                     global_id.module_id,
                     nia_item_tree::SignatureItemSet::Functions,
-                ));
+                ))?;
                 let Some(signature) = signatures.functions.get(&global_id.def_id) else {
-                    return false;
+                    return Ok(false);
                 };
                 if signature.is_const || !signature.has_body {
-                    return false;
+                    return Ok(false);
                 }
                 self.functions.insert(global_id)
             }
@@ -115,7 +119,7 @@ impl ExecutableValueRefEdges {
             | DefKind::Trait
             | DefKind::TraitAssociatedType
             | DefKind::Module => false,
-        }
+        })
     }
 }
 
@@ -1463,7 +1467,7 @@ pub(in crate::query) fn provide_executable_function_body(
     let functions = HashSet::from([def_id]);
     let globals = HashSet::new();
     let resolution_inputs = BodyCheckResolutionInputs {
-        active_item_tree: db.get(FullActiveModuleItemTreeQuery(def_id.module_id)),
+        active_item_tree: db.try_get(FullActiveModuleItemTreeQuery(def_id.module_id))?,
         values: Arc::clone(&module.value_resolution),
         locals: Arc::clone(&module.local_resolution),
         semantic_uses: Arc::clone(&module.semantic_uses),
@@ -1531,7 +1535,7 @@ pub(in crate::query) fn provide_executable_static_init(
     let functions = HashSet::new();
     let globals = HashSet::from([def_id]);
     let resolution_inputs = BodyCheckResolutionInputs {
-        active_item_tree: db.get(FullActiveModuleItemTreeQuery(def_id.module_id)),
+        active_item_tree: db.try_get(FullActiveModuleItemTreeQuery(def_id.module_id))?,
         values: Arc::clone(&module.value_resolution),
         locals: Arc::clone(&module.local_resolution),
         semantic_uses: Arc::clone(&module.semantic_uses),
@@ -2207,7 +2211,7 @@ pub(super) fn extend_module_functions_from_filtered_value_refs(
     mut module_functions: HashSet<GlobalDefId>,
     module_globals: &HashSet<GlobalDefId>,
     checked_functions: Option<&HashSet<GlobalDefId>>,
-) -> HashSet<GlobalDefId> {
+) -> QueryResult<HashSet<GlobalDefId>> {
     time_module_provider(db, "extend_value_refs.scan_refs", module_id, || {
         walk_executable_value_ref_closure(
             db,
@@ -2217,9 +2221,9 @@ pub(super) fn extend_module_functions_from_filtered_value_refs(
             checked_functions,
             |_| false,
             |_| false,
-        );
-    });
-    module_functions
+        )
+    })?;
+    Ok(module_functions)
 }
 
 pub(super) fn executable_value_ref_edges_from_reachable_items(
@@ -2227,7 +2231,7 @@ pub(super) fn executable_value_ref_edges_from_reachable_items(
     module_id: ModuleId,
     module_functions: &HashSet<GlobalDefId>,
     module_globals: &HashSet<GlobalDefId>,
-) -> ExecutableValueRefEdges {
+) -> QueryResult<ExecutableValueRefEdges> {
     let mut scan_functions = module_functions.clone();
     let mut all_edges = ExecutableValueRefEdges::default();
     time_module_provider(db, "executable_value_refs.scan_refs", module_id, || {
@@ -2239,9 +2243,9 @@ pub(super) fn executable_value_ref_edges_from_reachable_items(
             None,
             |def_id| all_edges.functions.insert(def_id),
             |def_id| all_edges.globals.insert(def_id),
-        );
-    });
-    all_edges
+        )
+    })?;
+    Ok(all_edges)
 }
 
 pub(in crate::query) fn provide_executable_value_ref_edges(
@@ -2391,7 +2395,7 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
                 &values,
                 &locals,
                 &mut index,
-            );
+            )?;
             index
                 .functions
                 .remove(&owner)
@@ -2473,18 +2477,18 @@ fn collect_executable_value_ref_index_for_items(
     values: &ValueResolution,
     locals: &LocalResolution,
     index: &mut ExecutableValueRefIndex,
-) {
+) -> QueryResult<()> {
     for item in items {
         match &item.kind {
             nia_item_tree::ItemTreeNodeKind::Function(function) => {
                 collect_executable_value_ref_index_for_function(
                     db, module_id, defs, values, locals, function, index,
-                );
+                )?;
             }
             nia_item_tree::ItemTreeNodeKind::Binding(binding) => {
                 collect_executable_value_ref_index_for_binding(
                     db, module_id, defs, values, locals, binding, index,
-                );
+                )?;
             }
             nia_item_tree::ItemTreeNodeKind::Trait(item_trait) => {
                 for method in &item_trait.methods {
@@ -2496,7 +2500,7 @@ fn collect_executable_value_ref_index_for_items(
                         locals,
                         &method.function,
                         index,
-                    );
+                    )?;
                 }
             }
             nia_item_tree::ItemTreeNodeKind::Extend(extend) => {
@@ -2509,7 +2513,7 @@ fn collect_executable_value_ref_index_for_items(
                         locals,
                         &associated_value.binding,
                         index,
-                    );
+                    )?;
                 }
                 for method in &extend.methods {
                     collect_executable_value_ref_index_for_function(
@@ -2520,7 +2524,7 @@ fn collect_executable_value_ref_index_for_items(
                         locals,
                         &method.function,
                         index,
-                    );
+                    )?;
                 }
             }
             nia_item_tree::ItemTreeNodeKind::Module(_)
@@ -2531,6 +2535,7 @@ fn collect_executable_value_ref_index_for_items(
             | nia_item_tree::ItemTreeNodeKind::TypeAlias(_) => {}
         }
     }
+    Ok(())
 }
 
 fn collect_executable_value_ref_index_for_function(
@@ -2541,18 +2546,16 @@ fn collect_executable_value_ref_index_for_function(
     locals: &LocalResolution,
     function: &FunctionItem,
     index: &mut ExecutableValueRefIndex,
-) {
+) -> QueryResult<()> {
     if function.is_const || function.body.is_none() {
-        return;
+        return Ok(());
     }
     let Some(def_id) = defs.def_nodes.get(&function.node_key) else {
-        return;
+        return Ok(());
     };
     let owner = GlobalDefId { module_id, def_id };
     let edges = index.functions.entry(owner).or_default();
-    collect_executable_value_ref_edges_from_function(
-        db, module_id, function, values, locals, edges,
-    );
+    collect_executable_value_ref_edges_from_function(db, module_id, function, values, locals, edges)
 }
 
 fn collect_executable_value_ref_index_for_binding(
@@ -2563,16 +2566,16 @@ fn collect_executable_value_ref_index_for_binding(
     locals: &LocalResolution,
     binding: &BindingItem,
     index: &mut ExecutableValueRefIndex,
-) {
+) -> QueryResult<()> {
     if binding.is_const() || binding.value.is_none() {
-        return;
+        return Ok(());
     }
     let Some(def_id) = defs.def_nodes.get(&binding.node_key) else {
-        return;
+        return Ok(());
     };
     let owner = GlobalDefId { module_id, def_id };
     let edges = index.globals.entry(owner).or_default();
-    collect_executable_value_ref_edges_from_binding(db, module_id, binding, values, locals, edges);
+    collect_executable_value_ref_edges_from_binding(db, module_id, binding, values, locals, edges)
 }
 
 fn collect_executable_value_ref_edges_from_function(
@@ -2582,9 +2585,10 @@ fn collect_executable_value_ref_edges_from_function(
     values: &ValueResolution,
     locals: &LocalResolution,
     edges: &mut ExecutableValueRefEdges,
-) {
+) -> QueryResult<()> {
     let mut collector = ExecutableValueRefCollector::new(db, module_id, values, locals, edges);
     nia_ast_walk::Visitor::visit_function(&mut collector, function);
+    collector.finish()
 }
 
 fn collect_executable_value_ref_edges_from_binding(
@@ -2594,7 +2598,7 @@ fn collect_executable_value_ref_edges_from_binding(
     values: &ValueResolution,
     locals: &LocalResolution,
     edges: &mut ExecutableValueRefEdges,
-) {
+) -> QueryResult<()> {
     let mut collector = ExecutableValueRefCollector::new(db, module_id, values, locals, edges);
     if let Some(ty) = &binding.ty {
         nia_ast_walk::Visitor::visit_type(&mut collector, ty);
@@ -2602,6 +2606,7 @@ fn collect_executable_value_ref_edges_from_binding(
     if let Some(value) = &binding.value {
         nia_ast_walk::Visitor::visit_expr(&mut collector, value);
     }
+    collector.finish()
 }
 
 struct ExecutableValueRefCollector<'a> {
@@ -2610,6 +2615,7 @@ struct ExecutableValueRefCollector<'a> {
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
     edges: &'a mut ExecutableValueRefEdges,
+    failure: Option<QueryError>,
 }
 
 impl<'a> ExecutableValueRefCollector<'a> {
@@ -2626,32 +2632,42 @@ impl<'a> ExecutableValueRefCollector<'a> {
             values,
             locals,
             edges,
+            failure: None,
+        }
+    }
+
+    fn collect_key(&mut self, key: &nia_node_id::VersionedNodeKey) {
+        if self.failure.is_some() {
+            return;
+        }
+        if let Err(error) = collect_executable_value_ref_edge_for_key(
+            self.db,
+            self.module_id,
+            self.values,
+            self.locals,
+            self.edges,
+            key,
+        ) {
+            self.failure = Some(error);
+        }
+    }
+
+    fn finish(self) -> QueryResult<()> {
+        match self.failure {
+            Some(error) => Err(error),
+            None => Ok(()),
         }
     }
 }
 
 impl<'ast> nia_ast_walk::Visitor<'ast> for ExecutableValueRefCollector<'_> {
     fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
-        collect_executable_value_ref_edge_for_key(
-            self.db,
-            self.module_id,
-            self.values,
-            self.locals,
-            self.edges,
-            &expr.node_key,
-        );
+        self.collect_key(&expr.node_key);
         nia_ast_walk::walk_expr(self, expr);
     }
 
     fn visit_type(&mut self, ty: &'ast nia_ast::TypeRef) {
-        collect_executable_value_ref_edge_for_key(
-            self.db,
-            self.module_id,
-            self.values,
-            self.locals,
-            self.edges,
-            &ty.node_key,
-        );
+        self.collect_key(&ty.node_key);
         nia_ast_walk::walk_type(self, ty);
     }
 }
@@ -2663,13 +2679,13 @@ fn collect_executable_value_ref_edge_for_key(
     locals: &LocalResolution,
     edges: &mut ExecutableValueRefEdges,
     key: &nia_node_id::VersionedNodeKey,
-) {
+) -> QueryResult<()> {
     match locals.node_uses.get(key) {
         Some(nia_local_resolve::LocalUse::Static(global_id)) => {
-            edges.insert_edge(db, *global_id);
-            return;
+            edges.insert_edge(db, *global_id)?;
+            return Ok(());
         }
-        Some(nia_local_resolve::LocalUse::Local(_)) => return,
+        Some(nia_local_resolve::LocalUse::Local(_)) => return Ok(()),
         Some(nia_local_resolve::LocalUse::ModuleValue)
         | Some(nia_local_resolve::LocalUse::Module)
         | Some(nia_local_resolve::LocalUse::TypePrefix)
@@ -2690,11 +2706,12 @@ fn collect_executable_value_ref_edge_for_key(
             | nia_value_resolve::ValueNameResolution::Error => None,
         })
     {
-        edges.insert_edge(db, global_id);
+        edges.insert_edge(db, global_id)?;
     }
     if let Some(global_id) = values.node_qualified_values.get(key).copied() {
-        edges.insert_edge(db, global_id);
+        edges.insert_edge(db, global_id)?;
     }
+    Ok(())
 }
 
 pub(super) fn provide_checked_module_ids(
@@ -2716,8 +2733,8 @@ pub(super) fn extend_module_functions_from_local_static_globals(
     mut module_functions: HashSet<GlobalDefId>,
     module_globals: &HashSet<GlobalDefId>,
     checked_functions: Option<&HashSet<GlobalDefId>>,
-) -> HashSet<GlobalDefId> {
-    let defs = db.get(FullModuleDefsQuery(module_id));
+) -> QueryResult<HashSet<GlobalDefId>> {
+    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
     for global in module_globals {
         let Some(def) = defs.defs.get(global.def_id) else {
             continue;
@@ -2737,7 +2754,7 @@ pub(super) fn extend_module_functions_from_local_static_globals(
         }
         module_functions.insert(owner);
     }
-    module_functions
+    Ok(module_functions)
 }
 
 pub(super) fn filter_checked_module_for_codegen(
