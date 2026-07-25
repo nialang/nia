@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
     ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CheckedProgramAnalysis,
-    CodegenPreparation, CodegenProgram, ProgramDiagnostic, RuntimeModel, TimingMode,
+    CodegenPreparation, CodegenProgram, FrontendCheckCertificateCacheKey,
+    FrontendCheckInputFingerprint, FrontendCheckScope, ProgramDiagnostic, RuntimeModel, TimingMode,
     module_diagnostics,
 };
 #[cfg(test)]
@@ -321,7 +322,7 @@ impl CompilerDatabase {
     }
 
     pub fn check_program(&self) -> CheckedProgram {
-        self.analyze_program().into_report()
+        self.check_report(FrontendCheckScope::AllModules)
     }
 
     #[doc(hidden)]
@@ -351,7 +352,7 @@ impl CompilerDatabase {
     }
 
     pub fn entry_check_program(&self) -> CheckedProgram {
-        self.analyze_entry_program().into_report()
+        self.check_report(FrontendCheckScope::Entry)
     }
 
     #[doc(hidden)]
@@ -382,6 +383,93 @@ impl CompilerDatabase {
                 Err(payload) => std::panic::resume_unwind(payload),
             },
         }
+    }
+
+    fn check_report(&self, scope: FrontendCheckScope) -> CheckedProgram {
+        let cached = self.check_certificate_context(scope).and_then(|context| {
+            let cache = self.db.context().signature_cache.as_ref()?;
+            let lookup = cache.load_check_certificate(context.identity()).ok()?;
+            Some((context, lookup))
+        });
+        if !self.db.context().verify_frontend_cache
+            && let Some((_, crate::signature_cache::CheckCertificateLookup::Hit(certificate))) =
+                cached.as_ref()
+        {
+            emit_check_certificate_reuse(self.db.context().timings(), true);
+            self.db.context().loader_facts().settle_provider_demands();
+            self.db
+                .context()
+                .provider_demand_rounds
+                .store(0, std::sync::atomic::Ordering::Relaxed);
+            return CheckedProgram {
+                graph: self.current_graph(),
+                optimization: self.current_optimization(),
+                diagnostics: Vec::new(),
+                checked_body_count: certificate.checked_body_count,
+                reachable_body_count: certificate.reachable_body_count,
+            };
+        }
+        emit_check_certificate_reuse(self.db.context().timings(), false);
+        let report = match scope {
+            FrontendCheckScope::AllModules => self.analyze_program().into_report(),
+            FrontendCheckScope::Entry => self.analyze_entry_program().into_report(),
+        };
+        let Some(cache) = self.db.context().signature_cache.as_ref() else {
+            return report;
+        };
+        let context = self.check_certificate_context(scope);
+        if self.db.context().verify_frontend_cache
+            && let Some((cached_context, crate::signature_cache::CheckCertificateLookup::Hit(_))) =
+                cached.as_ref()
+            && (!report.diagnostics.is_empty()
+                || context
+                    .as_ref()
+                    .is_none_or(|context| context.key() != cached_context.key()))
+        {
+            cache.remove_check_certificate(cached_context.key());
+        }
+        let Some(context) = context else {
+            return report;
+        };
+        if report.diagnostics.is_empty() {
+            let certificate = crate::signature_cache::CachedCheckCertificate {
+                checked_body_count: report.checked_body_count(),
+                reachable_body_count: report.reachable_body_count(),
+            };
+            let _ = cache.publish_check_certificate(
+                context.identity(),
+                certificate,
+                self.db.context().verify_frontend_cache,
+            );
+        } else if self.db.context().verify_frontend_cache {
+            cache.remove_check_certificate(context.key());
+        }
+        report
+    }
+
+    fn check_certificate_context(
+        &self,
+        scope: FrontendCheckScope,
+    ) -> Option<CheckCertificateContext> {
+        let program_sources = self.db.get(FrontendProgramSourcesQuery);
+        let program_sources = program_sources.as_ref().as_ref()?;
+        let graph = self.db.get(ModuleGraphQuery);
+        let entry = graph.stable_key(graph.entry())?.clone();
+        let provider_facts = self.db.context().provider_fact_worklist();
+        let input = check_certificate_input_fingerprint(
+            program_sources.fingerprint,
+            &graph,
+            &provider_facts,
+        );
+        Some(CheckCertificateContext {
+            namespace: crate::FrontendCacheNamespace::new(
+                &self.db.context().loader_facts().target(),
+                self.db.context().loader_facts().runtime(),
+            ),
+            entry,
+            input,
+            scope,
+        })
     }
 
     fn executable_provider_demands(&self) -> Vec<crate::ProviderDemand> {
@@ -619,6 +707,14 @@ fn emit_provider_demand_batch(timings: TimingMode, round: u64, demands: &[crate:
     nia_timing::emit_counter(format!("{prefix}.module_bodies"), module_bodies);
 }
 
+fn emit_check_certificate_reuse(timings: TimingMode, hit: bool) {
+    if !timings.enabled() {
+        return;
+    }
+    nia_timing::emit_counter("compiler.check_certificate_hits", u64::from(hit));
+    nia_timing::emit_counter("compiler.check_certificate_misses", u64::from(!hit));
+}
+
 impl std::fmt::Debug for CompilerDatabase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inputs = self.inputs.read().expect("compiler input lock poisoned");
@@ -839,6 +935,30 @@ struct FrontendProgramSources {
     path_by_module: HashMap<ModuleId, String>,
 }
 
+#[derive(Debug, Clone)]
+struct CheckCertificateContext {
+    namespace: crate::FrontendCacheNamespace,
+    entry: StableModuleKey,
+    input: FrontendCheckInputFingerprint,
+    scope: FrontendCheckScope,
+}
+
+impl CheckCertificateContext {
+    fn key(&self) -> FrontendCheckCertificateCacheKey {
+        FrontendCheckCertificateCacheKey::new(self.namespace, &self.entry, self.input, self.scope)
+    }
+
+    fn identity(&self) -> crate::signature_cache::CheckCertificateIdentity<'_> {
+        crate::signature_cache::CheckCertificateIdentity {
+            key: self.key(),
+            namespace: self.namespace,
+            entry: &self.entry,
+            input: self.input,
+            scope: self.scope,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct StableModuleSequence {
     keys: Vec<StableModuleKey>,
@@ -955,6 +1075,87 @@ fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> QueryFingerpri
         }
     }
     builder.finish()
+}
+
+fn check_certificate_input_fingerprint(
+    program_sources: crate::FrontendProgramSourceFingerprint,
+    graph: &nia_imports::ModuleGraphSnapshot,
+    provider_facts: &crate::ProviderFactSnapshot,
+) -> FrontendCheckInputFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.compiler.check-certificate-input.v1");
+    builder.write_fingerprint(QueryFingerprint::from_parts(program_sources.parts()));
+    let mut modules = graph.modules().collect::<Vec<_>>();
+    modules.sort_unstable_by(|left, right| {
+        left.stable_key
+            .source_identity()
+            .normalized_path()
+            .cmp(right.stable_key.source_identity().normalized_path())
+    });
+    builder.write_u64(modules.len() as u64);
+    for module in modules {
+        builder.write_str(module.stable_key.source_identity().normalized_path());
+        builder.write_u64(module.module_path.package.raw());
+        builder.write_u64(module.module_path.segments.len() as u64);
+        for segment in &module.module_path.segments {
+            builder.write_u64(segment.raw());
+        }
+        if let Some(parent) = module.parent {
+            builder.write_u8(1);
+            builder.write_str(
+                graph
+                    .stable_key(parent)
+                    .expect("module graph parent must have stable identity")
+                    .source_identity()
+                    .normalized_path(),
+            );
+        } else {
+            builder.write_u8(0);
+        }
+        builder.write_u8(u8::from(graph.is_executable_root_module(module.id)));
+        let mut declarations = module
+            .declarations
+            .iter()
+            .map(|declaration| {
+                (
+                    declaration.name.raw(),
+                    visibility_tag(declaration.visibility),
+                    graph
+                        .stable_key(declaration.target)
+                        .expect("module declaration target must have stable identity")
+                        .source_identity()
+                        .normalized_path()
+                        .to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
+        declarations.sort_unstable();
+        builder.write_u64(declarations.len() as u64);
+        for (name, visibility, target) in declarations {
+            builder.write_u64(name);
+            builder.write_u8(visibility);
+            builder.write_str(&target);
+        }
+    }
+    let mut demands = provider_facts
+        .demands()
+        .iter()
+        .map(provider_demand_fingerprint)
+        .collect::<Vec<_>>();
+    demands.sort_unstable();
+    builder.write_u64(demands.len() as u64);
+    for demand in demands {
+        builder.write_fingerprint(demand);
+    }
+    FrontendCheckInputFingerprint::from_parts(builder.finish().parts())
+}
+
+fn visibility_tag(visibility: nia_ids::Visibility) -> u8 {
+    match visibility {
+        nia_ids::Visibility::Private => 0,
+        nia_ids::Visibility::PublicSuper => 1,
+        nia_ids::Visibility::PublicPkg => 2,
+        nia_ids::Visibility::Public => 3,
+    }
 }
 
 fn module_graph_path_fingerprint(path: &Option<nia_imports::ModulePath>) -> QueryFingerprint {
@@ -3006,6 +3207,69 @@ pub fn expensive_or_invalid() i32 {
     }
 
     #[test]
+    fn check_certificate_input_covers_stable_graph_and_provider_demands() {
+        let mut public_graph = LoadedProgramFixture::new("main.nia", "module child;");
+        let public_entry = public_graph.entry_id();
+        public_graph.add_child_with_visibility(
+            public_entry,
+            "child",
+            nia_ids::Visibility::Public,
+            "child.nia",
+            "pub fn value() i32 { 1 }",
+        );
+        let mut private_graph = LoadedProgramFixture::new("main.nia", "module child;");
+        let private_entry = private_graph.entry_id();
+        private_graph.add_child_with_visibility(
+            private_entry,
+            "child",
+            nia_ids::Visibility::Private,
+            "child.nia",
+            "pub fn value() i32 { 1 }",
+        );
+        let program_sources = crate::frontend_program_source_fingerprint(
+            public_graph.graph.modules().map(|module| {
+                (
+                    &module.stable_key,
+                    crate::source_content_fingerprint("same exact source"),
+                    17,
+                )
+            }),
+        );
+        let revision = crate::ProviderFactRevision::new_store();
+        let empty = crate::ProviderFactSnapshot::empty(revision);
+        let public = check_certificate_input_fingerprint(
+            program_sources,
+            &public_graph.graph.clone().into(),
+            &empty,
+        );
+        let private = check_certificate_input_fingerprint(
+            program_sources,
+            &private_graph.graph.clone().into(),
+            &empty,
+        );
+        assert_ne!(public, private);
+
+        let demanded = crate::ProviderFactSnapshot::new(
+            revision,
+            revision,
+            [crate::ProviderDemand {
+                source_path: SourcePath::new("child.nia"),
+                request: crate::ProviderRequest::ModuleBody {
+                    module_path: SourcePath::new("child.nia"),
+                },
+            }],
+        );
+        assert_ne!(
+            public,
+            check_certificate_input_fingerprint(
+                program_sources,
+                &public_graph.graph.into(),
+                &demanded,
+            )
+        );
+    }
+
+    #[test]
     fn compiler_inputs_preserve_provider_fact_revision() {
         let fixture = LoadedProgramFixture::new("main.nia", "fn main() i32 { 0 }");
         let mut program = fixture.program();
@@ -4787,6 +5051,136 @@ extend Value : Ops {
             "executable_value_ref_item_index",
             "module_defs"
         ));
+    }
+
+    #[test]
+    fn persistent_clean_check_certificate_skips_semantic_analysis_and_verifies_fresh() {
+        static CACHE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let cache_id = CACHE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "nia-clean-check-certificate-{}-{cache_id}",
+            std::process::id()
+        ));
+        let compile = |source: &str, verify: bool| {
+            let fixture = LoadedProgramFixture::new("main.nia", source);
+            let module_id = fixture.entry_id();
+            let db = query_db_with_frontend_cache(
+                fixture.program(),
+                HashMap::from([(
+                    module_id,
+                    (crate::source_content_fingerprint(source), source.len()),
+                )]),
+                root.clone(),
+                verify,
+            );
+            let inputs = Arc::clone(&db.context().inputs);
+            let database = super::CompilerDatabase { db, inputs };
+            let report = database.entry_check_program();
+            (report, database.query_trace())
+        };
+
+        let source = "fn main() i32 { 1 }";
+        let (cold, cold_trace) = compile(source, false);
+        assert!(cold.diagnostics.is_empty(), "{:?}", cold.diagnostics);
+        assert_eq!(query_executions(&cold_trace, "entry_checked_program"), 1);
+        assert!(query_executions(&cold_trace, "executable_checked_module_facts") > 0);
+
+        let (warm, warm_trace) = compile(source, false);
+        assert_eq!(warm.optimization, cold.optimization);
+        assert_eq!(warm.diagnostics, cold.diagnostics);
+        assert_eq!(warm.checked_body_count(), cold.checked_body_count());
+        assert_eq!(warm.reachable_body_count(), cold.reachable_body_count());
+        assert_eq!(
+            warm.graph
+                .stable_key(warm.graph.entry())
+                .expect("warm entry stable key"),
+            cold.graph
+                .stable_key(cold.graph.entry())
+                .expect("cold entry stable key")
+        );
+        assert!(!warm.graph.ptr_eq(&cold.graph));
+        assert_eq!(query_executions(&warm_trace, "entry_checked_program"), 0);
+        assert_eq!(
+            query_executions(&warm_trace, "executable_checked_module_facts"),
+            0
+        );
+        assert_eq!(query_executions(&warm_trace, "body_check"), 0);
+
+        let (verified, verified_trace) = compile(source, true);
+        assert_eq!(verified.optimization, cold.optimization);
+        assert_eq!(verified.diagnostics, cold.diagnostics);
+        assert_eq!(verified.checked_body_count(), cold.checked_body_count());
+        assert_eq!(
+            query_executions(&verified_trace, "entry_checked_program"),
+            1
+        );
+
+        let invalid_source = "fn main() i32 { true }";
+        let (edited, edited_trace) = compile(invalid_source, false);
+        assert!(!edited.diagnostics.is_empty());
+        assert_eq!(query_executions(&edited_trace, "entry_checked_program"), 1);
+
+        let invalid_fixture = LoadedProgramFixture::new("main.nia", invalid_source);
+        let invalid_module = invalid_fixture.entry_id();
+        let invalid_db = query_db_with_frontend_cache(
+            invalid_fixture.program(),
+            HashMap::from([(
+                invalid_module,
+                (
+                    crate::source_content_fingerprint(invalid_source),
+                    invalid_source.len(),
+                ),
+            )]),
+            root.clone(),
+            false,
+        );
+        let invalid_inputs = Arc::clone(&invalid_db.context().inputs);
+        let invalid_database = super::CompilerDatabase {
+            db: invalid_db,
+            inputs: invalid_inputs,
+        };
+        let invalid_context = invalid_database
+            .check_certificate_context(FrontendCheckScope::Entry)
+            .expect("invalid-source certificate context");
+        invalid_database
+            .db
+            .context()
+            .signature_cache
+            .as_ref()
+            .expect("signature cache")
+            .publish_check_certificate(
+                invalid_context.identity(),
+                crate::signature_cache::CachedCheckCertificate {
+                    checked_body_count: 1,
+                    reachable_body_count: 1,
+                },
+                false,
+            )
+            .expect("inject semantically wrong clean certificate");
+        let (trusted_invalid, trusted_invalid_trace) = compile(invalid_source, false);
+        assert!(trusted_invalid.diagnostics.is_empty());
+        assert_eq!(
+            query_executions(&trusted_invalid_trace, "entry_checked_program"),
+            0
+        );
+        let (verified_invalid, verified_invalid_trace) = compile(invalid_source, true);
+        assert!(!verified_invalid.diagnostics.is_empty());
+        assert_eq!(
+            query_executions(&verified_invalid_trace, "entry_checked_program"),
+            1
+        );
+        let (retired_invalid, retired_invalid_trace) = compile(invalid_source, false);
+        assert!(!retired_invalid.diagnostics.is_empty());
+        assert_eq!(
+            query_executions(&retired_invalid_trace, "entry_checked_program"),
+            1
+        );
+        let (_, warm_after_verification) = compile(source, false);
+        assert_eq!(
+            query_executions(&warm_after_verification, "entry_checked_program"),
+            0
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

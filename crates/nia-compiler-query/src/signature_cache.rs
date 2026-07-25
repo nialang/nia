@@ -26,7 +26,8 @@ use nia_type_lower::TypeLowering;
 use nia_type_resolve::{TypeNameResolution, TypeResolution};
 
 use crate::{
-    FrontendCacheNamespace, FrontendExecutableValueRefEdgesCacheKey,
+    FrontendCacheNamespace, FrontendCheckCertificateCacheKey, FrontendCheckInputFingerprint,
+    FrontendCheckScope, FrontendExecutableValueRefEdgesCacheKey,
     FrontendExtensionTraitSolvingFactsCacheKey, FrontendExtensionValidationDiagnosticsCacheKey,
     FrontendProgramSourceFingerprint, FrontendSignatureItemSignaturesCacheKey,
     FrontendSignatureTypeLoweringCacheKey, FrontendSignatureTypeResolutionCacheKey,
@@ -38,6 +39,7 @@ const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI002";
 const EXTENSION_TRAIT_FACTS_MAGIC: &[u8; 8] = b"NIAET001";
 const EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC: &[u8; 8] = b"NIAEV001";
 const EXECUTABLE_VALUE_REF_EDGES_MAGIC: &[u8; 8] = b"NIAER001";
+const CHECK_CERTIFICATE_MAGIC: &[u8; 8] = b"NIACC001";
 const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
@@ -106,6 +108,15 @@ pub(crate) struct ExecutableValueRefEdgesIdentity<'a> {
     pub(crate) program_sources: FrontendProgramSourceFingerprint,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CheckCertificateIdentity<'a> {
+    pub(crate) key: FrontendCheckCertificateCacheKey,
+    pub(crate) namespace: FrontendCacheNamespace,
+    pub(crate) entry: &'a StableModuleKey,
+    pub(crate) input: FrontendCheckInputFingerprint,
+    pub(crate) scope: FrontendCheckScope,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CachedExtensionTraitSolvingFacts {
     pub(crate) trait_impls: Vec<item_signatures::ProgramTraitImplSignature>,
@@ -116,6 +127,12 @@ pub(crate) struct CachedExtensionTraitSolvingFacts {
 pub(crate) struct CachedExecutableValueRefEdges {
     pub(crate) functions: HashSet<GlobalDefId>,
     pub(crate) globals: HashSet<GlobalDefId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CachedCheckCertificate {
+    pub(crate) checked_body_count: usize,
+    pub(crate) reachable_body_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -156,6 +173,13 @@ pub(crate) enum ExtensionValidationDiagnosticsLookup {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ExecutableValueRefEdgesLookup {
     Hit(CachedExecutableValueRefEdges),
+    NotFound,
+    Corrupt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CheckCertificateLookup {
+    Hit(CachedCheckCertificate),
     NotFound,
     Corrupt,
 }
@@ -581,6 +605,51 @@ impl PersistentSignatureCache {
         remove_corrupt(&self.executable_value_ref_edges_path(key));
     }
 
+    pub(crate) fn load_check_certificate(
+        &self,
+        identity: CheckCertificateIdentity<'_>,
+    ) -> io::Result<CheckCertificateLookup> {
+        let path = self.check_certificate_path(identity.key);
+        let encoded = match fs::read(&path) {
+            Ok(encoded) if encoded.len() <= MAX_ENTRY_BYTES => encoded,
+            Ok(_) => {
+                remove_corrupt(&path);
+                return Ok(CheckCertificateLookup::Corrupt);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(CheckCertificateLookup::NotFound);
+            }
+            Err(error) => return Err(error),
+        };
+        let Some(certificate) = decode_check_certificate(&encoded, identity) else {
+            remove_corrupt(&path);
+            return Ok(CheckCertificateLookup::Corrupt);
+        };
+        Ok(CheckCertificateLookup::Hit(certificate))
+    }
+
+    pub(crate) fn publish_check_certificate(
+        &self,
+        identity: CheckCertificateIdentity<'_>,
+        certificate: CachedCheckCertificate,
+        replace: bool,
+    ) -> io::Result<()> {
+        let path = self.check_certificate_path(identity.key);
+        if !replace && path.is_file() {
+            return Ok(());
+        }
+        let encoded = encode_check_certificate(identity, certificate);
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
+        fs::create_dir_all(parent)?;
+        atomic_publish(&path, &encoded)
+    }
+
+    pub(crate) fn remove_check_certificate(&self, key: FrontendCheckCertificateCacheKey) {
+        remove_corrupt(&self.check_certificate_path(key));
+    }
+
     pub(crate) fn type_resolution_path(
         &self,
         key: FrontendSignatureTypeResolutionCacheKey,
@@ -655,6 +724,73 @@ impl PersistentSignatureCache {
             .join("executable-value-ref-edges")
             .join(format!("{first:016x}{second:016x}.erv"))
     }
+
+    pub(crate) fn check_certificate_path(&self, key: FrontendCheckCertificateCacheKey) -> PathBuf {
+        let [first, second] = key.parts();
+        self.root
+            .join("artifacts")
+            .join("frontend")
+            .join("v3")
+            .join("check-certificates")
+            .join(format!("{first:016x}{second:016x}.ccc"))
+    }
+}
+
+fn encode_check_certificate(
+    identity: CheckCertificateIdentity<'_>,
+    certificate: CachedCheckCertificate,
+) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(CHECK_CERTIFICATE_MAGIC);
+    write_parts(&mut encoded, identity.key.parts());
+    write_parts(&mut encoded, identity.namespace.parts());
+    write_parts(&mut encoded, identity.input.parts());
+    write_string(
+        &mut encoded,
+        identity.entry.source_identity().normalized_path(),
+    );
+    encoded.push(identity.scope.tag());
+    write_u64(&mut encoded, certificate.checked_body_count as u64);
+    write_u64(&mut encoded, certificate.reachable_body_count as u64);
+    let checksum = checksum(&encoded);
+    write_parts(&mut encoded, checksum.parts());
+    encoded
+}
+
+fn decode_check_certificate(
+    encoded: &[u8],
+    identity: CheckCertificateIdentity<'_>,
+) -> Option<CachedCheckCertificate> {
+    if encoded.len() < CHECK_CERTIFICATE_MAGIC.len() + 16 {
+        return None;
+    }
+    let checksum_offset = encoded.len().checked_sub(16)?;
+    let expected_checksum = checksum(&encoded[..checksum_offset]);
+    let mut checksum_cursor = Cursor::new(&encoded[checksum_offset..]);
+    if read_parts(&mut checksum_cursor)? != expected_checksum.parts() {
+        return None;
+    }
+    let mut cursor = Cursor::new(&encoded[..checksum_offset]);
+    let mut magic = [0_u8; 8];
+    cursor.read_exact(&mut magic).ok()?;
+    if &magic != CHECK_CERTIFICATE_MAGIC
+        || read_parts(&mut cursor)? != identity.key.parts()
+        || read_parts(&mut cursor)? != identity.namespace.parts()
+        || read_parts(&mut cursor)? != identity.input.parts()
+        || read_string(&mut cursor, encoded.len())?
+            != identity.entry.source_identity().normalized_path()
+        || read_u8(&mut cursor)? != identity.scope.tag()
+    {
+        return None;
+    }
+    let checked_body_count = usize::try_from(read_u64(&mut cursor)?).ok()?;
+    let reachable_body_count = usize::try_from(read_u64(&mut cursor)?).ok()?;
+    (usize::try_from(cursor.position()).ok()? == checksum_offset).then_some(
+        CachedCheckCertificate {
+            checked_body_count,
+            reachable_body_count,
+        },
+    )
 }
 
 fn encode_entry(identity: SignatureTypeResolutionIdentity<'_>, payload: &[u8]) -> Vec<u8> {
@@ -3576,6 +3712,55 @@ mod tests {
     use nia_ids::{ConstExprId, GlobalConstExprId, ModuleIdAllocator};
     use nia_source::{SourceId, SourceIdentity, SourceRevision};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn check_certificate_roundtrips_and_retires_corruption() {
+        let root = temp_dir("check_certificate");
+        let cache = PersistentSignatureCache::new(root.clone());
+        let entry = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
+        let namespace = crate::FrontendCacheNamespace::new(
+            &nia_target_config::TargetConfig::host(),
+            crate::RuntimeModel::Bare,
+        );
+        let input = crate::FrontendCheckInputFingerprint::from_parts([11, 29]);
+        let key = crate::FrontendCheckCertificateCacheKey::new(
+            namespace,
+            &entry,
+            input,
+            crate::FrontendCheckScope::Entry,
+        );
+        let identity = CheckCertificateIdentity {
+            key,
+            namespace,
+            entry: &entry,
+            input,
+            scope: crate::FrontendCheckScope::Entry,
+        };
+        let certificate = CachedCheckCertificate {
+            checked_body_count: 17,
+            reachable_body_count: 13,
+        };
+        cache
+            .publish_check_certificate(identity, certificate, false)
+            .expect("publish check certificate");
+        assert_eq!(
+            cache
+                .load_check_certificate(identity)
+                .expect("load check certificate"),
+            CheckCertificateLookup::Hit(certificate)
+        );
+
+        let path = cache.check_certificate_path(key);
+        fs::write(&path, b"corrupt").expect("corrupt check certificate");
+        assert_eq!(
+            cache
+                .load_check_certificate(identity)
+                .expect("load corrupt check certificate"),
+            CheckCertificateLookup::Corrupt
+        );
+        assert!(!path.exists());
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {

@@ -35,6 +35,22 @@ frontend_fingerprint!(ItemSignatureFingerprint);
 frontend_fingerprint!(FrontendCacheNamespace);
 frontend_fingerprint!(FrontendModuleMapFingerprint);
 frontend_fingerprint!(FrontendProgramSourceFingerprint);
+frontend_fingerprint!(FrontendCheckInputFingerprint);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum FrontendCheckScope {
+    AllModules,
+    Entry,
+}
+
+impl FrontendCheckScope {
+    pub(crate) const fn tag(self) -> u8 {
+        match self {
+            Self::AllModules => 0,
+            Self::Entry => 1,
+        }
+    }
+}
 
 macro_rules! frontend_cache_key {
     ($name:ident, $fingerprint:ident, $domain:literal) => {
@@ -210,6 +226,32 @@ impl FrontendExecutableValueRefEdgesCacheKey {
             QueryFingerprintBuilder::new("nia.frontend.cache-key.executable-value-ref-edges.v1");
         write_frontend_cache_key(&mut builder, namespace, module, program_sources.parts());
         builder.write_u64(owner.0);
+        Self(builder.finish())
+    }
+
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(QueryFingerprint::from_parts(parts))
+    }
+
+    pub const fn parts(self) -> [u64; 2] {
+        self.0.parts()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FrontendCheckCertificateCacheKey(QueryFingerprint);
+
+impl FrontendCheckCertificateCacheKey {
+    pub fn new(
+        namespace: FrontendCacheNamespace,
+        entry: &StableModuleKey,
+        input: FrontendCheckInputFingerprint,
+        scope: FrontendCheckScope,
+    ) -> Self {
+        let mut builder =
+            QueryFingerprintBuilder::new("nia.frontend.cache-key.check-certificate.v1");
+        write_frontend_cache_key(&mut builder, namespace, entry, input.parts());
+        builder.write_u8(scope.tag());
         Self(builder.finish())
     }
 
@@ -626,6 +668,54 @@ extend Value {
             FrontendModuleMapFingerprint::from_parts(fingerprint.parts())
         );
         assert_eq!(std::mem::size_of::<FrontendModuleMapFingerprint>(), 16);
+    }
+
+    #[test]
+    fn check_certificate_key_separates_entry_scope_and_input() {
+        let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+        let entry = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
+        let other_entry =
+            StableModuleKey::from_source_identity(SourceIdentity::new("src/tool.nia"));
+        let input = FrontendCheckInputFingerprint::from_parts([3, 5]);
+        let key = FrontendCheckCertificateCacheKey::new(
+            namespace,
+            &entry,
+            input,
+            FrontendCheckScope::Entry,
+        );
+
+        assert_ne!(
+            key,
+            FrontendCheckCertificateCacheKey::new(
+                namespace,
+                &entry,
+                input,
+                FrontendCheckScope::AllModules,
+            )
+        );
+        assert_ne!(
+            key,
+            FrontendCheckCertificateCacheKey::new(
+                namespace,
+                &entry,
+                FrontendCheckInputFingerprint::from_parts([3, 7]),
+                FrontendCheckScope::Entry,
+            )
+        );
+        assert_ne!(
+            key,
+            FrontendCheckCertificateCacheKey::new(
+                namespace,
+                &other_entry,
+                input,
+                FrontendCheckScope::Entry,
+            )
+        );
+        assert_eq!(
+            key,
+            FrontendCheckCertificateCacheKey::from_parts(key.parts())
+        );
+        assert_eq!(std::mem::size_of::<FrontendCheckCertificateCacheKey>(), 16);
     }
 
     #[test]
