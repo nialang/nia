@@ -782,7 +782,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     });
     let inputs = &filtered_inputs;
     let source_path = db.get(ModulePathQuery(module_id));
-    let signatures = body_local_item_signatures(db, module_id, &lowered);
+    let signatures = body_local_item_signatures(db, module_id, &lowered)?;
     let normalization = db.get(TypeNormalizationQuery(module_id));
     let extension_method_normalization = |module_id| {
         Some(db.get(SignatureTypeNormalizationQuery(
@@ -2605,9 +2605,16 @@ fn collect_executable_value_ref_edge_for_key(
     }
 }
 
-pub(super) fn provide_checked_module_ids(db: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
+pub(super) fn provide_checked_module_ids(
+    db: &QueryDb<CompilerContext>,
+) -> QueryResult<Vec<ModuleId>> {
     time_provider(db.context().timings(), "checked_module_ids", || {
-        resolve_stable_module_sequence(db, &db.get(SemanticModuleIdsQuery))
+        let module_ids = db.try_get(SemanticModuleIdsQuery)?;
+        let _graph = db.try_get(ModuleGraphQuery)?;
+        Ok(resolve_stable_module_sequence_from_current_inputs(
+            db,
+            &module_ids,
+        ))
     })
 }
 

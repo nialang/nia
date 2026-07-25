@@ -4394,8 +4394,8 @@ fn main() i32 {
             module_ids.allocate()
         }
 
-        fn unknown_checked_module(_: &QueryDb<CompilerContext>) -> Vec<ModuleId> {
-            vec![unknown_module_id()]
+        fn unknown_checked_module(_: &QueryDb<CompilerContext>) -> QueryResult<Vec<ModuleId>> {
+            Ok(vec![unknown_module_id()])
         }
 
         let providers = CompilerQueryProviders {
@@ -4482,6 +4482,10 @@ fn main() i32 {
                 .db
                 .try_get(CheckedModuleQuery(missing_module))
                 .expect_err("checked modules should propagate a missing module input"),
+            database
+                .db
+                .try_get(CheckedProgramQuery)
+                .expect_err("checked program aggregation should propagate a missing module input"),
             database
                 .db
                 .try_get(FlowCheckQuery(missing_module))

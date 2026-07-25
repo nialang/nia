@@ -350,43 +350,43 @@ pub(super) fn body_local_item_signatures(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     lowered: &TypeLowering,
-) -> ItemSignatures {
-    let defs = db.get(FullModuleDefsQuery(module_id));
+) -> QueryResult<ItemSignatures> {
+    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
     let functions = collect_body_signature_subset(
         db,
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
         &defs,
         lowered,
-    );
+    )?;
     let extension_functions = collect_body_signature_subset(
         db,
         module_id,
         nia_item_tree::SignatureItemSet::ExtensionFunctions,
         &defs,
         lowered,
-    );
+    )?;
     let values = collect_body_signature_subset(
         db,
         module_id,
         nia_item_tree::SignatureItemSet::Values,
         &defs,
         lowered,
-    );
+    )?;
     let types = collect_body_signature_subset(
         db,
         module_id,
         nia_item_tree::SignatureItemSet::Types,
         &defs,
         lowered,
-    );
+    )?;
     let traits = collect_body_signature_subset(
         db,
         module_id,
         nia_item_tree::SignatureItemSet::Traits,
         &defs,
         lowered,
-    );
+    )?;
     let mut function_signatures = functions.functions;
     function_signatures.extend(extension_functions.functions);
     function_signatures.extend(traits.functions.clone());
@@ -403,7 +403,7 @@ pub(super) fn body_local_item_signatures(
     diagnostics.extend(values.diagnostics);
     diagnostics.extend(types.diagnostics);
     diagnostics.extend(traits.diagnostics);
-    ItemSignatures {
+    Ok(ItemSignatures {
         functions: function_signatures,
         structs: types.structs,
         unions: types.unions,
@@ -414,7 +414,7 @@ pub(super) fn body_local_item_signatures(
         globals: global_signatures,
         consts: const_signatures,
         diagnostics,
-    }
+    })
 }
 
 fn collect_body_signature_subset(
@@ -423,14 +423,16 @@ fn collect_body_signature_subset(
     set: nia_item_tree::SignatureItemSet,
     defs: &DefCollection,
     lowered: &TypeLowering,
-) -> ItemSignatures {
-    let active_item_tree = db.get(SignatureItemTreeQuery(module_id, set));
+) -> QueryResult<ItemSignatures> {
+    let active_item_tree = db.try_get(SignatureItemTreeQuery(module_id, set))?;
     let symbols = db.context().symbols();
-    nia_item_signatures::collect_item_signatures(nia_item_signatures::ItemSignatureInput {
-        source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
-        defs,
-        lowered,
-        type_store: db.context().type_store(),
-        symbols: Some(&symbols),
-    })
+    Ok(nia_item_signatures::collect_item_signatures(
+        nia_item_signatures::ItemSignatureInput {
+            source: nia_item_signatures::ItemSignatureSource::ActiveItemTree(&active_item_tree),
+            defs,
+            lowered,
+            type_store: db.context().type_store(),
+            symbols: Some(&symbols),
+        },
+    ))
 }

@@ -32,7 +32,7 @@ impl QueryKey<CompilerContext> for CheckedModuleIdsQuery {
         "checked_module_ids"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.checked_module_ids)(db)
     }
 }
@@ -71,7 +71,7 @@ impl QueryKey<CompilerContext> for ExecutableCheckedModulesQuery {
         "executable_checked_modules"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         materialize_executable_checked_modules(db)
     }
 }

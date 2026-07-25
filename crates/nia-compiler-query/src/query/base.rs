@@ -13,7 +13,7 @@ impl QueryKey<CompilerContext> for CheckedProgramQuery {
         "checked_program"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.checked_program)(db)
     }
 }
@@ -28,7 +28,7 @@ impl QueryKey<CompilerContext> for EntryCheckedProgramQuery {
         "entry_checked_program"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.entry_checked_program)(db)
     }
 }
@@ -58,7 +58,7 @@ impl QueryKey<CompilerContext> for CodegenPreparationQuery {
         "codegen_preparation"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         provide_codegen_preparation(db)
     }
 }
@@ -73,7 +73,7 @@ impl QueryKey<CompilerContext> for CodegenProgramQuery {
         "codegen_program"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.codegen_program)(db)
     }
 }
