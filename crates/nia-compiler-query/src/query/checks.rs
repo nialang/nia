@@ -26,7 +26,7 @@ impl QueryKey<CompilerContext> for ConstQuery {
         "const"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.const_eval)(db, self.0)
     }
 }
@@ -41,7 +41,7 @@ impl QueryKey<CompilerContext> for ConstArrayLengthsQuery {
         "const_array_lengths"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.const_array_lengths)(db, self.0)
     }
 }
@@ -56,7 +56,7 @@ impl QueryKey<CompilerContext> for ConstEnumValuesQuery {
         "const_enum_values"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.const_enum_values)(db, self.0)
     }
 }
@@ -71,7 +71,7 @@ impl QueryKey<CompilerContext> for ConstValuesQuery {
         "const_values"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.const_values)(db, self.0)
     }
 }
@@ -86,7 +86,7 @@ impl QueryKey<CompilerContext> for ConstTypedFactsQuery {
         "const_typed_facts"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.const_typed_facts)(db, self.0)
     }
 }
@@ -120,7 +120,7 @@ impl QueryKey<CompilerContext> for SignatureLayoutsQuery {
         format!("signature_layouts({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_layouts)(db, self.0)
     }
 }
@@ -180,7 +180,7 @@ impl QueryKey<CompilerContext> for BodyCheckQuery {
         "body_check"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.body_check)(db, self.0)
     }
 }

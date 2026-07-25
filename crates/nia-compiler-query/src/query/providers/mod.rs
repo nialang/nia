@@ -338,7 +338,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) signature_const_type_normalization:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeNormalization>,
     pub(super) signature_const_module:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ConstModuleLowering,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ConstModuleLowering>,
     pub(super) program_signature_module_ids: fn(
         &QueryDb<CompilerContext>,
         nia_item_tree::SignatureItemSet,
@@ -426,24 +426,26 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_sema_ir::SemanticUseTable>,
     pub(super) const_module:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ConstModuleLowering>,
-    pub(super) const_eval: fn(&QueryDb<CompilerContext>, ModuleId) -> ConstCheck,
+    pub(super) const_eval: fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ConstCheck>,
     pub(super) const_array_lengths:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_const_check::ConstArrayLengths,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_const_check::ConstArrayLengths>,
     pub(super) const_enum_values:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_const_check::ConstEnumValues,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_const_check::ConstEnumValues>,
     pub(super) const_values:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_const_check::ConstValues,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_const_check::ConstValues>,
     pub(super) const_typed_facts:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> nia_const_check::ConstTypedFacts,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_const_check::ConstTypedFacts>,
     pub(super) layouts: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_layout::Layouts,
-    pub(super) signature_layouts: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_layout::Layouts,
+    pub(super) signature_layouts:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_layout::Layouts>,
     pub(super) abi_check:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_abi_check::AbiCheck>,
     pub(super) static_check:
         fn(&QueryDb<CompilerContext>, ModuleId) -> nia_static_check::StaticCheck,
     pub(super) flow_check:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_flow_check::FlowCheck>,
-    pub(super) body_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_body_check::BodyCheck,
+    pub(super) body_check:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_body_check::BodyCheck>,
     pub(super) checked_module: fn(&QueryDb<CompilerContext>, ModuleId) -> CheckedModule,
     pub(super) checked_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
     pub(super) monomorphization:

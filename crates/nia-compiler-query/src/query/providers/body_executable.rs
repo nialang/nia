@@ -405,17 +405,19 @@ fn executable_program_global_initializer(
     db: &QueryDb<CompilerContext>,
     global_id: GlobalDefId,
     fact_mode: ExecutableFactMode<'_>,
-) -> Option<nia_const_ir::ResolvedConstExpr> {
+) -> QueryResult<Option<nia_const_ir::ResolvedConstExpr>> {
     if fact_mode.signature_facts_for(global_id.module_id) {
-        let lowering = signature_const_module_lowering(db, global_id.module_id);
+        let lowering = signature_const_module_lowering(db, global_id.module_id)?;
         let module = &lowering.module;
-        return module
+        return Ok(module
             .global_initializers()
             .get(&global_id)
             .or_else(|| module.deferred_global_initializers().get(&global_id))
-            .cloned();
+            .cloned());
     }
-    filtered_const_global_initializer_for_body_check(db, global_id)
+    Ok(filtered_const_global_initializer_for_body_check(
+        db, global_id,
+    ))
 }
 
 struct ConstBodyModuleInput<'a> {
@@ -436,7 +438,7 @@ fn const_inputs_for_body_check(
         &RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>,
     >,
     const_module_cache: Option<&RefCell<HashMap<ModuleId, ConstModuleLowering>>>,
-) -> BodyCheckConstInputs {
+) -> QueryResult<BodyCheckConstInputs> {
     let ConstBodyModuleInput {
         module_id,
         defs,
@@ -486,15 +488,17 @@ fn const_inputs_for_body_check(
     } else {
         lower_module()
     };
+    let query_failure = RefCell::new(None);
     let program_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
-            return Some(
-                signature_const_module_lowering(db, module_id)
-                    .module
-                    .clone(),
-            );
+            return capture_query_failure(
+                &query_failure,
+                signature_const_module_lowering(db, module_id),
+            )
+            .map(|lowering| lowering.module.clone());
         }
-        Some(db.get(ConstModuleQuery(module_id)).module.clone())
+        capture_query_failure(&query_failure, db.try_get(ConstModuleQuery(module_id)))
+            .map(|lowering| lowering.module.clone())
     };
     let program_source_path = |module_id| Some(db.get(ModulePathQuery(module_id)).as_ref().clone());
     let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
@@ -572,12 +576,20 @@ fn const_inputs_for_body_check(
     let program_global_initializer = |global_id| {
         if let Some(cache) = global_initializer_cache {
             if !cache.borrow().contains_key(&global_id) {
-                let initializer = executable_program_global_initializer(db, global_id, fact_mode);
+                let initializer = capture_query_failure(
+                    &query_failure,
+                    executable_program_global_initializer(db, global_id, fact_mode),
+                )
+                .flatten();
                 cache.borrow_mut().insert(global_id, initializer);
             }
             return cache.borrow().get(&global_id).cloned().flatten();
         }
-        executable_program_global_initializer(db, global_id, fact_mode)
+        capture_query_failure(
+            &query_failure,
+            executable_program_global_initializer(db, global_id, fact_mode),
+        )
+        .flatten()
     };
     let target = db.get(CompilerTargetQuery);
     let symbols = db.context().symbols();
@@ -646,12 +658,16 @@ fn const_inputs_for_body_check(
             )
         },
     );
-    BodyCheckConstInputs {
+    let output = BodyCheckConstInputs {
         module,
         array_lengths,
         enum_values,
         values,
         typed_facts,
+    };
+    match query_failure.into_inner() {
+        Some(error) => Err(error),
+        None => Ok(output),
     }
 }
 
@@ -662,8 +678,8 @@ pub(super) fn body_check_with_filter_and_layouts(
     layouts: Option<Arc<nia_layout::Layouts>>,
     program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>>>,
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
-) -> nia_body_check::BodyCheck {
-    body_check_with_filter_and_layouts_with_inputs(
+) -> QueryResult<nia_body_check::BodyCheck> {
+    Ok(body_check_with_filter_and_layouts_with_inputs(
         db,
         ExecutableBodyCheckInput {
             module_id,
@@ -686,8 +702,8 @@ pub(super) fn body_check_with_filter_and_layouts(
             product: nia_body_check::BodyCheckProduct::Full,
             prechecked: None,
         },
-    )
-    .body_check
+    )?
+    .body_check)
 }
 
 pub(super) struct ExecutableBodyCheckInput<'a> {
@@ -708,10 +724,15 @@ pub(super) struct ExecutableBodyCheckInput<'a> {
     pub prechecked: Option<nia_body_check::PrecheckedBodyCheck>,
 }
 
+type ExecutableProgramLayoutCache<'a> = (
+    &'a RefCell<HashMap<ModuleId, Arc<nia_layout::Layouts>>>,
+    &'a RefCell<Option<QueryError>>,
+);
+
 pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     db: &QueryDb<CompilerContext>,
     input: ExecutableBodyCheckInput<'_>,
-) -> BodyCheckWithResolutionInputs {
+) -> QueryResult<BodyCheckWithResolutionInputs> {
     let ExecutableBodyCheckInput {
         module_id,
         filter,
@@ -727,7 +748,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         product,
         prechecked,
     } = input;
-    let source_version = *db.get(ModuleSourceVersionQuery(module_id));
+    let source_version = *db.try_get(ModuleSourceVersionQuery(module_id))?;
     let origins = db.get(ModuleOriginsQuery(module_id));
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
     let defs = db.get(FullModuleDefsQuery(module_id));
@@ -786,10 +807,10 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     } else {
         match filter {
             nia_body_check::BodyCheckFilter::All => {
-                full_const_values = db.get(ConstValuesQuery(module_id));
-                full_const_array_lengths = db.get(ConstArrayLengthsQuery(module_id));
-                full_const_typed_facts = db.get(ConstTypedFactsQuery(module_id));
-                full_const_module = db.get(ConstModuleQuery(module_id));
+                full_const_values = db.try_get(ConstValuesQuery(module_id))?;
+                full_const_array_lengths = db.try_get(ConstArrayLengthsQuery(module_id))?;
+                full_const_typed_facts = db.try_get(ConstTypedFactsQuery(module_id))?;
+                full_const_module = db.try_get(ConstModuleQuery(module_id))?;
                 (
                     nia_body_check::BodyConst::from_phases(
                         &full_const_values,
@@ -821,7 +842,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                             const_module_cache,
                         )
                     },
-                ));
+                )?);
                 let filtered = filtered_const_inputs
                     .as_ref()
                     .expect("filtered const inputs must be initialized");
@@ -836,11 +857,20 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             }
         }
     };
-    let layouts = layouts.unwrap_or_else(|| db.get(LayoutsQuery(module_id)));
+    let layouts = match layouts {
+        Some(layouts) => layouts,
+        None => db.try_get(LayoutsQuery(module_id))?,
+    };
+    let query_failure = RefCell::new(None);
     let program_layouts = |module_id| {
-        program_layouts_override
-            .and_then(|program_layouts| program_layouts(module_id))
-            .or_else(|| Some(db.get(SignatureLayoutsQuery(module_id))))
+        if let Some(program_layouts) = program_layouts_override {
+            match capture_query_failure(&query_failure, Ok(program_layouts(module_id))) {
+                Some(Some(layouts)) => return Some(layouts),
+                Some(None) => {}
+                None => return None,
+            }
+        }
+        capture_query_failure(&query_failure, db.try_get(SignatureLayoutsQuery(module_id)))
     };
     let empty_extensions = nia_defs::VisibleExtensionMethods::default();
     let lazy_extensions = || {
@@ -1068,9 +1098,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             if !executable_program_const_array_lengths
                 .borrow()
                 .contains_key(&module_id)
+                && let Some(array_lengths) = capture_query_failure(
+                    &query_failure,
+                    signature_const_array_lengths(db, module_id, fact_mode.non_function_signatures),
+                )
             {
-                let array_lengths =
-                    signature_const_array_lengths(db, module_id, fact_mode.non_function_signatures);
                 executable_program_const_array_lengths
                     .borrow_mut()
                     .insert(module_id, Arc::new(array_lengths));
@@ -1097,25 +1129,32 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                         array_lengths
                     },
                 );
-                executable_program_const_array_lengths
-                    .borrow_mut()
-                    .insert(module_id, Arc::new(array_lengths));
+                if let Some(array_lengths) = capture_query_failure(&query_failure, array_lengths) {
+                    executable_program_const_array_lengths
+                        .borrow_mut()
+                        .insert(module_id, Arc::new(array_lengths));
+                }
             }
             return executable_program_const_array_lengths
                 .borrow()
                 .get(&module_id)
                 .cloned();
         }
-        Some(db.get(ConstArrayLengthsQuery(module_id)))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(ConstArrayLengthsQuery(module_id)),
+        )
     };
     let program_const_values = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
             if !executable_program_const_values
                 .borrow()
                 .contains_key(&module_id)
+                && let Some(values) = capture_query_failure(
+                    &query_failure,
+                    signature_const_values(db, module_id, fact_mode.non_function_signatures),
+                )
             {
-                let values =
-                    signature_const_values(db, module_id, fact_mode.non_function_signatures);
                 executable_program_const_values
                     .borrow_mut()
                     .insert(module_id, Arc::new(values));
@@ -1145,6 +1184,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                         enum_values
                     },
                 );
+                let enum_values = capture_query_failure(&query_failure, enum_values)?;
                 let values = with_const_input_and_program_facts(
                     db,
                     module_id,
@@ -1160,26 +1200,29 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                         values
                     },
                 );
-                executable_program_const_values
-                    .borrow_mut()
-                    .insert(module_id, Arc::new(values));
+                if let Some(values) = capture_query_failure(&query_failure, values) {
+                    executable_program_const_values
+                        .borrow_mut()
+                        .insert(module_id, Arc::new(values));
+                }
             }
             return executable_program_const_values
                 .borrow()
                 .get(&module_id)
                 .cloned();
         }
-        Some(db.get(ConstValuesQuery(module_id)))
+        capture_query_failure(&query_failure, db.try_get(ConstValuesQuery(module_id)))
     };
     let program_const_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
-            return Some(
-                signature_const_module_lowering(db, module_id)
-                    .module
-                    .clone(),
-            );
+            return capture_query_failure(
+                &query_failure,
+                signature_const_module_lowering(db, module_id),
+            )
+            .map(|lowering| lowering.module.clone());
         }
-        Some(db.get(ConstModuleQuery(module_id)).module.clone())
+        capture_query_failure(&query_failure, db.try_get(ConstModuleQuery(module_id)))
+            .map(|lowering| lowering.module.clone())
     };
     let program_visible_extensions =
         |module_id| Some(db.get(VisibleExtensionsQuery(module_id)).methods.clone());
@@ -1285,25 +1328,32 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             | nia_body_check::BodyCheckFilter::All,
         ) => filtered_inputs,
     };
-    BodyCheckWithResolutionInputs {
+    let output = BodyCheckWithResolutionInputs {
         body_check,
         inputs: stored_inputs,
         const_eval: filtered_const_inputs.map(BodyCheckConstInputs::into_check),
+    };
+    match query_failure.into_inner() {
+        Some(error) => Err(error),
+        None => Ok(output),
     }
 }
 
 pub(in crate::query) fn provide_executable_function_body(
     db: &QueryDb<CompilerContext>,
     def_id: GlobalDefId,
-) -> Option<Arc<nia_body_ir::TypedBody>> {
-    let facts = db.get(ExecutableCheckedModuleFactsQuery);
+) -> QueryResult<Option<Arc<nia_body_ir::TypedBody>>> {
+    let facts = db.try_get(ExecutableCheckedModuleFactsQuery)?;
     if facts.runtime_functions.binary_search(&def_id).is_err() {
-        return None;
+        return Ok(None);
     }
-    let module = facts
+    let Some(module) = facts
         .modules
         .iter()
-        .find(|module| module.id == def_id.module_id)?;
+        .find(|module| module.id == def_id.module_id)
+    else {
+        return Ok(None);
+    };
     let function_facts = module
         .semantic_facts
         .function_facts
@@ -1366,22 +1416,25 @@ pub(in crate::query) fn provide_executable_function_body(
                 diagnostics: Vec::new(),
             }),
         },
-    );
-    checked.body_check.ir.function_bodies.get(&def_id).cloned()
+    )?;
+    Ok(checked.body_check.ir.function_bodies.get(&def_id).cloned())
 }
 
 pub(in crate::query) fn provide_executable_static_init(
     db: &QueryDb<CompilerContext>,
     def_id: GlobalDefId,
-) -> Option<Arc<nia_static_ir::StaticInit>> {
-    let facts = db.get(ExecutableCheckedModuleFactsQuery);
+) -> QueryResult<Option<Arc<nia_static_ir::StaticInit>>> {
+    let facts = db.try_get(ExecutableCheckedModuleFactsQuery)?;
     if facts.runtime_globals.binary_search(&def_id).is_err() {
-        return None;
+        return Ok(None);
     }
-    let module = facts
+    let Some(module) = facts
         .modules
         .iter()
-        .find(|module| module.id == def_id.module_id)?;
+        .find(|module| module.id == def_id.module_id)
+    else {
+        return Ok(None);
+    };
     let semantic_facts = executable_static_init_semantic_facts(module, def_id);
     let functions = HashSet::new();
     let globals = HashSet::from([def_id]);
@@ -1431,8 +1484,8 @@ pub(in crate::query) fn provide_executable_static_init(
                 diagnostics: Vec::new(),
             }),
         },
-    );
-    checked.body_check.ir.global_inits.get(&def_id).cloned()
+    )?;
+    Ok(checked.body_check.ir.global_inits.get(&def_id).cloned())
 }
 
 fn executable_static_init_semantic_facts(
@@ -1498,7 +1551,7 @@ pub(super) fn executable_layouts_for_reachable_items(
     array_length_cache: Option<&RefCell<HashMap<ModuleId, nia_const_check::ConstArrayLengths>>>,
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
     reachable_body_modules_override: Option<ReachableBodyModules<'_>>,
-) -> nia_layout::Layouts {
+) -> QueryResult<nia_layout::Layouts> {
     time_module_provider(db, "executable_layouts", module_id, || {
         let defs = db.get(FullModuleDefsQuery(module_id));
         let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
@@ -1596,9 +1649,10 @@ pub(super) fn executable_layouts_for_reachable_items(
         };
         let local_array_lengths = if let Some(array_length_cache) = array_length_cache {
             if !array_length_cache.borrow().contains_key(&module_id) {
+                let array_lengths = load_filtered_array_lengths(module_id)?;
                 array_length_cache
                     .borrow_mut()
-                    .insert(module_id, load_filtered_array_lengths(module_id));
+                    .insert(module_id, array_lengths);
             }
             array_length_cache
                 .borrow()
@@ -1606,25 +1660,30 @@ pub(super) fn executable_layouts_for_reachable_items(
                 .cloned()
                 .expect("local executable array lengths must be cached")
         } else {
-            load_filtered_array_lengths(module_id)
+            load_filtered_array_lengths(module_id)?
         };
+        let query_failure = RefCell::new(None);
         let signature_array_lengths = RefCell::new(HashMap::new());
         let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
             if id.module_id == module_id {
                 return local_array_lengths.values.get(&id).copied();
             }
-            if !signature_array_lengths.borrow().contains_key(&id.module_id) {
-                let array_lengths = with_type_signature_const_input(
-                    db,
-                    id.module_id,
-                    non_function_signatures_override,
-                    |input, module| {
-                        let mut array_lengths =
-                            nia_const_check::compute_module_const_array_lengths(input);
-                        array_lengths.diagnostics.extend(module.diagnostics.clone());
-                        array_lengths
-                    },
-                );
+            if !signature_array_lengths.borrow().contains_key(&id.module_id)
+                && let Some(array_lengths) = capture_query_failure(
+                    &query_failure,
+                    with_type_signature_const_input(
+                        db,
+                        id.module_id,
+                        non_function_signatures_override,
+                        |input, module| {
+                            let mut array_lengths =
+                                nia_const_check::compute_module_const_array_lengths(input);
+                            array_lengths.diagnostics.extend(module.diagnostics.clone());
+                            array_lengths
+                        },
+                    ),
+                )
+            {
                 signature_array_lengths
                     .borrow_mut()
                     .insert(id.module_id, array_lengths);
@@ -1634,7 +1693,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                 .get(&id.module_id)
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
-        time_module_provider(db, "executable_layouts.compute", module_id, || {
+        let layouts = time_module_provider(db, "executable_layouts.compute", module_id, || {
             let symbols = db.context().symbols();
             let roots = time_module_provider(db, "executable_layouts.roots", module_id, || {
                 executable_layout_roots(
@@ -1678,19 +1737,24 @@ pub(super) fn executable_layouts_for_reachable_items(
                     unions: &roots.unions,
                 },
             )
-        })
+        });
+        match query_failure.into_inner() {
+            Some(error) => Err(error),
+            None => Ok(layouts),
+        }
     })
 }
 
 pub(super) fn executable_program_layouts<'a>(
     db: &'a QueryDb<CompilerContext>,
-    cache: &'a RefCell<HashMap<ModuleId, Arc<nia_layout::Layouts>>>,
+    cache_and_failure: ExecutableProgramLayoutCache<'a>,
     reachable_functions: &'a HashSet<GlobalDefId>,
     reachable_globals: &'a HashSet<GlobalDefId>,
     array_length_cache: Option<&'a RefCell<HashMap<ModuleId, nia_const_check::ConstArrayLengths>>>,
     non_function_signatures_override: Option<&'a ProgramExecutableNonFunctionSignatures>,
     reachable_body_modules_override: Option<ReachableBodyModules<'a>>,
 ) -> impl Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>> + 'a {
+    let (cache, failure) = cache_and_failure;
     move |module_id| {
         if let Some(layouts) = cache.borrow().get(&module_id).cloned() {
             return Some(layouts);
@@ -1706,17 +1770,23 @@ pub(super) fn executable_program_layouts<'a>(
                 )
             });
         let layouts = Arc::new(if has_reachable_body_items {
-            executable_layouts_for_reachable_items(
-                db,
-                module_id,
-                reachable_functions,
-                reachable_globals,
-                array_length_cache,
-                non_function_signatures_override,
-                reachable_body_modules_override,
-            )
+            capture_query_failure(
+                failure,
+                executable_layouts_for_reachable_items(
+                    db,
+                    module_id,
+                    reachable_functions,
+                    reachable_globals,
+                    array_length_cache,
+                    non_function_signatures_override,
+                    reachable_body_modules_override,
+                ),
+            )?
         } else {
-            signature_layouts_for_types(db, module_id, non_function_signatures_override)
+            capture_query_failure(
+                failure,
+                signature_layouts_for_types(db, module_id, non_function_signatures_override),
+            )?
         });
         cache.borrow_mut().insert(module_id, layouts.clone());
         Some(layouts)
@@ -1963,7 +2033,7 @@ pub(super) fn executable_signature_checked_module(
     module_id: ModuleId,
     layouts: Arc<nia_layout::Layouts>,
     program_signatures: &ProgramExecutableNonFunctionSignatures,
-) -> CheckedModule {
+) -> QueryResult<CheckedModule> {
     let type_resolution = db.get(SignatureTypeResolutionQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
@@ -1988,10 +2058,10 @@ pub(super) fn executable_signature_checked_module(
             enum_values.diagnostics.extend(module.diagnostics.clone());
             (array_lengths, enum_values)
         },
-    );
+    )?;
     let mut const_diagnostics = array_lengths.diagnostics.clone();
     const_diagnostics.extend(enum_values.diagnostics.clone());
-    CheckedModule {
+    Ok(CheckedModule {
         id: module_id,
         path: db.get(ModulePathQuery(module_id)).as_ref().clone(),
         defs: db.get(ModuleDefsQuery(module_id)),
@@ -2032,7 +2102,7 @@ pub(super) fn executable_signature_checked_module(
         executable_reachable_unions: None,
         executable_type_only: true,
         body_diagnostics: Arc::new(Vec::new()),
-    }
+    })
 }
 
 pub(super) fn extend_module_functions_from_filtered_value_refs(

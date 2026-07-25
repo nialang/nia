@@ -135,7 +135,7 @@ fn body_check_filter_includes_def(
 pub(super) fn provide_body_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> nia_body_check::BodyCheck {
+) -> QueryResult<nia_body_check::BodyCheck> {
     time_module_provider(db, "body_check", module_id, || {
         body_check_with_filter(db, module_id, nia_body_check::BodyCheckFilter::All)
     })
@@ -145,7 +145,7 @@ fn body_check_with_filter(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     filter: nia_body_check::BodyCheckFilter<'_>,
-) -> nia_body_check::BodyCheck {
+) -> QueryResult<nia_body_check::BodyCheck> {
     body_check_with_filter_and_layouts(db, module_id, filter, None, None, None)
 }
 

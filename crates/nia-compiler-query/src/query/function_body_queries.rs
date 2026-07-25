@@ -17,7 +17,7 @@ impl QueryKey<CompilerContext> for ExecutableFunctionBodyQuery {
         format!("executable_function_body({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         provide_executable_function_body(db, self.0)
     }
 

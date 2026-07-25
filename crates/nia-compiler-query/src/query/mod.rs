@@ -4440,6 +4440,38 @@ fn main() i32 {
                 .expect_err("const lowering should propagate a missing module input"),
             database
                 .db
+                .try_get(SignatureConstModuleQuery(missing_module))
+                .expect_err("signature const lowering should propagate a missing module input"),
+            database
+                .db
+                .try_get(ConstArrayLengthsQuery(missing_module))
+                .expect_err("const array lengths should propagate a missing module input"),
+            database
+                .db
+                .try_get(ConstEnumValuesQuery(missing_module))
+                .expect_err("const enum values should propagate a missing module input"),
+            database
+                .db
+                .try_get(ConstValuesQuery(missing_module))
+                .expect_err("const values should propagate a missing module input"),
+            database
+                .db
+                .try_get(ConstTypedFactsQuery(missing_module))
+                .expect_err("const typed facts should propagate a missing module input"),
+            database
+                .db
+                .try_get(ConstQuery(missing_module))
+                .expect_err("const checking should propagate a missing module input"),
+            database
+                .db
+                .try_get(SignatureLayoutsQuery(missing_module))
+                .expect_err("signature layouts should propagate a missing module input"),
+            database
+                .db
+                .try_get(BodyCheckQuery(missing_module))
+                .expect_err("body checking should propagate a missing module input"),
+            database
+                .db
                 .try_get(FlowCheckQuery(missing_module))
                 .expect_err("flow checking should propagate a missing module input"),
             database
