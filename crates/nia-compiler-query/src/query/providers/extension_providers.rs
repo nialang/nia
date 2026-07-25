@@ -399,29 +399,134 @@ pub(super) fn provide_extension_provider_validation_facts(
     module_id: ModuleId,
 ) -> ExtensionProviderValidationFactsValue {
     time_module_provider(db, "extension_provider_validation_facts", module_id, || {
-        if !*db.get(ExtensionProviderModuleEligibilityQuery(module_id)) {
-            return ExtensionProviderValidationFactsQueryValue {
-                diagnostics: Vec::new(),
-            };
-        }
-        let input = db.get(ExtensionSignatureModuleInputQuery(module_id));
-        let trait_index = db.get(ExtensionTraitSignatureIndexQuery);
-        let trait_impls_for_trait = |trait_id| {
-            db.get(ExtensionTraitImplsForTraitQuery(trait_id))
-                .trait_impls
-                .clone()
+        let program_sources = db.get(FrontendProgramSourcesQuery);
+        let cache_input = program_sources
+            .as_ref()
+            .as_ref()
+            .and_then(|program_sources| {
+                let source = program_sources.by_module.get(&module_id)?;
+                let namespace = crate::FrontendCacheNamespace::new(
+                    &db.context().loader_facts.target(),
+                    db.context().loader_facts.runtime(),
+                );
+                let key = crate::FrontendExtensionValidationDiagnosticsCacheKey::new(
+                    namespace,
+                    &source.module,
+                    program_sources.fingerprint,
+                );
+                Some((program_sources, source, namespace, key))
+            });
+        let cached = if let Some(cache) = db.context().signature_cache.as_ref()
+            && let Some((program_sources, source, namespace, key)) = cache_input
+        {
+            match cache.load_extension_validation_diagnostics(
+                crate::signature_cache::ExtensionValidationDiagnosticsIdentity {
+                    key,
+                    namespace,
+                    module: &source.module,
+                    program_sources: program_sources.fingerprint,
+                    source_len: source.len,
+                },
+            ) {
+                Ok(lookup) => {
+                    match lookup {
+                        crate::signature_cache::ExtensionValidationDiagnosticsLookup::Hit(_) => {
+                            nia_timing::emit_counter(
+                                "frontend.extension_validation_diagnostics_reuse_hits",
+                                1,
+                            );
+                        }
+                        crate::signature_cache::ExtensionValidationDiagnosticsLookup::NotFound => {
+                            nia_timing::emit_counter(
+                                "frontend.extension_validation_diagnostics_reuse_miss_not_found",
+                                1,
+                            );
+                        }
+                        crate::signature_cache::ExtensionValidationDiagnosticsLookup::Corrupt => {
+                            nia_timing::emit_counter(
+                                "frontend.extension_validation_diagnostics_reuse_miss_corrupt",
+                                1,
+                            );
+                        }
+                    }
+                    Some(lookup)
+                }
+                Err(_) => {
+                    nia_timing::emit_counter(
+                        "frontend.extension_validation_diagnostics_reuse_miss_read_error",
+                        1,
+                    );
+                    None
+                }
+            }
+        } else {
+            None
         };
-        let symbols = db.context().symbols();
-        let diagnostics = collect_extension_method_diagnostics_for_module(
-            &input.module(&db.context().type_store),
-            ExtensionMethodValidationInput {
-                type_store: &db.context().type_store,
-                trait_defs: &trait_index.trait_defs,
-                trait_signatures: &trait_index.trait_signatures,
-                trait_impls_for_trait: &trait_impls_for_trait,
-                symbols: &symbols,
-            },
-        );
+        let cached = if db.context().verify_frontend_cache {
+            cached
+        } else {
+            match cached {
+                Some(crate::signature_cache::ExtensionValidationDiagnosticsLookup::Hit(cached)) => {
+                    return ExtensionProviderValidationFactsQueryValue {
+                        diagnostics: cached,
+                    };
+                }
+                cached => cached,
+            }
+        };
+        let diagnostics = if !*db.get(ExtensionProviderModuleEligibilityQuery(module_id)) {
+            Vec::new()
+        } else {
+            let input = db.get(ExtensionSignatureModuleInputQuery(module_id));
+            let trait_index = db.get(ExtensionTraitSignatureIndexQuery);
+            let trait_impls_for_trait = |trait_id| {
+                db.get(ExtensionTraitImplsForTraitQuery(trait_id))
+                    .trait_impls
+                    .clone()
+            };
+            let symbols = db.context().symbols();
+            collect_extension_method_diagnostics_for_module(
+                &input.module(&db.context().type_store),
+                ExtensionMethodValidationInput {
+                    type_store: &db.context().type_store,
+                    trait_defs: &trait_index.trait_defs,
+                    trait_signatures: &trait_index.trait_signatures,
+                    trait_impls_for_trait: &trait_impls_for_trait,
+                    symbols: &symbols,
+                },
+            )
+        };
+        if let Some(cache) = &db.context().signature_cache
+            && let Some((program_sources, source, namespace, key)) = cache_input
+        {
+            let replace = matches!(
+                &cached,
+                Some(crate::signature_cache::ExtensionValidationDiagnosticsLookup::Hit(cached))
+                    if cached != &diagnostics
+            );
+            if replace {
+                cache.remove_extension_validation_diagnostics(key);
+            }
+            let published = cache.publish_extension_validation_diagnostics(
+                crate::signature_cache::ExtensionValidationDiagnosticsIdentity {
+                    key,
+                    namespace,
+                    module: &source.module,
+                    program_sources: program_sources.fingerprint,
+                    source_len: source.len,
+                },
+                &diagnostics,
+                replace,
+            );
+            nia_timing::emit_counter(
+                if published.is_ok() {
+                    "frontend.extension_validation_diagnostics_cacheable"
+                } else {
+                    "frontend.extension_validation_diagnostics_uncacheable"
+                },
+                1,
+            );
+        }
         ExtensionProviderValidationFactsQueryValue { diagnostics }
     })
 }

@@ -6,6 +6,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use nia_diagnostic::{Diagnostic, DiagnosticCategory, LabelStyle, Severity, SpanSource, codes};
 use nia_ids::{
     BuiltinConstValue, BuiltinFunction, BuiltinTrait, DefId, GlobalDefId, InternedTyId, ModuleId,
     ReceiverKind, TraitImplId, Visibility,
@@ -26,14 +27,16 @@ use nia_type_resolve::{TypeNameResolution, TypeResolution};
 
 use crate::{
     FrontendCacheNamespace, FrontendExtensionTraitSolvingFactsCacheKey,
-    FrontendProgramSourceFingerprint, FrontendSignatureItemSignaturesCacheKey,
-    FrontendSignatureTypeLoweringCacheKey, FrontendSignatureTypeResolutionCacheKey,
+    FrontendExtensionValidationDiagnosticsCacheKey, FrontendProgramSourceFingerprint,
+    FrontendSignatureItemSignaturesCacheKey, FrontendSignatureTypeLoweringCacheKey,
+    FrontendSignatureTypeResolutionCacheKey,
 };
 
 const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR001";
 const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL001";
 const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI002";
 const EXTENSION_TRAIT_FACTS_MAGIC: &[u8; 8] = b"NIAET001";
+const EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC: &[u8; 8] = b"NIAEV001";
 const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
@@ -84,6 +87,15 @@ pub(crate) struct ExtensionTraitSolvingFactsIdentity<'a> {
     pub(crate) source_len: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ExtensionValidationDiagnosticsIdentity<'a> {
+    pub(crate) key: FrontendExtensionValidationDiagnosticsCacheKey,
+    pub(crate) namespace: FrontendCacheNamespace,
+    pub(crate) module: &'a StableModuleKey,
+    pub(crate) program_sources: FrontendProgramSourceFingerprint,
+    pub(crate) source_len: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CachedExtensionTraitSolvingFacts {
     pub(crate) trait_impls: Vec<item_signatures::ProgramTraitImplSignature>,
@@ -114,6 +126,13 @@ pub(crate) enum SignatureItemSignaturesLookup {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ExtensionTraitSolvingFactsLookup {
     Hit(Box<CachedExtensionTraitSolvingFacts>),
+    NotFound,
+    Corrupt,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ExtensionValidationDiagnosticsLookup {
+    Hit(Vec<Diagnostic>),
     NotFound,
     Corrupt,
 }
@@ -428,6 +447,62 @@ impl PersistentSignatureCache {
         remove_corrupt(&self.extension_trait_solving_facts_path(key));
     }
 
+    pub(crate) fn load_extension_validation_diagnostics(
+        &self,
+        identity: ExtensionValidationDiagnosticsIdentity<'_>,
+    ) -> io::Result<ExtensionValidationDiagnosticsLookup> {
+        let path = self.extension_validation_diagnostics_path(identity.key);
+        let encoded = match fs::read(&path) {
+            Ok(encoded) if encoded.len() <= MAX_ENTRY_BYTES => encoded,
+            Ok(_) => {
+                remove_corrupt(&path);
+                return Ok(ExtensionValidationDiagnosticsLookup::Corrupt);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(ExtensionValidationDiagnosticsLookup::NotFound);
+            }
+            Err(error) => return Err(error),
+        };
+        let Some(payload) = decode_extension_validation_diagnostics_entry(&encoded, identity)
+        else {
+            remove_corrupt(&path);
+            return Ok(ExtensionValidationDiagnosticsLookup::Corrupt);
+        };
+        let Some(diagnostics) =
+            decode_extension_validation_diagnostics(payload, identity.source_len)
+        else {
+            remove_corrupt(&path);
+            return Ok(ExtensionValidationDiagnosticsLookup::Corrupt);
+        };
+        Ok(ExtensionValidationDiagnosticsLookup::Hit(diagnostics))
+    }
+
+    pub(crate) fn publish_extension_validation_diagnostics(
+        &self,
+        identity: ExtensionValidationDiagnosticsIdentity<'_>,
+        diagnostics: &[Diagnostic],
+        replace: bool,
+    ) -> io::Result<()> {
+        let path = self.extension_validation_diagnostics_path(identity.key);
+        if !replace && path.is_file() {
+            return Ok(());
+        }
+        let payload = encode_extension_validation_diagnostics(diagnostics, identity.source_len)?;
+        let encoded = encode_extension_validation_diagnostics_entry(identity, &payload);
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
+        fs::create_dir_all(parent)?;
+        atomic_publish(&path, &encoded)
+    }
+
+    pub(crate) fn remove_extension_validation_diagnostics(
+        &self,
+        key: FrontendExtensionValidationDiagnosticsCacheKey,
+    ) {
+        remove_corrupt(&self.extension_validation_diagnostics_path(key));
+    }
+
     pub(crate) fn type_resolution_path(
         &self,
         key: FrontendSignatureTypeResolutionCacheKey,
@@ -475,6 +550,19 @@ impl PersistentSignatureCache {
             .join("v3")
             .join("extension-trait-solving-facts")
             .join(format!("{first:016x}{second:016x}.ets"))
+    }
+
+    pub(crate) fn extension_validation_diagnostics_path(
+        &self,
+        key: FrontendExtensionValidationDiagnosticsCacheKey,
+    ) -> PathBuf {
+        let [first, second] = key.parts();
+        self.root
+            .join("artifacts")
+            .join("frontend")
+            .join("v3")
+            .join("extension-validation-diagnostics")
+            .join(format!("{first:016x}{second:016x}.evd"))
     }
 }
 
@@ -687,6 +775,62 @@ fn decode_extension_trait_solving_facts_entry<'a>(
     let mut magic = [0_u8; 8];
     cursor.read_exact(&mut magic).ok()?;
     if &magic != EXTENSION_TRAIT_FACTS_MAGIC
+        || read_parts(&mut cursor)? != identity.key.parts()
+        || read_parts(&mut cursor)? != identity.namespace.parts()
+        || read_parts(&mut cursor)? != identity.program_sources.parts()
+        || read_string(&mut cursor, encoded.len())?
+            != identity.module.source_identity().normalized_path()
+        || usize::try_from(read_u64(&mut cursor)?).ok()? != identity.source_len
+    {
+        return None;
+    }
+    let payload_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
+    if payload_len > MAX_ENTRY_BYTES {
+        return None;
+    }
+    let start = usize::try_from(cursor.position()).ok()?;
+    let end = start.checked_add(payload_len)?;
+    (end == checksum_offset).then(|| &encoded[start..end])
+}
+
+fn encode_extension_validation_diagnostics_entry(
+    identity: ExtensionValidationDiagnosticsIdentity<'_>,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC);
+    write_parts(&mut encoded, identity.key.parts());
+    write_parts(&mut encoded, identity.namespace.parts());
+    write_parts(&mut encoded, identity.program_sources.parts());
+    write_string(
+        &mut encoded,
+        identity.module.source_identity().normalized_path(),
+    );
+    write_u64(&mut encoded, identity.source_len as u64);
+    write_u64(&mut encoded, payload.len() as u64);
+    encoded.extend_from_slice(payload);
+    let checksum = extension_validation_diagnostics_checksum(&encoded);
+    write_parts(&mut encoded, checksum.parts());
+    encoded
+}
+
+fn decode_extension_validation_diagnostics_entry<'a>(
+    encoded: &'a [u8],
+    identity: ExtensionValidationDiagnosticsIdentity<'_>,
+) -> Option<&'a [u8]> {
+    if encoded.len() < EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC.len() + 16 {
+        return None;
+    }
+    let checksum_offset = encoded.len().checked_sub(16)?;
+    let expected_checksum = extension_validation_diagnostics_checksum(&encoded[..checksum_offset]);
+    let mut checksum_cursor = Cursor::new(&encoded[checksum_offset..]);
+    if read_parts(&mut checksum_cursor)? != expected_checksum.parts() {
+        return None;
+    }
+    let mut cursor = Cursor::new(&encoded[..checksum_offset]);
+    let mut magic = [0_u8; 8];
+    cursor.read_exact(&mut magic).ok()?;
+    if &magic != EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC
         || read_parts(&mut cursor)? != identity.key.parts()
         || read_parts(&mut cursor)? != identity.namespace.parts()
         || read_parts(&mut cursor)? != identity.program_sources.parts()
@@ -3009,6 +3153,63 @@ fn read_syntax_kind(cursor: &mut Cursor<&[u8]>) -> Option<SyntaxKind> {
     })
 }
 
+fn encode_extension_validation_diagnostics(
+    diagnostics: &[Diagnostic],
+    source_len: usize,
+) -> io::Result<Vec<u8>> {
+    let mut encoded = Vec::new();
+    write_u64(&mut encoded, diagnostics.len() as u64);
+    for diagnostic in diagnostics {
+        let [label] = diagnostic.labels.as_slice() else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "extension validation diagnostic must have one label",
+            ));
+        };
+        if diagnostic.severity != Severity::Error
+            || diagnostic.category != DiagnosticCategory::User
+            || diagnostic.code.as_str() != codes::NAME_RESOLUTION.as_str()
+            || !diagnostic.code.is_registered()
+            || label.span_source != SpanSource::Source
+            || label.style != LabelStyle::Primary
+            || label.message.as_deref() != Some(diagnostic.summary.as_str())
+            || !diagnostic.notes.is_empty()
+            || !diagnostic.help.is_empty()
+            || !diagnostic.related.is_empty()
+            || !diagnostic.debug.is_empty()
+            || label.span.start > label.span.end
+            || label.span.end > source_len
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported extension validation diagnostic",
+            ));
+        }
+        write_span(&mut encoded, label.span);
+        write_string(&mut encoded, &diagnostic.summary);
+    }
+    Ok(encoded)
+}
+
+fn decode_extension_validation_diagnostics(
+    encoded: &[u8],
+    source_len: usize,
+) -> Option<Vec<Diagnostic>> {
+    let mut cursor = Cursor::new(encoded);
+    let len = read_len(&mut cursor, MAX_SEQUENCE_LEN)?;
+    let mut diagnostics = Vec::with_capacity(len);
+    for _ in 0..len {
+        let span = read_span(&mut cursor, source_len)?;
+        let summary = read_string(&mut cursor, encoded.len())?;
+        diagnostics.push(Diagnostic::user_error_at(
+            codes::NAME_RESOLUTION,
+            span,
+            summary,
+        ));
+    }
+    (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(diagnostics)
+}
+
 fn signature_set_tag(value: SignatureItemSet) -> u8 {
     match value {
         SignatureItemSet::Functions => 0,
@@ -3039,6 +3240,12 @@ fn item_signatures_checksum(encoded: &[u8]) -> QueryFingerprint {
 
 fn extension_trait_solving_facts_checksum(encoded: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.extension-trait-solving-facts.entry.v1");
+    builder.write_bytes(encoded);
+    builder.finish()
+}
+
+fn extension_validation_diagnostics_checksum(encoded: &[u8]) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.extension-validation-diagnostics.entry.v1");
     builder.write_bytes(encoded);
     builder.finish()
 }
@@ -3846,6 +4053,70 @@ mod tests {
                 )
                 .expect("load corrupt extension facts"),
             ExtensionTraitSolvingFactsLookup::Corrupt
+        );
+        assert!(!path.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn extension_validation_diagnostics_roundtrip_and_retire_corruption() {
+        let root = temp_dir("extension_validation_diagnostics");
+        let cache = PersistentSignatureCache::new(root.clone());
+        let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
+        let source = crate::source_content_fingerprint("extend ! { fn invalid(self) void {} }");
+        let program_sources = crate::frontend_program_source_fingerprint([(&module, source, 128)]);
+        let namespace = crate::FrontendCacheNamespace::new(
+            &nia_target_config::TargetConfig::host(),
+            crate::RuntimeModel::Bare,
+        );
+        let key = crate::FrontendExtensionValidationDiagnosticsCacheKey::new(
+            namespace,
+            &module,
+            program_sources,
+        );
+        let identity = ExtensionValidationDiagnosticsIdentity {
+            key,
+            namespace,
+            module: &module,
+            program_sources,
+            source_len: 128,
+        };
+        let diagnostics = vec![Diagnostic::user_error_at(
+            codes::NAME_RESOLUTION,
+            nia_span::Span::new(7, 18),
+            "extend target must be an extendable value type",
+        )];
+
+        cache
+            .publish_extension_validation_diagnostics(identity, &diagnostics, false)
+            .expect("publish validation diagnostics");
+        assert_eq!(
+            cache
+                .load_extension_validation_diagnostics(identity)
+                .expect("load validation diagnostics"),
+            ExtensionValidationDiagnosticsLookup::Hit(diagnostics.clone())
+        );
+
+        let unsupported =
+            Diagnostic::user_error(codes::NAME_RESOLUTION, "unsupported secondary label shape")
+                .primary(nia_span::Span::new(1, 2), "primary")
+                .secondary(nia_span::Span::new(3, 4), "secondary")
+                .finish();
+        assert!(
+            cache
+                .publish_extension_validation_diagnostics(identity, &[unsupported], true)
+                .is_err()
+        );
+
+        let path = cache.extension_validation_diagnostics_path(key);
+        let mut corrupt = fs::read(&path).expect("read validation diagnostics entry");
+        corrupt[0] ^= 0xff;
+        fs::write(&path, corrupt).expect("corrupt validation diagnostics entry");
+        assert_eq!(
+            cache
+                .load_extension_validation_diagnostics(identity)
+                .expect("load corrupt validation diagnostics"),
+            ExtensionValidationDiagnosticsLookup::Corrupt
         );
         assert!(!path.exists());
         let _ = fs::remove_dir_all(root);
