@@ -43,6 +43,7 @@ pub(super) struct ExecutableCheckedModuleFactsQuery;
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExecutableCheckedModuleFacts {
     pub(super) modules: Vec<Arc<CheckedModule>>,
+    pub(super) const_modules: HashMap<ModuleId, Arc<nia_const_ir::ResolvedConstModule>>,
     pub(super) runtime_functions: Vec<GlobalDefId>,
     pub(super) runtime_globals: Vec<GlobalDefId>,
     pub(super) reachable_body_modules: HashSet<ModuleId>,

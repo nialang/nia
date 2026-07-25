@@ -7512,6 +7512,15 @@ fn main() i32 {
         loaded.runtime = RuntimeModel::FreestandingExecutable;
         let db = query_db(loaded);
 
+        let facts = db.get(ExecutableCheckedModuleFactsQuery);
+        assert!(facts.const_modules.contains_key(&module_id));
+        assert!(
+            facts
+                .runtime_functions
+                .iter()
+                .chain(&facts.runtime_globals)
+                .all(|def_id| facts.const_modules.contains_key(&def_id.module_id))
+        );
         let modules = db.get(ExecutableCheckedModulesQuery);
         let module = modules
             .iter()
