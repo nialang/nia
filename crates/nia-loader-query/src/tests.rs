@@ -635,7 +635,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
     let first_compiler = CompilerDatabase::new(
         CompileRequest::new(first_loader).with_frontend_cache_dir(Some(root.clone())),
     );
-    let first = first_compiler.check_program();
+    let first = first_compiler.analyze_program();
     assert!(!has_error_diagnostics(&first.diagnostics));
     let first_trace = first_compiler.query_trace();
     assert!(first_trace.dependencies.iter().any(|dependency| {
@@ -664,7 +664,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
     let second_compiler = CompilerDatabase::new(
         CompileRequest::new(second_loader).with_frontend_cache_dir(Some(root.clone())),
     );
-    let second = second_compiler.check_program();
+    let second = second_compiler.analyze_program();
     assert!(!has_error_diagnostics(&second.diagnostics));
     let second_trace = second_compiler.query_trace();
     assert_eq!(
@@ -713,7 +713,7 @@ fn unwrap[T](value: Box[T]) T { value.value }
             .with_frontend_cache_dir(Some(root))
             .with_frontend_cache_verification(true),
     );
-    let verified = verified_compiler.check_program();
+    let verified = verified_compiler.analyze_program();
     assert!(!has_error_diagnostics(&verified.diagnostics));
     assert!(
         verified_compiler
@@ -779,7 +779,7 @@ fn main() i32 { Box[i32] { value: 1 }.get() }
                 .with_frontend_cache_dir(Some(root.clone()))
                 .with_frontend_cache_verification(verify),
         );
-        let checked = compiler.check_program();
+        let checked = compiler.analyze_program();
         assert!(!has_error_diagnostics(&checked.diagnostics));
         compiler.query_trace()
     };
@@ -823,7 +823,7 @@ fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
     let loader = LoaderDatabase::new(LoadRequest::new("main.nia").with_sources(sources));
     let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone()));
 
-    let first = compiler.check_program();
+    let first = compiler.analyze_program();
     assert!(!has_error_diagnostics(&first.diagnostics));
     let first_defs = Arc::clone(&first.modules[0].defs);
     assert!(
@@ -835,7 +835,7 @@ fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
 
     let latest_source = loader.set_source("main.nia", "fn main() i32 { 1 }");
     compiler.update(CompileRequest::new(loader.clone()));
-    let latest = compiler.check_program();
+    let latest = compiler.analyze_program();
 
     assert!(!has_error_diagnostics(&latest.diagnostics));
     let latest_defs = &latest.modules[0].defs;
