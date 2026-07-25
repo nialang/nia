@@ -1189,8 +1189,7 @@ fn main() i32 {
 "#,
     );
 
-    let program =
-        checked_program_from_output(driver.check_all_modules(CheckRequest::new("main.nia")));
+    let program = driver.analyze_all_modules(CheckRequest::new("main.nia"));
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert!(driver.loader_and_compiler_share_query_session());

@@ -1526,6 +1526,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-25）：H-6l 对“命中settled plan后跳过`ExecutableProviderDemandsQuery`”完成可运行否决实验。实验只在唯一`ProviderFactStore`内维护随insert/clear失效、fixed-point finalization置位的current-session settled scheduler bit，并由loader trait让warm compiler直接进入最终compile，没有复制demand集合或建立第二truth source。release同一全新cache样本中，该query名义执行从1降为0，但总executions仅`4582 → 4581`；`executable_fact_check`仍为24次、fact聚合约314ms，user CPU `0.838s/0.847s`与wall `0.871s/0.850s`均在样本噪声内。原因是最终`EntryCheckedProgram`本来就消费完全相同的fact产品，跳过discovery只把首次读取移给compile consumer，不能切断body/semantic producer。settled字段、trait method、快捷分支和测试因此在提交前全部物理删除，现有plan继续通过一次显式discovery验证current facts并共享其结果。这个结果排除了最后一个scheduler层伪优化；下一候选必须替代最终checked-program实际依赖，不能靠隐藏query名、counter或控制流制造命中率。Phase H与整体比例不因否决实验上调。
 
+进展（2026-07-25）：H-6m 完成最终checked-program消费矩阵，并删除正式check输出对完整typed module aggregate的错误承诺。生产Driver/CLI只读取graph、optimization与diagnostics；`defs/type/value/local/const/layout/body/semantic/provider`全字段只被compiler内部、codegen和白盒语义测试消费。`CheckedProgram`因此收缩为唯一正式check report，`CheckedProgramQuery`/`EntryCheckedProgramQuery`的完整current-session产品显式改名为`CheckedProgramAnalysis`；Compiler在provider fixed point内部继续用analysis收集demands，稳定后才一次性投影report，Driver测试也显式调用analysis入口，不给report保留`modules`兼容字段或cache命中时的空壳差异。telemetry所需body计数作为report私有标量在投影时计算，不恢复module owner。compiler-query 166项、Driver 490项与compiler/driver/CLI all-target check通过。该切片确立了最后一个真实dependency cut：保持旧输出时，任何高层cache都等价于序列化完整type/local/value/semantic/body/layout链；收缩后可以在完整exact-source program identity下持久化无诊断check证书，使普通warm check真正跳过semantic链，而codegen/analysis仍恢复current owner并完整执行。Phase H与整体比例暂不因API拆分上调；下一切片必须实现并验证该certificate，或在无端到端收益时完整删除。
+
 ### 阶段 I（P2）：错误、诊断和工程重组
 
 1. 移除 panic-based query error flow。

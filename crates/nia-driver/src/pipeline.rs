@@ -240,6 +240,14 @@ impl Driver {
         self.compile_with(request, CompilerDatabase::check_program)
     }
 
+    #[cfg(test)]
+    pub(crate) fn analyze_all_modules(
+        &self,
+        request: CheckRequest,
+    ) -> nia_compiler_query::CheckedProgramAnalysis {
+        self.compile_with(request, CompilerDatabase::analyze_program)
+    }
+
     pub fn check_entry(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
         DriverOutput::catch_ice(|| {
             let program = self.check_entry_inner(request);
@@ -252,6 +260,14 @@ impl Driver {
 
     fn check_entry_inner(&self, request: CheckRequest) -> CheckedProgram {
         self.compile_with(request, CompilerDatabase::entry_check_program)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn analyze_entry_program(
+        &self,
+        request: CheckRequest,
+    ) -> nia_compiler_query::CheckedProgramAnalysis {
+        self.compile_with(request, CompilerDatabase::analyze_entry_program)
     }
 
     pub fn codegen(&self, request: CheckRequest) -> DriverOutput<CodegenProgram> {
@@ -846,6 +862,17 @@ impl ProviderDemandOutput for LiveCodegenCounters {
 }
 
 impl ProviderDemandOutput for CheckedProgram {
+    fn checked_body_count(&self) -> usize {
+        self.checked_body_count()
+    }
+
+    fn reachable_body_count(&self) -> usize {
+        self.reachable_body_count()
+    }
+}
+
+#[cfg(test)]
+impl ProviderDemandOutput for nia_compiler_query::CheckedProgramAnalysis {
     fn checked_body_count(&self) -> usize {
         self.modules
             .iter()

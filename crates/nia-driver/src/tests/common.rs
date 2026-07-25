@@ -42,27 +42,26 @@ pub(super) fn assert_no_error_diagnostics(diagnostics: &[crate::ProgramDiagnosti
     );
 }
 
-pub(super) fn check_program(entry_path: impl Into<String>) -> crate::CheckedProgram {
+pub(super) fn check_program(
+    entry_path: impl Into<String>,
+) -> nia_compiler_query::CheckedProgramAnalysis {
     check_program_with_options(entry_path, NiaOptimizationLevel::default())
 }
 
 pub(super) fn check_program_with_options(
     entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
-) -> crate::CheckedProgram {
+) -> nia_compiler_query::CheckedProgramAnalysis {
     let _permit = nia_test_support::compiler_permit();
-    checked_program_from_output(
-        crate::Driver::new().check_all_modules(
-            crate::CheckRequest::new(entry_path).with_optimization(optimization),
-        ),
-    )
+    crate::Driver::new()
+        .analyze_all_modules(crate::CheckRequest::new(entry_path).with_optimization(optimization))
 }
 
-pub(super) fn check_entry_program(entry_path: impl Into<String>) -> crate::CheckedProgram {
+pub(super) fn check_entry_program(
+    entry_path: impl Into<String>,
+) -> nia_compiler_query::CheckedProgramAnalysis {
     let _permit = nia_test_support::compiler_permit();
-    checked_program_from_output(
-        crate::Driver::new().check_entry(crate::CheckRequest::new(entry_path)),
-    )
+    crate::Driver::new().analyze_entry_program(crate::CheckRequest::new(entry_path))
 }
 
 pub(super) fn codegen_program(entry_path: impl Into<String>) -> crate::CodegenProgram {
@@ -83,25 +82,21 @@ pub(super) fn codegen_program_with_options(
 pub(super) fn check_program_with_map(
     entry_path: impl Into<String>,
     module_map: ModuleMap,
-) -> crate::CheckedProgram {
+) -> nia_compiler_query::CheckedProgramAnalysis {
     let _permit = nia_test_support::compiler_permit();
-    checked_program_from_output(
-        crate::Driver::new()
-            .check_all_modules(crate::CheckRequest::new(entry_path).with_module_map(module_map)),
-    )
+    crate::Driver::new()
+        .analyze_all_modules(crate::CheckRequest::new(entry_path).with_module_map(module_map))
 }
 
 pub(super) fn check_freestanding_executable_with_options(
     entry_path: impl Into<String>,
     optimization: NiaOptimizationLevel,
-) -> crate::CheckedProgram {
+) -> nia_compiler_query::CheckedProgramAnalysis {
     let _permit = nia_test_support::compiler_permit();
-    checked_program_from_output(
-        crate::Driver::new().check_all_modules(
-            crate::CheckRequest::new(entry_path)
-                .with_optimization(optimization)
-                .with_runtime(crate::Runtime::Freestanding),
-        ),
+    crate::Driver::new().analyze_all_modules(
+        crate::CheckRequest::new(entry_path)
+            .with_optimization(optimization)
+            .with_runtime(crate::Runtime::Freestanding),
     )
 }
 
@@ -109,15 +104,13 @@ pub(super) fn check_freestanding_executable_with_map_and_options(
     entry_path: impl Into<String>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
-) -> crate::CheckedProgram {
+) -> nia_compiler_query::CheckedProgramAnalysis {
     let _permit = nia_test_support::compiler_permit();
-    checked_program_from_output(
-        crate::Driver::new().check_all_modules(
-            crate::CheckRequest::new(entry_path)
-                .with_module_map(module_map)
-                .with_optimization(optimization)
-                .with_runtime(crate::Runtime::Freestanding),
-        ),
+    crate::Driver::new().analyze_all_modules(
+        crate::CheckRequest::new(entry_path)
+            .with_module_map(module_map)
+            .with_optimization(optimization)
+            .with_runtime(crate::Runtime::Freestanding),
     )
 }
 
