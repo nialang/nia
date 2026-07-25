@@ -26,10 +26,10 @@ use nia_type_lower::TypeLowering;
 use nia_type_resolve::{TypeNameResolution, TypeResolution};
 
 use crate::{
-    FrontendCacheNamespace, FrontendExtensionTraitSolvingFactsCacheKey,
-    FrontendExtensionValidationDiagnosticsCacheKey, FrontendProgramSourceFingerprint,
-    FrontendSignatureItemSignaturesCacheKey, FrontendSignatureTypeLoweringCacheKey,
-    FrontendSignatureTypeResolutionCacheKey,
+    FrontendCacheNamespace, FrontendExecutableValueRefEdgesCacheKey,
+    FrontendExtensionTraitSolvingFactsCacheKey, FrontendExtensionValidationDiagnosticsCacheKey,
+    FrontendProgramSourceFingerprint, FrontendSignatureItemSignaturesCacheKey,
+    FrontendSignatureTypeLoweringCacheKey, FrontendSignatureTypeResolutionCacheKey,
 };
 
 const TYPE_RESOLUTION_MAGIC: &[u8; 8] = b"NIASR001";
@@ -37,6 +37,7 @@ const TYPE_LOWERING_MAGIC: &[u8; 8] = b"NIASL001";
 const ITEM_SIGNATURES_MAGIC: &[u8; 8] = b"NIASI002";
 const EXTENSION_TRAIT_FACTS_MAGIC: &[u8; 8] = b"NIAET001";
 const EXTENSION_VALIDATION_DIAGNOSTICS_MAGIC: &[u8; 8] = b"NIAEV001";
+const EXECUTABLE_VALUE_REF_EDGES_MAGIC: &[u8; 8] = b"NIAER001";
 const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SEQUENCE_LEN: usize = 1_000_000;
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
@@ -96,10 +97,25 @@ pub(crate) struct ExtensionValidationDiagnosticsIdentity<'a> {
     pub(crate) source_len: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ExecutableValueRefEdgesIdentity<'a> {
+    pub(crate) key: FrontendExecutableValueRefEdgesCacheKey,
+    pub(crate) namespace: FrontendCacheNamespace,
+    pub(crate) module: &'a StableModuleKey,
+    pub(crate) owner: DefId,
+    pub(crate) program_sources: FrontendProgramSourceFingerprint,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CachedExtensionTraitSolvingFacts {
     pub(crate) trait_impls: Vec<item_signatures::ProgramTraitImplSignature>,
     pub(crate) invalid_trait_impl_method_ids: HashSet<GlobalDefId>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct CachedExecutableValueRefEdges {
+    pub(crate) functions: HashSet<GlobalDefId>,
+    pub(crate) globals: HashSet<GlobalDefId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -133,6 +149,13 @@ pub(crate) enum ExtensionTraitSolvingFactsLookup {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ExtensionValidationDiagnosticsLookup {
     Hit(Vec<Diagnostic>),
+    NotFound,
+    Corrupt,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ExecutableValueRefEdgesLookup {
+    Hit(CachedExecutableValueRefEdges),
     NotFound,
     Corrupt,
 }
@@ -503,6 +526,61 @@ impl PersistentSignatureCache {
         remove_corrupt(&self.extension_validation_diagnostics_path(key));
     }
 
+    pub(crate) fn load_executable_value_ref_edges(
+        &self,
+        identity: ExecutableValueRefEdgesIdentity<'_>,
+        modules: &HashMap<String, ModuleId>,
+    ) -> io::Result<ExecutableValueRefEdgesLookup> {
+        let path = self.executable_value_ref_edges_path(identity.key);
+        let encoded = match fs::read(&path) {
+            Ok(encoded) if encoded.len() <= MAX_ENTRY_BYTES => encoded,
+            Ok(_) => {
+                remove_corrupt(&path);
+                return Ok(ExecutableValueRefEdgesLookup::Corrupt);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(ExecutableValueRefEdgesLookup::NotFound);
+            }
+            Err(error) => return Err(error),
+        };
+        let Some(payload) = decode_executable_value_ref_edges_entry(&encoded, identity) else {
+            remove_corrupt(&path);
+            return Ok(ExecutableValueRefEdgesLookup::Corrupt);
+        };
+        let Some(edges) = decode_executable_value_ref_edges(payload, modules) else {
+            remove_corrupt(&path);
+            return Ok(ExecutableValueRefEdgesLookup::Corrupt);
+        };
+        Ok(ExecutableValueRefEdgesLookup::Hit(edges))
+    }
+
+    pub(crate) fn publish_executable_value_ref_edges(
+        &self,
+        identity: ExecutableValueRefEdgesIdentity<'_>,
+        edges: &CachedExecutableValueRefEdges,
+        module_paths: &HashMap<ModuleId, String>,
+        replace: bool,
+    ) -> io::Result<()> {
+        let path = self.executable_value_ref_edges_path(identity.key);
+        if !replace && path.is_file() {
+            return Ok(());
+        }
+        let payload = encode_executable_value_ref_edges(edges, module_paths)?;
+        let encoded = encode_executable_value_ref_edges_entry(identity, &payload);
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid signature cache path"))?;
+        fs::create_dir_all(parent)?;
+        atomic_publish(&path, &encoded)
+    }
+
+    pub(crate) fn remove_executable_value_ref_edges(
+        &self,
+        key: FrontendExecutableValueRefEdgesCacheKey,
+    ) {
+        remove_corrupt(&self.executable_value_ref_edges_path(key));
+    }
+
     pub(crate) fn type_resolution_path(
         &self,
         key: FrontendSignatureTypeResolutionCacheKey,
@@ -563,6 +641,19 @@ impl PersistentSignatureCache {
             .join("v3")
             .join("extension-validation-diagnostics")
             .join(format!("{first:016x}{second:016x}.evd"))
+    }
+
+    pub(crate) fn executable_value_ref_edges_path(
+        &self,
+        key: FrontendExecutableValueRefEdgesCacheKey,
+    ) -> PathBuf {
+        let [first, second] = key.parts();
+        self.root
+            .join("artifacts")
+            .join("frontend")
+            .join("v3")
+            .join("executable-value-ref-edges")
+            .join(format!("{first:016x}{second:016x}.erv"))
     }
 }
 
@@ -837,6 +928,62 @@ fn decode_extension_validation_diagnostics_entry<'a>(
         || read_string(&mut cursor, encoded.len())?
             != identity.module.source_identity().normalized_path()
         || usize::try_from(read_u64(&mut cursor)?).ok()? != identity.source_len
+    {
+        return None;
+    }
+    let payload_len = usize::try_from(read_u64(&mut cursor)?).ok()?;
+    if payload_len > MAX_ENTRY_BYTES {
+        return None;
+    }
+    let start = usize::try_from(cursor.position()).ok()?;
+    let end = start.checked_add(payload_len)?;
+    (end == checksum_offset).then(|| &encoded[start..end])
+}
+
+fn encode_executable_value_ref_edges_entry(
+    identity: ExecutableValueRefEdgesIdentity<'_>,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(EXECUTABLE_VALUE_REF_EDGES_MAGIC);
+    write_parts(&mut encoded, identity.key.parts());
+    write_parts(&mut encoded, identity.namespace.parts());
+    write_parts(&mut encoded, identity.program_sources.parts());
+    write_string(
+        &mut encoded,
+        identity.module.source_identity().normalized_path(),
+    );
+    write_u64(&mut encoded, identity.owner.0);
+    write_u64(&mut encoded, payload.len() as u64);
+    encoded.extend_from_slice(payload);
+    let checksum = executable_value_ref_edges_checksum(&encoded);
+    write_parts(&mut encoded, checksum.parts());
+    encoded
+}
+
+fn decode_executable_value_ref_edges_entry<'a>(
+    encoded: &'a [u8],
+    identity: ExecutableValueRefEdgesIdentity<'_>,
+) -> Option<&'a [u8]> {
+    if encoded.len() < EXECUTABLE_VALUE_REF_EDGES_MAGIC.len() + 16 {
+        return None;
+    }
+    let checksum_offset = encoded.len().checked_sub(16)?;
+    let expected_checksum = executable_value_ref_edges_checksum(&encoded[..checksum_offset]);
+    let mut checksum_cursor = Cursor::new(&encoded[checksum_offset..]);
+    if read_parts(&mut checksum_cursor)? != expected_checksum.parts() {
+        return None;
+    }
+    let mut cursor = Cursor::new(&encoded[..checksum_offset]);
+    let mut magic = [0_u8; 8];
+    cursor.read_exact(&mut magic).ok()?;
+    if &magic != EXECUTABLE_VALUE_REF_EDGES_MAGIC
+        || read_parts(&mut cursor)? != identity.key.parts()
+        || read_parts(&mut cursor)? != identity.namespace.parts()
+        || read_parts(&mut cursor)? != identity.program_sources.parts()
+        || read_string(&mut cursor, encoded.len())?
+            != identity.module.source_identity().normalized_path()
+        || DefId(read_u64(&mut cursor)?) != identity.owner
     {
         return None;
     }
@@ -3210,6 +3357,81 @@ fn decode_extension_validation_diagnostics(
     (usize::try_from(cursor.position()).ok()? == encoded.len()).then_some(diagnostics)
 }
 
+fn encode_executable_value_ref_edges(
+    edges: &CachedExecutableValueRefEdges,
+    module_paths: &HashMap<ModuleId, String>,
+) -> io::Result<Vec<u8>> {
+    let mut encoded = Vec::new();
+    write_global_def_set(&mut encoded, &edges.functions, module_paths)?;
+    write_global_def_set(&mut encoded, &edges.globals, module_paths)?;
+    Ok(encoded)
+}
+
+fn decode_executable_value_ref_edges(
+    encoded: &[u8],
+    modules: &HashMap<String, ModuleId>,
+) -> Option<CachedExecutableValueRefEdges> {
+    let mut cursor = Cursor::new(encoded);
+    let functions = read_global_def_set(&mut cursor, modules)?;
+    let globals = read_global_def_set(&mut cursor, modules)?;
+    (usize::try_from(cursor.position()).ok()? == encoded.len())
+        .then_some(CachedExecutableValueRefEdges { functions, globals })
+}
+
+fn write_global_def_set(
+    encoded: &mut Vec<u8>,
+    values: &HashSet<GlobalDefId>,
+    module_paths: &HashMap<ModuleId, String>,
+) -> io::Result<()> {
+    let mut stable_values = values
+        .iter()
+        .map(|value| {
+            let path = module_paths.get(&value.module_id).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "value-ref edge module is not loaded",
+                )
+            })?;
+            Ok((path, value.def_id))
+        })
+        .collect::<io::Result<Vec<_>>>()?;
+    stable_values.sort_unstable();
+    write_u64(encoded, stable_values.len() as u64);
+    for (path, def_id) in stable_values {
+        write_string(encoded, path);
+        write_u64(encoded, def_id.0);
+    }
+    Ok(())
+}
+
+fn read_global_def_set(
+    cursor: &mut Cursor<&[u8]>,
+    modules: &HashMap<String, ModuleId>,
+) -> Option<HashSet<GlobalDefId>> {
+    let len = read_len(cursor, MAX_SEQUENCE_LEN)?;
+    let mut values = HashSet::with_capacity(len);
+    let mut previous: Option<(String, DefId)> = None;
+    for _ in 0..len {
+        let path = read_string(cursor, cursor.get_ref().len())?;
+        let def_id = DefId(read_u64(cursor)?);
+        if previous
+            .as_ref()
+            .is_some_and(|previous| previous >= &(path.clone(), def_id))
+        {
+            return None;
+        }
+        let value = GlobalDefId {
+            module_id: *modules.get(&path)?,
+            def_id,
+        };
+        if !values.insert(value) {
+            return None;
+        }
+        previous = Some((path, def_id));
+    }
+    Some(values)
+}
+
 fn signature_set_tag(value: SignatureItemSet) -> u8 {
     match value {
         SignatureItemSet::Functions => 0,
@@ -3246,6 +3468,12 @@ fn extension_trait_solving_facts_checksum(encoded: &[u8]) -> QueryFingerprint {
 
 fn extension_validation_diagnostics_checksum(encoded: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.extension-validation-diagnostics.entry.v1");
+    builder.write_bytes(encoded);
+    builder.finish()
+}
+
+fn executable_value_ref_edges_checksum(encoded: &[u8]) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.executable-value-ref-edges.entry.v1");
     builder.write_bytes(encoded);
     builder.finish()
 }
@@ -4117,6 +4345,117 @@ mod tests {
                 .load_extension_validation_diagnostics(identity)
                 .expect("load corrupt validation diagnostics"),
             ExtensionValidationDiagnosticsLookup::Corrupt
+        );
+        assert!(!path.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn executable_value_ref_edges_rehydrate_current_modules_and_retire_corruption() {
+        let root = temp_dir("executable_value_ref_edges");
+        let cache = PersistentSignatureCache::new(root.clone());
+        let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
+        let dependency = StableModuleKey::from_source_identity(SourceIdentity::new("src/dep.nia"));
+        let source = crate::source_content_fingerprint("fn main() i32 { dep() }");
+        let dependency_source = crate::source_content_fingerprint("fn dep() i32 { 1 }");
+        let program_sources = crate::frontend_program_source_fingerprint([
+            (&module, source, 24),
+            (&dependency, dependency_source, 18),
+        ]);
+        let namespace = crate::FrontendCacheNamespace::new(
+            &nia_target_config::TargetConfig::host(),
+            crate::RuntimeModel::Bare,
+        );
+        let owner = DefId(11);
+        let key = crate::FrontendExecutableValueRefEdgesCacheKey::new(
+            namespace,
+            &module,
+            owner,
+            program_sources,
+        );
+        let identity = ExecutableValueRefEdgesIdentity {
+            key,
+            namespace,
+            module: &module,
+            owner,
+            program_sources,
+        };
+
+        let mut old_ids = ModuleIdAllocator::new();
+        let old_module = old_ids.allocate();
+        let old_dependency = old_ids.allocate();
+        let old_paths = HashMap::from([
+            (old_module, "src/main.nia".to_string()),
+            (old_dependency, "src/dep.nia".to_string()),
+        ]);
+        let edges = CachedExecutableValueRefEdges {
+            functions: HashSet::from([
+                GlobalDefId {
+                    module_id: old_module,
+                    def_id: DefId(3),
+                },
+                GlobalDefId {
+                    module_id: old_dependency,
+                    def_id: DefId(5),
+                },
+            ]),
+            globals: HashSet::from([GlobalDefId {
+                module_id: old_dependency,
+                def_id: DefId(7),
+            }]),
+        };
+        cache
+            .publish_executable_value_ref_edges(identity, &edges, &old_paths, false)
+            .expect("publish executable value-ref edges");
+
+        let mut new_ids = ModuleIdAllocator::new();
+        let new_dependency = new_ids.allocate();
+        let new_module = new_ids.allocate();
+        let new_modules = HashMap::from([
+            ("src/main.nia".to_string(), new_module),
+            ("src/dep.nia".to_string(), new_dependency),
+        ]);
+        let loaded = cache
+            .load_executable_value_ref_edges(identity, &new_modules)
+            .expect("load executable value-ref edges");
+        assert_eq!(
+            loaded,
+            ExecutableValueRefEdgesLookup::Hit(CachedExecutableValueRefEdges {
+                functions: HashSet::from([
+                    GlobalDefId {
+                        module_id: new_module,
+                        def_id: DefId(3),
+                    },
+                    GlobalDefId {
+                        module_id: new_dependency,
+                        def_id: DefId(5),
+                    },
+                ]),
+                globals: HashSet::from([GlobalDefId {
+                    module_id: new_dependency,
+                    def_id: DefId(7),
+                }]),
+            })
+        );
+
+        let mut malformed_payload = Vec::new();
+        write_u64(&mut malformed_payload, 2);
+        for _ in 0..2 {
+            write_string(&mut malformed_payload, "src/main.nia");
+            write_u64(&mut malformed_payload, 3);
+        }
+        write_u64(&mut malformed_payload, 0);
+        let path = cache.executable_value_ref_edges_path(key);
+        fs::write(
+            &path,
+            encode_executable_value_ref_edges_entry(identity, &malformed_payload),
+        )
+        .expect("write malformed executable value-ref edges");
+        assert_eq!(
+            cache
+                .load_executable_value_ref_edges(identity, &new_modules)
+                .expect("reject malformed executable value-ref edges"),
+            ExecutableValueRefEdgesLookup::Corrupt
         );
         assert!(!path.exists());
         let _ = fs::remove_dir_all(root);

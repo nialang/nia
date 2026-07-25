@@ -1,4 +1,5 @@
 use nia_ast::FunctionItem;
+use nia_ids::DefId;
 use nia_imports::{ModuleMap, StableModuleKey};
 use nia_item_tree::{ItemTreeNodeKind, ModuleItemTree, SignatureItemSet};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
@@ -182,6 +183,32 @@ impl FrontendExtensionValidationDiagnosticsCacheKey {
             "nia.frontend.cache-key.extension-validation-diagnostics.v1",
         );
         write_frontend_cache_key(&mut builder, namespace, module, program_sources.parts());
+        Self(builder.finish())
+    }
+
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(QueryFingerprint::from_parts(parts))
+    }
+
+    pub const fn parts(self) -> [u64; 2] {
+        self.0.parts()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FrontendExecutableValueRefEdgesCacheKey(QueryFingerprint);
+
+impl FrontendExecutableValueRefEdgesCacheKey {
+    pub fn new(
+        namespace: FrontendCacheNamespace,
+        module: &StableModuleKey,
+        owner: DefId,
+        program_sources: FrontendProgramSourceFingerprint,
+    ) -> Self {
+        let mut builder =
+            QueryFingerprintBuilder::new("nia.frontend.cache-key.executable-value-ref-edges.v1");
+        write_frontend_cache_key(&mut builder, namespace, module, program_sources.parts());
+        builder.write_u64(owner.0);
         Self(builder.finish())
     }
 
@@ -618,6 +645,8 @@ extend Value {
             FrontendExtensionTraitSolvingFactsCacheKey::new(namespace, &module, program);
         let extension_validation_key =
             FrontendExtensionValidationDiagnosticsCacheKey::new(namespace, &module, program);
+        let value_ref_edges_key =
+            FrontendExecutableValueRefEdgesCacheKey::new(namespace, &module, DefId(7), program);
 
         assert_eq!(program, reordered);
         assert_ne!(program, changed);
@@ -667,6 +696,22 @@ extend Value {
             extension_validation_key.parts()
         );
         assert_ne!(signatures_key.parts(), extension_validation_key.parts());
+        assert_ne!(
+            extension_validation_key.parts(),
+            value_ref_edges_key.parts()
+        );
+        assert_ne!(
+            value_ref_edges_key,
+            FrontendExecutableValueRefEdgesCacheKey::new(namespace, &module, DefId(8), program,)
+        );
+        assert_ne!(
+            value_ref_edges_key,
+            FrontendExecutableValueRefEdgesCacheKey::new(namespace, &dependency, DefId(7), program,)
+        );
+        assert_ne!(
+            value_ref_edges_key,
+            FrontendExecutableValueRefEdgesCacheKey::new(namespace, &module, DefId(7), changed,)
+        );
         assert_eq!(
             extension_validation_key,
             FrontendExtensionValidationDiagnosticsCacheKey::from_parts(
@@ -692,6 +737,14 @@ extend Value {
         );
         assert_eq!(
             std::mem::size_of::<FrontendExtensionValidationDiagnosticsCacheKey>(),
+            16
+        );
+        assert_eq!(
+            value_ref_edges_key,
+            FrontendExecutableValueRefEdgesCacheKey::from_parts(value_ref_edges_key.parts())
+        );
+        assert_eq!(
+            std::mem::size_of::<FrontendExecutableValueRefEdgesCacheKey>(),
             16
         );
     }

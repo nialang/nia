@@ -3,7 +3,7 @@ use super::*;
 use nia_ast::{BindingItem, FunctionItem};
 use std::collections::VecDeque;
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(in crate::query) struct ExecutableValueRefEdges {
     pub(in crate::query) functions: HashSet<GlobalDefId>,
     pub(in crate::query) globals: HashSet<GlobalDefId>,
@@ -2053,63 +2053,180 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
     owner: GlobalDefId,
 ) -> ExecutableValueRefEdges {
     time_module_provider(db, "executable_value_ref_edges", owner.module_id, || {
-        let item_input = db.get(ExecutableValueRefItemQuery(owner));
-        let Some(item_input) = item_input.as_ref() else {
-            return ExecutableValueRefEdges::default();
+        let program_sources = db.get(FrontendProgramSourcesQuery);
+        let cache_input = program_sources
+            .as_ref()
+            .as_ref()
+            .and_then(|program_sources| {
+                let source = program_sources.by_module.get(&owner.module_id)?;
+                let namespace = crate::FrontendCacheNamespace::new(
+                    &db.context().loader_facts.target(),
+                    db.context().loader_facts.runtime(),
+                );
+                let key = crate::FrontendExecutableValueRefEdgesCacheKey::new(
+                    namespace,
+                    &source.module,
+                    owner.def_id,
+                    program_sources.fingerprint,
+                );
+                Some((program_sources, source, namespace, key))
+            });
+        let cached = if let Some(cache) = db.context().signature_cache.as_ref()
+            && let Some((program_sources, source, namespace, key)) = cache_input
+        {
+            match cache.load_executable_value_ref_edges(
+                crate::signature_cache::ExecutableValueRefEdgesIdentity {
+                    key,
+                    namespace,
+                    module: &source.module,
+                    owner: owner.def_id,
+                    program_sources: program_sources.fingerprint,
+                },
+                &program_sources.module_by_path,
+            ) {
+                Ok(lookup) => {
+                    match lookup {
+                        crate::signature_cache::ExecutableValueRefEdgesLookup::Hit(_) => {
+                            nia_timing::emit_counter(
+                                "frontend.executable_value_ref_edges_reuse_hits",
+                                1,
+                            );
+                        }
+                        crate::signature_cache::ExecutableValueRefEdgesLookup::NotFound => {
+                            nia_timing::emit_counter(
+                                "frontend.executable_value_ref_edges_reuse_miss_not_found",
+                                1,
+                            );
+                        }
+                        crate::signature_cache::ExecutableValueRefEdgesLookup::Corrupt => {
+                            nia_timing::emit_counter(
+                                "frontend.executable_value_ref_edges_reuse_miss_corrupt",
+                                1,
+                            );
+                        }
+                    }
+                    Some(lookup)
+                }
+                Err(_) => {
+                    nia_timing::emit_counter(
+                        "frontend.executable_value_ref_edges_reuse_miss_read_error",
+                        1,
+                    );
+                    None
+                }
+            }
+        } else {
+            None
         };
-        let full_active_item_tree = db.get(FullActiveModuleItemTreeQuery(owner.module_id));
-        let active_item_tree =
-            executable_value_ref_active_item_tree(item_input, &full_active_item_tree);
-        let defs = db.get(ModuleDefsQuery(owner.module_id));
-        let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
-        let graph = QueryModuleGraphLookup::new(db);
-        let public_surfaces = QueryPublicSurfaceLookup::new(db);
-        let using_scope = QueryUsingScopeLookup::new(db, owner.module_id);
-        let visible_extensions = || db.get(VisibleExtensionsQuery(owner.module_id));
-        let associated_values =
-            LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
-        let symbols = db.context().symbols();
-        let values = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
-            &active_item_tree,
-            &defs,
-            nia_value_resolve::ProgramDefsContext {
-                defs: Some(&program_defs),
-                graph: Some(&graph),
-            },
-            &public_surfaces,
-            &using_scope,
-            nia_value_resolve::ValueResolveOptions::with_store(
-                Some(&associated_values),
-                Some(&symbols),
-                db.context().node_store(),
-            ),
-        );
-        let origins = nia_node_id::NodeOriginTable::with_store(db.context().node_store());
-        let locals =
-            nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
+        let cached = if db.context().verify_frontend_cache {
+            cached
+        } else {
+            match cached {
+                Some(crate::signature_cache::ExecutableValueRefEdgesLookup::Hit(cached)) => {
+                    return ExecutableValueRefEdges {
+                        functions: cached.functions,
+                        globals: cached.globals,
+                    };
+                }
+                cached => cached,
+            }
+        };
+
+        let edges = if let Some(item_input) = db.get(ExecutableValueRefItemQuery(owner)).as_ref() {
+            let full_active_item_tree = db.get(FullActiveModuleItemTreeQuery(owner.module_id));
+            let active_item_tree =
+                executable_value_ref_active_item_tree(item_input, &full_active_item_tree);
+            let defs = db.get(ModuleDefsQuery(owner.module_id));
+            let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
+            let graph = QueryModuleGraphLookup::new(db);
+            let public_surfaces = QueryPublicSurfaceLookup::new(db);
+            let using_scope = QueryUsingScopeLookup::new(db, owner.module_id);
+            let visible_extensions = || db.get(VisibleExtensionsQuery(owner.module_id));
+            let associated_values =
+                LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
+            let symbols = db.context().symbols();
+            let values = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
                 &active_item_tree,
-                &full_active_item_tree,
+                &defs,
+                nia_value_resolve::ProgramDefsContext {
+                    defs: Some(&program_defs),
+                    graph: Some(&graph),
+                },
+                &public_surfaces,
+                &using_scope,
+                nia_value_resolve::ValueResolveOptions::with_store(
+                    Some(&associated_values),
+                    Some(&symbols),
+                    db.context().node_store(),
+                ),
+            );
+            let origins = nia_node_id::NodeOriginTable::with_store(db.context().node_store());
+            let locals =
+                nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
+                    &active_item_tree,
+                    &full_active_item_tree,
+                    &defs,
+                    &values,
+                    None,
+                    &origins,
+                    &symbols,
+                );
+            let mut index = ExecutableValueRefIndex::default();
+            collect_executable_value_ref_index_for_items(
+                db,
+                owner.module_id,
+                &active_item_tree.items,
                 &defs,
                 &values,
-                None,
-                &origins,
-                &symbols,
+                &locals,
+                &mut index,
             );
-        let mut index = ExecutableValueRefIndex::default();
-        collect_executable_value_ref_index_for_items(
-            db,
-            owner.module_id,
-            &active_item_tree.items,
-            &defs,
-            &values,
-            &locals,
-            &mut index,
-        );
-        index
-            .functions
-            .remove(&owner)
-            .or_else(|| index.globals.remove(&owner))
-            .unwrap_or_default()
+            index
+                .functions
+                .remove(&owner)
+                .or_else(|| index.globals.remove(&owner))
+                .unwrap_or_default()
+        } else {
+            ExecutableValueRefEdges::default()
+        };
+
+        if let Some(cache) = &db.context().signature_cache
+            && let Some((program_sources, source, namespace, key)) = cache_input
+        {
+            let stable_edges = crate::signature_cache::CachedExecutableValueRefEdges {
+                functions: edges.functions.clone(),
+                globals: edges.globals.clone(),
+            };
+            let replace = matches!(
+                &cached,
+                Some(crate::signature_cache::ExecutableValueRefEdgesLookup::Hit(cached))
+                    if cached != &stable_edges
+            );
+            if replace {
+                cache.remove_executable_value_ref_edges(key);
+            }
+            let published = cache.publish_executable_value_ref_edges(
+                crate::signature_cache::ExecutableValueRefEdgesIdentity {
+                    key,
+                    namespace,
+                    module: &source.module,
+                    owner: owner.def_id,
+                    program_sources: program_sources.fingerprint,
+                },
+                &stable_edges,
+                &program_sources.path_by_module,
+                replace,
+            );
+            nia_timing::emit_counter(
+                if published.is_ok() {
+                    "frontend.executable_value_ref_edges_cacheable"
+                } else {
+                    "frontend.executable_value_ref_edges_uncacheable"
+                },
+                1,
+            );
+        }
+        edges
     })
 }
 
