@@ -748,13 +748,16 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         product,
         prechecked,
     } = input;
+    let query_failure = RefCell::new(None);
     let source_version = *db.try_get(ModuleSourceVersionQuery(module_id))?;
-    let origins = db.get(ModuleOriginsQuery(module_id));
-    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.get(FullModuleDefsQuery(module_id));
-    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
-    let type_resolution = db.get(TypeResolutionQuery(module_id));
-    let lowered = db.get(TypeLoweringQuery(module_id));
+    let origins = db.try_get(ModuleOriginsQuery(module_id))?;
+    let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
+    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+    let program_defs = |module_id| {
+        capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+    };
+    let type_resolution = db.try_get(TypeResolutionQuery(module_id))?;
+    let lowered = db.try_get(TypeLoweringQuery(module_id))?;
     let executable_reachable_filter = matches!(
         filter,
         nia_body_check::BodyCheckFilter::ReachableItems { .. }
@@ -775,7 +778,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 BodyCheckResolutionContext {
                     source_version,
                     origins: &origins,
-                    active_item_tree,
+                    active_item_tree: active_item_tree.clone(),
                     defs: &defs,
                     type_resolution: &type_resolution,
                     lowered: &lowered,
@@ -784,14 +787,17 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         }
     };
     let inputs = &filtered_inputs;
-    let source_path = db.get(ModulePathQuery(module_id));
+    let source_path = db.try_get(ModulePathQuery(module_id))?;
     let signatures = body_local_item_signatures(db, module_id, &lowered)?;
-    let normalization = db.get(TypeNormalizationQuery(module_id));
+    let normalization = db.try_get(TypeNormalizationQuery(module_id))?;
     let extension_method_normalization = |module_id| {
-        Some(db.get(SignatureTypeNormalizationQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Traits,
-        )))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureTypeNormalizationQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::Traits,
+            )),
+        )
     };
     let mut filtered_const_inputs = None;
     let full_const_values;
@@ -864,7 +870,6 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         Some(layouts) => layouts,
         None => db.try_get(LayoutsQuery(module_id))?,
     };
-    let query_failure = RefCell::new(None);
     let program_layouts = |module_id| {
         if let Some(program_layouts) = program_layouts_override {
             match capture_query_failure(&query_failure, Ok(program_layouts(module_id))) {
@@ -877,28 +882,46 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     };
     let empty_extensions = nia_defs::VisibleExtensionMethods::default();
     let lazy_extensions = || {
-        let extensions = db.get(VisibleExtensionsQuery(module_id));
-        extensions.methods.clone()
+        capture_query_failure(
+            &query_failure,
+            db.try_get(VisibleExtensionsQuery(module_id)),
+        )
+        .map(|extensions| extensions.methods.clone())
+        .unwrap_or_default()
     };
     let empty_program_extension_methods = nia_defs::ExtensionMethods::default();
     let program_extension_methods = &empty_program_extension_methods;
-    let program_extension_method_by_id =
-        |def_id: GlobalDefId| db.get(ExtensionMethodByIdQuery(def_id)).method.clone();
-    let program_extension_methods_named =
-        |name: &SymbolId| db.get(ExtensionMethodsNamedQuery(*name)).methods.clone();
+    let program_extension_method_by_id = |def_id: GlobalDefId| {
+        capture_query_failure(&query_failure, db.try_get(ExtensionMethodByIdQuery(def_id)))
+            .and_then(|method| method.method.clone())
+    };
+    let program_extension_methods_named = |name: &SymbolId| {
+        capture_query_failure(
+            &query_failure,
+            db.try_get(ExtensionMethodsNamedQuery(*name)),
+        )
+        .map(|methods| methods.methods.clone())
+        .unwrap_or_default()
+    };
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
-            return Some(db.get(SignatureTypeNormalizationQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            )));
+            return capture_query_failure(
+                &query_failure,
+                db.try_get(SignatureTypeNormalizationQuery(
+                    module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                )),
+            );
         }
-        Some(db.get(TypeNormalizationQuery(module_id)))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(TypeNormalizationQuery(module_id)),
+        )
     };
-    let local_function_signatures = db.get(SignatureItemSignaturesQuery(
+    let local_function_signatures = db.try_get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
-    ));
+    ))?;
     let local_program_function_signature_cache =
         RefCell::new(HashMap::<GlobalDefId, ProgramFunctionSignature>::new());
     let program_function_signature = |def_id: GlobalDefId| {
@@ -930,109 +953,133 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     signature
                 });
         }
-        db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Functions,
-        ))
-        .functions
-        .get(&def_id.def_id)
-        .cloned()
-        .map(|signature| {
-            let signature = ProgramFunctionSignature {
-                name: db
-                    .get(ModuleDefsQuery(def_id.module_id))
-                    .defs
-                    .get(def_id.def_id)
-                    .map(|def| def.name)
-                    .unwrap_or_default(),
-                signature,
-            };
-            if let Some(cache) = program_function_signature_cache {
-                cache.borrow_mut().insert(def_id, signature.clone());
-            } else {
-                local_program_function_signature_cache
-                    .borrow_mut()
-                    .insert(def_id, signature.clone());
-            }
-            signature
-        })
+        let signatures = capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Functions,
+            )),
+        )?;
+        let signature = signatures.functions.get(&def_id.def_id).cloned()?;
+        let defs = capture_query_failure(
+            &query_failure,
+            db.try_get(ModuleDefsQuery(def_id.module_id)),
+        )?;
+        let signature = ProgramFunctionSignature {
+            name: defs
+                .defs
+                .get(def_id.def_id)
+                .map(|def| def.name)
+                .unwrap_or_default(),
+            signature,
+        };
+        if let Some(cache) = program_function_signature_cache {
+            cache.borrow_mut().insert(def_id, signature.clone());
+        } else {
+            local_program_function_signature_cache
+                .borrow_mut()
+                .insert(def_id, signature.clone());
+        }
+        Some(signature)
     };
     let program_global_signature = |def_id: GlobalDefId| {
-        db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Values,
-        ))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Values,
+            )),
+        )?
         .globals
         .get(&def_id.def_id)
         .cloned()
         .map(|signature| ProgramGlobalSignature { signature })
     };
     let program_const_signature = |def_id: GlobalDefId| {
-        db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Values,
-        ))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Values,
+            )),
+        )?
         .consts
         .get(&def_id.def_id)
         .cloned()
         .map(|signature| ProgramConstSignature { signature })
     };
     let program_struct_signature = |def_id: GlobalDefId| {
-        db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Types,
-        ))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )?
         .structs
         .get(&def_id.def_id)
         .cloned()
         .map(|signature| ProgramStructSignature { signature })
     };
     let program_union_signature = |def_id: GlobalDefId| {
-        db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Types,
-        ))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )?
         .unions
         .get(&def_id.def_id)
         .cloned()
         .map(|signature| ProgramUnionSignature { signature })
     };
     let program_enum_signature = |def_id: GlobalDefId| {
-        db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Types,
-        ))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )?
         .enums
         .get(&def_id.def_id)
         .cloned()
         .map(|signature| ProgramEnumSignature { signature })
     };
     let program_trait_signature = |def_id: GlobalDefId| {
-        db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Traits,
-        ))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Traits,
+            )),
+        )?
         .traits
         .get(&def_id.def_id)
         .cloned()
         .map(|signature| ProgramTraitSignature { signature })
     };
     let program_type_alias_signature = |def_id: GlobalDefId| {
-        db.get(SignatureItemSignaturesQuery(
-            def_id.module_id,
-            nia_item_tree::SignatureItemSet::Types,
-        ))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )?
         .type_aliases
         .get(&def_id.def_id)
         .cloned()
         .map(|signature| ProgramTypeAliasSignature { signature })
     };
     let program_traits_by_method_name = |name: &SymbolId| {
-        db.get(ProgramTraitMethodIndexQuery)
-            .trait_ids_with_method_named(name)
+        capture_query_failure(&query_failure, db.try_get(ProgramTraitMethodIndexQuery))
+            .map(|index| index.trait_ids_with_method_named(name))
+            .unwrap_or_default()
     };
     let program_trait_owning_method = |method_id: GlobalDefId| {
-        db.get(ProgramTraitMethodIndexQuery)
+        capture_query_failure(&query_failure, db.try_get(ProgramTraitMethodIndexQuery))?
             .trait_owning_method_id(method_id)
             .and_then(|trait_id| {
                 program_trait_signature(trait_id).map(|signature| (trait_id, signature))
@@ -1076,7 +1123,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             &signatures.trait_impl_index,
         )
     } else {
-        visible_trait_impls = db.get(VisibleTraitImplsQuery(module_id));
+        visible_trait_impls = db.try_get(VisibleTraitImplsQuery(module_id))?;
         ProgramSignatureContext::new_indexed(
             &program_signature_lookup,
             &visible_trait_impls.trait_impls,
@@ -1085,12 +1132,15 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     };
     let item_signatures_for_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
-            return Some(db.get(SignatureItemSignaturesQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            )));
+            return capture_query_failure(
+                &query_failure,
+                db.try_get(SignatureItemSignaturesQuery(
+                    module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                )),
+            );
         }
-        Some(db.get(ItemSignaturesQuery(module_id)))
+        capture_query_failure(&query_failure, db.try_get(ItemSignaturesQuery(module_id)))
     };
     let executable_program_const_array_lengths =
         RefCell::new(HashMap::<ModuleId, Arc<nia_const_check::ConstArrayLengths>>::new());
@@ -1227,9 +1277,15 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         capture_query_failure(&query_failure, db.try_get(ConstModuleQuery(module_id)))
             .map(|lowering| lowering.module.clone())
     };
-    let program_visible_extensions =
-        |module_id| Some(db.get(VisibleExtensionsQuery(module_id)).methods.clone());
+    let program_visible_extensions = |module_id| {
+        capture_query_failure(
+            &query_failure,
+            db.try_get(VisibleExtensionsQuery(module_id)),
+        )
+        .map(|extensions| extensions.methods.clone())
+    };
     let program_module_source_path = |module_id| db.context().loader_facts().module_path(module_id);
+    let target = db.try_get(CompilerTargetQuery)?;
     let run_body_check =
         |inputs: &BodyCheckResolutionInputs,
          body_const: nia_body_check::BodyConst<'_>,
@@ -1255,7 +1311,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     const_signatures: &signatures,
                     normalization: &normalization,
                     seed,
-                    target: db.get(CompilerTargetQuery).as_ref(),
+                    target: target.as_ref(),
                     const_eval: body_const,
                     const_module,
                     layouts: &layouts,
@@ -1318,7 +1374,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 BodyCheckResolutionContext {
                     source_version,
                     origins: &origins,
-                    active_item_tree: db.get(FullActiveModuleItemTreeQuery(module_id)),
+                    active_item_tree: active_item_tree.clone(),
                     defs: &defs,
                     type_resolution: &type_resolution,
                     lowered: &lowered,
