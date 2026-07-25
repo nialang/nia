@@ -2102,6 +2102,136 @@ mod tests {
         )
     }
 
+    struct FingerprintedLoadedProgram {
+        program: LoadedProgram,
+        sources: HashMap<ModuleId, (crate::SourceContentFingerprint, usize)>,
+    }
+
+    impl crate::LoaderFactProvider for FingerprintedLoadedProgram {
+        fn query_session(&self) -> Option<nia_query::QuerySession> {
+            None
+        }
+
+        fn provider_facts(&self) -> crate::ProviderFactSnapshot {
+            self.program.provider_facts()
+        }
+
+        fn update_provider_demands(
+            &self,
+            demands: Vec<crate::ProviderDemand>,
+        ) -> crate::ProviderGraphUpdate {
+            self.program.update_provider_demands(demands)
+        }
+
+        fn node_store(&self) -> nia_node_id::NodeStore {
+            self.program.node_store()
+        }
+
+        fn module_graph(&self) -> nia_imports::ModuleGraphSnapshot {
+            self.program.module_graph()
+        }
+
+        fn loaded_module_source_identities(&self) -> Vec<SourceIdentity> {
+            self.program.loaded_module_source_identities()
+        }
+
+        fn module_path(&self, module_id: ModuleId) -> Option<SourcePath> {
+            self.program.module_path(module_id)
+        }
+
+        fn module_source_version(&self, module_id: ModuleId) -> Option<SourceVersion> {
+            self.program.module_source_version(module_id)
+        }
+
+        fn module_source_fingerprint(
+            &self,
+            module_id: ModuleId,
+        ) -> Option<(crate::SourceContentFingerprint, usize)> {
+            self.sources.get(&module_id).copied()
+        }
+
+        fn module_provider_summary(
+            &self,
+            module_id: ModuleId,
+        ) -> Option<nia_provider_summary::ProviderSummary> {
+            self.program.module_provider_summary(module_id)
+        }
+
+        fn module_origins(&self, module_id: ModuleId) -> Option<NodeOriginTable> {
+            self.program.module_origins(module_id)
+        }
+
+        fn module_parse_errors(&self, module_id: ModuleId) -> Option<Vec<ParseError>> {
+            self.program.module_parse_errors(module_id)
+        }
+
+        fn module_item_tree(&self, module_id: ModuleId) -> Option<ModuleItemTree> {
+            self.program.module_item_tree(module_id)
+        }
+
+        fn active_module_item_tree(
+            &self,
+            module_id: ModuleId,
+            kind: ActiveModuleItemTreeFactKind,
+        ) -> Option<ActiveModuleItemTree> {
+            self.program.active_module_item_tree(module_id, kind)
+        }
+
+        fn load_diagnostics(&self) -> Vec<ProgramDiagnostic> {
+            self.program.load_diagnostics()
+        }
+
+        fn symbols(&self) -> nia_symbol_table::SymbolTable {
+            self.program.symbols()
+        }
+
+        fn target(&self) -> TargetConfig {
+            self.program.target()
+        }
+
+        fn runtime(&self) -> RuntimeModel {
+            self.program.runtime()
+        }
+    }
+
+    fn query_db_with_frontend_cache(
+        loaded: LoadedProgram,
+        sources: HashMap<ModuleId, (crate::SourceContentFingerprint, usize)>,
+        root: PathBuf,
+        verify: bool,
+    ) -> QueryDb<CompilerContext> {
+        let loader_facts: Arc<dyn crate::LoaderFactProvider> =
+            Arc::new(FingerprintedLoadedProgram {
+                program: loaded.clone(),
+                sources,
+            });
+        let node_store = loader_facts.node_store();
+        let inputs = Arc::new(RwLock::new(CompilerInputs::new(
+            CompileRequest::new(loaded)
+                .with_frontend_cache_dir(Some(root.clone()))
+                .with_frontend_cache_verification(verify),
+        )));
+        QueryDb::new_registered(
+            CompilerContext {
+                inputs,
+                loader_facts,
+                providers: CompilerQueryProviders::default(),
+                executable_fact_session: Arc::new(std::sync::Mutex::new(
+                    ExecutableFactSession::default(),
+                )),
+                executable_fact_scheduler: std::sync::Mutex::new(()),
+                type_store: Arc::new(nia_ty::TypeStore::new()),
+                node_store,
+                signature_cache: Some(Arc::new(
+                    crate::signature_cache::PersistentSignatureCache::new(root),
+                )),
+                verify_frontend_cache: verify,
+                provider_demand_rounds: std::sync::atomic::AtomicU64::new(0),
+            },
+            compiler_query_registry(),
+        )
+    }
+
     fn module_id_for_source_identity(
         db: &QueryDb<CompilerContext>,
         identity: &SourceIdentity,
@@ -4607,6 +4737,113 @@ extend Value : Ops {
             "executable_value_ref_item_index",
             "module_defs"
         ));
+    }
+
+    #[test]
+    fn persistent_executable_value_ref_edges_skip_resolution_and_verify_replacement() {
+        static CACHE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let cache_id = CACHE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "nia-executable-value-ref-edges-{}-{cache_id}",
+            std::process::id()
+        ));
+        let source = "fn helper() i32 { 1 } fn main() i32 { helper() }";
+        let source_fingerprint = crate::source_content_fingerprint(source);
+        let compile = |verify| {
+            let fixture = LoadedProgramFixture::new("main.nia", source);
+            let module_id = fixture.entry_id();
+            let db = query_db_with_frontend_cache(
+                fixture.program(),
+                HashMap::from([(module_id, (source_fingerprint, source.len()))]),
+                root.clone(),
+                verify,
+            );
+            let defs = db.get(ModuleDefsQuery(module_id));
+            let owner = GlobalDefId {
+                module_id,
+                def_id: defs.module_scope.values.get(&sym("main")).unwrap(),
+            };
+            let helper = GlobalDefId {
+                module_id,
+                def_id: defs.module_scope.values.get(&sym("helper")).unwrap(),
+            };
+            let edges = db.get(ExecutableValueRefEdgesQuery(owner));
+            (owner, edges.functions.contains(&helper), db.query_trace())
+        };
+
+        let (cold_owner, cold_contains_helper, cold) = compile(false);
+        assert!(cold_contains_helper);
+        assert!(trace_has_dependency(
+            &cold,
+            "executable_value_ref_edges",
+            "executable_value_ref_item"
+        ));
+
+        let (_, warm_contains_helper, warm) = compile(false);
+        assert!(warm_contains_helper);
+        assert!(trace_has_dependency(
+            &warm,
+            "executable_value_ref_edges",
+            "frontend_program_sources"
+        ));
+        assert!(!trace_has_dependency(
+            &warm,
+            "executable_value_ref_edges",
+            "executable_value_ref_item"
+        ));
+        assert!(!trace_has_dependency(
+            &warm,
+            "executable_value_ref_edges",
+            "full_active_module_item_tree"
+        ));
+
+        let module = StableModuleKey::from_source_identity(SourceIdentity::new("main.nia"));
+        let program_sources = crate::frontend_program_source_fingerprint([(
+            &module,
+            source_fingerprint,
+            source.len(),
+        )]);
+        let namespace =
+            crate::FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+        let key = crate::FrontendExecutableValueRefEdgesCacheKey::new(
+            namespace,
+            &module,
+            cold_owner.def_id,
+            program_sources,
+        );
+        let cache = crate::signature_cache::PersistentSignatureCache::new(root.clone());
+        cache.remove_executable_value_ref_edges(key);
+        cache
+            .publish_executable_value_ref_edges(
+                crate::signature_cache::ExecutableValueRefEdgesIdentity {
+                    key,
+                    namespace,
+                    module: &module,
+                    owner: cold_owner.def_id,
+                    program_sources,
+                },
+                &crate::signature_cache::CachedExecutableValueRefEdges::default(),
+                &HashMap::from([(cold_owner.module_id, "main.nia".to_string())]),
+                false,
+            )
+            .expect("publish semantically wrong value-ref edges");
+
+        let (_, verified_contains_helper, verified) = compile(true);
+        assert!(verified_contains_helper);
+        assert!(trace_has_dependency(
+            &verified,
+            "executable_value_ref_edges",
+            "executable_value_ref_item"
+        ));
+
+        let (_, replaced_contains_helper, replaced) = compile(false);
+        assert!(replaced_contains_helper);
+        assert!(!trace_has_dependency(
+            &replaced,
+            "executable_value_ref_edges",
+            "executable_value_ref_item"
+        ));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
