@@ -454,7 +454,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) monomorphization:
         fn(&QueryDb<CompilerContext>) -> QueryResult<nia_monomorphize::Monomorphization>,
     pub(super) backend_lowering:
-        fn(&QueryDb<CompilerContext>) -> nia_backend_lower::BackendLowering,
+        fn(&QueryDb<CompilerContext>) -> QueryResult<nia_backend_lower::BackendLowering>,
 }
 
 impl Default for CompilerQueryProviders {

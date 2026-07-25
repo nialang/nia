@@ -503,7 +503,7 @@ impl CompilerDatabase {
                 nia_backend_lower::BackendLowering,
             >,
         ) -> R,
-    ) -> R {
+    ) -> QueryResult<R> {
         providers::with_backend_finalization_schedule(&self.db, consume)
     }
 
@@ -886,7 +886,7 @@ fn codegen_preparation_from_query_error(
     }
 }
 
-fn query_error_diagnostic(err: QueryError) -> Diagnostic {
+pub(crate) fn query_error_diagnostic(err: QueryError) -> Diagnostic {
     match err {
         QueryError::Cycle { cycle } => {
             let mut message = String::from("query cycle detected");
@@ -7949,22 +7949,28 @@ fn main() i32 {
         let preparation = database.codegen_preparation();
         assert!(preparation.diagnostics.is_empty());
 
-        let lowering = database.with_backend_finalization_schedule(|schedule| {
-            let mut schedule = schedule.expect("healthy preparation must produce a schedule");
-            let store = schedule.module_store();
-            assert!(store.get(entry).is_none());
-            assert!(store.get(helper).is_none());
+        let lowering = database
+            .with_backend_finalization_schedule(|schedule| {
+                let mut schedule = schedule.expect("healthy preparation must produce a schedule");
+                let store = schedule.module_store();
+                assert!(store.get(entry).is_none());
+                assert!(store.get(helper).is_none());
 
-            let ready = schedule.wait_next().expect("first backend module");
-            assert!(store.get(ready.module_id()).is_some());
-            let other = if ready.module_id() == entry {
-                helper
-            } else {
-                entry
-            };
-            assert!(store.get(other).is_none());
-            schedule.finish()
-        });
+                let ready = schedule
+                    .wait_next()
+                    .expect("backend finalization query")
+                    .expect("first backend module");
+                assert!(store.get(ready.module_id()).is_some());
+                let other = if ready.module_id() == entry {
+                    helper
+                } else {
+                    entry
+                };
+                assert!(store.get(other).is_none());
+                schedule.finish()
+            })
+            .expect("backend finalization schedule")
+            .expect("backend finalization queries");
 
         assert_eq!(lowering.program.modules.len(), 2);
         assert!(
@@ -8044,20 +8050,27 @@ pub struct Point {
                     })
                     .expect("Point definition");
 
-            database.with_backend_finalization_schedule(|schedule| {
-                let mut schedule = schedule.expect("healthy preparation must produce a schedule");
-                assert_eq!(schedule.owner_directory().item_owner(point), Some(geom));
-                assert!(schedule.module_store().get(geom).is_none());
-                while schedule.wait_next().is_some() {}
-                let lowering = schedule.finish();
-                let geom_module = lowering
-                    .program
-                    .modules
-                    .iter()
-                    .find(|module| module.id == geom)
-                    .expect("finalized geom module");
-                assert!(geom_module.structs.iter().any(|item| item.def_id == point));
-            });
+            database
+                .with_backend_finalization_schedule(|schedule| {
+                    let mut schedule =
+                        schedule.expect("healthy preparation must produce a schedule");
+                    assert_eq!(schedule.owner_directory().item_owner(point), Some(geom));
+                    assert!(schedule.module_store().get(geom).is_none());
+                    while schedule
+                        .wait_next()
+                        .expect("backend finalization query")
+                        .is_some()
+                    {}
+                    let lowering = schedule.finish().expect("backend finalization queries");
+                    let geom_module = lowering
+                        .program
+                        .modules
+                        .iter()
+                        .find(|module| module.id == geom)
+                        .expect("finalized geom module");
+                    assert!(geom_module.structs.iter().any(|item| item.def_id == point));
+                })
+                .expect("backend finalization schedule");
         }
     }
 

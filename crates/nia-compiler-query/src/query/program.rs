@@ -104,7 +104,7 @@ impl QueryKey<CompilerContext> for BackendFinalizationTaskContextQuery {
         "backend_finalization_task_context"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         provide_backend_finalization_task_context(db)
     }
 }
@@ -121,7 +121,7 @@ impl QueryKey<CompilerContext> for BackendItemPlanQuery {
         "backend_item_plan"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         provide_backend_item_plan(db)
     }
 }
@@ -143,7 +143,7 @@ impl QueryKey<CompilerContext> for BackendModuleItemPlanQuery {
         format!("backend_module_item_plan({:?})", self.0)
     }
 
-    fn execute(&self, _db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, _db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         unreachable!("backend module item plans are published by backend lowering")
     }
 }
@@ -170,7 +170,7 @@ impl QueryKey<CompilerContext> for BackendModuleFinalizationQuery {
         )
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         provide_backend_module_finalization(db, *self)
     }
 }
@@ -185,7 +185,7 @@ impl QueryKey<CompilerContext> for BackendLoweringQuery {
         "backend_lowering"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.backend_lowering)(db)
     }
 }
