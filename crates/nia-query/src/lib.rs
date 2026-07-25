@@ -2455,13 +2455,13 @@ impl<C> QueryDb<C> {
     pub fn with_many_owned_completion<K, R>(
         &self,
         keys: impl IntoIterator<Item = K>,
-        consume: impl FnOnce(&mut QueryCompletionStream<'_, '_, K::Value>) -> R,
+        consume: impl FnOnce(&mut QueryCompletionStream<'_, '_, QueryResult<K::Value>>) -> R,
     ) -> R
     where
         C: Send + Sync + 'static,
         K: QueryKey<C>,
     {
-        self.with_many_completion_with(keys, Self::get_owned::<K>, consume)
+        self.with_many_completion_with(keys, Self::try_get_owned::<K>, consume)
     }
 
     fn for_each_many_with<K, O>(
@@ -3632,6 +3632,27 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct FallibleOwnedCompletionProbe(usize);
+
+    impl QueryKey<TestContext> for FallibleOwnedCompletionProbe {
+        type Value = usize;
+
+        const STORAGE: QueryStoragePolicy = QueryStoragePolicy::SingleConsumerOwned;
+
+        fn name() -> &'static str {
+            "fallible_owned_completion_probe"
+        }
+
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            if self.0 == 1 {
+                Err(db.invalid_input(self, "rejected completion"))
+            } else {
+                Ok(self.0)
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     enum BatchIsolationQuery {
         Parent,
         OuterFiller,
@@ -4601,6 +4622,7 @@ mod tests {
             |stream| {
                 let mut completed = Vec::new();
                 while let Some((position, value)) = stream.wait_next() {
+                    let value = value.expect("completion query should succeed");
                     completed.push((position, value));
                     db.context().phase.store(value + 1, Ordering::SeqCst);
                 }
@@ -4609,6 +4631,40 @@ mod tests {
         );
 
         assert_eq!(completed, vec![(2, 0), (1, 1), (0, 2)]);
+    }
+
+    #[test]
+    fn typed_owned_completion_stream_reports_query_failures() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        let mut completed = db.with_many_owned_completion(
+            [
+                FallibleOwnedCompletionProbe(0),
+                FallibleOwnedCompletionProbe(1),
+            ],
+            |stream| {
+                let mut completed = Vec::new();
+                while let Some((position, value)) = stream.wait_next() {
+                    completed.push((position, value));
+                }
+                completed
+            },
+        );
+        completed.sort_by_key(|(position, _)| *position);
+
+        assert_eq!(completed[0], (0, Ok(0)));
+        assert!(matches!(
+            &completed[1],
+            (
+                1,
+                Err(QueryError::InvalidInput {
+                    message,
+                    ..
+                })
+            ) if message == "rejected completion"
+        ));
     }
 
     #[test]

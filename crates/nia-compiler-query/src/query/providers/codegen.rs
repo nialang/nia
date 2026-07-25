@@ -259,7 +259,7 @@ pub(in crate::query) fn provide_lowered_function_body(
 
 pub(super) fn provide_backend_lowering(
     db: &QueryDb<CompilerContext>,
-) -> nia_backend_lower::BackendLowering {
+) -> QueryResult<nia_backend_lower::BackendLowering> {
     time_provider(db.context().timings(), "backend_lowering", || {
         provide_backend_lowering_inner(db)
     })
@@ -267,60 +267,61 @@ pub(super) fn provide_backend_lowering(
 
 pub(in crate::query) fn provide_backend_item_plan(
     db: &QueryDb<CompilerContext>,
-) -> nia_backend_lower::BackendItemPlan {
+) -> QueryResult<nia_backend_lower::BackendItemPlan> {
     time_provider(db.context().timings(), "backend_item_plan", || {
-        let inputs = db.get(BackendLoweringInputsQuery);
+        let inputs = db.try_get(BackendLoweringInputsQuery)?;
+        let optimization = *db.try_get(CompilerOptimizationQuery)?;
         match inputs.as_ref() {
             Ok(inputs) => {
                 let module_inputs = inputs.module_inputs();
-                nia_backend_lower::plan_backend_program_with_timings(
+                Ok(nia_backend_lower::plan_backend_program_with_timings(
                     &module_inputs,
                     &db.context().type_store,
-                    *db.get(CompilerOptimizationQuery),
+                    optimization,
                     db.context().timings(),
-                )
+                ))
             }
-            Err(diagnostics) => nia_backend_lower::BackendItemPlan::from_diagnostics(
-                *db.get(CompilerOptimizationQuery),
+            Err(diagnostics) => Ok(nia_backend_lower::BackendItemPlan::from_diagnostics(
+                optimization,
                 diagnostics.clone(),
-            ),
+            )),
         }
     })
 }
 
 pub(in crate::query) fn provide_backend_finalization_task_context(
     db: &QueryDb<CompilerContext>,
-) -> BackendFinalizationTaskContext {
-    BackendFinalizationTaskContext::new(
-        db.get(BackendLoweringInputsQuery),
+) -> QueryResult<BackendFinalizationTaskContext> {
+    Ok(BackendFinalizationTaskContext::new(
+        db.try_get(BackendLoweringInputsQuery)?,
         Arc::clone(&db.context().type_store),
-        *db.get(CompilerOptimizationQuery),
+        *db.try_get(CompilerOptimizationQuery)?,
         db.context().timings(),
-    )
+    ))
 }
 
 pub(in crate::query) fn provide_backend_module_finalization(
     db: &QueryDb<CompilerContext>,
     key: BackendModuleFinalizationQuery,
-) -> nia_backend_lower::BackendModuleFinalization {
-    let context = db.get(BackendFinalizationTaskContextQuery);
-    let module_plan = db.get_owned(BackendModuleItemPlanQuery(key.module_id));
-    context.finalize_module(key.position, key.module_id, module_plan)
+) -> QueryResult<nia_backend_lower::BackendModuleFinalization> {
+    let context = db.try_get(BackendFinalizationTaskContextQuery)?;
+    let module_plan = db.try_get_owned(BackendModuleItemPlanQuery(key.module_id))?;
+    Ok(context.finalize_module(key.position, key.module_id, module_plan))
 }
 
 fn provide_backend_lowering_inner(
     db: &QueryDb<CompilerContext>,
-) -> nia_backend_lower::BackendLowering {
+) -> QueryResult<nia_backend_lower::BackendLowering> {
     let (lowering, finalization_allocation) = nia_timing::measure_allocation_live_window(|| {
         with_backend_finalization_schedule(db, |schedule| match schedule {
             Ok(schedule) => schedule.finish(),
-            Err(lowering) => lowering,
+            Err(lowering) => Ok(lowering),
         })
     });
     if let Some(measurement) = finalization_allocation {
         emit_backend_module_finalization_allocation(measurement);
     }
-    lowering
+    lowering?
 }
 
 pub(in crate::query) fn with_backend_finalization_schedule<R>(
@@ -331,8 +332,8 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
             nia_backend_lower::BackendLowering,
         >,
     ) -> R,
-) -> R {
-    let plan = db.get_owned(BackendItemPlanQuery);
+) -> QueryResult<R> {
+    let plan = db.try_get_owned(BackendItemPlanQuery)?;
     emit_backend_module_plan_allocation("before_publish");
     let has_diagnostics = !plan.diagnostics().is_empty();
     let (finalization, module_plans) = plan.into_module_plans();
@@ -352,8 +353,8 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
         let module_plans = module_ids
             .iter()
             .copied()
-            .map(|module_id| db.get_owned(BackendModuleItemPlanQuery(module_id)))
-            .collect::<Vec<_>>();
+            .map(|module_id| db.try_get_owned(BackendModuleItemPlanQuery(module_id)))
+            .collect::<QueryResult<Vec<_>>>()?;
         emit_backend_module_plan_allocation("after_consume");
         let lowering = nia_backend_lower::finalize_backend_module_item_plans_with_timings(
             &[],
@@ -362,7 +363,7 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
             module_plans,
             db.context().timings(),
         );
-        return consume(Err(lowering));
+        return Ok(consume(Err(lowering)));
     }
     let result = db.with_many_owned_completion(
         module_ids
@@ -384,7 +385,7 @@ pub(in crate::query) fn with_backend_finalization_schedule<R>(
         },
     );
     emit_backend_module_plan_allocation("after_consume");
-    result
+    Ok(result)
 }
 
 fn emit_backend_module_plan_allocation(stage: &str) {

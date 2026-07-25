@@ -6,7 +6,9 @@ use std::{
     sync::Mutex,
 };
 
-use nia_compiler_query::{CompileRequest, CompilerDatabase, TimingMode, has_error_diagnostics};
+use nia_compiler_query::{
+    CompileRequest, CompilerDatabase, TimingMode, has_error_diagnostics, query_error_diagnostic,
+};
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
 use nia_linker::{LinkOptions, LinkTarget};
@@ -364,10 +366,14 @@ impl Driver {
                         options,
                         &session,
                     );
-                    while let Some(ready) = schedule.wait_next() {
+                    while let Some(ready) = schedule.wait_next().map_err(|error| {
+                        DriverError::InternalDiagnostic(query_error_diagnostic(error))
+                    })? {
                         emitter.publish(ready);
                     }
-                    let lowering = schedule.finish();
+                    let lowering = schedule.finish().map_err(|error| {
+                        DriverError::InternalDiagnostic(query_error_diagnostic(error))
+                    })?;
                     if !lowering.diagnostics.is_empty() {
                         return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
                     }
@@ -385,8 +391,13 @@ impl Driver {
                 }
             });
             let (output, reachable_body_count, optimization_report) = match result {
-                Ok(output) => output,
-                Err(error) => return DriverOutput::from_error(error),
+                Ok(Ok(output)) => output,
+                Ok(Err(error)) => return DriverOutput::from_error(error),
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
             };
             let loader_trace = self.loader_query_trace();
             emit_compilation_counters(
@@ -481,10 +492,14 @@ impl Driver {
                         cache,
                         &session,
                     );
-                    while let Some(ready) = schedule.wait_next() {
+                    while let Some(ready) = schedule.wait_next().map_err(|error| {
+                        DriverError::InternalDiagnostic(query_error_diagnostic(error))
+                    })? {
                         emitter.publish(ready);
                     }
-                    let lowering = schedule.finish();
+                    let lowering = schedule.finish().map_err(|error| {
+                        DriverError::InternalDiagnostic(query_error_diagnostic(error))
+                    })?;
                     if !lowering.diagnostics.is_empty() {
                         return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
                     }
@@ -502,8 +517,13 @@ impl Driver {
                 }
             });
             let (output, reachable_body_count, optimization_report) = match result {
-                Ok(output) => output,
-                Err(error) => return DriverOutput::from_error(error),
+                Ok(Ok(output)) => output,
+                Ok(Err(error)) => return DriverOutput::from_error(error),
+                Err(error) => {
+                    return DriverOutput::from_error(DriverError::InternalDiagnostic(
+                        query_error_diagnostic(error),
+                    ));
+                }
             };
             let loader_trace = self.loader_query_trace();
             emit_compilation_counters(

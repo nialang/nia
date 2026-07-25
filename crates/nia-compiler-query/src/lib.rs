@@ -53,11 +53,15 @@ pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport
 pub use nia_timing::TimingMode;
 pub use query::{CompileRequest, CompilerDatabase};
 
+pub fn query_error_diagnostic(error: nia_query::QueryError) -> Diagnostic {
+    query::query_error_diagnostic(error)
+}
+
 pub struct BackendFinalizationSchedule<'borrow, 'stream, 'executor> {
     completions: &'borrow mut nia_query::QueryCompletionStream<
         'stream,
         'executor,
-        nia_backend_lower::BackendModuleFinalization,
+        nia_query::QueryResult<nia_backend_lower::BackendModuleFinalization>,
     >,
     collector: Option<nia_backend_lower::BackendModuleFinalizationCollector>,
     readiness: nia_backend_ir::BackendModuleReadiness,
@@ -68,7 +72,7 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
         completions: &'borrow mut nia_query::QueryCompletionStream<
             'stream,
             'executor,
-            nia_backend_lower::BackendModuleFinalization,
+            nia_query::QueryResult<nia_backend_lower::BackendModuleFinalization>,
         >,
         collector: nia_backend_lower::BackendModuleFinalizationCollector,
     ) -> Self {
@@ -94,8 +98,13 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
             .owner_directory()
     }
 
-    pub fn wait_next(&mut self) -> Option<nia_backend_ir::BackendModuleReady> {
-        let (position, finalization) = self.completions.wait_next()?;
+    pub fn wait_next(
+        &mut self,
+    ) -> nia_query::QueryResult<Option<nia_backend_ir::BackendModuleReady>> {
+        let Some((position, finalization)) = self.completions.wait_next() else {
+            return Ok(None);
+        };
+        let finalization = finalization?;
         self.collector
             .as_mut()
             .expect("backend finalization collector")
@@ -109,15 +118,16 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
             position,
             "Nia ICE: backend readiness must match query completion position"
         );
-        Some(ready)
+        Ok(Some(ready))
     }
 
-    pub fn finish(mut self) -> BackendLowering {
-        while self.wait_next().is_some() {}
-        self.collector
+    pub fn finish(mut self) -> nia_query::QueryResult<BackendLowering> {
+        while self.wait_next()?.is_some() {}
+        Ok(self
+            .collector
             .take()
             .expect("backend finalization collector")
-            .finish()
+            .finish())
     }
 }
 

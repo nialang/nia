@@ -105,7 +105,7 @@ pub(super) fn provide_codegen_program(
         let backend_lowering = if crate::has_error_diagnostics(&preparation.diagnostics) {
             Arc::new(empty_backend_lowering(preparation.optimization))
         } else {
-            db.get(BackendLoweringQuery)
+            db.try_get(BackendLoweringQuery)?
         };
         let mut diagnostics = preparation.diagnostics.clone();
         diagnostics.extend(time_provider(
