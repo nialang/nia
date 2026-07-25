@@ -195,25 +195,26 @@ impl BodyCheckConstInputs {
 fn filtered_const_global_initializer_for_body_check(
     db: &QueryDb<CompilerContext>,
     global_id: GlobalDefId,
-) -> Option<nia_const_ir::ResolvedConstExpr> {
+) -> QueryResult<Option<nia_const_ir::ResolvedConstExpr>> {
+    let query_failure = RefCell::new(None);
     let defs = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.defs",
         global_id.module_id,
-        || db.get(FullModuleDefsQuery(global_id.module_id)),
-    );
+        || db.try_get(FullModuleDefsQuery(global_id.module_id)),
+    )?;
     let source_path = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.source_path",
         global_id.module_id,
-        || db.get(ModulePathQuery(global_id.module_id)),
-    );
+        || db.try_get(ModulePathQuery(global_id.module_id)),
+    )?;
     let active_item_tree = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.active_item_tree",
         global_id.module_id,
-        || db.get(FullActiveModuleItemTreeQuery(global_id.module_id)),
-    );
+        || db.try_get(FullActiveModuleItemTreeQuery(global_id.module_id)),
+    )?;
     let filtered_active_item_tree = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.filter_item_tree",
@@ -232,29 +233,32 @@ fn filtered_const_global_initializer_for_body_check(
             )
         },
     );
-    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
+    let graph = db.try_get(ModuleGraphQuery)?;
+    let program_defs = |module_id| {
+        capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+    };
     let public_surfaces = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.public_surfaces",
         global_id.module_id,
-        || db.get(PublicSurfacesQuery),
-    );
+        || db.try_get(PublicSurfacesQuery),
+    )?;
     let using_scope = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.module_using_scope",
         global_id.module_id,
-        || db.get(ModuleUsingScopeQuery(global_id.module_id)),
-    );
-    let source_version = *db.get(ModuleSourceVersionQuery(global_id.module_id));
-    let origins = db.get(ModuleOriginsQuery(global_id.module_id));
+        || db.try_get(ModuleUsingScopeQuery(global_id.module_id)),
+    )?;
+    let source_version = *db.try_get(ModuleSourceVersionQuery(global_id.module_id))?;
+    let origins = db.try_get(ModuleOriginsQuery(global_id.module_id))?;
     let lowered = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.type_lowering",
         global_id.module_id,
-        || db.get(TypeLoweringQuery(global_id.module_id)),
-    );
-    let type_resolution = db.get(TypeResolutionQuery(global_id.module_id));
-    let signatures = db.get(ItemSignaturesQuery(global_id.module_id));
+        || db.try_get(TypeLoweringQuery(global_id.module_id)),
+    )?;
+    let type_resolution = db.try_get(TypeResolutionQuery(global_id.module_id))?;
+    let signatures = db.try_get(ItemSignaturesQuery(global_id.module_id))?;
     let needed_const_exprs = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.needed_const_exprs",
@@ -273,17 +277,17 @@ fn filtered_const_global_initializer_for_body_check(
         "executable_body_check.const_eval.global_initializer.const_expr_value_resolution",
         global_id.module_id,
         || {
-            let visible_extensions = || Ok(db.get(VisibleExtensionsQuery(global_id.module_id)));
+            let visible_extensions = || db.try_get(VisibleExtensionsQuery(global_id.module_id));
             let associated_values =
                 LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
-            nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols_in_store(
+            let values = nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols_in_store(
                 lowered.const_exprs.iter().filter_map(|(id, expr)| {
                     needed_const_exprs.contains(id).then_some(expr.clone())
                 }),
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
-                    graph: Some(&db.get(ModuleGraphQuery)),
+                    graph: Some(&graph),
                 },
                 &public_surfaces.surfaces,
                 using_scope.as_ref(),
@@ -292,7 +296,11 @@ fn filtered_const_global_initializer_for_body_check(
                     Some(&symbols),
                     db.context().node_store(),
                 ),
-            )
+            );
+            if let Some(error) = associated_values.take_failure() {
+                let _ = capture_query_failure(&query_failure, Err::<(), _>(error));
+            }
+            values
         },
     );
     let filtered_const_exprs = const_expr_subset_for_ids(&lowered.const_exprs, &needed_const_exprs);
@@ -371,22 +379,22 @@ fn filtered_const_global_initializer_for_body_check(
         global_id.module_id,
         || {
             let visible_extensions = || {
-                Ok(time_module_provider(
+                time_module_provider(
                     db,
                     "executable_body_check.const_eval.global_initializer.visible_extensions",
                     global_id.module_id,
-                    || db.get(VisibleExtensionsQuery(global_id.module_id)),
-                ))
+                    || db.try_get(VisibleExtensionsQuery(global_id.module_id)),
+                )
             };
             let associated_values =
                 LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
             let symbols = db.context().symbols();
-            nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
+            let values = nia_value_resolve::resolve_module_values_from_active_item_tree_with_associated_values_and_symbols_in_store(
                 &filtered_active_item_tree,
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
-                    graph: Some(&db.get(ModuleGraphQuery)),
+                    graph: Some(&graph),
                 },
                 &public_surfaces.surfaces,
                 using_scope.as_ref(),
@@ -395,10 +403,18 @@ fn filtered_const_global_initializer_for_body_check(
                     Some(&symbols),
                     db.context().node_store(),
                 ),
-            )
+            );
+            if let Some(error) = associated_values.take_failure() {
+                let _ = capture_query_failure(&query_failure, Err::<(), _>(error));
+            }
+            values
         },
     );
-    lower_with_values(values)
+    let initializer = lower_with_values(values);
+    match query_failure.into_inner() {
+        Some(error) => Err(error),
+        None => Ok(initializer),
+    }
 }
 
 fn executable_program_global_initializer(
@@ -415,9 +431,7 @@ fn executable_program_global_initializer(
             .or_else(|| module.deferred_global_initializers().get(&global_id))
             .cloned());
     }
-    Ok(filtered_const_global_initializer_for_body_check(
-        db, global_id,
-    ))
+    filtered_const_global_initializer_for_body_check(db, global_id)
 }
 
 struct ConstBodyModuleInput<'a> {
@@ -500,21 +514,33 @@ fn const_inputs_for_body_check(
         capture_query_failure(&query_failure, db.try_get(ConstModuleQuery(module_id)))
             .map(|lowering| lowering.module.clone())
     };
-    let program_source_path = |module_id| Some(db.get(ModulePathQuery(module_id)).as_ref().clone());
-    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
+    let program_source_path = |module_id| {
+        capture_query_failure(&query_failure, db.try_get(ModulePathQuery(module_id)))
+            .map(|path| path.as_ref().clone())
+    };
+    let program_defs = |module_id| {
+        capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+    };
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
-            return Some(db.get(SignatureTypeNormalizationQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            )));
+            return capture_query_failure(
+                &query_failure,
+                db.try_get(SignatureTypeNormalizationQuery(
+                    module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                )),
+            );
         }
-        Some(db.get(TypeNormalizationQuery(module_id)))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(TypeNormalizationQuery(module_id)),
+        )
     };
-    let local_trait_impls = fact_mode
-        .non_function_signatures
-        .is_none()
-        .then(|| db.get(VisibleTraitImplsQuery(module_id)));
+    let local_trait_impls = if fact_mode.non_function_signatures.is_none() {
+        Some(db.try_get(VisibleTraitImplsQuery(module_id))?)
+    } else {
+        None
+    };
     let trait_impls_for_module = |requested_module_id| {
         if requested_module_id == module_id {
             return fact_mode
@@ -529,49 +555,56 @@ fn const_inputs_for_body_check(
         if let Some(signatures) = fact_mode.non_function_signatures {
             return Some(signatures.trait_impls.clone());
         }
-        Some(
-            db.get(VisibleTraitImplsQuery(requested_module_id))
-                .trait_impls
-                .clone(),
+        capture_query_failure(
+            &query_failure,
+            db.try_get(VisibleTraitImplsQuery(requested_module_id)),
         )
+        .map(|impls| impls.trait_impls.clone())
     };
     let program_is_enum = |def_id: GlobalDefId| {
         fact_mode
             .non_function_signatures
             .is_some_and(|signatures| signatures.enums.contains_key(&def_id))
-            || db
-                .get(SignatureItemSignaturesQuery(
+            || capture_query_failure(
+                &query_failure,
+                db.try_get(SignatureItemSignaturesQuery(
                     def_id.module_id,
                     nia_item_tree::SignatureItemSet::Types,
-                ))
-                .enums
-                .contains_key(&def_id.def_id)
+                )),
+            )
+            .is_some_and(|signatures| signatures.enums.contains_key(&def_id.def_id))
     };
     let item_signatures_for_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
-            return Some(db.get(SignatureItemSignaturesQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            )));
+            return capture_query_failure(
+                &query_failure,
+                db.try_get(SignatureItemSignaturesQuery(
+                    module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                )),
+            );
         }
-        Some(db.get(ItemSignaturesQuery(module_id)))
+        capture_query_failure(&query_failure, db.try_get(ItemSignaturesQuery(module_id)))
     };
     let value_signatures_for_module = |module_id| {
-        Some(db.get(SignatureItemSignaturesQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Values,
-        )))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::Values,
+            )),
+        )
     };
-    let local_visible_extensions = db.get(VisibleExtensionsQuery(module_id));
+    let local_visible_extensions = db.try_get(VisibleExtensionsQuery(module_id))?;
     let visible_extensions_for_module = |requested_module_id| {
         if requested_module_id == module_id {
             return Some(local_visible_extensions.methods.clone());
         }
-        Some(
-            db.get(VisibleExtensionsQuery(requested_module_id))
-                .methods
-                .clone(),
+        capture_query_failure(
+            &query_failure,
+            db.try_get(VisibleExtensionsQuery(requested_module_id)),
         )
+        .map(|extensions| extensions.methods.clone())
     };
     let program_global_initializer = |global_id| {
         if let Some(cache) = global_initializer_cache {
@@ -591,7 +624,7 @@ fn const_inputs_for_body_check(
         )
         .flatten()
     };
-    let target = db.get(CompilerTargetQuery);
+    let target = db.try_get(CompilerTargetQuery)?;
     let symbols = db.context().symbols();
     let const_input = nia_const_check::ConstInput {
         type_store: &db.context().type_store,
