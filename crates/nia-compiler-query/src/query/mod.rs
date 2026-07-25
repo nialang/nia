@@ -1624,12 +1624,13 @@ mod tests {
             "test_loaded_program"
         }
 
-        fn execute(&self, db: &QueryDb<TestLoaderContext>) -> Self::Value {
-            db.context()
+        fn execute_result(&self, db: &QueryDb<TestLoaderContext>) -> QueryResult<Self::Value> {
+            Ok(db
+                .context()
                 .program
                 .read()
                 .expect("test loader program lock poisoned")
-                .clone()
+                .clone())
         }
 
         fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
@@ -1649,12 +1650,13 @@ mod tests {
             "test_provider_facts"
         }
 
-        fn execute(&self, db: &QueryDb<TestLoaderContext>) -> Self::Value {
-            db.context()
+        fn execute_result(&self, db: &QueryDb<TestLoaderContext>) -> QueryResult<Self::Value> {
+            Ok(db
+                .context()
                 .provider_facts
                 .read()
                 .expect("test provider facts lock poisoned")
-                .clone()
+                .clone())
         }
 
         fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
@@ -1706,10 +1708,10 @@ mod tests {
             "test_loader_fact"
         }
 
-        fn execute(&self, db: &QueryDb<TestLoaderContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<TestLoaderContext>) -> QueryResult<Self::Value> {
             let program = db.get(TestLoadedProgramQuery);
             let module = |module_id| program.modules.iter().find(|module| module.id == module_id);
-            match self.0 {
+            Ok(match self.0 {
                 TestLoaderFactKey::Graph => Self::Value::Graph(program.graph.clone()),
                 TestLoaderFactKey::LoadedModuleSourceIdentities => {
                     Self::Value::LoadedModuleSourceIdentities(
@@ -1759,7 +1761,7 @@ mod tests {
                 }
                 TestLoaderFactKey::Target => Self::Value::Target(program.target.clone()),
                 TestLoaderFactKey::Runtime => Self::Value::Runtime(program.runtime),
-            }
+            })
         }
 
         fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {

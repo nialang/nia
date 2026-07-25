@@ -379,8 +379,8 @@ impl nia_query::QueryKey<LoaderContext> for SemanticFieldParent {
         "semantic_field_parent"
     }
 
-    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        match self.1 {
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> nia_query::QueryResult<Self::Value> {
+        Ok(match self.1 {
             SemanticFieldParentKind::Declaration => {
                 db.get(ModuleItemTreeFactQuery(self.0)).items.len()
             }
@@ -393,7 +393,7 @@ impl nia_query::QueryKey<LoaderContext> for SemanticFieldParent {
                 ))
                 .items
                 .len(),
-        }
+        })
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<nia_query::QueryFingerprint> {
