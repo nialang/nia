@@ -43,7 +43,7 @@ pub(super) fn provide_layouts(
 pub(super) fn provide_signature_layouts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> nia_layout::Layouts {
+) -> QueryResult<nia_layout::Layouts> {
     signature_layouts_for_types(db, module_id, None)
 }
 

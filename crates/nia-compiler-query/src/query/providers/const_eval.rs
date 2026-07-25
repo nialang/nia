@@ -29,12 +29,15 @@ pub(super) fn provide_const_module(
     ))
 }
 
-pub(super) fn provide_const(db: &QueryDb<CompilerContext>, module_id: ModuleId) -> ConstCheck {
+pub(super) fn provide_const(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<ConstCheck> {
     time_module_provider(db, "const", module_id, || {
-        let array_lengths = Arc::unwrap_or_clone(db.get(ConstArrayLengthsQuery(module_id)));
-        let enum_values = Arc::unwrap_or_clone(db.get(ConstEnumValuesQuery(module_id)));
-        let values = Arc::unwrap_or_clone(db.get(ConstValuesQuery(module_id)));
-        let typed_facts = Arc::unwrap_or_clone(db.get(ConstTypedFactsQuery(module_id)));
+        let array_lengths = Arc::unwrap_or_clone(db.try_get(ConstArrayLengthsQuery(module_id))?);
+        let enum_values = Arc::unwrap_or_clone(db.try_get(ConstEnumValuesQuery(module_id))?);
+        let values = Arc::unwrap_or_clone(db.try_get(ConstValuesQuery(module_id))?);
+        let typed_facts = Arc::unwrap_or_clone(db.try_get(ConstTypedFactsQuery(module_id))?);
 
         with_const_input(db, module_id, |_input, module| {
             let mut const_eval = nia_const_check::check_module_const_with_all_phases(
@@ -52,7 +55,7 @@ pub(super) fn provide_const(db: &QueryDb<CompilerContext>, module_id: ModuleId) 
 pub(super) fn provide_const_array_lengths(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> nia_const_check::ConstArrayLengths {
+) -> QueryResult<nia_const_check::ConstArrayLengths> {
     with_const_input(db, module_id, |input, module| {
         let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input);
         array_lengths.diagnostics.extend(module.diagnostics.clone());
@@ -63,8 +66,8 @@ pub(super) fn provide_const_array_lengths(
 pub(super) fn provide_const_enum_values(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> nia_const_check::ConstEnumValues {
-    let array_lengths = Arc::unwrap_or_clone(db.get(ConstArrayLengthsQuery(module_id)));
+) -> QueryResult<nia_const_check::ConstEnumValues> {
+    let array_lengths = Arc::unwrap_or_clone(db.try_get(ConstArrayLengthsQuery(module_id))?);
     with_const_input(db, module_id, |input, module| {
         let mut enum_values =
             nia_const_check::compute_module_const_enum_values(input, array_lengths);
@@ -76,9 +79,9 @@ pub(super) fn provide_const_enum_values(
 pub(super) fn provide_const_values(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> nia_const_check::ConstValues {
-    let array_lengths = Arc::unwrap_or_clone(db.get(ConstArrayLengthsQuery(module_id)));
-    let enum_values = Arc::unwrap_or_clone(db.get(ConstEnumValuesQuery(module_id)));
+) -> QueryResult<nia_const_check::ConstValues> {
+    let array_lengths = Arc::unwrap_or_clone(db.try_get(ConstArrayLengthsQuery(module_id))?);
+    let enum_values = Arc::unwrap_or_clone(db.try_get(ConstEnumValuesQuery(module_id))?);
     with_const_input(db, module_id, |input, module| {
         let mut values =
             nia_const_check::compute_module_const_values(input, array_lengths, enum_values);
@@ -90,10 +93,10 @@ pub(super) fn provide_const_values(
 pub(super) fn provide_const_typed_facts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> nia_const_check::ConstTypedFacts {
-    let array_lengths = Arc::unwrap_or_clone(db.get(ConstArrayLengthsQuery(module_id)));
-    let enum_values = Arc::unwrap_or_clone(db.get(ConstEnumValuesQuery(module_id)));
-    let values = Arc::unwrap_or_clone(db.get(ConstValuesQuery(module_id)));
+) -> QueryResult<nia_const_check::ConstTypedFacts> {
+    let array_lengths = Arc::unwrap_or_clone(db.try_get(ConstArrayLengthsQuery(module_id))?);
+    let enum_values = Arc::unwrap_or_clone(db.try_get(ConstEnumValuesQuery(module_id))?);
+    let values = Arc::unwrap_or_clone(db.try_get(ConstValuesQuery(module_id))?);
     with_const_input(db, module_id, |input, _module| {
         nia_const_check::compute_module_const_typed_facts(input, array_lengths, enum_values, values)
     })
@@ -103,7 +106,7 @@ fn with_const_input<T>(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
-) -> T {
+) -> QueryResult<T> {
     with_const_input_and_program_facts(db, module_id, None, |_| false, f)
 }
 
@@ -113,31 +116,47 @@ pub(super) fn with_const_input_and_program_facts<T>(
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
     use_signature_facts_for: impl Fn(ModuleId) -> bool,
     f: impl FnOnce(nia_const_check::ConstInput<'_>, &ConstModuleLowering) -> T,
-) -> T {
-    let module = db.get(ConstModuleQuery(module_id));
-    let defs = db.get(FullModuleDefsQuery(module_id));
+) -> QueryResult<T> {
+    let module = db.try_get(ConstModuleQuery(module_id))?;
+    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+    let query_failure = RefCell::new(None);
     let program_module = |module_id| {
         if use_signature_facts_for(module_id) {
-            return Some(Arc::clone(
-                &signature_const_module_lowering(db, module_id).module,
-            ));
+            return capture_query_failure(
+                &query_failure,
+                signature_const_module_lowering(db, module_id),
+            )
+            .map(|lowering| Arc::clone(&lowering.module));
         }
-        Some(Arc::clone(&db.get(ConstModuleQuery(module_id)).module))
+        capture_query_failure(&query_failure, db.try_get(ConstModuleQuery(module_id)))
+            .map(|lowering| Arc::clone(&lowering.module))
     };
-    let program_source_path = |module_id| Some(db.get(ModulePathQuery(module_id)).as_ref().clone());
-    let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
+    let program_source_path = |module_id| {
+        capture_query_failure(&query_failure, db.try_get(ModulePathQuery(module_id)))
+            .map(|path| path.as_ref().clone())
+    };
+    let program_defs = |module_id| {
+        capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+    };
     let program_type_normalization = |module_id| {
         if use_signature_facts_for(module_id) {
-            return Some(db.get(SignatureTypeNormalizationQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            )));
+            return capture_query_failure(
+                &query_failure,
+                db.try_get(SignatureTypeNormalizationQuery(
+                    module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                )),
+            );
         }
-        Some(db.get(TypeNormalizationQuery(module_id)))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(TypeNormalizationQuery(module_id)),
+        )
     };
     let local_trait_impls = non_function_signatures_override
         .is_none()
-        .then(|| db.get(VisibleTraitImplsQuery(module_id)));
+        .then(|| db.try_get(VisibleTraitImplsQuery(module_id)))
+        .transpose()?;
     let trait_impls_for_module = |requested_module_id| {
         if requested_module_id == module_id {
             return non_function_signatures_override
@@ -151,57 +170,64 @@ pub(super) fn with_const_input_and_program_facts<T>(
         if let Some(signatures) = non_function_signatures_override {
             return Some(signatures.trait_impls.clone());
         }
-        Some(
-            db.get(VisibleTraitImplsQuery(requested_module_id))
-                .trait_impls
-                .clone(),
+        capture_query_failure(
+            &query_failure,
+            db.try_get(VisibleTraitImplsQuery(requested_module_id)),
         )
+        .map(|signatures| signatures.trait_impls.clone())
     };
     let program_is_enum = |def_id: GlobalDefId| {
         non_function_signatures_override
             .is_some_and(|signatures| signatures.enums.contains_key(&def_id))
-            || db
-                .get(SignatureItemSignaturesQuery(
+            || capture_query_failure(
+                &query_failure,
+                db.try_get(SignatureItemSignaturesQuery(
                     def_id.module_id,
                     nia_item_tree::SignatureItemSet::Types,
-                ))
-                .enums
-                .contains_key(&def_id.def_id)
+                )),
+            )
+            .is_some_and(|signatures| signatures.enums.contains_key(&def_id.def_id))
     };
     let item_signatures_for_module = |module_id| {
         if use_signature_facts_for(module_id) {
-            return Some(db.get(SignatureItemSignaturesQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Types,
-            )));
+            return capture_query_failure(
+                &query_failure,
+                db.try_get(SignatureItemSignaturesQuery(
+                    module_id,
+                    nia_item_tree::SignatureItemSet::Types,
+                )),
+            );
         }
-        Some(db.get(ItemSignaturesQuery(module_id)))
+        capture_query_failure(&query_failure, db.try_get(ItemSignaturesQuery(module_id)))
     };
     let value_signatures_for_module = |module_id| {
-        Some(db.get(SignatureItemSignaturesQuery(
-            module_id,
-            nia_item_tree::SignatureItemSet::Values,
-        )))
+        capture_query_failure(
+            &query_failure,
+            db.try_get(SignatureItemSignaturesQuery(
+                module_id,
+                nia_item_tree::SignatureItemSet::Values,
+            )),
+        )
     };
-    let local_visible_extensions = db.get(VisibleExtensionsQuery(module_id));
+    let local_visible_extensions = db.try_get(VisibleExtensionsQuery(module_id))?;
     let visible_extensions_for_module = |requested_module_id| {
         if requested_module_id == module_id {
             return Some(local_visible_extensions.methods.clone());
         }
-        Some(
-            db.get(VisibleExtensionsQuery(requested_module_id))
-                .methods
-                .clone(),
+        capture_query_failure(
+            &query_failure,
+            db.try_get(VisibleExtensionsQuery(requested_module_id)),
         )
+        .map(|extensions| extensions.methods.clone())
     };
-    let values = db.get(ValueResolutionQuery(module_id));
-    let locals = db.get(LocalResolutionQuery(module_id));
-    let semantic_uses = db.get(SemanticUseTableQuery(module_id));
-    let source_path = db.get(ModulePathQuery(module_id));
-    let item_signatures = db.get(ItemSignaturesQuery(module_id));
-    let type_lowering = db.get(TypeLoweringQuery(module_id));
-    let type_normalization = db.get(TypeNormalizationQuery(module_id));
-    let target = db.get(CompilerTargetQuery);
+    let values = db.try_get(ValueResolutionQuery(module_id))?;
+    let locals = db.try_get(LocalResolutionQuery(module_id))?;
+    let semantic_uses = db.try_get(SemanticUseTableQuery(module_id))?;
+    let source_path = db.try_get(ModulePathQuery(module_id))?;
+    let item_signatures = db.try_get(ItemSignaturesQuery(module_id))?;
+    let type_lowering = db.try_get(TypeLoweringQuery(module_id))?;
+    let type_normalization = db.try_get(TypeNormalizationQuery(module_id))?;
+    let target = db.try_get(CompilerTargetQuery)?;
     let symbols = db.context().symbols();
     let input = nia_const_check::ConstInput {
         type_store: &db.context().type_store,
@@ -230,5 +256,9 @@ pub(super) fn with_const_input_and_program_facts<T>(
             visible_extensions: Some(&visible_extensions_for_module),
         },
     };
-    f(input, &module)
+    let output = f(input, &module);
+    match query_failure.into_inner() {
+        Some(error) => Err(error),
+        None => Ok(output),
+    }
 }

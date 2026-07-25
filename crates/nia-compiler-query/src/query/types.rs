@@ -338,7 +338,7 @@ impl QueryKey<CompilerContext> for SignatureConstModuleQuery {
         format!("signature_const_module({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_const_module)(db, self.0)
     }
 }
