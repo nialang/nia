@@ -38,20 +38,23 @@ pub(super) fn provide_extension_provider_summary(
 
 pub(super) fn provide_extension_provider_discovery_index(
     db: &QueryDb<CompilerContext>,
-) -> ExtensionProviderDiscoveryIndexValue {
+) -> QueryResult<ExtensionProviderDiscoveryIndexValue> {
     let timings = db.context().timings();
-    let parse_ok_modules = resolve_stable_module_sequence(db, &db.get(ParseOkModuleIdsQuery));
-    let trait_modules = parse_ok_modules
-        .into_iter()
-        .filter(|module_id| *db.get(ExtensionProviderModuleEligibilityQuery(*module_id)))
-        .collect::<Vec<_>>();
+    let parse_ok_modules = db.try_get(ParseOkModuleIdsQuery)?;
+    let parse_ok_modules = resolve_stable_module_sequence(db, &parse_ok_modules);
+    let mut trait_modules = Vec::new();
+    for module_id in parse_ok_modules {
+        if *db.try_get(ExtensionProviderModuleEligibilityQuery(module_id))? {
+            trait_modules.push(module_id);
+        }
+    }
     time_provider(timings, "extension_provider_discovery_index", || {
         let mut provider_modules = Vec::new();
         let mut nominal_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         let mut method_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         let mut trait_impl_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         for module_id in trait_modules {
-            let summary = db.get(ExtensionProviderSummaryQuery(module_id));
+            let summary = db.try_get(ExtensionProviderSummaryQuery(module_id))?;
             if !summary.has_providers() {
                 continue;
             }
@@ -89,70 +92,74 @@ pub(super) fn provide_extension_provider_discovery_index(
             modules.sort();
             modules.dedup();
         }
-        ExtensionProviderDiscoveryIndexQueryValue {
+        Ok(ExtensionProviderDiscoveryIndexQueryValue {
             provider_modules,
             nominal_candidates_by_name,
             method_candidates_by_name,
             trait_impl_candidates_by_name,
-        }
+        })
     })
 }
 
 pub(super) fn provide_extension_provider_module_ids(
     db: &QueryDb<CompilerContext>,
-) -> StableModuleSequence {
+) -> QueryResult<StableModuleSequence> {
+    let parse_ok_modules = db.try_get(ParseOkModuleIdsQuery)?;
     let parse_ok_modules =
-        resolve_stable_module_sequence_from_current_inputs(db, &db.get(ParseOkModuleIdsQuery));
-    let module_ids = parse_ok_modules
-        .into_iter()
-        .filter(|module_id| *db.get(ExtensionProviderModuleEligibilityQuery(*module_id)))
-        .collect::<Vec<_>>();
-    stable_module_sequence(db, module_ids)
+        resolve_stable_module_sequence_from_current_inputs(db, &parse_ok_modules);
+    let mut module_ids = Vec::new();
+    for module_id in parse_ok_modules {
+        if *db.try_get(ExtensionProviderModuleEligibilityQuery(module_id))? {
+            module_ids.push(module_id);
+        }
+    }
+    Ok(stable_module_sequence(db, module_ids))
 }
 
 pub(super) fn provide_extension_provider_module_eligibility(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> bool {
-    db.get(ExtensionProviderSummaryQuery(module_id))
-        .has_providers()
+) -> QueryResult<bool> {
+    Ok(db
+        .try_get(ExtensionProviderSummaryQuery(module_id))?
+        .has_providers())
 }
 
 pub(super) fn provide_extension_signature_module_input(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ExtensionSignatureModuleInputValue {
-    ExtensionSignatureModuleInputQueryValue {
+) -> QueryResult<ExtensionSignatureModuleInputValue> {
+    Ok(ExtensionSignatureModuleInputQueryValue {
         module_id,
-        defs: db.get(ModuleDefsQuery(module_id)),
-        lowering: db.get(SignatureTypeLoweringQuery(
+        defs: db.try_get(ModuleDefsQuery(module_id))?,
+        lowering: db.try_get(SignatureTypeLoweringQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
-        )),
-        signatures: db.get(SignatureItemSignaturesQuery(
+        ))?,
+        signatures: db.try_get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
-        )),
-        function_signatures: db.get(SignatureItemSignaturesQuery(
+        ))?,
+        function_signatures: db.try_get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::ExtensionFunctions,
-        )),
-        type_signatures: db.get(SignatureItemSignaturesQuery(
+        ))?,
+        type_signatures: db.try_get(SignatureItemSignaturesQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Types,
-        )),
-        normalization: db.get(SignatureTypeNormalizationQuery(
+        ))?,
+        normalization: db.try_get(SignatureTypeNormalizationQuery(
             module_id,
             nia_item_tree::SignatureItemSet::Traits,
-        )),
-    }
+        ))?,
+    })
 }
 
 pub(super) fn provide_extension_trait_solving_module_facts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ExtensionTraitSolvingModuleFactsValue {
-    let program_sources = db.get(FrontendProgramSourcesQuery);
+) -> QueryResult<ExtensionTraitSolvingModuleFactsValue> {
+    let program_sources = db.try_get(FrontendProgramSourcesQuery)?;
     let cache_input = program_sources
         .as_ref()
         .as_ref()
@@ -224,15 +231,15 @@ pub(super) fn provide_extension_trait_solving_module_facts(
     } else {
         match cached {
             Some(crate::signature_cache::ExtensionTraitSolvingFactsLookup::Hit(cached)) => {
-                return ExtensionTraitSolvingModuleFactsQueryValue {
+                return Ok(ExtensionTraitSolvingModuleFactsQueryValue {
                     trait_impls: cached.trait_impls,
                     invalid_trait_impl_method_ids: cached.invalid_trait_impl_method_ids,
-                };
+                });
             }
             cached => cached,
         }
     };
-    let input = db.get(ExtensionSignatureModuleInputQuery(module_id));
+    let input = db.try_get(ExtensionSignatureModuleInputQuery(module_id))?;
     let modules = [input.module(&db.context().type_store)];
     let fresh = crate::signature_cache::CachedExtensionTraitSolvingFacts {
         trait_impls: nia_program_signatures::collect_valid_program_trait_impls(&modules),
@@ -282,27 +289,24 @@ pub(super) fn provide_extension_trait_solving_module_facts(
             );
         }
     }
-    ExtensionTraitSolvingModuleFactsQueryValue {
+    Ok(ExtensionTraitSolvingModuleFactsQueryValue {
         trait_impls: fresh.trait_impls,
         invalid_trait_impl_method_ids: fresh.invalid_trait_impl_method_ids,
-    }
+    })
 }
 
 pub(super) fn provide_extension_trait_impls_for_trait(
     db: &QueryDb<CompilerContext>,
     trait_id: nia_ty::TraitId,
-) -> ExtensionTraitImplsForTraitValue {
+) -> QueryResult<ExtensionTraitImplsForTraitValue> {
     time_provider(
         db.context().timings(),
         "extension_trait_impls_for_trait",
         || {
-            let candidate_modules = extension_trait_impl_candidate_modules(db, trait_id);
+            let candidate_modules = extension_trait_impl_candidate_modules(db, trait_id)?;
             let mut trait_impls = Vec::new();
-            for facts in db.get_many(
-                candidate_modules
-                    .into_iter()
-                    .map(ExtensionTraitSolvingModuleFactsQuery),
-            ) {
+            for module_id in candidate_modules {
+                let facts = db.try_get(ExtensionTraitSolvingModuleFactsQuery(module_id))?;
                 trait_impls.extend(
                     facts
                         .trait_impls
@@ -311,7 +315,7 @@ pub(super) fn provide_extension_trait_impls_for_trait(
                         .cloned(),
                 );
             }
-            ExtensionTraitImplsForTraitQueryValue { trait_impls }
+            Ok(ExtensionTraitImplsForTraitQueryValue { trait_impls })
         },
     )
 }
@@ -319,29 +323,30 @@ pub(super) fn provide_extension_trait_impls_for_trait(
 fn extension_trait_impl_candidate_modules(
     db: &QueryDb<CompilerContext>,
     trait_id: nia_ty::TraitId,
-) -> Vec<ModuleId> {
-    let Some(name) = trait_id_index_name(db, trait_id) else {
-        return Vec::new();
+) -> QueryResult<Vec<ModuleId>> {
+    let Some(name) = trait_id_index_name(db, trait_id)? else {
+        return Ok(Vec::new());
     };
-    db.get(ExtensionProviderDiscoveryIndexQuery)
+    Ok(db
+        .try_get(ExtensionProviderDiscoveryIndexQuery)?
         .trait_impl_candidates_by_name
         .get(&name)
         .cloned()
-        .unwrap_or_default()
+        .unwrap_or_default())
 }
 
 fn trait_id_index_name(
     db: &QueryDb<CompilerContext>,
     trait_id: nia_ty::TraitId,
-) -> Option<SymbolId> {
-    match trait_id {
+) -> QueryResult<Option<SymbolId>> {
+    Ok(match trait_id {
         nia_ty::TraitId::Builtin(trait_id) => Some(trait_id.symbol_id()),
         nia_ty::TraitId::Source(def_id) => db
-            .get(ModuleDefsQuery(def_id.module_id))
+            .try_get(ModuleDefsQuery(def_id.module_id))?
             .defs
             .get(def_id.def_id)
             .map(|def| def.name),
-    }
+    })
 }
 
 pub(super) fn provide_extension_provider_module_facts(

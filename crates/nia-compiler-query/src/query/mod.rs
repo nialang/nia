@@ -4447,6 +4447,14 @@ fn main() i32 {
                 .db
                 .try_get(AbiCheckQuery(missing_module))
                 .expect_err("ABI checking should propagate a missing module input"),
+            database
+                .db
+                .try_get(ExtensionSignatureModuleInputQuery(missing_module))
+                .expect_err("extension signature input should propagate a missing module input"),
+            database
+                .db
+                .try_get(ExtensionTraitSolvingModuleFactsQuery(missing_module))
+                .expect_err("extension trait facts should propagate a missing module input"),
         ] {
             assert!(matches!(error, QueryError::InvalidInput { .. }));
             assert!(
