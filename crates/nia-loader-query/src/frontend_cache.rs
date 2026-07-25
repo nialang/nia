@@ -9,9 +9,10 @@ use std::{
 use nia_ast::PathSegmentKind;
 use nia_compiler_query::{
     FrontendCacheNamespace, FrontendFacadeFactsCacheKey, FrontendModuleDependenciesCacheKey,
-    FrontendModuleMapFingerprint, FrontendProviderSummaryCacheKey,
-    FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey, ItemSignatureFingerprint,
-    SourceContentFingerprint,
+    FrontendModuleMapFingerprint, FrontendProviderDemandPlanCacheKey,
+    FrontendProviderSummaryCacheKey, FrontendPublicSurfaceFactsCacheKey, FrontendSourceCacheKey,
+    ItemSignatureFingerprint, ProviderDemand, ProviderRequest, SourceContentFingerprint,
+    source_content_fingerprint,
 };
 use nia_defs::{
     DefKind, ModuleUsing, PublicSurfaceDefFact, PublicSurfaceEnumScopeFact,
@@ -21,6 +22,7 @@ use nia_defs::{
 use nia_imports::{ResolvedModuleDeclaration, StableModuleKey, Visibility};
 use nia_provider_summary::{Provider, ProviderSummary, ProviderTarget, ProviderTypeRef};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
+use nia_source::{SourceDatabase, SourceIdentity, SourcePath};
 use nia_symbol::{SymbolId, stable_hash};
 use nia_symbol_table::SymbolTable;
 
@@ -33,6 +35,7 @@ const DEPENDENCY_MANIFEST_MAGIC: &[u8; 8] = b"NIAFDM02";
 const FACADE_FACTS_MAGIC: &[u8; 8] = b"NIAFFF02";
 const MODULE_DEPENDENCIES_MAGIC: &[u8; 8] = b"NIAFMD02";
 const PROVIDER_SUMMARY_MAGIC: &[u8; 8] = b"NIAFPS03";
+const PROVIDER_DEMAND_PLAN_MAGIC: &[u8; 8] = b"NIAFPD01";
 const PUBLIC_SURFACE_FACTS_MAGIC: &[u8; 8] = b"NIAFPF01";
 const FRONTEND_CACHE_SCHEMA: &str = "v3";
 const MAX_CACHE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
@@ -102,6 +105,14 @@ impl PublicSurfaceFactsSource {
 pub(crate) enum DependencyManifestCacheLookup {
     Hit(ItemSignatureFingerprint),
     NotFound,
+    Corrupt,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ProviderDemandPlanCacheLookup {
+    Hit(HashSet<ProviderDemand>),
+    NotFound,
+    Invalidated,
     Corrupt,
 }
 
@@ -468,6 +479,102 @@ impl PersistentFrontendCache {
         remove_corrupt(&self.dependency_manifest_path(key));
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn load_provider_demand_plan(
+        &self,
+        key: FrontendProviderDemandPlanCacheKey,
+        namespace: FrontendCacheNamespace,
+        entry: &SourceIdentity,
+        module_map: FrontendModuleMapFingerprint,
+        package_root_used_paths: bool,
+        sources: &SourceDatabase,
+        symbols: &SymbolTable,
+    ) -> io::Result<ProviderDemandPlanCacheLookup> {
+        let path = self.provider_demand_plan_path(key);
+        let encoded = match read_cache_entry(&path)? {
+            Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
+            Some(_) => {
+                remove_corrupt(&path);
+                return Ok(ProviderDemandPlanCacheLookup::Corrupt);
+            }
+            None => return Ok(ProviderDemandPlanCacheLookup::NotFound),
+        };
+        let Some(decoded) = decode_provider_demand_plan(&encoded) else {
+            remove_corrupt(&path);
+            return Ok(ProviderDemandPlanCacheLookup::Corrupt);
+        };
+        if decoded.key != key.parts()
+            || decoded.namespace != namespace.parts()
+            || decoded.entry != entry.normalized_path()
+            || decoded.module_map != module_map.parts()
+            || decoded.package_root_used_paths != package_root_used_paths
+            || path
+                != self.provider_demand_plan_path(FrontendProviderDemandPlanCacheKey::from_parts(
+                    decoded.key,
+                ))
+            || !provider_demand_plan_paths_are_closed(&decoded)
+        {
+            remove_corrupt(&path);
+            return Ok(ProviderDemandPlanCacheLookup::Corrupt);
+        }
+        for source in decoded.sources {
+            let Ok(file) = sources.read_source(&source.path) else {
+                remove_corrupt(&path);
+                return Ok(ProviderDemandPlanCacheLookup::Invalidated);
+            };
+            if file.text.len() != source.len
+                || source_content_fingerprint(&file.text) != source.fingerprint
+            {
+                remove_corrupt(&path);
+                return Ok(ProviderDemandPlanCacheLookup::Invalidated);
+            }
+        }
+        if install_symbol_dictionary(&decoded.symbols, decoded.demand_symbols, symbols).is_none() {
+            remove_corrupt(&path);
+            return Ok(ProviderDemandPlanCacheLookup::Corrupt);
+        }
+        Ok(ProviderDemandPlanCacheLookup::Hit(decoded.demands))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn publish_provider_demand_plan(
+        &self,
+        key: FrontendProviderDemandPlanCacheKey,
+        namespace: FrontendCacheNamespace,
+        entry: &SourceIdentity,
+        module_map: FrontendModuleMapFingerprint,
+        package_root_used_paths: bool,
+        source_paths: &[SourcePath],
+        demands: &HashSet<ProviderDemand>,
+        sources: &SourceDatabase,
+        symbols: &SymbolTable,
+    ) -> io::Result<()> {
+        let path = self.provider_demand_plan_path(key);
+        if path.is_file() {
+            return Ok(());
+        }
+        let parent = path
+            .parent()
+            .ok_or_else(|| io::Error::other("invalid provider demand plan path"))?;
+        fs::create_dir_all(parent)?;
+        let encoded = encode_provider_demand_plan(
+            key,
+            namespace,
+            entry,
+            module_map,
+            package_root_used_paths,
+            source_paths,
+            demands,
+            sources,
+            symbols,
+        )?;
+        atomic_publish(&staged_path(&path), &path, &encoded)
+    }
+
+    pub(crate) fn remove_provider_demand_plan(&self, key: FrontendProviderDemandPlanCacheKey) {
+        remove_corrupt(&self.provider_demand_plan_path(key));
+    }
+
     pub(crate) fn provider_summary_path(&self, key: FrontendProviderSummaryCacheKey) -> PathBuf {
         let [first, second] = key.parts();
         self.root
@@ -476,6 +583,19 @@ impl PersistentFrontendCache {
             .join(FRONTEND_CACHE_SCHEMA)
             .join("provider-summaries")
             .join(format!("{first:016x}{second:016x}.fps"))
+    }
+
+    pub(crate) fn provider_demand_plan_path(
+        &self,
+        key: FrontendProviderDemandPlanCacheKey,
+    ) -> PathBuf {
+        let [first, second] = key.parts();
+        self.root
+            .join("artifacts")
+            .join("frontend")
+            .join(FRONTEND_CACHE_SCHEMA)
+            .join("provider-demand-plans")
+            .join(format!("{first:016x}{second:016x}.fpd"))
     }
 
     pub(crate) fn facade_facts_path(&self, key: FrontendFacadeFactsCacheKey) -> PathBuf {
@@ -572,6 +692,299 @@ fn atomic_publish(staged: &Path, path: &Path, encoded: &[u8]) -> io::Result<()> 
         let _ = fs::remove_file(staged);
     }
     result
+}
+
+#[derive(Debug)]
+struct ProviderDemandPlanSource {
+    path: SourcePath,
+    fingerprint: SourceContentFingerprint,
+    len: usize,
+}
+
+#[derive(Debug)]
+struct DecodedProviderDemandPlan {
+    key: [u64; 2],
+    namespace: [u64; 2],
+    entry: String,
+    module_map: [u64; 2],
+    package_root_used_paths: bool,
+    sources: Vec<ProviderDemandPlanSource>,
+    symbols: Vec<(SymbolId, String)>,
+    demand_symbols: BTreeSet<SymbolId>,
+    demands: HashSet<ProviderDemand>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn encode_provider_demand_plan(
+    key: FrontendProviderDemandPlanCacheKey,
+    namespace: FrontendCacheNamespace,
+    entry: &SourceIdentity,
+    module_map: FrontendModuleMapFingerprint,
+    package_root_used_paths: bool,
+    source_paths: &[SourcePath],
+    demands: &HashSet<ProviderDemand>,
+    sources: &SourceDatabase,
+    symbols: &SymbolTable,
+) -> io::Result<Vec<u8>> {
+    let mut source_paths = source_paths.to_vec();
+    source_paths.sort_unstable_by(|left, right| left.as_str().cmp(right.as_str()));
+    source_paths.dedup_by(|left, right| left.identity() == right.identity());
+
+    let mut payload = Vec::new();
+    write_parts(&mut payload, key.parts());
+    write_parts(&mut payload, namespace.parts());
+    write_string(&mut payload, entry.normalized_path());
+    write_parts(&mut payload, module_map.parts());
+    payload.push(u8::from(package_root_used_paths));
+    payload.extend_from_slice(&(source_paths.len() as u64).to_le_bytes());
+    for path in source_paths {
+        let file = sources.read_source(&path)?;
+        write_string(&mut payload, path.as_str());
+        write_parts(&mut payload, source_content_fingerprint(&file.text).parts());
+        payload.extend_from_slice(&(file.text.len() as u64).to_le_bytes());
+    }
+
+    let mut demand_symbols = BTreeSet::new();
+    for demand in demands {
+        match demand.request {
+            ProviderRequest::Method {
+                target_type_name,
+                method_name,
+            } => {
+                demand_symbols.extend(target_type_name);
+                demand_symbols.insert(method_name);
+            }
+            ProviderRequest::TraitImpl { trait_name } => {
+                demand_symbols.insert(trait_name);
+            }
+            ProviderRequest::ModuleSemantic { .. } | ProviderRequest::ModuleBody { .. } => {}
+        }
+    }
+    write_symbol_dictionary(&mut payload, demand_symbols, symbols)?;
+
+    let mut demands = demands.iter().collect::<Vec<_>>();
+    demands.sort_unstable_by(|left, right| compare_provider_demands(left, right));
+    payload.extend_from_slice(&(demands.len() as u64).to_le_bytes());
+    for demand in demands {
+        write_string(&mut payload, demand.source_path.as_str());
+        match &demand.request {
+            ProviderRequest::Method {
+                target_type_name,
+                method_name,
+            } => {
+                payload.push(0);
+                write_optional_symbol(&mut payload, *target_type_name);
+                payload.extend_from_slice(&method_name.raw().to_le_bytes());
+            }
+            ProviderRequest::TraitImpl { trait_name } => {
+                payload.push(1);
+                payload.extend_from_slice(&trait_name.raw().to_le_bytes());
+            }
+            ProviderRequest::ModuleSemantic { module_path } => {
+                payload.push(2);
+                write_string(&mut payload, module_path.as_str());
+            }
+            ProviderRequest::ModuleBody { module_path } => {
+                payload.push(3);
+                write_string(&mut payload, module_path.as_str());
+            }
+        }
+    }
+
+    let mut encoded = Vec::with_capacity(48 + payload.len());
+    encoded.extend_from_slice(PROVIDER_DEMAND_PLAN_MAGIC);
+    encoded.extend_from_slice(&(payload.len() as u64).to_le_bytes());
+    write_parts(
+        &mut encoded,
+        provider_demand_plan_checksum(&payload).parts(),
+    );
+    encoded.extend_from_slice(&payload);
+    Ok(encoded)
+}
+
+fn decode_provider_demand_plan(encoded: &[u8]) -> Option<DecodedProviderDemandPlan> {
+    let mut cursor = Cursor::new(encoded);
+    let mut magic = [0; 8];
+    cursor.read_exact(&mut magic).ok()?;
+    (magic == *PROVIDER_DEMAND_PLAN_MAGIC).then_some(())?;
+    let payload_len = read_len(&mut cursor, MAX_CACHE_PAYLOAD_BYTES)?;
+    let checksum = QueryFingerprint::from_parts(read_parts(&mut cursor)?);
+    let mut payload = vec![0; payload_len];
+    cursor.read_exact(&mut payload).ok()?;
+    (cursor.position() as usize == encoded.len()).then_some(())?;
+    (provider_demand_plan_checksum(&payload) == checksum).then_some(())?;
+
+    let mut cursor = Cursor::new(payload.as_slice());
+    let key = read_parts(&mut cursor)?;
+    let namespace = read_parts(&mut cursor)?;
+    let entry = read_canonical_source_path(&mut cursor, payload_len)?;
+    let module_map = read_parts(&mut cursor)?;
+    let package_root_used_paths = read_bool(&mut cursor)?;
+    let source_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut manifest_sources = Vec::with_capacity(source_len);
+    for _ in 0..source_len {
+        let path = SourcePath::from_normalized_unchecked(read_canonical_source_path(
+            &mut cursor,
+            payload_len,
+        )?);
+        let fingerprint = SourceContentFingerprint::from_parts(read_parts(&mut cursor)?);
+        let len = usize::try_from(read_u64(&mut cursor)?).ok()?;
+        manifest_sources.push(ProviderDemandPlanSource {
+            path,
+            fingerprint,
+            len,
+        });
+    }
+    manifest_sources
+        .windows(2)
+        .all(|pair| pair[0].path.as_str() < pair[1].path.as_str())
+        .then_some(())?;
+
+    let symbols = read_symbol_dictionary(&mut cursor, payload_len)?;
+    let demand_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
+    let mut demands = Vec::with_capacity(demand_len);
+    let mut demand_symbols = BTreeSet::new();
+    for _ in 0..demand_len {
+        let source_path = SourcePath::from_normalized_unchecked(read_canonical_source_path(
+            &mut cursor,
+            payload_len,
+        )?);
+        let request = match read_u8(&mut cursor)? {
+            0 => {
+                let target_type_name = read_optional_symbol(&mut cursor)?;
+                let method_name = read_symbol(&mut cursor)?;
+                demand_symbols.extend(target_type_name);
+                demand_symbols.insert(method_name);
+                ProviderRequest::Method {
+                    target_type_name,
+                    method_name,
+                }
+            }
+            1 => {
+                let trait_name = read_symbol(&mut cursor)?;
+                demand_symbols.insert(trait_name);
+                ProviderRequest::TraitImpl { trait_name }
+            }
+            2 => ProviderRequest::ModuleSemantic {
+                module_path: SourcePath::from_normalized_unchecked(read_canonical_source_path(
+                    &mut cursor,
+                    payload_len,
+                )?),
+            },
+            3 => ProviderRequest::ModuleBody {
+                module_path: SourcePath::from_normalized_unchecked(read_canonical_source_path(
+                    &mut cursor,
+                    payload_len,
+                )?),
+            },
+            _ => return None,
+        };
+        demands.push(ProviderDemand {
+            source_path,
+            request,
+        });
+    }
+    demands
+        .windows(2)
+        .all(|pair| compare_provider_demands(&pair[0], &pair[1]).is_lt())
+        .then_some(())?;
+    (cursor.position() as usize == payload_len).then_some(())?;
+    Some(DecodedProviderDemandPlan {
+        key,
+        namespace,
+        entry,
+        module_map,
+        package_root_used_paths,
+        sources: manifest_sources,
+        symbols,
+        demand_symbols,
+        demands: demands.into_iter().collect(),
+    })
+}
+
+fn provider_demand_plan_paths_are_closed(plan: &DecodedProviderDemandPlan) -> bool {
+    let manifest = plan
+        .sources
+        .iter()
+        .map(|source| source.path.as_str())
+        .collect::<HashSet<_>>();
+    manifest.contains(plan.entry.as_str())
+        && plan.demands.iter().all(|demand| {
+            manifest.contains(demand.source_path.as_str())
+                && match &demand.request {
+                    ProviderRequest::Method { .. } | ProviderRequest::TraitImpl { .. } => true,
+                    ProviderRequest::ModuleSemantic { module_path }
+                    | ProviderRequest::ModuleBody { module_path } => {
+                        manifest.contains(module_path.as_str())
+                    }
+                }
+        })
+}
+
+fn read_canonical_source_path(cursor: &mut Cursor<&[u8]>, limit: usize) -> Option<String> {
+    let path = read_string(cursor, limit)?;
+    (SourcePath::new(&path).as_str() == path).then_some(path)
+}
+
+fn compare_provider_demands(left: &ProviderDemand, right: &ProviderDemand) -> std::cmp::Ordering {
+    left.source_path
+        .as_str()
+        .cmp(right.source_path.as_str())
+        .then_with(|| compare_provider_requests(&left.request, &right.request))
+}
+
+fn compare_provider_requests(
+    left: &ProviderRequest,
+    right: &ProviderRequest,
+) -> std::cmp::Ordering {
+    let tag = |request: &ProviderRequest| match request {
+        ProviderRequest::Method { .. } => 0_u8,
+        ProviderRequest::TraitImpl { .. } => 1,
+        ProviderRequest::ModuleSemantic { .. } => 2,
+        ProviderRequest::ModuleBody { .. } => 3,
+    };
+    tag(left)
+        .cmp(&tag(right))
+        .then_with(|| match (left, right) {
+            (
+                ProviderRequest::Method {
+                    target_type_name: left_target,
+                    method_name: left_method,
+                },
+                ProviderRequest::Method {
+                    target_type_name: right_target,
+                    method_name: right_method,
+                },
+            ) => left_target
+                .map(SymbolId::raw)
+                .cmp(&right_target.map(SymbolId::raw))
+                .then_with(|| left_method.raw().cmp(&right_method.raw())),
+            (
+                ProviderRequest::TraitImpl {
+                    trait_name: left_trait,
+                },
+                ProviderRequest::TraitImpl {
+                    trait_name: right_trait,
+                },
+            ) => left_trait.raw().cmp(&right_trait.raw()),
+            (
+                ProviderRequest::ModuleSemantic {
+                    module_path: left_path,
+                },
+                ProviderRequest::ModuleSemantic {
+                    module_path: right_path,
+                },
+            )
+            | (
+                ProviderRequest::ModuleBody {
+                    module_path: left_path,
+                },
+                ProviderRequest::ModuleBody {
+                    module_path: right_path,
+                },
+            ) => left_path.as_str().cmp(right_path.as_str()),
+            _ => std::cmp::Ordering::Equal,
+        })
 }
 
 fn encode_dependency_manifest(
@@ -1992,6 +2405,12 @@ fn is_strictly_sorted<T: Ord>(values: &[T]) -> bool {
 
 fn payload_checksum(payload: &[u8]) -> QueryFingerprint {
     let mut builder = QueryFingerprintBuilder::new("nia.frontend.provider-summary-payload.v1");
+    builder.write_bytes(payload);
+    builder.finish()
+}
+
+fn provider_demand_plan_checksum(payload: &[u8]) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new("nia.frontend.provider-demand-plan-payload.v1");
     builder.write_bytes(payload);
     builder.finish()
 }

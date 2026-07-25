@@ -3,6 +3,7 @@ use nia_ids::DefId;
 use nia_imports::{ModuleMap, StableModuleKey};
 use nia_item_tree::{ItemTreeNodeKind, ModuleItemTree, SignatureItemSet};
 use nia_query::{QueryFingerprint, QueryFingerprintBuilder};
+use nia_source::SourceIdentity;
 use nia_span::Span;
 use nia_syntax::SyntaxTree;
 use nia_target_config::TargetConfig;
@@ -280,6 +281,34 @@ impl FrontendModuleDependenciesCacheKey {
             QueryFingerprintBuilder::new("nia.frontend.cache-key.module-dependencies.v1");
         write_frontend_cache_key(&mut builder, namespace, module, source.parts());
         builder.write_fingerprint(QueryFingerprint::from_parts(module_map.parts()));
+        Self(builder.finish())
+    }
+
+    pub const fn from_parts(parts: [u64; 2]) -> Self {
+        Self(QueryFingerprint::from_parts(parts))
+    }
+
+    pub const fn parts(self) -> [u64; 2] {
+        self.0.parts()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FrontendProviderDemandPlanCacheKey(QueryFingerprint);
+
+impl FrontendProviderDemandPlanCacheKey {
+    pub fn new(
+        namespace: FrontendCacheNamespace,
+        entry: &SourceIdentity,
+        module_map: FrontendModuleMapFingerprint,
+        package_root_used_paths: bool,
+    ) -> Self {
+        let mut builder =
+            QueryFingerprintBuilder::new("nia.frontend.cache-key.provider-demand-plan.v1");
+        builder.write_fingerprint(QueryFingerprint::from_parts(namespace.parts()));
+        builder.write_str(entry.normalized_path());
+        builder.write_fingerprint(QueryFingerprint::from_parts(module_map.parts()));
+        builder.write_u8(u8::from(package_root_used_paths));
         Self(builder.finish())
     }
 
@@ -597,6 +626,34 @@ extend Value {
             FrontendModuleMapFingerprint::from_parts(fingerprint.parts())
         );
         assert_eq!(std::mem::size_of::<FrontendModuleMapFingerprint>(), 16);
+    }
+
+    #[test]
+    fn provider_demand_plan_key_covers_loader_graph_identity() {
+        let namespace = FrontendCacheNamespace::new(&TargetConfig::host(), RuntimeModel::Bare);
+        let entry = SourceIdentity::new("src/main.nia");
+        let other_entry = SourceIdentity::new("src/tool.nia");
+        let mut module_map = ModuleMap::new();
+        module_map.insert("dep", SourcePath::new("deps/dep.nia"));
+        let module_map = frontend_module_map_fingerprint(&module_map);
+        let key = FrontendProviderDemandPlanCacheKey::new(namespace, &entry, module_map, false);
+
+        assert_ne!(
+            key,
+            FrontendProviderDemandPlanCacheKey::new(namespace, &other_entry, module_map, false)
+        );
+        assert_ne!(
+            key,
+            FrontendProviderDemandPlanCacheKey::new(namespace, &entry, module_map, true)
+        );
+        assert_eq!(
+            key,
+            FrontendProviderDemandPlanCacheKey::from_parts(key.parts())
+        );
+        assert_eq!(
+            std::mem::size_of::<FrontendProviderDemandPlanCacheKey>(),
+            16
+        );
     }
 
     #[test]

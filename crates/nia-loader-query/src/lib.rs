@@ -10,7 +10,10 @@ mod used_paths;
 #[cfg(test)]
 mod tests;
 
-use nia_compiler_query::{LoadedProgram, LoaderFactProvider, ProviderDemand};
+use nia_compiler_query::{
+    FrontendCacheNamespace, FrontendProviderDemandPlanCacheKey, LoadedProgram, LoaderFactProvider,
+    ProviderDemand, frontend_module_map_fingerprint,
+};
 use nia_imports::ModuleMap;
 use nia_query::{QueryDb, QueryRetirement, QuerySession};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceRevision, SourceVersion};
@@ -21,7 +24,7 @@ use queries::{LoadedProgramQuery, SourceTextQuery};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 fn loader_query_registry() -> nia_query::QueryRegistry {
@@ -102,6 +105,53 @@ impl LoaderDatabase {
         let module_map = effective_module_map(&entry_path, request.module_map);
         let sources = request.sources;
         let symbols = SymbolTable::new();
+        let frontend_cache = request
+            .frontend_cache_dir
+            .map(|root| Arc::new(frontend_cache::PersistentFrontendCache::new(root)));
+        let namespace = FrontendCacheNamespace::new(
+            &request.target,
+            queries::runtime_model(request.entry_runtime),
+        );
+        let module_map_fingerprint = frontend_module_map_fingerprint(&module_map);
+        let provider_demand_plan_key = frontend_cache.as_ref().map(|_| {
+            FrontendProviderDemandPlanCacheKey::new(
+                namespace,
+                &entry_path.identity(),
+                module_map_fingerprint,
+                request.package_root_used_paths,
+            )
+        });
+        let cached_provider_demands = frontend_cache
+            .as_ref()
+            .zip(provider_demand_plan_key)
+            .and_then(|(cache, key)| {
+                match cache.load_provider_demand_plan(
+                    key,
+                    namespace,
+                    &entry_path.identity(),
+                    module_map_fingerprint,
+                    request.package_root_used_paths,
+                    &sources,
+                    &symbols,
+                ) {
+                    Ok(frontend_cache::ProviderDemandPlanCacheLookup::Hit(demands)) => {
+                        Some(demands)
+                    }
+                    Ok(
+                        frontend_cache::ProviderDemandPlanCacheLookup::NotFound
+                        | frontend_cache::ProviderDemandPlanCacheLookup::Invalidated
+                        | frontend_cache::ProviderDemandPlanCacheLookup::Corrupt,
+                    )
+                    | Err(_) => None,
+                }
+            });
+        let provider_facts = if request.verify_frontend_cache {
+            ProviderFactStore::default()
+        } else if let Some(demands) = cached_provider_demands.as_ref() {
+            ProviderFactStore::with_initial_demands(demands.iter().cloned())
+        } else {
+            ProviderFactStore::default()
+        };
         let db = QueryDb::new_registered_in_session(
             LoaderContext {
                 entry_path,
@@ -112,11 +162,12 @@ impl LoaderDatabase {
                 target: request.target,
                 entry_runtime: request.entry_runtime,
                 package_roots_with_used_paths,
-                provider_facts: ProviderFactStore::default(),
-                frontend_cache: request
-                    .frontend_cache_dir
-                    .map(|root| Arc::new(frontend_cache::PersistentFrontendCache::new(root))),
+                package_root_used_paths: request.package_root_used_paths,
+                provider_facts,
+                frontend_cache,
                 verify_frontend_cache: request.verify_frontend_cache,
+                provider_demand_plan_key,
+                provider_demand_plan_candidate: Mutex::new(cached_provider_demands),
             },
             loader_query_registry(),
             session,
@@ -220,10 +271,69 @@ impl LoaderDatabase {
     }
 
     fn reset_provider_facts(&self, retirement: &QueryRetirement<'_, LoaderContext>) {
+        if let (Some(cache), Some(key)) = (
+            self.db.context().frontend_cache.as_ref(),
+            self.db.context().provider_demand_plan_key,
+        ) {
+            cache.remove_provider_demand_plan(key);
+            *self
+                .db
+                .context()
+                .provider_demand_plan_candidate
+                .lock()
+                .expect("provider demand plan candidate lock poisoned") = None;
+        }
         if let Some(previous_revision) = self.db.context().provider_facts.clear() {
             retirement.invalidate(ProviderDemandsQuery);
             retirement.retire(&graph::ModuleGraphRevisionQuery(previous_revision));
         }
+    }
+
+    fn settle_provider_demand_plan(&self) {
+        let context = self.db.context();
+        let (Some(cache), Some(key)) = (
+            context.frontend_cache.as_ref(),
+            context.provider_demand_plan_key,
+        ) else {
+            return;
+        };
+        let provider_facts = self.db.get(ProviderDemandsQuery);
+        let candidate = context
+            .provider_demand_plan_candidate
+            .lock()
+            .expect("provider demand plan candidate lock poisoned")
+            .take();
+        if candidate
+            .as_ref()
+            .is_some_and(|demands| demands == provider_facts.as_snapshot().demands())
+        {
+            return;
+        }
+        if candidate.is_some() {
+            cache.remove_provider_demand_plan(key);
+        }
+        let graph = self.db.get(graph::ModuleGraphQuery);
+        let source_paths = graph
+            .modules()
+            .map(|module| module.path.clone())
+            .collect::<Vec<_>>();
+        let namespace = FrontendCacheNamespace::new(
+            &context.target,
+            queries::runtime_model(context.entry_runtime),
+        );
+        let module_map = frontend_module_map_fingerprint(&context.module_map);
+        let snapshot = provider_facts.as_snapshot();
+        let _ = cache.publish_provider_demand_plan(
+            key,
+            namespace,
+            &context.entry_path.identity(),
+            module_map,
+            context.package_root_used_paths,
+            &source_paths,
+            snapshot.demands(),
+            &context.sources,
+            &context.symbols,
+        );
     }
 
     fn source_id_for_module(
@@ -250,6 +360,10 @@ impl LoaderFactProvider for LoaderDatabase {
         demands: Vec<ProviderDemand>,
     ) -> nia_compiler_query::ProviderGraphUpdate {
         LoaderDatabase::update_provider_demands(self, demands)
+    }
+
+    fn settle_provider_demands(&self) {
+        self.settle_provider_demand_plan();
     }
 
     fn node_store(&self) -> nia_node_id::NodeStore {
@@ -499,9 +613,12 @@ fn load_program_trace(
             target: TargetConfig::host(),
             entry_runtime: EntryRuntime::None,
             package_roots_with_used_paths: HashSet::new(),
+            package_root_used_paths: false,
             provider_facts: ProviderFactStore::default(),
             frontend_cache: None,
             verify_frontend_cache: false,
+            provider_demand_plan_key: None,
+            provider_demand_plan_candidate: Mutex::new(None),
         },
         loader_query_registry(),
     );
@@ -538,7 +655,10 @@ pub(crate) struct LoaderContext {
     pub(crate) target: TargetConfig,
     pub(crate) entry_runtime: EntryRuntime,
     pub(crate) package_roots_with_used_paths: HashSet<nia_symbol::SymbolId>,
+    pub(crate) package_root_used_paths: bool,
     pub(crate) provider_facts: ProviderFactStore,
     pub(crate) frontend_cache: Option<Arc<frontend_cache::PersistentFrontendCache>>,
     pub(crate) verify_frontend_cache: bool,
+    pub(crate) provider_demand_plan_key: Option<FrontendProviderDemandPlanCacheKey>,
+    pub(crate) provider_demand_plan_candidate: Mutex<Option<HashSet<ProviderDemand>>>,
 }

@@ -71,6 +71,20 @@ impl Default for ProviderFactStore {
 }
 
 impl ProviderFactStore {
+    pub(crate) fn with_initial_demands(demands: impl IntoIterator<Item = ProviderDemand>) -> Self {
+        let revision = ProviderFactRevision::new_store();
+        Self {
+            state: Arc::new(Mutex::new(ProviderFactState {
+                current: ProviderFacts {
+                    revision,
+                    reset_revision: revision,
+                    demands: demands.into_iter().collect(),
+                },
+                transition: None,
+            })),
+        }
+    }
+
     pub(crate) fn contains_all(&self, demands: &[ProviderDemand]) -> bool {
         let state = self
             .state
