@@ -2081,9 +2081,9 @@ pub(super) fn executable_value_ref_edges_from_reachable_items(
 pub(in crate::query) fn provide_executable_value_ref_edges(
     db: &QueryDb<CompilerContext>,
     owner: GlobalDefId,
-) -> ExecutableValueRefEdges {
+) -> QueryResult<ExecutableValueRefEdges> {
     time_module_provider(db, "executable_value_ref_edges", owner.module_id, || {
-        let program_sources = db.get(FrontendProgramSourcesQuery);
+        let program_sources = db.try_get(FrontendProgramSourcesQuery)?;
         let cache_input = program_sources
             .as_ref()
             .as_ref()
@@ -2153,25 +2153,31 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
         } else {
             match cached {
                 Some(crate::signature_cache::ExecutableValueRefEdgesLookup::Hit(cached)) => {
-                    return ExecutableValueRefEdges {
+                    return Ok(ExecutableValueRefEdges {
                         functions: cached.functions,
                         globals: cached.globals,
-                    };
+                    });
                 }
                 cached => cached,
             }
         };
 
-        let edges = if let Some(item_input) = db.get(ExecutableValueRefItemQuery(owner)).as_ref() {
-            let full_active_item_tree = db.get(FullActiveModuleItemTreeQuery(owner.module_id));
+        let edges = if let Some(item_input) =
+            db.try_get(ExecutableValueRefItemQuery(owner))?.as_ref()
+        {
+            let full_active_item_tree =
+                db.try_get(FullActiveModuleItemTreeQuery(owner.module_id))?;
             let active_item_tree =
                 executable_value_ref_active_item_tree(item_input, &full_active_item_tree);
-            let defs = db.get(ModuleDefsQuery(owner.module_id));
-            let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
-            let graph = QueryModuleGraphLookup::new(db);
+            let defs = db.try_get(ModuleDefsQuery(owner.module_id))?;
+            let query_failure = RefCell::new(None);
+            let program_defs = |module_id| {
+                capture_query_failure(&query_failure, db.try_get(ModuleDefsQuery(module_id)))
+            };
+            let graph = QueryModuleGraphLookup::new(db)?;
             let public_surfaces = QueryPublicSurfaceLookup::new(db);
             let using_scope = QueryUsingScopeLookup::new(db, owner.module_id);
-            let visible_extensions = || Ok(db.get(VisibleExtensionsQuery(owner.module_id)));
+            let visible_extensions = || db.try_get(VisibleExtensionsQuery(owner.module_id));
             let associated_values =
                 LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
             let symbols = db.context().symbols();
@@ -2190,6 +2196,15 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
                     db.context().node_store(),
                 ),
             );
+            if let Some(error) = query_failure
+                .into_inner()
+                .or_else(|| graph.take_failure())
+                .or_else(|| public_surfaces.take_failure())
+                .or_else(|| using_scope.take_failure())
+                .or_else(|| associated_values.take_failure())
+            {
+                return Err(error);
+            }
             let origins = nia_node_id::NodeOriginTable::with_store(db.context().node_store());
             let locals =
                 nia_local_resolve::resolve_module_locals_from_filtered_active_item_tree_with_origins_and_symbols(
@@ -2256,7 +2271,7 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
                 1,
             );
         }
-        edges
+        Ok(edges)
     })
 }
 

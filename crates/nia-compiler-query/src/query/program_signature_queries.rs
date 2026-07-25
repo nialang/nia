@@ -161,14 +161,15 @@ impl QueryKey<CompilerContext> for ProgramTypeAliasSignatureQuery {
         format!("program_type_alias_signature({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.get(ModuleProgramSignatureFactsQuery(
-            self.0.module_id,
-            nia_item_tree::SignatureItemSet::Types,
-        ))
-        .type_aliases
-        .get(&self.0)
-        .cloned()
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db
+            .try_get(ModuleProgramSignatureFactsQuery(
+                self.0.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            ))?
+            .type_aliases
+            .get(&self.0)
+            .cloned())
     }
 }
 

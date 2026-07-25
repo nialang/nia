@@ -2840,7 +2840,9 @@ pub fn expensive_or_invalid() i32 {
             vec![new_entry]
         );
         assert_eq!(
-            QueryModuleGraphLookup::new(&database.db).entry_module(),
+            QueryModuleGraphLookup::new(&database.db)
+                .expect("module graph lookup should load")
+                .entry_module(),
             new_entry
         );
     }
@@ -2904,7 +2906,8 @@ pub fn expensive_or_invalid() i32 {
         assert!(!Arc::ptr_eq(&first_using, &latest_using));
         assert_eq!(first_public.as_ref(), latest_public.as_ref());
         assert_eq!(first_using.as_ref(), latest_using.as_ref());
-        let lookup = QueryModuleGraphLookup::new(&database.db);
+        let lookup =
+            QueryModuleGraphLookup::new(&database.db).expect("module graph lookup should load");
         assert_eq!(
             lookup.child_declaration(entry, &child_name),
             Some((new_child, nia_ids::Visibility::Public))
@@ -4455,6 +4458,17 @@ fn main() i32 {
                 .db
                 .try_get(ExtensionTraitSolvingModuleFactsQuery(missing_module))
                 .expect_err("extension trait facts should propagate a missing module input"),
+            database
+                .db
+                .try_get(VisibleExtensionsQuery(missing_module))
+                .expect_err("visible extensions should propagate a missing module input"),
+            database
+                .db
+                .try_get(ExecutableValueRefEdgesQuery(GlobalDefId {
+                    module_id: missing_module,
+                    def_id: nia_ids::DefId(0),
+                }))
+                .expect_err("value-ref edges should propagate a missing module input"),
         ] {
             assert!(matches!(error, QueryError::InvalidInput { .. }));
             assert!(

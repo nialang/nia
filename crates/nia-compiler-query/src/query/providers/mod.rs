@@ -67,24 +67,37 @@ use self::signature_const::{
 
 pub(super) struct QueryPublicSurfaceLookup<'a> {
     db: &'a QueryDb<CompilerContext>,
+    failure: RefCell<Option<QueryError>>,
 }
 
 impl<'a> QueryPublicSurfaceLookup<'a> {
     pub(super) fn new(db: &'a QueryDb<CompilerContext>) -> Self {
-        Self { db }
+        Self {
+            db,
+            failure: RefCell::new(None),
+        }
+    }
+
+    pub(super) fn take_failure(&self) -> Option<QueryError> {
+        self.failure.borrow_mut().take()
     }
 }
 
 impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
     fn public_surface(&self, module_id: ModuleId) -> Option<Arc<ModulePublicSurface>> {
-        self.db
-            .get(ModulePublicSurfaceQuery(module_id))
-            .as_ref()
-            .clone()
+        capture_query_failure(
+            &self.failure,
+            self.db.try_get(ModulePublicSurfaceQuery(module_id)),
+        )?
+        .as_ref()
+        .clone()
     }
 
     fn public_module(&self, module_id: ModuleId, name: &SymbolId) -> Option<ModuleId> {
-        let target = self.db.get(PublicSurfaceModuleQuery(module_id, *name));
+        let target = capture_query_failure(
+            &self.failure,
+            self.db.try_get(PublicSurfaceModuleQuery(module_id, *name)),
+        )?;
         target
             .as_ref()
             .as_ref()
@@ -92,34 +105,51 @@ impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
     }
 
     fn public_value(&self, module_id: ModuleId, name: &SymbolId) -> Option<nia_defs::PublicItem> {
-        self.db
-            .get(PublicSurfaceValueQuery(module_id, *name))
-            .as_ref()
-            .clone()
+        capture_query_failure(
+            &self.failure,
+            self.db.try_get(PublicSurfaceValueQuery(module_id, *name)),
+        )?
+        .as_ref()
+        .clone()
     }
 
     fn public_type(&self, module_id: ModuleId, name: &SymbolId) -> Option<nia_defs::PublicItem> {
-        self.db
-            .get(PublicSurfaceTypeQuery(module_id, *name))
-            .as_ref()
-            .clone()
+        capture_query_failure(
+            &self.failure,
+            self.db.try_get(PublicSurfaceTypeQuery(module_id, *name)),
+        )?
+        .as_ref()
+        .clone()
     }
 }
 
 pub(super) struct QueryUsingScopeLookup<'a> {
     db: &'a QueryDb<CompilerContext>,
     module_id: ModuleId,
+    failure: RefCell<Option<QueryError>>,
 }
 
 impl<'a> QueryUsingScopeLookup<'a> {
     pub(super) fn new(db: &'a QueryDb<CompilerContext>, module_id: ModuleId) -> Self {
-        Self { db, module_id }
+        Self {
+            db,
+            module_id,
+            failure: RefCell::new(None),
+        }
+    }
+
+    pub(super) fn take_failure(&self) -> Option<QueryError> {
+        self.failure.borrow_mut().take()
     }
 }
 
 impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
     fn using_module(&self, name: &SymbolId) -> Option<ModuleId> {
-        let target = self.db.get(UsingScopeModuleQuery(self.module_id, *name));
+        let target = capture_query_failure(
+            &self.failure,
+            self.db
+                .try_get(UsingScopeModuleQuery(self.module_id, *name)),
+        )?;
         target
             .as_ref()
             .as_ref()
@@ -127,61 +157,87 @@ impl UsingScopeLookup for QueryUsingScopeLookup<'_> {
     }
 
     fn using_value(&self, name: &SymbolId) -> Option<nia_defs::UsingEntry> {
-        self.db
-            .get(UsingScopeValueQuery(self.module_id, *name))
-            .as_ref()
-            .clone()
+        capture_query_failure(
+            &self.failure,
+            self.db.try_get(UsingScopeValueQuery(self.module_id, *name)),
+        )?
+        .as_ref()
+        .clone()
     }
 
     fn using_type(&self, name: &SymbolId) -> Option<nia_defs::UsingEntry> {
-        self.db
-            .get(UsingScopeTypeQuery(self.module_id, *name))
-            .as_ref()
-            .clone()
+        capture_query_failure(
+            &self.failure,
+            self.db.try_get(UsingScopeTypeQuery(self.module_id, *name)),
+        )?
+        .as_ref()
+        .clone()
     }
 
     fn has_unresolved_using_name(&self, name: &SymbolId) -> bool {
-        *self
-            .db
-            .get(UsingScopeUnresolvedQuery(self.module_id, *name))
+        capture_query_failure(
+            &self.failure,
+            self.db
+                .try_get(UsingScopeUnresolvedQuery(self.module_id, *name)),
+        )
+        .is_some_and(|unresolved| *unresolved)
     }
 }
 
 pub(super) struct QueryModuleGraphLookup<'a> {
     db: &'a QueryDb<CompilerContext>,
+    entry_module: ModuleId,
+    failure: RefCell<Option<QueryError>>,
 }
 
 impl<'a> QueryModuleGraphLookup<'a> {
-    pub(super) fn new(db: &'a QueryDb<CompilerContext>) -> Self {
-        Self { db }
+    pub(super) fn new(db: &'a QueryDb<CompilerContext>) -> QueryResult<Self> {
+        let stable_key = db.try_get(ModuleGraphEntryQuery)?;
+        let entry_module = db
+            .context()
+            .module_id_for_stable_key(&stable_key)
+            .expect("compiler entry stable key must resolve in current module graph");
+        Ok(Self {
+            db,
+            entry_module,
+            failure: RefCell::new(None),
+        })
+    }
+
+    pub(super) fn take_failure(&self) -> Option<QueryError> {
+        self.failure.borrow_mut().take()
     }
 }
 
 impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
     fn entry_module(&self) -> ModuleId {
-        let stable_key = self.db.get(ModuleGraphEntryQuery);
-        self.db
-            .context()
-            .module_id_for_stable_key(&stable_key)
-            .expect("compiler entry stable key must resolve in current module graph")
+        self.entry_module
     }
 
     fn package_root_module(&self, package: &SymbolId) -> Option<ModuleId> {
-        let root = self.db.get(ModulePackageRootQuery(*package));
+        let root = capture_query_failure(
+            &self.failure,
+            self.db.try_get(ModulePackageRootQuery(*package)),
+        )?;
         root.as_ref()
             .as_ref()
             .and_then(|stable_key| self.db.context().module_id_for_stable_key(stable_key))
     }
 
     fn module_path(&self, module_id: ModuleId) -> Option<nia_imports::ModulePath> {
-        self.db
-            .get(ModuleGraphPathQuery(module_id))
-            .as_ref()
-            .clone()
+        capture_query_failure(
+            &self.failure,
+            self.db.try_get(ModuleGraphPathQuery(module_id)),
+        )?
+        .as_ref()
+        .clone()
     }
 
     fn parent_module(&self, module_id: ModuleId) -> Option<ModuleId> {
-        let parent = self.db.get(ModuleGraphParentQuery(module_id));
+        let parent = capture_query_failure(
+            &self.failure,
+            self.db.try_get(ModuleGraphParentQuery(module_id)),
+        )?;
         parent
             .as_ref()
             .as_ref()
@@ -193,7 +249,10 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
         module_id: ModuleId,
         name: &SymbolId,
     ) -> Option<(ModuleId, nia_ids::Visibility)> {
-        let child = self.db.get(ModuleGraphChildQuery(module_id, *name));
+        let child = capture_query_failure(
+            &self.failure,
+            self.db.try_get(ModuleGraphChildQuery(module_id, *name)),
+        )?;
         child
             .as_ref()
             .as_ref()
@@ -324,33 +383,37 @@ pub(super) struct CompilerQueryProviders {
     pub(super) program_abi_signatures:
         fn(&QueryDb<CompilerContext>) -> QueryResult<ProgramAbiSignaturesValue>,
     pub(super) extension_provider_module_facts:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderModuleFactsValue,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ExtensionProviderModuleFactsValue>,
     pub(super) extension_provider_validation_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderValidationFactsValue,
     pub(super) extension_provider_nominal_module_facts:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderNominalModuleFactsValue,
+        fn(
+            &QueryDb<CompilerContext>,
+            ModuleId,
+        ) -> QueryResult<ExtensionProviderNominalModuleFactsValue>,
     pub(super) extension_provider_nominal_candidate_modules:
         fn(
             &QueryDb<CompilerContext>,
             ExtensionProviderNominalTargetNames,
-        ) -> ExtensionProviderNominalCandidateModulesValue,
+        ) -> QueryResult<ExtensionProviderNominalCandidateModulesValue>,
     pub(super) extension_provider_nominal_modules_for_targets:
         fn(
             &QueryDb<CompilerContext>,
             ExtensionProviderNominalTargets,
             ModuleId,
-        ) -> ExtensionProviderNominalModulesForTargetsValue,
-    pub(super) extension_method_index: fn(&QueryDb<CompilerContext>) -> ExtensionMethodIndexValue,
+        ) -> QueryResult<ExtensionProviderNominalModulesForTargetsValue>,
+    pub(super) extension_method_index:
+        fn(&QueryDb<CompilerContext>) -> QueryResult<ExtensionMethodIndexValue>,
     pub(super) extension_methods_named:
-        fn(&QueryDb<CompilerContext>, SymbolId) -> ExtensionMethodsNamedValue,
+        fn(&QueryDb<CompilerContext>, SymbolId) -> QueryResult<ExtensionMethodsNamedValue>,
     pub(super) extension_method_by_id:
-        fn(&QueryDb<CompilerContext>, GlobalDefId) -> ExtensionMethodByIdValue,
+        fn(&QueryDb<CompilerContext>, GlobalDefId) -> QueryResult<ExtensionMethodByIdValue>,
     pub(super) extension_trait_signature_index:
         fn(&QueryDb<CompilerContext>) -> ExtensionTraitSignatureIndexValue,
     pub(super) visible_extensions:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> VisibleExtensionsValue,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<VisibleExtensionsValue>,
     pub(super) visible_trait_impls:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> VisibleTraitImplsValue,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<VisibleTraitImplsValue>,
     pub(super) value_resolution:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ValueResolution>,
     pub(super) local_resolution:

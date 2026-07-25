@@ -271,7 +271,7 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleFactsQuery {
         format!("extension_provider_module_facts({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_provider_module_facts)(db, self.0)
     }
 }
@@ -309,7 +309,7 @@ impl QueryKey<CompilerContext> for ExtensionProviderNominalModuleFactsQuery {
         format!("extension_provider_nominal_module_facts({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context()
             .providers
             .extension_provider_nominal_module_facts)(db, self.0)
@@ -335,7 +335,7 @@ impl QueryKey<CompilerContext> for ExtensionProviderNominalCandidateModulesQuery
         )
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context()
             .providers
             .extension_provider_nominal_candidate_modules)(db, self.0.clone())
@@ -378,7 +378,7 @@ impl QueryKey<CompilerContext> for ExtensionProviderNominalModulesForTargetsQuer
         )
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context()
             .providers
             .extension_provider_nominal_modules_for_targets)(db, self.0.clone(), self.1)
@@ -395,7 +395,7 @@ impl QueryKey<CompilerContext> for ExtensionMethodIndexQuery {
         "extension_method_index"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_method_index)(db)
     }
 }
@@ -414,7 +414,7 @@ impl QueryKey<CompilerContext> for ExtensionMethodsNamedQuery {
         format!("extension_methods_named({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_methods_named)(db, self.0)
     }
 }
@@ -433,7 +433,7 @@ impl QueryKey<CompilerContext> for ExtensionMethodByIdQuery {
         format!("extension_method_by_id({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_method_by_id)(db, self.0)
     }
 }
@@ -463,7 +463,7 @@ impl QueryKey<CompilerContext> for VisibleExtensionsQuery {
         "visible_extensions"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.visible_extensions)(db, self.0)
     }
 }
@@ -478,7 +478,7 @@ impl QueryKey<CompilerContext> for VisibleTraitImplsQuery {
         "visible_trait_impls"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.visible_trait_impls)(db, self.0)
     }
 }
