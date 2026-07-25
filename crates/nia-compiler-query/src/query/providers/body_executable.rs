@@ -760,26 +760,29 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         nia_body_check::BodyCheckFilter::ReachableItems { .. }
             | nia_body_check::BodyCheckFilter::ReachableFunctions(_)
     );
-    let filtered_inputs = resolution_inputs.unwrap_or_else(|| {
-        let input_filter = if executable_reachable_filter {
-            nia_body_check::BodyCheckFilter::All
-        } else {
-            filter
-        };
-        body_check_resolution_inputs_for_filter(
-            db,
-            module_id,
-            input_filter,
-            BodyCheckResolutionContext {
-                source_version,
-                origins: &origins,
-                active_item_tree,
-                defs: &defs,
-                type_resolution: &type_resolution,
-                lowered: &lowered,
-            },
-        )
-    });
+    let filtered_inputs = match resolution_inputs {
+        Some(inputs) => inputs,
+        None => {
+            let input_filter = if executable_reachable_filter {
+                nia_body_check::BodyCheckFilter::All
+            } else {
+                filter
+            };
+            body_check_resolution_inputs_for_filter(
+                db,
+                module_id,
+                input_filter,
+                BodyCheckResolutionContext {
+                    source_version,
+                    origins: &origins,
+                    active_item_tree,
+                    defs: &defs,
+                    type_resolution: &type_resolution,
+                    lowered: &lowered,
+                },
+            )?
+        }
+    };
     let inputs = &filtered_inputs;
     let source_path = db.get(ModulePathQuery(module_id));
     let signatures = body_local_item_signatures(db, module_id, &lowered)?;
@@ -1320,7 +1323,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     type_resolution: &type_resolution,
                     lowered: &lowered,
                 },
-            )
+            )?
         }
         (
             nia_body_check::BodyCheckProduct::Full,

@@ -33,7 +33,7 @@ mod signature_const;
 
 use self::body_check_flow::*;
 pub(in crate::query) use self::body_check_flow::{
-    BodyCheckResolutionInputs, BodyCheckWithResolutionInputs,
+    BodyCheckResolutionInputs, BodyCheckWithResolutionInputs, full_body_check_resolution_inputs,
 };
 use self::body_executable::*;
 pub(in crate::query) use self::body_executable::{

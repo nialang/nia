@@ -154,14 +154,14 @@ pub(super) fn body_check_resolution_inputs_for_filter(
     module_id: ModuleId,
     filter: nia_body_check::BodyCheckFilter<'_>,
     context: BodyCheckResolutionContext<'_>,
-) -> BodyCheckResolutionInputs {
+) -> QueryResult<BodyCheckResolutionInputs> {
     match filter {
-        nia_body_check::BodyCheckFilter::All => BodyCheckResolutionInputs {
+        nia_body_check::BodyCheckFilter::All => Ok(BodyCheckResolutionInputs {
             active_item_tree: context.active_item_tree,
-            values: db.get(ValueResolutionQuery(module_id)),
-            locals: db.get(LocalResolutionQuery(module_id)),
-            semantic_uses: db.get(SemanticUseTableQuery(module_id)),
-        },
+            values: db.try_get(ValueResolutionQuery(module_id))?,
+            locals: db.try_get(LocalResolutionQuery(module_id))?,
+            semantic_uses: db.try_get(SemanticUseTableQuery(module_id))?,
+        }),
         _ => {
             let filtered_active_item_tree = Arc::new(time_module_provider(
                 db,
@@ -176,26 +176,30 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                     )
                 },
             ));
-            let program_defs = |module_id| Some(db.get(FullModuleDefsQuery(module_id)));
+            let graph = db.try_get(ModuleGraphQuery)?;
             let public_surfaces = time_module_provider(
                 db,
                 "executable_body_check.public_surfaces",
                 module_id,
-                || db.get(PublicSurfacesQuery),
-            );
+                || db.try_get(PublicSurfacesQuery),
+            )?;
             let using_scope = time_module_provider(
                 db,
                 "executable_body_check.module_using_scope",
                 module_id,
-                || db.get(ModuleUsingScopeQuery(module_id)),
-            );
+                || db.try_get(ModuleUsingScopeQuery(module_id)),
+            )?;
+            let query_failure = RefCell::new(None);
+            let program_defs = |module_id| {
+                capture_query_failure(&query_failure, db.try_get(FullModuleDefsQuery(module_id)))
+            };
             let visible_extensions = || {
-                Ok(time_module_provider(
+                time_module_provider(
                     db,
                     "executable_body_check.visible_extensions",
                     module_id,
-                    || db.get(VisibleExtensionsQuery(module_id)),
-                ))
+                    || db.try_get(VisibleExtensionsQuery(module_id)),
+                )
             };
             let associated_values =
                 LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
@@ -210,7 +214,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                         context.defs,
                         nia_value_resolve::ProgramDefsContext {
                             defs: Some(&program_defs),
-                            graph: Some(&db.get(ModuleGraphQuery)),
+                            graph: Some(&graph),
                         },
                         &public_surfaces.surfaces,
                         using_scope.as_ref(),
@@ -260,7 +264,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                                 context.defs,
                                 nia_value_resolve::ProgramDefsContext {
                                     defs: Some(&program_defs),
-                                    graph: Some(&db.get(ModuleGraphQuery)),
+                                    graph: Some(&graph),
                                 },
                                 &public_surfaces.surfaces,
                                 using_scope.as_ref(),
@@ -288,26 +292,33 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                     )
                 },
             );
-            BodyCheckResolutionInputs {
+            let output = BodyCheckResolutionInputs {
                 active_item_tree: filtered_active_item_tree,
                 values: Arc::new(filtered_values),
                 locals: Arc::new(filtered_locals),
                 semantic_uses: Arc::new(filtered_semantic_uses),
+            };
+            match query_failure
+                .into_inner()
+                .or_else(|| associated_values.take_failure())
+            {
+                Some(error) => Err(error),
+                None => Ok(output),
             }
         }
     }
 }
 
-pub(super) fn full_body_check_resolution_inputs(
+pub(in crate::query) fn full_body_check_resolution_inputs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> BodyCheckResolutionInputs {
-    let source_version = *db.get(ModuleSourceVersionQuery(module_id));
-    let origins = db.get(ModuleOriginsQuery(module_id));
-    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.get(FullModuleDefsQuery(module_id));
-    let type_resolution = db.get(TypeResolutionQuery(module_id));
-    let lowered = db.get(TypeLoweringQuery(module_id));
+) -> QueryResult<BodyCheckResolutionInputs> {
+    let source_version = *db.try_get(ModuleSourceVersionQuery(module_id))?;
+    let origins = db.try_get(ModuleOriginsQuery(module_id))?;
+    let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
+    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+    let type_resolution = db.try_get(TypeResolutionQuery(module_id))?;
+    let lowered = db.try_get(TypeLoweringQuery(module_id))?;
     body_check_resolution_inputs_for_filter(
         db,
         module_id,
