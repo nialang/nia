@@ -1582,6 +1582,8 @@ Acceptance：第二次无改动 check 接近 cache validation 成本；单文件
 
 进展（2026-07-25）：I-1v 删除shared/owned batch访问的panic wrapper。`QueryDb::get_many/get_many_owned`现在直接以既有persistent executor并发执行`try_get/try_get_owned`，等待全部已提交task完成并按key顺序聚合为唯一`QueryResult<Vec<_>>`；普通cycle/invalid-input不再通过worker unwind，真实provider panic仍沿ICE路径原样传播且executor drain后可复用。provider内batch consumer直接使用`?`，白盒测试边界显式`expect`；仅转发completion callback的`for_each_many_owned`及其generic helper和重复fixture已物理删除，真实completion-order需求只保留逐项`QueryResult`的typed pull stream。新增回归锁定batch invalid input作为结构化值返回，既有key-order、non-Clone owned move、parent dependency、nested progress、budget、invalidation与panic恢复语义保持。query runtime 75、loader 74、compiler 170项及workspace all-target/all-features严格Clippy通过。Phase I现约89%；下一切片迁移单项raw `get/get_owned`消费者，随后把`try_get*`改为唯一正式名称并删除最后两个`QueryError -> panic_any`访问wrapper。
 
+进展（2026-07-25）：I-1w 关闭body-check resolution helper的隐藏panic读取。full-filter直接显式取得value/local/semantic-use产品；item-filter先取得graph、public surfaces和using scope，跨module defs callback与lazy associated-value extension resolver共享调用级首次failure记录，算法结束后统一返回`QueryError`，不把失败降级为空defs/extension。`full_body_check_resolution_inputs`及其两个executable session cache consumer同步返回`QueryResult`，只有完整成功的resolution product才进入current-session cache；missing-module回归直接覆盖该helper。该文件production raw `db.get`已归零，compiler-query 170项与crate all-target/all-features严格Clippy通过。Phase I仍约89%；下一切片继续迁移body-executable主helper的program signature/extension/const callback，再处理executable reachability session入口。
+
 ## 23. 风险与验证指标
 
 ### 23.1 最大风险

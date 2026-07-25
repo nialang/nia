@@ -570,19 +570,25 @@ fn executable_check_in_session(
                         .borrow()
                         .get(&module_id)
                         .cloned();
-                    cached.unwrap_or_else(|| {
-                        let inputs = time_module_provider(
-                            db,
-                            "executable_checked_modules.full_body_inputs",
-                            module_id,
-                            || full_body_check_resolution_inputs(db, module_id),
-                        );
-                        caches
-                            .body_resolution_inputs
-                            .borrow_mut()
-                            .insert(module_id, inputs.clone());
-                        inputs
-                    })
+                    match cached {
+                        Some(inputs) => inputs,
+                        None => {
+                            let inputs = match time_module_provider(
+                                db,
+                                "executable_checked_modules.full_body_inputs",
+                                module_id,
+                                || full_body_check_resolution_inputs(db, module_id),
+                            ) {
+                                Ok(inputs) => inputs,
+                                Err(error) => return_session_error!(error),
+                            };
+                            caches
+                                .body_resolution_inputs
+                                .borrow_mut()
+                                .insert(module_id, inputs.clone());
+                            inputs
+                        }
+                    }
                 };
                 let program_layout_cache = RefCell::new(HashMap::new());
                 let program_layout_failure = RefCell::new(None);
@@ -1171,19 +1177,22 @@ fn final_executable_checked_modules(
                         .borrow()
                         .get(&module_id)
                         .cloned();
-                    cached.unwrap_or_else(|| {
-                        let inputs = time_module_provider(
-                            db,
-                            "executable_checked_modules.full_body_inputs",
-                            module_id,
-                            || full_body_check_resolution_inputs(db, module_id),
-                        );
-                        caches
-                            .body_resolution_inputs
-                            .borrow_mut()
-                            .insert(module_id, inputs.clone());
-                        inputs
-                    })
+                    match cached {
+                        Some(inputs) => inputs,
+                        None => {
+                            let inputs = time_module_provider(
+                                db,
+                                "executable_checked_modules.full_body_inputs",
+                                module_id,
+                                || full_body_check_resolution_inputs(db, module_id),
+                            )?;
+                            caches
+                                .body_resolution_inputs
+                                .borrow_mut()
+                                .insert(module_id, inputs.clone());
+                            inputs
+                        }
+                    }
                 };
                 let (prechecked, provider_demands) = match fact_by_id.remove(&module_id) {
                     Some(state) => (

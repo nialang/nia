@@ -4438,6 +4438,9 @@ fn main() i32 {
                 .db
                 .try_get(BodyCheckQuery(missing_module))
                 .expect_err("body checking should propagate a missing module input"),
+            full_body_check_resolution_inputs(&database.db, missing_module)
+                .err()
+                .expect("body resolution inputs should propagate a missing module input"),
             database
                 .db
                 .try_get(CheckedModuleQuery(missing_module))
