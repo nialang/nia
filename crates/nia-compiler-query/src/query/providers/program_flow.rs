@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedProgram {
+pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedProgramAnalysis {
     time_provider(db.context().timings(), "checked_program", || {
         let graph = db.get(ModuleGraphQuery).as_ref().clone();
         let optimization = *db.get(CompilerOptimizationQuery);
@@ -9,7 +9,7 @@ pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedP
         let diagnostic_modules =
             materialize_checked_modules(db, db.get(CheckedModuleIdsQuery).as_ref().clone());
         diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
-        CheckedProgram {
+        CheckedProgramAnalysis {
             graph,
             optimization,
             modules: diagnostic_modules,
@@ -18,14 +18,16 @@ pub(super) fn provide_checked_program(db: &QueryDb<CompilerContext>) -> CheckedP
     })
 }
 
-pub(super) fn provide_entry_checked_program(db: &QueryDb<CompilerContext>) -> CheckedProgram {
+pub(super) fn provide_entry_checked_program(
+    db: &QueryDb<CompilerContext>,
+) -> CheckedProgramAnalysis {
     time_provider(db.context().timings(), "entry_checked_program", || {
         let graph = db.get(ModuleGraphQuery).as_ref().clone();
         let optimization = *db.get(CompilerOptimizationQuery);
         let mut diagnostics = early_program_diagnostics(db);
         let diagnostic_modules = checked_modules_for_diagnostics(db);
         diagnostics.extend(checked_module_diagnostics(db, &diagnostic_modules));
-        CheckedProgram {
+        CheckedProgramAnalysis {
             graph,
             optimization,
             modules: diagnostic_modules,

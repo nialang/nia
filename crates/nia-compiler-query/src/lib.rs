@@ -372,8 +372,45 @@ pub struct LoadedModule {
 pub struct CheckedProgram {
     pub graph: ModuleGraphSnapshot,
     pub optimization: OptimizationPolicy,
+    pub diagnostics: Vec<ProgramDiagnostic>,
+    checked_body_count: usize,
+    reachable_body_count: usize,
+}
+
+impl CheckedProgram {
+    pub fn checked_body_count(&self) -> usize {
+        self.checked_body_count
+    }
+
+    pub fn reachable_body_count(&self) -> usize {
+        self.reachable_body_count
+    }
+}
+
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckedProgramAnalysis {
+    pub graph: ModuleGraphSnapshot,
+    pub optimization: OptimizationPolicy,
     pub modules: Vec<std::sync::Arc<CheckedModule>>,
     pub diagnostics: Vec<ProgramDiagnostic>,
+}
+
+impl CheckedProgramAnalysis {
+    pub fn into_report(self) -> CheckedProgram {
+        let checked_body_count = self
+            .modules
+            .iter()
+            .map(|module| module.body_ir.function_bodies.len())
+            .sum();
+        CheckedProgram {
+            graph: self.graph,
+            optimization: self.optimization,
+            diagnostics: self.diagnostics,
+            checked_body_count,
+            reachable_body_count: checked_body_count,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

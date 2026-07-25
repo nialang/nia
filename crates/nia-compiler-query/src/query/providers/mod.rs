@@ -208,8 +208,8 @@ impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
 
 #[derive(Clone)]
 pub(super) struct CompilerQueryProviders {
-    pub(super) checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgram,
-    pub(super) entry_checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgram,
+    pub(super) checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgramAnalysis,
+    pub(super) entry_checked_program: fn(&QueryDb<CompilerContext>) -> CheckedProgramAnalysis,
     pub(super) codegen_program: fn(&QueryDb<CompilerContext>) -> CodegenProgram,
     pub(super) parse_ok_module_ids: fn(&QueryDb<CompilerContext>) -> StableModuleSequence,
     pub(super) semantic_module_ids: fn(&QueryDb<CompilerContext>) -> StableModuleSequence,

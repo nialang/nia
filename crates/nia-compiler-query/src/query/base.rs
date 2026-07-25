@@ -7,7 +7,7 @@ use std::collections::HashMap;
 pub(super) struct CheckedProgramQuery;
 
 impl QueryKey<CompilerContext> for CheckedProgramQuery {
-    type Value = CheckedProgram;
+    type Value = CheckedProgramAnalysis;
 
     fn name() -> &'static str {
         "checked_program"
@@ -22,7 +22,7 @@ impl QueryKey<CompilerContext> for CheckedProgramQuery {
 pub(super) struct EntryCheckedProgramQuery;
 
 impl QueryKey<CompilerContext> for EntryCheckedProgramQuery {
-    type Value = CheckedProgram;
+    type Value = CheckedProgramAnalysis;
 
     fn name() -> &'static str {
         "entry_checked_program"

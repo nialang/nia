@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{
-    ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CodegenPreparation,
-    CodegenProgram, ProgramDiagnostic, RuntimeModel, TimingMode, module_diagnostics,
+    ActiveModuleItemTreeFactKind, CheckedModule, CheckedProgram, CheckedProgramAnalysis,
+    CodegenPreparation, CodegenProgram, ProgramDiagnostic, RuntimeModel, TimingMode,
+    module_diagnostics,
 };
 #[cfg(test)]
 use crate::{LoadedModule, LoadedProgram};
@@ -320,10 +321,15 @@ impl CompilerDatabase {
     }
 
     pub fn check_program(&self) -> CheckedProgram {
+        self.analyze_program().into_report()
+    }
+
+    #[doc(hidden)]
+    pub fn analyze_program(&self) -> CheckedProgramAnalysis {
         self.settle_provider_worklist(false, Self::check_program_once, checked_provider_demands)
     }
 
-    fn check_program_once(&self) -> CheckedProgram {
+    fn check_program_once(&self) -> CheckedProgramAnalysis {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_get(CheckedProgramQuery)
         })) {
@@ -345,6 +351,11 @@ impl CompilerDatabase {
     }
 
     pub fn entry_check_program(&self) -> CheckedProgram {
+        self.analyze_entry_program().into_report()
+    }
+
+    #[doc(hidden)]
+    pub fn analyze_entry_program(&self) -> CheckedProgramAnalysis {
         self.settle_provider_worklist(
             true,
             Self::entry_check_program_once,
@@ -352,7 +363,7 @@ impl CompilerDatabase {
         )
     }
 
-    fn entry_check_program_once(&self) -> CheckedProgram {
+    fn entry_check_program_once(&self) -> CheckedProgramAnalysis {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.db.try_get(EntryCheckedProgramQuery)
         })) {
@@ -617,7 +628,7 @@ impl std::fmt::Debug for CompilerDatabase {
     }
 }
 
-fn checked_provider_demands(program: &CheckedProgram) -> Vec<crate::ProviderDemand> {
+fn checked_provider_demands(program: &CheckedProgramAnalysis) -> Vec<crate::ProviderDemand> {
     program
         .modules
         .iter()
@@ -713,8 +724,8 @@ fn checked_program_from_query_error(
     graph: ModuleGraphSnapshot,
     optimization: OptimizationPolicy,
     err: QueryError,
-) -> CheckedProgram {
-    CheckedProgram {
+) -> CheckedProgramAnalysis {
+    CheckedProgramAnalysis {
         graph,
         optimization,
         modules: Vec::new(),
@@ -2732,7 +2743,7 @@ pub fn expensive_or_invalid() i32 {
             vec![new_module_id]
         );
 
-        let second = database.check_program();
+        let second = database.analyze_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
         assert_eq!(second.modules[0].id, new_module_id);
     }
@@ -3866,7 +3877,7 @@ fn main() i32 {
             modules: Vec<(String, usize, usize, usize, usize)>,
         }
 
-        fn observable(program: CheckedProgram) -> ObservableCheck {
+        fn observable(program: CheckedProgramAnalysis) -> ObservableCheck {
             ObservableCheck {
                 diagnostics: program.diagnostics,
                 modules: program
@@ -3905,10 +3916,10 @@ fn main() i32 {
             let source = sources[(random as usize) % sources.len()];
             fixture.update_module_source(module_id, source, SourceRevision(revision));
             incremental.update(CompileRequest::new(fixture.program()));
-            let incremental_output = observable(incremental.check_program());
+            let incremental_output = observable(incremental.analyze_program());
 
             let clean_fixture = LoadedProgramFixture::new("main.nia", source);
-            let clean_output = observable(clean_fixture.database().check_program());
+            let clean_output = observable(clean_fixture.database().analyze_program());
 
             assert_eq!(
                 incremental_output, clean_output,
@@ -3937,7 +3948,7 @@ fn main() i32 {
         );
         database.update(CompileRequest::new(fixture.program()));
 
-        let second = database.check_program();
+        let second = database.analyze_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
         let latest_using_scope = database.db.get(ModuleUsingScopeQuery(module_id));
         assert!(Arc::ptr_eq(&first_using_scope, &latest_using_scope));
@@ -4061,7 +4072,7 @@ fn main() i32 {
         fixture.update_module_path(module_id, "renamed.nia");
         database.update(CompileRequest::new(fixture.program()));
 
-        let second = database.check_program();
+        let second = database.analyze_program();
         assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
         assert_eq!(second.modules[0].path.as_str(), "renamed.nia");
     }
@@ -4126,7 +4137,7 @@ fn main() i32 {
             CompileRequest::new(fixture.program()).with_optimization(NiaOptimizationLevel::Oz),
             providers,
         )
-        .check_program();
+        .analyze_program();
 
         assert!(checked.modules.is_empty());
         assert_eq!(checked.optimization, policy);
@@ -6272,7 +6283,7 @@ extend i32 : ParseFrom[Input] {
     fn checked_module_exposes_semantic_use_table_product() {
         let source = "fn main() i32 { let mut local: i32 = 1; local }";
         let fixture = LoadedProgramFixture::new("main.nia", source);
-        let checked = fixture.database().check_program();
+        let checked = fixture.database().analyze_program();
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let module = checked.modules.first().expect("checked module");
