@@ -379,13 +379,17 @@ pub(super) struct CompilerQueryProviders {
         nia_ty::TraitId,
     )
         -> QueryResult<ExtensionTraitImplsForTraitValue>,
-    pub(super) program_trait_method_index: fn(&QueryDb<CompilerContext>) -> ProgramTraitMethodIndex,
+    pub(super) program_trait_method_index:
+        fn(&QueryDb<CompilerContext>) -> QueryResult<ProgramTraitMethodIndex>,
     pub(super) program_abi_signatures:
         fn(&QueryDb<CompilerContext>) -> QueryResult<ProgramAbiSignaturesValue>,
     pub(super) extension_provider_module_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ExtensionProviderModuleFactsValue>,
     pub(super) extension_provider_validation_facts:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderValidationFactsValue,
+        fn(
+            &QueryDb<CompilerContext>,
+            ModuleId,
+        ) -> QueryResult<ExtensionProviderValidationFactsValue>,
     pub(super) extension_provider_nominal_module_facts:
         fn(
             &QueryDb<CompilerContext>,
@@ -409,7 +413,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) extension_method_by_id:
         fn(&QueryDb<CompilerContext>, GlobalDefId) -> QueryResult<ExtensionMethodByIdValue>,
     pub(super) extension_trait_signature_index:
-        fn(&QueryDb<CompilerContext>) -> ExtensionTraitSignatureIndexValue,
+        fn(&QueryDb<CompilerContext>) -> QueryResult<ExtensionTraitSignatureIndexValue>,
     pub(super) visible_extensions:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<VisibleExtensionsValue>,
     pub(super) visible_trait_impls:
@@ -443,7 +447,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) checked_module: fn(&QueryDb<CompilerContext>, ModuleId) -> CheckedModule,
     pub(super) checked_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
     pub(super) monomorphization:
-        fn(&QueryDb<CompilerContext>) -> nia_monomorphize::Monomorphization,
+        fn(&QueryDb<CompilerContext>) -> QueryResult<nia_monomorphize::Monomorphization>,
     pub(super) backend_lowering:
         fn(&QueryDb<CompilerContext>) -> nia_backend_lower::BackendLowering,
 }

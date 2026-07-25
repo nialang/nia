@@ -142,7 +142,7 @@ impl QueryKey<CompilerContext> for ProgramTraitMethodIndexQuery {
         "program_trait_method_index"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.program_trait_method_index)(db)
     }
 }

@@ -412,9 +412,9 @@ pub(super) fn provide_extension_provider_module_facts(
 pub(super) fn provide_extension_provider_validation_facts(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ExtensionProviderValidationFactsValue {
+) -> QueryResult<ExtensionProviderValidationFactsValue> {
     time_module_provider(db, "extension_provider_validation_facts", module_id, || {
-        let program_sources = db.get(FrontendProgramSourcesQuery);
+        let program_sources = db.try_get(FrontendProgramSourcesQuery)?;
         let cache_input = program_sources
             .as_ref()
             .as_ref()
@@ -482,22 +482,26 @@ pub(super) fn provide_extension_provider_validation_facts(
         } else {
             match cached {
                 Some(crate::signature_cache::ExtensionValidationDiagnosticsLookup::Hit(cached)) => {
-                    return ExtensionProviderValidationFactsQueryValue {
+                    return Ok(ExtensionProviderValidationFactsQueryValue {
                         diagnostics: cached,
-                    };
+                    });
                 }
                 cached => cached,
             }
         };
-        let diagnostics = if !*db.get(ExtensionProviderModuleEligibilityQuery(module_id)) {
+        let query_failure = RefCell::new(None);
+        let diagnostics = if !*db.try_get(ExtensionProviderModuleEligibilityQuery(module_id))? {
             Vec::new()
         } else {
-            let input = db.get(ExtensionSignatureModuleInputQuery(module_id));
-            let trait_index = db.get(ExtensionTraitSignatureIndexQuery);
+            let input = db.try_get(ExtensionSignatureModuleInputQuery(module_id))?;
+            let trait_index = db.try_get(ExtensionTraitSignatureIndexQuery)?;
             let trait_impls_for_trait = |trait_id| {
-                db.get(ExtensionTraitImplsForTraitQuery(trait_id))
-                    .trait_impls
-                    .clone()
+                capture_query_failure(
+                    &query_failure,
+                    db.try_get(ExtensionTraitImplsForTraitQuery(trait_id)),
+                )
+                .map(|facts| facts.trait_impls.clone())
+                .unwrap_or_default()
             };
             let symbols = db.context().symbols();
             collect_extension_method_diagnostics_for_module(
@@ -511,6 +515,9 @@ pub(super) fn provide_extension_provider_validation_facts(
                 },
             )
         };
+        if let Some(error) = query_failure.into_inner() {
+            return Err(error);
+        }
         if let Some(cache) = &db.context().signature_cache
             && let Some((program_sources, source, namespace, key)) = cache_input
         {
@@ -542,7 +549,7 @@ pub(super) fn provide_extension_provider_validation_facts(
                 1,
             );
         }
-        ExtensionProviderValidationFactsQueryValue { diagnostics }
+        Ok(ExtensionProviderValidationFactsQueryValue { diagnostics })
     })
 }
 
@@ -731,12 +738,12 @@ pub(super) fn provide_extension_method_by_id(
 
 pub(super) fn provide_extension_trait_signature_index(
     db: &QueryDb<CompilerContext>,
-) -> ExtensionTraitSignatureIndexValue {
+) -> QueryResult<ExtensionTraitSignatureIndexValue> {
     time_provider(
         db.context().timings(),
         "extension_trait_signature_index",
         || {
-            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
+            let facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits)?;
             let mut trait_defs = HashSet::new();
             let mut trait_signatures = HashMap::new();
             for module_facts in facts {
@@ -748,10 +755,10 @@ pub(super) fn provide_extension_trait_signature_index(
                         .map(|(def_id, signature)| (*def_id, signature.clone())),
                 );
             }
-            ExtensionTraitSignatureIndex {
+            Ok(ExtensionTraitSignatureIndex {
                 trait_defs,
                 trait_signatures,
-            }
+            })
         },
     )
 }

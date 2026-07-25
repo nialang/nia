@@ -290,7 +290,7 @@ impl QueryKey<CompilerContext> for ExtensionProviderValidationFactsQuery {
         format!("extension_provider_validation_facts({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_provider_validation_facts)(db, self.0)
     }
 }
@@ -448,7 +448,7 @@ impl QueryKey<CompilerContext> for ExtensionTraitSignatureIndexQuery {
         "extension_trait_signature_index"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_trait_signature_index)(db)
     }
 }

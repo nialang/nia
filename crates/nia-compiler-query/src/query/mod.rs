@@ -4460,6 +4460,10 @@ fn main() i32 {
                 .expect_err("extension trait facts should propagate a missing module input"),
             database
                 .db
+                .try_get(ExtensionProviderValidationFactsQuery(missing_module))
+                .expect_err("extension validation should propagate a missing module input"),
+            database
+                .db
                 .try_get(VisibleExtensionsQuery(missing_module))
                 .expect_err("visible extensions should propagate a missing module input"),
             database

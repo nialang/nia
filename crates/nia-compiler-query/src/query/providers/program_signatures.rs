@@ -94,14 +94,13 @@ pub(super) fn provide_module_abi_signature_facts(
 pub(super) fn program_signature_facts(
     db: &QueryDb<CompilerContext>,
     set: nia_item_tree::SignatureItemSet,
-) -> Vec<Arc<ModuleProgramSignatureFactsValue>> {
-    let module_ids =
-        resolve_stable_module_sequence(db, &db.get(ProgramSignatureModuleIdsQuery(set)));
-    db.get_many(
-        module_ids
-            .into_iter()
-            .map(|module_id| ModuleProgramSignatureFactsQuery(module_id, set)),
-    )
+) -> QueryResult<Vec<Arc<ModuleProgramSignatureFactsValue>>> {
+    let module_sequence = db.try_get(ProgramSignatureModuleIdsQuery(set))?;
+    let module_ids = resolve_stable_module_sequence(db, &module_sequence);
+    module_ids
+        .into_iter()
+        .map(|module_id| db.try_get(ModuleProgramSignatureFactsQuery(module_id, set)))
+        .collect()
 }
 
 fn collect_globals(
@@ -223,24 +222,24 @@ fn collect_trait_impls(
 
 pub(super) fn provide_program_trait_method_index(
     db: &QueryDb<CompilerContext>,
-) -> ProgramTraitMethodIndex {
+) -> QueryResult<ProgramTraitMethodIndex> {
     time_provider(db.context().timings(), "program_trait_method_index", || {
-        let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
-        collect_trait_method_index(&trait_facts)
+        let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits)?;
+        Ok(collect_trait_method_index(&trait_facts))
     })
 }
 
 pub(super) fn executable_program_non_function_signatures(
     db: &QueryDb<CompilerContext>,
-) -> ProgramExecutableNonFunctionSignatures {
-    let value_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Values);
-    let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types);
-    let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits);
+) -> QueryResult<ProgramExecutableNonFunctionSignatures> {
+    let value_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Values)?;
+    let type_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Types)?;
+    let trait_facts = program_signature_facts(db, nia_item_tree::SignatureItemSet::Traits)?;
     let traits = collect_traits(&trait_facts);
     let trait_method_index = ProgramTraitMethodIndex::from_traits(&traits);
     let trait_impls = collect_trait_impls(&trait_facts);
     let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
-    ProgramExecutableNonFunctionSignatures {
+    Ok(ProgramExecutableNonFunctionSignatures {
         globals: collect_globals(&value_facts),
         consts: collect_consts(&value_facts),
         structs: collect_structs(&type_facts),
@@ -251,7 +250,7 @@ pub(super) fn executable_program_non_function_signatures(
         trait_impls,
         trait_impl_index,
         trait_method_index,
-    }
+    })
 }
 
 pub(super) fn executable_program_functions_for_modules(

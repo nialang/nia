@@ -4,26 +4,34 @@ use nia_symbol::known;
 
 pub(in crate::query) fn provide_executable_checked_module_facts(
     db: &QueryDb<CompilerContext>,
-) -> ExecutableCheckedModuleFacts {
+) -> QueryResult<ExecutableCheckedModuleFacts> {
     time_provider(
         db.context().timings(),
         "executable_checked_module_facts",
-        || match executable_check(db, ExecutableCheckProduct::Modules) {
-            ExecutableCheckOutput::Modules(set) => set,
-            ExecutableCheckOutput::ProviderDemands(_) => unreachable!(),
+        || {
+            Ok(
+                match executable_check(db, ExecutableCheckProduct::Modules)? {
+                    ExecutableCheckOutput::Modules(set) => set,
+                    ExecutableCheckOutput::ProviderDemands(_) => unreachable!(),
+                },
+            )
         },
     )
 }
 
 pub(in crate::query) fn provide_executable_provider_demands(
     db: &QueryDb<CompilerContext>,
-) -> Vec<crate::ProviderDemand> {
+) -> QueryResult<Vec<crate::ProviderDemand>> {
     time_provider(
         db.context().timings(),
         "executable_provider_demands",
-        || match executable_check(db, ExecutableCheckProduct::ProviderDemands) {
-            ExecutableCheckOutput::ProviderDemands(demands) => demands,
-            ExecutableCheckOutput::Modules(_) => unreachable!(),
+        || {
+            Ok(
+                match executable_check(db, ExecutableCheckProduct::ProviderDemands)? {
+                    ExecutableCheckOutput::ProviderDemands(demands) => demands,
+                    ExecutableCheckOutput::Modules(_) => unreachable!(),
+                },
+            )
         },
     )
 }
@@ -41,6 +49,7 @@ enum ExecutableCheckOutput {
 
 struct QueryExecutableExtensionLookup<'a> {
     db: &'a QueryDb<CompilerContext>,
+    failure: RefCell<Option<QueryError>>,
     trait_impls_by_trait:
         RefCell<HashMap<nia_ty::TraitId, Vec<nia_item_signatures::ProgramTraitImplSignature>>>,
     module_ids_by_trait: RefCell<HashMap<nia_ty::TraitId, Vec<ModuleId>>>,
@@ -53,6 +62,7 @@ impl QueryExecutableExtensionLookup<'_> {
     fn new(db: &QueryDb<CompilerContext>) -> QueryExecutableExtensionLookup<'_> {
         QueryExecutableExtensionLookup {
             db,
+            failure: RefCell::new(None),
             trait_impls_by_trait: RefCell::new(HashMap::new()),
             module_ids_by_trait: RefCell::new(HashMap::new()),
             methods_by_trait: RefCell::new(HashMap::new()),
@@ -60,15 +70,20 @@ impl QueryExecutableExtensionLookup<'_> {
         }
     }
 
+    fn take_failure(&self) -> Option<QueryError> {
+        self.failure.borrow_mut().take()
+    }
+
     fn ensure_trait_impls_for_trait(&self, trait_id: nia_ty::TraitId) {
         if self.trait_impls_by_trait.borrow().contains_key(&trait_id) {
             return;
         }
-        let trait_impls = self
-            .db
-            .get(ExtensionTraitImplsForTraitQuery(trait_id))
-            .trait_impls
-            .clone();
+        let trait_impls = capture_query_failure(
+            &self.failure,
+            self.db.try_get(ExtensionTraitImplsForTraitQuery(trait_id)),
+        )
+        .map(|facts| facts.trait_impls.clone())
+        .unwrap_or_default();
         self.trait_impls_by_trait
             .borrow_mut()
             .insert(trait_id, trait_impls);
@@ -123,11 +138,14 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
         }
         let mut seen = HashSet::new();
         let mut methods = Vec::new();
-        for facts in self.db.get_many(
-            self.module_ids_for_trait(trait_id)
-                .into_iter()
-                .map(ExtensionProviderModuleFactsQuery),
-        ) {
+        for module_id in self.module_ids_for_trait(trait_id) {
+            let Some(facts) = capture_query_failure(
+                &self.failure,
+                self.db
+                    .try_get(ExtensionProviderModuleFactsQuery(module_id)),
+            ) else {
+                break;
+            };
             methods.extend(
                 facts
                     .methods
@@ -164,11 +182,14 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
         }
         let mut seen = HashSet::new();
         let mut methods = Vec::new();
-        for facts in self.db.get_many(
-            self.module_ids_for_trait(trait_id)
-                .into_iter()
-                .map(ExtensionProviderModuleFactsQuery),
-        ) {
+        for module_id in self.module_ids_for_trait(trait_id) {
+            let Some(facts) = capture_query_failure(
+                &self.failure,
+                self.db
+                    .try_get(ExtensionProviderModuleFactsQuery(module_id)),
+            ) else {
+                break;
+            };
             methods.extend(
                 facts
                     .methods
@@ -192,10 +213,13 @@ impl ExecutableExtensionLookup for QueryExecutableExtensionLookup<'_> {
         def_id: GlobalDefId,
         f: &mut dyn FnMut(&[nia_defs::WherePredicateSignature]),
     ) {
-        let method = self.db.get(ExtensionMethodByIdQuery(def_id));
+        let method = capture_query_failure(
+            &self.failure,
+            self.db.try_get(ExtensionMethodByIdQuery(def_id)),
+        );
         let predicates = method
-            .method
             .as_ref()
+            .and_then(|method| method.method.as_ref())
             .map(|method| method.where_predicates.as_slice())
             .unwrap_or(&[]);
         f(predicates);
@@ -230,7 +254,10 @@ struct ExecutableBodyCheckBatchItem {
 fn executable_check(
     db: &QueryDb<CompilerContext>,
     product: ExecutableCheckProduct,
-) -> ExecutableCheckOutput {
+) -> QueryResult<ExecutableCheckOutput> {
+    let non_function_signatures = matches!(product, ExecutableCheckProduct::Modules)
+        .then(|| executable_program_non_function_signatures(db))
+        .transpose()?;
     let _scheduler = db
         .context()
         .executable_fact_scheduler
@@ -243,7 +270,8 @@ fn executable_check(
             .lock()
             .expect("executable fact session lock poisoned"),
     );
-    let (output, session) = executable_check_in_session(db, product, session);
+    let (output, session) =
+        executable_check_in_session(db, product, session, non_function_signatures);
     *db.context()
         .executable_fact_session
         .lock()
@@ -255,7 +283,8 @@ fn executable_check_in_session(
     db: &QueryDb<CompilerContext>,
     product: ExecutableCheckProduct,
     mut session: ExecutableFactSession,
-) -> (ExecutableCheckOutput, ExecutableFactSession) {
+    mut non_function_signatures: Option<ProgramExecutableNonFunctionSignatures>,
+) -> (QueryResult<ExecutableCheckOutput>, ExecutableFactSession) {
     let provider_fact_worklist = db.get(ProviderFactWorklistQuery);
     let body_activation_worklist = db.get(BodyActivationWorklistQuery);
     let executable_fact_epoch = db.get(ExecutableFactEpochQuery);
@@ -273,7 +302,6 @@ fn executable_check_in_session(
         applied_provider_changes,
         applied_body_activations,
     } = session;
-    let mut non_function_signatures = None::<ProgramExecutableNonFunctionSignatures>;
     let function_signature = |def_id: GlobalDefId| {
         if let Some(signature) = caches
             .reachability_function_signatures
@@ -684,8 +712,14 @@ fn executable_check_in_session(
             .flat_map(|state| state.provider_demands.iter().cloned())
             .collect::<HashSet<_>>();
         demands.extend(executable_module_body_demands(db, &reachability_by_module));
+        let output = match extension_lookup.take_failure() {
+            Some(error) => Err(error),
+            None => Ok(ExecutableCheckOutput::ProviderDemands(
+                demands.into_iter().collect(),
+            )),
+        };
         return (
-            ExecutableCheckOutput::ProviderDemands(demands.into_iter().collect()),
+            output,
             ExecutableFactSession {
                 epoch,
                 modules: fact_by_id,
@@ -754,7 +788,8 @@ fn executable_check_in_session(
         "executable_checked_modules.final.non_function_signatures",
         || {
             non_function_signatures
-                .get_or_insert_with(|| executable_program_non_function_signatures(db))
+                .as_mut()
+                .expect("module product preloads signatures")
         },
     );
     let executable_program_layouts = executable_program_layouts(
@@ -892,14 +927,20 @@ fn executable_check_in_session(
         .filter(|(module_id, _)| runtime_module_ids.contains(module_id))
         .map(|(module_id, module)| (*module_id, Arc::clone(&module.module)))
         .collect();
+    let output = match extension_lookup.take_failure() {
+        Some(error) => Err(error),
+        None => Ok(ExecutableCheckOutput::Modules(
+            ExecutableCheckedModuleFacts {
+                modules: codegen_modules.into_iter().map(Arc::new).collect(),
+                const_modules,
+                runtime_functions,
+                runtime_globals,
+                reachable_body_modules,
+            },
+        )),
+    };
     (
-        ExecutableCheckOutput::Modules(ExecutableCheckedModuleFacts {
-            modules: codegen_modules.into_iter().map(Arc::new).collect(),
-            const_modules,
-            runtime_functions,
-            runtime_globals,
-            reachable_body_modules,
-        }),
+        output,
         ExecutableFactSession {
             epoch,
             modules: fact_by_id,

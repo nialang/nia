@@ -98,7 +98,7 @@ pub(in crate::query) fn provide_backend_module_function_instance_plan(
 
 pub(super) fn provide_monomorphization(
     db: &QueryDb<CompilerContext>,
-) -> nia_monomorphize::Monomorphization {
+) -> QueryResult<nia_monomorphize::Monomorphization> {
     time_provider(db.context().timings(), "monomorphization", || {
         let checked_modules = checked_modules_for_codegen(db);
         monomorphization_for_checked_modules(db, &checked_modules)
@@ -108,8 +108,8 @@ pub(super) fn provide_monomorphization(
 pub(super) fn monomorphization_for_checked_modules(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
-) -> nia_monomorphize::Monomorphization {
-    let executable_signatures = executable_program_non_function_signatures(db);
+) -> QueryResult<nia_monomorphize::Monomorphization> {
+    let executable_signatures = executable_program_non_function_signatures(db)?;
     let program_enums = &executable_signatures.enums;
     let trait_impls = executable_signatures.trait_impls.as_slice();
     let trait_impl_index = &executable_signatures.trait_impl_index;
@@ -128,7 +128,7 @@ pub(super) fn monomorphization_for_checked_modules(
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    nia_monomorphize::collect_monomorphizations(
+    Ok(nia_monomorphize::collect_monomorphizations(
         &checked_modules
             .iter()
             .zip(semantic_instantiations.iter())
@@ -152,7 +152,7 @@ pub(super) fn monomorphization_for_checked_modules(
             )
             .collect::<Vec<_>>(),
         &db.context().type_store,
-    )
+    ))
 }
 
 pub(super) fn checked_modules_for_codegen(
@@ -415,7 +415,7 @@ fn emit_backend_module_finalization_allocation(
 
 pub(in crate::query) fn provide_backend_lowering_inputs(
     db: &QueryDb<CompilerContext>,
-) -> Result<BackendLoweringInputs, Vec<Diagnostic>> {
+) -> QueryResult<Result<BackendLoweringInputs, Vec<Diagnostic>>> {
     let checked_modules = checked_modules_for_codegen(db);
     let (
         active_item_trees,
@@ -514,12 +514,12 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
     let function_lowering_diagnostics =
         function_lowering_diagnostics(&checked_modules, &function_bodies);
     if !function_lowering_diagnostics.is_empty() {
-        return Err(function_lowering_diagnostics
+        return Ok(Err(function_lowering_diagnostics
             .into_iter()
             .map(|program_diagnostic| program_diagnostic.diagnostic)
-            .collect());
+            .collect()));
     }
-    let non_function_signatures = executable_program_non_function_signatures(db);
+    let non_function_signatures = executable_program_non_function_signatures(db)?;
     let functions = executable_program_functions_for_modules(
         db,
         checked_modules.iter().map(|module| module.id),
@@ -548,7 +548,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             })
         },
     );
-    Ok(inputs)
+    Ok(Ok(inputs))
 }
 
 pub(super) fn early_program_diagnostics(db: &QueryDb<CompilerContext>) -> Vec<ProgramDiagnostic> {
