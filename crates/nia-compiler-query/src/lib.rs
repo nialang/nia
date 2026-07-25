@@ -39,12 +39,13 @@ pub use frontend_fingerprint::{
     FrontendExtensionTraitSolvingFactsCacheKey, FrontendExtensionValidationDiagnosticsCacheKey,
     FrontendFacadeFactsCacheKey, FrontendItemSignatureCacheKey, FrontendModuleDependenciesCacheKey,
     FrontendModuleMapFingerprint, FrontendProgramSourceFingerprint,
-    FrontendProviderSummaryCacheKey, FrontendPublicSurfaceFactsCacheKey,
-    FrontendSignatureItemSignaturesCacheKey, FrontendSignatureTypeLoweringCacheKey,
-    FrontendSignatureTypeResolutionCacheKey, FrontendSourceCacheKey, FrontendSyntaxCacheKey,
-    ItemSignatureFingerprint, SourceContentFingerprint, SyntaxFingerprint,
-    frontend_module_map_fingerprint, frontend_program_source_fingerprint,
-    item_signature_fingerprint, source_content_fingerprint, syntax_fingerprint,
+    FrontendProviderDemandPlanCacheKey, FrontendProviderSummaryCacheKey,
+    FrontendPublicSurfaceFactsCacheKey, FrontendSignatureItemSignaturesCacheKey,
+    FrontendSignatureTypeLoweringCacheKey, FrontendSignatureTypeResolutionCacheKey,
+    FrontendSourceCacheKey, FrontendSyntaxCacheKey, ItemSignatureFingerprint,
+    SourceContentFingerprint, SyntaxFingerprint, frontend_module_map_fingerprint,
+    frontend_program_source_fingerprint, item_signature_fingerprint, source_content_fingerprint,
+    syntax_fingerprint,
 };
 
 pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport};
@@ -183,6 +184,7 @@ pub trait LoaderFactProvider: Send + Sync {
     fn query_session(&self) -> Option<nia_query::QuerySession>;
     fn provider_facts(&self) -> ProviderFactSnapshot;
     fn update_provider_demands(&self, demands: Vec<ProviderDemand>) -> ProviderGraphUpdate;
+    fn settle_provider_demands(&self) {}
     fn node_store(&self) -> nia_node_id::NodeStore;
     fn module_graph(&self) -> ModuleGraphSnapshot;
     fn loaded_module_source_identities(&self) -> Vec<SourceIdentity>;

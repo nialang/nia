@@ -505,6 +505,7 @@ impl CompilerDatabase {
                         discover_executable_providers && !invalidates_resolved_body_facts;
                 }
                 crate::ProviderGraphUpdate::Stable => {
+                    self.db.context().loader_facts().settle_provider_demands();
                     self.db
                         .context()
                         .provider_demand_rounds
