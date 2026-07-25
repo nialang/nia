@@ -4468,6 +4468,14 @@ fn main() i32 {
                 .expect_err("signature layouts should propagate a missing module input"),
             database
                 .db
+                .try_get(LayoutsQuery(missing_module))
+                .expect_err("layouts should propagate a missing module input"),
+            database
+                .db
+                .try_get(StaticCheckQuery(missing_module))
+                .expect_err("static checking should propagate a missing module input"),
+            database
+                .db
                 .try_get(BodyCheckQuery(missing_module))
                 .expect_err("body checking should propagate a missing module input"),
             database
