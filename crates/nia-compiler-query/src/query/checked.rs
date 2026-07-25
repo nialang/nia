@@ -86,14 +86,14 @@ impl QueryKey<CompilerContext> for ExecutableValueRefItemIndexQuery {
         "executable_value_ref_item_index"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        let active_item_tree = db.get(FullActiveModuleItemTreeQuery(self.0));
-        let defs = db.get(ModuleDefsQuery(self.0));
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(self.0))?;
+        let defs = db.try_get(ModuleDefsQuery(self.0))?;
         let mut index = HashMap::new();
         for (item_index, item) in active_item_tree.items.iter().enumerate() {
             index_executable_value_ref_item(item, item_index, &defs, &mut index);
         }
-        index
+        Ok(index)
     }
 }
 
@@ -159,10 +159,11 @@ impl QueryKey<CompilerContext> for ExecutableValueRefItemQuery {
         "executable_value_ref_item"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.get(ExecutableValueRefItemIndexQuery(self.0.module_id))
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db
+            .try_get(ExecutableValueRefItemIndexQuery(self.0.module_id))?
             .get(&self.0.def_id)
-            .cloned()
+            .cloned())
     }
 }
 
@@ -176,7 +177,7 @@ impl QueryKey<CompilerContext> for ExecutableValueRefEdgesQuery {
         "executable_value_ref_edges"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         provide_executable_value_ref_edges(db, self.0)
     }
 }
