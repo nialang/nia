@@ -420,6 +420,23 @@ fn source_status_tracks_missing_and_present_revisions() {
 }
 
 #[test]
+fn source_products_propagate_unknown_source_query_failures() {
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let db = registered_query_db(test_loader_context(main, ModuleMap::default(), sources));
+    let unknown = SourceId(u32::MAX);
+
+    for error in [
+        db.try_get(SourceStatusQuery(unknown))
+            .expect_err("unknown source status must fail"),
+        db.try_get(LoadedModuleQuery(unknown))
+            .expect_err("unknown loaded module must propagate its source failure"),
+    ] {
+        assert!(matches!(error, nia_query::QueryError::InvalidInput { .. }));
+    }
+}
+
+#[test]
 fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
