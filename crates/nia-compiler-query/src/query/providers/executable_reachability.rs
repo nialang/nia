@@ -566,6 +566,7 @@ fn executable_check_in_session(
                             seed,
                             global_initializer_cache: Some(&caches.global_initializers),
                             const_module_cache: Some(&caches.const_modules),
+                            const_inputs: None,
                             program_function_signature_cache: Some(
                                 &caches.body_function_signatures,
                             ),
@@ -879,9 +880,22 @@ fn executable_check_in_session(
     let mut runtime_globals = reachability.globals().iter().copied().collect::<Vec<_>>();
     runtime_globals.sort_unstable();
     let reachable_body_modules = executable_reachable_body_modules(db, &reachability_by_module);
+    let runtime_module_ids = runtime_functions
+        .iter()
+        .chain(&runtime_globals)
+        .map(|def_id| def_id.module_id)
+        .collect::<HashSet<_>>();
+    let const_modules = caches
+        .const_modules
+        .borrow()
+        .iter()
+        .filter(|(module_id, _)| runtime_module_ids.contains(module_id))
+        .map(|(module_id, module)| (*module_id, Arc::clone(&module.module)))
+        .collect();
     (
         ExecutableCheckOutput::Modules(ExecutableCheckedModuleFacts {
             modules: codegen_modules.into_iter().map(Arc::new).collect(),
+            const_modules,
             runtime_functions,
             runtime_globals,
             reachable_body_modules,
@@ -1111,6 +1125,7 @@ fn final_executable_checked_modules(
                         seed: None,
                         global_initializer_cache: Some(&caches.global_initializers),
                         const_module_cache: Some(const_module_cache),
+                        const_inputs: None,
                         program_function_signature_cache: Some(&caches.body_function_signatures),
                         product: nia_body_check::BodyCheckProduct::FactsOnly,
                         prechecked,

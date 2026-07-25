@@ -681,6 +681,7 @@ pub(super) fn body_check_with_filter_and_layouts(
             seed: None,
             global_initializer_cache: None,
             const_module_cache: None,
+            const_inputs: None,
             program_function_signature_cache: None,
             product: nia_body_check::BodyCheckProduct::Full,
             prechecked: None,
@@ -700,6 +701,7 @@ pub(super) struct ExecutableBodyCheckInput<'a> {
     pub global_initializer_cache:
         Option<&'a RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>>,
     pub const_module_cache: Option<&'a RefCell<HashMap<ModuleId, ConstModuleLowering>>>,
+    pub const_inputs: Option<(&'a ConstCheck, &'a nia_const_ir::ResolvedConstModule)>,
     pub program_function_signature_cache:
         Option<&'a RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>>,
     pub product: nia_body_check::BodyCheckProduct,
@@ -720,6 +722,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         seed,
         global_initializer_cache,
         const_module_cache,
+        const_inputs,
         program_function_signature_cache,
         product,
         prechecked,
@@ -771,55 +774,66 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     let full_const_array_lengths;
     let full_const_typed_facts;
     let full_const_module;
-    let (body_const, const_module) = match filter {
-        nia_body_check::BodyCheckFilter::All => {
-            full_const_values = db.get(ConstValuesQuery(module_id));
-            full_const_array_lengths = db.get(ConstArrayLengthsQuery(module_id));
-            full_const_typed_facts = db.get(ConstTypedFactsQuery(module_id));
-            full_const_module = db.get(ConstModuleQuery(module_id));
-            (
-                nia_body_check::BodyConst::from_phases(
-                    &full_const_values,
-                    &full_const_array_lengths,
-                    &full_const_typed_facts,
-                ),
-                &full_const_module.module,
-            )
-        }
-        _ => {
-            filtered_const_inputs = Some(time_module_provider(
-                db,
-                "executable_body_check.const_inputs",
-                module_id,
-                || {
-                    const_inputs_for_body_check(
-                        db,
-                        ConstBodyModuleInput {
-                            module_id,
-                            defs: &defs,
-                            source_path: &source_path,
-                            signatures: &signatures,
-                            normalization: &normalization,
-                            lowered: &lowered,
-                            resolution: inputs,
-                        },
-                        fact_mode,
-                        global_initializer_cache,
-                        const_module_cache,
-                    )
-                },
-            ));
-            let filtered = filtered_const_inputs
-                .as_ref()
-                .expect("filtered const inputs must be initialized");
-            (
-                nia_body_check::BodyConst::from_phases(
-                    &filtered.values,
-                    &filtered.array_lengths,
-                    &filtered.typed_facts,
-                ),
-                &filtered.module.module,
-            )
+    let (body_const, const_module) = if let Some((const_eval, const_module)) = const_inputs {
+        (
+            nia_body_check::BodyConst {
+                values: &const_eval.values,
+                typed_values: &const_eval.typed_values,
+                array_lengths: &const_eval.array_lengths,
+            },
+            const_module,
+        )
+    } else {
+        match filter {
+            nia_body_check::BodyCheckFilter::All => {
+                full_const_values = db.get(ConstValuesQuery(module_id));
+                full_const_array_lengths = db.get(ConstArrayLengthsQuery(module_id));
+                full_const_typed_facts = db.get(ConstTypedFactsQuery(module_id));
+                full_const_module = db.get(ConstModuleQuery(module_id));
+                (
+                    nia_body_check::BodyConst::from_phases(
+                        &full_const_values,
+                        &full_const_array_lengths,
+                        &full_const_typed_facts,
+                    ),
+                    full_const_module.module.as_ref(),
+                )
+            }
+            _ => {
+                filtered_const_inputs = Some(time_module_provider(
+                    db,
+                    "executable_body_check.const_inputs",
+                    module_id,
+                    || {
+                        const_inputs_for_body_check(
+                            db,
+                            ConstBodyModuleInput {
+                                module_id,
+                                defs: &defs,
+                                source_path: &source_path,
+                                signatures: &signatures,
+                                normalization: &normalization,
+                                lowered: &lowered,
+                                resolution: inputs,
+                            },
+                            fact_mode,
+                            global_initializer_cache,
+                            const_module_cache,
+                        )
+                    },
+                ));
+                let filtered = filtered_const_inputs
+                    .as_ref()
+                    .expect("filtered const inputs must be initialized");
+                (
+                    nia_body_check::BodyConst::from_phases(
+                        &filtered.values,
+                        &filtered.array_lengths,
+                        &filtered.typed_facts,
+                    ),
+                    filtered.module.module.as_ref(),
+                )
+            }
         }
     };
     let layouts = layouts.unwrap_or_else(|| db.get(LayoutsQuery(module_id)));
@@ -1331,6 +1345,14 @@ pub(in crate::query) fn provide_executable_function_body(
             seed: None,
             global_initializer_cache: None,
             const_module_cache: None,
+            const_inputs: Some((
+                &module.const_eval,
+                facts
+                    .const_modules
+                    .get(&def_id.module_id)
+                    .expect("executable function module must retain const lowering")
+                    .as_ref(),
+            )),
             program_function_signature_cache: None,
             product: nia_body_check::BodyCheckProduct::BodyOnly,
             prechecked: Some(nia_body_check::PrecheckedBodyCheck {
@@ -1388,6 +1410,14 @@ pub(in crate::query) fn provide_executable_static_init(
             seed: None,
             global_initializer_cache: None,
             const_module_cache: None,
+            const_inputs: Some((
+                &module.const_eval,
+                facts
+                    .const_modules
+                    .get(&def_id.module_id)
+                    .expect("executable static module must retain const lowering")
+                    .as_ref(),
+            )),
             program_function_signature_cache: None,
             product: nia_body_check::BodyCheckProduct::StaticInitOnly,
             prechecked: Some(nia_body_check::PrecheckedBodyCheck {
