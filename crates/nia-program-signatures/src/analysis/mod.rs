@@ -192,11 +192,10 @@ fn trait_impl_signature_by_id(
         .find(|signature| signature.impl_id == impl_id)
 }
 
-pub fn collect_extension_methods_for_module(
+pub fn collect_extension_method_diagnostics_for_module(
     module: &ExtensionModuleInput<'_>,
     input: ExtensionMethodValidationInput<'_>,
-) -> (ExtensionMethods, Vec<Diagnostic>) {
-    let mut extensions = ExtensionMethods::default();
+) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     validate_supertraits(module, input.trait_defs, &mut diagnostics);
     for impl_signature in &module.signatures.trait_impls {
@@ -213,9 +212,6 @@ pub fn collect_extension_methods_for_module(
             continue;
         }
         let trait_id = impl_trait_id(module, impl_signature, input.trait_defs, &mut diagnostics);
-        let trait_args = impl_trait_args(module, impl_signature, trait_id).unwrap_or_default();
-        let where_predicates =
-            normalize_where_predicates(module.normalization, &impl_signature.where_predicates);
         if trait_id.is_none() {
             for associated_type in &impl_signature.associated_types {
                 diagnostics.push(Diagnostic::user_error_at(
@@ -225,53 +221,32 @@ pub fn collect_extension_methods_for_module(
                 ));
             }
         }
-        let valid_trait_impl = match trait_id {
-            Some(TraitId::Source(trait_id)) => validate_trait_impl(
-                module,
-                impl_signature,
-                target_ty,
-                trait_id,
-                input,
-                &mut diagnostics,
-            ),
-            Some(TraitId::Builtin(trait_id)) => validate_builtin_trait_impl(
-                module,
-                impl_signature,
-                target_ty,
-                trait_id,
-                input.trait_impls_for_trait,
-                input.symbols,
-                &mut diagnostics,
-            ),
-            None => true,
-        };
-        if !valid_trait_impl {
-            continue;
-        }
-        for method in &impl_signature.methods {
-            let effective_generics =
-                extension_method_effective_generics(module, impl_signature, method, target_ty);
-            extensions.insert_with_nominal_target(
-                module.module_id,
-                ExtensionMethod {
-                    name: method.name,
-                    def_id: GlobalDefId {
-                        module_id: module.module_id,
-                        def_id: method.def_id,
-                    },
-                    impl_id: impl_signature.impl_id,
-                    effective_generics,
+        match trait_id {
+            Some(TraitId::Source(trait_id)) => {
+                validate_trait_impl(
+                    module,
+                    impl_signature,
                     target_ty,
                     trait_id,
-                    trait_args: trait_args.clone(),
-                    where_predicates: where_predicates.clone(),
-                    visibility: method.visibility,
-                },
-                nominal_target_def_id(module.type_store, target_ty),
-            );
+                    input,
+                    &mut diagnostics,
+                );
+            }
+            Some(TraitId::Builtin(trait_id)) => {
+                validate_builtin_trait_impl(
+                    module,
+                    impl_signature,
+                    target_ty,
+                    trait_id,
+                    input.trait_impls_for_trait,
+                    input.symbols,
+                    &mut diagnostics,
+                );
+            }
+            None => {}
         }
     }
-    (extensions, diagnostics)
+    diagnostics
 }
 
 pub fn collect_extension_method_index_for_module(
@@ -509,29 +484,6 @@ fn impl_trait_id_for_index_with_defs(
             .then_some(TraitId::Source(def_id))
         }),
         Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(trait_id)),
-        _ => None,
-    }
-}
-
-fn impl_trait_args(
-    module: &ExtensionModuleInput<'_>,
-    impl_signature: &TraitImplSignature,
-    expected_trait_id: Option<TraitId>,
-) -> Option<Vec<nia_ids::InternedTyId>> {
-    let ty = module.normalization.normalize(impl_signature.trait_ty?);
-    match (expected_trait_id, module.type_store.get(ty)) {
-        (Some(TraitId::Source(expected)), Some(TyKind::Nominal { def_id, args, .. }))
-            if *def_id == expected =>
-        {
-            Some(args.clone())
-        }
-        (
-            Some(TraitId::Builtin(expected)),
-            Some(TyKind::BuiltinTrait {
-                trait_id: found,
-                args,
-            }),
-        ) if *found == expected => Some(args.clone()),
         _ => None,
     }
 }
