@@ -5,8 +5,11 @@ use crate::queries::{
     ModuleFacadeFactsQuery, ModuleItemTreeFactQuery, ModuleOriginsFactQuery,
     ModuleParseErrorsFactQuery, ParsedModuleQuery, ProviderSummaryQuery,
     PublicSurfaceModuleFactsQuery, SourceStatus, SourceStatusQuery, SourceTextQuery,
-    SyntaxModuleQuery, module_declarations_query, module_facade_facts_query, parsed_module_query,
-    provider_summary_query, public_surface_module_facts_query,
+    SyntaxModuleQuery, module_declarations_query as fallible_module_declarations_query,
+    module_facade_facts_query as fallible_module_facade_facts_query,
+    parsed_module_query as fallible_parsed_module_query,
+    provider_summary_query as fallible_provider_summary_query,
+    public_surface_module_facts_query as fallible_public_surface_module_facts_query,
 };
 use nia_compiler_query::{
     CompileRequest, CompilerDatabase, FrontendCacheNamespace, FrontendFacadeFactsCacheKey,
@@ -30,6 +33,36 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
+
+fn parsed_module_query(db: &QueryDb<LoaderContext>, path: &SourcePath) -> ParsedModuleQuery {
+    fallible_parsed_module_query(db, path).expect("test source path must be registered")
+}
+
+fn module_declarations_query(
+    db: &QueryDb<LoaderContext>,
+    path: &SourcePath,
+) -> ModuleDeclarationsQuery {
+    fallible_module_declarations_query(db, path).expect("test source path must be registered")
+}
+
+fn public_surface_module_facts_query(
+    db: &QueryDb<LoaderContext>,
+    path: &SourcePath,
+) -> PublicSurfaceModuleFactsQuery {
+    fallible_public_surface_module_facts_query(db, path)
+        .expect("test source path must be registered")
+}
+
+fn provider_summary_query(db: &QueryDb<LoaderContext>, path: &SourcePath) -> ProviderSummaryQuery {
+    fallible_provider_summary_query(db, path).expect("test source path must be registered")
+}
+
+fn module_facade_facts_query(
+    db: &QueryDb<LoaderContext>,
+    path: &SourcePath,
+) -> ModuleFacadeFactsQuery {
+    fallible_module_facade_facts_query(db, path).expect("test source path must be registered")
+}
 
 #[test]
 fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() {

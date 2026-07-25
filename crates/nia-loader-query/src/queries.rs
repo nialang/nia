@@ -85,8 +85,8 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
             });
         }
         for node in graph.modules() {
-            let parsed = db.try_get(parsed_module_query(db, &node.path))?;
-            let declarations = db.try_get(module_declarations_query(db, &node.path))?;
+            let parsed = db.try_get(parsed_module_query(db, &node.path)?)?;
+            let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
             diagnostics.extend(module_diagnostics(
                 &node.path,
                 &parsed
@@ -196,8 +196,8 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             .ok_or_else(|| {
                 db.invalid_input(self, format!("missing module id for `{}`", path.as_str()))
             })?;
-        let parsed = db.try_get(parsed_module_query_for_id(db, self.0))?;
-        let provider_summary = db.try_get(provider_summary_query_for_id(db, self.0))?;
+        let parsed = db.try_get(parsed_module_query_for_id(db, self.0)?)?;
+        let provider_summary = db.try_get(provider_summary_query_for_id(db, self.0)?)?;
         Ok(LoadedModule {
             id,
             path: path.as_ref().clone(),
@@ -307,7 +307,7 @@ impl QueryKey<LoaderContext> for ModuleItemTreeFactQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .try_get(parsed_module_query_for_id(db, self.0))?
+            .try_get(parsed_module_query_for_id(db, self.0)?)?
             .item_tree
             .clone())
     }
@@ -341,7 +341,7 @@ impl QueryKey<LoaderContext> for ActiveModuleItemTreeFactQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         let tree = &db
-            .try_get(parsed_module_query_for_id(db, self.0))?
+            .try_get(parsed_module_query_for_id(db, self.0)?)?
             .active_item_tree;
         Ok(match self.1 {
             ActiveModuleItemTreeFactKind::Signature(set) => tree.signature_items(set),
@@ -373,7 +373,7 @@ impl QueryKey<LoaderContext> for ModuleOriginsFactQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .try_get(parsed_module_query_for_id(db, self.0))?
+            .try_get(parsed_module_query_for_id(db, self.0)?)?
             .origins
             .clone())
     }
@@ -401,7 +401,7 @@ impl QueryKey<LoaderContext> for ModuleParseErrorsFactQuery {
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
         Ok(db
-            .try_get(parsed_module_query_for_id(db, self.0))?
+            .try_get(parsed_module_query_for_id(db, self.0)?)?
             .parse_errors
             .clone())
     }
@@ -1045,39 +1045,41 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
 pub(crate) fn parsed_module_query(
     db: &QueryDb<LoaderContext>,
     path: &SourcePath,
-) -> ParsedModuleQuery {
+) -> QueryResult<ParsedModuleQuery> {
     parsed_module_query_for_id(db, db.context().sources.id_for_path(path))
 }
 
 pub(crate) fn module_declarations_query(
     db: &QueryDb<LoaderContext>,
     path: &SourcePath,
-) -> ModuleDeclarationsQuery {
+) -> QueryResult<ModuleDeclarationsQuery> {
     let source_id = db.context().sources.id_for_path(path);
-    ModuleDeclarationsQuery(source_version(db, source_id))
+    Ok(ModuleDeclarationsQuery(source_version(db, source_id)?))
 }
 
 pub(crate) fn public_surface_module_facts_query(
     db: &QueryDb<LoaderContext>,
     path: &SourcePath,
-) -> PublicSurfaceModuleFactsQuery {
+) -> QueryResult<PublicSurfaceModuleFactsQuery> {
     let source_id = db.context().sources.id_for_path(path);
-    PublicSurfaceModuleFactsQuery(source_version(db, source_id))
+    Ok(PublicSurfaceModuleFactsQuery(source_version(
+        db, source_id,
+    )?))
 }
 
 pub(crate) fn provider_summary_query(
     db: &QueryDb<LoaderContext>,
     path: &SourcePath,
-) -> ProviderSummaryQuery {
+) -> QueryResult<ProviderSummaryQuery> {
     provider_summary_query_for_id(db, db.context().sources.id_for_path(path))
 }
 
 pub(crate) fn module_facade_facts_query(
     db: &QueryDb<LoaderContext>,
     path: &SourcePath,
-) -> ModuleFacadeFactsQuery {
+) -> QueryResult<ModuleFacadeFactsQuery> {
     let source_id = db.context().sources.id_for_path(path);
-    ModuleFacadeFactsQuery(source_version(db, source_id))
+    Ok(ModuleFacadeFactsQuery(source_version(db, source_id)?))
 }
 
 pub(crate) fn retire_source_revision_queries(
@@ -1095,25 +1097,25 @@ pub(crate) fn retire_source_revision_queries(
 fn parsed_module_query_for_id(
     db: &QueryDb<LoaderContext>,
     source_id: SourceId,
-) -> ParsedModuleQuery {
-    ParsedModuleQuery(source_version(db, source_id))
+) -> QueryResult<ParsedModuleQuery> {
+    Ok(ParsedModuleQuery(source_version(db, source_id)?))
 }
 
 fn provider_summary_query_for_id(
     db: &QueryDb<LoaderContext>,
     source_id: SourceId,
-) -> ProviderSummaryQuery {
-    ProviderSummaryQuery(source_version(db, source_id))
+) -> QueryResult<ProviderSummaryQuery> {
+    Ok(ProviderSummaryQuery(source_version(db, source_id)?))
 }
 
-fn source_version(db: &QueryDb<LoaderContext>, source_id: SourceId) -> SourceVersion {
-    match *db.get(SourceStatusQuery(source_id)) {
+fn source_version(db: &QueryDb<LoaderContext>, source_id: SourceId) -> QueryResult<SourceVersion> {
+    Ok(match *db.try_get(SourceStatusQuery(source_id))? {
         SourceStatus::Present(version) => version,
         SourceStatus::Missing => SourceVersion {
             id: source_id,
             revision: SourceRevision::INITIAL,
         },
-    }
+    })
 }
 
 fn module_diagnostics(path: &SourcePath, diagnostics: &[Diagnostic]) -> Vec<ProgramDiagnostic> {
