@@ -448,7 +448,7 @@ fn executable_check_in_session(
             },
         );
         let reachability_by_module = reachability_state.reachability().by_module();
-        let value_edges_changed = time_provider(
+        let value_edges_changed = match time_provider(
             db.context().timings(),
             "executable_checked_modules.value_ref_edges",
             || {
@@ -462,7 +462,10 @@ fn executable_check_in_session(
                     &fact_by_id,
                 )
             },
-        );
+        ) {
+            Ok(changed) => changed,
+            Err(error) => return_session_error!(error),
+        };
         if value_edges_changed {
             continue;
         }
@@ -494,7 +497,7 @@ fn executable_check_in_session(
                 .map(|state| &state.checked_globals);
             let (module_functions, module_globals) =
                 unchecked_executable_items(&reachability_by_module, module_id, &fact_by_id);
-            let module_functions = time_module_provider(
+            let module_functions = match time_module_provider(
                 db,
                 "executable_checked_modules.extend_local_static_owners",
                 module_id,
@@ -507,8 +510,11 @@ fn executable_check_in_session(
                         already_checked_functions,
                     )
                 },
-            );
-            let module_functions = time_module_provider(
+            ) {
+                Ok(functions) => functions,
+                Err(error) => return_session_error!(error),
+            };
+            let module_functions = match time_module_provider(
                 db,
                 "executable_checked_modules.extend_value_refs",
                 module_id,
@@ -521,7 +527,10 @@ fn executable_check_in_session(
                         already_checked_functions,
                     )
                 },
-            );
+            ) {
+                Ok(functions) => functions,
+                Err(error) => return_session_error!(error),
+            };
             reachability_state
                 .reachability_mut()
                 .insert_functions(module_functions.iter().copied());
@@ -1256,7 +1265,7 @@ fn extend_reachability_from_value_ref_edges(
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
     function_signature: &dyn Fn(GlobalDefId) -> Option<Arc<ProgramFunctionSignature>>,
     fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
-) -> bool {
+) -> QueryResult<bool> {
     let mut changed = false;
     for module_id in parse_ok.iter().copied() {
         if !reachability.modules().contains(&module_id) {
@@ -1272,7 +1281,7 @@ fn extend_reachability_from_value_ref_edges(
             module_id,
             &module_functions,
             &module_globals,
-        );
+        )?;
         for def_id in edges.functions {
             if (function_signature)(def_id).is_none() {
                 continue;
@@ -1283,5 +1292,5 @@ fn extend_reachability_from_value_ref_edges(
             changed |= reachability.insert_global(def_id);
         }
     }
-    changed
+    Ok(changed)
 }
