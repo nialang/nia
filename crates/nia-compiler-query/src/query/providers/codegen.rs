@@ -545,6 +545,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         db,
         checked_modules.iter().map(|module| module.id),
     )?;
+    let runtime = *db.try_get(CompilerRuntimeQuery)?;
     let inputs = time_provider(
         db.context().timings(),
         "backend_lowering.module_inputs",
@@ -552,7 +553,7 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
             BackendLoweringInputs::new(BackendLoweringInputsParts {
                 symbols: db.context().symbols(),
                 checked_modules,
-                runtime: *db.get(CompilerRuntimeQuery),
+                runtime,
                 active_item_trees,
                 item_signatures,
                 const_array_lengths,
