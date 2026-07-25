@@ -11,7 +11,7 @@ impl QueryKey<CompilerContext> for ConstModuleQuery {
         "const_module"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.const_module)(db, self.0)
     }
 }
@@ -165,7 +165,7 @@ impl QueryKey<CompilerContext> for FlowCheckQuery {
         "flow_check"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.flow_check)(db, self.0)
     }
 }

@@ -4431,6 +4431,14 @@ fn main() i32 {
                 .db
                 .try_get(SemanticUseTableQuery(missing_module))
                 .expect_err("semantic uses should propagate a missing module input"),
+            database
+                .db
+                .try_get(ConstModuleQuery(missing_module))
+                .expect_err("const lowering should propagate a missing module input"),
+            database
+                .db
+                .try_get(FlowCheckQuery(missing_module))
+                .expect_err("flow checking should propagate a missing module input"),
         ] {
             assert!(matches!(error, QueryError::InvalidInput { .. }));
             assert!(
