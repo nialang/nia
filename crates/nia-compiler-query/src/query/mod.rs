@@ -331,23 +331,13 @@ impl CompilerDatabase {
     }
 
     fn check_program_once(&self) -> CheckedProgramAnalysis {
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.db.try_get(CheckedProgramQuery)
-        })) {
-            Ok(Ok(checked)) => Arc::unwrap_or_clone(checked),
-            Ok(Err(err)) => checked_program_from_query_error(
+        match self.db.try_get(CheckedProgramQuery) {
+            Ok(checked) => Arc::unwrap_or_clone(checked),
+            Err(err) => checked_program_from_query_error(
                 self.current_graph(),
                 self.current_optimization(),
                 err,
             ),
-            Err(payload) => match payload.downcast::<QueryError>() {
-                Ok(err) => checked_program_from_query_error(
-                    self.current_graph(),
-                    self.current_optimization(),
-                    *err,
-                ),
-                Err(payload) => std::panic::resume_unwind(payload),
-            },
         }
     }
 
@@ -365,23 +355,13 @@ impl CompilerDatabase {
     }
 
     fn entry_check_program_once(&self) -> CheckedProgramAnalysis {
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.db.try_get(EntryCheckedProgramQuery)
-        })) {
-            Ok(Ok(checked)) => Arc::unwrap_or_clone(checked),
-            Ok(Err(err)) => checked_program_from_query_error(
+        match self.db.try_get(EntryCheckedProgramQuery) {
+            Ok(checked) => Arc::unwrap_or_clone(checked),
+            Err(err) => checked_program_from_query_error(
                 self.current_graph(),
                 self.current_optimization(),
                 err,
             ),
-            Err(payload) => match payload.downcast::<QueryError>() {
-                Ok(err) => checked_program_from_query_error(
-                    self.current_graph(),
-                    self.current_optimization(),
-                    *err,
-                ),
-                Err(payload) => std::panic::resume_unwind(payload),
-            },
         }
     }
 
@@ -508,48 +488,26 @@ impl CompilerDatabase {
     }
 
     fn codegen_preparation_once(&self) -> CodegenPreparation {
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.db.try_get(CodegenPreparationQuery)
-        })) {
-            Ok(Ok(preparation)) => Arc::unwrap_or_clone(preparation),
-            Ok(Err(err)) => codegen_preparation_from_query_error(
+        match self.db.try_get(CodegenPreparationQuery) {
+            Ok(preparation) => Arc::unwrap_or_clone(preparation),
+            Err(err) => codegen_preparation_from_query_error(
                 Arc::clone(&self.db.context().type_store),
                 self.current_graph(),
                 self.current_optimization(),
                 err,
             ),
-            Err(payload) => match payload.downcast::<QueryError>() {
-                Ok(err) => codegen_preparation_from_query_error(
-                    Arc::clone(&self.db.context().type_store),
-                    self.current_graph(),
-                    self.current_optimization(),
-                    *err,
-                ),
-                Err(payload) => std::panic::resume_unwind(payload),
-            },
         }
     }
 
     fn codegen_program_once(&self) -> CodegenProgram {
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.db.try_get(CodegenProgramQuery)
-        })) {
-            Ok(Ok(codegen)) => Arc::unwrap_or_clone(codegen),
-            Ok(Err(err)) => codegen_program_from_query_error(
+        match self.db.try_get(CodegenProgramQuery) {
+            Ok(codegen) => Arc::unwrap_or_clone(codegen),
+            Err(err) => codegen_program_from_query_error(
                 Arc::clone(&self.db.context().type_store),
                 self.current_graph(),
                 self.current_optimization(),
                 err,
             ),
-            Err(payload) => match payload.downcast::<QueryError>() {
-                Ok(err) => codegen_program_from_query_error(
-                    Arc::clone(&self.db.context().type_store),
-                    self.current_graph(),
-                    self.current_optimization(),
-                    *err,
-                ),
-                Err(payload) => std::panic::resume_unwind(payload),
-            },
         }
     }
 
