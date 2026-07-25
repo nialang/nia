@@ -1,10 +1,10 @@
 use crate::LoaderContext;
 use crate::graph::{
-    add_visible_declared_module_path, mark_process_used_paths_and_process, used_path_start,
+    TraversalResult, add_visible_declared_module_path, mark_process_used_paths_and_process,
+    used_path_start,
 };
 use crate::queries::{module_facade_facts_query, provider_summary_query};
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
-use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleGraph;
 use nia_query::QueryDb;
 use nia_source::SourcePath;
@@ -17,7 +17,7 @@ pub(crate) fn process_reexport_provider_request(
     facade_module: nia_imports::ModuleId,
     exported_name: &SymbolId,
     processing: &UsedModulePathProcessing,
-) -> Result<(), Diagnostic> {
+) -> TraversalResult<()> {
     match processing {
         UsedModulePathProcessing::IfProvidesTraitImpl { trait_name }
             if trait_name == exported_name =>
@@ -46,8 +46,8 @@ pub(crate) fn process_provider_request(
     graph: &mut ModuleGraph,
     module_id: nia_imports::ModuleId,
     processing: &UsedModulePathProcessing,
-) -> Result<(), Diagnostic> {
-    if direct_provider_module_matches_request(db, graph, module_id, processing) {
+) -> TraversalResult<()> {
+    if direct_provider_module_matches_request(db, graph, module_id, processing)? {
         mark_process_used_paths_and_process(db, graph, module_id)?;
     }
     match processing {
@@ -79,9 +79,9 @@ fn direct_provider_module_matches_request(
     graph: &ModuleGraph,
     module_id: nia_imports::ModuleId,
     processing: &UsedModulePathProcessing,
-) -> bool {
+) -> TraversalResult<bool> {
     let Some(node) = graph.get(module_id) else {
-        return false;
+        return Ok(false);
     };
     match processing {
         UsedModulePathProcessing::IfProvidesTraitImpl { trait_name } => {
@@ -94,17 +94,17 @@ fn direct_provider_module_matches_request(
             target_type_name,
             associated_name,
         } => {
-            let summary = db.get(provider_summary_query(db, &node.path));
-            summary.defines_public_extension_method_for_facade(
+            let summary = db.try_get(provider_summary_query(db, &node.path)?)?;
+            Ok(summary.defines_public_extension_method_for_facade(
                 |_| true,
                 target_type_name.as_ref(),
                 associated_name,
-            )
+            ))
         }
         UsedModulePathProcessing::Never
         | UsedModulePathProcessing::Always
         | UsedModulePathProcessing::IfSelectedItem
-        | UsedModulePathProcessing::IfProvidesExtensions => false,
+        | UsedModulePathProcessing::IfProvidesExtensions => Ok(false),
     }
 }
 
@@ -113,11 +113,11 @@ pub(crate) fn add_public_reexport_source_module(
     graph: &mut ModuleGraph,
     module_id: nia_imports::ModuleId,
     name: &SymbolId,
-) -> Result<Option<nia_imports::ModuleId>, Diagnostic> {
+) -> TraversalResult<Option<nia_imports::ModuleId>> {
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(None);
     };
-    let facts = db.get(module_facade_facts_query(db, &node.path));
+    let facts = db.try_get(module_facade_facts_query(db, &node.path)?)?;
     for source_path in facts.reexport_source_paths(name) {
         let Some(start) = used_path_start(graph, module_id, source_path) else {
             continue;
@@ -139,11 +139,11 @@ fn add_public_reexport_trait_impl_provider_modules(
     graph: &mut ModuleGraph,
     facade_module: nia_imports::ModuleId,
     trait_name: &SymbolId,
-) -> Result<(), Diagnostic> {
+) -> TraversalResult<()> {
     let Some(node) = graph.get(facade_module).cloned() else {
         return Ok(());
     };
-    let facts = db.get(module_facade_facts_query(db, &node.path));
+    let facts = db.try_get(module_facade_facts_query(db, &node.path)?)?;
     add_trait_provider_modules_matching(db, graph, facade_module, &facts, |db, path| {
         provider_candidate_has_trait_impl(db, path, trait_name, None)
     })
@@ -154,11 +154,11 @@ fn add_implicit_trait_impl_provider_modules(
     graph: &mut ModuleGraph,
     facade_module: nia_imports::ModuleId,
     trait_name: &SymbolId,
-) -> Result<(), Diagnostic> {
+) -> TraversalResult<()> {
     let Some(node) = graph.get(facade_module).cloned() else {
         return Ok(());
     };
-    let facts = db.get(module_facade_facts_query(db, &node.path));
+    let facts = db.try_get(module_facade_facts_query(db, &node.path)?)?;
     add_trait_provider_modules_matching(db, graph, facade_module, &facts, |db, path| {
         provider_candidate_has_trait_impl(db, path, trait_name, None)
     })
@@ -170,11 +170,11 @@ fn add_public_reexport_trait_method_provider_modules(
     facade_module: nia_imports::ModuleId,
     target_type_name: Option<&SymbolId>,
     associated_name: &SymbolId,
-) -> Result<(), Diagnostic> {
+) -> TraversalResult<()> {
     let Some(node) = graph.get(facade_module).cloned() else {
         return Ok(());
     };
-    let facts = db.get(module_facade_facts_query(db, &node.path));
+    let facts = db.try_get(module_facade_facts_query(db, &node.path)?)?;
     add_trait_provider_modules_matching(db, graph, facade_module, &facts, |db, path| {
         provider_candidate_has_public_extension_method_for_facade(
             db,
@@ -191,8 +191,8 @@ fn add_trait_provider_modules_matching(
     graph: &mut ModuleGraph,
     facade_module: nia_imports::ModuleId,
     facts: &crate::facade_facts::ModuleFacadeFacts,
-    mut matches_provider: impl FnMut(&QueryDb<LoaderContext>, SourcePath) -> bool,
-) -> Result<(), Diagnostic> {
+    mut matches_provider: impl FnMut(&QueryDb<LoaderContext>, SourcePath) -> TraversalResult<bool>,
+) -> TraversalResult<()> {
     add_reexport_provider_modules_matching(
         db,
         graph,
@@ -207,8 +207,8 @@ fn add_reexport_provider_modules_matching(
     graph: &mut ModuleGraph,
     facade_module: nia_imports::ModuleId,
     source_paths: &[UsedModulePath],
-    mut matches_provider: impl FnMut(&QueryDb<LoaderContext>, SourcePath) -> bool,
-) -> Result<(), Diagnostic> {
+    mut matches_provider: impl FnMut(&QueryDb<LoaderContext>, SourcePath) -> TraversalResult<bool>,
+) -> TraversalResult<()> {
     let mut visited = HashSet::new();
     add_reexport_provider_modules_matching_inner(
         db,
@@ -226,9 +226,9 @@ fn add_reexport_provider_modules_matching_inner(
     graph: &mut ModuleGraph,
     facade_module: nia_imports::ModuleId,
     source_paths: &[UsedModulePath],
-    matches_provider: &mut impl FnMut(&QueryDb<LoaderContext>, SourcePath) -> bool,
+    matches_provider: &mut impl FnMut(&QueryDb<LoaderContext>, SourcePath) -> TraversalResult<bool>,
     visited: &mut HashSet<SourcePath>,
-) -> Result<bool, Diagnostic> {
+) -> TraversalResult<bool> {
     let mut any_match = false;
     for source_path in source_paths {
         let Some(candidate_path) =
@@ -239,11 +239,11 @@ fn add_reexport_provider_modules_matching_inner(
         if visited.contains(&candidate_path) {
             continue;
         }
-        let direct_match = matches_provider(db, candidate_path.clone());
+        let direct_match = matches_provider(db, candidate_path.clone())?;
         let nested_paths = if direct_match {
             Vec::new()
         } else {
-            db.get(module_facade_facts_query(db, &candidate_path))
+            db.try_get(module_facade_facts_query(db, &candidate_path)?)?
                 .provider_source_paths()
                 .to_vec()
         };
@@ -354,9 +354,9 @@ fn provider_candidate_has_trait_impl(
     path: SourcePath,
     trait_name: &SymbolId,
     associated_name: Option<&SymbolId>,
-) -> bool {
-    let summary = db.get(provider_summary_query(db, &path));
-    summary.defines_trait_impl(trait_name, associated_name)
+) -> TraversalResult<bool> {
+    let summary = db.try_get(provider_summary_query(db, &path)?)?;
+    Ok(summary.defines_trait_impl(trait_name, associated_name))
 }
 
 fn provider_candidate_has_public_extension_method_for_facade(
@@ -365,23 +365,24 @@ fn provider_candidate_has_public_extension_method_for_facade(
     facade_facts: &crate::facade_facts::ModuleFacadeFacts,
     target_type_name: Option<&SymbolId>,
     associated_name: &SymbolId,
-) -> bool {
-    let summary = db.get(provider_summary_query(db, &path));
-    summary.defines_public_extension_method_for_facade(
+) -> TraversalResult<bool> {
+    let summary = db.try_get(provider_summary_query(db, &path)?)?;
+    Ok(summary.defines_public_extension_method_for_facade(
         |trait_name| facade_facts.public_type_exposes_name(trait_name),
         target_type_name,
         associated_name,
-    )
+    ))
 }
 
 pub(crate) fn module_defines_extensions(
     db: &QueryDb<LoaderContext>,
     graph: &ModuleGraph,
     module_id: nia_imports::ModuleId,
-) -> bool {
+) -> TraversalResult<bool> {
     let Some(node) = graph.get(module_id).cloned() else {
-        return false;
+        return Ok(false);
     };
-    db.get(provider_summary_query(db, &node.path))
-        .has_providers()
+    Ok(db
+        .try_get(provider_summary_query(db, &node.path)?)?
+        .has_providers())
 }

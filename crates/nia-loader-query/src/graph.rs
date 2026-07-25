@@ -17,10 +17,30 @@ use nia_imports::{
     ModuleGraph, ModuleGraphSnapshot, ModuleNode, ResolvedModuleDeclaration,
     module_declaration_visibility_allows,
 };
-use nia_query::{QueryDb, QueryKey, QueryResult};
+use nia_query::{QueryDb, QueryError, QueryKey, QueryResult};
 use nia_source::SourcePath;
 use nia_span::Span;
 use nia_symbol::{SymbolId, known};
+
+#[derive(Debug)]
+pub(crate) enum TraversalError {
+    Query(QueryError),
+    Diagnostic(Diagnostic),
+}
+
+impl From<QueryError> for TraversalError {
+    fn from(error: QueryError) -> Self {
+        Self::Query(error)
+    }
+}
+
+impl From<Diagnostic> for TraversalError {
+    fn from(diagnostic: Diagnostic) -> Self {
+        Self::Diagnostic(diagnostic)
+    }
+}
+
+pub(crate) type TraversalResult<T> = Result<T, TraversalError>;
 
 impl QueryKey<LoaderContext> for ModuleGraphQuery {
     type Value = ModuleGraphSnapshot;
@@ -59,7 +79,7 @@ impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
                 let seed = db.try_get(ModuleGraphRevisionQuery(previous))?;
                 build_module_graph(db, Some(seed.as_ref().clone()), &demands)
             }
-        };
+        }?;
         db.context().provider_facts.compact_transition(self.0);
         Ok(graph)
     }
@@ -69,7 +89,7 @@ fn build_module_graph(
     db: &QueryDb<LoaderContext>,
     seed: Option<ModuleGraphSnapshot>,
     new_provider_demands: &std::collections::HashSet<nia_compiler_query::ProviderDemand>,
-) -> ModuleGraphSnapshot {
+) -> QueryResult<ModuleGraphSnapshot> {
     let (mut graph, mut index) = match seed {
         Some(snapshot) => {
             let mut graph = (*snapshot).clone();
@@ -80,11 +100,12 @@ fn build_module_graph(
                         mark_semantic_provider_module(&mut graph, module_path);
                     }
                     nia_compiler_query::ProviderRequest::ModuleBody { module_path } => {
-                        if let Some(module_id) = graph.module_id_for_path(module_path.as_str())
-                            && let Err(diagnostic) =
-                                mark_process_used_paths_and_process(db, &mut graph, module_id)
-                        {
-                            graph.push_diagnostic(module_path.clone(), diagnostic);
+                        if let Some(module_id) = graph.module_id_for_path(module_path.as_str()) {
+                            record_traversal_diagnostic(
+                                mark_process_used_paths_and_process(db, &mut graph, module_id),
+                                &mut graph,
+                                module_path,
+                            )?;
                         }
                     }
                     nia_compiler_query::ProviderRequest::Method { .. }
@@ -97,14 +118,14 @@ fn build_module_graph(
                 .cloned()
                 .collect::<Vec<_>>();
             for node in existing_nodes {
-                let declarations = db.get(module_declarations_query(db, &node.path));
+                let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
                 apply_provider_demands(
                     db,
                     &mut graph,
                     &node,
                     &declarations.explicit_imports,
                     new_provider_demands,
-                );
+                )?;
             }
             (graph, existing_modules)
         }
@@ -122,7 +143,7 @@ fn build_module_graph(
         let Some(node) = node else {
             break;
         };
-        let declarations = db.get(module_declarations_query(db, &node.path));
+        let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
         for package in &declarations.package_roots {
             if graph.package_root(package).is_none()
                 && let Some(path) = db.context().module_map.get_name(package)
@@ -131,16 +152,19 @@ fn build_module_graph(
             }
         }
         if should_eager_add_declarations(db.context(), &node) {
-            let result = add_declared_module_children(db, &mut graph, node.id);
-            if let Err(diagnostic) = result {
-                graph.push_diagnostic(node.path.clone(), diagnostic);
-            }
+            record_traversal_diagnostic(
+                add_declared_module_children(db, &mut graph, node.id),
+                &mut graph,
+                &node.path,
+            )?;
         }
         if should_process_used_module_paths(db.context(), &graph, &node) {
             for path in &declarations.used_module_paths {
-                if let Err(diagnostic) = add_used_module_path(db, &mut graph, node.id, path) {
-                    graph.push_diagnostic(node.path.clone(), diagnostic);
-                }
+                record_traversal_diagnostic(
+                    add_used_module_path(db, &mut graph, node.id, path),
+                    &mut graph,
+                    &node.path,
+                )?;
             }
         }
         apply_provider_demands(
@@ -149,10 +173,25 @@ fn build_module_graph(
             &node,
             &declarations.explicit_imports,
             new_provider_demands,
-        );
+        )?;
         index += 1;
     }
-    ModuleGraphSnapshot::new(graph)
+    Ok(ModuleGraphSnapshot::new(graph))
+}
+
+fn record_traversal_diagnostic(
+    result: TraversalResult<()>,
+    graph: &mut ModuleGraph,
+    path: &SourcePath,
+) -> QueryResult<()> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(TraversalError::Query(error)) => Err(error),
+        Err(TraversalError::Diagnostic(diagnostic)) => {
+            graph.push_diagnostic(path.clone(), diagnostic);
+            Ok(())
+        }
+    }
 }
 
 pub(crate) fn mark_semantic_provider_module(graph: &mut ModuleGraph, module_path: &SourcePath) {
@@ -167,7 +206,7 @@ fn apply_provider_demands(
     node: &ModuleNode,
     imports: &[crate::used_paths::ExplicitUsingImport],
     provider_demands: &std::collections::HashSet<nia_compiler_query::ProviderDemand>,
-) {
+) -> QueryResult<()> {
     let demands = provider_demands
         .iter()
         .filter(|demand| demand.source_path.identity() == node.path.identity())
@@ -198,11 +237,14 @@ fn apply_provider_demands(
                 import
                     .path
                     .with_appended_segments_with_processing_mode(&[], false, processing);
-            if let Err(diagnostic) = add_used_module_path(db, graph, node.id, &path) {
-                graph.push_diagnostic(node.path.clone(), diagnostic);
-            }
+            record_traversal_diagnostic(
+                add_used_module_path(db, graph, node.id, &path),
+                graph,
+                &node.path,
+            )?;
         }
     }
+    Ok(())
 }
 
 fn should_eager_add_declarations(context: &LoaderContext, node: &ModuleNode) -> bool {
@@ -233,7 +275,7 @@ fn add_used_module_path(
     graph: &mut ModuleGraph,
     current_module: nia_imports::ModuleId,
     path: &UsedModulePath,
-) -> Result<(), Diagnostic> {
+) -> TraversalResult<()> {
     let Some(start) = used_path_start(graph, current_module, path) else {
         return Ok(());
     };
@@ -261,7 +303,7 @@ fn activate_package_facade(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     package: SymbolId,
-) -> Result<(), Diagnostic> {
+) -> TraversalResult<()> {
     if graph.package_facade_active(&package) {
         return Ok(());
     }
@@ -271,7 +313,7 @@ fn activate_package_facade(
     let Some(node) = graph.get(root).cloned() else {
         return Ok(());
     };
-    let declarations = db.get(module_declarations_query(db, &node.path));
+    let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
     for package in &declarations.package_roots {
         if graph.package_root(package).is_none()
             && let Some(path) = db.context().module_map.get_name(package)
@@ -304,14 +346,14 @@ pub(crate) fn mark_process_used_paths_and_process(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     module_id: nia_imports::ModuleId,
-) -> Result<(), Diagnostic> {
+) -> TraversalResult<()> {
     if !graph.mark_process_used_paths(module_id) {
         return Ok(());
     }
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(());
     };
-    let declarations = db.get(module_declarations_query(db, &node.path));
+    let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
     for package in &declarations.package_roots {
         if graph.package_root(package).is_none()
             && let Some(path) = db.context().module_map.get_name(package)
@@ -332,7 +374,7 @@ pub(crate) fn add_visible_declared_module_path(
     start: nia_imports::ModuleId,
     segments: &[SymbolId],
     processing: UsedModulePathProcessing,
-) -> Result<Option<nia_imports::ModuleId>, Diagnostic> {
+) -> TraversalResult<Option<nia_imports::ModuleId>> {
     let mut current = start;
     if processing == UsedModulePathProcessing::Always && segments.is_empty() {
         mark_process_used_paths_and_process(db, graph, current)?;
@@ -343,7 +385,7 @@ pub(crate) fn add_visible_declared_module_path(
                 mark_process_used_paths_and_process(db, graph, current)?;
             }
             UsedModulePathProcessing::IfProvidesExtensions
-                if module_defines_extensions(db, graph, current) =>
+                if module_defines_extensions(db, graph, current)? =>
             {
                 mark_process_used_paths_and_process(db, graph, current)?;
             }
@@ -394,13 +436,13 @@ pub(crate) fn add_visible_declared_module_path(
         }
         if processing == UsedModulePathProcessing::IfSelectedItem
             && is_terminal
-            && module_defines_extensions(db, graph, current)
+            && module_defines_extensions(db, graph, current)?
         {
             mark_process_used_paths_and_process(db, graph, current)?;
         }
         if processing == UsedModulePathProcessing::IfProvidesExtensions
             && is_terminal
-            && module_defines_extensions(db, graph, current)
+            && module_defines_extensions(db, graph, current)?
         {
             mark_process_used_paths_and_process(db, graph, current)?;
         }
@@ -415,11 +457,11 @@ fn add_declared_module_children(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     module_id: nia_imports::ModuleId,
-) -> Result<(), Diagnostic> {
+) -> TraversalResult<()> {
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(());
     };
-    let declarations = db.get(module_declarations_query(db, &node.path));
+    let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
     for declaration in declarations.declarations.iter().cloned() {
         add_declared_module_child(db, graph, module_id, declaration)?;
     }
@@ -433,7 +475,7 @@ pub(crate) fn add_visible_declared_module_child_if_present(
     module_id: nia_imports::ModuleId,
     name: &SymbolId,
     process_used_paths: bool,
-) -> Result<Option<nia_imports::ModuleId>, Diagnostic> {
+) -> TraversalResult<Option<nia_imports::ModuleId>> {
     if let Some(existing) = graph
         .get(module_id)
         .and_then(|node| node.children.get(name).copied())
@@ -446,7 +488,7 @@ pub(crate) fn add_visible_declared_module_child_if_present(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(None);
     };
-    let declarations = db.get(module_declarations_query(db, &node.path));
+    let declarations = db.try_get(module_declarations_query(db, &node.path)?)?;
     let Some(declaration) = declarations
         .declarations
         .iter()
@@ -479,7 +521,7 @@ fn add_declared_module_child(
     graph: &mut ModuleGraph,
     module_id: nia_imports::ModuleId,
     declaration: ResolvedModuleDeclaration,
-) -> Result<nia_imports::ModuleId, Diagnostic> {
+) -> TraversalResult<nia_imports::ModuleId> {
     add_declared_module_child_with_processing(db, graph, module_id, declaration, true, true)
 }
 
@@ -490,7 +532,7 @@ fn add_declared_module_child_with_processing(
     declaration: ResolvedModuleDeclaration,
     process_used_paths: bool,
     process_declared_children: bool,
-) -> Result<nia_imports::ModuleId, Diagnostic> {
+) -> TraversalResult<nia_imports::ModuleId> {
     if let Some(existing) = graph
         .get(module_id)
         .and_then(|node| node.children.get(&declaration.name).copied())
@@ -503,14 +545,14 @@ fn add_declared_module_child_with_processing(
         }
         return Ok(existing);
     }
-    graph.intern_declared_child_with_processing(
+    Ok(graph.intern_declared_child_with_processing(
         module_id,
         &declaration.name,
         declaration.visibility,
         declaration.span,
         process_used_paths,
         process_declared_children,
-    )
+    )?)
 }
 
 fn inject_entry_runtime(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
