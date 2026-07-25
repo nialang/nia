@@ -446,7 +446,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_flow_check::FlowCheck>,
     pub(super) body_check:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_body_check::BodyCheck>,
-    pub(super) checked_module: fn(&QueryDb<CompilerContext>, ModuleId) -> CheckedModule,
+    pub(super) checked_module:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<CheckedModule>,
     pub(super) checked_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,
     pub(super) monomorphization:
         fn(&QueryDb<CompilerContext>) -> QueryResult<nia_monomorphize::Monomorphization>,

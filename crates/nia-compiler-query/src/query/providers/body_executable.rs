@@ -1938,13 +1938,13 @@ fn checked_module_layout_roots(
 pub(super) fn provide_checked_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> CheckedModule {
+) -> QueryResult<CheckedModule> {
     time_module_provider(db, "checked_module", module_id, || {
         checked_module_with_body_and_flow_check(
             db,
             module_id,
-            db.get(BodyCheckQuery(module_id)),
-            db.get(FlowCheckQuery(module_id)),
+            db.try_get(BodyCheckQuery(module_id))?,
+            db.try_get(FlowCheckQuery(module_id))?,
             None,
         )
     })
@@ -1956,24 +1956,27 @@ fn checked_module_with_body_and_flow_check(
     body_check: Arc<nia_body_check::BodyCheck>,
     flow_check: Arc<nia_flow_check::FlowCheck>,
     layouts: Option<Arc<nia_layout::Layouts>>,
-) -> CheckedModule {
-    let path = db.get(ModulePathQuery(module_id)).as_ref().clone();
-    CheckedModule {
+) -> QueryResult<CheckedModule> {
+    let path = db.try_get(ModulePathQuery(module_id))?.as_ref().clone();
+    Ok(CheckedModule {
         id: module_id,
         path,
-        defs: db.get(FullModuleDefsQuery(module_id)),
-        type_resolution: db.get(TypeResolutionQuery(module_id)),
-        type_lowering: db.get(TypeLoweringQuery(module_id)),
-        value_resolution: db.get(ValueResolutionQuery(module_id)),
-        local_resolution: db.get(LocalResolutionQuery(module_id)),
-        type_normalization: db.get(TypeNormalizationQuery(module_id)),
-        const_eval: db.get(ConstQuery(module_id)),
-        static_check: db.get(StaticCheckQuery(module_id)),
-        layouts: layouts.unwrap_or_else(|| db.get(LayoutsQuery(module_id))),
-        abi_check: db.get(AbiCheckQuery(module_id)),
+        defs: db.try_get(FullModuleDefsQuery(module_id))?,
+        type_resolution: db.try_get(TypeResolutionQuery(module_id))?,
+        type_lowering: db.try_get(TypeLoweringQuery(module_id))?,
+        value_resolution: db.try_get(ValueResolutionQuery(module_id))?,
+        local_resolution: db.try_get(LocalResolutionQuery(module_id))?,
+        type_normalization: db.try_get(TypeNormalizationQuery(module_id))?,
+        const_eval: db.try_get(ConstQuery(module_id))?,
+        static_check: db.try_get(StaticCheckQuery(module_id))?,
+        layouts: match layouts {
+            Some(layouts) => layouts,
+            None => db.try_get(LayoutsQuery(module_id))?,
+        },
+        abi_check: db.try_get(AbiCheckQuery(module_id))?,
         flow_check,
         body_ir: Arc::clone(&body_check.ir),
-        semantic_uses: db.get(SemanticUseTableQuery(module_id)),
+        semantic_uses: db.try_get(SemanticUseTableQuery(module_id))?,
         semantic_facts: Arc::clone(&body_check.facts),
         provider_demands: Arc::clone(&body_check.provider_demands),
         executable_reachable_globals: None,
@@ -1981,7 +1984,7 @@ fn checked_module_with_body_and_flow_check(
         executable_reachable_unions: None,
         executable_type_only: false,
         body_diagnostics: Arc::clone(&body_check.diagnostics),
-    }
+    })
 }
 
 pub(super) fn executable_checked_module_with_body_and_flow_check(
@@ -1990,24 +1993,25 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
     body_check: BodyCheckWithResolutionInputs,
     flow_check: nia_flow_check::FlowCheck,
     layouts: Arc<nia_layout::Layouts>,
-) -> CheckedModule {
+) -> QueryResult<CheckedModule> {
     let BodyCheckWithResolutionInputs {
         body_check,
         inputs: body_inputs,
         const_eval,
     } = body_check;
-    CheckedModule {
+    Ok(CheckedModule {
         id: module_id,
-        path: db.get(ModulePathQuery(module_id)).as_ref().clone(),
-        defs: db.get(FullModuleDefsQuery(module_id)),
-        type_resolution: db.get(TypeResolutionQuery(module_id)),
-        type_lowering: db.get(TypeLoweringQuery(module_id)),
+        path: db.try_get(ModulePathQuery(module_id))?.as_ref().clone(),
+        defs: db.try_get(FullModuleDefsQuery(module_id))?,
+        type_resolution: db.try_get(TypeResolutionQuery(module_id))?,
+        type_lowering: db.try_get(TypeLoweringQuery(module_id))?,
         value_resolution: body_inputs.values,
         local_resolution: body_inputs.locals,
-        type_normalization: db.get(TypeNormalizationQuery(module_id)),
-        const_eval: const_eval
-            .map(Arc::new)
-            .unwrap_or_else(|| db.get(ConstQuery(module_id))),
+        type_normalization: db.try_get(TypeNormalizationQuery(module_id))?,
+        const_eval: match const_eval {
+            Some(const_eval) => Arc::new(const_eval),
+            None => db.try_get(ConstQuery(module_id))?,
+        },
         static_check: Arc::new(nia_static_check::StaticCheck {
             diagnostics: Vec::new(),
         }),
@@ -2025,7 +2029,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         executable_reachable_unions: None,
         executable_type_only: false,
         body_diagnostics: body_check.diagnostics,
-    }
+    })
 }
 
 pub(super) fn executable_signature_checked_module(
