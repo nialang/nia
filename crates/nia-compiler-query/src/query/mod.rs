@@ -1311,17 +1311,19 @@ impl CompilerContext {
     fn frontend_program_sources(
         &self,
         db: &QueryDb<CompilerContext>,
-    ) -> Option<FrontendProgramSources> {
-        let modules = db.get(LoadedModulesQuery);
+    ) -> QueryResult<Option<FrontendProgramSources>> {
+        let modules = db.try_get(LoadedModulesQuery)?;
         let module_ids = resolve_stable_module_sequence_from_current_inputs(db, &modules);
         let mut by_module = HashMap::new();
         let mut module_by_path = HashMap::new();
         let mut path_by_module = HashMap::new();
         let mut fingerprint_inputs = Vec::new();
         for module_id in module_ids {
-            let path = db.get(ModulePathQuery(module_id));
-            let version = *db.get(ModuleSourceVersionQuery(module_id));
-            let (source, len) = self.loader_facts.module_source_fingerprint(module_id)?;
+            let path = db.try_get(ModulePathQuery(module_id))?;
+            let version = *db.try_get(ModuleSourceVersionQuery(module_id))?;
+            let Some((source, len)) = self.loader_facts.module_source_fingerprint(module_id) else {
+                return Ok(None);
+            };
             let module = StableModuleKey::from_source_identity(path.identity());
             let normalized_path = module.source_identity().normalized_path().to_string();
             if module_by_path
@@ -1329,7 +1331,7 @@ impl CompilerContext {
                 .is_some()
                 || path_by_module.insert(module_id, normalized_path).is_some()
             {
-                return None;
+                return Ok(None);
             }
             fingerprint_inputs.push((module.clone(), source, len));
             by_module.insert(
@@ -1346,12 +1348,12 @@ impl CompilerContext {
                 .iter()
                 .map(|(module, source, len)| (module, *source, *len)),
         );
-        Some(FrontendProgramSources {
+        Ok(Some(FrontendProgramSources {
             fingerprint,
             by_module,
             module_by_path,
             path_by_module,
-        })
+        }))
     }
 
     fn stable_module_sequence(
@@ -4417,6 +4419,10 @@ fn main() i32 {
                 .db
                 .try_get(ModuleDefsQuery(missing_module))
                 .expect_err("module definitions should propagate a missing item tree error"),
+            database
+                .db
+                .try_get(TypeResolutionQuery(missing_module))
+                .expect_err("type resolution should propagate a missing module input"),
         ] {
             assert!(matches!(error, QueryError::InvalidInput { .. }));
             assert!(

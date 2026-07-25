@@ -11,7 +11,7 @@ impl QueryKey<CompilerContext> for FrontendProgramSourcesQuery {
         "frontend_program_sources"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().frontend_program_sources(db)
     }
 }
@@ -29,7 +29,7 @@ impl QueryKey<CompilerContext> for TypeResolutionQuery {
         "type_resolution"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.type_resolution)(db, self.0)
     }
 }
@@ -45,7 +45,7 @@ impl QueryKey<CompilerContext> for DeclarationTypeResolutionQuery {
         format!("declaration_type_resolution({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.declaration_type_resolution)(db, self.0)
     }
 }
@@ -152,7 +152,7 @@ impl QueryKey<CompilerContext> for SignatureTypeResolutionQuery {
         format!("signature_type_resolution({:?}, {:?})", self.0, self.1)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_type_resolution)(db, self.0, self.1)
     }
 }
@@ -262,7 +262,7 @@ impl QueryKey<CompilerContext> for SignatureConstTypeResolutionQuery {
         format!("signature_const_type_resolution({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_const_type_resolution)(db, self.0)
     }
 }
