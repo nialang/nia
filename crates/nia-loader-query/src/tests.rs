@@ -531,6 +531,65 @@ fn unwrap[T](value: Box[T]) T { value.value }
 }
 
 #[test]
+fn persistent_extension_validation_skips_raw_global_dependencies_across_sessions() {
+    let root = temp_dir("persistent_extension_validation_dependencies");
+    let source = r#"
+pub struct Box[T] { value: T }
+extend Box[i32] { fn get(self) i32 { self.value } }
+fn main() i32 { Box[i32] { value: 1 }.get() }
+"#;
+    let compile = |verify| {
+        let sources = SourceDatabase::new();
+        sources.set_source(SourcePath::new("main.nia"), source);
+        let loader = LoaderDatabase::new(
+            LoadRequest::new("main.nia")
+                .with_sources(sources)
+                .with_frontend_cache_dir(Some(root.clone()))
+                .with_frontend_cache_verification(verify),
+        );
+        let compiler = CompilerDatabase::new(
+            CompileRequest::new(loader)
+                .with_frontend_cache_dir(Some(root.clone()))
+                .with_frontend_cache_verification(verify),
+        );
+        let checked = compiler.check_program();
+        assert!(!has_error_diagnostics(&checked.diagnostics));
+        compiler.query_trace()
+    };
+
+    let cold = compile(false);
+    assert!(cold.dependencies.iter().any(|dependency| {
+        dependency.from.name == "extension_provider_validation_facts"
+            && dependency.to.name == "extension_signature_module_input"
+    }));
+    assert!(cold.dependencies.iter().any(|dependency| {
+        dependency.from.name == "extension_provider_validation_facts"
+            && dependency.to.name == "extension_trait_signature_index"
+    }));
+
+    let warm = compile(false);
+    assert!(warm.dependencies.iter().any(|dependency| {
+        dependency.from.name == "extension_provider_validation_facts"
+            && dependency.to.name == "frontend_program_sources"
+    }));
+    assert!(!warm.dependencies.iter().any(|dependency| {
+        dependency.from.name == "extension_provider_validation_facts"
+            && matches!(
+                dependency.to.name,
+                "extension_provider_module_eligibility"
+                    | "extension_signature_module_input"
+                    | "extension_trait_signature_index"
+            )
+    }));
+
+    let verified = compile(true);
+    assert!(verified.dependencies.iter().any(|dependency| {
+        dependency.from.name == "extension_provider_validation_facts"
+            && dependency.to.name == "extension_signature_module_input"
+    }));
+}
+
+#[test]
 fn compiler_loader_update_detaches_current_defs_from_old_source_revision() {
     let sources = SourceDatabase::new();
     sources.set_source(SourcePath::new("main.nia"), "fn main() i32 { 0 }");
