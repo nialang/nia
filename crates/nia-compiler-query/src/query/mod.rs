@@ -4423,6 +4423,10 @@ fn main() i32 {
                 .db
                 .try_get(TypeResolutionQuery(missing_module))
                 .expect_err("type resolution should propagate a missing module input"),
+            database
+                .db
+                .try_get(TypeNormalizationQuery(missing_module))
+                .expect_err("type normalization should propagate a missing module input"),
         ] {
             assert!(matches!(error, QueryError::InvalidInput { .. }));
             assert!(

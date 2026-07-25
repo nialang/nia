@@ -248,27 +248,36 @@ pub(super) struct CompilerQueryProviders {
     ) -> QueryResult<TypeResolution>,
     pub(super) signature_const_type_resolution:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeResolution>,
-    pub(super) type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
-    pub(super) declaration_type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
-    pub(super) signature_type_lowering:
-        fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> TypeLowering,
+    pub(super) type_lowering: fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeLowering>,
+    pub(super) declaration_type_lowering:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeLowering>,
+    pub(super) signature_type_lowering: fn(
+        &QueryDb<CompilerContext>,
+        ModuleId,
+        nia_item_tree::SignatureItemSet,
+    ) -> QueryResult<TypeLowering>,
     pub(super) signature_const_type_lowering:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> TypeLowering,
-    pub(super) item_signatures: fn(&QueryDb<CompilerContext>, ModuleId) -> ItemSignatures,
-    pub(super) signature_item_signatures:
-        fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> ItemSignatures,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeLowering>,
+    pub(super) item_signatures:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ItemSignatures>,
+    pub(super) signature_item_signatures: fn(
+        &QueryDb<CompilerContext>,
+        ModuleId,
+        nia_item_tree::SignatureItemSet,
+    ) -> QueryResult<ItemSignatures>,
     pub(super) signature_const_item_signatures:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ItemSignatures,
-    pub(super) type_normalization: fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ItemSignatures>,
+    pub(super) type_normalization:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeNormalization>,
     pub(super) layout_type_normalization:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeNormalization>,
     pub(super) signature_type_normalization: fn(
         &QueryDb<CompilerContext>,
         ModuleId,
         nia_item_tree::SignatureItemSet,
-    ) -> TypeNormalization,
+    ) -> QueryResult<TypeNormalization>,
     pub(super) signature_const_type_normalization:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> TypeNormalization,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeNormalization>,
     pub(super) signature_const_module:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ConstModuleLowering,
     pub(super) program_signature_module_ids:

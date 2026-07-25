@@ -67,7 +67,7 @@ impl QueryKey<CompilerContext> for TypeLoweringQuery {
         format!("type_lowering({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.type_lowering)(db, self.0)
     }
 }
@@ -83,7 +83,7 @@ impl QueryKey<CompilerContext> for DeclarationTypeLoweringQuery {
         format!("declaration_type_lowering({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.declaration_type_lowering)(db, self.0)
     }
 }
@@ -102,7 +102,7 @@ impl QueryKey<CompilerContext> for ItemSignaturesQuery {
         format!("item_signatures({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.item_signatures)(db, self.0)
     }
 }
@@ -174,7 +174,7 @@ impl QueryKey<CompilerContext> for SignatureTypeLoweringQuery {
         format!("signature_type_lowering({:?}, {:?})", self.0, self.1)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_type_lowering)(db, self.0, self.1)
     }
 }
@@ -196,7 +196,7 @@ impl QueryKey<CompilerContext> for SignatureItemSignaturesQuery {
         format!("signature_item_signatures({:?}, {:?})", self.0, self.1)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_item_signatures)(db, self.0, self.1)
     }
 }
@@ -218,7 +218,7 @@ impl QueryKey<CompilerContext> for SignatureTypeNormalizationQuery {
         format!("signature_type_normalization({:?}, {:?})", self.0, self.1)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_type_normalization)(db, self.0, self.1)
     }
 }
@@ -281,7 +281,7 @@ impl QueryKey<CompilerContext> for SignatureConstTypeLoweringQuery {
         format!("signature_const_type_lowering({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_const_type_lowering)(db, self.0)
     }
 }
@@ -300,7 +300,7 @@ impl QueryKey<CompilerContext> for SignatureConstItemSignaturesQuery {
         format!("signature_const_item_signatures({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_const_item_signatures)(db, self.0)
     }
 }
@@ -319,7 +319,7 @@ impl QueryKey<CompilerContext> for SignatureConstTypeNormalizationQuery {
         format!("signature_const_type_normalization({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.signature_const_type_normalization)(db, self.0)
     }
 }
@@ -356,7 +356,7 @@ impl QueryKey<CompilerContext> for TypeNormalizationQuery {
         "type_normalization"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.type_normalization)(db, self.0)
     }
 }
@@ -372,7 +372,7 @@ impl QueryKey<CompilerContext> for LayoutTypeNormalizationQuery {
         format!("layout_type_normalization({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.layout_type_normalization)(db, self.0)
     }
 }
