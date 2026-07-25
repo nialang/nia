@@ -516,7 +516,7 @@ fn executable_check_in_session(
         if value_edges_changed {
             continue;
         }
-        let stale = time_provider(
+        let stale = match time_provider(
             db.context().timings(),
             "executable_checked_modules.stale_select",
             || {
@@ -528,12 +528,18 @@ fn executable_check_in_session(
                     &fact_by_id,
                 )
             },
-        );
+        ) {
+            Ok(stale) => stale,
+            Err(error) => return_session_error!(error),
+        };
         if stale.is_empty() {
             break;
         }
         let round_reachable_body_modules =
-            executable_reachable_body_modules(db, &reachability_by_module);
+            match executable_reachable_body_modules(db, &reachability_by_module) {
+                Ok(modules) => modules,
+                Err(error) => return_session_error!(error),
+            };
         let mut batch_items = Vec::new();
         for module_id in stale {
             let already_checked_functions = fact_by_id
@@ -722,27 +728,33 @@ fn executable_check_in_session(
                     Ok(names) => names,
                     Err(error) => return_session_error!(error),
                 };
-            time_module_provider(
+            let merge_result = time_module_provider(
                 db,
                 "executable_checked_modules.fact_merge",
                 module_id,
-                || match fact_by_id.get_mut(&module_id) {
-                    Some(state) => {
-                        state.extend(body_check, module_globals, &db.context().type_store)
-                    }
-                    None => {
-                        fact_by_id.insert(
-                            module_id,
-                            ExecutableFactModuleState::new(
-                                db,
+                || -> QueryResult<()> {
+                    match fact_by_id.get_mut(&module_id) {
+                        Some(state) => {
+                            state.extend(body_check, module_globals, &db.context().type_store)
+                        }
+                        None => {
+                            fact_by_id.insert(
                                 module_id,
-                                body_check,
-                                module_globals,
-                            ),
-                        );
+                                ExecutableFactModuleState::new(
+                                    db,
+                                    module_id,
+                                    body_check,
+                                    module_globals,
+                                )?,
+                            );
+                        }
                     }
+                    Ok(())
                 },
             );
+            if let Err(error) = merge_result {
+                return_session_error!(error);
+            }
             if let Some(state) = fact_by_id.get(&module_id) {
                 let reachability = reachability_state.reachability();
                 print_executable_round_debug(ExecutableRoundDebug {
@@ -1055,7 +1067,11 @@ fn executable_check_in_session(
     runtime_functions.sort_unstable();
     let mut runtime_globals = reachability.globals().iter().copied().collect::<Vec<_>>();
     runtime_globals.sort_unstable();
-    let reachable_body_modules = executable_reachable_body_modules(db, &reachability_by_module);
+    let reachable_body_modules =
+        match executable_reachable_body_modules(db, &reachability_by_module) {
+            Ok(modules) => modules,
+            Err(error) => return_session_error!(error),
+        };
     let runtime_module_ids = runtime_functions
         .iter()
         .chain(&runtime_globals)
@@ -1098,7 +1114,7 @@ fn executable_module_body_demands(
     db: &QueryDb<CompilerContext>,
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
 ) -> QueryResult<Vec<crate::ProviderDemand>> {
-    executable_reachable_body_modules(db, reachability_by_module)
+    executable_reachable_body_modules(db, reachability_by_module)?
         .into_iter()
         .map(|module_id| {
             let module_path = db.try_get(ModulePathQuery(module_id))?;
@@ -1204,7 +1220,7 @@ fn final_executable_checked_modules(
     caches: &ExecutableCheckCaches,
     const_module_cache: &RefCell<HashMap<ModuleId, ConstModuleLowering>>,
 ) -> QueryResult<HashMap<ModuleId, CheckedModule>> {
-    let reachable_body_modules = executable_reachable_body_modules(db, reachability_by_module);
+    let reachable_body_modules = executable_reachable_body_modules(db, reachability_by_module)?;
     let modules_with_executable_items = parse_ok
         .iter()
         .copied()

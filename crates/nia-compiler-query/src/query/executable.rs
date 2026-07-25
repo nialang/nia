@@ -246,7 +246,7 @@ impl ExecutableFactModuleState {
         module_id: ModuleId,
         body_check: BodyCheckWithResolutionInputs,
         checked_globals: HashSet<GlobalDefId>,
-    ) -> Self {
+    ) -> QueryResult<Self> {
         let BodyCheckWithResolutionInputs {
             body_check,
             inputs: _,
@@ -272,7 +272,7 @@ impl ExecutableFactModuleState {
             .collect();
         let mut state = Self {
             module_id,
-            defs: db.get(FullModuleDefsQuery(module_id)),
+            defs: db.try_get(FullModuleDefsQuery(module_id))?,
             body_ir: Arc::unwrap_or_clone(ir),
             static_init_refs,
             semantic_facts: Arc::unwrap_or_clone(facts),
@@ -287,7 +287,7 @@ impl ExecutableFactModuleState {
         };
         state.executable_refs =
             executable_module_refs_for_fact_state(&state, &db.context().type_store);
-        state
+        Ok(state)
     }
 
     pub(super) fn reachable_input<'a>(
@@ -402,24 +402,59 @@ pub(super) fn executable_reachability_has_pending_body_items(
     db: &QueryDb<CompilerContext>,
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
     module_id: ModuleId,
-) -> bool {
-    reachability_by_module
-        .get(module_id)
-        .is_some_and(|items| items.has_body_items(|def_id| is_runtime_global_def(db, def_id)))
+) -> QueryResult<bool> {
+    let query_failure = RefCell::new(None);
+    let has_pending = reachability_by_module.get(module_id).is_some_and(|items| {
+        items.has_body_items(|def_id| match is_runtime_global_def(db, def_id) {
+            Ok(is_runtime) => is_runtime,
+            Err(error) => {
+                let mut failure = query_failure.borrow_mut();
+                if failure.is_none() {
+                    *failure = Some(error);
+                }
+                false
+            }
+        })
+    });
+    match query_failure.into_inner() {
+        Some(error) => Err(error),
+        None => Ok(has_pending),
+    }
 }
 
 pub(super) fn executable_reachable_body_modules(
     db: &QueryDb<CompilerContext>,
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
-) -> HashSet<ModuleId> {
-    reachability_by_module.reachable_body_modules(|def_id| is_runtime_global_def(db, def_id))
+) -> QueryResult<HashSet<ModuleId>> {
+    let query_failure = RefCell::new(None);
+    let modules =
+        reachability_by_module.reachable_body_modules(|def_id| {
+            match is_runtime_global_def(db, def_id) {
+                Ok(is_runtime) => is_runtime,
+                Err(error) => {
+                    let mut failure = query_failure.borrow_mut();
+                    if failure.is_none() {
+                        *failure = Some(error);
+                    }
+                    false
+                }
+            }
+        });
+    match query_failure.into_inner() {
+        Some(error) => Err(error),
+        None => Ok(modules),
+    }
 }
 
-pub(super) fn is_runtime_global_def(db: &QueryDb<CompilerContext>, def_id: GlobalDefId) -> bool {
-    db.get(ModuleDefsQuery(def_id.module_id))
+pub(super) fn is_runtime_global_def(
+    db: &QueryDb<CompilerContext>,
+    def_id: GlobalDefId,
+) -> QueryResult<bool> {
+    Ok(db
+        .try_get(ModuleDefsQuery(def_id.module_id))?
         .defs
         .get(def_id.def_id)
-        .is_some_and(|def| def.kind == DefKind::Global)
+        .is_some_and(|def| def.kind == DefKind::Global))
 }
 
 fn executable_module_refs_for_fact_state(
@@ -507,18 +542,20 @@ pub(super) fn stale_executable_fact_modules(
     reachability: &nia_executable_reachability::ExecutableReachability,
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
     fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
-) -> std::collections::VecDeque<ModuleId> {
-    parse_ok
+) -> QueryResult<std::collections::VecDeque<ModuleId>> {
+    let mut stale = std::collections::VecDeque::new();
+    for module_id in parse_ok
         .iter()
         .copied()
         .filter(|module_id| reachability.modules().contains(module_id))
-        .filter(|module_id| {
-            executable_reachability_has_pending_body_items(db, reachability_by_module, *module_id)
-        })
-        .filter(|module_id| {
-            executable_fact_module_is_stale(*module_id, reachability_by_module, fact_by_id)
-        })
-        .collect()
+    {
+        if executable_reachability_has_pending_body_items(db, reachability_by_module, module_id)?
+            && executable_fact_module_is_stale(module_id, reachability_by_module, fact_by_id)
+        {
+            stale.push_back(module_id);
+        }
+    }
+    Ok(stale)
 }
 
 fn executable_fact_module_is_stale(
