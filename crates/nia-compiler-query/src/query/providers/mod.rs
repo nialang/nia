@@ -343,7 +343,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<LocalResolution>,
     pub(super) semantic_use_table:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_sema_ir::SemanticUseTable>,
-    pub(super) const_module: fn(&QueryDb<CompilerContext>, ModuleId) -> ConstModuleLowering,
+    pub(super) const_module:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ConstModuleLowering>,
     pub(super) const_eval: fn(&QueryDb<CompilerContext>, ModuleId) -> ConstCheck,
     pub(super) const_array_lengths:
         fn(&QueryDb<CompilerContext>, ModuleId) -> nia_const_check::ConstArrayLengths,
@@ -358,7 +359,8 @@ pub(super) struct CompilerQueryProviders {
     pub(super) abi_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_abi_check::AbiCheck,
     pub(super) static_check:
         fn(&QueryDb<CompilerContext>, ModuleId) -> nia_static_check::StaticCheck,
-    pub(super) flow_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_flow_check::FlowCheck,
+    pub(super) flow_check:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_flow_check::FlowCheck>,
     pub(super) body_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_body_check::BodyCheck,
     pub(super) checked_module: fn(&QueryDb<CompilerContext>, ModuleId) -> CheckedModule,
     pub(super) checked_module_ids: fn(&QueryDb<CompilerContext>) -> Vec<ModuleId>,

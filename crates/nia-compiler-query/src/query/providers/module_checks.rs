@@ -122,17 +122,17 @@ pub(super) fn provide_static_check(
 pub(super) fn provide_flow_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> nia_flow_check::FlowCheck {
-    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
-    let signatures = db.get(SignatureItemSignaturesQuery(
+) -> QueryResult<nia_flow_check::FlowCheck> {
+    let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
+    let signatures = db.try_get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
-    ));
-    nia_flow_check::check_active_module_flow_with_signatures(
+    ))?;
+    Ok(nia_flow_check::check_active_module_flow_with_signatures(
         &active_item_tree,
         db.context().type_store(),
         nia_flow_check::FlowCheckSignatures {
             functions: &signatures.functions,
         },
-    )
+    ))
 }

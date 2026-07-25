@@ -4,27 +4,29 @@ use super::*;
 pub(super) fn provide_const_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ConstModuleLowering {
-    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id));
-    let defs = db.get(FullModuleDefsQuery(module_id));
-    let values = db.get(ValueResolutionQuery(module_id));
-    let locals = db.get(LocalResolutionQuery(module_id));
-    let semantic_uses = db.get(SemanticUseTableQuery(module_id));
-    let type_lowering = db.get(TypeLoweringQuery(module_id));
-    let signatures = db.get(ItemSignaturesQuery(module_id));
-    let source_path = db.get(ModulePathQuery(module_id));
+) -> QueryResult<ConstModuleLowering> {
+    let active_item_tree = db.try_get(FullActiveModuleItemTreeQuery(module_id))?;
+    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+    let values = db.try_get(ValueResolutionQuery(module_id))?;
+    let locals = db.try_get(LocalResolutionQuery(module_id))?;
+    let semantic_uses = db.try_get(SemanticUseTableQuery(module_id))?;
+    let type_lowering = db.try_get(TypeLoweringQuery(module_id))?;
+    let signatures = db.try_get(ItemSignaturesQuery(module_id))?;
+    let source_path = db.try_get(ModulePathQuery(module_id))?;
     let symbols = db.context().symbols();
-    nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
-        active_item_tree: &active_item_tree,
-        defs: &defs,
-        signatures: &signatures,
-        values: &values,
-        locals: &locals,
-        semantic_uses: &semantic_uses,
-        symbols: &symbols,
-        const_exprs: &type_lowering.const_exprs,
-        source_path: &source_path,
-    })
+    Ok(nia_const_check::lower_module_const(
+        nia_const_check::ConstModuleInput {
+            active_item_tree: &active_item_tree,
+            defs: &defs,
+            signatures: &signatures,
+            values: &values,
+            locals: &locals,
+            semantic_uses: &semantic_uses,
+            symbols: &symbols,
+            const_exprs: &type_lowering.const_exprs,
+            source_path: &source_path,
+        },
+    ))
 }
 
 pub(super) fn provide_const(db: &QueryDb<CompilerContext>, module_id: ModuleId) -> ConstCheck {
