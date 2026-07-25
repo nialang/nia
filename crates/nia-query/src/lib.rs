@@ -35,13 +35,7 @@ pub trait QueryKey<C>: Clone + Debug + Eq + Hash + Send + Sync + 'static {
     fn description(&self) -> String {
         format!("{}::{self:?}", Self::name())
     }
-    fn execute(&self, db: &QueryDb<C>) -> Self::Value {
-        self.execute_result(db)
-            .unwrap_or_else(|error| std::panic::panic_any(error))
-    }
-    fn execute_result(&self, db: &QueryDb<C>) -> QueryResult<Self::Value> {
-        Ok(self.execute(db))
-    }
+    fn execute_result(&self, db: &QueryDb<C>) -> QueryResult<Self::Value>;
     fn fingerprint(&self, _value: &Self::Value) -> Option<QueryFingerprint> {
         None
     }
@@ -3464,8 +3458,8 @@ mod tests {
             "session_input"
         }
 
-        fn execute(&self, db: &QueryDb<SessionInputContext>) -> Self::Value {
-            db.context().value.load(Ordering::SeqCst)
+        fn execute_result(&self, db: &QueryDb<SessionInputContext>) -> QueryResult<Self::Value> {
+            Ok(db.context().value.load(Ordering::SeqCst))
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3497,9 +3491,9 @@ mod tests {
             "session_parent"
         }
 
-        fn execute(&self, db: &QueryDb<SessionParentContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<SessionParentContext>) -> QueryResult<Self::Value> {
             db.context().executions.fetch_add(1, Ordering::SeqCst);
-            *db.context().input_db.get(SessionInput) * 2
+            Ok(*db.context().input_db.get(SessionInput) * 2)
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3520,13 +3514,17 @@ mod tests {
             "cross_session_batch"
         }
 
-        fn execute(&self, db: &QueryDb<CrossSessionBatchContext>) -> Self::Value {
-            db.context()
+        fn execute_result(
+            &self,
+            db: &QueryDb<CrossSessionBatchContext>,
+        ) -> QueryResult<Self::Value> {
+            Ok(db
+                .context()
                 .input_db
                 .get_many([Double(2), Double(5)])
                 .into_iter()
                 .map(|value| *value)
-                .sum()
+                .sum())
         }
     }
 
@@ -3544,9 +3542,9 @@ mod tests {
             format!("double({})", self.0)
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
             db.context().executions.fetch_add(1, Ordering::SeqCst);
-            self.0 * 2
+            Ok(self.0 * 2)
         }
     }
 
@@ -3560,14 +3558,14 @@ mod tests {
             "owned_revision"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
             db.context().executions.fetch_add(1, Ordering::SeqCst);
             if self.0 == 0 {
-                return vec![0];
+                return Ok(vec![0]);
             }
             let mut value = db.get(Self(self.0 - 1)).as_ref().clone();
             value.push(self.0);
-            value
+            Ok(value)
         }
     }
 
@@ -3581,12 +3579,12 @@ mod tests {
             "executor_probe"
         }
 
-        fn execute(&self, db: &QueryDb<ExecutorProbeContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<ExecutorProbeContext>) -> QueryResult<Self::Value> {
             let active = db.context().active.fetch_add(1, Ordering::SeqCst) + 1;
             db.context().peak_active.fetch_max(active, Ordering::SeqCst);
             db.context().barrier.wait();
             db.context().active.fetch_sub(1, Ordering::SeqCst);
-            self.0
+            Ok(self.0)
         }
     }
 
@@ -3602,12 +3600,12 @@ mod tests {
             "owned_executor_probe"
         }
 
-        fn execute(&self, db: &QueryDb<ExecutorProbeContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<ExecutorProbeContext>) -> QueryResult<Self::Value> {
             let active = db.context().active.fetch_add(1, Ordering::SeqCst) + 1;
             db.context().peak_active.fetch_max(active, Ordering::SeqCst);
             db.context().barrier.wait();
             db.context().active.fetch_sub(1, Ordering::SeqCst);
-            self.0
+            Ok(self.0)
         }
     }
 
@@ -3623,11 +3621,11 @@ mod tests {
             "completion_order_probe"
         }
 
-        fn execute(&self, db: &QueryDb<CompletionOrderContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<CompletionOrderContext>) -> QueryResult<Self::Value> {
             while db.context().phase.load(Ordering::SeqCst) != self.0 {
                 std::thread::yield_now();
             }
-            self.0
+            Ok(self.0)
         }
     }
 
@@ -3669,8 +3667,8 @@ mod tests {
             "batch_isolation"
         }
 
-        fn execute(&self, db: &QueryDb<BatchIsolationContext>) -> Self::Value {
-            match self {
+        fn execute_result(&self, db: &QueryDb<BatchIsolationContext>) -> QueryResult<Self::Value> {
+            Ok(match self {
                 Self::Parent => db
                     .get_many([Self::Child, Self::ChildWait])
                     .into_iter()
@@ -3715,7 +3713,7 @@ mod tests {
                 }
                 Self::DependsOnParent => *db.get(Self::Parent),
                 Self::OtherFiller => 4,
-            }
+            })
         }
     }
 
@@ -3731,8 +3729,8 @@ mod tests {
             "stable_input"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            db.context().executions.load(Ordering::SeqCst)
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Ok(db.context().executions.load(Ordering::SeqCst))
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3752,8 +3750,8 @@ mod tests {
             "stable_input_parent"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            *db.get(StableInput) * 2
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Ok(*db.get(StableInput) * 2)
         }
     }
 
@@ -3775,8 +3773,8 @@ mod tests {
             "red_green_input"
         }
 
-        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
-            db.context().input.load(Ordering::SeqCst)
+        fn execute_result(&self, db: &QueryDb<RedGreenContext>) -> QueryResult<Self::Value> {
+            Ok(db.context().input.load(Ordering::SeqCst))
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3799,11 +3797,11 @@ mod tests {
             "stable_parity"
         }
 
-        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<RedGreenContext>) -> QueryResult<Self::Value> {
             db.context()
                 .derived_executions
                 .fetch_add(1, Ordering::SeqCst);
-            *db.get(RedGreenInput) % 2
+            Ok(*db.get(RedGreenInput) % 2)
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3826,11 +3824,11 @@ mod tests {
             "stable_parity_parent"
         }
 
-        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<RedGreenContext>) -> QueryResult<Self::Value> {
             db.context()
                 .parent_executions
                 .fetch_add(1, Ordering::SeqCst);
-            *db.get(StableParity) + 10
+            Ok(*db.get(StableParity) + 10)
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3853,11 +3851,11 @@ mod tests {
             "semantic_parity"
         }
 
-        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<RedGreenContext>) -> QueryResult<Self::Value> {
             db.context()
                 .derived_executions
                 .fetch_add(1, Ordering::SeqCst);
-            *db.get(RedGreenInput) % 2
+            Ok(*db.get(RedGreenInput) % 2)
         }
 
         fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
@@ -3877,11 +3875,11 @@ mod tests {
             "semantic_parity_parent"
         }
 
-        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<RedGreenContext>) -> QueryResult<Self::Value> {
             db.context()
                 .parent_executions
                 .fetch_add(1, Ordering::SeqCst);
-            *db.get(SemanticParity) + 10
+            Ok(*db.get(SemanticParity) + 10)
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3904,11 +3902,11 @@ mod tests {
             "stable_modulo"
         }
 
-        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<RedGreenContext>) -> QueryResult<Self::Value> {
             db.context()
                 .derived_executions
                 .fetch_add(1, Ordering::SeqCst);
-            *db.get(RedGreenInput) % self.0
+            Ok(*db.get(RedGreenInput) % self.0)
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3931,14 +3929,15 @@ mod tests {
             "stable_modulo_batch_parent"
         }
 
-        fn execute(&self, db: &QueryDb<RedGreenContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<RedGreenContext>) -> QueryResult<Self::Value> {
             db.context()
                 .parent_executions
                 .fetch_add(1, Ordering::SeqCst);
-            db.get_many([StableModulo(2), StableModulo(3)])
+            Ok(db
+                .get_many([StableModulo(2), StableModulo(3)])
                 .into_iter()
                 .map(|value| *value)
-                .sum()
+                .sum())
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -3974,7 +3973,7 @@ mod tests {
             "validation_race_input"
         }
 
-        fn execute(&self, db: &QueryDb<ValidationRaceContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<ValidationRaceContext>) -> QueryResult<Self::Value> {
             let execution = db.context().input_executions.fetch_add(1, Ordering::SeqCst);
             if execution > 0 {
                 let (lock, ready) = &*db.context().control;
@@ -3985,7 +3984,7 @@ mod tests {
                     state = ready.wait(state).expect("validation race lock poisoned");
                 }
             }
-            db.context().input.load(Ordering::SeqCst)
+            Ok(db.context().input.load(Ordering::SeqCst))
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -4008,11 +4007,11 @@ mod tests {
             "validation_race_derived"
         }
 
-        fn execute(&self, db: &QueryDb<ValidationRaceContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<ValidationRaceContext>) -> QueryResult<Self::Value> {
             db.context()
                 .derived_executions
                 .fetch_add(1, Ordering::SeqCst);
-            *db.get(ValidationRaceInput) % 2
+            Ok(*db.get(ValidationRaceInput) % 2)
         }
 
         fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -4039,8 +4038,8 @@ mod tests {
             "double"
         }
 
-        fn execute(&self, _db: &QueryDb<TestContext>) -> Self::Value {
-            0
+        fn execute_result(&self, _db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Ok(0)
         }
     }
 
@@ -4058,9 +4057,9 @@ mod tests {
             "non_clone_value"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
             db.context().executions.fetch_add(1, Ordering::SeqCst);
-            NonCloneValue { value: 42 }
+            Ok(NonCloneValue { value: 42 })
         }
     }
 
@@ -4080,9 +4079,9 @@ mod tests {
             "owned_non_clone_value"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
             db.context().executions.fetch_add(1, Ordering::SeqCst);
-            OwnedNonCloneValue { value: self.0 }
+            Ok(OwnedNonCloneValue { value: self.0 })
         }
     }
 
@@ -4096,15 +4095,16 @@ mod tests {
             "owned_value_batch_parent"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            db.get_many_owned([
-                OwnedNonCloneValueQuery(2),
-                OwnedNonCloneValueQuery(5),
-                OwnedNonCloneValueQuery(3),
-            ])
-            .into_iter()
-            .map(|value| value.value)
-            .sum()
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Ok(db
+                .get_many_owned([
+                    OwnedNonCloneValueQuery(2),
+                    OwnedNonCloneValueQuery(5),
+                    OwnedNonCloneValueQuery(3),
+                ])
+                .into_iter()
+                .map(|value| value.value)
+                .sum())
         }
     }
 
@@ -4118,7 +4118,7 @@ mod tests {
             "owned_value_completion_parent"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
             let mut sum = 0;
             db.for_each_many_owned(
                 [
@@ -4128,7 +4128,7 @@ mod tests {
                 ],
                 |_position, value| sum += value.value,
             );
-            sum
+            Ok(sum)
         }
     }
 
@@ -4156,7 +4156,7 @@ mod tests {
             "published_owned_value"
         }
 
-        fn execute(&self, _db: &QueryDb<TestContext>) -> Self::Value {
+        fn execute_result(&self, _db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
             unreachable!("externally published queries do not execute their key provider")
         }
     }
@@ -4171,8 +4171,8 @@ mod tests {
             "owned_value_parent"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            db.get_owned(OwnedNonCloneValueQuery(self.0)).value * 2
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Ok(db.get_owned(OwnedNonCloneValueQuery(self.0)).value * 2)
         }
     }
 
@@ -5912,8 +5912,8 @@ mod tests {
             format!("double_twice({})", self.0)
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            *db.get(Double(self.0)) * 2
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Ok(*db.get(Double(self.0)) * 2)
         }
     }
 
@@ -5931,11 +5931,12 @@ mod tests {
             format!("double_many({:?})", self.0)
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            db.get_many(self.0.map(Double))
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Ok(db
+                .get_many(self.0.map(Double))
                 .into_iter()
                 .map(|value| *value)
-                .sum()
+                .sum())
         }
     }
 
@@ -5953,11 +5954,12 @@ mod tests {
             format!("single_double_many({})", self.0)
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            db.get_many([Double(self.0)])
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Ok(db
+                .get_many([Double(self.0)])
                 .into_iter()
                 .map(|value| *value)
-                .sum()
+                .sum())
         }
     }
 
@@ -6007,12 +6009,12 @@ mod tests {
             "panics_once"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
             let previous = db.context().executions.fetch_add(1, Ordering::SeqCst);
             if previous == 0 {
                 panic!("transient query failure");
             }
-            99
+            Ok(99)
         }
     }
 
@@ -6063,8 +6065,8 @@ mod tests {
             "debug_collision_parent"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
-            *db.get(DebugCollisionLeaf(self.0)) * 2
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+            Ok(*db.get(DebugCollisionLeaf(self.0)) * 2)
         }
     }
 
@@ -6084,9 +6086,9 @@ mod tests {
             "debug_collision_leaf"
         }
 
-        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
             db.context().executions.fetch_add(1, Ordering::SeqCst);
-            self.0 * 2
+            Ok(self.0 * 2)
         }
     }
 
@@ -6115,7 +6117,7 @@ mod tests {
             format!("slow_double({})", self.0)
         }
 
-        fn execute(&self, db: &QueryDb<RaceContext>) -> Self::Value {
+        fn execute_result(&self, db: &QueryDb<RaceContext>) -> QueryResult<Self::Value> {
             db.context().executions.fetch_add(1, Ordering::SeqCst);
             if self.0 == 1 {
                 let (lock, ready) = &*db.context().control;
@@ -6126,7 +6128,7 @@ mod tests {
                     state = ready.wait(state).expect("race state lock poisoned");
                 }
             }
-            self.0 * 2
+            Ok(self.0 * 2)
         }
     }
 }
