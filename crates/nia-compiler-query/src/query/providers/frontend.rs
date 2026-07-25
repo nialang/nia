@@ -31,37 +31,43 @@ pub(super) fn provide_semantic_module_ids(db: &QueryDb<CompilerContext>) -> Stab
 pub(super) fn provide_module_item_tree(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ModuleItemTree {
-    db.get(ModuleItemTreeInputQuery(module_id)).as_ref().clone()
+) -> QueryResult<ModuleItemTree> {
+    Ok(db
+        .try_get(ModuleItemTreeInputQuery(module_id))?
+        .as_ref()
+        .clone())
 }
 
 pub(super) fn provide_active_module_item_tree(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ActiveModuleItemTree {
-    let _raw_item_tree = db.get(ModuleItemTreeQuery(module_id));
-    db.get(ActiveModuleItemTreeInputQuery(module_id))
+) -> QueryResult<ActiveModuleItemTree> {
+    let _raw_item_tree = db.try_get(ModuleItemTreeQuery(module_id))?;
+    Ok(db
+        .try_get(ActiveModuleItemTreeInputQuery(module_id))?
         .as_ref()
-        .clone()
+        .clone())
 }
 
 pub(super) fn provide_full_module_item_tree(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ModuleItemTree {
-    db.get(FullModuleItemTreeInputQuery(module_id))
+) -> QueryResult<ModuleItemTree> {
+    Ok(db
+        .try_get(FullModuleItemTreeInputQuery(module_id))?
         .as_ref()
-        .clone()
+        .clone())
 }
 
 pub(super) fn provide_full_active_module_item_tree(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> ActiveModuleItemTree {
-    let _raw_item_tree = db.get(FullModuleItemTreeQuery(module_id));
-    db.get(FullActiveModuleItemTreeInputQuery(module_id))
+) -> QueryResult<ActiveModuleItemTree> {
+    let _raw_item_tree = db.try_get(FullModuleItemTreeQuery(module_id))?;
+    Ok(db
+        .try_get(FullActiveModuleItemTreeInputQuery(module_id))?
         .as_ref()
-        .clone()
+        .clone())
 }
 
 pub(super) fn provide_module_defs(

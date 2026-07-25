@@ -187,14 +187,16 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
-        let path = db.context().sources.path_for_id(self.0).ok_or_else(|| {
-            db.invalid_input_error(self, format!("unknown source id {:?}", self.0))
-        })?;
+        let path = db
+            .context()
+            .sources
+            .path_for_id(self.0)
+            .ok_or_else(|| db.invalid_input(self, format!("unknown source id {:?}", self.0)))?;
         let graph = db.try_get(ModuleGraphQuery)?;
         let id = graph
             .module_id_for_source_identity(&path.identity())
             .ok_or_else(|| {
-                db.invalid_input_error(self, format!("missing module id for `{}`", path.as_str()))
+                db.invalid_input(self, format!("missing module id for `{}`", path.as_str()))
             })?;
         let parsed = db.try_get(parsed_module_query_for_id(db, self.0))?;
         let provider_summary = db.try_get(provider_summary_query_for_id(db, self.0))?;
@@ -423,9 +425,11 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
-        let path = db.context().sources.path_for_id(self.0).ok_or_else(|| {
-            db.invalid_input_error(self, format!("unknown source id {:?}", self.0))
-        })?;
+        let path = db
+            .context()
+            .sources
+            .path_for_id(self.0)
+            .ok_or_else(|| db.invalid_input(self, format!("unknown source id {:?}", self.0)))?;
         Ok(match db.context().sources.read_source(&path) {
             Ok(file) => SourceText {
                 file: Some(file),
@@ -672,13 +676,11 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
             .as_ref()
             .filter(|file| file.version() == self.0)
             .map(|file| file.path.identity())
-            .ok_or_else(|| {
-                db.invalid_input_error(self, format!("missing source for {:?}", self.0))
-            })?;
+            .ok_or_else(|| db.invalid_input(self, format!("missing source for {:?}", self.0)))?;
         let module_id = graph
             .module_id_for_source_identity(&source_identity)
             .ok_or_else(|| {
-                db.invalid_input_error(
+                db.invalid_input(
                     self,
                     format!("source {:?} is outside the module graph", self.0),
                 )

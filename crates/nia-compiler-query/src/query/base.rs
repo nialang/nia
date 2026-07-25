@@ -529,7 +529,7 @@ impl QueryKey<CompilerContext> for ModulePathQuery {
         format!("module_path({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().module_path(db, self.0)
     }
 
@@ -557,7 +557,7 @@ impl QueryKey<CompilerContext> for ModuleSourceVersionQuery {
         format!("module_source_version({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().module_source_version(db, self.0)
     }
 
@@ -585,7 +585,7 @@ impl QueryKey<CompilerContext> for ModuleOriginsQuery {
         format!("module_origins({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().module_origins(db, self.0)
     }
 
@@ -610,7 +610,7 @@ impl QueryKey<CompilerContext> for ModuleParseErrorsQuery {
         format!("module_parse_errors({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().module_parse_errors(db, self.0)
     }
 
@@ -635,7 +635,7 @@ impl QueryKey<CompilerContext> for ModuleItemTreeInputQuery {
         format!("module_item_tree_input({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().module_item_tree(db, self.0)
     }
 
@@ -660,7 +660,7 @@ impl QueryKey<CompilerContext> for DeclarationModuleItemTreeInputQuery {
         format!("declaration_module_item_tree_input({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().declaration_module_item_tree(db, self.0)
     }
 
@@ -685,7 +685,7 @@ impl QueryKey<CompilerContext> for ActiveModuleItemTreeInputQuery {
         format!("active_module_item_tree_input({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().active_module_item_tree(db, self.0)
     }
 
@@ -710,7 +710,7 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeInputQuery {
         format!("declaration_active_module_item_tree_input({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().declaration_active_module_item_tree(db, self.0)
     }
 
@@ -735,7 +735,7 @@ impl QueryKey<CompilerContext> for FullModuleItemTreeInputQuery {
         format!("full_module_item_tree_input({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().full_module_item_tree(db, self.0)
     }
 
@@ -760,7 +760,7 @@ impl QueryKey<CompilerContext> for FullActiveModuleItemTreeInputQuery {
         format!("full_active_module_item_tree_input({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().full_active_module_item_tree(db, self.0)
     }
 
@@ -807,7 +807,7 @@ impl QueryKey<CompilerContext> for ModuleItemTreeQuery {
         format!("module_item_tree({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.module_item_tree)(db, self.0)
     }
 }
@@ -823,7 +823,7 @@ impl QueryKey<CompilerContext> for FullModuleItemTreeQuery {
         format!("full_module_item_tree({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.full_module_item_tree)(db, self.0)
     }
 }
@@ -839,7 +839,7 @@ impl QueryKey<CompilerContext> for ActiveModuleItemTreeQuery {
         format!("active_module_item_tree({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.active_module_item_tree)(db, self.0)
     }
 }
@@ -855,11 +855,12 @@ impl QueryKey<CompilerContext> for DeclarationModuleItemTreeQuery {
         format!("declaration_module_item_tree({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        let _raw_item_tree = db.get(ModuleItemTreeQuery(self.0));
-        db.get(DeclarationModuleItemTreeInputQuery(self.0))
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let _raw_item_tree = db.try_get(ModuleItemTreeQuery(self.0))?;
+        Ok(db
+            .try_get(DeclarationModuleItemTreeInputQuery(self.0))?
             .as_ref()
-            .clone()
+            .clone())
     }
 }
 
@@ -874,11 +875,12 @@ impl QueryKey<CompilerContext> for DeclarationActiveModuleItemTreeQuery {
         format!("declaration_active_module_item_tree({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        let _raw_item_tree = db.get(DeclarationModuleItemTreeQuery(self.0));
-        db.get(DeclarationActiveModuleItemTreeInputQuery(self.0))
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let _raw_item_tree = db.try_get(DeclarationModuleItemTreeQuery(self.0))?;
+        Ok(db
+            .try_get(DeclarationActiveModuleItemTreeInputQuery(self.0))?
             .as_ref()
-            .clone()
+            .clone())
     }
 }
 
@@ -893,7 +895,7 @@ impl QueryKey<CompilerContext> for FullActiveModuleItemTreeQuery {
         format!("full_active_module_item_tree({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.full_active_module_item_tree)(db, self.0)
     }
 }
@@ -943,13 +945,11 @@ impl QueryKey<CompilerContext> for PublicSurfaceModuleFactsQuery {
         format!("public_surface_module_facts({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context()
             .loader_facts()
             .module_public_surface_facts(self.0)
-            .unwrap_or_else(|| {
-                db.invalid_input(self, format!("missing loaded module {:?}", self.0))
-            })
+            .ok_or_else(|| db.invalid_input(self, format!("missing loaded module {:?}", self.0)))
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {

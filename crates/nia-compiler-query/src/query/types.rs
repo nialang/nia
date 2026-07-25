@@ -126,7 +126,7 @@ impl QueryKey<CompilerContext> for SignatureItemTreeQuery {
         format!("signature_item_tree({:?}, {:?})", self.0, self.1)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().signature_item_tree(db, self.0, self.1)
     }
 
@@ -239,7 +239,7 @@ impl QueryKey<CompilerContext> for SignatureConstItemTreeQuery {
         format!("signature_const_item_tree({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         db.context().signature_const_item_tree(db, self.0)
     }
 

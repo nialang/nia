@@ -32,7 +32,7 @@ impl nia_program_signatures::ProgramDefsResolver for SharedProgramDefsResolver<'
 pub(super) fn provide_extension_provider_summary(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> nia_provider_summary::ProviderSummary {
+) -> QueryResult<nia_provider_summary::ProviderSummary> {
     db.context().module_provider_summary(db, module_id)
 }
 
