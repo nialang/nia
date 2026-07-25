@@ -88,8 +88,8 @@ impl QueryKey<CompilerContext> for ModuleGraphQuery {
         "module_graph"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().loader_facts().module_graph()
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db.context().loader_facts().module_graph())
     }
 }
 
@@ -105,12 +105,12 @@ impl QueryKey<CompilerContext> for ModuleGraphEntryQuery {
         "module_graph_entry"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        let graph = db.get(ModuleGraphQuery);
-        graph
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let graph = db.try_get(ModuleGraphQuery)?;
+        Ok(graph
             .stable_key(graph.entry())
             .cloned()
-            .expect("compiler entry must have a stable module key")
+            .expect("compiler entry must have a stable module key"))
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -137,10 +137,11 @@ impl QueryKey<CompilerContext> for ModuleGraphPathQuery {
         format!("module_graph_path({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.get(ModuleGraphQuery)
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db
+            .try_get(ModuleGraphQuery)?
             .get(self.0)
-            .map(|module| module.module_path.clone())
+            .map(|module| module.module_path.clone()))
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -164,10 +165,12 @@ impl QueryKey<CompilerContext> for ModuleGraphParentQuery {
         format!("module_graph_parent({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        let graph = db.get(ModuleGraphQuery);
-        let parent = graph.get(self.0)?.parent?;
-        graph.stable_key(parent).cloned()
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let graph = db.try_get(ModuleGraphQuery)?;
+        let Some(parent) = graph.get(self.0).and_then(|module| module.parent) else {
+            return Ok(None);
+        };
+        Ok(graph.stable_key(parent).cloned())
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -194,15 +197,24 @@ impl QueryKey<CompilerContext> for ModuleGraphChildQuery {
         format!("module_graph_child({:?}, {:?})", self.0, self.1)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        let graph = db.get(ModuleGraphQuery);
-        let module = graph.get(self.0)?;
-        let target = module.children.get(&self.1).copied()?;
-        let declaration = module
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let graph = db.try_get(ModuleGraphQuery)?;
+        let Some(module) = graph.get(self.0) else {
+            return Ok(None);
+        };
+        let Some(target) = module.children.get(&self.1).copied() else {
+            return Ok(None);
+        };
+        let Some(declaration) = module
             .declarations
             .iter()
-            .find(|declaration| declaration.name == self.1 && declaration.target == target)?;
-        Some((graph.stable_key(target)?.clone(), declaration.visibility))
+            .find(|declaration| declaration.name == self.1 && declaration.target == target)
+        else {
+            return Ok(None);
+        };
+        Ok(graph
+            .stable_key(target)
+            .map(|key| (key.clone(), declaration.visibility)))
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -226,10 +238,11 @@ impl QueryKey<CompilerContext> for ModulePackageRootQuery {
         format!("module_package_root({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        let graph = db.get(ModuleGraphQuery);
-        let root = graph.package_root(&self.0)?;
-        graph.stable_key(root).cloned()
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let graph = db.try_get(ModuleGraphQuery)?;
+        Ok(graph
+            .package_root(&self.0)
+            .and_then(|root| graph.stable_key(root).cloned()))
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -252,12 +265,12 @@ impl QueryKey<CompilerContext> for LoadedModulesQuery {
         "loaded_modules"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        StableModuleSequence::from_source_identities(
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(StableModuleSequence::from_source_identities(
             db.context()
                 .loader_facts()
                 .loaded_module_source_identities(),
-        )
+        ))
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -278,8 +291,8 @@ impl QueryKey<CompilerContext> for ProgramLoadDiagnosticsQuery {
         "program_load_diagnostics"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().loader_facts().load_diagnostics()
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db.context().loader_facts().load_diagnostics())
     }
 }
 
@@ -293,8 +306,8 @@ impl QueryKey<CompilerContext> for CompilerTargetQuery {
         "compiler_target"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().loader_facts().target()
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db.context().loader_facts().target())
     }
 }
 
@@ -308,8 +321,8 @@ impl QueryKey<CompilerContext> for CompilerRuntimeQuery {
         "compiler_runtime"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().loader_facts().runtime()
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db.context().loader_facts().runtime())
     }
 }
 
@@ -325,8 +338,8 @@ impl QueryKey<CompilerContext> for ProviderFactRevisionQuery {
         "provider_fact_revision"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.get(ProviderFactWorklistQuery).revision()
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db.try_get(ProviderFactWorklistQuery)?.revision())
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -346,8 +359,8 @@ impl QueryKey<CompilerContext> for ProviderFactWorklistQuery {
         "provider_fact_worklist"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().provider_fact_worklist()
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db.context().provider_fact_worklist())
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
@@ -367,8 +380,8 @@ impl QueryKey<CompilerContext> for BodyActivationWorklistQuery {
         "body_activation_worklist"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        let graph = db.get(ModuleGraphQuery);
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let graph = db.try_get(ModuleGraphQuery)?;
         let modules = graph
             .modules()
             .filter(|module| module.process_used_paths)
@@ -382,9 +395,9 @@ impl QueryKey<CompilerContext> for BodyActivationWorklistQuery {
                 (stable_key.clone(), module.id)
             })
             .collect();
-        BodyActivationWorklist {
+        Ok(BodyActivationWorklist {
             modules: Arc::new(modules),
-        }
+        })
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
@@ -404,24 +417,24 @@ impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
         "executable_fact_epoch"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        let graph = db.get(ModuleGraphQuery);
-        let modules = graph
-            .modules()
-            .map(|module| (module.id, *db.get(ModuleSourceVersionQuery(module.id))))
-            .collect();
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let graph = db.try_get(ModuleGraphQuery)?;
+        let mut modules = Vec::new();
+        for module in graph.modules() {
+            modules.push((module.id, *db.try_get(ModuleSourceVersionQuery(module.id))?));
+        }
         let runtime_root_modules = graph
             .modules()
             .filter(|module| graph.is_executable_root_module(module.id))
             .map(|module| module.id)
             .collect();
-        ExecutableFactEpoch {
+        Ok(ExecutableFactEpoch {
             entry_module: graph.entry(),
             runtime_root_modules,
             modules,
-            target: db.get(CompilerTargetQuery).as_ref().clone(),
-            runtime: *db.get(CompilerRuntimeQuery),
-        }
+            target: db.try_get(CompilerTargetQuery)?.as_ref().clone(),
+            runtime: *db.try_get(CompilerRuntimeQuery)?,
+        })
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
@@ -439,14 +452,14 @@ impl QueryKey<CompilerContext> for ExecutableRootModulesQuery {
         "executable_root_modules"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        let graph = db.get(ModuleGraphQuery);
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let graph = db.try_get(ModuleGraphQuery)?;
         let runtime_root_modules = graph
             .modules()
             .filter(|module| graph.is_executable_root_module(module.id))
             .map(|module| module.id)
             .collect();
-        (graph.entry(), runtime_root_modules)
+        Ok((graph.entry(), runtime_root_modules))
     }
 }
 
@@ -460,8 +473,8 @@ impl QueryKey<CompilerContext> for CompilerOptimizationQuery {
         "compiler_optimization"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
-        db.context().optimization()
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db.context().optimization())
     }
 }
 
