@@ -273,7 +273,7 @@ fn filtered_const_global_initializer_for_body_check(
         "executable_body_check.const_eval.global_initializer.const_expr_value_resolution",
         global_id.module_id,
         || {
-            let visible_extensions = || db.get(VisibleExtensionsQuery(global_id.module_id));
+            let visible_extensions = || Ok(db.get(VisibleExtensionsQuery(global_id.module_id)));
             let associated_values =
                 LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
             nia_value_resolve::resolve_module_values_from_exprs_with_associated_values_and_symbols_in_store(
@@ -371,12 +371,12 @@ fn filtered_const_global_initializer_for_body_check(
         global_id.module_id,
         || {
             let visible_extensions = || {
-                time_module_provider(
+                Ok(time_module_provider(
                     db,
                     "executable_body_check.const_eval.global_initializer.visible_extensions",
                     global_id.module_id,
                     || db.get(VisibleExtensionsQuery(global_id.module_id)),
-                )
+                ))
             };
             let associated_values =
                 LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
@@ -2171,7 +2171,7 @@ pub(in crate::query) fn provide_executable_value_ref_edges(
             let graph = QueryModuleGraphLookup::new(db);
             let public_surfaces = QueryPublicSurfaceLookup::new(db);
             let using_scope = QueryUsingScopeLookup::new(db, owner.module_id);
-            let visible_extensions = || db.get(VisibleExtensionsQuery(owner.module_id));
+            let visible_extensions = || Ok(db.get(VisibleExtensionsQuery(owner.module_id)));
             let associated_values =
                 LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
             let symbols = db.context().symbols();

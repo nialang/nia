@@ -136,7 +136,7 @@ fn shared_public_surface_defs_by_module(
         .collect()
 }
 
-fn capture_query_failure<T>(
+pub(super) fn capture_query_failure<T>(
     failure: &RefCell<Option<QueryError>>,
     result: QueryResult<T>,
 ) -> Option<T> {

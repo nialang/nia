@@ -11,7 +11,7 @@ impl QueryKey<CompilerContext> for ValueResolutionQuery {
         "value_resolution"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.value_resolution)(db, self.0)
     }
 }
@@ -26,7 +26,7 @@ impl QueryKey<CompilerContext> for LocalResolutionQuery {
         "local_resolution"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.local_resolution)(db, self.0)
     }
 }
@@ -41,7 +41,7 @@ impl QueryKey<CompilerContext> for SemanticUseTableQuery {
         "semantic_use_table"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.semantic_use_table)(db, self.0)
     }
 }

@@ -190,12 +190,12 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                 || db.get(ModuleUsingScopeQuery(module_id)),
             );
             let visible_extensions = || {
-                time_module_provider(
+                Ok(time_module_provider(
                     db,
                     "executable_body_check.visible_extensions",
                     module_id,
                     || db.get(VisibleExtensionsQuery(module_id)),
-                )
+                ))
             };
             let associated_values =
                 LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);

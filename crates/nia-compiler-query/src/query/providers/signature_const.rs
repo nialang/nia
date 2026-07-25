@@ -252,7 +252,7 @@ fn signature_const_value_resolution(
     let defs = db.get(ModuleDefsQuery(module_id));
     let public_surfaces = db.get(PublicSurfacesQuery);
     let using_scope = db.get(ModuleUsingScopeQuery(module_id));
-    let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
+    let visible_extensions = || Ok(db.get(VisibleExtensionsQuery(module_id)));
     let associated_values =
         LazyAssociatedValueResolver::new(&db.context().type_store, &visible_extensions);
     let program_defs = |module_id| Some(db.get(ModuleDefsQuery(module_id)));
