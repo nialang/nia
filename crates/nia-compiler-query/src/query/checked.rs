@@ -17,7 +17,7 @@ impl QueryKey<CompilerContext> for CheckedModuleQuery {
         "checked_module"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.checked_module)(db, self.0)
     }
 }

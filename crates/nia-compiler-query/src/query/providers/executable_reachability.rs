@@ -1227,7 +1227,7 @@ fn final_executable_checked_modules(
                 let flow_check = executable_flow_check(db, module_id, &checked_functions);
                 let mut module = executable_checked_module_with_body_and_flow_check(
                     db, module_id, body_check, flow_check, layouts,
-                );
+                )?;
                 Arc::make_mut(&mut module.provider_demands).extend(provider_demands);
                 Ok((module_id, module))
             },

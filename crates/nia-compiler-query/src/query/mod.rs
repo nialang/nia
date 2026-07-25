@@ -4480,6 +4480,10 @@ fn main() i32 {
                 .expect_err("body checking should propagate a missing module input"),
             database
                 .db
+                .try_get(CheckedModuleQuery(missing_module))
+                .expect_err("checked modules should propagate a missing module input"),
+            database
+                .db
                 .try_get(FlowCheckQuery(missing_module))
                 .expect_err("flow checking should propagate a missing module input"),
             database
