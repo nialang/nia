@@ -908,7 +908,7 @@ fn executable_check_in_session(
                     .and_then(|array_lengths| array_lengths.values.get(&id).copied())
             })
     };
-    codegen_modules = time_provider(
+    let codegen_modules = time_provider(
         db.context().timings(),
         "executable_checked_modules.final.filter_codegen",
         || {
@@ -933,9 +933,16 @@ fn executable_check_in_session(
                         Some(&executable_program_array_lengths),
                     )
                 })
-                .collect::<Vec<_>>()
+                .collect::<QueryResult<Vec<_>>>()
         },
     );
+    let mut codegen_modules = match codegen_modules {
+        Ok(modules) => modules,
+        Err(error) => {
+            drop(executable_program_layouts);
+            return_session_error!(error)
+        }
+    };
     if let Some(error) = codegen_layout_failure.borrow_mut().take() {
         drop(executable_program_layouts);
         return_session_error!(error);
@@ -1242,7 +1249,7 @@ fn final_executable_checked_modules(
                         )
                     })?;
                 let checked_functions = body_check.body_check.checked_functions.clone();
-                let flow_check = executable_flow_check(db, module_id, &checked_functions);
+                let flow_check = executable_flow_check(db, module_id, &checked_functions)?;
                 let mut module = executable_checked_module_with_body_and_flow_check(
                     db, module_id, body_check, flow_check, layouts,
                 )?;
