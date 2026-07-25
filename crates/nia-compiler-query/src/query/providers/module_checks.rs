@@ -50,36 +50,38 @@ pub(super) fn provide_signature_layouts(
 pub(super) fn provide_abi_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> nia_abi_check::AbiCheck {
-    let defs = db.get(FullModuleDefsQuery(module_id));
-    let function_signatures = db.get(SignatureItemSignaturesQuery(
+) -> QueryResult<nia_abi_check::AbiCheck> {
+    let defs = db.try_get(FullModuleDefsQuery(module_id))?;
+    let function_signatures = db.try_get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Functions,
-    ));
-    let type_signatures = db.get(SignatureItemSignaturesQuery(
+    ))?;
+    let type_signatures = db.try_get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Types,
-    ));
-    let value_signatures = db.get(SignatureItemSignaturesQuery(
+    ))?;
+    let value_signatures = db.try_get(SignatureItemSignaturesQuery(
         module_id,
         nia_item_tree::SignatureItemSet::Values,
-    ));
-    let program = db.get(ProgramAbiSignaturesQuery);
-    nia_abi_check::check_module_abi_families_with_program_signatures(
-        &defs,
-        db.context().type_store(),
-        nia_abi_check::ModuleAbiSignatures {
-            functions: &function_signatures.functions,
-            structs: &type_signatures.structs,
-            unions: &type_signatures.unions,
-            enums: &type_signatures.enums,
-            globals: &value_signatures.globals,
-        },
-        nia_abi_check::ProgramAbiSignatures {
-            structs: &program.structs,
-            unions: &program.unions,
-            enums: &program.enums,
-        },
+    ))?;
+    let program = db.try_get(ProgramAbiSignaturesQuery)?;
+    Ok(
+        nia_abi_check::check_module_abi_families_with_program_signatures(
+            &defs,
+            db.context().type_store(),
+            nia_abi_check::ModuleAbiSignatures {
+                functions: &function_signatures.functions,
+                structs: &type_signatures.structs,
+                unions: &type_signatures.unions,
+                enums: &type_signatures.enums,
+                globals: &value_signatures.globals,
+            },
+            nia_abi_check::ProgramAbiSignatures {
+                structs: &program.structs,
+                unions: &program.unions,
+                enums: &program.enums,
+            },
+        ),
     )
 }
 

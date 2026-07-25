@@ -280,17 +280,23 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<TypeNormalization>,
     pub(super) signature_const_module:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ConstModuleLowering,
-    pub(super) program_signature_module_ids:
-        fn(&QueryDb<CompilerContext>, nia_item_tree::SignatureItemSet) -> StableModuleSequence,
-    pub(super) program_signature_module_eligibility:
-        fn(&QueryDb<CompilerContext>, ModuleId, nia_item_tree::SignatureItemSet) -> bool,
+    pub(super) program_signature_module_ids: fn(
+        &QueryDb<CompilerContext>,
+        nia_item_tree::SignatureItemSet,
+    ) -> QueryResult<StableModuleSequence>,
+    pub(super) program_signature_module_eligibility: fn(
+        &QueryDb<CompilerContext>,
+        ModuleId,
+        nia_item_tree::SignatureItemSet,
+    ) -> QueryResult<bool>,
     pub(super) module_program_signature_facts: fn(
         &QueryDb<CompilerContext>,
         ModuleId,
         nia_item_tree::SignatureItemSet,
-    ) -> ModuleProgramSignatureFactsValue,
+    )
+        -> QueryResult<ModuleProgramSignatureFactsValue>,
     pub(super) module_abi_signature_facts:
-        fn(&QueryDb<CompilerContext>, ModuleId) -> ModuleAbiSignatureFactsValue,
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleAbiSignatureFactsValue>,
     pub(super) extension_provider_summary: fn(
         &QueryDb<CompilerContext>,
         ModuleId,
@@ -308,7 +314,8 @@ pub(super) struct CompilerQueryProviders {
     pub(super) extension_trait_impls_for_trait:
         fn(&QueryDb<CompilerContext>, nia_ty::TraitId) -> ExtensionTraitImplsForTraitValue,
     pub(super) program_trait_method_index: fn(&QueryDb<CompilerContext>) -> ProgramTraitMethodIndex,
-    pub(super) program_abi_signatures: fn(&QueryDb<CompilerContext>) -> ProgramAbiSignaturesValue,
+    pub(super) program_abi_signatures:
+        fn(&QueryDb<CompilerContext>) -> QueryResult<ProgramAbiSignaturesValue>,
     pub(super) extension_provider_module_facts:
         fn(&QueryDb<CompilerContext>, ModuleId) -> ExtensionProviderModuleFactsValue,
     pub(super) extension_provider_validation_facts:
@@ -356,7 +363,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> nia_const_check::ConstTypedFacts,
     pub(super) layouts: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_layout::Layouts,
     pub(super) signature_layouts: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_layout::Layouts,
-    pub(super) abi_check: fn(&QueryDb<CompilerContext>, ModuleId) -> nia_abi_check::AbiCheck,
+    pub(super) abi_check:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_abi_check::AbiCheck>,
     pub(super) static_check:
         fn(&QueryDb<CompilerContext>, ModuleId) -> nia_static_check::StaticCheck,
     pub(super) flow_check:

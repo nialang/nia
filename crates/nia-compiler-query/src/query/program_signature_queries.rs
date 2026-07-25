@@ -17,7 +17,7 @@ impl QueryKey<CompilerContext> for ProgramSignatureModuleIdsQuery {
         format!("program_signature_module_ids({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.program_signature_module_ids)(db, self.0)
     }
 
@@ -51,7 +51,7 @@ impl QueryKey<CompilerContext> for ProgramSignatureModuleEligibilityQuery {
         )
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.program_signature_module_eligibility)(db, self.0, self.1)
     }
 
@@ -80,7 +80,7 @@ impl QueryKey<CompilerContext> for ModuleProgramSignatureFactsQuery {
         format!("module_program_signature_facts({:?}, {:?})", self.0, self.1)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.module_program_signature_facts)(db, self.0, self.1)
     }
 }
@@ -106,7 +106,7 @@ impl QueryKey<CompilerContext> for ModuleAbiSignatureFactsQuery {
         format!("module_abi_signature_facts({:?})", self.0)
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.module_abi_signature_facts)(db, self.0)
     }
 }
@@ -182,7 +182,7 @@ impl QueryKey<CompilerContext> for ProgramAbiSignaturesQuery {
         "program_abi_signatures"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.program_abi_signatures)(db)
     }
 }
