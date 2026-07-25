@@ -4439,6 +4439,14 @@ fn main() i32 {
                 .db
                 .try_get(FlowCheckQuery(missing_module))
                 .expect_err("flow checking should propagate a missing module input"),
+            database
+                .db
+                .try_get(ModuleAbiSignatureFactsQuery(missing_module))
+                .expect_err("ABI signature facts should propagate a missing module input"),
+            database
+                .db
+                .try_get(AbiCheckQuery(missing_module))
+                .expect_err("ABI checking should propagate a missing module input"),
         ] {
             assert!(matches!(error, QueryError::InvalidInput { .. }));
             assert!(

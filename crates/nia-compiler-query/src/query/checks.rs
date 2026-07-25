@@ -135,7 +135,7 @@ impl QueryKey<CompilerContext> for AbiCheckQuery {
         "abi_check"
     }
 
-    fn execute(&self, db: &QueryDb<CompilerContext>) -> Self::Value {
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.abi_check)(db, self.0)
     }
 }
